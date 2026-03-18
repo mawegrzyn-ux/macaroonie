@@ -7,7 +7,7 @@ module.exports = {
       exec_mode:    'cluster',
       watch:        false,
       max_memory_restart: '512M',
-      env_file:     './api/.env',
+      env: { NODE_ENV: 'production', PORT: 3000 },
       error_file:   './logs/api-error.log',
       out_file:     './logs/api-out.log',
       merge_logs:   true,

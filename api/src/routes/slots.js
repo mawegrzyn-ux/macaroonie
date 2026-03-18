@@ -24,13 +24,16 @@ export default async function slotsRoutes(app) {
     const { venueId } = req.params
 
     // Resolve tenant from venue slug or direct venueId.
-    // Widget calls pass venue slug via query; admin calls use UUID directly.
-    // Here we accept UUID and resolve tenant so we can set RLS context.
+    // Widget calls pass venue slug; admin calls use UUID directly.
+    // Guard UUID comparison in JS first — passing a slug to v.id = $1
+    // would throw a PG cast error (22P02) before the OR branch is tried.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const isUuid = UUID_RE.test(venueId)
+
     const [venue] = await sql`
       SELECT v.id, v.tenant_id, v.is_active, v.timezone
         FROM venues v
-       WHERE v.id = ${venueId}
-          OR v.slug = ${venueId}
+       WHERE ${isUuid ? sql`v.id = ${venueId}::uuid` : sql`v.slug = ${venueId}`}
        LIMIT 1
     `
     if (!venue) throw httpError(404, 'Venue not found')
