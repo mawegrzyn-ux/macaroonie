@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"cd /d C:\\\\GitHubReps\\\\Macaroonie && git status\")"
+    ]
+  }
+}

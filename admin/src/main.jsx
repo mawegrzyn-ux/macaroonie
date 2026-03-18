@@ -13,6 +13,7 @@ import Venues      from '@/pages/Venues'
 import Tables      from '@/pages/Tables'
 import Schedule    from '@/pages/Schedule'
 import Rules       from '@/pages/Rules'
+import WidgetTest  from '@/pages/WidgetTest'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -64,8 +65,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="venues"   element={<Venues />} />
                 <Route path="tables"   element={<Tables />} />
                 <Route path="schedule" element={<Schedule />} />
-                <Route path="rules"    element={<Rules />} />
-                <Route path="team"     element={<Placeholder title="Team management" />} />
+                <Route path="rules"       element={<Rules />} />
+                <Route path="widget-test" element={<WidgetTest />} />
+                <Route path="team"        element={<Placeholder title="Team management" />} />
               </Route>
             </Routes>
           </RequireAuth>

@@ -38,13 +38,11 @@ export async function buildApp() {
   })
 
   // ── JWT (used by auth middleware to verify Auth0 tokens) ─
+  // Auth0 JWT verification is handled in auth.js via jwks-rsa JWKS.
+  // @fastify/jwt is registered here only to attach req.jwtVerify() to the
+  // Fastify instance; the actual secret is never used for validation.
   await app.register(jwt, {
-    secret: {
-      // Verification is done via JWKS in auth.js middleware,
-      // this just initialises the plugin for req.server.jwt.verify()
-      public: { key: '', format: 'jwk' },
-    },
-    verify: { algorithms: ['RS256'] },
+    secret: 'placeholder-not-used-auth0-middleware-handles-verification',
   })
 
   // ── Routes ───────────────────────────────────────────────

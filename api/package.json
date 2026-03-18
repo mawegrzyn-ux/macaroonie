@@ -19,6 +19,7 @@
     "pino": "^8.19.0",
     "postgres": "^3.4.3",
     "stripe": "^14.21.0",
+    "ws": "^8.17.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {

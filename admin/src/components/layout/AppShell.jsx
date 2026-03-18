@@ -4,7 +4,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import {
   LayoutDashboard, CalendarDays, BookOpen,
   Building2, Table2, Clock, Settings, Users,
-  ChevronRight, LogOut, Utensils
+  ChevronRight, LogOut, Utensils, LayoutTemplate
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -16,9 +16,10 @@ const NAV = [
   { label: 'Venues',     to: '/venues',     icon: Building2 },
   { label: 'Tables',     to: '/tables',     icon: Table2 },
   { label: 'Schedule',   to: '/schedule',   icon: Clock },
-  { label: 'Rules',      to: '/rules',      icon: Settings },
+  { label: 'Rules',       to: '/rules',        icon: Settings },
+  { label: 'Widget test', to: '/widget-test',  icon: LayoutTemplate },
   null,
-  { label: 'Team',       to: '/team',       icon: Users },
+  { label: 'Team',        to: '/team',         icon: Users },
 ]
 
 function NavItem({ item }) {
