@@ -134,21 +134,16 @@ log "Database ready — URL saved to ${APP_DIR}/api/.env"
 # ═══════════════════════════════════════════════════════════
 # 7. App directory — owned by ubuntu, no second user
 # ═══════════════════════════════════════════════════════════
-info "Creating app directory…"
-mkdir -p "${APP_DIR}"/{logs}
-chown -R ubuntu:ubuntu "${APP_DIR}"
-log "App directory: ${APP_DIR}"
-
-# ═══════════════════════════════════════════════════════════
-# 8. Clone repo
-# ═══════════════════════════════════════════════════════════
 info "Cloning repo…"
 if [ ! -d "${APP_DIR}/.git" ]; then
+  rm -rf "${APP_DIR}"
   sudo -u ubuntu git clone https://github.com/mawegrzyn-ux/Macaroonie.git "${APP_DIR}"
 else
   sudo -u ubuntu git -C "${APP_DIR}" pull origin main
 fi
-log "Repo cloned to ${APP_DIR}"
+mkdir -p "${APP_DIR}/logs"
+chown -R ubuntu:ubuntu "${APP_DIR}"
+log "App directory ready: ${APP_DIR}"
 
 # ═══════════════════════════════════════════════════════════
 # 9. .env file
