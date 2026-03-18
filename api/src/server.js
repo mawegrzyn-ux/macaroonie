@@ -1,15 +1,6 @@
 // src/server.js  (replace existing)
 // Adds: WS server attachment after HTTP listen.
 
-// Load .env before anything else — works in both PM2 cluster and direct node.
-// process.loadEnvFile() is Node 22 built-in (no dotenv dependency needed).
-import { existsSync } from 'fs'
-import { resolve, dirname } from 'path'
-import { fileURLToPath } from 'url'
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const envPath   = resolve(__dirname, '../../.env')
-if (existsSync(envPath)) process.loadEnvFile(envPath)
-
 import { buildApp }                          from './app.js'
 import { sql }                               from './config/db.js'
 import { env }                               from './config/env.js'

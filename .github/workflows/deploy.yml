@@ -22,20 +22,19 @@ jobs:
             APP=/home/booking/app
 
             echo "── pulling latest code ──────────────────"
-            sudo -u booking git -C $APP pull origin main
-            sudo chown -R booking:booking $APP
+            git -C $APP pull origin main
 
             echo "── api: install production deps ─────────"
-            sudo -u booking bash -c "cd $APP/api && npm install --production --silent"
+            cd $APP/api && npm install --production --silent
 
             echo "── admin: install + build ───────────────"
-            sudo -u booking bash -c "cd $APP/admin && npm install --silent && npm run build"
+            cd $APP/admin && npm install --silent && npm run build
 
             echo "── restart api ──────────────────────────"
-            sudo -u booking bash -c "pm2 restart macaroonie-api && pm2 save"
+            pm2 restart macaroonie-api && pm2 save
 
             echo "── health check ─────────────────────────"
             sleep 3
             curl -sf http://localhost:3000/api/health \
               && echo "✓ API healthy" \
-              || (echo "✗ health check failed"; sudo -u booking pm2 logs macaroonie-api --lines 30 --nostream; exit 1)
+              || (echo "✗ health check failed"; pm2 logs macaroonie-api --lines 30 --nostream; exit 1)
