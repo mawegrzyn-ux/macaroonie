@@ -244,6 +244,8 @@ log "PM2 started and configured for reboot"
 # 14. Nginx config
 # ═══════════════════════════════════════════════════════════
 info "Writing Nginx config…"
+# Write HTTP-only config first. certbot --nginx will upgrade it to HTTPS
+# automatically and create options-ssl-nginx.conf itself.
 cat > /etc/nginx/sites-available/macaroonie <<NGINX
 limit_req_zone \$binary_remote_addr zone=api_limit:10m    rate=30r/s;
 limit_req_zone \$binary_remote_addr zone=widget_limit:10m rate=10r/s;
@@ -257,22 +259,11 @@ server {
   listen 80;
   server_name ${DOMAIN};
 
-  location /.well-known/acme-challenge/ { root /var/www/html; }
-  return 301 https://\$host\$request_uri;
-}
-
-server {
-  listen 443 ssl http2;
-  server_name ${DOMAIN};
-
-  ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-  include /etc/letsencrypt/options-ssl-nginx.conf;
-  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-
   add_header X-Frame-Options "SAMEORIGIN" always;
   add_header X-Content-Type-Options "nosniff" always;
   add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+  location /.well-known/acme-challenge/ { root /var/www/html; }
 
   location / {
     root ${APP_DIR}/admin/dist;
@@ -323,71 +314,22 @@ NGINX
 
 ln -sf /etc/nginx/sites-available/macaroonie /etc/nginx/sites-enabled/macaroonie
 rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
+log "Nginx configured (HTTP)"
 
 # ═══════════════════════════════════════════════════════════
-# 15. SSL — certbot
+# 15. SSL — certbot upgrades the nginx config to HTTPS
 # ═══════════════════════════════════════════════════════════
 info "Installing SSL certificate…"
 snap install --classic certbot 2>/dev/null || true
 ln -sf /snap/bin/certbot /usr/bin/certbot 2>/dev/null || true
 
 if [[ -n "$ADMIN_EMAIL" ]]; then
-  # Temporarily serve HTTP for the ACME challenge before enabling HTTPS config
-  cat > /etc/nginx/sites-available/macaroonie-temp <<TMPNGINX
-server {
-  listen 80;
-  server_name ${DOMAIN};
-  location /.well-known/acme-challenge/ { root /var/www/html; }
-  location / { proxy_pass http://booking_api; }
-}
-TMPNGINX
-  ln -sf /etc/nginx/sites-available/macaroonie-temp /etc/nginx/sites-enabled/macaroonie
-  nginx -t && systemctl reload nginx
-  certbot certonly --webroot -w /var/www/html -d "$DOMAIN" \
-    --email "$ADMIN_EMAIL" --agree-tos --non-interactive
-  # Now switch to full HTTPS config
-  ln -sf /etc/nginx/sites-available/macaroonie /etc/nginx/sites-enabled/macaroonie
-  rm -f /etc/nginx/sites-available/macaroonie-temp
-  nginx -t && systemctl reload nginx
-  log "SSL certificate installed"
+  certbot --nginx -d "$DOMAIN" \
+    --email "$ADMIN_EMAIL" --agree-tos --non-interactive --redirect
+  systemctl reload nginx
+  log "SSL certificate installed — HTTPS active"
 else
-  # No email — serve HTTP only until you run certbot manually
-  cat > /etc/nginx/sites-available/macaroonie-http <<HTTPNGINX
-limit_req_zone \$binary_remote_addr zone=api_limit:10m rate=30r/s;
-upstream booking_api { server 127.0.0.1:3000; keepalive 32; }
-server {
-  listen 80;
-  server_name ${DOMAIN};
-  location /.well-known/acme-challenge/ { root /var/www/html; }
-  location / {
-    root ${APP_DIR}/admin/dist;
-    try_files \$uri \$uri/ /index.html;
-  }
-  location /api/ {
-    limit_req zone=api_limit burst=50 nodelay;
-    proxy_pass http://booking_api;
-    proxy_http_version 1.1;
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-  }
-  location /ws {
-    proxy_pass http://booking_api;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection "Upgrade";
-    proxy_read_timeout 3600s;
-  }
-  location /webhooks/ {
-    proxy_pass http://booking_api;
-    proxy_http_version 1.1;
-    proxy_set_header Host \$host;
-    proxy_read_timeout 30s;
-  }
-}
-HTTPNGINX
-  ln -sf /etc/nginx/sites-available/macaroonie-http /etc/nginx/sites-enabled/macaroonie
-  nginx -t && systemctl reload nginx
   warn "ADMIN_EMAIL not set — running HTTP only. To add SSL later:"
   warn "  certbot --nginx -d ${DOMAIN} --email you@example.com --agree-tos"
 fi
