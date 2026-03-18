@@ -12,6 +12,7 @@ import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { notificationQueue } from '../jobs/queues.js'
+import { broadcastBooking } from '../services/broadcastSvc.js'
 import { env } from '../config/env.js'
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: '2024-04-10' })
@@ -195,6 +196,7 @@ async function handlePaymentSucceeded(pi, log) {
     `
 
     await tx`DELETE FROM booking_holds WHERE id = ${hold_id}`
+    broadcastBooking('booking.created', booking)
 
     // Enqueue confirmation email + reminders
     await notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: tenant_id, type: 'confirmation' })

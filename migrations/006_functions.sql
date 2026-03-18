@@ -14,7 +14,7 @@ END;
 $$;
 
 -- Schedule via pg_cron (run once after extension is confirmed active)
--- SELECT cron.schedule('sweep-holds', '* * * * *', 'SELECT sweep_expired_holds()');
+SELECT cron.schedule('sweep-holds', '* * * * *', 'SELECT sweep_expired_holds()');
 
 -- ── Slot resolver ─────────────────────────────────────────────
 -- Returns available slots for a venue + date + covers.

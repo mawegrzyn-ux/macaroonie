@@ -36,26 +36,68 @@ export default async function slotsRoutes(app) {
     if (!venue) throw httpError(404, 'Venue not found')
     if (!venue.is_active) throw httpError(404, 'Venue not found')
 
-    const slots = await withTenant(venue.tenant_id, tx => tx`
-      SELECT
-        slot_time,
-        available,
-        available_covers,
-        reason
-      FROM get_available_slots(
-        ${venue.id}::uuid,
-        ${date}::date,
-        ${covers}::int
-      )
-      ORDER BY slot_time
-    `)
+    const slots = await withTenant(venue.tenant_id, async tx => {
+      const [rules] = await tx`
+        SELECT slot_duration_mins, buffer_after_mins
+          FROM booking_rules
+         WHERE venue_id = ${venue.id}
+      `
+      const slotMins   = rules?.slot_duration_mins ?? 90
+      const bufferMins = rules?.buffer_after_mins  ?? 0
+      const windowMins = slotMins + bufferMins
+
+      return tx`
+        SELECT
+          s.slot_time,
+          s.available,
+          s.available_covers,
+          s.reason,
+          (
+            SELECT t.id
+              FROM tables t
+             WHERE t.venue_id  = ${venue.id}
+               AND t.tenant_id = ${venue.tenant_id}
+               AND t.is_active = true
+               AND t.max_covers >= ${covers}
+               AND t.min_covers <= ${covers}
+               AND NOT EXISTS (
+                 SELECT 1 FROM bookings b
+                  WHERE b.table_id  = t.id
+                    AND b.status NOT IN ('cancelled')
+                    AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                    AND b.ends_at   > s.slot_time
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM booking_holds h
+                  WHERE h.table_id  = t.id
+                    AND h.expires_at > now()
+                    AND h.starts_at  < s.slot_time + (${windowMins} || ' minutes')::interval
+                    AND h.ends_at    > s.slot_time
+               )
+             ORDER BY t.sort_order, t.label
+             LIMIT 1
+          ) AS table_id
+        FROM get_available_slots(
+          ${venue.id}::uuid,
+          ${date}::date,
+          ${covers}::int
+        ) s
+        ORDER BY s.slot_time
+      `
+    })
+
+    const enriched = slots.map(s => ({
+      ...s,
+      available: s.available && s.table_id !== null,
+      reason:    s.available && s.table_id === null ? 'no_table' : s.reason,
+    }))
 
     return {
       venue_id:  venue.id,
       date,
       covers,
       timezone:  venue.timezone,
-      slots,
+      slots:     enriched,
     }
   })
 }

@@ -15,6 +15,7 @@ CREATE TABLE tenants (
   slug              text        NOT NULL UNIQUE,
   plan              text        NOT NULL DEFAULT 'starter',   -- starter | pro | enterprise
   stripe_account_id text,                                     -- Stripe Connect account
+  auth0_org_id      text        UNIQUE,                       -- Auth0 organisation ID
   is_active         boolean     NOT NULL DEFAULT true,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz NOT NULL DEFAULT now()

@@ -13,6 +13,7 @@ import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { notificationQueue } from '../jobs/queues.js'
+import { broadcastBooking } from '../services/broadcastSvc.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -179,6 +180,7 @@ export default async function bookingsRoutes(app) {
       tenantId:  req.tenantId,
       type:      'confirmation',
     })
+    broadcastBooking('booking.created', booking)
 
     return reply.code(201).send(booking)
   })
@@ -250,8 +252,82 @@ export default async function bookingsRoutes(app) {
         type:      'cancellation',
       })
     }
+    broadcastBooking('booking.updated', booking)
 
     return booking
+  })
+
+  // ── PATCH /bookings/:id/move ──────────────────────────────
+  // Admin drag-and-drop reschedule from the timeline.
+  app.patch('/:id/move', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+    const { table_id, starts_at } = z.object({
+      table_id:  z.string().uuid(),
+      starts_at: z.string().datetime(),
+    }).parse(req.body)
+
+    const updated = await withTenant(req.tenantId, async tx => {
+      const [booking] = await tx`
+        SELECT b.*, r.slot_duration_mins, r.buffer_after_mins
+          FROM bookings b
+          JOIN booking_rules r ON r.venue_id = b.venue_id
+         WHERE b.id        = ${req.params.id}
+           AND b.tenant_id = ${req.tenantId}
+           AND b.status NOT IN ('cancelled')
+      `
+      if (!booking) throw httpError(404, 'Booking not found')
+
+      const [table] = await tx`
+        SELECT id FROM tables
+         WHERE id        = ${table_id}
+           AND venue_id  = ${booking.venue_id}
+           AND tenant_id = ${req.tenantId}
+           AND is_active = true
+      `
+      if (!table) throw httpError(404, 'Table not found in this venue')
+
+      const newStart = new Date(starts_at)
+      const newEnd   = new Date(
+        newStart.getTime()
+        + (booking.slot_duration_mins + booking.buffer_after_mins) * 60_000
+      )
+
+      const [conflict] = await tx`
+        SELECT id FROM bookings
+         WHERE table_id  = ${table_id}
+           AND tenant_id = ${req.tenantId}
+           AND id       != ${req.params.id}
+           AND status NOT IN ('cancelled')
+           AND starts_at < ${newEnd.toISOString()}
+           AND ends_at   > ${newStart.toISOString()}
+        LIMIT 1
+      `
+      if (conflict) throw httpError(409, 'Slot conflict — another booking exists at the target time')
+
+      const [holdConflict] = await tx`
+        SELECT id FROM booking_holds
+         WHERE table_id  = ${table_id}
+           AND tenant_id = ${req.tenantId}
+           AND expires_at > now()
+           AND starts_at  < ${newEnd.toISOString()}
+           AND ends_at    > ${newStart.toISOString()}
+        LIMIT 1
+      `
+      if (holdConflict) throw httpError(409, 'Slot conflict — a hold exists at the target time')
+
+      const [row] = await tx`
+        UPDATE bookings
+           SET table_id   = ${table_id},
+               starts_at  = ${newStart.toISOString()},
+               ends_at    = ${newEnd.toISOString()},
+               updated_at = now()
+         WHERE id        = ${req.params.id}
+           AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+      return row
+    })
+    broadcastBooking('booking.updated', updated)
+    return updated
   })
 
   // ── PATCH /bookings/:id/notes ─────────────────────────────

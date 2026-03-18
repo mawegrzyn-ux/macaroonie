@@ -1,7 +1,7 @@
 // src/pages/Rules.jsx
 // Booking rules + deposit rules editor per venue.
 
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -67,7 +67,7 @@ export default function Rules() {
     queryFn:  () => api.get('/venues'),
   })
 
-  const [venueId, setVenueId] = useStateFromFirst(venues)
+  const [venueId, setVenueId] = useVenueId(venues)
 
   const { data: rules }   = useQuery({
     queryKey: ['booking-rules', venueId],
@@ -223,10 +223,10 @@ export default function Rules() {
   )
 }
 
-// Helper: initialise state from first array item
-function useStateFromFirst(items) {
-  const { useState, useEffect } = require('react')
-  const [value, setValue] = useState(null)
-  useEffect(() => { if (items.length && !value) setValue(items[0].id) }, [items])
-  return [value, setValue]
+function useVenueId(venues) {
+  const [venueId, setVenueId] = useState(null)
+  useEffect(() => {
+    if (venues.length && !venueId) setVenueId(venues[0].id)
+  }, [venues])
+  return [venueId, setVenueId]
 }
