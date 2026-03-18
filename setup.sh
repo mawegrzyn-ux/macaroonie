@@ -106,6 +106,8 @@ DO \$\$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'macaroonie_user') THEN
     CREATE ROLE macaroonie_user WITH LOGIN PASSWORD '${DB_PASS}';
+  ELSE
+    ALTER ROLE macaroonie_user WITH PASSWORD '${DB_PASS}';
   END IF;
 END
 \$\$;
