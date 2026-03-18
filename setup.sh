@@ -10,7 +10,7 @@ set -euo pipefail
 # ── Config — edit before running ─────────────────────────────
 APP_DIR="/home/ubuntu/app"
 DOMAIN="macaroonie.com"
-ADMIN_EMAIL=""     # e.g. you@macaroonie.com (for Let's Encrypt)
+ADMIN_EMAIL="mawegrzyn@gmail.com"
 
 # ── Colour helpers ────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -83,7 +83,7 @@ if ! command -v redis-server &>/dev/null; then
   apt-get install -y -qq redis-server
 fi
 sed -i 's/^bind .*/bind 127.0.0.1/' /etc/redis/redis.conf
-sed -i 's/^# requirepass.*/requirepass CHANGE_THIS_REDIS_PASSWORD/' /etc/redis/redis.conf
+sed -i 's/^# requirepass.*/requirepass sd94mr95fmsdkDH84DN2dj40wlo47G4Y/' /etc/redis/redis.conf
 systemctl enable --now redis-server
 log "Redis 7 installed (set Redis password in .env)"
 
@@ -158,7 +158,7 @@ PORT=3000
 
 DATABASE_URL=${DB_URL}
 
-REDIS_URL=redis://:CHANGE_THIS_REDIS_PASSWORD@127.0.0.1:6379
+REDIS_URL=redis://:sd94mr95fmsdkDH84DN2dj40wlo47G4Y@127.0.0.1:6379
 
 AUTH0_DOMAIN=obscurekitty.uk.auth0.com
 AUTH0_AUDIENCE=https://api.macaroonie.com
