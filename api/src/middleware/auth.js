@@ -19,7 +19,7 @@ import { createVerifier } from 'fast-jwt'   // fast-jwt ships with fastify/jwt, 
 import { env } from '../config/env.js'
 import { sql } from '../config/db.js'
 
-const CLAIM_NS = `https://${env.AUTH0_DOMAIN}/claims/`
+const CLAIM_NS = 'https://macaroonie.com/claims/'
 
 const jwks = jwksClient({
   jwksUri: `https://${env.AUTH0_DOMAIN}/.well-known/jwks.json`,
