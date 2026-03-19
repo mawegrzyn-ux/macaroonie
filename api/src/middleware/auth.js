@@ -32,7 +32,7 @@ const verify = createVerifier({
   algorithms: ['RS256'],
   audience:   env.AUTH0_AUDIENCE,
   issuer:     `https://${env.AUTH0_DOMAIN}/`,
-  key: async (header) => {
+  key: async ({ header }) => {
     const key = await jwks.getSigningKey(header.kid)
     return key.getPublicKey()
   },
