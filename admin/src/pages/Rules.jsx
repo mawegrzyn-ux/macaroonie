@@ -1,7 +1,7 @@
 // src/pages/Rules.jsx
 // Booking rules + deposit rules editor per venue.
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -85,11 +85,10 @@ export default function Rules() {
   const {
     register: regRules,
     handleSubmit: submitRules,
-    reset: resetRules,
     formState: { errors: errRules },
   } = useForm({
     resolver: zodResolver(BookingRulesSchema),
-    defaultValues: {
+    values: rules?.venue_id ? rules : {
       slot_duration_mins: 90,
       buffer_after_mins:  0,
       min_covers:         1,
@@ -101,8 +100,6 @@ export default function Rules() {
     },
   })
 
-  useEffect(() => { if (rules?.venue_id) resetRules(rules) }, [rules])
-
   const rulesMutation = useMutation({
     mutationFn: (data) => api.post(`/venues/${venueId}/rules`, data),
     onSuccess:  () => qc.invalidateQueries(['booking-rules', venueId]),
@@ -112,12 +109,12 @@ export default function Rules() {
   const {
     register: regDeposit,
     handleSubmit: submitDeposit,
-    reset: resetDeposit,
     watch: watchDeposit,
     formState: { errors: errDeposit },
-  } = useForm({ resolver: zodResolver(DepositSchema) })
-
-  useEffect(() => { if (deposit) resetDeposit(deposit) }, [deposit])
+  } = useForm({
+    resolver: zodResolver(DepositSchema),
+    values: deposit?.venue_id ? deposit : { requires_deposit: false },
+  })
 
   const requiresDeposit = watchDeposit('requires_deposit')
 
