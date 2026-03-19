@@ -29,6 +29,10 @@ const HoldBody = z.object({
 
 const BookingBody = z.object({
   hold_id:       z.string().uuid(),
+  guest_name:    z.string().min(1).optional(),
+  guest_email:   z.string().email().optional(),
+  guest_phone:   z.string().optional().nullable(),
+  covers:        z.coerce.number().int().min(1).optional(),
   guest_notes:   z.string().max(1000).nullable().optional(),
 })
 
@@ -169,8 +173,8 @@ export default async function bookingsRoutes(app) {
            guest_name, guest_email, guest_phone, guest_notes, status)
         VALUES
           (${h.venue_id}, ${h.table_id}, ${req.tenantId},
-           ${h.starts_at}, ${h.ends_at}, ${h.covers},
-           ${h.guest_name}, ${h.guest_email}, ${h.guest_phone},
+           ${h.starts_at}, ${h.ends_at}, ${body.covers ?? h.covers},
+           ${body.guest_name ?? h.guest_name}, ${body.guest_email ?? h.guest_email}, ${body.guest_phone ?? h.guest_phone ?? null},
            ${body.guest_notes ?? null}, 'confirmed')
         RETURNING *
       `

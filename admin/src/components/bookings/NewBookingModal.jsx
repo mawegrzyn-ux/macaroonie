@@ -54,11 +54,15 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
     onSuccess: (hold) => { setHoldData(hold); setStep('guest') },
   })
 
-  // Confirm booking
+  // Confirm booking — send full guest details so the booking record is correct
   const confirmMutation = useMutation({
     mutationFn: (guestData) => api.post('/bookings', {
       hold_id:     holdData.id,
-      guest_notes: guestData.guest_notes,
+      guest_name:  guestData.guest_name,
+      guest_email: guestData.guest_email,
+      guest_phone: guestData.guest_phone ?? null,
+      covers:      guestData.covers,
+      guest_notes: guestData.guest_notes ?? null,
     }),
     onSuccess: onCreated,
   })
