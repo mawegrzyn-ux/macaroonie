@@ -4,7 +4,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, ChevronDown, ChevronUp, Trash2, Save } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, Trash2, Save, Copy } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, DAYS, INTERVALS } from '@/lib/utils'
 
@@ -246,6 +246,8 @@ export default function Schedule() {
   const api = useApi()
   const qc  = useQueryClient()
   const [selectedVenueId, setSelectedVenueId] = useState(null)
+  const [copyFromId, setCopyFromId]           = useState('')
+  const [showCopyFrom, setShowCopyFrom]       = useState(false)
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -260,21 +262,65 @@ export default function Schedule() {
     enabled:  !!venueId,
   })
 
+  const copyMutation = useMutation({
+    mutationFn: () => api.post(`/venues/${venueId}/schedule/copy-from`, { source_venue_id: copyFromId }),
+    onSuccess: () => {
+      qc.invalidateQueries(['schedule', venueId])
+      setShowCopyFrom(false)
+      setCopyFromId('')
+    },
+  })
+
   // Build map of dow → template
   const templateByDow = Object.fromEntries((schedule ?? []).map(t => [t.day_of_week, t]))
+
+  const otherVenues = venues.filter(v => v.id !== venueId)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
         <h1 className="font-semibold">Schedule</h1>
-        <select
-          value={venueId ?? ''}
-          onChange={e => setSelectedVenueId(e.target.value)}
-          className="text-sm border rounded px-2 py-1"
-        >
-          {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          {otherVenues.length > 0 && (
+            showCopyFrom ? (
+              <div className="flex items-center gap-2">
+                <select
+                  value={copyFromId}
+                  onChange={e => setCopyFromId(e.target.value)}
+                  className="text-sm border rounded px-2 py-1"
+                >
+                  <option value="">Select venue…</option>
+                  {otherVenues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+                <button
+                  onClick={() => copyMutation.mutate()}
+                  disabled={!copyFromId || copyMutation.isPending}
+                  className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded disabled:opacity-50"
+                >
+                  {copyMutation.isPending ? 'Copying…' : 'Copy'}
+                </button>
+                <button onClick={() => setShowCopyFrom(false)} className="text-xs px-2 py-1.5 border rounded">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowCopyFrom(true)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 border rounded hover:bg-muted"
+              >
+                <Copy className="w-3.5 h-3.5" /> Copy from
+              </button>
+            )
+          )}
+          <select
+            value={venueId ?? ''}
+            onChange={e => { setSelectedVenueId(e.target.value); setShowCopyFrom(false) }}
+            className="text-sm border rounded px-2 py-1"
+          >
+            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
