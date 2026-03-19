@@ -189,6 +189,8 @@ VITE_AUTH0_AUDIENCE=https://api.macaroonie.com
 ADMINENV
 chown ubuntu:ubuntu "${APP_DIR}/admin/.env"
 sudo -u ubuntu bash -c "cd ${APP_DIR}/admin && npm install --silent && npm run build"
+chmod -R 755 "${APP_DIR}/admin/dist"
+chmod 755 /home/ubuntu
 log "Admin portal built"
 
 # ═══════════════════════════════════════════════════════════
