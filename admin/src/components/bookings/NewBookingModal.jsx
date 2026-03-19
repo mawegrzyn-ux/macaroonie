@@ -36,6 +36,7 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
   const { data: tables = [] } = useQuery({
     queryKey: ['tables', venueId],
     queryFn:  () => api.get(`/venues/${venueId}/tables`),
+    enabled:  !!venueId,
   })
 
   // Fetch available slots

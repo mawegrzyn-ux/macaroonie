@@ -7,7 +7,7 @@
 //  - Click booking → detail drawer
 //  - Live WS updates via useRealtimeBookings
 
-import { useState, useMemo, useRef, useCallback } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
@@ -159,17 +159,11 @@ function TimelineHeader() {
 export default function Timeline() {
   const api         = useApi()
   const queryClient = useQueryClient()
-  const [date,        setDate]        = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [venueId,     setVenueId]     = useState(null)
-  const [activeId,    setActiveId]    = useState(null)
-  const [selected,    setSelected]    = useState(null)
-  const [showNew,     setShowNew]     = useState(false)
-
-  useRealtimeBookings(venueId)
-
-  const sensors = useSensors(useSensor(PointerSensor, {
-    activationConstraint: { distance: 8 },
-  }))
+  const [date,            setDate]          = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [selectedVenueId, setVenueId]       = useState(null)
+  const [activeId,        setActiveId]      = useState(null)
+  const [selected,        setSelected]      = useState(null)
+  const [showNew,         setShowNew]       = useState(false)
 
   // ── Data fetching ────────────────────────────────────────
   const { data: venues = [] } = useQuery({
@@ -177,10 +171,14 @@ export default function Timeline() {
     queryFn:  () => api.get('/venues'),
   })
 
-  // Auto-select first venue
-  useMemo(() => {
-    if (venues.length && !venueId) setVenueId(venues[0].id)
-  }, [venues])
+  // Computed venueId — avoids null during first render
+  const venueId = selectedVenueId ?? venues[0]?.id ?? null
+
+  useRealtimeBookings(venueId)
+
+  const sensors = useSensors(useSensor(PointerSensor, {
+    activationConstraint: { distance: 8 },
+  }))
 
   const { data: tables = [] } = useQuery({
     queryKey: ['tables', venueId],
@@ -290,7 +288,8 @@ export default function Timeline() {
 
           <button
             onClick={() => setShowNew(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium"
+            disabled={!venueId}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
           >
             <Plus className="w-4 h-4" /> New booking
           </button>
