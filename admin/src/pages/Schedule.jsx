@@ -245,13 +245,14 @@ function DayCard({ dow, template, venueId }) {
 export default function Schedule() {
   const api = useApi()
   const qc  = useQueryClient()
-  const [venueId, setVenueId] = useState(null)
+  const [selectedVenueId, setSelectedVenueId] = useState(null)
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
-    onSuccess: (data) => { if (data.length && !venueId) setVenueId(data[0].id) },
   })
+
+  const venueId = selectedVenueId ?? venues[0]?.id ?? null
 
   const { data: schedule = [], isLoading } = useQuery({
     queryKey: ['schedule', venueId],
@@ -269,7 +270,7 @@ export default function Schedule() {
         <h1 className="font-semibold">Schedule</h1>
         <select
           value={venueId ?? ''}
-          onChange={e => setVenueId(e.target.value)}
+          onChange={e => setSelectedVenueId(e.target.value)}
           className="text-sm border rounded px-2 py-1"
         >
           {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}

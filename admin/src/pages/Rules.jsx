@@ -224,9 +224,7 @@ export default function Rules() {
 }
 
 function useVenueId(venues) {
-  const [venueId, setVenueId] = useState(null)
-  useEffect(() => {
-    if (venues.length && !venueId) setVenueId(venues[0].id)
-  }, [venues])
+  const [selectedVenueId, setVenueId] = useState(null)
+  const venueId = selectedVenueId ?? venues[0]?.id ?? null
   return [venueId, setVenueId]
 }

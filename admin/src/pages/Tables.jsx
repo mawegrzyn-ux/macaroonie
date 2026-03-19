@@ -2,7 +2,7 @@
 // Manage tables grouped by section per venue.
 // Inline forms for create/edit. Drag to reorder (sort_order) optional future work.
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -130,7 +130,7 @@ export default function Tables() {
   const api = useApi()
   const qc  = useQueryClient()
 
-  const [venueId,      setVenueId]      = useState(null)
+  const [selectedVenueId, setSelectedVenueId] = useState(null)
   const [editingTable, setEditingTable] = useState(null)  // table id or 'new'
   const [addingSection, setAddingSection] = useState(false)
 
@@ -139,9 +139,7 @@ export default function Tables() {
     queryFn:  () => api.get('/venues'),
   })
 
-  useEffect(() => {
-    if (venues.length && !venueId) setVenueId(venues[0].id)
-  }, [venues])
+  const venueId = selectedVenueId ?? venues[0]?.id ?? null
 
   const { data: sections = [] } = useQuery({
     queryKey: ['sections', venueId],
@@ -175,7 +173,7 @@ export default function Tables() {
         <div className="flex items-center gap-2">
           <select
             value={venueId ?? ''}
-            onChange={e => setVenueId(e.target.value)}
+            onChange={e => setSelectedVenueId(e.target.value)}
             className="text-sm border rounded px-2 py-1.5"
           >
             {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
