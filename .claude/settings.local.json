@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmd /c \"cd /d C:\\\\GitHubReps\\\\Macaroonie && git status\")"
+      "Bash(cmd /c \"cd /d C:\\\\GitHubReps\\\\Macaroonie && git status\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(git -C \"C:/GitHubReps/Macaroonie\" add api/src/middleware/auth.js)"
     ]
   }
 }

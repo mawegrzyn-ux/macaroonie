@@ -27,10 +27,16 @@ const jwks = jwksClient({
   rateLimit: true,
 })
 
-async function getKey(header) {
-  const key = await jwks.getSigningKey(header.kid)
-  return key.getPublicKey()
-}
+// Standalone RS256 verifier using JWKS — bypasses the @fastify/jwt HS256 secret
+const verify = createVerifier({
+  algorithms: ['RS256'],
+  audience:   env.AUTH0_AUDIENCE,
+  issuer:     `https://${env.AUTH0_DOMAIN}/`,
+  key: async (header) => {
+    const key = await jwks.getSigningKey(header.kid)
+    return key.getPublicKey()
+  },
+})
 
 /**
  * Fastify preHandler — validates JWT, resolves tenant, attaches to request.
@@ -49,15 +55,8 @@ export async function requireAuth(req, reply) {
 
     const token = authHeader.slice(7)
 
-    // Verify signature + expiry via JWKS
-    const payload = await req.server.jwt.verify(token, {
-      algorithms: ['RS256'],
-      audience:   env.AUTH0_AUDIENCE,
-      issuer:     `https://${env.AUTH0_DOMAIN}/`,
-      key: (header, cb) => {
-        getKey(header).then(k => cb(null, k)).catch(cb)
-      },
-    })
+    // Verify signature + expiry via JWKS (RS256)
+    const payload = await verify(token)
 
     const auth0OrgId = payload[`${CLAIM_NS}tenant_id`]
     const role       = payload[`${CLAIM_NS}role`] ?? 'operator'
