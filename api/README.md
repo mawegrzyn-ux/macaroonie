@@ -1,6 +1,6 @@
 # Booking API
 
-Fastify + postgres.js + Auth0 + Stripe.
+Fastify + postgres.js + Auth0 + Stripe + BullMQ + WebSockets.
 
 ## Stack
 
