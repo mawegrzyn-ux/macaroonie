@@ -19,7 +19,7 @@ jobs:
           script_stop: true
           script: |
             set -euo pipefail
-            APP=/home/booking/app
+            APP=/home/ubuntu/app
 
             echo "── pulling latest code ──────────────────"
             git -C $APP pull origin main
@@ -29,6 +29,7 @@ jobs:
 
             echo "── admin: install + build ───────────────"
             cd $APP/admin && npm install --silent && npm run build
+            chmod -R 755 $APP/admin/dist
 
             echo "── restart api ──────────────────────────"
             pm2 restart macaroonie-api && pm2 save
