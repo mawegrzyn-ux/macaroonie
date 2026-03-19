@@ -195,6 +195,61 @@ export default async function schedulesRoutes(app) {
     `)
   })
 
+  // ── POST /venues/:venueId/schedule/copy-day ──────────────
+  // Copies sittings + caps from one day-of-week to another within the same venue.
+  app.post('/:venueId/schedule/copy-day', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const { source_dow, target_dow } = z.object({
+      source_dow: DOW,
+      target_dow: DOW,
+    }).parse(req.body)
+    if (source_dow === target_dow) throw httpError(400, 'Source and target day must be different')
+
+    const { venueId } = req.params
+
+    await withTenant(req.tenantId, async tx => {
+      // Get source template
+      const [srcTmpl] = await tx`
+        SELECT * FROM venue_schedule_templates
+         WHERE venue_id = ${venueId} AND day_of_week = ${source_dow}
+      `
+      if (!srcTmpl) throw httpError(404, 'Source day has no schedule')
+
+      // Upsert target template with source settings
+      const [tgtTmpl] = await tx`
+        INSERT INTO venue_schedule_templates
+          (venue_id, tenant_id, day_of_week, is_open, slot_interval_mins)
+        VALUES
+          (${venueId}, ${req.tenantId}, ${target_dow}, ${srcTmpl.is_open}, ${srcTmpl.slot_interval_mins})
+        ON CONFLICT (venue_id, day_of_week) DO UPDATE
+           SET is_open = EXCLUDED.is_open, slot_interval_mins = EXCLUDED.slot_interval_mins, updated_at = now()
+        RETURNING id
+      `
+
+      // Replace target sittings
+      await tx`DELETE FROM venue_sittings WHERE template_id = ${tgtTmpl.id}`
+
+      const sittings = await tx`SELECT * FROM venue_sittings WHERE template_id = ${srcTmpl.id}`
+      for (const s of sittings) {
+        const [newS] = await tx`
+          INSERT INTO venue_sittings
+            (template_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order)
+          VALUES
+            (${tgtTmpl.id}, ${venueId}, ${req.tenantId}, ${s.opens_at}, ${s.closes_at}, ${s.default_max_covers}, ${s.sort_order})
+          RETURNING id
+        `
+        const caps = await tx`SELECT slot_time, max_covers FROM sitting_slot_caps WHERE sitting_id = ${s.id}`
+        if (caps.length) {
+          await tx`INSERT INTO sitting_slot_caps ${tx(caps.map(c => ({
+            sitting_id: newS.id, venue_id: venueId, tenant_id: req.tenantId,
+            slot_time: c.slot_time, max_covers: c.max_covers,
+          })))}`
+        }
+      }
+    })
+
+    return reply.send({ ok: true })
+  })
+
   // ── POST /venues/:venueId/schedule/copy-from ─────────────
   // Replaces target venue's full schedule with a copy from source_venue_id.
   app.post('/:venueId/schedule/copy-from', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {

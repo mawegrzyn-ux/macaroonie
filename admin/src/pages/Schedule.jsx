@@ -4,7 +4,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, ChevronDown, ChevronUp, Trash2, Save, Copy } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, Trash2, Save, Copy, CopyCheck } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, DAYS, INTERVALS } from '@/lib/utils'
 
@@ -85,12 +85,22 @@ function generateSlotTimes(opensAt, closesAt, intervalMins) {
 }
 
 // ── Day card ──────────────────────────────────────────────────
-function DayCard({ dow, template, venueId }) {
+function DayCard({ dow, template, venueId, allDows }) {
   const api = useApi()
   const qc  = useQueryClient()
   const [expandedSitting, setExpandedSitting] = useState(null)
   const [addingSitting,   setAddingSitting]   = useState(false)
   const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '' })
+  const [showCopyDay, setShowCopyDay] = useState(false)
+  const [copySourceDow, setCopySourceDow] = useState('')
+
+  const copyDayMutation = useMutation({
+    mutationFn: () => api.post(`/venues/${venueId}/schedule/copy-day`, {
+      source_dow: Number(copySourceDow),
+      target_dow: dow,
+    }),
+    onSuccess: () => { qc.invalidateQueries(['schedule', venueId]); setShowCopyDay(false); setCopySourceDow('') },
+  })
 
   const isOpen = template?.is_open ?? false
 
@@ -154,6 +164,36 @@ function DayCard({ dow, template, venueId }) {
               {INTERVALS.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
             </select>
           </div>
+        )}
+        {showCopyDay ? (
+          <div className="flex items-center gap-1.5">
+            <select
+              value={copySourceDow}
+              onChange={e => setCopySourceDow(e.target.value)}
+              className="text-xs border rounded px-1.5 py-1"
+            >
+              <option value="">Copy from…</option>
+              {allDows.filter(d => d !== dow).map(d => (
+                <option key={d} value={d}>{DAYS[d]}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => copyDayMutation.mutate()}
+              disabled={!copySourceDow || copyDayMutation.isPending}
+              className="text-xs px-2 py-1 bg-primary text-primary-foreground rounded disabled:opacity-50"
+            >
+              {copyDayMutation.isPending ? '…' : 'Apply'}
+            </button>
+            <button onClick={() => setShowCopyDay(false)} className="text-xs text-muted-foreground hover:text-foreground">✕</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowCopyDay(true)}
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+            title="Copy from another day"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
         )}
       </div>
 
@@ -338,6 +378,7 @@ export default function Schedule() {
                 dow={dow}
                 template={templateByDow[dow]}
                 venueId={venueId}
+                allDows={[1,2,3,4,5,6,0]}
               />
             ))}
           </div>
