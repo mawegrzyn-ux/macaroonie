@@ -2,7 +2,7 @@
 // Manage tables grouped by section per venue.
 // Inline forms for create/edit. Drag to reorder (sort_order) optional future work.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -137,8 +137,11 @@ export default function Tables() {
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
-    onSuccess: d => { if (d.length && !venueId) setVenueId(d[0].id) },
   })
+
+  useEffect(() => {
+    if (venues.length && !venueId) setVenueId(venues[0].id)
+  }, [venues])
 
   const { data: sections = [] } = useQuery({
     queryKey: ['sections', venueId],

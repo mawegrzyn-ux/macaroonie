@@ -220,8 +220,7 @@ export default async function venuesRoutes(app) {
        WHERE venue_id  = ${req.params.id}
          AND tenant_id = ${req.tenantId}
     `)
-    if (!rules) throw httpError(404, 'Booking rules not configured for this venue')
-    return rules
+    return rules ?? {}
   })
 
   // POST /venues/:id/rules
@@ -287,8 +286,7 @@ export default async function venuesRoutes(app) {
        WHERE venue_id  = ${req.params.id}
          AND tenant_id = ${req.tenantId}
     `)
-    if (!rules) throw httpError(404, 'Deposit rules not configured for this venue')
-    return rules
+    return rules ?? {}
   })
 
   // POST /venues/:id/deposit-rules

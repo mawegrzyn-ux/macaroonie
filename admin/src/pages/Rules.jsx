@@ -92,7 +92,7 @@ export default function Rules() {
   useEffect(() => { if (rules) resetRules(rules) }, [rules])
 
   const rulesMutation = useMutation({
-    mutationFn: (data) => api.patch(`/venues/${venueId}/rules`, data),
+    mutationFn: (data) => api.post(`/venues/${venueId}/rules`, data),
     onSuccess:  () => qc.invalidateQueries(['booking-rules', venueId]),
   })
 
@@ -110,7 +110,7 @@ export default function Rules() {
   const requiresDeposit = watchDeposit('requires_deposit')
 
   const depositMutation = useMutation({
-    mutationFn: (data) => api.patch(`/venues/${venueId}/deposit-rules`, data),
+    mutationFn: (data) => api.post(`/venues/${venueId}/deposit-rules`, data),
     onSuccess:  () => qc.invalidateQueries(['deposit-rules', venueId]),
   })
 
