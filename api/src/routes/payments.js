@@ -162,9 +162,10 @@ async function handlePaymentSucceeded(pi, log) {
   if (!hold_id || !tenant_id) return log.warn({ pi_id: pi.id }, 'PI missing metadata')
 
   await withTenant(tenant_id, async tx => {
-    // confirm_hold() — FOR UPDATE NOWAIT, re-validates conflict
+    // confirm_hold() — FOR UPDATE NOWAIT, re-validates conflict.
+    // Only select is_valid + reason — composite type column would be unparseable.
     const [result] = await tx`
-      SELECT * FROM confirm_hold(${hold_id}::uuid, ${tenant_id}::uuid)
+      SELECT is_valid, reason FROM confirm_hold(${hold_id}::uuid, ${tenant_id}::uuid)
     `
 
     if (!result.is_valid) {
@@ -173,7 +174,9 @@ async function handlePaymentSucceeded(pi, log) {
       return
     }
 
-    const h = result.hold
+    // Fetch hold as a plain row (composite type from confirm_hold is unparseable)
+    const [h] = await tx`SELECT * FROM booking_holds WHERE id = ${hold_id}`
+    if (!h) { log.error({ hold_id }, 'Hold missing after confirmation'); return }
 
     const [booking] = await tx`
       INSERT INTO bookings

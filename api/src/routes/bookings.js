@@ -132,9 +132,11 @@ export default async function bookingsRoutes(app) {
     const body = BookingBody.parse(req.body)
 
     const booking = await withTenant(req.tenantId, async tx => {
-      // confirm_hold() does the FOR UPDATE NOWAIT + conflict re-check
+      // confirm_hold() does the FOR UPDATE NOWAIT + conflict re-check.
+      // Only select is_valid + reason — the `hold` column is a composite type
+      // which postgres.js returns as a raw string, not a parsed object.
       const [result] = await tx`
-        SELECT * FROM confirm_hold(${body.hold_id}::uuid, ${req.tenantId}::uuid)
+        SELECT is_valid, reason FROM confirm_hold(${body.hold_id}::uuid, ${req.tenantId}::uuid)
       `
 
       if (!result.is_valid) {
@@ -147,7 +149,11 @@ export default async function bookingsRoutes(app) {
         throw httpError(code, msg)
       }
 
-      const h = result.hold
+      // Fetch hold data as a plain row (composite type from confirm_hold is unparseable)
+      const [h] = await tx`
+        SELECT * FROM booking_holds WHERE id = ${body.hold_id}
+      `
+      if (!h) throw httpError(404, 'Hold not found after confirmation')
 
       // Verify venue does not require deposit
       const [deposit] = await tx`
