@@ -139,28 +139,28 @@ export default function Rules() {
             >
               <div className="grid grid-cols-2 gap-4">
                 <FormField label="Slot duration (mins)" error={errRules.slot_duration_mins?.message}>
-                  <TextInput type="number" {...regRules('slot_duration_mins', { valueAsNumber: true })} className="w-full" />
+                  <TextInput type="number" {...regRules('slot_duration_mins')} className="w-full" />
                 </FormField>
                 <FormField label="Buffer after slot (mins)" hint="Cleaning / turnover time">
-                  <TextInput type="number" {...regRules('buffer_after_mins', { valueAsNumber: true })} className="w-full" />
+                  <TextInput type="number" {...regRules('buffer_after_mins')} className="w-full" />
                 </FormField>
                 <FormField label="Min covers" error={errRules.min_covers?.message}>
-                  <TextInput type="number" {...regRules('min_covers', { valueAsNumber: true })} className="w-full" />
+                  <TextInput type="number" {...regRules('min_covers')} className="w-full" />
                 </FormField>
                 <FormField label="Max covers" error={errRules.max_covers?.message}>
-                  <TextInput type="number" {...regRules('max_covers', { valueAsNumber: true })} className="w-full" />
+                  <TextInput type="number" {...regRules('max_covers')} className="w-full" />
                 </FormField>
                 <FormField label="Book from (days ahead)" hint="0 = same day allowed">
-                  <TextInput type="number" {...regRules('book_from_days', { valueAsNumber: true })} className="w-full" />
+                  <TextInput type="number" {...regRules('book_from_days')} className="w-full" />
                 </FormField>
                 <FormField label="Book until (days ahead)" hint="How far in future guests can book">
-                  <TextInput type="number" {...regRules('book_until_days', { valueAsNumber: true })} className="w-full" />
+                  <TextInput type="number" {...regRules('book_until_days')} className="w-full" />
                 </FormField>
                 <FormField label="Cutoff before slot (mins)" hint="e.g. 60 = can't book within 1h of start">
-                  <TextInput type="number" {...regRules('cutoff_before_mins', { valueAsNumber: true })} className="w-full" />
+                  <TextInput type="number" {...regRules('cutoff_before_mins')} className="w-full" />
                 </FormField>
                 <FormField label="Hold duration (secs)" hint="60–1800. Time guest has to complete payment.">
-                  <TextInput type="number" {...regRules('hold_ttl_secs', { valueAsNumber: true })} className="w-full" />
+                  <TextInput type="number" {...regRules('hold_ttl_secs')} className="w-full" />
                 </FormField>
               </div>
               <button
@@ -195,14 +195,14 @@ export default function Rules() {
                   </FormField>
                   <div className="grid grid-cols-2 gap-4">
                     <FormField label="Amount" error={errDeposit.deposit_amount?.message}>
-                      <TextInput type="number" step="0.01" {...regDeposit('deposit_amount', { valueAsNumber: true })} />
+                      <TextInput type="number" step="0.01" {...regDeposit('deposit_amount')} />
                     </FormField>
                     <FormField label="Currency">
                       <TextInput {...regDeposit('currency')} maxLength={3} className="uppercase" />
                     </FormField>
                   </div>
                   <FormField label="Refund if cancelled X hours before" hint="Leave blank = non-refundable">
-                    <TextInput type="number" {...regDeposit('refund_hours_before', { valueAsNumber: true })} className="w-40" />
+                    <TextInput type="number" {...regDeposit('refund_hours_before')} className="w-40" />
                   </FormField>
                 </div>
               )}
