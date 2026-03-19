@@ -87,9 +87,21 @@ export default function Rules() {
     handleSubmit: submitRules,
     reset: resetRules,
     formState: { errors: errRules },
-  } = useForm({ resolver: zodResolver(BookingRulesSchema) })
+  } = useForm({
+    resolver: zodResolver(BookingRulesSchema),
+    defaultValues: {
+      slot_duration_mins: 90,
+      buffer_after_mins:  0,
+      min_covers:         1,
+      max_covers:         20,
+      book_from_days:     0,
+      book_until_days:    90,
+      cutoff_before_mins: 60,
+      hold_ttl_secs:      300,
+    },
+  })
 
-  useEffect(() => { if (rules) resetRules(rules) }, [rules])
+  useEffect(() => { if (rules?.id) resetRules(rules) }, [rules])
 
   const rulesMutation = useMutation({
     mutationFn: (data) => api.post(`/venues/${venueId}/rules`, data),
