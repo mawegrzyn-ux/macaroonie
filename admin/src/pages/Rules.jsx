@@ -1,7 +1,7 @@
 // src/pages/Rules.jsx
 // Booking rules + deposit rules editor per venue.
 
-import { useState } from 'react'
+import { useState, forwardRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -39,14 +39,15 @@ function FormField({ label, hint, error, children }) {
   )
 }
 
-function TextInput({ className = '', ...props }) {
+const TextInput = forwardRef(function TextInput({ className = '', ...props }, ref) {
   return (
     <input
+      ref={ref}
       className={`w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary ${className}`}
       {...props}
     />
   )
-}
+})
 
 function Section({ title, description, children }) {
   return (
