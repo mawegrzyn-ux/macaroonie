@@ -101,7 +101,7 @@ export default function Rules() {
     },
   })
 
-  useEffect(() => { if (rules?.id) resetRules(rules) }, [rules])
+  useEffect(() => { if (rules?.venue_id) resetRules(rules) }, [rules])
 
   const rulesMutation = useMutation({
     mutationFn: (data) => api.post(`/venues/${venueId}/rules`, data),
