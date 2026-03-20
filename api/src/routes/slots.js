@@ -176,40 +176,71 @@ export default async function slotsRoutes(app) {
                         : s.reason,
     }))
 
-    // ── Widget filtering: hide slots past doors_close_time ──────────
+    // ── Widget filtering: hide slots past per-sitting doors_close_time ─
     // Admin calls carry req.user (JWT validated). Widget calls are anonymous.
-    // When allow_widget_bookings_after_doors_close = false, filter out
-    // slots at or after the day template's doors_close_time for widget callers.
+    // When allow_widget_bookings_after_doors_close = false, each slot is
+    // matched to its sitting and filtered against that sitting's doors_close_time.
     const isAdminCall = !!req.user
     let filtered = enriched
 
     if (!isAdminCall) {
-      // Fetch the day template for this date to get doors_close_time + rule
-      const dayOfWeek = new Date(date).getDay() // 0=Sun, 6=Sat
-
-      const [dayTemplate] = await withTenant(venue.tenant_id, tx => tx`
-        SELECT doors_close_time FROM venue_schedule_templates
-         WHERE venue_id = ${venue.id}
-           AND day_of_week = ${dayOfWeek}
-      `)
-
       const [doorRule] = await withTenant(venue.tenant_id, tx => tx`
         SELECT allow_widget_bookings_after_doors_close FROM booking_rules
          WHERE venue_id = ${venue.id}
       `)
 
       const allowPastDoors = doorRule?.allow_widget_bookings_after_doors_close ?? false
-      const doorsCloseTime = dayTemplate?.doors_close_time  // e.g. "22:00:00" or null
 
-      if (!allowPastDoors && doorsCloseTime) {
-        // Normalise to "HH:MM" for comparison
-        const doorsHHMM = String(doorsCloseTime).slice(0, 5)
-        filtered = enriched.filter(s => {
-          // slot_time is a timestamptz from get_available_slots
-          const d = new Date(s.slot_time)
-          const slotHHMM = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-          return slotHHMM < doorsHHMM
-        })
+      if (!allowPastDoors) {
+        // Load sittings for this specific date — check for a date override first,
+        // then fall back to the weekly template.
+        const dayOfWeek = new Date(date).getDay() // 0=Sun, 6=Sat
+
+        const [override] = await withTenant(venue.tenant_id, tx => tx`
+          SELECT id FROM schedule_date_overrides
+           WHERE venue_id      = ${venue.id}
+             AND override_date = ${date}::date
+             AND is_open       = true
+          LIMIT 1
+        `)
+
+        let sittings
+        if (override) {
+          sittings = await withTenant(venue.tenant_id, tx => tx`
+            SELECT opens_at, closes_at, doors_close_time
+              FROM override_sittings
+             WHERE override_id = ${override.id}
+          `)
+        } else {
+          sittings = await withTenant(venue.tenant_id, tx => tx`
+            SELECT s.opens_at, s.closes_at, s.doors_close_time
+              FROM venue_sittings s
+              JOIN venue_schedule_templates t ON t.id = s.template_id
+             WHERE t.venue_id    = ${venue.id}
+               AND t.day_of_week = ${dayOfWeek}
+          `)
+        }
+
+        // Only bother filtering when at least one sitting has a doors_close_time set
+        if (sittings.some(s => s.doors_close_time)) {
+          filtered = enriched.filter(slot => {
+            const d = new Date(slot.slot_time)
+            const slotHHMM = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+
+            // Find the sitting this slot falls within
+            const sitting = sittings.find(s => {
+              const opHHMM = String(s.opens_at).slice(0, 5)
+              const clHHMM = String(s.closes_at).slice(0, 5)
+              return slotHHMM >= opHHMM && slotHHMM < clHHMM
+            })
+
+            // No sitting match or no doors_close_time → keep
+            if (!sitting?.doors_close_time) return true
+
+            const doorsHHMM = String(sitting.doors_close_time).slice(0, 5)
+            return slotHHMM < doorsHHMM
+          })
+        }
       }
     }
 

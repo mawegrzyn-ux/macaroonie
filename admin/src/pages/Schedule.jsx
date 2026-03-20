@@ -96,7 +96,7 @@ function DayCard({ dow, template, venueId, allDows }) {
   const [editingSittingId, setEditingSittingId] = useState(null)
   const [editData,         setEditData]         = useState({})
   const [addingSitting,    setAddingSitting]     = useState(false)
-  const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '' })
+  const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '' })
   const [showCopyDay, setShowCopyDay] = useState(false)
   const [copySourceDow, setCopySourceDow] = useState('')
 
@@ -114,7 +114,6 @@ function DayCard({ dow, template, venueId, allDows }) {
     mutationFn: () => api.put(`/venues/${venueId}/schedule/template/${dow}`, {
       is_open:            !isOpen,
       slot_interval_mins: template?.slot_interval_mins ?? 15,
-      doors_close_time:   template?.doors_close_time ? String(template.doors_close_time).slice(0, 5) : null,
     }),
     onSuccess: () => qc.invalidateQueries(['schedule', venueId]),
   })
@@ -123,8 +122,13 @@ function DayCard({ dow, template, venueId, allDows }) {
     mutationFn: () => api.post(`/venues/${venueId}/schedule/template/${dow}/sittings`, {
       ...newSitting,
       default_max_covers: newSitting.default_max_covers === '' ? null : Number(newSitting.default_max_covers),
+      doors_close_time:   newSitting.doors_close_time || null,
     }),
-    onSuccess: () => { qc.invalidateQueries(['schedule', venueId]); setAddingSitting(false) },
+    onSuccess: () => {
+      qc.invalidateQueries(['schedule', venueId])
+      setAddingSitting(false)
+      setNewSitting({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '' })
+    },
   })
 
   const deleteSittingMutation = useMutation({
@@ -143,6 +147,7 @@ function DayCard({ dow, template, venueId, allDows }) {
       opens_at:           String(sitting.opens_at).slice(0, 5),
       closes_at:          String(sitting.closes_at).slice(0, 5),
       default_max_covers: sitting.default_max_covers ?? '',
+      doors_close_time:   sitting.doors_close_time ? String(sitting.doors_close_time).slice(0, 5) : '',
     })
     setEditingSittingId(sitting.id)
     setExpandedSitting(null)  // close caps editor if open
@@ -155,6 +160,7 @@ function DayCard({ dow, template, venueId, allDows }) {
         opens_at:           editData.opens_at,
         closes_at:          editData.closes_at,
         default_max_covers: editData.default_max_covers === '' ? null : Number(editData.default_max_covers),
+        doors_close_time:   editData.doors_close_time || null,
       },
     })
   }
@@ -163,16 +169,6 @@ function DayCard({ dow, template, venueId, allDows }) {
     mutationFn: (interval) => api.put(`/venues/${venueId}/schedule/template/${dow}`, {
       is_open:            isOpen,
       slot_interval_mins: interval,
-      doors_close_time:   template?.doors_close_time ? String(template.doors_close_time).slice(0, 5) : null,
-    }),
-    onSuccess: () => qc.invalidateQueries(['schedule', venueId]),
-  })
-
-  const doorsCloseMutation = useMutation({
-    mutationFn: (doorsCloseTime) => api.put(`/venues/${venueId}/schedule/template/${dow}`, {
-      is_open:            isOpen,
-      slot_interval_mins: template?.slot_interval_mins ?? 15,
-      doors_close_time:   doorsCloseTime || null,
     }),
     onSuccess: () => qc.invalidateQueries(['schedule', venueId]),
   })
@@ -208,16 +204,6 @@ function DayCard({ dow, template, venueId, allDows }) {
               >
                 {INTERVALS.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
               </select>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground">Doors close</span>
-              <input
-                type="time"
-                step="900"
-                defaultValue={template?.doors_close_time ? String(template.doors_close_time).slice(0, 5) : ''}
-                onBlur={e => doorsCloseMutation.mutate(e.target.value || null)}
-                className="text-xs border rounded px-1.5 py-1"
-              />
             </div>
           </div>
         )}
@@ -291,6 +277,15 @@ function DayCard({ dow, template, venueId, allDows }) {
                         className="text-sm border rounded px-2 py-1 w-28"
                       />
                     </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Doors close</label>
+                      <input
+                        type="time" step="900"
+                        value={editData.doors_close_time}
+                        onChange={e => setEditData(p => ({ ...p, doors_close_time: e.target.value }))}
+                        className="text-sm border rounded px-2 py-1"
+                      />
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -327,6 +322,11 @@ function DayCard({ dow, template, venueId, allDows }) {
                       {sitting.default_max_covers != null
                         ? `default ${sitting.default_max_covers} covers`
                         : 'no default cap'}
+                      {sitting.doors_close_time && (
+                        <span className="ml-2 text-orange-600">
+                          doors {String(sitting.doors_close_time).slice(0, 5)}
+                        </span>
+                      )}
                     </span>
                     {expandedSitting === sitting.id
                       ? <ChevronUp   className="w-3.5 h-3.5 ml-auto shrink-0 text-muted-foreground" />
@@ -367,20 +367,34 @@ function DayCard({ dow, template, venueId, allDows }) {
           {addingSitting ? (
             <div className="border rounded-md p-3 space-y-2 bg-muted/20">
               <p className="text-xs font-medium">New sitting</p>
-              <div className="flex gap-2 items-center">
-                <input type="time" value={newSitting.opens_at}
-                  onChange={e => setNewSitting(p => ({ ...p, opens_at: e.target.value }))}
-                  className="text-sm border rounded px-2 py-1" />
-                <span className="text-xs text-muted-foreground">to</span>
-                <input type="time" value={newSitting.closes_at}
-                  onChange={e => setNewSitting(p => ({ ...p, closes_at: e.target.value }))}
-                  className="text-sm border rounded px-2 py-1" />
-                <input
-                  type="number" placeholder="Max covers"
-                  value={newSitting.default_max_covers}
-                  onChange={e => setNewSitting(p => ({ ...p, default_max_covers: e.target.value }))}
-                  className="text-sm border rounded px-2 py-1 w-28"
-                />
+              <div className="flex flex-wrap gap-2 items-end">
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-0.5">Opens</label>
+                  <input type="time" value={newSitting.opens_at}
+                    onChange={e => setNewSitting(p => ({ ...p, opens_at: e.target.value }))}
+                    className="text-sm border rounded px-2 py-1" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-0.5">Last order</label>
+                  <input type="time" value={newSitting.closes_at}
+                    onChange={e => setNewSitting(p => ({ ...p, closes_at: e.target.value }))}
+                    className="text-sm border rounded px-2 py-1" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-0.5">Doors close</label>
+                  <input type="time" value={newSitting.doors_close_time}
+                    onChange={e => setNewSitting(p => ({ ...p, doors_close_time: e.target.value }))}
+                    className="text-sm border rounded px-2 py-1" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-0.5">Max covers</label>
+                  <input
+                    type="number" placeholder="Unlimited"
+                    value={newSitting.default_max_covers}
+                    onChange={e => setNewSitting(p => ({ ...p, default_max_covers: e.target.value }))}
+                    className="text-sm border rounded px-2 py-1 w-28"
+                  />
+                </div>
               </div>
               <div className="flex gap-2">
                 <button

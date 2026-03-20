@@ -29,6 +29,7 @@ const SittingBody = z.object({
   closes_at:           z.string().regex(/^\d{2}:\d{2}$/),
   default_max_covers:  z.number().int().min(0).nullable().default(null),
   sort_order:          z.number().int().default(0),
+  doors_close_time:    z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
 })
 
 // Array of { slot_time, max_covers } — replaces all caps for a sitting
@@ -62,6 +63,7 @@ export default async function schedulesRoutes(app) {
                    'closes_at',           s.closes_at,
                    'default_max_covers',  s.default_max_covers,
                    'sort_order',          s.sort_order,
+                   'doors_close_time',    s.doors_close_time,
                    'caps', (
                      SELECT COALESCE(json_agg(
                        json_build_object('slot_time', c.slot_time, 'max_covers', c.max_covers)
@@ -118,10 +120,12 @@ export default async function schedulesRoutes(app) {
 
       return tx`
         INSERT INTO venue_sittings
-          (template_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order)
+          (template_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order,
+           doors_close_time)
         VALUES
           (${tmpl.id}, ${venueId}, ${req.tenantId},
-           ${body.opens_at}, ${body.closes_at}, ${body.default_max_covers}, ${body.sort_order})
+           ${body.opens_at}, ${body.closes_at}, ${body.default_max_covers}, ${body.sort_order},
+           ${body.doors_close_time ?? null})
         RETURNING *
       `
     })
@@ -234,9 +238,11 @@ export default async function schedulesRoutes(app) {
       for (const s of sittings) {
         const [newS] = await tx`
           INSERT INTO venue_sittings
-            (template_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order)
+            (template_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order,
+             doors_close_time)
           VALUES
-            (${tgtTmpl.id}, ${venueId}, ${req.tenantId}, ${s.opens_at}, ${s.closes_at}, ${s.default_max_covers}, ${s.sort_order})
+            (${tgtTmpl.id}, ${venueId}, ${req.tenantId}, ${s.opens_at}, ${s.closes_at},
+             ${s.default_max_covers}, ${s.sort_order}, ${s.doors_close_time ?? null})
           RETURNING id
         `
         const caps = await tx`SELECT slot_time, max_covers FROM sitting_slot_caps WHERE sitting_id = ${s.id}`
@@ -282,9 +288,11 @@ export default async function schedulesRoutes(app) {
         for (const s of sittings) {
           const [newS] = await tx`
             INSERT INTO venue_sittings
-              (template_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order)
+              (template_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order,
+               doors_close_time)
             VALUES
-              (${newTmpl.id}, ${venueId}, ${req.tenantId}, ${s.opens_at}, ${s.closes_at}, ${s.default_max_covers}, ${s.sort_order})
+              (${newTmpl.id}, ${venueId}, ${req.tenantId}, ${s.opens_at}, ${s.closes_at},
+               ${s.default_max_covers}, ${s.sort_order}, ${s.doors_close_time ?? null})
             RETURNING id
           `
           const caps = await tx`SELECT slot_time, max_covers FROM sitting_slot_caps WHERE sitting_id = ${s.id}`
@@ -314,6 +322,7 @@ export default async function schedulesRoutes(app) {
                    'closes_at',          s.closes_at,
                    'default_max_covers', s.default_max_covers,
                    'sort_order',         s.sort_order,
+                   'doors_close_time',   s.doors_close_time,
                    'caps', (
                      SELECT COALESCE(json_agg(
                        json_build_object('slot_time', c.slot_time, 'max_covers', c.max_covers)
@@ -385,10 +394,12 @@ export default async function schedulesRoutes(app) {
     const body = SittingBody.parse(req.body)
     const [sitting] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO override_sittings
-        (override_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order)
+        (override_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order,
+         doors_close_time)
       VALUES
         (${req.params.oid}, ${req.params.venueId}, ${req.tenantId},
-         ${body.opens_at}, ${body.closes_at}, ${body.default_max_covers}, ${body.sort_order})
+         ${body.opens_at}, ${body.closes_at}, ${body.default_max_covers}, ${body.sort_order},
+         ${body.doors_close_time ?? null})
       RETURNING *
     `)
     return reply.code(201).send(sitting)

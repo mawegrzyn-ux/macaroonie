@@ -485,8 +485,10 @@ export default async function bookingsRoutes(app) {
             if (!bk) throw httpError(404, 'Booking not found')
 
             const name       = tableRows.map(t => t.label).join(' + ')
-            const minCovers  = Math.min(...tableRows.map(t => t.min_covers))
-            const maxCovers  = tableRows.reduce((s, t) => s + t.max_covers, 0)
+            const maxCovers  = tableRows.reduce((s, t) => s + Number(t.max_covers), 0)
+            // min = total capacity minus 1: the combo is only appropriate when
+            // the party is too large for any single member table alone.
+            const minCovers  = Math.max(1, maxCovers - 1)
 
             const [newCombo] = await tx`
               INSERT INTO table_combinations (venue_id, tenant_id, name, min_covers, max_covers)
