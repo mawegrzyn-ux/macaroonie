@@ -126,23 +126,28 @@ function SectionForm({ venueId, onSave, onCancel }) {
   )
 }
 
-function CombinationForm({ venueId, tables, onSave, onCancel }) {
+function CombinationForm({ venueId, tables, combo, onSave, onCancel }) {
   const api = useApi()
   const qc  = useQueryClient()
-  const [selectedTableIds, setSelectedTableIds] = useState([])
+  const isEdit = !!combo
+  const [selectedTableIds, setSelectedTableIds] = useState(
+    () => combo?.members?.map(m => m.table_id) ?? []
+  )
   const { register, handleSubmit, formState: { errors } } = useForm({
     resolver: zodResolver(z.object({
       name:       z.string().min(1, 'Required'),
       min_covers: z.coerce.number().int().min(1),
       max_covers: z.coerce.number().int().min(1),
     })),
-    defaultValues: { min_covers: 1, max_covers: 4 },
+    defaultValues: isEdit
+      ? { name: combo.name, min_covers: combo.min_covers, max_covers: combo.max_covers }
+      : { min_covers: 1, max_covers: 4 },
   })
 
   const mutation = useMutation({
-    mutationFn: (data) => api.post(`/venues/${venueId}/combinations`, {
-      ...data, table_ids: selectedTableIds,
-    }),
+    mutationFn: (data) => isEdit
+      ? api.patch(`/venues/${venueId}/combinations/${combo.id}`, data)
+      : api.post(`/venues/${venueId}/combinations`, { ...data, table_ids: selectedTableIds }),
     onSuccess: () => { qc.invalidateQueries(['combinations', venueId]); onSave() },
   })
 
@@ -169,36 +174,38 @@ function CombinationForm({ venueId, tables, onSave, onCancel }) {
           <input {...register('max_covers')} type="number" min={1} className={inp} />
         </div>
       </div>
-      <div>
-        <label className="text-xs font-medium text-muted-foreground block mb-1.5">
-          Tables in combination <span className="text-muted-foreground/60">(select 2+)</span>
-        </label>
-        <div className="flex flex-wrap gap-2">
-          {tables.filter(t => t.is_active).map(t => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => toggleTable(t.id)}
-              className={cn(
-                'px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors',
-                selectedTableIds.includes(t.id)
-                  ? 'bg-primary/10 border-primary text-primary'
-                  : 'hover:bg-accent'
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
+      {!isEdit && (
+        <div>
+          <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+            Tables in combination <span className="text-muted-foreground/60">(select 2+)</span>
+          </label>
+          <div className="flex flex-wrap gap-2">
+            {tables.filter(t => t.is_active).map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => toggleTable(t.id)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors',
+                  selectedTableIds.includes(t.id)
+                    ? 'bg-primary/10 border-primary text-primary'
+                    : 'hover:bg-accent'
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {selectedTableIds.length < 2 && (
+            <p className="text-xs text-muted-foreground mt-1">Select at least 2 tables</p>
+          )}
         </div>
-        {selectedTableIds.length < 2 && (
-          <p className="text-xs text-muted-foreground mt-1">Select at least 2 tables</p>
-        )}
-      </div>
+      )}
       <div className="flex gap-2">
-        <button type="submit" disabled={mutation.isPending || selectedTableIds.length < 2}
+        <button type="submit" disabled={mutation.isPending || (!isEdit && selectedTableIds.length < 2)}
           className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50">
           <Check className="w-3.5 h-3.5" />
-          {mutation.isPending ? 'Saving…' : 'Add combination'}
+          {mutation.isPending ? 'Saving…' : isEdit ? 'Save' : 'Add combination'}
         </button>
         <button type="button" onClick={onCancel}
           className="flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-sm hover:bg-accent">
@@ -217,6 +224,7 @@ export default function Tables() {
   const [editingTable,     setEditingTable]      = useState(null)
   const [addingSection,    setAddingSection]     = useState(false)
   const [addingCombo,      setAddingCombo]       = useState(false)
+  const [editingCombo,     setEditingCombo]      = useState(null) // combo object
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -391,28 +399,48 @@ export default function Tables() {
             ) : (
               <div className="grid gap-2 mt-2">
                 {combinations.map(c => (
-                  <div key={c.id} className={cn(
-                    'flex items-center gap-4 px-4 py-3 border rounded-lg',
-                    !c.is_active && 'opacity-50'
-                  )}>
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <Link2 className="w-4 h-4 text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium">{c.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {c.min_covers}–{c.max_covers} covers ·{' '}
-                        {Array.isArray(c.members)
-                          ? c.members.map(m => m.label).join(' + ')
-                          : ''}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => deleteComboMutation.mutate(c.id)}
-                      className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                  <div key={c.id}>
+                    {editingCombo?.id === c.id ? (
+                      <CombinationForm
+                        venueId={venueId}
+                        tables={tables}
+                        combo={c}
+                        onSave={() => setEditingCombo(null)}
+                        onCancel={() => setEditingCombo(null)}
+                      />
+                    ) : (
+                      <div className={cn(
+                        'flex items-center gap-4 px-4 py-3 border rounded-lg',
+                        !c.is_active && 'opacity-50'
+                      )}>
+                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <Link2 className="w-4 h-4 text-primary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{c.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {c.min_covers}–{c.max_covers} covers ·{' '}
+                            {Array.isArray(c.members)
+                              ? c.members.map(m => m.label).join(' + ')
+                              : ''}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => setEditingCombo(c)}
+                            className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => deleteComboMutation.mutate(c.id)}
+                            className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
