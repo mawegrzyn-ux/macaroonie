@@ -10,9 +10,9 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
-import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
+import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -107,8 +107,8 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
 
   return (
     <div className="timeline-grid border-b last:border-b-0">
-      {/* Table label */}
-      <div className="flex items-center px-3 border-r bg-muted/30 shrink-0">
+      {/* Table label — sticky so it stays visible while scrolling horizontally */}
+      <div className="flex items-center px-3 border-r bg-muted sticky left-0 z-[2] shrink-0">
         <div>
           <p className="text-sm font-medium">{table.label}</p>
           <p className="text-xs text-muted-foreground">{table.min_covers}–{table.max_covers} covers</p>
@@ -153,7 +153,8 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
 function TimelineHeader() {
   return (
     <div className="timeline-grid border-b sticky top-0 bg-background z-10">
-      <div className="border-r" style={{ height: 40 }} />
+      {/* Sticky label cell — stays pinned to left while scrolling horizontally */}
+      <div className="border-r sticky left-0 bg-background z-[3]" style={{ height: 40 }} />
       <div className="relative overflow-hidden" style={{ width: TOTAL_WIDTH, height: 40 }}>
         {Array.from({ length: TOTAL_HOURS }, (_, i) => (
           <div
@@ -182,6 +183,7 @@ export default function Timeline() {
   const [showNew,         setShowNew]       = useState(false)
   const [resizeState,     setResizeState]   = useState(null)  // { bookingId, startX, originalEndMs, originalStartMs }
   const [resizePreviewMs, setResizePreviewMs] = useState(null) // ms timestamp for live preview
+  const [isFullscreen,   setIsFullscreen]   = useState(false)
 
   // ── Data fetching ────────────────────────────────────────
   const { data: venues = [] } = useQuery({
@@ -194,9 +196,12 @@ export default function Timeline() {
 
   useRealtimeBookings(venueId)
 
-  const sensors = useSensors(useSensor(PointerSensor, {
-    activationConstraint: { distance: 8 },
-  }))
+  // Mouse: drag activates after 8px movement (immediate feel on desktop)
+  // Touch: drag activates after 250ms hold (tap → click, hold → drag on mobile)
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+  )
 
   const { data: tables = [] } = useQuery({
     queryKey: ['tables', venueId],
@@ -260,6 +265,21 @@ export default function Timeline() {
       document.removeEventListener('pointerup',   handleUp)
     }
   }, [resizeState])
+
+  // ── Fullscreen ────────────────────────────────────────────
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.()
+    } else {
+      document.exitFullscreen?.()
+    }
+  }
 
   // ── Drag handlers ─────────────────────────────────────────
   const moveMutation = useMutation({
@@ -358,6 +378,16 @@ export default function Timeline() {
           <button onClick={() => refetch()}
             className="p-1.5 rounded hover:bg-accent text-muted-foreground">
             <RefreshCw className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={toggleFullscreen}
+            className="p-1.5 rounded hover:bg-accent text-muted-foreground"
+            title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+          >
+            {isFullscreen
+              ? <Minimize2 className="w-4 h-4" />
+              : <Maximize2 className="w-4 h-4" />}
           </button>
 
           <button

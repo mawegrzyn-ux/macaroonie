@@ -40,6 +40,9 @@
   border-radius: 6px;
   cursor: grab;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;  /* suppress iOS long-press context menu */
+  touch-action: none;           /* required for dnd-kit touch sensors */
   transition: box-shadow 0.15s, opacity 0.15s;
 }
 

@@ -307,9 +307,8 @@ export default async function bookingsRoutes(app) {
 
     const updated = await withTenant(req.tenantId, async tx => {
       const [booking] = await tx`
-        SELECT b.*, r.slot_duration_mins, r.buffer_after_mins
+        SELECT b.*
           FROM bookings b
-          JOIN booking_rules r ON r.venue_id = b.venue_id
          WHERE b.id        = ${req.params.id}
            AND b.tenant_id = ${req.tenantId}
            AND b.status NOT IN ('cancelled')
@@ -325,11 +324,11 @@ export default async function bookingsRoutes(app) {
       `
       if (!table) throw httpError(404, 'Table not found in this venue')
 
+      // Preserve the booking's actual duration (may differ from slot_duration_mins
+      // if the end time was manually extended via the resize handle).
+      const originalDurationMs = new Date(booking.ends_at).getTime() - new Date(booking.starts_at).getTime()
       const newStart = new Date(starts_at)
-      const newEnd   = new Date(
-        newStart.getTime()
-        + (booking.slot_duration_mins + booking.buffer_after_mins) * 60_000
-      )
+      const newEnd   = new Date(newStart.getTime() + originalDurationMs)
 
       const [conflict] = await tx`
         SELECT id FROM bookings
@@ -417,17 +416,95 @@ export default async function bookingsRoutes(app) {
 
   // ── PATCH /bookings/:id/tables ────────────────────────────
   // Admin override: reassign to a different table or combination.
+  // Accepts:
+  //   { table_id }              — single table
+  //   { combination_id }        — pre-configured combination
+  //   { table_ids: [id, id…] }  — ad-hoc multi-table: finds matching combo or auto-creates one
   app.patch('/:id/tables', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
     const body = z.object({
       table_id:       z.string().uuid().optional(),
       combination_id: z.string().uuid().nullable().optional(),
-    }).refine(d => d.table_id || d.combination_id, 'Either table_id or combination_id required')
-     .parse(req.body)
+      table_ids:      z.array(z.string().uuid()).min(1).optional(),
+    }).refine(
+      d => d.table_id || d.combination_id || (d.table_ids && d.table_ids.length > 0),
+      'Provide table_id, combination_id, or table_ids'
+    ).parse(req.body)
 
     const booking = await withTenant(req.tenantId, async tx => {
-      let tableId = body.table_id
-      const comboId = body.combination_id ?? null
+      let tableId = body.table_id ?? null
+      let comboId = body.combination_id ?? null
 
+      // ── Multi-table ad-hoc path ───────────────────────────
+      if (body.table_ids && body.table_ids.length > 0) {
+        if (body.table_ids.length === 1) {
+          // Single item in the array — treat as a plain table assignment
+          tableId = body.table_ids[0]
+          comboId = null
+        } else {
+          // Multiple tables: find or create a matching combination
+          const sorted = [...new Set(body.table_ids)].sort()
+
+          // Verify all tables belong to this tenant
+          const owned = await tx`
+            SELECT id FROM tables
+             WHERE id = ANY(${sorted}::uuid[]) AND tenant_id = ${req.tenantId}
+          `
+          if (owned.length !== sorted.length) throw httpError(404, 'One or more tables not found')
+
+          // Look for existing combination with exactly this member set
+          const [existing] = await tx`
+            SELECT c.id FROM table_combinations c
+             WHERE c.tenant_id = ${req.tenantId}
+               AND c.is_active = true
+               AND (SELECT COUNT(*) FROM table_combination_members m
+                     WHERE m.combination_id = c.id) = ${sorted.length}
+               AND (SELECT COUNT(*) FROM table_combination_members m
+                     WHERE m.combination_id = c.id
+                       AND m.table_id = ANY(${sorted}::uuid[])) = ${sorted.length}
+             LIMIT 1
+          `
+
+          if (existing) {
+            comboId = existing.id
+          } else {
+            // Auto-create an ad-hoc combination under the booking's venue
+            const tableRows = await tx`
+              SELECT id, label, min_covers, max_covers, sort_order
+                FROM tables
+               WHERE id = ANY(${sorted}::uuid[]) AND tenant_id = ${req.tenantId}
+               ORDER BY sort_order, label
+            `
+            const [bk] = await tx`SELECT venue_id FROM bookings WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+            if (!bk) throw httpError(404, 'Booking not found')
+
+            const name       = tableRows.map(t => t.label).join(' + ')
+            const minCovers  = Math.min(...tableRows.map(t => t.min_covers))
+            const maxCovers  = tableRows.reduce((s, t) => s + t.max_covers, 0)
+
+            const [newCombo] = await tx`
+              INSERT INTO table_combinations (venue_id, tenant_id, name, min_covers, max_covers)
+              VALUES (${bk.venue_id}, ${req.tenantId}, ${name}, ${minCovers}, ${maxCovers})
+              RETURNING id
+            `
+            // Insert members in DB sort order
+            for (const t of tableRows) {
+              await tx`INSERT INTO table_combination_members (combination_id, table_id) VALUES (${newCombo.id}, ${t.id})`
+            }
+            comboId = newCombo.id
+          }
+
+          // Use first member table as canonical table_id
+          const [first] = await tx`
+            SELECT m.table_id FROM table_combination_members m
+              JOIN tables t ON t.id = m.table_id
+             WHERE m.combination_id = ${comboId}
+             ORDER BY t.sort_order, t.label LIMIT 1
+          `
+          tableId = first.table_id
+        }
+      }
+
+      // ── combination_id with no table_id ──────────────────
       if (comboId && !tableId) {
         const [first] = await tx`
           SELECT m.table_id FROM table_combination_members m
@@ -438,6 +515,7 @@ export default async function bookingsRoutes(app) {
         if (!first) throw httpError(404, 'Combination not found')
         tableId = first.table_id
       }
+
       const [row] = await tx`
         UPDATE bookings
            SET table_id = ${tableId}, combination_id = ${comboId}, updated_at = now()
