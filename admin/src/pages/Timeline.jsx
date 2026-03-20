@@ -7,7 +7,7 @@
 //  - Click booking → detail drawer
 //  - Live WS updates via useRealtimeBookings
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
@@ -41,14 +41,16 @@ function durationToWidth(startIso, endIso) {
 }
 
 // ── Draggable booking card ────────────────────────────────────
-function BookingCard({ booking, onClick, isDragging }) {
+function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
   })
 
   const x = timeToX(booking.starts_at)
-  const w = durationToWidth(booking.starts_at, booking.ends_at)
+  const endsAtMs = resizePreviewMs ?? new Date(booking.ends_at).getTime()
+  const endsAtIso = resizePreviewMs ? new Date(resizePreviewMs).toISOString() : booking.ends_at
+  const w = durationToWidth(booking.starts_at, endsAtIso)
 
   const style = {
     left:      x,
@@ -80,12 +82,21 @@ function BookingCard({ booking, onClick, isDragging }) {
       <p className="text-xs text-gray-600 truncate">
         {booking.covers} covers · {formatTime(booking.starts_at)}
       </p>
+      {/* Resize handle — right edge */}
+      <div
+        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/40 rounded-r"
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          onResizeStart(booking, e.clientX)
+        }}
+      />
     </div>
   )
 }
 
 // ── Droppable table row ───────────────────────────────────────
-function TableRow({ table, bookings, date, onBookingClick, activeId }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id },
@@ -129,6 +140,8 @@ function TableRow({ table, bookings, date, onBookingClick, activeId }) {
             booking={b}
             onClick={onBookingClick}
             isDragging={b.id === activeId}
+            onResizeStart={onResizeStart}
+            resizePreviewMs={b.id === resizeBookingId ? resizePreviewMs : null}
           />
         ))}
       </div>
@@ -167,6 +180,8 @@ export default function Timeline() {
   const [activeId,        setActiveId]      = useState(null)
   const [selected,        setSelected]      = useState(null)
   const [showNew,         setShowNew]       = useState(false)
+  const [resizeState,     setResizeState]   = useState(null)  // { bookingId, startX, originalEndMs, originalStartMs }
+  const [resizePreviewMs, setResizePreviewMs] = useState(null) // ms timestamp for live preview
 
   // ── Data fetching ────────────────────────────────────────
   const { data: venues = [] } = useQuery({
@@ -195,6 +210,56 @@ export default function Timeline() {
     enabled:  !!venueId,
     refetchInterval: 60_000,
   })
+
+  // ── Resize handlers ───────────────────────────────────────
+  const resizeMutation = useMutation({
+    mutationFn: ({ bookingId, endsAt }) =>
+      api.patch(`/bookings/${bookingId}/duration`, { ends_at: endsAt }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
+    },
+  })
+
+  function handleResizeStart(booking, clientX) {
+    setResizeState({
+      bookingId:       booking.id,
+      startX:          clientX,
+      originalEndMs:   new Date(booking.ends_at).getTime(),
+      originalStartMs: new Date(booking.starts_at).getTime(),
+    })
+  }
+
+  useEffect(() => {
+    if (!resizeState) return
+    function handleMove(e) {
+      const deltaPx = e.clientX - resizeState.startX
+      const deltaMs = (deltaPx / HOUR_WIDTH) * 60 * 60 * 1000
+      const rawMs   = resizeState.originalEndMs + deltaMs
+      const minEnd  = resizeState.originalStartMs + 15 * 60 * 1000
+      setResizePreviewMs(
+        Math.round(Math.max(rawMs, minEnd) / (15 * 60 * 1000)) * (15 * 60 * 1000)
+      )
+    }
+    function handleUp(e) {
+      const deltaPx = e.clientX - resizeState.startX
+      const deltaMs = (deltaPx / HOUR_WIDTH) * 60 * 60 * 1000
+      const rawMs   = resizeState.originalEndMs + deltaMs
+      const minEnd  = resizeState.originalStartMs + 15 * 60 * 1000
+      const snapped = Math.round(Math.max(rawMs, minEnd) / (15 * 60 * 1000)) * (15 * 60 * 1000)
+      resizeMutation.mutate({
+        bookingId: resizeState.bookingId,
+        endsAt:    new Date(snapped).toISOString(),
+      })
+      setResizeState(null)
+      setResizePreviewMs(null)
+    }
+    document.addEventListener('pointermove', handleMove)
+    document.addEventListener('pointerup',   handleUp)
+    return () => {
+      document.removeEventListener('pointermove', handleMove)
+      document.removeEventListener('pointerup',   handleUp)
+    }
+  }, [resizeState])
 
   // ── Drag handlers ─────────────────────────────────────────
   const moveMutation = useMutation({
@@ -338,6 +403,9 @@ export default function Timeline() {
                       date={date}
                       onBookingClick={setSelected}
                       activeId={activeId}
+                      onResizeStart={handleResizeStart}
+                      resizeBookingId={resizeState?.bookingId}
+                      resizePreviewMs={resizePreviewMs}
                     />
                   ))}
                 </div>

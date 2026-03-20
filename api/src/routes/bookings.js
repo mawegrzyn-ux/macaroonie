@@ -370,6 +370,87 @@ export default async function bookingsRoutes(app) {
     return updated
   })
 
+  // ── PATCH /bookings/:id/guest ────────────────────────────
+  // Edit guest name, email, phone, covers.
+  app.patch('/:id/guest', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+    const body = z.object({
+      guest_name:  z.string().min(1).max(200).optional(),
+      guest_email: z.string().email().optional(),
+      guest_phone: z.string().max(30).nullable().optional(),
+      covers:      z.coerce.number().int().min(1).optional(),
+    }).parse(req.body)
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [booking] = await withTenant(req.tenantId, tx => tx`
+      UPDATE bookings SET ${tx(body, ...fields)}, updated_at = now()
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      RETURNING *
+    `)
+    if (!booking) throw httpError(404, 'Booking not found')
+    broadcastBooking('booking.updated', booking)
+    return booking
+  })
+
+  // ── PATCH /bookings/:id/duration ──────────────────────────
+  // Admin override: change ends_at (resize from timeline or drawer).
+  app.patch('/:id/duration', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+    const { ends_at } = z.object({ ends_at: z.string().datetime() }).parse(req.body)
+
+    const booking = await withTenant(req.tenantId, async tx => {
+      const [b] = await tx`
+        SELECT starts_at FROM bookings
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      `
+      if (!b) throw httpError(404, 'Booking not found')
+      if (new Date(ends_at) <= new Date(b.starts_at)) throw httpError(422, 'ends_at must be after starts_at')
+      const [row] = await tx`
+        UPDATE bookings SET ends_at = ${ends_at}, updated_at = now()
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+      return row
+    })
+    broadcastBooking('booking.updated', booking)
+    return booking
+  })
+
+  // ── PATCH /bookings/:id/tables ────────────────────────────
+  // Admin override: reassign to a different table or combination.
+  app.patch('/:id/tables', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+    const body = z.object({
+      table_id:       z.string().uuid().optional(),
+      combination_id: z.string().uuid().nullable().optional(),
+    }).refine(d => d.table_id || d.combination_id, 'Either table_id or combination_id required')
+     .parse(req.body)
+
+    const booking = await withTenant(req.tenantId, async tx => {
+      let tableId = body.table_id
+      const comboId = body.combination_id ?? null
+
+      if (comboId && !tableId) {
+        const [first] = await tx`
+          SELECT m.table_id FROM table_combination_members m
+            JOIN tables t ON t.id = m.table_id
+           WHERE m.combination_id = ${comboId}
+           ORDER BY t.sort_order, t.label LIMIT 1
+        `
+        if (!first) throw httpError(404, 'Combination not found')
+        tableId = first.table_id
+      }
+      const [row] = await tx`
+        UPDATE bookings
+           SET table_id = ${tableId}, combination_id = ${comboId}, updated_at = now()
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+      if (!row) throw httpError(404, 'Booking not found')
+      return row
+    })
+    broadcastBooking('booking.updated', booking)
+    return booking
+  })
+
   // ── PATCH /bookings/:id/notes ─────────────────────────────
   app.patch('/:id/notes', async (req) => {
     const { operator_notes } = z.object({
