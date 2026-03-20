@@ -775,14 +775,16 @@ export default async function bookingsRoutes(app) {
                )
       `
 
-      // ── 6. Resolve each conflict — free table or unallocated ─
+      // ── 6. Resolve each conflict — free table, free combo, or unallocated ─
       // usedTableIds tracks all tables committed in this transaction so we
-      // don't move two conflicts to the same table.
+      // don't move two conflicts to the same table or overlapping combinations.
       const usedTableIds = new Set(allocationTableIds)
       const resolutions  = []
 
       for (const conflict of conflicts) {
         const usedArr = [...usedTableIds]
+
+        // 6a. Try smallest free single table that fits
         const [freeTable] = await tx`
           SELECT t.id FROM tables t
            WHERE t.venue_id       = ${booking.venue_id}
@@ -805,9 +807,47 @@ export default async function bookingsRoutes(app) {
         `
         if (freeTable) {
           usedTableIds.add(freeTable.id)
-          resolutions.push({ conflict, newTableId: freeTable.id, unallocated: false })
+          resolutions.push({ conflict, newTableId: freeTable.id, comboId: null, unallocated: false })
+          continue
+        }
+
+        // 6b. No single table — try smallest free combination that fits
+        const [freeCombo] = await tx`
+          SELECT c.id,
+                 (SELECT array_agg(m2.table_id)
+                    FROM table_combination_members m2
+                   WHERE m2.combination_id = c.id) AS member_table_ids
+            FROM table_combinations c
+           WHERE c.tenant_id  = ${req.tenantId}
+             AND c.venue_id   = ${booking.venue_id}
+             AND c.is_active  = true
+             AND c.max_covers >= ${conflict.covers}
+             -- None of the combination's member tables are already claimed
+             AND NOT EXISTS (
+                   SELECT 1 FROM table_combination_members m2
+                    WHERE m2.combination_id = c.id
+                      AND m2.table_id = ANY(${usedArr}::uuid[])
+                 )
+             -- None of the combination's member tables have a conflicting booking
+             AND NOT EXISTS (
+                   SELECT 1 FROM table_combination_members m3
+                    JOIN bookings b2 ON b2.table_id = m3.table_id
+                   WHERE m3.combination_id = c.id
+                     AND b2.tenant_id = ${req.tenantId}
+                     AND b2.status NOT IN ('cancelled', 'no_show')
+                     AND b2.id       != ${conflict.id}
+                     AND b2.starts_at < ${conflict.ends_at}
+                     AND b2.ends_at   > ${conflict.starts_at}
+                 )
+           ORDER BY c.max_covers ASC
+           LIMIT 1
+        `
+        if (freeCombo) {
+          for (const tid of freeCombo.member_table_ids) usedTableIds.add(tid)
+          resolutions.push({ conflict, newTableId: null, comboId: freeCombo.id, unallocated: false })
         } else {
-          resolutions.push({ conflict, newTableId: null, unallocated: true })
+          // 6c. No table or combo available — send to Unallocated
+          resolutions.push({ conflict, newTableId: null, comboId: null, unallocated: true })
         }
       }
 
@@ -839,12 +879,31 @@ export default async function bookingsRoutes(app) {
 
       // ── 8. Execute all moves ─────────────────────────────────
       const displaced = []
-      for (const { conflict, newTableId, unallocated } of resolutions) {
-        const destTableId = unallocated ? unallocatedTableId : newTableId
+      for (const { conflict, newTableId, comboId, unallocated } of resolutions) {
+        let destTableId, destComboId
+
+        if (unallocated) {
+          destTableId = unallocatedTableId
+          destComboId = null
+        } else if (comboId) {
+          // Resolve canonical table_id for the destination combination
+          const [firstMember] = await tx`
+            SELECT m.table_id FROM table_combination_members m
+              JOIN tables t ON t.id = m.table_id
+             WHERE m.combination_id = ${comboId}
+             ORDER BY t.sort_order, t.label LIMIT 1
+          `
+          destTableId = firstMember.table_id
+          destComboId = comboId
+        } else {
+          destTableId = newTableId
+          destComboId = null
+        }
+
         const [updated] = await tx`
           UPDATE bookings
              SET table_id       = ${destTableId},
-                 combination_id = NULL,
+                 combination_id = ${destComboId},
                  updated_at     = now()
            WHERE id        = ${conflict.id}
              AND tenant_id = ${req.tenantId}

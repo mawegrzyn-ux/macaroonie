@@ -6,6 +6,9 @@
 //  - Drag to new slot or new table → PATCH booking (admin override)
 //  - Click booking → detail drawer
 //  - Live WS updates via useRealtimeBookings
+//
+// B1: Grey background strips on fully-unavailable slots (covers=1 overlay)
+// B2: Inline "Confirm" button on unconfirmed cards when enable_unconfirmed_flow is on
 
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -43,7 +46,8 @@ function durationToWidth(startIso, endIso) {
 // ── Draggable booking card ────────────────────────────────────
 // spanRows: 1 = normal single-row card
 //           N = spans N consecutive table rows (height multiplied)
-function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1 }) {
+// enableUnconfirmedFlow: show Confirm button when status === 'unconfirmed'
+function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
@@ -62,6 +66,8 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
     // Z-order: dragging > spanning > normal. Must be above row borders (z=0) but below sticky labels (z=10).
     zIndex: isDragging ? 20 : spanRows > 1 ? 5 : 1,
   }
+
+  const showConfirmBtn = enableUnconfirmedFlow && booking.status === 'unconfirmed'
 
   return (
     <div
@@ -85,6 +91,18 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
       <p className="text-xs text-gray-600 truncate">
         {booking.covers} covers · {formatTime(booking.starts_at)}
       </p>
+
+      {/* B2: Quick-confirm button — only visible when unconfirmed flow is enabled */}
+      {showConfirmBtn && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onConfirm(booking.id) }}
+          className="mt-0.5 text-[9px] px-1.5 py-0.5 rounded bg-amber-500 hover:bg-amber-600
+            text-white font-semibold leading-none touch-manipulation transition-colors"
+        >
+          Confirm ✓
+        </button>
+      )}
+
       {/* Resize handle — right edge */}
       <div
         className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/40 rounded-r"
@@ -104,9 +122,11 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //   spanRows === 0 → this row is "secondary" (covered by a spanning card above); skip
 //   undefined     → normal single-table booking; render normally
 //
+// unavailableStrips: { x: number, width: number }[] — grey background bands
+//
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, unavailableStrips = [], enableUnconfirmedFlow = false, onConfirm }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -162,6 +182,15 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         }}
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
+        {/* B1: Unavailable slot strips — grey background behind bookings */}
+        {unavailableStrips.map(({ x, width }, i) => (
+          <div
+            key={i}
+            className="absolute top-0 bottom-0 bg-zinc-100 pointer-events-none"
+            style={{ left: Math.max(0, x), width, zIndex: 0 }}
+          />
+        ))}
+
         {/* Hour grid lines */}
         {gridLines.map(i => (
           <div
@@ -186,6 +215,8 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
               onResizeStart={onResizeStart}
               resizePreviewMs={b.id === resizeBookingId ? resizePreviewMs : null}
               spanRows={spanRows}
+              enableUnconfirmedFlow={enableUnconfirmedFlow}
+              onConfirm={onConfirm}
             />
           )
         })}
@@ -262,6 +293,36 @@ export default function Timeline() {
     enabled:  !!venueId,
     refetchInterval: 60_000,
   })
+
+  // B1: Slot availability overlay — grey strips for fully-unavailable slots
+  const { data: slotsOverlay } = useQuery({
+    queryKey: ['slots-overlay', venueId, date],
+    queryFn:  () => api.get(`/venues/${venueId}/slots?date=${date}&covers=1`),
+    enabled:  !!venueId,
+  })
+
+  // B2: Booking rules — check enable_unconfirmed_flow
+  const { data: rulesData } = useQuery({
+    queryKey: ['rules', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/rules`),
+    enabled:  !!venueId,
+  })
+  const enableUnconfirmedFlow = rulesData?.enable_unconfirmed_flow ?? false
+
+  // B1: Compute grey strip positions from unavailable slots
+  // Infer interval from the gap between the first two consecutive slots.
+  const unavailableStrips = useMemo(() => {
+    const slots = slotsOverlay?.slots ?? []
+    if (slots.length < 2) return []
+    const intervalMs = new Date(slots[1].slot_time) - new Date(slots[0].slot_time)
+    const intervalPx = (intervalMs / 3_600_000) * HOUR_WIDTH
+    return slots
+      .filter(s => !s.available)
+      .map(s => ({
+        x:     timeToX(s.slot_time),
+        width: intervalPx,
+      }))
+  }, [slotsOverlay])
 
   // ── Resize handlers ───────────────────────────────────────
   const resizeMutation = useMutation({
@@ -356,6 +417,15 @@ export default function Timeline() {
       const msg = err?.response?.data?.message ?? err?.message ?? 'Could not relocate booking'
       setRelocateError(msg)
       // Also refresh to make sure the UI is in sync with server state
+      queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
+    },
+  })
+
+  // B2: Quick-confirm unconfirmed booking
+  const confirmStatusMutation = useMutation({
+    mutationFn: (bookingId) =>
+      api.patch(`/bookings/${bookingId}/status`, { status: 'confirmed' }),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
     },
   })
@@ -618,6 +688,8 @@ export default function Timeline() {
                     resizePreviewMs={resizePreviewMs}
                     comboSpanMap={comboSpanMap}
                     isUnallocated={true}
+                    enableUnconfirmedFlow={enableUnconfirmedFlow}
+                    onConfirm={confirmStatusMutation.mutate}
                   />
                 </div>
               )}
@@ -644,6 +716,9 @@ export default function Timeline() {
                       resizePreviewMs={resizePreviewMs}
                       comboSpanMap={comboSpanMap}
                       onCanvasClick={handleCanvasClick}
+                      unavailableStrips={unavailableStrips}
+                      enableUnconfirmedFlow={enableUnconfirmedFlow}
+                      onConfirm={confirmStatusMutation.mutate}
                     />
                   ))}
                 </div>

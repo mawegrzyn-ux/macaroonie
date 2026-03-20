@@ -525,7 +525,402 @@ export default function Schedule() {
             ))}
           </div>
         )}
+
+        {venueId && (
+          <>
+            <hr className="my-6" />
+            <ExceptionsSection venueId={venueId} />
+          </>
+        )}
       </div>
+    </div>
+  )
+}
+
+// ── ExceptionsSection ─────────────────────────────────────────
+// Shows all schedule exceptions for the venue with CRUD.
+function ExceptionsSection({ venueId }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+
+  const { data: exceptions = [], isLoading } = useQuery({
+    queryKey: ['exceptions', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/schedule/exceptions`),
+    enabled:  !!venueId,
+  })
+
+  const [showCreate, setShowCreate]     = useState(false)
+  const [createData, setCreateData]     = useState({
+    name:      '',
+    date_from: '',
+    date_to:   '',
+    is_closed: true,
+  })
+
+  const createMutation = useMutation({
+    mutationFn: () => api.post(`/venues/${venueId}/schedule/exceptions`, createData),
+    onSuccess: () => {
+      qc.invalidateQueries(['exceptions', venueId])
+      setShowCreate(false)
+      setCreateData({ name: '', date_from: '', date_to: '', is_closed: true })
+    },
+  })
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Schedule exceptions</h2>
+        {!showCreate && (
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded-md"
+          >
+            <Plus className="w-3.5 h-3.5" /> New exception
+          </button>
+        )}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Exceptions override the weekly schedule for a date range — either close the venue or run alternative hours.
+      </p>
+
+      {showCreate && (
+        <div className="border rounded-lg p-4 space-y-3 bg-muted/20">
+          <p className="text-xs font-semibold">New exception</p>
+          <div className="space-y-2">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-0.5">Name</label>
+              <input
+                type="text" placeholder="e.g. Christmas 2025, Summer hours…"
+                value={createData.name}
+                onChange={e => setCreateData(p => ({ ...p, name: e.target.value }))}
+                className="w-full text-sm border rounded px-2 py-1.5"
+              />
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="text-xs text-muted-foreground block mb-0.5">From</label>
+                <input type="date" value={createData.date_from}
+                  onChange={e => setCreateData(p => ({ ...p, date_from: e.target.value, date_to: p.date_to || e.target.value }))}
+                  className="w-full text-sm border rounded px-2 py-1.5" />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs text-muted-foreground block mb-0.5">To</label>
+                <input type="date" value={createData.date_to}
+                  onChange={e => setCreateData(p => ({ ...p, date_to: e.target.value }))}
+                  min={createData.date_from}
+                  className="w-full text-sm border rounded px-2 py-1.5" />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input type="radio" checked={createData.is_closed}
+                  onChange={() => setCreateData(p => ({ ...p, is_closed: true }))} />
+                Closed
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer text-sm">
+                <input type="radio" checked={!createData.is_closed}
+                  onChange={() => setCreateData(p => ({ ...p, is_closed: false }))} />
+                Alternative schedule
+              </label>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => createMutation.mutate()}
+              disabled={!createData.name || !createData.date_from || !createData.date_to || createMutation.isPending}
+              className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded disabled:opacity-50"
+            >
+              {createMutation.isPending ? 'Creating…' : 'Create'}
+            </button>
+            <button onClick={() => setShowCreate(false)} className="text-xs px-3 py-1.5 border rounded">Cancel</button>
+            {createMutation.isError && (
+              <span className="text-xs text-destructive self-center">
+                {createMutation.error?.message ?? 'Failed to create'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
+
+      <div className="space-y-2">
+        {exceptions.map(exc => (
+          <ExceptionCard key={exc.id} exc={exc} venueId={venueId} />
+        ))}
+        {!isLoading && exceptions.length === 0 && !showCreate && (
+          <p className="text-xs text-muted-foreground italic">No exceptions configured.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ExceptionCard({ exc, venueId }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [expanded, setExpanded] = useState(false)
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/venues/${venueId}/schedule/exceptions/${exc.id}`),
+    onSuccess:  () => qc.invalidateQueries(['exceptions', venueId]),
+  })
+
+  const fmtDate = (d) => {
+    if (!d) return ''
+    const [y, m, day] = d.split('-')
+    return `${day}/${m}/${y}`
+  }
+
+  const isSingleDay = exc.date_from === exc.date_to
+  const dateLabel = isSingleDay ? fmtDate(exc.date_from) : `${fmtDate(exc.date_from)} – ${fmtDate(exc.date_to)}`
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-2.5 bg-background">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className={cn(
+            'shrink-0 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded',
+            exc.is_closed
+              ? 'bg-red-100 text-red-700'
+              : 'bg-blue-100 text-blue-700',
+          )}>
+            {exc.is_closed ? 'Closed' : 'Alt schedule'}
+          </span>
+          <span className="text-sm font-medium truncate">{exc.name}</span>
+          <span className="text-xs text-muted-foreground shrink-0">{dateLabel}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!exc.is_closed && (
+            <button
+              onClick={() => setExpanded(v => !v)}
+              className="text-xs px-2.5 py-1 border rounded hover:bg-muted"
+            >
+              {expanded ? 'Done' : 'Configure'}
+            </button>
+          )}
+          <button
+            onClick={() => { if (confirm(`Delete "${exc.name}"?`)) deleteMutation.mutate() }}
+            disabled={deleteMutation.isPending}
+            className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {expanded && !exc.is_closed && (
+        <div className="border-t bg-muted/10 p-3 space-y-2">
+          <p className="text-xs text-muted-foreground mb-2">
+            Configure hours per day of week for this exception period. Days with no configuration use the base weekly schedule.
+          </p>
+          {[1,2,3,4,5,6,0].map(dow => (
+            <ExceptionDayCard
+              key={dow}
+              exc={exc}
+              dow={dow}
+              template={exc.day_templates?.find(t => t.day_of_week === dow) ?? null}
+              venueId={venueId}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ExceptionDayCard({ exc, dow, template, venueId }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [addingSitting,    setAddingSitting]    = useState(false)
+  const [editingSittingId, setEditingSittingId] = useState(null)
+  const [editData,         setEditData]         = useState({})
+  const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '' })
+
+  const isOpen = template?.is_open ?? false
+  const eid = exc.id
+
+  const toggleMutation = useMutation({
+    mutationFn: () => api.put(`/venues/${venueId}/schedule/exceptions/${eid}/template/${dow}`, {
+      is_open:            !isOpen,
+      slot_interval_mins: template?.slot_interval_mins ?? 15,
+    }),
+    onSuccess: () => qc.invalidateQueries(['exceptions', venueId]),
+  })
+
+  const addSittingMutation = useMutation({
+    mutationFn: () => api.post(`/venues/${venueId}/schedule/exceptions/${eid}/template/${dow}/sittings`, {
+      ...newSitting,
+      default_max_covers: newSitting.default_max_covers === '' ? null : Number(newSitting.default_max_covers),
+      doors_close_time:   newSitting.doors_close_time || null,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries(['exceptions', venueId])
+      setAddingSitting(false)
+      setNewSitting({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '' })
+    },
+  })
+
+  const editSittingMutation = useMutation({
+    mutationFn: ({ id, data }) => api.patch(`/venues/${venueId}/schedule/exceptions/${eid}/sittings/${id}`, data),
+    onSuccess: () => { qc.invalidateQueries(['exceptions', venueId]); setEditingSittingId(null) },
+  })
+
+  const deleteSittingMutation = useMutation({
+    mutationFn: (sid) => api.delete(`/venues/${venueId}/schedule/exceptions/${eid}/sittings/${sid}`),
+    onSuccess:  () => qc.invalidateQueries(['exceptions', venueId]),
+  })
+
+  function startEdit(sitting) {
+    setEditData({
+      opens_at:           String(sitting.opens_at).slice(0, 5),
+      closes_at:          String(sitting.closes_at).slice(0, 5),
+      default_max_covers: sitting.default_max_covers ?? '',
+      doors_close_time:   sitting.doors_close_time ? String(sitting.doors_close_time).slice(0, 5) : '',
+    })
+    setEditingSittingId(sitting.id)
+  }
+
+  function saveEdit(sitting) {
+    editSittingMutation.mutate({
+      id:   sitting.id,
+      data: {
+        opens_at:           editData.opens_at,
+        closes_at:          editData.closes_at,
+        default_max_covers: editData.default_max_covers === '' ? null : Number(editData.default_max_covers),
+        doors_close_time:   editData.doors_close_time || null,
+      },
+    })
+  }
+
+  return (
+    <div className={cn('border rounded-md overflow-hidden', !template && 'opacity-60')}>
+      <div className="flex items-center justify-between px-3 py-2 bg-background">
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => toggleMutation.mutate()}
+            className={cn(
+              'relative w-9 h-5 rounded-full transition-colors overflow-hidden shrink-0',
+              isOpen ? 'bg-primary' : 'bg-gray-300'
+            )}
+          >
+            <span className={cn(
+              'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
+              isOpen ? 'translate-x-4' : 'translate-x-0'
+            )} />
+          </button>
+          <span className="text-sm font-medium">{DAYS[dow]}</span>
+          {!template && <span className="text-xs text-muted-foreground italic">uses base schedule</span>}
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="p-2 space-y-1.5 border-t bg-muted/10">
+          {(template?.sittings ?? []).map(sitting => (
+            <div key={sitting.id} className="border rounded bg-background overflow-hidden">
+              {editingSittingId === sitting.id ? (
+                <div className="px-2 py-2 space-y-2">
+                  <div className="flex flex-wrap gap-2 items-end">
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Opens</label>
+                      <input type="time" step="900" value={editData.opens_at}
+                        onChange={e => setEditData(p => ({ ...p, opens_at: e.target.value }))}
+                        className="text-sm border rounded px-2 py-1" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Last order</label>
+                      <input type="time" step="900" value={editData.closes_at}
+                        onChange={e => setEditData(p => ({ ...p, closes_at: e.target.value }))}
+                        className="text-sm border rounded px-2 py-1" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Doors close</label>
+                      <input type="time" step="900" value={editData.doors_close_time}
+                        onChange={e => setEditData(p => ({ ...p, doors_close_time: e.target.value }))}
+                        className="text-sm border rounded px-2 py-1" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Max covers</label>
+                      <input type="number" placeholder="Unlimited" value={editData.default_max_covers}
+                        onChange={e => setEditData(p => ({ ...p, default_max_covers: e.target.value }))}
+                        className="text-sm border rounded px-2 py-1 w-24" />
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button onClick={() => saveEdit(sitting)} disabled={editSittingMutation.isPending}
+                      className="text-xs px-2.5 py-1 bg-primary text-primary-foreground rounded disabled:opacity-50">
+                      {editSittingMutation.isPending ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => setEditingSittingId(null)} className="text-xs px-2.5 py-1 border rounded">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between px-2 py-1.5">
+                  <div className="text-sm">
+                    <span className="font-medium">{String(sitting.opens_at).slice(0, 5)} – {String(sitting.closes_at).slice(0, 5)}</span>
+                    <span className="text-xs text-muted-foreground ml-2">
+                      {sitting.default_max_covers != null ? `${sitting.default_max_covers} covers` : 'no cap'}
+                      {sitting.doors_close_time && <span className="ml-1.5 text-orange-600">doors {String(sitting.doors_close_time).slice(0, 5)}</span>}
+                    </span>
+                  </div>
+                  <div className="flex gap-0.5">
+                    <button onClick={() => startEdit(sitting)} className="p-1 rounded hover:bg-muted text-muted-foreground">
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button onClick={() => deleteSittingMutation.mutate(sitting.id)} className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {addingSitting ? (
+            <div className="border rounded bg-background p-2 space-y-2">
+              <div className="flex flex-wrap gap-2 items-end">
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-0.5">Opens</label>
+                  <input type="time" value={newSitting.opens_at}
+                    onChange={e => setNewSitting(p => ({ ...p, opens_at: e.target.value }))}
+                    className="text-sm border rounded px-2 py-1" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-0.5">Last order</label>
+                  <input type="time" value={newSitting.closes_at}
+                    onChange={e => setNewSitting(p => ({ ...p, closes_at: e.target.value }))}
+                    className="text-sm border rounded px-2 py-1" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-0.5">Doors close</label>
+                  <input type="time" value={newSitting.doors_close_time}
+                    onChange={e => setNewSitting(p => ({ ...p, doors_close_time: e.target.value }))}
+                    className="text-sm border rounded px-2 py-1" />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-0.5">Max covers</label>
+                  <input type="number" placeholder="Unlimited" value={newSitting.default_max_covers}
+                    onChange={e => setNewSitting(p => ({ ...p, default_max_covers: e.target.value }))}
+                    className="text-sm border rounded px-2 py-1 w-24" />
+                </div>
+              </div>
+              <div className="flex gap-1.5">
+                <button onClick={() => addSittingMutation.mutate()} disabled={addSittingMutation.isPending}
+                  className="text-xs px-2.5 py-1 bg-primary text-primary-foreground rounded disabled:opacity-50">
+                  {addSittingMutation.isPending ? 'Adding…' : 'Add'}
+                </button>
+                <button onClick={() => setAddingSitting(false)} className="text-xs px-2.5 py-1 border rounded">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAddingSitting(true)}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground mt-0.5">
+              <Plus className="w-3 h-3" /> Add sitting
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

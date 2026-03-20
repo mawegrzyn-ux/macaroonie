@@ -192,26 +192,52 @@ export default async function slotsRoutes(app) {
       const allowPastDoors = doorRule?.allow_widget_bookings_after_doors_close ?? false
 
       if (!allowPastDoors) {
-        // Load sittings for this specific date — check for a date override first,
-        // then fall back to the weekly template.
         const dayOfWeek = new Date(date).getDay() // 0=Sun, 6=Sat
+        let sittings = []
 
-        const [override] = await withTenant(venue.tenant_id, tx => tx`
-          SELECT id FROM schedule_date_overrides
-           WHERE venue_id      = ${venue.id}
-             AND override_date = ${date}::date
-             AND is_open       = true
-          LIMIT 1
+        // Mirror the same priority chain the PG slot resolver uses:
+        // 1. schedule_exceptions  2. date overrides  3. weekly template
+
+        const [exception] = await withTenant(venue.tenant_id, tx => tx`
+          SELECT id, is_closed FROM schedule_exceptions
+           WHERE venue_id = ${venue.id}
+             AND ${date}::date BETWEEN date_from AND date_to
+           ORDER BY priority DESC, (date_to - date_from) ASC
+           LIMIT 1
         `)
 
-        let sittings
-        if (override) {
-          sittings = await withTenant(venue.tenant_id, tx => tx`
-            SELECT opens_at, closes_at, doors_close_time
-              FROM override_sittings
-             WHERE override_id = ${override.id}
+        if (exception && !exception.is_closed) {
+          const [excTemplate] = await withTenant(venue.tenant_id, tx => tx`
+            SELECT id FROM exception_day_templates
+             WHERE exception_id = ${exception.id}
+               AND day_of_week  = ${dayOfWeek}
+               AND is_open      = true
           `)
-        } else {
+          if (excTemplate) {
+            sittings = await withTenant(venue.tenant_id, tx => tx`
+              SELECT opens_at, closes_at, doors_close_time
+                FROM exception_sittings WHERE template_id = ${excTemplate.id}
+            `)
+          }
+        }
+
+        if (sittings.length === 0) {
+          const [override] = await withTenant(venue.tenant_id, tx => tx`
+            SELECT id FROM schedule_date_overrides
+             WHERE venue_id      = ${venue.id}
+               AND override_date = ${date}::date
+               AND is_open       = true
+             LIMIT 1
+          `)
+          if (override) {
+            sittings = await withTenant(venue.tenant_id, tx => tx`
+              SELECT opens_at, closes_at, doors_close_time
+                FROM override_sittings WHERE override_id = ${override.id}
+            `)
+          }
+        }
+
+        if (sittings.length === 0) {
           sittings = await withTenant(venue.tenant_id, tx => tx`
             SELECT s.opens_at, s.closes_at, s.doors_close_time
               FROM venue_sittings s
@@ -221,24 +247,19 @@ export default async function slotsRoutes(app) {
           `)
         }
 
-        // Only bother filtering when at least one sitting has a doors_close_time set
         if (sittings.some(s => s.doors_close_time)) {
           filtered = enriched.filter(slot => {
             const d = new Date(slot.slot_time)
             const slotHHMM = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
 
-            // Find the sitting this slot falls within
             const sitting = sittings.find(s => {
               const opHHMM = String(s.opens_at).slice(0, 5)
               const clHHMM = String(s.closes_at).slice(0, 5)
               return slotHHMM >= opHHMM && slotHHMM < clHHMM
             })
 
-            // No sitting match or no doors_close_time → keep
             if (!sitting?.doors_close_time) return true
-
-            const doorsHHMM = String(sitting.doors_close_time).slice(0, 5)
-            return slotHHMM < doorsHHMM
+            return slotHHMM < String(sitting.doors_close_time).slice(0, 5)
           })
         }
       }

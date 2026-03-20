@@ -10,6 +10,17 @@
 // POST     /venues/:id/schedule/overrides/:oid/sittings
 // PATCH    /venues/:id/schedule/overrides/sittings/:sid
 // PUT      /venues/:id/schedule/overrides/sittings/:sid/caps
+//
+// Schedule exceptions (named periods — closed or alternative schedule):
+// GET    /venues/:id/schedule/exceptions
+// POST   /venues/:id/schedule/exceptions
+// PATCH  /venues/:id/schedule/exceptions/:eid
+// DELETE /venues/:id/schedule/exceptions/:eid
+// PUT    /venues/:id/schedule/exceptions/:eid/template/:dow   (upsert DOW template)
+// POST   /venues/:id/schedule/exceptions/:eid/template/:dow/sittings
+// PATCH  /venues/:id/schedule/exceptions/:eid/sittings/:sid
+// DELETE /venues/:id/schedule/exceptions/:eid/sittings/:sid
+// PUT    /venues/:id/schedule/exceptions/:eid/sittings/:sid/caps
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -43,6 +54,19 @@ const OverrideBody = z.object({
   is_open:            z.boolean().default(true),
   slot_interval_mins: z.union([z.literal(15), z.literal(30), z.literal(60)]).nullable().optional(),
   label:              z.string().max(200).nullable().optional(),
+})
+
+const ExceptionBody = z.object({
+  name:       z.string().min(1).max(200),
+  date_from:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date_to:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  is_closed:  z.boolean().default(false),
+  priority:   z.number().int().min(0).default(0),
+})
+
+const ExceptionDayTemplateBody = z.object({
+  is_open:            z.boolean().default(true),
+  slot_interval_mins: z.union([z.literal(15), z.literal(30), z.literal(60)]).default(15),
 })
 
 export default async function schedulesRoutes(app) {
@@ -434,6 +458,227 @@ export default async function schedulesRoutes(app) {
       SELECT slot_time, max_covers FROM override_slot_caps
        WHERE sitting_id = ${sid}
        ORDER BY slot_time
+    `)
+  })
+
+  // ══════════════════════════════════════════════════════════
+  // ── Schedule exceptions ──────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET /venues/:venueId/schedule/exceptions ──────────────
+  // Returns all exceptions fully nested: day_templates → sittings → caps.
+  app.get('/:venueId/schedule/exceptions', async (req) => {
+    return withTenant(req.tenantId, async tx => {
+      return tx`
+        SELECT e.*,
+               COALESCE(json_agg(
+                 json_build_object(
+                   'id',                 t.id,
+                   'day_of_week',        t.day_of_week,
+                   'is_open',            t.is_open,
+                   'slot_interval_mins', t.slot_interval_mins,
+                   'sittings', (
+                     SELECT COALESCE(json_agg(
+                       json_build_object(
+                         'id',                 s.id,
+                         'opens_at',           s.opens_at,
+                         'closes_at',          s.closes_at,
+                         'default_max_covers', s.default_max_covers,
+                         'doors_close_time',   s.doors_close_time,
+                         'sort_order',         s.sort_order,
+                         'caps', (
+                           SELECT COALESCE(json_agg(
+                             json_build_object('slot_time', c.slot_time, 'max_covers', c.max_covers)
+                             ORDER BY c.slot_time
+                           ), '[]')
+                           FROM exception_sitting_slot_caps c WHERE c.sitting_id = s.id
+                         )
+                       ) ORDER BY s.sort_order, s.opens_at
+                     ), '[]')
+                     FROM exception_sittings s WHERE s.template_id = t.id
+                   )
+                 ) ORDER BY t.day_of_week
+               ) FILTER (WHERE t.id IS NOT NULL), '[]') AS day_templates
+          FROM schedule_exceptions e
+          LEFT JOIN exception_day_templates t ON t.exception_id = e.id
+         WHERE e.venue_id   = ${req.params.venueId}
+           AND e.tenant_id  = ${req.tenantId}
+         GROUP BY e.id
+         ORDER BY e.date_from, e.priority DESC
+      `
+    })
+  })
+
+  // ── POST /venues/:venueId/schedule/exceptions ─────────────
+  app.post('/:venueId/schedule/exceptions', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const body = ExceptionBody.parse(req.body)
+    if (body.date_to < body.date_from) throw httpError(422, 'date_to must be on or after date_from')
+
+    const [exc] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO schedule_exceptions
+        (venue_id, tenant_id, name, date_from, date_to, is_closed, priority)
+      VALUES
+        (${req.params.venueId}, ${req.tenantId},
+         ${body.name}, ${body.date_from}, ${body.date_to}, ${body.is_closed}, ${body.priority})
+      RETURNING *
+    `)
+    return reply.code(201).send({ ...exc, day_templates: [] })
+  })
+
+  // ── PATCH /venues/:venueId/schedule/exceptions/:eid ───────
+  app.patch('/:venueId/schedule/exceptions/:eid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = ExceptionBody.partial().parse(req.body)
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE schedule_exceptions
+         SET ${tx(body, ...fields)}, updated_at = now()
+       WHERE id        = ${req.params.eid}
+         AND venue_id  = ${req.params.venueId}
+         AND tenant_id = ${req.tenantId}
+      RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Exception not found')
+    return row
+  })
+
+  // ── DELETE /venues/:venueId/schedule/exceptions/:eid ──────
+  app.delete('/:venueId/schedule/exceptions/:eid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM schedule_exceptions
+       WHERE id        = ${req.params.eid}
+         AND venue_id  = ${req.params.venueId}
+         AND tenant_id = ${req.tenantId}
+      RETURNING id
+    `)
+    if (!row) throw httpError(404, 'Exception not found')
+    return { ok: true }
+  })
+
+  // ── PUT /venues/:venueId/schedule/exceptions/:eid/template/:dow ─
+  // Upsert a DOW template within an alternative-schedule exception.
+  app.put('/:venueId/schedule/exceptions/:eid/template/:dow', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { venueId, eid } = req.params
+    const dow  = DOW.parse(req.params.dow)
+    const body = ExceptionDayTemplateBody.parse(req.body)
+
+    const [exc] = await withTenant(req.tenantId, tx => tx`
+      SELECT id FROM schedule_exceptions
+       WHERE id = ${eid} AND venue_id = ${venueId} AND tenant_id = ${req.tenantId}
+    `)
+    if (!exc) throw httpError(404, 'Exception not found')
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO exception_day_templates
+        (exception_id, venue_id, tenant_id, day_of_week, is_open, slot_interval_mins)
+      VALUES
+        (${eid}, ${venueId}, ${req.tenantId}, ${dow}, ${body.is_open}, ${body.slot_interval_mins})
+      ON CONFLICT (exception_id, day_of_week) DO UPDATE
+         SET is_open            = EXCLUDED.is_open,
+             slot_interval_mins = EXCLUDED.slot_interval_mins
+      RETURNING *
+    `)
+    return { ...row, sittings: [] }
+  })
+
+  // ── POST /venues/:venueId/schedule/exceptions/:eid/template/:dow/sittings ─
+  app.post('/:venueId/schedule/exceptions/:eid/template/:dow/sittings', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const { venueId, eid } = req.params
+    const dow  = DOW.parse(req.params.dow)
+    const body = SittingBody.parse(req.body)
+
+    const [sitting] = await withTenant(req.tenantId, async tx => {
+      const [tmpl] = await tx`
+        SELECT id FROM exception_day_templates
+         WHERE exception_id = ${eid}
+           AND day_of_week  = ${dow}
+           AND venue_id     = ${venueId}
+           AND tenant_id    = ${req.tenantId}
+      `
+      if (!tmpl) throw httpError(404, 'DOW template not found — PUT the template first')
+
+      return tx`
+        INSERT INTO exception_sittings
+          (template_id, venue_id, tenant_id, opens_at, closes_at,
+           default_max_covers, sort_order, doors_close_time)
+        VALUES
+          (${tmpl.id}, ${venueId}, ${req.tenantId},
+           ${body.opens_at}, ${body.closes_at},
+           ${body.default_max_covers}, ${body.sort_order}, ${body.doors_close_time ?? null})
+        RETURNING *
+      `
+    })
+    return reply.code(201).send(sitting)
+  })
+
+  // ── PATCH /venues/:venueId/schedule/exceptions/:eid/sittings/:sid ─
+  app.patch('/:venueId/schedule/exceptions/:eid/sittings/:sid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body   = SittingBody.partial().parse(req.body)
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE exception_sittings
+         SET ${tx(body, ...fields)}, updated_at = now()
+       WHERE id         = ${req.params.sid}
+         AND venue_id   = ${req.params.venueId}
+         AND tenant_id  = ${req.tenantId}
+         AND template_id IN (
+               SELECT id FROM exception_day_templates WHERE exception_id = ${req.params.eid}
+             )
+      RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Sitting not found')
+    return row
+  })
+
+  // ── DELETE /venues/:venueId/schedule/exceptions/:eid/sittings/:sid ─
+  app.delete('/:venueId/schedule/exceptions/:eid/sittings/:sid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM exception_sittings
+       WHERE id         = ${req.params.sid}
+         AND venue_id   = ${req.params.venueId}
+         AND tenant_id  = ${req.tenantId}
+         AND template_id IN (
+               SELECT id FROM exception_day_templates WHERE exception_id = ${req.params.eid}
+             )
+      RETURNING id
+    `)
+    if (!row) throw httpError(404, 'Sitting not found')
+    return { ok: true }
+  })
+
+  // ── PUT /venues/:venueId/schedule/exceptions/:eid/sittings/:sid/caps ─
+  app.put('/:venueId/schedule/exceptions/:eid/sittings/:sid/caps', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const caps = CapsBody.parse(req.body)
+    const { sid, venueId, eid } = req.params
+
+    await withTenant(req.tenantId, async tx => {
+      const [sitting] = await tx`
+        SELECT s.id FROM exception_sittings s
+         WHERE s.id         = ${sid}
+           AND s.venue_id   = ${venueId}
+           AND s.tenant_id  = ${req.tenantId}
+           AND s.template_id IN (
+                 SELECT id FROM exception_day_templates WHERE exception_id = ${eid}
+               )
+      `
+      if (!sitting) throw httpError(404, 'Sitting not found')
+
+      await tx`DELETE FROM exception_sitting_slot_caps WHERE sitting_id = ${sid}`
+
+      if (caps.length > 0) {
+        await tx`INSERT INTO exception_sitting_slot_caps ${tx(caps.map(c => ({
+          sitting_id: sid, venue_id: venueId, tenant_id: req.tenantId,
+          slot_time: c.slot_time, max_covers: c.max_covers,
+        })))}`
+      }
+    })
+
+    return withTenant(req.tenantId, tx => tx`
+      SELECT slot_time, max_covers FROM exception_sitting_slot_caps
+       WHERE sitting_id = ${sid} ORDER BY slot_time
     `)
   })
 }

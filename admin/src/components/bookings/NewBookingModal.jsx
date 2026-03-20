@@ -1,15 +1,26 @@
 // src/components/bookings/NewBookingModal.jsx
 // Admin creates a booking on behalf of a guest.
 // Flow: pick table + slot → fill guest details → confirm (bypasses payment for admin)
+//
+// Touch-optimised:
+//  A1. Date rendered as a prominent button (overlay trick) — taps open OS date picker
+//  A2. Covers buttons are 48px (finger-sized) with `touch-manipulation`
+//  A3. Phone field uses type="tel" / inputMode="tel" for numeric keypad on tablets
+//  A4. Covers in guest form: +/− stepper; tapping the value shows a custom numeric
+//      keypad popup (touch devices only, inputMode="none" suppresses native keyboard)
 
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, ChevronRight } from 'lucide-react'
+import { X, ChevronRight, Calendar } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime } from '@/lib/utils'
+
+// Detect touch-capable device (tablet / phone) once at module load.
+// navigator.maxTouchPoints > 0 is true on every iOS/Android device.
+const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 const GuestSchema = z.object({
   guest_name:  z.string().min(1, 'Required'),
@@ -40,10 +51,11 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     autoSelectedRef.current = false
   }
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm({
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm({
     resolver: zodResolver(GuestSchema),
     defaultValues: { covers },
   })
+  const formCovers = watch('covers') ?? covers
 
   // Sync covers into guest form whenever step changes to 'guest'
   useEffect(() => {
@@ -141,12 +153,21 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
           <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
             <div>
               <p className="font-semibold">New booking</p>
-              <input
-                type="date"
-                value={bookingDate}
-                onChange={e => handleDateChange(e.target.value)}
-                className="text-xs text-muted-foreground border-0 p-0 bg-transparent focus:outline-none focus:ring-0 cursor-pointer"
-              />
+
+              {/* A1: Date as a prominent, finger-sized button.
+                  An invisible <input type="date"> overlays the styled label so the
+                  OS date picker opens on tap (iOS/Android) and on desktop click. */}
+              <label className="relative mt-1 inline-flex items-center gap-2 px-3 py-2
+                rounded-lg border border-border hover:bg-accent transition-colors cursor-pointer">
+                <Calendar className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-sm font-medium">{bookingDate}</span>
+                <input
+                  type="date"
+                  value={bookingDate}
+                  onChange={e => handleDateChange(e.target.value)}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              </label>
             </div>
             <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
               <X className="w-4 h-4" />
@@ -187,19 +208,19 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                   </div>
                 )}
 
-                {/* Covers */}
+                {/* A2: Covers — 48px (finger-sized) circular buttons */}
                 <div>
-                  <label className="text-sm font-medium block mb-1.5">Covers</label>
-                  <div className="flex gap-2">
+                  <label className="text-sm font-medium block mb-2">Covers</label>
+                  <div className="flex gap-2 flex-wrap">
                     {[1,2,3,4,5,6,7,8].map(n => (
                       <button
                         key={n}
                         onClick={() => setCovers(n)}
                         className={cn(
-                          'w-9 h-9 rounded-full text-sm font-medium border transition-colors',
+                          'w-12 h-12 rounded-full text-base font-medium border transition-colors touch-manipulation',
                           covers === n
                             ? 'bg-primary text-primary-foreground border-primary'
-                            : 'hover:bg-accent'
+                            : 'hover:bg-accent active:bg-accent/70'
                         )}
                       >
                         {n}
@@ -227,10 +248,10 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                             onClick={() => setSlot(slot)}
                             title={label ? `Table: ${label}` : undefined}
                             className={cn(
-                              'text-sm py-2 px-1 rounded-lg border text-center transition-colors',
+                              'text-sm py-2 px-1 rounded-lg border text-center transition-colors touch-manipulation',
                               selectedSlot?.slot_time === slot.slot_time
                                 ? 'bg-primary text-primary-foreground border-primary'
-                                : 'hover:bg-accent'
+                                : 'hover:bg-accent active:bg-accent/70'
                             )}
                           >
                             <p className="font-medium">{formatTime(slot.slot_time)}</p>
@@ -258,17 +279,33 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
             {step === 'guest' && (
               <form id="guest-form" onSubmit={handleSubmit(onGuestSubmit)} className="space-y-4">
                 <Field label="Full name" error={errors.guest_name?.message}>
-                  <input {...register('guest_name')} className="input" placeholder="Jane Smith" />
+                  <input {...register('guest_name')} className="input" placeholder="Jane Smith" autoFocus />
                 </Field>
                 <Field label="Email" error={errors.guest_email?.message}>
-                  <input {...register('guest_email')} type="email" className="input" placeholder="jane@example.com" />
+                  <input {...register('guest_email')} type="email" inputMode="email" className="input" placeholder="jane@example.com" />
                 </Field>
+
+                {/* A3: Phone — type="tel" triggers numeric keypad on iOS/Android */}
                 <Field label="Phone" error={errors.guest_phone?.message}>
-                  <input {...register('guest_phone')} className="input" placeholder="+44 7700 900000" />
+                  <input
+                    {...register('guest_phone')}
+                    type="tel"
+                    inputMode="tel"
+                    className="input"
+                    placeholder="+44 7700 900000"
+                  />
                 </Field>
-                <Field label="Covers">
-                  <input {...register('covers')} type="number" min={1} className="input w-24" />
+
+                {/* A4: Covers stepper — +/− buttons flanking a tappable value.
+                    On touch devices the value opens a custom numeric keypad
+                    (inputMode="none" inside CoversInput suppresses the native keyboard). */}
+                <Field label="Covers" error={errors.covers?.message}>
+                  <CoversInput
+                    value={Number(formCovers) || 1}
+                    onChange={v => setValue('covers', v, { shouldValidate: true })}
+                  />
                 </Field>
+
                 <Field label="Guest notes (optional)">
                   <textarea {...register('guest_notes')} className="input min-h-20 resize-none"
                     placeholder="Dietary requirements, celebration, accessibility needs…" />
@@ -279,14 +316,14 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-3 px-5 py-4 border-t shrink-0">
-            <button onClick={onClose} className="text-sm px-4 py-2 border rounded-lg hover:bg-accent">
+            <button onClick={onClose} className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation">
               Cancel
             </button>
             {step === 'slot' && (
               <button
                 onClick={handleSlotConfirm}
                 disabled={!selectedSlot || (!selectedSlot?.table_id && !selectedSlot?.combination_id) || holdMutation.isPending}
-                className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40"
+                className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
               >
                 {holdMutation.isPending ? 'Holding…' : 'Continue'}
               </button>
@@ -296,7 +333,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                 type="submit"
                 form="guest-form"
                 disabled={confirmMutation.isPending}
-                className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40"
+                className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
               >
                 {confirmMutation.isPending ? 'Confirming…' : 'Confirm booking'}
               </button>
@@ -305,11 +342,136 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
         </div>
       </div>
 
-      <style>{`.input { width: 100%; border: 1px solid hsl(var(--border)); border-radius: 0.5rem; padding: 0.5rem 0.625rem; font-size: 0.875rem; outline: none; } .input:focus { border-color: hsl(var(--primary)); }`}</style>
+      <style>{`.input { width: 100%; border: 1px solid hsl(var(--border)); border-radius: 0.5rem; padding: 0.5rem 0.625rem; font-size: 0.875rem; outline: none; background: hsl(var(--background)); } .input:focus { border-color: hsl(var(--primary)); }`}</style>
     </>
   )
 }
 
+// ── Covers stepper (+/− with custom keypad on touch) ──────────
+function CoversInput({ value, onChange }) {
+  const [showKeypad, setShowKeypad] = useState(false)
+
+  return (
+    <div className="relative inline-block">
+      <div className="flex items-center gap-3">
+        {/* Decrement */}
+        <button
+          type="button"
+          onClick={() => onChange(Math.max(1, value - 1))}
+          className="w-12 h-12 rounded-full border text-2xl font-light flex items-center justify-center
+            hover:bg-accent active:bg-accent/70 touch-manipulation select-none transition-colors"
+        >
+          −
+        </button>
+
+        {/* Value — tap to open keypad on touch devices; plain input on desktop */}
+        {IS_TOUCH ? (
+          <button
+            type="button"
+            onClick={() => setShowKeypad(true)}
+            className="w-16 h-12 rounded-lg border text-xl font-semibold flex items-center justify-center
+              bg-background hover:bg-accent touch-manipulation transition-colors"
+          >
+            {value}
+          </button>
+        ) : (
+          <input
+            type="number"
+            value={value}
+            onChange={e => {
+              const n = parseInt(e.target.value, 10)
+              if (!isNaN(n) && n >= 1 && n <= 99) onChange(n)
+            }}
+            className="w-16 h-12 rounded-lg border text-xl font-semibold text-center bg-background
+              focus:outline-none focus:border-primary"
+            min={1}
+            max={99}
+          />
+        )}
+
+        {/* Increment */}
+        <button
+          type="button"
+          onClick={() => onChange(Math.min(99, value + 1))}
+          className="w-12 h-12 rounded-full border text-2xl font-light flex items-center justify-center
+            hover:bg-accent active:bg-accent/70 touch-manipulation select-none transition-colors"
+        >
+          +
+        </button>
+      </div>
+
+      {/* Custom numeric keypad popup (touch only) */}
+      {showKeypad && (
+        <>
+          {/* Tap-outside dismisses */}
+          <div className="fixed inset-0 z-[60]" onClick={() => setShowKeypad(false)} />
+          <div className="absolute left-0 bottom-full mb-2 z-[70] bg-background border rounded-2xl shadow-2xl p-4 w-56">
+            <NumericKeypad
+              initialValue={value}
+              onConfirm={v => { onChange(v); setShowKeypad(false) }}
+              onClose={() => setShowKeypad(false)}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Numeric keypad (3×4 grid) ──────────────────────────────────
+// Keys: 1-9, backspace, 0, confirm
+function NumericKeypad({ initialValue, onConfirm, onClose }) {
+  const [draft, setDraft] = useState(String(initialValue))
+
+  function press(key) {
+    if (key === '⌫') {
+      setDraft(v => v.length > 1 ? v.slice(0, -1) : '')
+    } else if (key === '✓') {
+      const n = parseInt(draft, 10)
+      onConfirm(isNaN(n) || n < 1 ? 1 : Math.min(n, 99))
+    } else {
+      // digit
+      setDraft(v => {
+        const next = v === '' ? key : v + key
+        return parseInt(next, 10) > 99 ? v : next
+      })
+    }
+  }
+
+  const keys = ['1','2','3','4','5','6','7','8','9','⌫','0','✓']
+
+  return (
+    <>
+      {/* Current value display */}
+      <div className="text-center text-3xl font-bold mb-3 py-2 rounded-xl bg-muted/40 min-h-[3rem] flex items-center justify-center">
+        {draft !== '' ? draft : <span className="text-muted-foreground text-2xl">—</span>}
+      </div>
+
+      {/* Key grid */}
+      <div className="grid grid-cols-3 gap-2">
+        {keys.map(k => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => press(k)}
+            className={cn(
+              'h-14 rounded-xl text-xl font-medium border transition-all active:scale-95 touch-manipulation select-none',
+              k === '✓'
+                ? 'bg-primary text-primary-foreground border-primary text-base'
+                : k === '⌫'
+                  ? 'text-destructive hover:bg-destructive/10 border-border'
+                  : 'hover:bg-accent border-border'
+            )}
+          >
+            {k}
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+// ── Generic labelled field ─────────────────────────────────────
 function Field({ label, error, children }) {
   return (
     <div>
