@@ -12,7 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, AlertTriangle } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -103,10 +103,13 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //   spanRows > 1  → this row is the "primary" of a contiguous group; render tall card
 //   spanRows === 0 → this row is "secondary" (covered by a spanning card above); skip
 //   undefined     → normal single-table booking; render normally
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap }) {
+//
+// isUnallocated: if true this is the system Unallocated row — bookings can be
+//   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
-    data: { tableId: table.id },
+    data: { tableId: table.id, isUnallocated },
   })
 
   const gridLines = Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => i)
@@ -121,17 +124,36 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
   return (
     <div className="timeline-grid border-b last:border-b-0">
       {/* Table label — sticky left + z above spanning cards */}
-      <div className="flex items-center px-3 border-r bg-muted sticky left-0 z-[10] shrink-0">
+      <div className={cn(
+        'flex items-center px-3 border-r sticky left-0 z-[10] shrink-0',
+        isUnallocated ? 'bg-orange-50' : 'bg-muted',
+      )}>
         <div>
-          <p className="text-sm font-medium">{table.label}</p>
-          <p className="text-xs text-muted-foreground">{table.min_covers}–{table.max_covers} covers</p>
+          {isUnallocated ? (
+            <>
+              <p className="text-sm font-medium text-orange-700 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" /> Unallocated
+              </p>
+              <p className="text-xs text-orange-500">Drag to reassign</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium">{table.label}</p>
+              <p className="text-xs text-muted-foreground">{table.min_covers}–{table.max_covers} covers</p>
+            </>
+          )}
         </div>
       </div>
 
       {/* Booking canvas — overflow:visible so spanning cards can extend into adjacent rows */}
       <div
         ref={setNodeRef}
-        className={cn('relative transition-colors', isOver && 'bg-blue-50')}
+        className={cn(
+          'relative transition-colors',
+          isUnallocated
+            ? 'bg-orange-50/40 border-b border-orange-200'
+            : isOver && 'bg-blue-50',
+        )}
         style={{
           height: ROW_HEIGHT,
           width:  TOTAL_WIDTH,
@@ -304,11 +326,26 @@ export default function Timeline() {
   }
 
   // ── Drag handlers ─────────────────────────────────────────
+  // PATCH /move  — same-table time-only shift (lightweight, no conflict cascade)
   const moveMutation = useMutation({
     mutationFn: ({ bookingId, tableId, startsAt }) =>
       api.patch(`/bookings/${bookingId}/move`, { table_id: tableId, starts_at: startsAt }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
+    },
+  })
+
+  // PATCH /relocate — cross-table drop (finds best allocation, cascades conflicts)
+  const relocateMutation = useMutation({
+    mutationFn: ({ bookingId, targetTableId, startsAt }) =>
+      api.patch(`/bookings/${bookingId}/relocate`, {
+        target_table_id: targetTableId,
+        ...(startsAt ? { starts_at: startsAt } : {}),
+      }),
+    onSuccess: () => {
+      // Refresh bookings AND tables (Unallocated table may have been auto-created)
+      queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
+      queryClient.invalidateQueries({ queryKey: ['tables', venueId] })
     },
   })
 
@@ -320,22 +357,41 @@ export default function Timeline() {
     setActiveId(null)
     if (!over) return
 
-    const booking  = active.data.current.booking
+    const booking = active.data.current.booking
+
+    // Never allow dropping onto the Unallocated row (pick-up only)
+    if (over.data.current?.isUnallocated) return
+
     const targetTableId = over.data.current?.tableId ?? booking.table_id
 
-    // Calculate new start time from horizontal delta
-    const deltaMins   = Math.round((delta.x / HOUR_WIDTH) * 60 / 15) * 15
-    const originalStart = parseISO(booking.starts_at)
-    const newStart    = new Date(originalStart.getTime() + deltaMins * 60_000)
+    // Determine all table IDs currently occupied by this booking
+    // (combo bookings have multiple member tables — any of them is "same table")
+    const currentTableIds = Array.isArray(booking.member_table_ids) && booking.member_table_ids.length > 0
+      ? booking.member_table_ids
+      : [booking.table_id]
 
-    // Only update if something actually changed
-    if (targetTableId === booking.table_id && deltaMins === 0) return
+    const tableChanged = !currentTableIds.includes(targetTableId)
 
-    moveMutation.mutate({
-      bookingId: booking.id,
-      tableId:   targetTableId,
-      startsAt:  newStart.toISOString(),
-    })
+    // Calculate new start time from horizontal delta (snapped to 15 min)
+    const deltaMins = Math.round((delta.x / HOUR_WIDTH) * 60 / 15) * 15
+    const newStart  = new Date(parseISO(booking.starts_at).getTime() + deltaMins * 60_000)
+
+    if (tableChanged) {
+      // Cross-table drop → smart relocate with conflict cascade
+      relocateMutation.mutate({
+        bookingId:     booking.id,
+        targetTableId,
+        startsAt: deltaMins !== 0 ? newStart.toISOString() : undefined,
+      })
+    } else {
+      // Same-table drop → simple time shift
+      if (deltaMins === 0) return
+      moveMutation.mutate({
+        bookingId: booking.id,
+        tableId:   booking.table_id,   // always canonical table_id, not a secondary member
+        startsAt:  newStart.toISOString(),
+      })
+    }
   }
 
   // ── Group bookings by table ────────────────────────────────
@@ -356,15 +412,23 @@ export default function Timeline() {
 
   // ── Group tables by section ────────────────────────────────
   // NOTE: must be computed BEFORE comboSpanMap (which depends on sections)
+  // Unallocated table is excluded from sections — rendered separately at top.
   const sections = useMemo(() => {
     const map = {}
     for (const t of tables) {
+      if (t.is_unallocated) continue
       const key = t.section_name ?? 'No section'
       if (!map[key]) map[key] = []
       map[key].push(t)
     }
     return Object.entries(map)
   }, [tables])
+
+  // The single "Unallocated" system table for this venue (may not exist yet)
+  const unallocatedTable = useMemo(
+    () => tables.find(t => t.is_unallocated) ?? null,
+    [tables],
+  )
 
   // ── Combination span map ───────────────────────────────────
   // For each combination booking, determines which table row renders the card
@@ -487,6 +551,33 @@ export default function Timeline() {
           >
             <div style={{ minWidth: 160 + TOTAL_WIDTH }}>
               <TimelineHeader />
+
+              {/* ── Unallocated row ─────────────────────────────────────
+                  Shown only when the system has pushed bookings here because no
+                  real table was available during a smart-relocate cascade.
+                  Bookings can be DRAGGED OUT; dropping INTO this row is blocked. */}
+              {unallocatedTable && (bookingsByTable[unallocatedTable.id]?.length ?? 0) > 0 && (
+                <div>
+                  <div className="px-3 py-1.5 bg-orange-50 border-b border-orange-200 sticky top-[40px] z-[9]">
+                    <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide flex items-center gap-1.5">
+                      <AlertTriangle className="w-3 h-3" />
+                      Unallocated — drag bookings to a table row to reassign
+                    </span>
+                  </div>
+                  <TableRow
+                    table={unallocatedTable}
+                    bookings={bookingsByTable[unallocatedTable.id] ?? []}
+                    date={date}
+                    onBookingClick={setSelected}
+                    activeId={activeId}
+                    onResizeStart={handleResizeStart}
+                    resizeBookingId={resizeState?.bookingId}
+                    resizePreviewMs={resizePreviewMs}
+                    comboSpanMap={comboSpanMap}
+                    isUnallocated={true}
+                  />
+                </div>
+              )}
 
               {sections.map(([sectionName, sectionTables]) => (
                 <div key={sectionName}>

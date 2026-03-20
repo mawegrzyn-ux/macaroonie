@@ -223,9 +223,10 @@ export default async function bookingsRoutes(app) {
     return withTenant(req.tenantId, tx => tx`
       SELECT
         b.*,
-        t.label      AS table_label,
+        t.label          AS table_label,
         t.section_id,
-        s.name       AS section_name,
+        t.is_unallocated AS table_is_unallocated,
+        s.name           AS section_name,
         v.name       AS venue_name,
         v.timezone   AS venue_timezone,
         p.id         AS payment_id,
@@ -527,6 +528,298 @@ export default async function bookingsRoutes(app) {
     })
     broadcastBooking('booking.updated', booking)
     return booking
+  })
+
+  // ── PATCH /bookings/:id/relocate ─────────────────────────────
+  // Smart drag-to-table from the timeline.
+  //
+  // Algorithm:
+  //   1. Try single table if target alone fits covers
+  //   2. Try smallest combination that contains target table and fits covers
+  //   3. Fall back to physically-adjacent tables (expand outward by sort_order)
+  //   4. For any bookings that conflict with the new allocation:
+  //      a. Try to move each conflicted booking to a free single table
+  //      b. If none available → assign to venue's Unallocated table (auto-created)
+  //   5. Execute all moves atomically; broadcast every change
+  //
+  // Returns: { moved: Booking, displaced: Booking[] }
+  app.patch('/:id/relocate', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+    const body = z.object({
+      target_table_id: z.string().uuid(),
+      starts_at:       z.string().datetime().optional(),
+    }).parse(req.body)
+
+    const result = await withTenant(req.tenantId, async tx => {
+
+      // ── 1. Load booking ──────────────────────────────────────
+      const [booking] = await tx`
+        SELECT b.* FROM bookings b
+         WHERE b.id        = ${req.params.id}
+           AND b.tenant_id = ${req.tenantId}
+           AND b.status NOT IN ('cancelled')
+      `
+      if (!booking) throw httpError(404, 'Booking not found')
+
+      const durationMs = new Date(booking.ends_at) - new Date(booking.starts_at)
+      const newStart   = new Date(body.starts_at ?? booking.starts_at)
+      const newEnd     = new Date(newStart.getTime() + durationMs)
+
+      // ── 2. Verify target table ───────────────────────────────
+      const [targetTable] = await tx`
+        SELECT * FROM tables
+         WHERE id             = ${body.target_table_id}
+           AND venue_id       = ${booking.venue_id}
+           AND tenant_id      = ${req.tenantId}
+           AND is_active      = true
+           AND is_unallocated = false
+      `
+      if (!targetTable) throw httpError(404, 'Target table not found')
+
+      // ── 3. Choose allocation (list of table IDs to occupy) ───
+      let allocationTableIds = null   // string[]
+      let allocationComboId  = null   // string | null
+
+      // 3a. Single table — target alone is sufficient
+      if (targetTable.max_covers >= booking.covers) {
+        allocationTableIds = [body.target_table_id]
+        allocationComboId  = null
+      }
+
+      // 3b. Smallest combination containing target table that fits covers
+      if (!allocationTableIds) {
+        const combos = await tx`
+          SELECT c.id, c.max_covers,
+                 array_agg(m.table_id ORDER BY t2.sort_order, t2.label) AS table_ids
+            FROM table_combinations c
+            JOIN table_combination_members m ON m.combination_id = c.id
+            JOIN tables t2                   ON t2.id = m.table_id
+           WHERE c.tenant_id  = ${req.tenantId}
+             AND c.venue_id   = ${booking.venue_id}
+             AND c.is_active  = true
+             AND c.max_covers >= ${booking.covers}
+             AND EXISTS (
+                   SELECT 1 FROM table_combination_members
+                    WHERE combination_id = c.id
+                      AND table_id       = ${body.target_table_id}
+                 )
+           GROUP BY c.id, c.max_covers
+           ORDER BY c.max_covers ASC
+           LIMIT 1
+        `
+        if (combos.length > 0) {
+          allocationTableIds = combos[0].table_ids
+          allocationComboId  = combos[0].id
+        }
+      }
+
+      // 3c. Adjacency expansion — build contiguous run from physical sort order
+      if (!allocationTableIds) {
+        const allTables = await tx`
+          SELECT id, max_covers, sort_order FROM tables
+           WHERE venue_id       = ${booking.venue_id}
+             AND tenant_id      = ${req.tenantId}
+             AND is_active      = true
+             AND is_unallocated = false
+           ORDER BY sort_order, label
+        `
+        const targetIdx = allTables.findIndex(t => t.id === body.target_table_id)
+        if (targetIdx !== -1) {
+          let lo = targetIdx, hi = targetIdx
+          let total = Number(allTables[targetIdx].max_covers)
+          let expandDown = true  // alternate: try below first, then above
+
+          while (total < booking.covers && (lo > 0 || hi < allTables.length - 1)) {
+            if (expandDown && hi < allTables.length - 1) {
+              hi++; total += Number(allTables[hi].max_covers)
+            } else if (!expandDown && lo > 0) {
+              lo--; total += Number(allTables[lo].max_covers)
+            } else if (hi < allTables.length - 1) {
+              hi++; total += Number(allTables[hi].max_covers)
+            } else {
+              lo--; total += Number(allTables[lo].max_covers)
+            }
+            expandDown = !expandDown
+          }
+
+          if (total >= booking.covers) {
+            allocationTableIds = allTables.slice(lo, hi + 1).map(t => t.id)
+            allocationComboId  = null
+          }
+        }
+      }
+
+      if (!allocationTableIds || allocationTableIds.length === 0) {
+        throw httpError(422, 'No suitable table arrangement found for this booking size')
+      }
+
+      // ── 4. Find/create combination for multi-table allocation ─
+      if (allocationTableIds.length > 1 && !allocationComboId) {
+        const sorted = [...allocationTableIds].sort()
+        const [existing] = await tx`
+          SELECT c.id FROM table_combinations c
+           WHERE c.tenant_id = ${req.tenantId}
+             AND c.is_active = true
+             AND (SELECT COUNT(*) FROM table_combination_members m WHERE m.combination_id = c.id) = ${sorted.length}
+             AND (SELECT COUNT(*) FROM table_combination_members m
+                   WHERE m.combination_id = c.id
+                     AND m.table_id = ANY(${sorted}::uuid[])) = ${sorted.length}
+           LIMIT 1
+        `
+        if (existing) {
+          allocationComboId = existing.id
+        } else {
+          const tableRows = await tx`
+            SELECT id, label, min_covers, max_covers FROM tables
+             WHERE id = ANY(${sorted}::uuid[]) AND tenant_id = ${req.tenantId}
+             ORDER BY sort_order, label
+          `
+          const name      = tableRows.map(t => t.label).join(' + ')
+          const minCovers = Math.min(...tableRows.map(t => Number(t.min_covers)))
+          const maxCovers = tableRows.reduce((s, t) => s + Number(t.max_covers), 0)
+          const [newCombo] = await tx`
+            INSERT INTO table_combinations (venue_id, tenant_id, name, min_covers, max_covers)
+            VALUES (${booking.venue_id}, ${req.tenantId}, ${name}, ${minCovers}, ${maxCovers})
+            RETURNING id
+          `
+          for (const t of tableRows) {
+            await tx`INSERT INTO table_combination_members (combination_id, table_id) VALUES (${newCombo.id}, ${t.id})`
+          }
+          allocationComboId = newCombo.id
+        }
+      }
+
+      // Resolve canonical table_id (first member by sort order, or the single table)
+      let canonicalTableId
+      if (allocationComboId) {
+        const [first] = await tx`
+          SELECT m.table_id FROM table_combination_members m
+            JOIN tables t ON t.id = m.table_id
+           WHERE m.combination_id = ${allocationComboId}
+           ORDER BY t.sort_order, t.label LIMIT 1
+        `
+        canonicalTableId = first.table_id
+      } else {
+        canonicalTableId = allocationTableIds[0]
+      }
+
+      // ── 5. Find conflicts at the new time for all allocated tables ─
+      const conflicts = await tx`
+        SELECT b.id, b.table_id, b.combination_id, b.covers,
+               b.starts_at, b.ends_at, b.guest_name
+          FROM bookings b
+         WHERE b.tenant_id = ${req.tenantId}
+           AND b.status NOT IN ('cancelled', 'no_show')
+           AND b.id     != ${req.params.id}
+           AND b.starts_at < ${newEnd.toISOString()}
+           AND b.ends_at   > ${newStart.toISOString()}
+           AND (
+                 b.table_id = ANY(${allocationTableIds}::uuid[])
+                 OR (b.combination_id IS NOT NULL AND EXISTS (
+                       SELECT 1 FROM table_combination_members m
+                        WHERE m.combination_id = b.combination_id
+                          AND m.table_id = ANY(${allocationTableIds}::uuid[])
+                     ))
+               )
+      `
+
+      // ── 6. Resolve each conflict — free table or unallocated ─
+      // usedTableIds tracks all tables committed in this transaction so we
+      // don't move two conflicts to the same table.
+      const usedTableIds = new Set(allocationTableIds)
+      const resolutions  = []
+
+      for (const conflict of conflicts) {
+        const usedArr = [...usedTableIds]
+        const [freeTable] = await tx`
+          SELECT t.id FROM tables t
+           WHERE t.venue_id       = ${booking.venue_id}
+             AND t.tenant_id      = ${req.tenantId}
+             AND t.is_active      = true
+             AND t.is_unallocated = false
+             AND t.max_covers     >= ${conflict.covers}
+             AND t.id != ALL(${usedArr}::uuid[])
+             AND NOT EXISTS (
+                   SELECT 1 FROM bookings b2
+                    WHERE b2.table_id  = t.id
+                      AND b2.tenant_id = ${req.tenantId}
+                      AND b2.id       != ${conflict.id}
+                      AND b2.status NOT IN ('cancelled', 'no_show')
+                      AND b2.starts_at < ${conflict.ends_at}
+                      AND b2.ends_at   > ${conflict.starts_at}
+                 )
+           ORDER BY t.max_covers ASC
+           LIMIT 1
+        `
+        if (freeTable) {
+          usedTableIds.add(freeTable.id)
+          resolutions.push({ conflict, newTableId: freeTable.id, unallocated: false })
+        } else {
+          resolutions.push({ conflict, newTableId: null, unallocated: true })
+        }
+      }
+
+      // ── 7. Get or create Unallocated table if needed ─────────
+      let unallocatedTableId = null
+      if (resolutions.some(r => r.unallocated)) {
+        const [existing] = await tx`
+          SELECT id FROM tables
+           WHERE venue_id       = ${booking.venue_id}
+             AND tenant_id      = ${req.tenantId}
+             AND is_unallocated = true
+           LIMIT 1
+        `
+        if (existing) {
+          unallocatedTableId = existing.id
+        } else {
+          const [created] = await tx`
+            INSERT INTO tables
+              (venue_id, tenant_id, label, min_covers, max_covers,
+               is_active, is_unallocated, sort_order)
+            VALUES
+              (${booking.venue_id}, ${req.tenantId}, 'Unallocated',
+               1, 9999, true, true, -999)
+            RETURNING id
+          `
+          unallocatedTableId = created.id
+        }
+      }
+
+      // ── 8. Execute all moves ─────────────────────────────────
+      const displaced = []
+      for (const { conflict, newTableId, unallocated } of resolutions) {
+        const destTableId = unallocated ? unallocatedTableId : newTableId
+        const [updated] = await tx`
+          UPDATE bookings
+             SET table_id       = ${destTableId},
+                 combination_id = NULL,
+                 updated_at     = now()
+           WHERE id        = ${conflict.id}
+             AND tenant_id = ${req.tenantId}
+          RETURNING *
+        `
+        displaced.push(updated)
+      }
+
+      // Move the primary booking
+      const [moved] = await tx`
+        UPDATE bookings
+           SET table_id       = ${canonicalTableId},
+               combination_id = ${allocationComboId},
+               starts_at      = ${newStart.toISOString()},
+               ends_at        = ${newEnd.toISOString()},
+               updated_at     = now()
+         WHERE id        = ${req.params.id}
+           AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+      return { moved, displaced }
+    })
+
+    // Broadcast all changes over WebSocket
+    broadcastBooking('booking.updated', result.moved)
+    for (const d of result.displaced) broadcastBooking('booking.updated', d)
+
+    return result
   })
 
   // ── PATCH /bookings/:id/notes ─────────────────────────────
