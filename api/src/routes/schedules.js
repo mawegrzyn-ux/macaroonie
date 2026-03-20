@@ -21,6 +21,7 @@ const DOW = z.coerce.number().int().min(0).max(6)
 const TemplateBody = z.object({
   is_open:            z.boolean(),
   slot_interval_mins: z.union([z.literal(15), z.literal(30), z.literal(60)]).default(15),
+  doors_close_time:   z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
 })
 
 const SittingBody = z.object({
@@ -89,12 +90,13 @@ export default async function schedulesRoutes(app) {
 
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO venue_schedule_templates
-        (venue_id, tenant_id, day_of_week, is_open, slot_interval_mins)
+        (venue_id, tenant_id, day_of_week, is_open, slot_interval_mins, doors_close_time)
       VALUES
-        (${venueId}, ${req.tenantId}, ${dow}, ${body.is_open}, ${body.slot_interval_mins})
+        (${venueId}, ${req.tenantId}, ${dow}, ${body.is_open}, ${body.slot_interval_mins}, ${body.doors_close_time ?? null})
       ON CONFLICT (venue_id, day_of_week) DO UPDATE
          SET is_open = EXCLUDED.is_open,
              slot_interval_mins = EXCLUDED.slot_interval_mins,
+             doors_close_time = EXCLUDED.doors_close_time,
              updated_at = now()
       RETURNING *
     `)

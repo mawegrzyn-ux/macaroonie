@@ -180,12 +180,12 @@ async function handlePaymentSucceeded(pi, log) {
 
     const [booking] = await tx`
       INSERT INTO bookings
-        (venue_id, table_id, tenant_id, starts_at, ends_at, covers,
-         guest_name, guest_email, guest_phone, status)
+        (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
+         guest_name, guest_email, guest_phone, guest_notes, status)
       VALUES
-        (${h.venue_id}, ${h.table_id}, ${tenant_id},
+        (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${tenant_id},
          ${h.starts_at}, ${h.ends_at}, ${h.covers},
-         ${h.guest_name}, ${h.guest_email}, ${h.guest_phone},
+         ${h.guest_name}, ${h.guest_email}, ${h.guest_phone}, ${h.guest_notes ?? null},
          'confirmed')
       RETURNING *
     `

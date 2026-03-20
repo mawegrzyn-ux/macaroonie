@@ -269,6 +269,14 @@ export default function Help() {
               interval 30 min means slots at 18:00, 18:30, 19:00, etc., each holding the table for 90 minutes.
             </InfoBox>
 
+            <H3>Editing a sitting's times or cover cap</H3>
+            <P>
+              To change the opening time, closing time, or default cover cap of an existing sitting,
+              click the <strong>pencil (✏)</strong> icon on the right side of the sitting row.
+              An inline edit form appears — update the values and click <strong>Save</strong>.
+              The caps editor will re-generate slots from the new times immediately.
+            </P>
+
             <H3>Slot cap overrides</H3>
             <P>
               Below each sitting you can set a cover cap for a specific time slot — for example, limit
@@ -334,6 +342,46 @@ export default function Help() {
             <InfoBox type="tip">
               Start with a 5-minute hold time for busy services. Increase to 10–15 minutes if your
               guests tend to be slower completing the booking form, or if you see many abandoned holds.
+            </InfoBox>
+
+            <H3>Smart allocation rules</H3>
+            <P>
+              These settings control how the smart-allocation engine behaves when a large-party booking
+              is dragged to a new table row and needs to span multiple tables.
+            </P>
+            <div className="space-y-3 mb-4">
+              {[
+                {
+                  label: 'Allow combining tables from different sections',
+                  desc: 'Off by default. When off, the engine will only expand into tables within the same section (e.g. Main Floor). Turn on if your floor plan allows cross-section combinations (e.g. joining a Main Floor table with a Terrace table).',
+                },
+                {
+                  label: 'Allow combining non-adjacent tables',
+                  desc: 'Off by default. When off, the adjacency expansion only picks tables that are neighbours in your table sort order. Turn on to allow non-neighbouring tables to be combined — useful if you want the engine to skip a reserved table and take the next one.',
+                },
+              ].map(({ label, desc }) => (
+                <div key={label} className="border rounded-lg p-3">
+                  <p className="text-sm font-semibold mb-1">{label}</p>
+                  <p className="text-sm text-muted-foreground">{desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <H3>Disallowed table pairs</H3>
+            <P>
+              Found at the bottom of the <strong>Tables</strong> page. You can add specific table pairs
+              that the smart-allocation engine should <em>never</em> combine — for example, if two tables
+              are in the same section but are physically separated by a structural column.
+            </P>
+            <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Go to <strong>Tables</strong>, scroll to the <strong>Disallowed pairs</strong> section.</li>
+              <li>Select the first table from the left dropdown, then the second from the right dropdown.</li>
+              <li>Click <strong>Add</strong>. The pair is saved and the engine will never combine those two tables.</li>
+              <li>Click the × next to any existing pair to remove the restriction.</li>
+            </ol>
+            <InfoBox type="info">
+              Disallowed pairs apply only to the smart-allocation engine (drag-to-table on the Timeline).
+              An operator can still manually assign any table combination via the booking drawer Override.
             </InfoBox>
           </section>
 
@@ -412,10 +460,10 @@ export default function Help() {
 
             <H3>Making a new booking</H3>
             <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
-              <li>Click <strong>+ New booking</strong> in the top-right toolbar.</li>
+              <li>Click <strong>+ New booking</strong> in the top-right toolbar — <em>or</em> click directly on any empty cell on the Timeline canvas. Clicking on the canvas pre-selects that time slot automatically.</li>
               <li>Select the party size (covers).</li>
-              <li>Pick the date (defaults to the currently displayed date).</li>
-              <li>Select an available time slot. The slot label shows which table or combination is assigned.</li>
+              <li>Select an available time slot. If you clicked the canvas, the matching slot is already highlighted. The slot label shows which table or combination will be assigned.</li>
+              <li>Click <strong>Continue</strong> to proceed to guest details.</li>
               <li>Enter the guest's name, email, and optionally phone number and notes.</li>
               <li>Click <strong>Confirm booking</strong>. The booking appears on the Timeline immediately.</li>
             </ol>
@@ -527,14 +575,24 @@ export default function Help() {
             <H3>Reassigning a table or combination</H3>
             <P>
               Click <strong>Override</strong> in the Table assignment section. You will see a list of
-              individual tables (with checkboxes — you can select more than one) and preset combinations
-              (radio buttons). Select your preferred option. A warning appears if the selected
-              table/combination does not fit the booking's cover count.
+              all active tables with checkboxes — you can select one table or multiple tables. The
+              checkboxes are pre-ticked with the booking's current table assignment so you can see
+              exactly what is already assigned and make targeted changes.
             </P>
-            <InfoBox type="info">
-              If you select multiple individual tables that don't match any existing combination,
-              Macaroonie automatically creates a new combination for that group and assigns the booking
-              to it. The new combination will also appear in the Tables page for future use.
+            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
+              <li>Select a <strong>single table</strong> — the booking moves to that table alone.</li>
+              <li>Select <strong>multiple tables</strong> — Macaroonie finds a matching pre-configured combination or creates one automatically. The new combination will also appear in the Tables page for future use.</li>
+              <li>A warning appears if the selected table(s) cannot seat the booking's party size.</li>
+            </ul>
+            <P>
+              The <strong>Save</strong> button for the override appears at the top of the drawer panel,
+              next to the × close button — so it is always visible without scrolling.
+            </P>
+            <InfoBox type="tip">
+              All save actions (table override, guest details, notes, reschedule) appear in the drawer
+              header next to the × button when you are in an edit mode. Click × to close the drawer —
+              this does <em>not</em> save. Use the contextual save button (e.g. "Assign T1 + T2",
+              "Save notes") to save changes.
             </InfoBox>
 
             <H3>Changing booking status</H3>
@@ -699,6 +757,26 @@ export default function Help() {
                 {
                   q: 'I set the table order but the Timeline still shows the old order.',
                   a: 'The Timeline fetches the table list when it loads. Click the Refresh button in the Timeline toolbar, or navigate away and back, to pick up the new sort order.',
+                },
+                {
+                  q: 'Dragging a booking to a different table returns it to where it was with no error.',
+                  a: 'The most common cause is that migration 010 (allocation_rules) has not been applied to the database. Run: psql $DATABASE_URL -f migrations/010_allocation_rules.sql. Without this migration, the /relocate endpoint fails silently because the allow_cross_section_combo column and disallowed_table_pairs table do not exist.',
+                },
+                {
+                  q: 'The drag snapped back and the Timeline shows a red banner saying "No table combination is configured".',
+                  a: 'The smart-allocation engine found the right table set (via adjacency expansion) but no pre-configured combination exists for those tables. Go to Tables → Table combinations → Add combination, create a combination for those tables, then try the drag again.',
+                },
+                {
+                  q: 'I created a new booking for 5 covers but it only shows on one table in the Timeline.',
+                  a: 'The booking was probably confirmed via the free-booking path before the combination_id fix was deployed. The booking hold had a combination_id but the older confirm code did not copy it to the booking record. Open the booking in the drawer, click Override, re-select the correct tables, and save to fix the assignment.',
+                },
+                {
+                  q: 'Slot caps I entered are not showing when I reopen the sitting.',
+                  a: 'This was a known bug (now fixed) where PostgreSQL returned slot_time as HH:MM:SS but the frontend expected HH:MM, so saved values would not display on reload. After updating to the latest version, saved caps should display correctly.',
+                },
+                {
+                  q: 'I want to prevent certain tables from being combined by the smart-allocation engine.',
+                  a: 'Go to Tables → scroll to Disallowed pairs → select the two tables and click Add. The engine will never combine that pair, regardless of party size or adjacency. Note: this only restricts the engine — operators can still manually assign any table combination via the booking drawer Override.',
                 },
               ].map(({ q, a }) => (
                 <div key={q} className="border rounded-lg p-4">

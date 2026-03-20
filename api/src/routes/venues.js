@@ -314,8 +314,9 @@ export default async function venuesRoutes(app) {
     book_until_days:           z.number().int().min(1).optional(),
     cutoff_before_mins:        z.number().int().min(0).optional(),
     hold_ttl_secs:             z.number().int().min(60).max(1800).optional(),
-    allow_cross_section_combo: z.boolean().optional(),
-    allow_non_adjacent_combo:  z.boolean().optional(),
+    allow_cross_section_combo:                z.boolean().optional(),
+    allow_non_adjacent_combo:                 z.boolean().optional(),
+    allow_widget_bookings_after_doors_close:  z.boolean().optional(),
   })
 
   const DepositRulesBody = z.object({
@@ -343,7 +344,8 @@ export default async function venuesRoutes(app) {
       INSERT INTO booking_rules
         (venue_id, tenant_id, slot_duration_mins, buffer_after_mins,
          min_covers, max_covers, book_from_days, book_until_days,
-         cutoff_before_mins, hold_ttl_secs)
+         cutoff_before_mins, hold_ttl_secs,
+         allow_widget_bookings_after_doors_close)
       VALUES
         (${req.params.id}, ${req.tenantId},
          ${body.slot_duration_mins  ?? 90},
@@ -353,7 +355,8 @@ export default async function venuesRoutes(app) {
          ${body.book_from_days      ?? 0},
          ${body.book_until_days     ?? 90},
          ${body.cutoff_before_mins  ?? 60},
-         ${body.hold_ttl_secs       ?? 300})
+         ${body.hold_ttl_secs       ?? 300},
+         ${body.allow_widget_bookings_after_doors_close ?? false})
       ON CONFLICT (venue_id) DO UPDATE
          SET slot_duration_mins = EXCLUDED.slot_duration_mins,
              buffer_after_mins  = EXCLUDED.buffer_after_mins,
@@ -363,6 +366,7 @@ export default async function venuesRoutes(app) {
              book_until_days    = EXCLUDED.book_until_days,
              cutoff_before_mins = EXCLUDED.cutoff_before_mins,
              hold_ttl_secs      = EXCLUDED.hold_ttl_secs,
+             allow_widget_bookings_after_doors_close = EXCLUDED.allow_widget_bookings_after_doors_close,
              updated_at         = now()
       RETURNING *
     `)

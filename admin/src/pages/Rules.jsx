@@ -18,8 +18,9 @@ const BookingRulesSchema = z.object({
   book_until_days:           z.coerce.number().int().min(1),
   cutoff_before_mins:        z.coerce.number().int().min(0),
   hold_ttl_secs:             z.coerce.number().int().min(60).max(1800),
-  allow_cross_section_combo: z.boolean().default(false),
-  allow_non_adjacent_combo:  z.boolean().default(false),
+  allow_cross_section_combo:                z.boolean().default(false),
+  allow_non_adjacent_combo:                 z.boolean().default(false),
+  allow_widget_bookings_after_doors_close:  z.boolean().default(false),
 })
 
 const DepositSchema = z.object({
@@ -100,8 +101,9 @@ export default function Rules() {
       book_until_days:           90,
       cutoff_before_mins:        60,
       hold_ttl_secs:             300,
-      allow_cross_section_combo: false,
-      allow_non_adjacent_combo:  false,
+      allow_cross_section_combo:                false,
+      allow_non_adjacent_combo:                 false,
+      allow_widget_bookings_after_doors_close:  false,
     },
   })
 
@@ -232,6 +234,40 @@ export default function Rules() {
               >
                 <Save className="w-4 h-4" />
                 {rulesMutation.isPending ? 'Saving…' : 'Save allocation rules'}
+              </button>
+            </Section>
+          </form>
+
+          {/* ── Opening hours enforcement ─────────────────── */}
+          <form onSubmit={submitRules(data => rulesMutation.mutate(data))}>
+            <Section
+              title="Opening hours enforcement"
+              description="Controls whether the booking widget respects the Doors Close time set on each day's schedule."
+            >
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    {...regRules('allow_widget_bookings_after_doors_close')}
+                    className="w-4 h-4 mt-0.5 shrink-0"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Allow widget bookings past doors-close time</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      When off (default), the booking widget hides slots at or after the
+                      "Doors close" time set on each day of the schedule.
+                      Admin-created bookings always bypass this restriction.
+                    </p>
+                  </div>
+                </label>
+              </div>
+              <button
+                type="submit"
+                disabled={rulesMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                {rulesMutation.isPending ? 'Saving…' : 'Save rules'}
               </button>
             </Section>
           </form>

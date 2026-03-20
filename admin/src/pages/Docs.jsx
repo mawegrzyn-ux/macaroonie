@@ -79,7 +79,7 @@ export default function Docs() {
             <Code>{`/
 ├── api/          Node.js API (Fastify)
 ├── admin/        React admin portal (Vite)
-├── migrations/   PostgreSQL migration files (001–009, run in order)
+├── migrations/   PostgreSQL migration files (001–010, run in order)
 ├── setup.sh      One-shot Lightsail server setup
 ├── deploy.sh     Subsequent deployments
 └── CLAUDE.md     Developer context and outstanding items`}</Code>
@@ -229,11 +229,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['schedule_sittings', 'Named service period within a day-of-week (e.g. Lunch Mon–Fri).', 'template_id, dow, name, start_time, end_time, slot_duration_mins, slot_interval_mins, max_covers'],
                 ['schedule_overrides', 'Replaces sittings for a specific date (bank holidays, closures).', 'venue_id, override_date, is_closed'],
                 ['slot_caps', 'Per-slot cover cap overrides. Sparse — only stored when different from sitting default.', 'sitting_id, slot_time, max_covers'],
-                ['booking_rules', 'Per-venue booking constraints.', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins'],
+                ['booking_rules', 'Per-venue booking constraints. Includes smart-allocation rule flags.', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo'],
                 ['deposit_rules', 'Per-venue deposit configuration.', 'venue_id, requires_deposit, amount_pence, stripe_account_id'],
                 ['booking_holds', 'Temporary slot reservations. UNIQUE (table_id, starts_at).', 'venue_id, table_id, combination_id, starts_at, ends_at, expires_at, guest_name, guest_email'],
                 ['bookings', 'Confirmed bookings.', 'venue_id, table_id, combination_id, starts_at, ends_at, covers, status, reference, guest_name, guest_email, guest_phone, guest_notes, operator_notes'],
                 ['payments', 'Stripe payment records.', 'booking_id, stripe_pi_id, amount, currency, status'],
+                ['disallowed_table_pairs', 'Junction table — specific table pairs the smart-allocation engine must never combine. Normalised so table_id_a < table_id_b.', 'venue_id, tenant_id, table_id_a, table_id_b (UNIQUE)'],
               ].map(([name, desc, cols]) => (
                 <div key={name} className="border rounded-lg p-3">
                   <div className="flex flex-wrap items-baseline gap-2 mb-1">
@@ -268,7 +269,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/:id', 'any', 'Single booking detail.'],
                 ['PATCH', '/:id/status', 'operator', 'Transition booking status.'],
                 ['PATCH', '/:id/move', 'operator', 'Same-table time shift. Preserves actual booking duration.'],
-                ['PATCH', '/:id/relocate', 'operator', 'Cross-table drag. Finds best allocation for target table + covers (single → combination → adjacency expansion). Cascades displaced bookings to free tables or the Unallocated row. Returns { moved, displaced[] }.'],
+                ['PATCH', '/:id/relocate', 'operator', 'Cross-table drag. Finds best allocation anchored to target table (single → combo → adjacency expansion). Applies allow_cross_section_combo, allow_non_adjacent_combo rules and disallowed_table_pairs. If adjacency expansion finds a multi-table set but no pre-configured combo exists, returns 422 — operator must create the combination first. Cascades conflicts to free tables or Unallocated. Returns { moved, displaced[] }.'],
                 ['PATCH', '/:id/duration', 'operator', 'Resize — change ends_at independently of slot_duration_mins.'],
                 ['PATCH', '/:id/guest', 'operator', 'Edit guest name, email, phone, covers.'],
                 ['PATCH', '/:id/tables', 'operator', 'Reassign table or combination. Pass table_ids[] for ad-hoc multi-table; auto-creates combination if no exact match exists.'],
@@ -299,8 +300,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST', '/:id/combinations', 'admin', 'Create combination'],
                 ['PATCH', '/:id/combinations/:cid', 'admin', 'Update combination name / covers'],
                 ['DELETE', '/:id/combinations/:cid', 'admin', 'Delete combination'],
-                ['GET | PATCH', '/:id/rules', 'any | admin', 'Get or update booking rules'],
+                ['GET | PATCH', '/:id/rules', 'any | admin', 'Get or update booking rules (includes allow_cross_section_combo, allow_non_adjacent_combo flags)'],
                 ['GET | PATCH', '/:id/deposit-rules', 'any | admin', 'Get or update deposit rules'],
+                ['GET', '/:id/disallowed-pairs', 'any', 'List disallowed table pairs for smart allocation'],
+                ['POST', '/:id/disallowed-pairs', 'admin', 'Add a disallowed pair { table_id_a, table_id_b }'],
+                ['DELETE', '/:id/disallowed-pairs/:pid', 'admin', 'Remove a disallowed pair'],
               ]}
             />
 
@@ -456,7 +460,13 @@ comboSpanMap:
    c. Adjacency expansion — expand outward from target by sort_order
       (alternates above / below) until total max_covers ≥ covers
 
-3. For 2+ table allocation: find/create combination record
+2b. Load allocation rules (allow_cross_section_combo, allow_non_adjacent_combo)
+    and disallowed_table_pairs for the venue — used as filters in steps 3b/3c
+
+3. For 2+ table allocation: look up existing combination with exactly those members
+   → found: use it
+   → not found: throw 422 "Create a table combination first"
+   (Step 3 no longer auto-creates combinations)
 
 4. Conflict scan — find bookings overlapping the new time window
    on any of the allocated tables (including combo member tables)
@@ -554,7 +564,7 @@ allTables sorted by sort_order → target at index i
 
 # Apply migrations in order
 psql $DATABASE_URL -f migrations/001_tenants_users.sql
-# ... through 009_unallocated.sql
+# ... through 010_allocation_rules.sql
 
 # API
 cd api && cp .env.example .env   # fill in values

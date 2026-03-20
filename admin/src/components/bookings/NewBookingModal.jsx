@@ -41,21 +41,6 @@ export default function NewBookingModal({ venueId, date, prefillTime = null, pre
     if (step === 'guest') reset(v => ({ ...v, covers }))
   }, [step])
 
-  // Auto-select the slot matching prefillTime when slots arrive (canvas click flow)
-  const autoSelectedRef = useRef(false)
-  useEffect(() => {
-    if (!prefillTime || autoSelectedRef.current || !availableSlots.length || selectedSlot) return
-    const match = availableSlots.find(s => {
-      const d = new Date(s.slot_time)
-      const t = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-      return t === prefillTime
-    })
-    if (match) {
-      autoSelectedRef.current = true
-      setSlot(match)
-    }
-  }, [availableSlots, prefillTime, selectedSlot])
-
   // Fetch tables + combinations
   const { data: tables = [] } = useQuery({
     queryKey: ['tables', venueId],
@@ -70,6 +55,9 @@ export default function NewBookingModal({ venueId, date, prefillTime = null, pre
   })
 
   // Fetch available slots
+  // IMPORTANT: this must be declared BEFORE the auto-select useEffect below,
+  // because the dep array [availableSlots, …] is evaluated during render and
+  // referencing a const before its declaration is a TDZ error.
   const { data: slotsRes, isLoading: loadingSlots } = useQuery({
     queryKey: ['slots', venueId, date, covers],
     queryFn:  () => api.get(`/venues/${venueId}/slots?date=${date}&covers=${covers}`),
@@ -77,6 +65,21 @@ export default function NewBookingModal({ venueId, date, prefillTime = null, pre
   })
 
   const availableSlots = slotsRes?.slots?.filter(s => s.available) ?? []
+
+  // Auto-select the slot matching prefillTime when slots arrive (canvas click flow)
+  const autoSelectedRef = useRef(false)
+  useEffect(() => {
+    if (!prefillTime || autoSelectedRef.current || !availableSlots.length || selectedSlot) return
+    const match = availableSlots.find(s => {
+      const d = new Date(s.slot_time)
+      const t = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+      return t === prefillTime
+    })
+    if (match) {
+      autoSelectedRef.current = true
+      setSlot(match)
+    }
+  }, [availableSlots, prefillTime, selectedSlot])
 
   // Create hold
   const holdMutation = useMutation({

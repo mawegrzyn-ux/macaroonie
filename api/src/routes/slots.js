@@ -175,12 +175,49 @@ export default async function slotsRoutes(app) {
                         : s.reason,
     }))
 
+    // ── Widget filtering: hide slots past doors_close_time ──────────
+    // Admin calls carry req.user (JWT validated). Widget calls are anonymous.
+    // When allow_widget_bookings_after_doors_close = false, filter out
+    // slots at or after the day template's doors_close_time for widget callers.
+    const isAdminCall = !!req.user
+    let filtered = enriched
+
+    if (!isAdminCall) {
+      // Fetch the day template for this date to get doors_close_time + rule
+      const dayOfWeek = new Date(date).getDay() // 0=Sun, 6=Sat
+
+      const [dayTemplate] = await withTenant(venue.tenant_id, tx => tx`
+        SELECT doors_close_time FROM venue_schedule_templates
+         WHERE venue_id = ${venue.id}
+           AND day_of_week = ${dayOfWeek}
+      `)
+
+      const [doorRule] = await withTenant(venue.tenant_id, tx => tx`
+        SELECT allow_widget_bookings_after_doors_close FROM booking_rules
+         WHERE venue_id = ${venue.id}
+      `)
+
+      const allowPastDoors = doorRule?.allow_widget_bookings_after_doors_close ?? false
+      const doorsCloseTime = dayTemplate?.doors_close_time  // e.g. "22:00:00" or null
+
+      if (!allowPastDoors && doorsCloseTime) {
+        // Normalise to "HH:MM" for comparison
+        const doorsHHMM = String(doorsCloseTime).slice(0, 5)
+        filtered = enriched.filter(s => {
+          // slot_time is a timestamptz from get_available_slots
+          const d = new Date(s.slot_time)
+          const slotHHMM = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+          return slotHHMM < doorsHHMM
+        })
+      }
+    }
+
     return {
       venue_id:  venue.id,
       date,
       covers,
       timezone:  venue.timezone,
-      slots:     enriched,
+      slots:     filtered,
     }
   })
 }

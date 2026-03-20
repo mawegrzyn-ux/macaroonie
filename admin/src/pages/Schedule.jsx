@@ -114,6 +114,7 @@ function DayCard({ dow, template, venueId, allDows }) {
     mutationFn: () => api.put(`/venues/${venueId}/schedule/template/${dow}`, {
       is_open:            !isOpen,
       slot_interval_mins: template?.slot_interval_mins ?? 15,
+      doors_close_time:   template?.doors_close_time ? String(template.doors_close_time).slice(0, 5) : null,
     }),
     onSuccess: () => qc.invalidateQueries(['schedule', venueId]),
   })
@@ -162,6 +163,16 @@ function DayCard({ dow, template, venueId, allDows }) {
     mutationFn: (interval) => api.put(`/venues/${venueId}/schedule/template/${dow}`, {
       is_open:            isOpen,
       slot_interval_mins: interval,
+      doors_close_time:   template?.doors_close_time ? String(template.doors_close_time).slice(0, 5) : null,
+    }),
+    onSuccess: () => qc.invalidateQueries(['schedule', venueId]),
+  })
+
+  const doorsCloseMutation = useMutation({
+    mutationFn: (doorsCloseTime) => api.put(`/venues/${venueId}/schedule/template/${dow}`, {
+      is_open:            isOpen,
+      slot_interval_mins: template?.slot_interval_mins ?? 15,
+      doors_close_time:   doorsCloseTime || null,
     }),
     onSuccess: () => qc.invalidateQueries(['schedule', venueId]),
   })
@@ -187,15 +198,27 @@ function DayCard({ dow, template, venueId, allDows }) {
         </div>
 
         {isOpen && (
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">Interval</span>
-            <select
-              value={template?.slot_interval_mins ?? 15}
-              onChange={e => intervalMutation.mutate(Number(e.target.value))}
-              className="text-xs border rounded px-1.5 py-1"
-            >
-              {INTERVALS.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
-            </select>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Interval</span>
+              <select
+                value={template?.slot_interval_mins ?? 15}
+                onChange={e => intervalMutation.mutate(Number(e.target.value))}
+                className="text-xs border rounded px-1.5 py-1"
+              >
+                {INTERVALS.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Doors close</span>
+              <input
+                type="time"
+                step="900"
+                defaultValue={template?.doors_close_time ? String(template.doors_close_time).slice(0, 5) : ''}
+                onBlur={e => doorsCloseMutation.mutate(e.target.value || null)}
+                className="text-xs border rounded px-1.5 py-1"
+              />
+            </div>
           </div>
         )}
         {showCopyDay ? (
@@ -251,7 +274,7 @@ function DayCard({ dow, template, venueId, allDows }) {
                       />
                     </div>
                     <div>
-                      <label className="text-xs text-muted-foreground block mb-0.5">Closes</label>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Last order</label>
                       <input
                         type="time" step="900"
                         value={editData.closes_at}

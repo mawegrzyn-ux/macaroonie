@@ -16,7 +16,7 @@ Owner: Obscure Kitty. Stack chosen for familiarity with existing plugin work (No
 /
 ├── api/              Node.js API (Fastify)
 ├── admin/            React admin portal (Vite)
-├── migrations/       PostgreSQL migration files (run in order 001–007)
+├── migrations/       PostgreSQL migration files (run in order 001–010)
 ├── setup.sh          One-shot Lightsail server setup script
 ├── deploy.sh         Subsequent deployment script
 └── CLAUDE.md         This file
@@ -103,6 +103,12 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/hooks/useRealtimeBookings.js` — WS hook. Connects to `/ws?venue=&token=`. Invalidates TanStack Query on push.
 - `src/pages/Timeline.jsx` — Gantt view. @dnd-kit for drag. Booking cards positioned by pixel-accurate time offset.
 - `src/pages/Schedule.jsx` — 7-day grid + sitting editor + slot caps grid.
+- `src/pages/Tables.jsx` — table list with drag-to-reorder (grip handles always visible), combinations, disallowed pairs section.
+- `src/pages/Rules.jsx` — booking rules + smart allocation toggles (allow_cross_section_combo, allow_non_adjacent_combo).
+- `src/pages/Docs.jsx` — in-app technical documentation (auto-synced with codebase).
+- `src/pages/Help.jsx` — operator user guide.
+- `src/components/bookings/BookingDrawer.jsx` — booking detail side-panel. Save button in header (contextual per edit mode). Table override: individual checkboxes only, pre-populated from member_table_ids.
+- `src/components/bookings/NewBookingModal.jsx` — admin new booking. Accepts prefillTime/prefillTableId (canvas click flow). Auto-selects slot matching prefillTime.
 - `src/components/widget/BookingWidget.jsx` — Self-contained widget component. This is the reference implementation for the Ember.js widget.
 
 ---
@@ -142,71 +148,56 @@ Hold expires (no action)
 
 ---
 
-## Outstanding items for Claude Code to complete
+## Completed items (implemented)
 
-### Must-fix before first run (small)
+Items 1–6 from the original bootstrap checklist are done:
+- ✅ `auth0_org_id` added to migration 001
+- ✅ `PATCH /bookings/:id/move`, `GET|PATCH /venues/:id/rules`, `GET|PATCH /venues/:id/deposit-rules` added
+- ✅ `Rules.jsx` ESM issue fixed (`useVenueId` hook)
+- ✅ `table_id` + `combination_id` added to slot resolver response
+- ✅ pg_cron sweep activated
+- ✅ `broadcastBooking()` wired into all booking mutations
 
-**1. Add `auth0_org_id` to migration 001**
-```sql
--- Add to end of 001_tenants_users.sql:
-ALTER TABLE tenants ADD COLUMN IF NOT EXISTS auth0_org_id text UNIQUE;
-```
+Additionally implemented across development sessions:
+- ✅ **Smart allocation** — `PATCH /bookings/:id/relocate` (cross-table drag, adjacency expansion, cascade displacement, Unallocated row)
+- ✅ **Table sort order** — `PATCH /venues/:id/tables/reorder` + drag-to-reorder on Tables page (always-visible grip handles)
+- ✅ **Allocation rules** — `allow_cross_section_combo`, `allow_non_adjacent_combo` toggles on `booking_rules`; `disallowed_table_pairs` table; all enforced in `/relocate`
+- ✅ **Disallowed pairs UI** — Tables page shows "Disallowed pairs" section with add/remove
+- ✅ **combination_id fix** — `POST /bookings` (free booking confirm) now copies `combination_id` from the hold record
+- ✅ **Timeline canvas click** — clicking empty slot on Timeline opens New Booking modal pre-filled with that time
+- ✅ **Booking drawer save UX** — save button moved to drawer header, contextual label per active edit mode
+- ✅ **Table override simplified** — drawer override picker is now individual-table checkboxes only (no preset combos radio section); pre-populated from `member_table_ids`
+- ✅ **Schedule sitting edit** — pencil button on each sitting opens inline edit form for times + default covers
+- ✅ **Schedule slot_time fix** — PostgreSQL `TIME` columns return `HH:MM:SS`; normalised to `HH:MM` on load and save to match API validation regex
+- ✅ **Docs + Help pages** wired into AppShell nav and main.jsx routes
 
-**2. Paste missing API routes from `INTEGRATION_PATCH.js`**
-- `PATCH /bookings/:id/move` → add to `src/routes/bookings.js`
-- `GET|PATCH /venues/:id/rules` → add to `src/routes/venues.js`
-- `GET|PATCH /venues/:id/deposit-rules` → add to `src/routes/venues.js`
+---
 
-**3. Fix Rules.jsx ESM issue**
-Replace the `useStateFromFirst` function at the bottom of `src/pages/Rules.jsx`:
-```js
-// Delete the old function and replace with:
-function useVenueId(venues) {
-  const [venueId, setVenueId] = useState(null)
-  useEffect(() => {
-    if (venues.length && !venueId) setVenueId(venues[0].id)
-  }, [venues])
-  return [venueId, setVenueId]
-}
-// Then update the component: const [venueId, setVenueId] = useVenueId(venues)
-```
-
-**4. Add `table_id` to slot resolver response**
-The booking widget needs a `table_id` per slot to create a hold.
-Add a subquery to `src/routes/slots.js` — see `INTEGRATION_PATCH.js` for the exact SQL.
-
-**5. Activate pg_cron sweep**
-Uncomment in `006_functions.sql`:
-```sql
-SELECT cron.schedule('sweep-holds', '* * * * *', 'SELECT sweep_expired_holds()');
-```
-Run this once after confirming `pg_cron` is available on the Lightsail Postgres install.
-
-**6. Wire `broadcastBooking()` into routes**
-In `src/routes/bookings.js` and `src/routes/payments.js`, add after every booking INSERT:
-```js
-import { broadcastBooking } from '../services/broadcastSvc.js'
-broadcastBooking('booking.created', booking)   // or 'booking.updated'
-```
+## Outstanding items
 
 ### Build next (larger features)
 
-**7. Ember.js booking widget**
+**1. Ember.js booking widget**
 `src/components/widget/BookingWidget.jsx` is the reference implementation.
 Port the 5-step flow (covers → date → slot → details → confirm) to Ember.js.
 Style via CSS custom properties (accent colour, theme) so it's white-labelable.
 Deploy as an iframe embed with a `<script>` loader snippet.
 
-**8. Team management page**
+**2. Team management page**
 Route: `/team`. Uses Auth0 Management API to invite users to an organisation.
 Pattern: POST to Auth0 `/api/v2/jobs/invitations` → user receives email → joins org.
 Store role in `app_metadata.role` on the Auth0 user.
 
-**9. Test suite**
+**3. Test suite**
 No tests exist yet. Recommended approach:
 - API: Vitest + supertest for route integration tests
 - DB: Use a test database with migrations applied, reset between test runs
 - Priority test targets: `confirm_hold()` race condition, slot resolver output, booking flow end-to-end
+
+**4. confirm_hold() PG function — combination_id**
+The `confirm_hold()` PG function (Stripe webhook path) does not yet copy `combination_id`
+from the hold into the booking INSERT. The free-booking path (POST /bookings) is fixed.
+Fix the function in `006_functions.sql` and redeploy.
 
 ---
 
@@ -233,6 +224,9 @@ Key vars to set before running:
 - **`max_covers = 0` on a slot cap ≠ fully booked** — it means intentionally blocked. The `zero_cap_display` venue setting controls whether it shows as hidden or unavailable.
 - **Hold TTL is configurable per venue** — `booking_rules.hold_ttl_secs`. Default 300 (5 min). Widget countdown is driven by `expires_at` from the hold response, not a local timer.
 - **pg_cron is a fallback** — the primary hold release is the explicit `DELETE /holds/:id` call. Don't rely on the sweep as the main path.
+- **`slot_time` from DB is `HH:MM:SS`** — PostgreSQL `TIME` columns serialise to `HH:MM:SS` in JSON, but the API validation regex expects `HH:MM`. Always call `.slice(0, 5)` on slot_time values before using them as keys or sending them back to the API.
+- **`combination_id` must be copied from hold to booking** — `POST /bookings` (free-booking path) copies it; `confirm_hold()` PG function does not yet — see Outstanding items. Never assume the booking record has `combination_id` set just because the hold had it (on the Stripe webhook path).
+- **`/relocate` throws 422 when no combo exists for expanded table set** — step 4 no longer auto-creates combinations. If adjacency expansion finds T8+T9+T10 but no pre-configured combination exists for those tables, the endpoint returns 422 and the drag snaps back. Operators must create the combination in the Tables page first.
 
 ---
 
@@ -245,7 +239,8 @@ Key vars to set before running:
 cd api
 cp .env.example .env   # fill in values
 psql $DATABASE_URL -f ../migrations/001_tenants_users.sql
-# ... run 002-006
+# ... run 002-009 in order
+psql $DATABASE_URL -f ../migrations/010_allocation_rules.sql
 npm install
 npm run dev            # starts on :3000 with --watch
 
