@@ -6,6 +6,10 @@
 //
 // Save button is always in the drawer header next to the X close button,
 // contextually labelled for whichever section is currently being edited.
+//
+// Touch-friendly: full-width on mobile, 420px panel on sm+.
+// Action buttons have dotted borders for larger tap targets.
+// Status buttons are large and pill-shaped.
 
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
@@ -16,12 +20,24 @@ import {
 import { useApi } from '@/lib/api'
 import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
+// Transitions from each status.
+// unconfirmed is always listed — if a booking has that status, you must be
+// able to resolve it even if the rule is later turned off.
 const NEXT_STATUSES = {
+  unconfirmed:     ['confirmed', 'cancelled'],
   confirmed:       ['completed', 'no_show', 'cancelled'],
   pending_payment: ['confirmed', 'cancelled'],
   completed:       [],
   no_show:         [],
   cancelled:       [],
+}
+
+// Colour classes for each next-status button
+const STATUS_BTN_COLOURS = {
+  confirmed:  'border-blue-400   text-blue-700   hover:bg-blue-50',
+  completed:  'border-green-500  text-green-700  hover:bg-green-50',
+  no_show:    'border-gray-400   text-gray-600   hover:bg-gray-50',
+  cancelled:  'border-red-400    text-destructive hover:bg-destructive/10',
 }
 
 export default function BookingDrawer({ booking, onClose, onUpdated }) {
@@ -166,40 +182,41 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
   const warning = showTablePicker ? capacityWarning() : null
 
   // ── Header contextual save action ─────────────────────────
-  // Whichever section is in edit mode gets the save button in the header.
   const headerAction = (() => {
     if (editingNotes)    return {
-      label:    notesMutation.isPending    ? 'Saving…'        : 'Save notes',
+      label:    notesMutation.isPending    ? 'Saving…'   : 'Save notes',
       onClick:  () => notesMutation.mutate(),
       disabled: notesMutation.isPending,
     }
     if (editingGuest)    return {
-      label:    guestMutation.isPending    ? 'Saving…'        : 'Save details',
+      label:    guestMutation.isPending    ? 'Saving…'   : 'Save details',
       onClick:  handleGuestSave,
       disabled: guestMutation.isPending,
     }
     if (showTablePicker) return {
-      label:    tablesMutation.isPending   ? 'Saving…'        : `Assign ${pickedLabel()}`,
+      label:    tablesMutation.isPending   ? 'Saving…'   : `Assign ${pickedLabel()}`,
       onClick:  handleTableSave,
       disabled: tablesMutation.isPending || !canSave,
     }
     if (showReschedule)  return {
-      label:    moveMutation.isPending     ? 'Moving…'        : 'Move booking',
+      label:    moveMutation.isPending     ? 'Moving…'   : 'Move booking',
       onClick:  handleReschedule,
       disabled: moveMutation.isPending,
     }
     return null
   })()
 
+  const nextStatuses = NEXT_STATUSES[booking.status] ?? []
+
   return (
     <>
       {/* Backdrop */}
       <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
 
-      {/* Drawer */}
-      <div className="fixed right-0 top-0 bottom-0 w-96 bg-background border-l shadow-xl z-50 flex flex-col overflow-hidden">
+      {/* Drawer — full-width on mobile, fixed 420px on sm+ */}
+      <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[420px] bg-background border-l shadow-xl z-50 flex flex-col overflow-hidden">
 
-        {/* ── Header — booking name + contextual save + close ─ */}
+        {/* ── Header ─────────────────────────────────────── */}
         <div className="flex items-center justify-between px-4 h-14 border-b shrink-0">
           <div className="min-w-0 mr-2">
             <p className="font-semibold text-sm truncate">{booking.guest_name}</p>
@@ -215,35 +232,34 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
                 {headerAction.label}
               </button>
             )}
-            <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
-              <X className="w-4 h-4" />
+            <button onClick={onClose} className="p-2 rounded-lg hover:bg-accent">
+              <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+        <div className="flex-1 overflow-y-auto p-5 space-y-6">
 
           {/* Status badge */}
           <div>
-            <span className={cn('inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium',
+            <span className={cn('inline-flex px-3 py-1 rounded-full text-xs font-semibold',
               STATUS_COLOURS[booking.status])}>
               {STATUS_LABELS[booking.status]}
             </span>
           </div>
 
-          {/* ── Date & time + reschedule ──────────────────── */}
+          {/* ── Date & time + reschedule ─────────────────── */}
           <Section
             title="Date & time"
             action={
               !showReschedule
-                ? <button
-                    onClick={() => setShowReschedule(true)}
-                    className="text-xs flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                  >
-                    <Calendar className="w-3 h-3" /> Reschedule
-                  </button>
-                : null
+                ? <ActionButton icon={Calendar} onClick={() => setShowReschedule(true)}>
+                    Reschedule
+                  </ActionButton>
+                : <ActionButton onClick={() => setShowReschedule(false)} variant="cancel">
+                    Cancel
+                  </ActionButton>
             }
           >
             <Row icon={Clock}>
@@ -251,35 +267,27 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
             </Row>
 
             {showReschedule && (
-              <div className="mt-3 space-y-2">
-                <div className="flex gap-2">
+              <div className="mt-4 space-y-3">
+                <div className="flex gap-3">
                   <div className="flex-1">
-                    <label className="text-xs text-muted-foreground block mb-0.5">Date</label>
+                    <label className="text-xs text-muted-foreground block mb-1">Date</label>
                     <input
                       type="date"
                       value={rescheduleDate}
                       onChange={e => setRescheduleDate(e.target.value)}
-                      className="w-full text-sm border rounded px-2 py-1.5 outline-none focus:border-primary"
+                      className="w-full text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary"
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-muted-foreground block mb-0.5">Time</label>
+                    <label className="text-xs text-muted-foreground block mb-1">Time</label>
                     <input
                       type="time"
                       step="900"
                       value={rescheduleTime}
                       onChange={e => setRescheduleTime(e.target.value)}
-                      className="text-sm border rounded px-2 py-1.5 outline-none focus:border-primary"
+                      className="text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary"
                     />
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowReschedule(false)}
-                    className="text-xs px-3 py-1.5 border rounded"
-                  >
-                    Cancel
-                  </button>
                 </div>
                 {moveMutation.isError && (
                   <p className="text-xs text-destructive">{moveMutation.error?.message ?? 'Failed to move booking'}</p>
@@ -288,22 +296,29 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
             )}
           </Section>
 
-          {/* ── Guest details (editable) ──────────────────── */}
+          {/* ── Guest details ─────────────────────────────── */}
           <Section
             title="Guest details"
             action={
               !editingGuest
-                ? <button
-                    onClick={() => setEditingGuest(true)}
-                    className="text-xs flex items-center gap-1 text-muted-foreground hover:text-foreground"
-                  >
-                    <Pencil className="w-3 h-3" /> Edit
-                  </button>
-                : null
+                ? <ActionButton icon={Pencil} onClick={() => setEditingGuest(true)}>
+                    Edit
+                  </ActionButton>
+                : <ActionButton onClick={() => {
+                    setGuestFields({
+                      guest_name:  booking.guest_name  ?? '',
+                      guest_email: booking.guest_email ?? '',
+                      guest_phone: booking.guest_phone ?? '',
+                      covers:      booking.covers      ?? 2,
+                    })
+                    setEditingGuest(false)
+                  }} variant="cancel">
+                    Cancel
+                  </ActionButton>
             }
           >
             {editingGuest ? (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <GuestField
                   label="Name"
                   value={guestFields.guest_name}
@@ -326,32 +341,16 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
                   type="number"
                   value={guestFields.covers}
                   onChange={v => setGuestFields(p => ({ ...p, covers: v }))}
-                  inputClass="w-20"
+                  inputClass="w-24"
                 />
-                <div className="pt-1">
-                  <button
-                    onClick={() => {
-                      setGuestFields({
-                        guest_name:  booking.guest_name  ?? '',
-                        guest_email: booking.guest_email ?? '',
-                        guest_phone: booking.guest_phone ?? '',
-                        covers:      booking.covers      ?? 2,
-                      })
-                      setEditingGuest(false)
-                    }}
-                    className="text-xs px-3 py-1.5 border rounded"
-                  >
-                    Cancel
-                  </button>
-                </div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <Row icon={Users}>{booking.covers} covers</Row>
                 <Row icon={Mail}>{booking.guest_email}</Row>
                 {booking.guest_phone && <Row icon={Phone}>{booking.guest_phone}</Row>}
                 {booking.guest_notes && (
-                  <div className="text-sm text-muted-foreground bg-muted rounded p-2 mt-1">
+                  <div className="text-sm text-muted-foreground bg-muted rounded-lg p-3 mt-1">
                     {booking.guest_notes}
                   </div>
                 )}
@@ -359,59 +358,56 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
             )}
           </Section>
 
-          {/* ── Table assignment — checkboxes only ───────── */}
+          {/* ── Table assignment ──────────────────────────── */}
           <Section
             title="Table assignment"
             action={
-              <button
+              <ActionButton
+                icon={Pencil}
                 onClick={() => setShowTablePicker(v => !v)}
-                className="text-xs flex items-center gap-1 text-muted-foreground hover:text-foreground"
+                variant={showTablePicker ? 'cancel' : 'default'}
               >
-                <Pencil className="w-3 h-3" />
                 {showTablePicker ? 'Cancel' : 'Override'}
-              </button>
+              </ActionButton>
             }
           >
             {!showTablePicker ? (
-              // Display current assignment — combination_name is already "T1 + T2 + T3A" style
               <p className="text-sm font-medium">
                 {booking.combination_name ?? booking.table_label ?? '—'}
               </p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 mt-2">
 
-                {/* Capacity warning */}
                 {warning && (
-                  <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                     <span>{warning}</span>
                   </div>
                 )}
 
-                {/* Individual table checkboxes */}
                 {tables.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Loading tables…</p>
                 ) : (
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     {tables.filter(t => t.is_active && !t.is_unallocated).map(t => {
                       const selected = pickedTableIds.has(t.id)
                       return (
                         <label
                           key={t.id}
                           className={cn(
-                            'flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg border cursor-pointer text-sm transition-colors',
-                            selected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50',
+                            'flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 cursor-pointer text-sm transition-colors',
+                            selected ? 'border-primary bg-primary/5' : 'border-transparent bg-muted/50 hover:bg-muted',
                           )}
                         >
                           <input
                             type="checkbox"
-                            className="accent-primary w-3.5 h-3.5 shrink-0"
+                            className="accent-primary w-4 h-4 shrink-0"
                             checked={selected}
                             onChange={() => toggleTable(t.id)}
                           />
                           <span className="font-medium">{t.label}</span>
                           {t.section_name && (
-                            <span className="text-[10px] text-muted-foreground">{t.section_name}</span>
+                            <span className="text-xs text-muted-foreground">{t.section_name}</span>
                           )}
                           <span className="text-xs text-muted-foreground ml-auto shrink-0">
                             {t.min_covers}–{t.max_covers} cov
@@ -448,7 +444,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
                 <button
                   onClick={() => refundMutation.mutate()}
                   disabled={refundMutation.isPending}
-                  className="mt-2 text-xs text-destructive underline-offset-2 hover:underline disabled:opacity-50"
+                  className="mt-3 text-sm text-destructive underline-offset-2 hover:underline disabled:opacity-50"
                 >
                   {refundMutation.isPending ? 'Processing…' : 'Issue refund'}
                 </button>
@@ -457,22 +453,27 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
           )}
 
           {/* ── Operator notes ────────────────────────────── */}
-          <Section title="Operator notes">
+          <Section
+            title="Operator notes"
+            action={
+              !editingNotes
+                ? <ActionButton icon={Pencil} onClick={() => setEditingNotes(true)}>
+                    Edit
+                  </ActionButton>
+                : <ActionButton onClick={() => { setNotes(booking.operator_notes ?? ''); setEditingNotes(false) }} variant="cancel">
+                    Cancel
+                  </ActionButton>
+            }
+          >
             {editingNotes ? (
               <div className="space-y-2">
                 <textarea
                   value={notes}
                   onChange={e => setNotes(e.target.value)}
-                  className="w-full text-sm border rounded p-2 resize-none min-h-20"
+                  className="w-full text-sm border rounded-lg p-3 resize-none min-h-24"
                   placeholder="Internal notes…"
                   autoFocus
                 />
-                <button
-                  onClick={() => { setNotes(booking.operator_notes ?? ''); setEditingNotes(false) }}
-                  className="text-xs px-3 py-1.5 border rounded"
-                >
-                  Cancel
-                </button>
                 {notesMutation.isError && (
                   <p className="text-xs text-destructive">{notesMutation.error?.message ?? 'Failed to save'}</p>
                 )}
@@ -480,36 +481,41 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
             ) : (
               <div
                 onClick={() => setEditingNotes(true)}
-                className="text-sm text-muted-foreground cursor-text min-h-8 hover:bg-muted rounded p-1.5 -m-1.5"
+                className="text-sm text-muted-foreground cursor-text min-h-10 hover:bg-muted rounded-lg p-2 -m-2"
               >
-                {notes || <span className="italic">Click to add notes…</span>}
+                {notes || <span className="italic">Tap to add notes…</span>}
               </div>
             )}
           </Section>
+
         </div>
 
-        {/* Footer: status actions */}
-        {NEXT_STATUSES[booking.status]?.length > 0 && (
-          <div className="p-4 border-t shrink-0 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground mb-2">Change status</p>
-            <div className="flex flex-wrap gap-2">
-              {NEXT_STATUSES[booking.status].map(s => (
+        {/* ── Footer: status change buttons ──────────────── */}
+        {nextStatuses.length > 0 && (
+          <div className="p-4 border-t shrink-0">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+              Change status
+            </p>
+            <div className="flex gap-2">
+              {nextStatuses.map(s => (
                 <button
                   key={s}
                   onClick={() => statusMutation.mutate(s)}
                   disabled={statusMutation.isPending}
                   className={cn(
-                    'text-xs px-3 py-1.5 rounded-full border font-medium transition-colors disabled:opacity-50',
-                    s === 'cancelled' && 'border-destructive text-destructive hover:bg-destructive/10',
-                    s === 'completed' && 'border-green-600 text-green-700 hover:bg-green-50',
-                    s === 'no_show'   && 'border-gray-400 text-gray-600 hover:bg-gray-50',
-                    s === 'confirmed' && 'border-blue-500 text-blue-700 hover:bg-blue-50',
+                    'flex-1 py-3 text-sm rounded-xl border-2 font-medium transition-colors disabled:opacity-50',
+                    STATUS_BTN_COLOURS[s] ?? 'border-gray-300 text-gray-700 hover:bg-gray-50',
                   )}
                 >
                   {STATUS_LABELS[s]}
                 </button>
               ))}
             </div>
+            {statusMutation.isError && (
+              <p className="text-xs text-destructive mt-2">
+                {statusMutation.error?.message ?? 'Failed to update status'}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -517,7 +523,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
   )
 }
 
-// ── Sub-components ─────────────────────────────────────────────
+// ── Sub-components ──────────────────────────────────────────────
 
 function Row({ icon: Icon, children }) {
   return (
@@ -531,7 +537,7 @@ function Row({ icon: Icon, children }) {
 function Section({ title, action, children }) {
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{title}</p>
         {action}
       </div>
@@ -540,17 +546,35 @@ function Section({ title, action, children }) {
   )
 }
 
+// Dotted-border action button — larger tap target than a plain text link
+function ActionButton({ icon: Icon, onClick, children, variant = 'default' }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border border-dashed transition-colors',
+        variant === 'cancel'
+          ? 'border-muted-foreground/30 text-muted-foreground hover:border-muted-foreground/60'
+          : 'border-muted-foreground/30 text-muted-foreground hover:text-foreground hover:border-foreground/40',
+      )}
+    >
+      {Icon && <Icon className="w-3.5 h-3.5 shrink-0" />}
+      {children}
+    </button>
+  )
+}
+
 function GuestField({ label, value, onChange, type = 'text', placeholder, inputClass = '' }) {
   return (
     <div>
-      <label className="text-xs text-muted-foreground block mb-0.5">{label}</label>
+      <label className="text-xs text-muted-foreground block mb-1">{label}</label>
       <input
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
         className={cn(
-          'w-full text-sm border rounded px-2 py-1.5 outline-none focus:border-primary',
+          'w-full text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary',
           inputClass
         )}
       />

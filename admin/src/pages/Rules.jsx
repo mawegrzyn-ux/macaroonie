@@ -21,6 +21,7 @@ const BookingRulesSchema = z.object({
   allow_cross_section_combo:                z.boolean().default(false),
   allow_non_adjacent_combo:                 z.boolean().default(false),
   allow_widget_bookings_after_doors_close:  z.boolean().default(false),
+  enable_unconfirmed_flow:                  z.boolean().default(false),
 })
 
 const DepositSchema = z.object({
@@ -104,6 +105,7 @@ export default function Rules() {
       allow_cross_section_combo:                false,
       allow_non_adjacent_combo:                 false,
       allow_widget_bookings_after_doors_close:  false,
+      enable_unconfirmed_flow:                  false,
     },
   })
 
@@ -234,6 +236,40 @@ export default function Rules() {
               >
                 <Save className="w-4 h-4" />
                 {rulesMutation.isPending ? 'Saving…' : 'Save allocation rules'}
+              </button>
+            </Section>
+          </form>
+
+          {/* ── Booking confirmation flow ─────────────────── */}
+          <form onSubmit={submitRules(data => rulesMutation.mutate(data))}>
+            <Section
+              title="Booking confirmation"
+              description="When enabled, new bookings start as 'Not confirmed'. Operators call the guest to confirm, then manually set the status to Confirmed. When disabled (default), all bookings start as Confirmed immediately."
+            >
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    {...regRules('enable_unconfirmed_flow')}
+                    className="w-4 h-4 mt-0.5 shrink-0"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Enable call-to-confirm workflow</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      New bookings will be set to <strong>Not confirmed</strong> until an operator
+                      calls the guest and moves the status to <strong>Confirmed</strong>.
+                      Admin-created bookings follow the same flow when this is on.
+                    </p>
+                  </div>
+                </label>
+              </div>
+              <button
+                type="submit"
+                disabled={rulesMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                {rulesMutation.isPending ? 'Saving…' : 'Save rules'}
               </button>
             </Section>
           </form>

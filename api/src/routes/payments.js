@@ -178,6 +178,12 @@ async function handlePaymentSucceeded(pi, log) {
     const [h] = await tx`SELECT * FROM booking_holds WHERE id = ${hold_id}`
     if (!h) { log.error({ hold_id }, 'Hold missing after confirmation'); return }
 
+    // Determine initial status: unconfirmed when the venue has the call-to-confirm flow enabled
+    const [bookingRules] = await tx`
+      SELECT enable_unconfirmed_flow FROM booking_rules WHERE venue_id = ${h.venue_id}
+    `
+    const initialStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+
     const [booking] = await tx`
       INSERT INTO bookings
         (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
@@ -186,7 +192,7 @@ async function handlePaymentSucceeded(pi, log) {
         (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${tenant_id},
          ${h.starts_at}, ${h.ends_at}, ${h.covers},
          ${h.guest_name}, ${h.guest_email}, ${h.guest_phone}, ${h.guest_notes ?? null},
-         'confirmed')
+         ${initialStatus}::booking_status)
       RETURNING *
     `
 

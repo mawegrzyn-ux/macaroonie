@@ -40,13 +40,13 @@ const BookingBody = z.object({
 })
 
 const StatusBody = z.object({
-  status: z.enum(['confirmed', 'cancelled', 'no_show', 'completed']),
+  status: z.enum(['unconfirmed', 'confirmed', 'cancelled', 'no_show', 'completed']),
 })
 
 const ListQuery = z.object({
   venue_id: z.string().uuid().optional(),
   date:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  status:   z.enum(['pending_payment', 'confirmed', 'cancelled', 'no_show', 'completed']).optional(),
+  status:   z.enum(['pending_payment', 'unconfirmed', 'confirmed', 'cancelled', 'no_show', 'completed']).optional(),
   limit:    z.coerce.number().int().min(1).max(200).default(100),
   offset:   z.coerce.number().int().min(0).default(0),
 })
@@ -187,6 +187,12 @@ export default async function bookingsRoutes(app) {
         throw httpError(422, 'This venue requires a deposit — use the payment flow')
       }
 
+      // Determine initial status: unconfirmed when the venue has the call-to-confirm flow enabled
+      const [bookingRules] = await tx`
+        SELECT enable_unconfirmed_flow FROM booking_rules WHERE venue_id = ${h.venue_id}
+      `
+      const initialStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+
       const [booking] = await tx`
         INSERT INTO bookings
           (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
@@ -195,7 +201,7 @@ export default async function bookingsRoutes(app) {
           (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${req.tenantId},
            ${h.starts_at}, ${h.ends_at}, ${body.covers ?? h.covers},
            ${body.guest_name ?? h.guest_name}, ${body.guest_email ?? h.guest_email}, ${body.guest_phone ?? h.guest_phone ?? null},
-           ${body.guest_notes ?? null}, 'confirmed')
+           ${body.guest_notes ?? null}, ${initialStatus}::booking_status)
         RETURNING *
       `
 
