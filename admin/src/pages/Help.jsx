@@ -78,6 +78,7 @@ export default function Help() {
               {[
                 ['Create your venue', 'Give it a name, address, and timezone. The timezone is critical — all booking times display in your local time.'],
                 ['Add tables and sections', 'Organise your floor plan into sections (Main Floor, Terrace, Bar, etc.), then add each table with its seating capacity.'],
+                ['Set table order', 'Use the Reorder button on the Tables page to drag tables into the order they appear on your floor plan. This drives the Timeline row sequence and the smart-allocation adjacency logic.'],
                 ['Set up table combinations', 'If adjacent tables can be pushed together for larger parties, create a combination (e.g. T1 + T2 = combined table for 6).'],
                 ['Configure your weekly schedule', 'Define which days you open and add sittings (Lunch, Dinner). Each sitting has its own slot duration, interval, and cover cap.'],
                 ['Set booking rules', 'Configure minimum and maximum covers per booking, the hold time limit, and the cutoff before a slot starts.'],
@@ -205,6 +206,26 @@ export default function Help() {
               If non-adjacent tables are combined (e.g. T1+T2 and T4, with T3A between them in the list),
               separate tiles appear at each group's position.
             </P>
+
+            <H3>Setting table order</H3>
+            <P>
+              The order of tables in the Tables page determines the row sequence in the Timeline{' '}
+              <strong>and</strong> controls which tables are considered "next to" each other when the
+              system automatically finds space for a dragged booking. Getting this order right is
+              important for smart allocation to work the way your floor plan is physically laid out.
+            </P>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Go to <strong>Tables</strong> in the sidebar and select your venue.</li>
+              <li>Click the <strong>Reorder</strong> button in the top-right header.</li>
+              <li>The page switches to a flat sorted list showing all tables with position numbers on the left.</li>
+              <li>Grab the <strong>grip handle</strong> (⠿) on any row and drag it up or down to the desired position.</li>
+              <li>When the order looks right, click <strong>Save order</strong>. The new order takes effect in the Timeline and smart allocation immediately.</li>
+            </ol>
+            <InfoBox type="tip">
+              Set up your table order to match the physical floor plan — tables that are physically
+              adjacent should be adjacent in the list. This is what the system uses when it tries to
+              combine nearby tables for a large-party booking that gets dragged to a new position.
+            </InfoBox>
           </section>
 
           {/* ── SCHEDULE ──────────────────────────────────── */}
@@ -401,9 +422,54 @@ export default function Help() {
 
             <H3>Drag to reschedule (desktop)</H3>
             <P>
-              Click and drag any booking tile to a different time or a different table row. Release to confirm.
-              The booking is updated immediately and the change is broadcast to all other logged-in users.
+              Click and drag any booking tile to move it. Release to confirm. The booking is updated
+              immediately and broadcast to all other logged-in users.
             </P>
+            <div className="space-y-2 mb-4">
+              {[
+                ['Same row, new time', 'Drag left or right — the booking moves to the new time, keeping its current table and duration.'],
+                ['Different table row, same or new time', 'Drag up or down (with or without a horizontal shift) — the system automatically finds the best table arrangement for the booking\'s party size anchored to the table you drop onto. See smart allocation below.'],
+              ].map(([label, desc]) => (
+                <div key={label} className="flex gap-3 items-start border rounded-lg px-3 py-2.5 text-sm">
+                  <span className="font-semibold w-52 shrink-0">{label}</span>
+                  <span className="text-muted-foreground">{desc}</span>
+                </div>
+              ))}
+            </div>
+
+            <H3>Smart allocation on cross-table drop</H3>
+            <P>
+              When you drop a booking on a <em>different</em> table row, Macaroonie automatically works
+              out the best table arrangement for the booking's party size, anchored to the table you
+              dropped on:
+            </P>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li><strong>Single table first</strong> — if the target table can seat the whole party, it is used alone.</li>
+              <li><strong>Combination second</strong> — if a configured combination includes the target table and has enough capacity, the smallest fitting combination is used.</li>
+              <li><strong>Adjacent tables third</strong> — if no combination fits, the system expands outward from the target table (using your table sort order) until there is enough combined capacity.</li>
+            </ol>
+            <P>
+              If any of the tables in the chosen arrangement are already occupied at that time, the
+              system tries to move the conflicting booking to another free table. If no free table
+              exists, the conflicting booking is moved to the <strong>Unallocated</strong> row.
+            </P>
+
+            <H3>The Unallocated row</H3>
+            <P>
+              The Unallocated row appears at the very top of the Timeline (highlighted in orange) when
+              the system has been unable to find a free table for a displaced booking during a
+              smart-allocation cascade.
+            </P>
+            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
+              <li>Bookings in the Unallocated row <strong>still exist and are confirmed</strong> — they just have no table assigned yet.</li>
+              <li>You <strong>cannot drop</strong> bookings into the Unallocated row manually — it is managed by the system only.</li>
+              <li>To re-assign an unallocated booking, <strong>drag it out</strong> of the Unallocated row and drop it onto any real table row. Smart allocation runs again from that target table.</li>
+              <li>The Unallocated row disappears automatically once all bookings in it have been re-assigned.</li>
+            </ul>
+            <InfoBox type="warn">
+              Resolve unallocated bookings before the service starts. Guests with unallocated bookings
+              have no table and will need to be seated manually.
+            </InfoBox>
 
             <H3>Hold to drag (mobile / touch screen)</H3>
             <P>
@@ -617,6 +683,22 @@ export default function Help() {
                 {
                   q: 'The venue selector is empty on the Timeline.',
                   a: 'This usually means your Auth0 session has expired. Log out and log back in. If the issue persists, check that at least one venue is active for your account on the Venues page.',
+                },
+                {
+                  q: 'I dragged a booking to a different table but it ended up on unexpected tables.',
+                  a: 'Smart allocation picks the best arrangement anchored to the table you dropped on. If the target table alone cannot seat the party, the system looks for a combination that includes that table, then falls back to adjacent tables by sort order. To get predictable results, (1) configure combinations for the table groupings you want, and (2) set your table sort order to match the physical floor plan — Tables → Reorder.',
+                },
+                {
+                  q: 'A booking appeared in the Unallocated row after a drag.',
+                  a: 'This means a booking was displaced when smart allocation moved the dragged booking onto its table, and no other free table was available at that time. The displaced booking is still confirmed — it just has no physical table. Drag it out of the Unallocated row and drop it onto a suitable table row to re-assign it. The smart-allocation engine will run again from the new target table.',
+                },
+                {
+                  q: 'How do I control which tables the system combines when I drag a large-party booking?',
+                  a: 'Two ways: (1) Create explicit table combinations on the Tables page — the system always prefers configured combinations over ad-hoc adjacency. (2) Set your table sort order (Tables → Reorder) so that tables you want combined are adjacent in the list — the adjacency expansion follows sort order, so physically adjacent tables should be neighbours in the list.',
+                },
+                {
+                  q: 'I set the table order but the Timeline still shows the old order.',
+                  a: 'The Timeline fetches the table list when it loads. Click the Refresh button in the Timeline toolbar, or navigate away and back, to pick up the new sort order.',
                 },
               ].map(({ q, a }) => (
                 <div key={q} className="border rounded-lg p-4">

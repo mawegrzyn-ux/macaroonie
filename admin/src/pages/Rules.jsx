@@ -10,14 +10,16 @@ import { Save } from 'lucide-react'
 import { useApi } from '@/lib/api'
 
 const BookingRulesSchema = z.object({
-  slot_duration_mins:  z.coerce.number().int().min(15).max(480),
-  buffer_after_mins:   z.coerce.number().int().min(0).max(120),
-  min_covers:          z.coerce.number().int().min(1),
-  max_covers:          z.coerce.number().int().min(1),
-  book_from_days:      z.coerce.number().int().min(0),
-  book_until_days:     z.coerce.number().int().min(1),
-  cutoff_before_mins:  z.coerce.number().int().min(0),
-  hold_ttl_secs:       z.coerce.number().int().min(60).max(1800),
+  slot_duration_mins:        z.coerce.number().int().min(15).max(480),
+  buffer_after_mins:         z.coerce.number().int().min(0).max(120),
+  min_covers:                z.coerce.number().int().min(1),
+  max_covers:                z.coerce.number().int().min(1),
+  book_from_days:            z.coerce.number().int().min(0),
+  book_until_days:           z.coerce.number().int().min(1),
+  cutoff_before_mins:        z.coerce.number().int().min(0),
+  hold_ttl_secs:             z.coerce.number().int().min(60).max(1800),
+  allow_cross_section_combo: z.boolean().default(false),
+  allow_non_adjacent_combo:  z.boolean().default(false),
 })
 
 const DepositSchema = z.object({
@@ -90,14 +92,16 @@ export default function Rules() {
   } = useForm({
     resolver: zodResolver(BookingRulesSchema),
     values: rules?.venue_id ? rules : {
-      slot_duration_mins: 90,
-      buffer_after_mins:  0,
-      min_covers:         1,
-      max_covers:         20,
-      book_from_days:     0,
-      book_until_days:    90,
-      cutoff_before_mins: 60,
-      hold_ttl_secs:      300,
+      slot_duration_mins:        90,
+      buffer_after_mins:         0,
+      min_covers:                1,
+      max_covers:                20,
+      book_from_days:            0,
+      book_until_days:           90,
+      cutoff_before_mins:        60,
+      hold_ttl_secs:             300,
+      allow_cross_section_combo: false,
+      allow_non_adjacent_combo:  false,
     },
   })
 
@@ -180,6 +184,54 @@ export default function Rules() {
               >
                 <Save className="w-4 h-4" />
                 {rulesMutation.isPending ? 'Saving…' : 'Save booking rules'}
+              </button>
+            </Section>
+          </form>
+
+          {/* ── Smart allocation ─────────────────────────── */}
+          <form onSubmit={submitRules(data => rulesMutation.mutate(data))}>
+            <Section
+              title="Smart allocation"
+              description="Controls how the engine combines tables when a drag-to-table drop needs extra capacity."
+            >
+              <div className="space-y-3">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    {...regRules('allow_cross_section_combo')}
+                    className="w-4 h-4 mt-0.5 shrink-0"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Allow combining tables from different sections</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      When off (default), the engine only considers tables that share the same
+                      section as the drop target. Turn on to allow cross-section combinations.
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    {...regRules('allow_non_adjacent_combo')}
+                    className="w-4 h-4 mt-0.5 shrink-0"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Allow combining non-adjacent tables</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      When off (default), existing combinations are only eligible if their member
+                      tables sit consecutively in sort order. The adjacency expansion path always
+                      remains contiguous regardless of this setting.
+                    </p>
+                  </div>
+                </label>
+              </div>
+              <button
+                type="submit"
+                disabled={rulesMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50"
+              >
+                <Save className="w-4 h-4" />
+                {rulesMutation.isPending ? 'Saving…' : 'Save allocation rules'}
               </button>
             </Section>
           </form>

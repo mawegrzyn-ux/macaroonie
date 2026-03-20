@@ -575,6 +575,41 @@ export default async function bookingsRoutes(app) {
       `
       if (!targetTable) throw httpError(404, 'Target table not found')
 
+      // ── 2b. Load allocation rules & disallowed pairs ─────────
+      const [allocRules] = await tx`
+        SELECT allow_cross_section_combo, allow_non_adjacent_combo
+          FROM booking_rules
+         WHERE venue_id = ${booking.venue_id} AND tenant_id = ${req.tenantId}
+      `
+      const crossSection = allocRules?.allow_cross_section_combo ?? false
+      const nonAdjacent  = allocRules?.allow_non_adjacent_combo  ?? false
+
+      const disallowedPairs = await tx`
+        SELECT table_id_a, table_id_b FROM disallowed_table_pairs
+         WHERE venue_id = ${booking.venue_id} AND tenant_id = ${req.tenantId}
+      `
+      const hasDisallowedPair = (ids) => {
+        const s = new Set(ids)
+        return disallowedPairs.some(p => s.has(p.table_id_a) && s.has(p.table_id_b))
+      }
+
+      // Load all active tables once — used for adjacency checks in 3b and expansion in 3c
+      const allTables = await tx`
+        SELECT id, max_covers, sort_order, section_id FROM tables
+         WHERE venue_id       = ${booking.venue_id}
+           AND tenant_id      = ${req.tenantId}
+           AND is_active      = true
+           AND is_unallocated = false
+         ORDER BY sort_order, label
+      `
+      const tableIndexMap = new Map(allTables.map((t, i) => [t.id, i]))
+      const isAdjacentSet = (ids) => {
+        const indices = ids.map(id => tableIndexMap.get(id)).filter(i => i !== undefined)
+        if (indices.length !== ids.length) return false
+        indices.sort((a, b) => a - b)
+        return indices.every((idx, i) => i === 0 || idx === indices[i - 1] + 1)
+      }
+
       // ── 3. Choose allocation (list of table IDs to occupy) ───
       let allocationTableIds = null   // string[]
       let allocationComboId  = null   // string | null
@@ -585,11 +620,12 @@ export default async function bookingsRoutes(app) {
         allocationComboId  = null
       }
 
-      // 3b. Smallest combination containing target table that fits covers
+      // 3b. Smallest existing combination containing target table that fits covers
       if (!allocationTableIds) {
         const combos = await tx`
           SELECT c.id, c.max_covers,
-                 array_agg(m.table_id ORDER BY t2.sort_order, t2.label) AS table_ids
+                 array_agg(m.table_id   ORDER BY t2.sort_order, t2.label) AS table_ids,
+                 array_agg(t2.section_id ORDER BY t2.sort_order, t2.label) AS section_ids
             FROM table_combinations c
             JOIN table_combination_members m ON m.combination_id = c.id
             JOIN tables t2                   ON t2.id = m.table_id
@@ -604,41 +640,56 @@ export default async function bookingsRoutes(app) {
                  )
            GROUP BY c.id, c.max_covers
            ORDER BY c.max_covers ASC
-           LIMIT 1
         `
-        if (combos.length > 0) {
-          allocationTableIds = combos[0].table_ids
-          allocationComboId  = combos[0].id
+        for (const combo of combos) {
+          // Cross-section rule: all members must share the same section as the target
+          if (!crossSection && combo.section_ids.some(s => s !== targetTable.section_id)) continue
+          // Non-adjacent rule: members must form a contiguous run by sort_order index
+          if (!nonAdjacent && !isAdjacentSet(combo.table_ids)) continue
+          // Disallowed pairs: skip if any member pair is blocked
+          if (hasDisallowedPair(combo.table_ids)) continue
+
+          allocationTableIds = combo.table_ids
+          allocationComboId  = combo.id
+          break
         }
       }
 
-      // 3c. Adjacency expansion — build contiguous run from physical sort order
+      // 3c. Adjacency expansion — build contiguous run outward from target by sort_order
+      // Respects cross-section and disallowed-pair rules; always stays physically contiguous.
       if (!allocationTableIds) {
-        const allTables = await tx`
-          SELECT id, max_covers, sort_order FROM tables
-           WHERE venue_id       = ${booking.venue_id}
-             AND tenant_id      = ${req.tenantId}
-             AND is_active      = true
-             AND is_unallocated = false
-           ORDER BY sort_order, label
-        `
         const targetIdx = allTables.findIndex(t => t.id === body.target_table_id)
         if (targetIdx !== -1) {
           let lo = targetIdx, hi = targetIdx
           let total = Number(allTables[targetIdx].max_covers)
-          let expandDown = true  // alternate: try below first, then above
+          let expandHi = true  // alternate direction each iteration
 
-          while (total < booking.covers && (lo > 0 || hi < allTables.length - 1)) {
-            if (expandDown && hi < allTables.length - 1) {
-              hi++; total += Number(allTables[hi].max_covers)
-            } else if (!expandDown && lo > 0) {
-              lo--; total += Number(allTables[lo].max_covers)
-            } else if (hi < allTables.length - 1) {
-              hi++; total += Number(allTables[hi].max_covers)
-            } else {
-              lo--; total += Number(allTables[lo].max_covers)
-            }
-            expandDown = !expandDown
+          const tryExpandHi = () => {
+            if (hi >= allTables.length - 1) return false
+            const candidate = allTables[hi + 1]
+            if (!crossSection && candidate.section_id !== targetTable.section_id) return false
+            const newIds = allTables.slice(lo, hi + 2).map(t => t.id)
+            if (hasDisallowedPair(newIds)) return false
+            hi++; total += Number(candidate.max_covers)
+            return true
+          }
+
+          const tryExpandLo = () => {
+            if (lo <= 0) return false
+            const candidate = allTables[lo - 1]
+            if (!crossSection && candidate.section_id !== targetTable.section_id) return false
+            const newIds = allTables.slice(lo - 1, hi + 1).map(t => t.id)
+            if (hasDisallowedPair(newIds)) return false
+            lo--; total += Number(candidate.max_covers)
+            return true
+          }
+
+          while (total < booking.covers) {
+            const expanded = expandHi
+              ? (tryExpandHi() || tryExpandLo())
+              : (tryExpandLo() || tryExpandHi())
+            if (!expanded) break
+            expandHi = !expandHi
           }
 
           if (total >= booking.covers) {
@@ -652,7 +703,10 @@ export default async function bookingsRoutes(app) {
         throw httpError(422, 'No suitable table arrangement found for this booking size')
       }
 
-      // ── 4. Find/create combination for multi-table allocation ─
+      // ── 4. Find existing combination for multi-table (never auto-create) ─────
+      // Adjacency expansion finds a table set but no combo ID.
+      // Only use a combo_id if a pre-configured combination already exists.
+      // If none exists, fall back to the single target table rather than creating one.
       if (allocationTableIds.length > 1 && !allocationComboId) {
         const sorted = [...allocationTableIds].sort()
         const [existing] = await tx`
@@ -668,23 +722,9 @@ export default async function bookingsRoutes(app) {
         if (existing) {
           allocationComboId = existing.id
         } else {
-          const tableRows = await tx`
-            SELECT id, label, min_covers, max_covers FROM tables
-             WHERE id = ANY(${sorted}::uuid[]) AND tenant_id = ${req.tenantId}
-             ORDER BY sort_order, label
-          `
-          const name      = tableRows.map(t => t.label).join(' + ')
-          const minCovers = Math.min(...tableRows.map(t => Number(t.min_covers)))
-          const maxCovers = tableRows.reduce((s, t) => s + Number(t.max_covers), 0)
-          const [newCombo] = await tx`
-            INSERT INTO table_combinations (venue_id, tenant_id, name, min_covers, max_covers)
-            VALUES (${booking.venue_id}, ${req.tenantId}, ${name}, ${minCovers}, ${maxCovers})
-            RETURNING id
-          `
-          for (const t of tableRows) {
-            await tx`INSERT INTO table_combination_members (combination_id, table_id) VALUES (${newCombo.id}, ${t.id})`
-          }
-          allocationComboId = newCombo.id
+          // No pre-configured combination — fall back to target table only
+          allocationTableIds = [body.target_table_id]
+          allocationComboId  = null
         }
       }
 

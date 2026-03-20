@@ -306,14 +306,16 @@ export default async function venuesRoutes(app) {
   // ── BOOKING RULES ─────────────────────────────────────────
 
   const BookingRulesBody = z.object({
-    slot_duration_mins:  z.number().int().min(15).max(480).optional(),
-    buffer_after_mins:   z.number().int().min(0).max(120).optional(),
-    min_covers:          z.number().int().min(1).optional(),
-    max_covers:          z.number().int().min(1).optional(),
-    book_from_days:      z.number().int().min(0).optional(),
-    book_until_days:     z.number().int().min(1).optional(),
-    cutoff_before_mins:  z.number().int().min(0).optional(),
-    hold_ttl_secs:       z.number().int().min(60).max(1800).optional(),
+    slot_duration_mins:        z.number().int().min(15).max(480).optional(),
+    buffer_after_mins:         z.number().int().min(0).max(120).optional(),
+    min_covers:                z.number().int().min(1).optional(),
+    max_covers:                z.number().int().min(1).optional(),
+    book_from_days:            z.number().int().min(0).optional(),
+    book_until_days:           z.number().int().min(1).optional(),
+    cutoff_before_mins:        z.number().int().min(0).optional(),
+    hold_ttl_secs:             z.number().int().min(60).max(1800).optional(),
+    allow_cross_section_combo: z.boolean().optional(),
+    allow_non_adjacent_combo:  z.boolean().optional(),
   })
 
   const DepositRulesBody = z.object({
@@ -456,5 +458,67 @@ export default async function venuesRoutes(app) {
     `)
     if (!rules) throw httpError(404, 'Deposit rules not found — POST to create them first')
     return rules
+  })
+
+  // ── DISALLOWED TABLE PAIRS ────────────────────────────────────
+  // Pairs listed here are never considered by the smart-allocate engine,
+  // whether the match comes from an existing combination or adjacency expansion.
+
+  // GET /venues/:id/disallowed-pairs
+  app.get('/:id/disallowed-pairs', async (req) => {
+    return withTenant(req.tenantId, tx => tx`
+      SELECT d.id, d.table_id_a, d.table_id_b,
+             a.label AS label_a, b.label AS label_b,
+             d.created_at
+        FROM disallowed_table_pairs d
+        JOIN tables a ON a.id = d.table_id_a
+        JOIN tables b ON b.id = d.table_id_b
+       WHERE d.venue_id  = ${req.params.id}
+         AND d.tenant_id = ${req.tenantId}
+       ORDER BY a.label, b.label
+    `)
+  })
+
+  // POST /venues/:id/disallowed-pairs
+  app.post('/:id/disallowed-pairs', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const { table_id_a, table_id_b } = z.object({
+      table_id_a: z.string().uuid(),
+      table_id_b: z.string().uuid(),
+    }).parse(req.body)
+
+    if (table_id_a === table_id_b) throw httpError(422, 'A table cannot be paired with itself')
+
+    // Verify both tables belong to this venue
+    const owned = await withTenant(req.tenantId, tx => tx`
+      SELECT id FROM tables
+       WHERE id = ANY(${[table_id_a, table_id_b]}::uuid[])
+         AND venue_id  = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+    `)
+    if (owned.length !== 2) throw httpError(404, 'One or both tables not found in this venue')
+
+    // Normalise: always store the smaller UUID first (matches DB CHECK constraint)
+    const [a, b] = [table_id_a, table_id_b].sort()
+
+    const [pair] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO disallowed_table_pairs (venue_id, tenant_id, table_id_a, table_id_b)
+      VALUES (${req.params.id}, ${req.tenantId}, ${a}, ${b})
+      ON CONFLICT (table_id_a, table_id_b) DO NOTHING
+      RETURNING *
+    `)
+    return reply.code(201).send(pair ?? { ok: true, note: 'pair already exists' })
+  })
+
+  // DELETE /venues/:id/disallowed-pairs/:pid
+  app.delete('/:id/disallowed-pairs/:pid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const [pair] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM disallowed_table_pairs
+       WHERE id        = ${req.params.pid}
+         AND venue_id  = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+      RETURNING id
+    `)
+    if (!pair) throw httpError(404, 'Pair not found')
+    return { ok: true }
   })
 }

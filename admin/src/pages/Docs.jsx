@@ -79,7 +79,7 @@ export default function Docs() {
             <Code>{`/
 ├── api/          Node.js API (Fastify)
 ├── admin/        React admin portal (Vite)
-├── migrations/   PostgreSQL migration files (001–008, run in order)
+├── migrations/   PostgreSQL migration files (001–009, run in order)
 ├── setup.sh      One-shot Lightsail server setup
 ├── deploy.sh     Subsequent deployments
 └── CLAUDE.md     Developer context and outstanding items`}</Code>
@@ -222,7 +222,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['tenants', 'One row per restaurant group.', 'id, name, slug, auth0_org_id'],
                 ['venues', 'A physical restaurant location.', 'tenant_id, name, timezone, is_active'],
                 ['venue_sections', 'Logical table groupings (Main Floor, Terrace, etc.).', 'venue_id, name, sort_order'],
-                ['tables', 'Individual bookable tables.', 'venue_id, section_id, label, min_covers, max_covers, sort_order, is_active'],
+                ['tables', 'Individual bookable tables. is_unallocated flags the system-managed "Unallocated" pseudo-table auto-created by the smart-relocate engine.', 'venue_id, section_id, label, min_covers, max_covers, sort_order, is_active, is_unallocated'],
                 ['table_combinations', 'Pre-configured merged table sets for larger parties.', 'venue_id, name, min_covers, max_covers, is_active'],
                 ['table_combination_members', 'Junction table — which tables belong to a combination.', 'combination_id, table_id (composite PK)'],
                 ['schedule_templates', 'Weekly schedule template per venue. One row per venue.', 'venue_id'],
@@ -267,7 +267,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/', 'any', 'List bookings — filter by venue_id, date, status. Returns member_table_ids for combos.'],
                 ['GET', '/:id', 'any', 'Single booking detail.'],
                 ['PATCH', '/:id/status', 'operator', 'Transition booking status.'],
-                ['PATCH', '/:id/move', 'operator', 'Drag-drop reschedule. Preserves actual booking duration.'],
+                ['PATCH', '/:id/move', 'operator', 'Same-table time shift. Preserves actual booking duration.'],
+                ['PATCH', '/:id/relocate', 'operator', 'Cross-table drag. Finds best allocation for target table + covers (single → combination → adjacency expansion). Cascades displaced bookings to free tables or the Unallocated row. Returns { moved, displaced[] }.'],
                 ['PATCH', '/:id/duration', 'operator', 'Resize — change ends_at independently of slot_duration_mins.'],
                 ['PATCH', '/:id/guest', 'operator', 'Edit guest name, email, phone, covers.'],
                 ['PATCH', '/:id/tables', 'operator', 'Reassign table or combination. Pass table_ids[] for ad-hoc multi-table; auto-creates combination if no exact match exists.'],
@@ -291,8 +292,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST', '/', 'admin', 'Create venue'],
                 ['PATCH', '/:id', 'admin', 'Update venue settings'],
                 ['DELETE', '/:id', 'owner', 'Delete venue'],
-                ['GET', '/:id/tables', 'any', 'List tables for venue'],
+                ['GET', '/:id/tables', 'any', 'List tables for venue (includes is_unallocated flag)'],
                 ['POST', '/:id/tables', 'admin', 'Create table'],
+                ['PATCH', '/:id/tables/reorder', 'admin', 'Set table sort order. Accepts { ids: [uuid,...] } — full ordered array. Sets sort_order = array index. Drives Timeline row order and smart-allocate adjacency.'],
                 ['GET', '/:id/combinations', 'any', 'List table combinations with member table IDs'],
                 ['POST', '/:id/combinations', 'admin', 'Create combination'],
                 ['PATCH', '/:id/combinations/:cid', 'admin', 'Update combination name / covers'],
@@ -438,6 +440,77 @@ comboSpanMap:
   T2 → spanRows: 0   (secondary; not rendered — covered by T1 card)
   T4 → spanRows: 1   (primary of [T4] group; normal-height tile)`}</Code>
 
+            <H3>Smart relocation — drag-to-table flow</H3>
+            <P>
+              When an operator drags a booking tile onto a <em>different</em> table row, the frontend
+              calls <Mono>PATCH /bookings/:id/relocate</Mono> with the target table ID. The API runs
+              the following allocation algorithm atomically:
+            </P>
+            <Code>{`PATCH /bookings/:id/relocate  { target_table_id, starts_at? }
+
+1. Compute new time window (preserve original duration)
+
+2. Find allocation for target table + booking.covers:
+   a. Single table — target alone fits covers  →  use it
+   b. Combination — find smallest combo containing target that fits
+   c. Adjacency expansion — expand outward from target by sort_order
+      (alternates above / below) until total max_covers ≥ covers
+
+3. For 2+ table allocation: find/create combination record
+
+4. Conflict scan — find bookings overlapping the new time window
+   on any of the allocated tables (including combo member tables)
+
+5. For each conflict:
+   a. Find a free single table with enough capacity for the
+      conflict's covers (not already claimed in this transaction)
+   b. If found  →  cascade-move conflict there
+   c. If not    →  move conflict to the Unallocated table
+
+6. Auto-create Unallocated table if needed (sort_order −999,
+   is_unallocated = true — created once per venue on first use)
+
+7. Execute all UPDATEs, broadcast every changed booking via WS
+
+Returns: { moved: Booking, displaced: Booking[] }`}</Code>
+
+            <H3>Unallocated table</H3>
+            <P>
+              The Unallocated table is a system-managed pseudo-table (one per venue, auto-created).
+              It is excluded from slot availability, widget selection, and normal table editors.
+              In the Timeline it renders as an orange row at the very top, only when it contains bookings.
+            </P>
+            <DataTable
+              head={['Property', 'Value', 'Notes']}
+              rows={[
+                ['is_unallocated', 'true', 'Filters it out of normal sections, slot queries, widget'],
+                ['sort_order', '−999', 'Ensures it sorts before all real tables'],
+                ['max_covers', '9999', 'Accepts any booking regardless of party size'],
+                ['label', 'Unallocated', 'Displayed in the Timeline orange row header'],
+                ['Drop target', 'Blocked', 'Cannot manually drop bookings onto it — detected via isUnallocated flag in droppable data'],
+                ['Drag source', 'Allowed', 'Booking can be dragged out → triggers another /relocate call'],
+              ]}
+            />
+
+            <H3>Table sort order &amp; adjacency</H3>
+            <P>
+              The <Mono>sort_order</Mono> column on <Mono>tables</Mono> drives two things simultaneously:
+              (1) the vertical row order in the Timeline and (2) which tables the smart-allocate engine
+              considers "adjacent" when building an adjacency expansion. Setting order via the Tables
+              page "Reorder" mode therefore directly controls smart-allocation behaviour.
+            </P>
+            <Code>{`// Tables page Reorder mode calls:
+PATCH /venues/:id/tables/reorder  { ids: [uuid, uuid, ...] }
+// Sets sort_order = 0, 1, 2 … for each ID in the submitted order
+
+// Timeline renders rows by:
+ORDER BY sort_order, label
+
+// Adjacency expansion in /relocate:
+allTables sorted by sort_order → target at index i
+→ expand lo/hi outward (alternating above/below)
+   until sum(max_covers) ≥ booking.covers`}</Code>
+
             <H3>Z-order hierarchy (Timeline)</H3>
             <DataTable
               head={['Element', 'z-index', 'Notes']}
@@ -481,7 +554,7 @@ comboSpanMap:
 
 # Apply migrations in order
 psql $DATABASE_URL -f migrations/001_tenants_users.sql
-# ... through 008_table_combinations.sql
+# ... through 009_unallocated.sql
 
 # API
 cd api && cp .env.example .env   # fill in values
