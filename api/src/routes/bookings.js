@@ -189,10 +189,10 @@ export default async function bookingsRoutes(app) {
 
       const [booking] = await tx`
         INSERT INTO bookings
-          (venue_id, table_id, tenant_id, starts_at, ends_at, covers,
+          (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
            guest_name, guest_email, guest_phone, guest_notes, status)
         VALUES
-          (${h.venue_id}, ${h.table_id}, ${req.tenantId},
+          (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${req.tenantId},
            ${h.starts_at}, ${h.ends_at}, ${body.covers ?? h.covers},
            ${body.guest_name ?? h.guest_name}, ${body.guest_email ?? h.guest_email}, ${body.guest_phone ?? h.guest_phone ?? null},
            ${body.guest_notes ?? null}, 'confirmed')
@@ -722,9 +722,14 @@ export default async function bookingsRoutes(app) {
         if (existing) {
           allocationComboId = existing.id
         } else {
-          // No pre-configured combination — fall back to target table only
-          allocationTableIds = [body.target_table_id]
-          allocationComboId  = null
+          // Step 3a already confirmed the target table alone is insufficient.
+          // No pre-configured combination covers this table set, so there is no
+          // valid allocation — surface a clear error rather than silently booking
+          // onto a table that can't hold the party.
+          throw httpError(422,
+            'No table combination is configured for the required tables. ' +
+            'Go to Tables → Table combinations and create one first, then try again.'
+          )
         }
       }
 

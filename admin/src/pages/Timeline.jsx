@@ -228,6 +228,7 @@ export default function Timeline() {
   const [resizeState,     setResizeState]   = useState(null)  // { bookingId, startX, originalEndMs, originalStartMs }
   const [resizePreviewMs, setResizePreviewMs] = useState(null) // ms timestamp for live preview
   const [isFullscreen,   setIsFullscreen]   = useState(false)
+  const [relocateError,  setRelocateError]  = useState(null)   // message | null
 
   // ── Data fetching ────────────────────────────────────────
   const { data: venues = [] } = useQuery({
@@ -346,6 +347,14 @@ export default function Timeline() {
       // Refresh bookings AND tables (Unallocated table may have been auto-created)
       queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
       queryClient.invalidateQueries({ queryKey: ['tables', venueId] })
+      setRelocateError(null)
+    },
+    onError: (err) => {
+      // Surface the API error message so the operator knows what to fix
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Could not relocate booking'
+      setRelocateError(msg)
+      // Also refresh to make sure the UI is in sync with server state
+      queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
     },
   })
 
@@ -535,6 +544,20 @@ export default function Timeline() {
           </button>
         </div>
       </div>
+
+      {/* Relocate error banner */}
+      {relocateError && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-sm text-destructive shrink-0">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span className="flex-1">{relocateError}</span>
+          <button
+            onClick={() => setRelocateError(null)}
+            className="text-xs underline opacity-70 hover:opacity-100 shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Timeline */}
       <div className="flex-1 overflow-auto">
