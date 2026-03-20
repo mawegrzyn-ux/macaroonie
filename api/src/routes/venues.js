@@ -179,6 +179,37 @@ export default async function venuesRoutes(app) {
     return table
   })
 
+  // PATCH /venues/:id/tables/reorder
+  // Accepts { ids: [uuid, ...] } — the complete ordered list of table IDs for this venue.
+  // Sets sort_order = array index for each. Tables missing from the list are left unchanged.
+  // The order here drives: timeline row order, smart-allocation adjacency logic.
+  app.patch('/:id/tables/reorder', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { ids } = z.object({
+      ids: z.array(z.string().uuid()).min(1),
+    }).parse(req.body)
+
+    await withTenant(req.tenantId, async tx => {
+      // Verify all IDs belong to this venue
+      const owned = await tx`
+        SELECT id FROM tables
+         WHERE id = ANY(${ids}::uuid[])
+           AND venue_id  = ${req.params.id}
+           AND tenant_id = ${req.tenantId}
+      `
+      if (owned.length !== ids.length) throw httpError(404, 'One or more tables not found in this venue')
+
+      // Assign sort_order = index position
+      for (let i = 0; i < ids.length; i++) {
+        await tx`
+          UPDATE tables SET sort_order = ${i}, updated_at = now()
+           WHERE id = ${ids[i]} AND tenant_id = ${req.tenantId}
+        `
+      }
+    })
+
+    return { ok: true }
+  })
+
   // DELETE /venues/:id/tables/:tid (soft delete)
   app.delete('/:id/tables/:tid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const [table] = await withTenant(req.tenantId, tx => tx`
