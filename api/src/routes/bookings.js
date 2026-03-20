@@ -18,13 +18,16 @@ import { broadcastBooking } from '../services/broadcastSvc.js'
 // ── Schemas ──────────────────────────────────────────────────
 
 const HoldBody = z.object({
-  venue_id:    z.string().uuid(),
-  table_id:    z.string().uuid(),
-  starts_at:   z.string().datetime(),
-  covers:      z.number().int().min(1),
-  guest_name:  z.string().min(1).max(200),
-  guest_email: z.string().email(),
-  guest_phone: z.string().max(30).nullable().optional(),
+  venue_id:       z.string().uuid(),
+  table_id:       z.string().uuid().optional(),
+  combination_id: z.string().uuid().optional(),
+  starts_at:      z.string().datetime(),
+  covers:         z.number().int().min(1),
+  guest_name:     z.string().min(1).max(200),
+  guest_email:    z.string().email(),
+  guest_phone:    z.string().max(30).nullable().optional(),
+}).refine(d => d.table_id || d.combination_id, {
+  message: 'Either table_id or combination_id is required',
 })
 
 const BookingBody = z.object({
@@ -82,13 +85,30 @@ export default async function bookingsRoutes(app) {
         throw httpError(422, 'Booking cutoff has passed for this slot')
       }
 
-      // Insert hold — UNIQUE (table_id, starts_at) guard races at DB level
+      // For combination holds: resolve the first member table to use as
+      // canonical table_id (keeps UNIQUE (table_id, starts_at) guard intact).
+      // combination_id is stored for reference; the slot query blocks all
+      // member tables via JOIN to table_combination_members.
+      let tableId = body.table_id ?? null
+      if (body.combination_id) {
+        const [firstMember] = await tx`
+          SELECT m.table_id FROM table_combination_members m
+            JOIN tables t ON t.id = m.table_id
+           WHERE m.combination_id = ${body.combination_id}
+           ORDER BY t.sort_order, t.label
+           LIMIT 1
+        `
+        if (!firstMember) throw httpError(404, 'Combination not found or has no tables')
+        tableId = firstMember.table_id
+      }
+
+      // Insert hold — UNIQUE (table_id, starts_at) guards races at DB level
       const [newHold] = await tx`
         INSERT INTO booking_holds
-          (venue_id, table_id, tenant_id, starts_at, ends_at, covers,
+          (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
            guest_name, guest_email, guest_phone, expires_at)
         VALUES
-          (${body.venue_id}, ${body.table_id}, ${req.tenantId},
+          (${body.venue_id}, ${tableId}, ${body.combination_id ?? null}, ${req.tenantId},
            ${startsAt.toISOString()}, ${endsAt.toISOString()}, ${body.covers},
            ${body.guest_name}, ${body.guest_email}, ${body.guest_phone ?? null},
            ${expiresAt.toISOString()})

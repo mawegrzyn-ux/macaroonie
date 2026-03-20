@@ -192,6 +192,86 @@ export default async function venuesRoutes(app) {
     return { ok: true }
   })
 
+  // ── TABLE COMBINATIONS ───────────────────────────────────
+
+  const CombinationBody = z.object({
+    name:       z.string().min(1).max(100),
+    min_covers: z.number().int().min(1).default(1),
+    max_covers: z.number().int().min(1),
+    table_ids:  z.array(z.string().uuid()).min(2, 'At least 2 tables required'),
+    is_active:  z.boolean().default(true),
+  })
+
+  // GET /venues/:id/combinations
+  app.get('/:id/combinations', async (req) => {
+    return withTenant(req.tenantId, tx => tx`
+      SELECT c.*,
+             COALESCE(
+               json_agg(
+                 json_build_object('table_id', m.table_id, 'label', t.label)
+                 ORDER BY t.sort_order, t.label
+               ) FILTER (WHERE m.table_id IS NOT NULL),
+               '[]'
+             ) AS members
+        FROM table_combinations c
+        LEFT JOIN table_combination_members m ON m.combination_id = c.id
+        LEFT JOIN tables t ON t.id = m.table_id
+       WHERE c.venue_id = ${req.params.id}
+       GROUP BY c.id
+       ORDER BY c.name
+    `)
+  })
+
+  // POST /venues/:id/combinations
+  app.post('/:id/combinations', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const body = CombinationBody.parse(req.body)
+    const combo = await withTenant(req.tenantId, async tx => {
+      const [c] = await tx`
+        INSERT INTO table_combinations (venue_id, tenant_id, name, min_covers, max_covers, is_active)
+        VALUES (${req.params.id}, ${req.tenantId}, ${body.name}, ${body.min_covers}, ${body.max_covers}, ${body.is_active})
+        RETURNING *
+      `
+      await tx`
+        INSERT INTO table_combination_members ${tx(body.table_ids.map(tid => ({
+          combination_id: c.id,
+          table_id: tid,
+        })))}
+      `
+      return c
+    })
+    return reply.code(201).send(combo)
+  })
+
+  // PATCH /venues/:id/combinations/:cid
+  app.patch('/:id/combinations/:cid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = CombinationBody.partial().omit({ table_ids: true }).parse(req.body)
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+    const [combo] = await withTenant(req.tenantId, tx => tx`
+      UPDATE table_combinations
+         SET ${tx(body, ...fields)}, updated_at = now()
+       WHERE id = ${req.params.cid}
+         AND venue_id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+      RETURNING *
+    `)
+    if (!combo) throw httpError(404, 'Combination not found')
+    return combo
+  })
+
+  // DELETE /venues/:id/combinations/:cid
+  app.delete('/:id/combinations/:cid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const [combo] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM table_combinations
+       WHERE id = ${req.params.cid}
+         AND venue_id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+      RETURNING id
+    `)
+    if (!combo) throw httpError(404, 'Combination not found')
+    return { ok: true }
+  })
+
   // ── BOOKING RULES ─────────────────────────────────────────
 
   const BookingRulesBody = z.object({

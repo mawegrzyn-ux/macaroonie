@@ -55,6 +55,7 @@ export default async function slotsRoutes(app) {
           s.available,
           s.available_covers,
           s.reason,
+          -- First available individual table for these covers at this slot
           (
             SELECT t.id
               FROM tables t
@@ -63,6 +64,7 @@ export default async function slotsRoutes(app) {
                AND t.is_active = true
                AND t.max_covers >= ${covers}
                AND t.min_covers <= ${covers}
+               -- No direct booking on this table
                AND NOT EXISTS (
                  SELECT 1 FROM bookings b
                   WHERE b.table_id  = t.id
@@ -70,6 +72,7 @@ export default async function slotsRoutes(app) {
                     AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
                     AND b.ends_at   > s.slot_time
                )
+               -- No direct hold on this table
                AND NOT EXISTS (
                  SELECT 1 FROM booking_holds h
                   WHERE h.table_id  = t.id
@@ -77,9 +80,81 @@ export default async function slotsRoutes(app) {
                     AND h.starts_at  < s.slot_time + (${windowMins} || ' minutes')::interval
                     AND h.ends_at    > s.slot_time
                )
+               -- No combination booking that includes this table
+               AND NOT EXISTS (
+                 SELECT 1 FROM bookings bc
+                  JOIN table_combination_members m ON m.combination_id = bc.combination_id
+                  WHERE m.table_id = t.id
+                    AND bc.combination_id IS NOT NULL
+                    AND bc.status NOT IN ('cancelled')
+                    AND bc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                    AND bc.ends_at   > s.slot_time
+               )
+               -- No combination hold that includes this table
+               AND NOT EXISTS (
+                 SELECT 1 FROM booking_holds hc
+                  JOIN table_combination_members m ON m.combination_id = hc.combination_id
+                  WHERE m.table_id = t.id
+                    AND hc.combination_id IS NOT NULL
+                    AND hc.expires_at > now()
+                    AND hc.starts_at  < s.slot_time + (${windowMins} || ' minutes')::interval
+                    AND hc.ends_at    > s.slot_time
+               )
              ORDER BY t.sort_order, t.label
              LIMIT 1
-          ) AS table_id
+          ) AS table_id,
+          -- First available combination for these covers at this slot
+          (
+            SELECT c.id
+              FROM table_combinations c
+             WHERE c.venue_id  = ${venue.id}
+               AND c.is_active = true
+               AND c.max_covers >= ${covers}
+               AND c.min_covers <= ${covers}
+               -- All member tables must be free
+               AND NOT EXISTS (
+                 SELECT 1 FROM table_combination_members m
+                  JOIN tables mt ON mt.id = m.table_id
+                  WHERE m.combination_id = c.id
+                    AND (
+                      NOT mt.is_active
+                      OR EXISTS (
+                        SELECT 1 FROM bookings b
+                         WHERE b.table_id = mt.id
+                           AND b.status NOT IN ('cancelled')
+                           AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                           AND b.ends_at > s.slot_time
+                      )
+                      OR EXISTS (
+                        SELECT 1 FROM booking_holds h
+                         WHERE h.table_id = mt.id
+                           AND h.expires_at > now()
+                           AND h.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                           AND h.ends_at > s.slot_time
+                      )
+                      OR EXISTS (
+                        SELECT 1 FROM bookings bc
+                         JOIN table_combination_members m2 ON m2.combination_id = bc.combination_id
+                         WHERE m2.table_id = mt.id
+                           AND bc.combination_id IS NOT NULL
+                           AND bc.status NOT IN ('cancelled')
+                           AND bc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                           AND bc.ends_at > s.slot_time
+                      )
+                      OR EXISTS (
+                        SELECT 1 FROM booking_holds hc
+                         JOIN table_combination_members m2 ON m2.combination_id = hc.combination_id
+                         WHERE m2.table_id = mt.id
+                           AND hc.combination_id IS NOT NULL
+                           AND hc.expires_at > now()
+                           AND hc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                           AND hc.ends_at > s.slot_time
+                      )
+                    )
+               )
+             ORDER BY c.max_covers  -- prefer smallest fitting combination
+             LIMIT 1
+          ) AS combination_id
         FROM get_available_slots(
           ${venue.id}::uuid,
           ${date}::date,
@@ -91,8 +166,13 @@ export default async function slotsRoutes(app) {
 
     const enriched = slots.map(s => ({
       ...s,
-      available: s.available && s.table_id !== null,
-      reason:    s.available && s.table_id === null ? 'no_table' : s.reason,
+      // Prefer individual table; fall back to combination
+      table_id:       s.table_id ?? null,
+      combination_id: s.table_id ? null : (s.combination_id ?? null),
+      available:      s.available && (s.table_id !== null || s.combination_id !== null),
+      reason:         s.available && s.table_id === null && s.combination_id === null
+                        ? 'no_table'
+                        : s.reason,
     }))
 
     return {

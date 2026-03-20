@@ -21,21 +21,31 @@ const GuestSchema = z.object({
 
 export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
   const api = useApi()
-  const [step,       setStep]       = useState('slot')   // slot | guest | confirm
-  const [tableId,    setTableId]    = useState(null)
-  const [selectedSlot, setSlot]     = useState(null)
-  const [covers,     setCovers]     = useState(2)
-  const [holdData,   setHoldData]   = useState(null)
+  const [step,          setStep]    = useState('slot')
+  const [tableId,       setTableId] = useState(null)
+  const [combinationId, setComboId] = useState(null)
+  const [selectedSlot,  setSlot]    = useState(null)
+  const [covers,        setCovers]  = useState(2)
+  const [holdData,      setHoldData] = useState(null)
+
+  function selectTable(id) { setTableId(id); setComboId(null) }
+  function selectCombo(id)  { setComboId(id); setTableId(null) }
 
   const { register, handleSubmit, formState: { errors } } = useForm({
     resolver: zodResolver(GuestSchema),
     defaultValues: { covers: 2 },
   })
 
-  // Fetch tables
+  // Fetch tables + combinations
   const { data: tables = [] } = useQuery({
     queryKey: ['tables', venueId],
     queryFn:  () => api.get(`/venues/${venueId}/tables`),
+    enabled:  !!venueId,
+  })
+
+  const { data: combinations = [] } = useQuery({
+    queryKey: ['combinations', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/combinations`),
     enabled:  !!venueId,
   })
 
@@ -68,13 +78,14 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
   })
 
   function handleSlotConfirm() {
-    if (!tableId || !selectedSlot) return
+    if ((!tableId && !combinationId) || !selectedSlot) return
     holdMutation.mutate({
-      venue_id:    venueId,
-      table_id:    tableId,
+      venue_id:       venueId,
+      ...(tableId       ? { table_id: tableId }           : {}),
+      ...(combinationId ? { combination_id: combinationId } : {}),
       starts_at:   selectedSlot.slot_time,
       covers,
-      guest_name:  'TBC',   // placeholder — updated after hold
+      guest_name:  'TBC',
       guest_email: 'tbc@placeholder.com',
     })
   }
@@ -138,14 +149,14 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
                   </div>
                 </div>
 
-                {/* Table */}
+                {/* Table / Combination */}
                 <div>
                   <label className="text-sm font-medium block mb-1.5">Table</label>
                   <div className="grid grid-cols-3 gap-2">
                     {tables.filter(t => t.is_active && t.max_covers >= covers).map(t => (
                       <button
                         key={t.id}
-                        onClick={() => setTableId(t.id)}
+                        onClick={() => selectTable(t.id)}
                         className={cn(
                           'text-sm p-2 rounded-lg border text-left transition-colors',
                           tableId === t.id
@@ -155,6 +166,21 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
                       >
                         <p className="font-medium">{t.label}</p>
                         <p className="text-xs text-muted-foreground">{t.min_covers}–{t.max_covers}</p>
+                      </button>
+                    ))}
+                    {combinations.filter(c => c.is_active && c.max_covers >= covers).map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => selectCombo(c.id)}
+                        className={cn(
+                          'text-sm p-2 rounded-lg border text-left transition-colors',
+                          combinationId === c.id
+                            ? 'bg-primary/10 border-primary text-primary'
+                            : 'hover:bg-accent'
+                        )}
+                      >
+                        <p className="font-medium">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">{c.min_covers}–{c.max_covers} · combo</p>
                       </button>
                     ))}
                   </div>
@@ -220,7 +246,7 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
             {step === 'slot' && (
               <button
                 onClick={handleSlotConfirm}
-                disabled={!tableId || !selectedSlot || holdMutation.isPending}
+                disabled={(!tableId && !combinationId) || !selectedSlot || holdMutation.isPending}
                 className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40"
               >
                 {holdMutation.isPending ? 'Holding…' : 'Continue'}

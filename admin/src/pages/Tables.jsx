@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Pencil, Trash2, Check, X, Layers } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, Layers, Link2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -126,13 +126,97 @@ function SectionForm({ venueId, onSave, onCancel }) {
   )
 }
 
+function CombinationForm({ venueId, tables, onSave, onCancel }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [selectedTableIds, setSelectedTableIds] = useState([])
+  const { register, handleSubmit, formState: { errors } } = useForm({
+    resolver: zodResolver(z.object({
+      name:       z.string().min(1, 'Required'),
+      min_covers: z.coerce.number().int().min(1),
+      max_covers: z.coerce.number().int().min(1),
+    })),
+    defaultValues: { min_covers: 1, max_covers: 4 },
+  })
+
+  const mutation = useMutation({
+    mutationFn: (data) => api.post(`/venues/${venueId}/combinations`, {
+      ...data, table_ids: selectedTableIds,
+    }),
+    onSuccess: () => { qc.invalidateQueries(['combinations', venueId]); onSave() },
+  })
+
+  function toggleTable(id) {
+    setSelectedTableIds(prev =>
+      prev.includes(id) ? prev.filter(t => t !== id) : [...prev, id]
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit(d => mutation.mutate(d))} className="space-y-3 p-3 bg-muted/20 rounded-lg border-2 border-dashed">
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-1">
+          <label className="text-xs font-medium text-muted-foreground block mb-1">Name</label>
+          <input {...register('name')} className={inp} placeholder="T1+T2" />
+          {errors.name && <p className="text-xs text-destructive mt-0.5">{errors.name.message}</p>}
+        </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">Min covers</label>
+          <input {...register('min_covers')} type="number" min={1} className={inp} />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-muted-foreground block mb-1">Max covers</label>
+          <input {...register('max_covers')} type="number" min={1} className={inp} />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-medium text-muted-foreground block mb-1.5">
+          Tables in combination <span className="text-muted-foreground/60">(select 2+)</span>
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {tables.filter(t => t.is_active).map(t => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => toggleTable(t.id)}
+              className={cn(
+                'px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors',
+                selectedTableIds.includes(t.id)
+                  ? 'bg-primary/10 border-primary text-primary'
+                  : 'hover:bg-accent'
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {selectedTableIds.length < 2 && (
+          <p className="text-xs text-muted-foreground mt-1">Select at least 2 tables</p>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button type="submit" disabled={mutation.isPending || selectedTableIds.length < 2}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm disabled:opacity-50">
+          <Check className="w-3.5 h-3.5" />
+          {mutation.isPending ? 'Saving…' : 'Add combination'}
+        </button>
+        <button type="button" onClick={onCancel}
+          className="flex items-center gap-1.5 px-3 py-1.5 border rounded-md text-sm hover:bg-accent">
+          <X className="w-3.5 h-3.5" /> Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
 export default function Tables() {
   const api = useApi()
   const qc  = useQueryClient()
 
-  const [selectedVenueId, setSelectedVenueId] = useState(null)
-  const [editingTable, setEditingTable] = useState(null)  // table id or 'new'
-  const [addingSection, setAddingSection] = useState(false)
+  const [selectedVenueId,  setSelectedVenueId]  = useState(null)
+  const [editingTable,     setEditingTable]      = useState(null)
+  const [addingSection,    setAddingSection]     = useState(false)
+  const [addingCombo,      setAddingCombo]       = useState(false)
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -151,6 +235,17 @@ export default function Tables() {
     queryKey: ['tables', venueId],
     queryFn:  () => api.get(`/venues/${venueId}/tables`),
     enabled:  !!venueId,
+  })
+
+  const { data: combinations = [] } = useQuery({
+    queryKey: ['combinations', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/combinations`),
+    enabled:  !!venueId,
+  })
+
+  const deleteComboMutation = useMutation({
+    mutationFn: (id) => api.delete(`/venues/${venueId}/combinations/${id}`),
+    onSuccess:  () => qc.invalidateQueries(['combinations', venueId]),
   })
 
   const softDeleteMutation = useMutation({
@@ -268,6 +363,62 @@ export default function Tables() {
               )}
             </>
           )}
+          {/* ── Combinations ─────────────────────────────── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Table combinations
+              </p>
+              {!addingCombo && (
+                <button onClick={() => setAddingCombo(true)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+                  <Plus className="w-3 h-3" /> Add combination
+                </button>
+              )}
+            </div>
+            {addingCombo && (
+              <CombinationForm
+                venueId={venueId}
+                tables={tables}
+                onSave={() => setAddingCombo(false)}
+                onCancel={() => setAddingCombo(false)}
+              />
+            )}
+            {combinations.length === 0 && !addingCombo ? (
+              <p className="text-xs text-muted-foreground">
+                No combinations yet. Push tables together for larger parties.
+              </p>
+            ) : (
+              <div className="grid gap-2 mt-2">
+                {combinations.map(c => (
+                  <div key={c.id} className={cn(
+                    'flex items-center gap-4 px-4 py-3 border rounded-lg',
+                    !c.is_active && 'opacity-50'
+                  )}>
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <Link2 className="w-4 h-4 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">{c.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {c.min_covers}–{c.max_covers} covers ·{' '}
+                        {Array.isArray(c.members)
+                          ? c.members.map(m => m.label).join(' + ')
+                          : ''}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => deleteComboMutation.mutate(c.id)}
+                      className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
     </div>
