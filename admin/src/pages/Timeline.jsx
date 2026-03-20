@@ -106,7 +106,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -152,7 +152,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           'relative transition-colors',
           isUnallocated
             ? 'bg-orange-50/40 border-b border-orange-200'
-            : isOver && 'bg-blue-50',
+            : isOver ? 'bg-blue-50' : 'cursor-cell',
         )}
         style={{
           height: ROW_HEIGHT,
@@ -160,6 +160,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           // Elevate stacking context so spanning cards render above subsequent rows
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
         }}
+        onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
         {/* Hour grid lines */}
         {gridLines.map(i => (
@@ -229,6 +230,7 @@ export default function Timeline() {
   const [resizePreviewMs, setResizePreviewMs] = useState(null) // ms timestamp for live preview
   const [isFullscreen,   setIsFullscreen]   = useState(false)
   const [relocateError,  setRelocateError]  = useState(null)   // message | null
+  const [newBookingPrefill, setNewBookingPrefill] = useState(null) // { time, tableId } | null
 
   // ── Data fetching ────────────────────────────────────────
   const { data: venues = [] } = useQuery({
@@ -401,6 +403,20 @@ export default function Timeline() {
         startsAt:  newStart.toISOString(),
       })
     }
+  }
+
+  // ── Click on empty canvas slot → open new booking at that time ─
+  function handleCanvasClick(e, table) {
+    const rect     = e.currentTarget.getBoundingClientRect()
+    const x        = e.clientX - rect.left
+    // Convert pixel offset → minutes since START_HOUR, snapped to 15 min
+    const rawMins  = (x / HOUR_WIDTH) * 60 + START_HOUR * 60
+    const snapped  = Math.round(rawMins / 15) * 15
+    const h        = Math.floor(snapped / 60)
+    const m        = snapped % 60
+    const timeStr  = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    setNewBookingPrefill({ time: timeStr, tableId: table.id })
+    setShowNew(true)
   }
 
   // ── Group bookings by table ────────────────────────────────
@@ -623,6 +639,7 @@ export default function Timeline() {
                       resizeBookingId={resizeState?.bookingId}
                       resizePreviewMs={resizePreviewMs}
                       comboSpanMap={comboSpanMap}
+                      onCanvasClick={handleCanvasClick}
                     />
                   ))}
                 </div>
@@ -656,9 +673,12 @@ export default function Timeline() {
         <NewBookingModal
           venueId={venueId}
           date={date}
-          onClose={() => setShowNew(false)}
+          prefillTime={newBookingPrefill?.time ?? null}
+          prefillTableId={newBookingPrefill?.tableId ?? null}
+          onClose={() => { setShowNew(false); setNewBookingPrefill(null) }}
           onCreated={() => {
             setShowNew(false)
+            setNewBookingPrefill(null)
             queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
           }}
         />

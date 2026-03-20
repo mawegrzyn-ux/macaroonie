@@ -4,7 +4,7 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, ChevronDown, ChevronUp, Trash2, Save, Copy, CopyCheck } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, Trash2, Save, Copy, Pencil } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, DAYS, INTERVALS } from '@/lib/utils'
 
@@ -17,7 +17,11 @@ function SlotCapsEditor({ sitting, venueId, onSaved }) {
   // Generate slot times from sitting opens_at → closes_at using interval
   const [caps, setCaps] = useState(() => {
     const existing = {}
-    ;(sitting.caps ?? []).forEach(c => { existing[c.slot_time] = c.max_covers })
+    // PostgreSQL TIME columns come back as "HH:MM:SS" in JSON — normalise to "HH:MM"
+    ;(sitting.caps ?? []).forEach(c => {
+      const key = String(c.slot_time).slice(0, 5)
+      existing[key] = c.max_covers
+    })
     return existing
   })
 
@@ -88,8 +92,10 @@ function generateSlotTimes(opensAt, closesAt, intervalMins) {
 function DayCard({ dow, template, venueId, allDows }) {
   const api = useApi()
   const qc  = useQueryClient()
-  const [expandedSitting, setExpandedSitting] = useState(null)
-  const [addingSitting,   setAddingSitting]   = useState(false)
+  const [expandedSitting,  setExpandedSitting]  = useState(null)
+  const [editingSittingId, setEditingSittingId] = useState(null)
+  const [editData,         setEditData]         = useState({})
+  const [addingSitting,    setAddingSitting]     = useState(false)
   const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '' })
   const [showCopyDay, setShowCopyDay] = useState(false)
   const [copySourceDow, setCopySourceDow] = useState('')
@@ -125,6 +131,33 @@ function DayCard({ dow, template, venueId, allDows }) {
     onSuccess: () => qc.invalidateQueries(['schedule', venueId]),
   })
 
+  const editSittingMutation = useMutation({
+    mutationFn: ({ id, data }) => api.patch(`/venues/${venueId}/schedule/sittings/${id}`, data),
+    onSuccess:  () => { qc.invalidateQueries(['schedule', venueId]); setEditingSittingId(null) },
+  })
+
+  function startEditSitting(sitting) {
+    // Normalise HH:MM:SS → HH:MM for time inputs
+    setEditData({
+      opens_at:           String(sitting.opens_at).slice(0, 5),
+      closes_at:          String(sitting.closes_at).slice(0, 5),
+      default_max_covers: sitting.default_max_covers ?? '',
+    })
+    setEditingSittingId(sitting.id)
+    setExpandedSitting(null)  // close caps editor if open
+  }
+
+  function saveEditSitting(sitting) {
+    editSittingMutation.mutate({
+      id:   sitting.id,
+      data: {
+        opens_at:           editData.opens_at,
+        closes_at:          editData.closes_at,
+        default_max_covers: editData.default_max_covers === '' ? null : Number(editData.default_max_covers),
+      },
+    })
+  }
+
   const intervalMutation = useMutation({
     mutationFn: (interval) => api.put(`/venues/${venueId}/schedule/template/${dow}`, {
       is_open:            isOpen,
@@ -141,13 +174,13 @@ function DayCard({ dow, template, venueId, allDows }) {
           <button
             onClick={() => toggleMutation.mutate()}
             className={cn(
-              'relative w-9 h-5 rounded-full transition-colors',
+              'relative w-10 h-6 rounded-full transition-colors overflow-hidden shrink-0',
               isOpen ? 'bg-primary' : 'bg-gray-300'
             )}
           >
             <span className={cn(
-              'absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
-              isOpen ? 'translate-x-4' : 'translate-x-0.5'
+              'absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow transition-transform',
+              isOpen ? 'translate-x-4' : 'translate-x-0'
             )} />
           </button>
           <span className="font-medium text-sm">{DAYS[dow]}</span>
@@ -202,28 +235,100 @@ function DayCard({ dow, template, venueId, allDows }) {
         <div className="p-3 space-y-2">
           {(template?.sittings ?? []).map(sitting => (
             <div key={sitting.id} className="border rounded-md overflow-hidden">
-              <div className="flex items-center justify-between px-3 py-2 bg-background">
-                <button
-                  onClick={() => setExpandedSitting(expandedSitting === sitting.id ? null : sitting.id)}
-                  className="flex items-center gap-2 text-sm font-medium flex-1 text-left"
-                >
-                  {sitting.opens_at} – {sitting.closes_at}
-                  <span className="text-xs text-muted-foreground font-normal">
-                    {sitting.default_max_covers != null ? `default ${sitting.default_max_covers} covers` : 'no default cap'}
-                  </span>
-                  {expandedSitting === sitting.id
-                    ? <ChevronUp className="w-3.5 h-3.5 ml-auto text-muted-foreground" />
-                    : <ChevronDown className="w-3.5 h-3.5 ml-auto text-muted-foreground" />}
-                </button>
-                <button
-                  onClick={() => deleteSittingMutation.mutate(sitting.id)}
-                  className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive ml-2"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
 
-              {expandedSitting === sitting.id && (
+              {editingSittingId === sitting.id ? (
+                /* ── Inline edit form ───────────────────── */
+                <div className="px-3 py-2 bg-background space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground">Edit sitting</p>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Opens</label>
+                      <input
+                        type="time" step="900"
+                        value={editData.opens_at}
+                        onChange={e => setEditData(p => ({ ...p, opens_at: e.target.value }))}
+                        className="text-sm border rounded px-2 py-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Closes</label>
+                      <input
+                        type="time" step="900"
+                        value={editData.closes_at}
+                        onChange={e => setEditData(p => ({ ...p, closes_at: e.target.value }))}
+                        className="text-sm border rounded px-2 py-1"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground block mb-0.5">Default covers cap</label>
+                      <input
+                        type="number" placeholder="Unlimited"
+                        value={editData.default_max_covers}
+                        onChange={e => setEditData(p => ({ ...p, default_max_covers: e.target.value }))}
+                        className="text-sm border rounded px-2 py-1 w-28"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => saveEditSitting(sitting)}
+                      disabled={editSittingMutation.isPending}
+                      className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded disabled:opacity-50"
+                    >
+                      {editSittingMutation.isPending ? 'Saving…' : 'Save'}
+                    </button>
+                    <button
+                      onClick={() => setEditingSittingId(null)}
+                      className="text-xs px-3 py-1.5 border rounded"
+                    >
+                      Cancel
+                    </button>
+                    {editSittingMutation.isError && (
+                      <span className="text-xs text-destructive self-center">
+                        {editSittingMutation.error?.message ?? 'Save failed'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* ── Normal sitting row ─────────────────── */
+                <div className="flex items-center justify-between px-3 py-2 bg-background">
+                  <button
+                    onClick={() => setExpandedSitting(expandedSitting === sitting.id ? null : sitting.id)}
+                    className="flex items-center gap-2 text-sm font-medium flex-1 text-left min-w-0"
+                  >
+                    <span className="shrink-0">
+                      {String(sitting.opens_at).slice(0, 5)} – {String(sitting.closes_at).slice(0, 5)}
+                    </span>
+                    <span className="text-xs text-muted-foreground font-normal truncate">
+                      {sitting.default_max_covers != null
+                        ? `default ${sitting.default_max_covers} covers`
+                        : 'no default cap'}
+                    </span>
+                    {expandedSitting === sitting.id
+                      ? <ChevronUp   className="w-3.5 h-3.5 ml-auto shrink-0 text-muted-foreground" />
+                      : <ChevronDown className="w-3.5 h-3.5 ml-auto shrink-0 text-muted-foreground" />}
+                  </button>
+                  {/* Edit sitting times/covers */}
+                  <button
+                    onClick={() => startEditSitting(sitting)}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground ml-2 shrink-0"
+                    title="Edit sitting times and default covers"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  {/* Delete sitting */}
+                  <button
+                    onClick={() => deleteSittingMutation.mutate(sitting.id)}
+                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive ml-1 shrink-0"
+                    title="Delete sitting"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {expandedSitting === sitting.id && editingSittingId !== sitting.id && (
                 <div className="px-3 pb-3 border-t bg-muted/20">
                   <SlotCapsEditor
                     sitting={sitting}

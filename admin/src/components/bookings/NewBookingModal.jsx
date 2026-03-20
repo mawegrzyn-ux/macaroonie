@@ -2,7 +2,7 @@
 // Admin creates a booking on behalf of a guest.
 // Flow: pick table + slot → fill guest details → confirm (bypasses payment for admin)
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -19,7 +19,7 @@ const GuestSchema = z.object({
   covers:      z.coerce.number().int().min(1),
 })
 
-export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
+export default function NewBookingModal({ venueId, date, prefillTime = null, prefillTableId = null, onClose, onCreated }) {
   const api = useApi()
   const [step,          setStep]    = useState('slot')
   const [tableId,       setTableId] = useState(null)
@@ -40,6 +40,21 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
   useEffect(() => {
     if (step === 'guest') reset(v => ({ ...v, covers }))
   }, [step])
+
+  // Auto-select the slot matching prefillTime when slots arrive (canvas click flow)
+  const autoSelectedRef = useRef(false)
+  useEffect(() => {
+    if (!prefillTime || autoSelectedRef.current || !availableSlots.length || selectedSlot) return
+    const match = availableSlots.find(s => {
+      const d = new Date(s.slot_time)
+      const t = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+      return t === prefillTime
+    })
+    if (match) {
+      autoSelectedRef.current = true
+      setSlot(match)
+    }
+  }, [availableSlots, prefillTime, selectedSlot])
 
   // Fetch tables + combinations
   const { data: tables = [] } = useQuery({
@@ -137,6 +152,23 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
             {/* ── Step 1: Slot selection ─────────────────── */}
             {step === 'slot' && (
               <div className="space-y-4">
+
+                {/* Prefill hint when opened via canvas click */}
+                {prefillTime && (
+                  <div className="flex items-center gap-2 text-xs text-primary bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
+                    <span className="font-medium">Clicked time:</span>
+                    <span className="font-mono">{prefillTime}</span>
+                    {!selectedSlot && (
+                      <span className="text-muted-foreground ml-auto italic">
+                        {availableSlots.some(s => {
+                          const d = new Date(s.slot_time)
+                          return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` === prefillTime
+                        }) ? 'Auto-selected ↓' : 'No slot at this time'}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* Covers */}
                 <div>
                   <label className="text-sm font-medium block mb-1.5">Covers</label>

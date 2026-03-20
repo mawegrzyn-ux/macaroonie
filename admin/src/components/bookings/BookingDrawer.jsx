@@ -1,7 +1,11 @@
 // src/components/bookings/BookingDrawer.jsx
 // Slide-in panel showing full booking detail.
-// Allows: status change, notes edit, refund trigger,
-//         guest detail editing, table/combination override.
+// Allows: status change, notes edit, guest detail editing,
+//         table override (individual table checkboxes only),
+//         reschedule, and refund trigger.
+//
+// Save button is always in the drawer header next to the X close button,
+// contextually labelled for whichever section is currently being edited.
 
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
@@ -22,25 +26,35 @@ const NEXT_STATUSES = {
 
 export default function BookingDrawer({ booking, onClose, onUpdated }) {
   const api = useApi()
-  const [notes,        setNotes]        = useState(booking.operator_notes ?? '')
-  const [editingNotes, setEditingNotes] = useState(false)
-  const [editingGuest, setEditingGuest] = useState(false)
-  const [guestFields,  setGuestFields]  = useState({
+
+  // ── Edit mode flags ───────────────────────────────────────
+  const [editingNotes,    setEditingNotes]    = useState(false)
+  const [editingGuest,    setEditingGuest]    = useState(false)
+  const [showTablePicker, setShowTablePicker] = useState(false)
+  const [showReschedule,  setShowReschedule]  = useState(false)
+
+  // ── Operator notes ────────────────────────────────────────
+  const [notes, setNotes] = useState(booking.operator_notes ?? '')
+
+  // ── Guest fields ──────────────────────────────────────────
+  const [guestFields, setGuestFields] = useState({
     guest_name:  booking.guest_name  ?? '',
     guest_email: booking.guest_email ?? '',
     guest_phone: booking.guest_phone ?? '',
     covers:      booking.covers      ?? 2,
   })
-  const [showTablePicker,  setShowTablePicker]  = useState(false)
-  // Individual tables: Set of table ids (multi-select)
-  const [pickedTableIds,   setPickedTableIds]   = useState(
-    () => new Set(booking.combination_id ? [] : (booking.table_id ? [booking.table_id] : []))
+
+  // ── Table override: individual checkboxes only ───────────
+  // Pre-populate from member_table_ids (works for both single & combo bookings)
+  const [pickedTableIds, setPickedTableIds] = useState(
+    () => new Set(
+      Array.isArray(booking.member_table_ids) && booking.member_table_ids.length > 0
+        ? booking.member_table_ids.filter(Boolean)
+        : booking.table_id ? [booking.table_id] : []
+    )
   )
-  // Combination: single id or null (radio — mutually exclusive with table checkboxes)
-  const [pickedComboId,    setPickedComboId]    = useState(booking.combination_id ?? null)
 
   // ── Reschedule state ──────────────────────────────────────
-  const [showReschedule, setShowReschedule] = useState(false)
   const [rescheduleDate, setRescheduleDate] = useState(() => {
     const d = new Date(booking.starts_at)
     return d.toISOString().slice(0, 10)
@@ -50,15 +64,10 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   })
 
-  // ── Data: tables + combinations for this venue ───────────
+  // ── Data: tables for this venue (loaded when picker opens) ─
   const { data: tables = [] } = useQuery({
     queryKey: ['tables', booking.venue_id],
     queryFn:  () => api.get(`/venues/${booking.venue_id}/tables`),
-    enabled:  showTablePicker,
-  })
-  const { data: combinations = [] } = useQuery({
-    queryKey: ['combinations', booking.venue_id],
-    queryFn:  () => api.get(`/venues/${booking.venue_id}/combinations`),
     enabled:  showTablePicker,
   })
 
@@ -97,9 +106,9 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
     onSuccess: () => { setShowReschedule(false); onUpdated() },
   })
 
+  // ── Reschedule handler ─────────────────────────────────────
   function handleReschedule() {
-    // Build ISO from date + time inputs, treating them as local time
-    const local   = new Date(`${rescheduleDate}T${rescheduleTime}:00`)
+    const local = new Date(`${rescheduleDate}T${rescheduleTime}:00`)
     if (isNaN(local.getTime())) return
     moveMutation.mutate({ startsAt: local.toISOString() })
   }
@@ -117,10 +126,9 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
   }
 
   // ── Table override helpers ────────────────────────────────
-  const currentCovers = guestFields.covers ?? booking.covers
+  const currentCovers = Number(guestFields.covers ?? booking.covers)
 
   function toggleTable(id) {
-    setPickedComboId(null)   // deselect any combo when toggling tables
     setPickedTableIds(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -129,48 +137,59 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
     })
   }
 
-  function selectCombo(id) {
-    setPickedTableIds(new Set())   // deselect all individual tables when picking a combo
-    setPickedComboId(id)
-  }
-
-  // Combined max covers of all selected individual tables
+  // Combined max covers of all selected tables
   const combinedMaxCovers = [...pickedTableIds].reduce((sum, id) => {
     const t = tables.find(x => x.id === id)
     return sum + (t?.max_covers ?? 0)
   }, 0)
 
   function capacityWarning() {
-    if (pickedComboId) {
-      const c = combinations.find(x => x.id === pickedComboId)
-      if (c && (currentCovers < c.min_covers || currentCovers > c.max_covers)) {
-        return `${c.name} fits ${c.min_covers}–${c.max_covers} covers (booking has ${currentCovers})`
-      }
-    } else if (pickedTableIds.size > 0) {
-      if (currentCovers > combinedMaxCovers) {
-        return `Selected tables fit up to ${combinedMaxCovers} covers (booking has ${currentCovers})`
-      }
+    if (pickedTableIds.size > 0 && currentCovers > combinedMaxCovers) {
+      return `Selected tables fit up to ${combinedMaxCovers} covers (booking has ${currentCovers})`
     }
     return null
   }
 
   function pickedLabel() {
-    if (pickedComboId) return combinations.find(c => c.id === pickedComboId)?.name ?? 'combo'
-    if (pickedTableIds.size === 1) return tables.find(t => t.id === [...pickedTableIds][0])?.label ?? '—'
-    if (pickedTableIds.size > 1)  return [...pickedTableIds].map(id => tables.find(t => t.id === id)?.label).filter(Boolean).join(' + ')
-    return '—'
+    const ids = [...pickedTableIds]
+    if (ids.length === 0) return '—'
+    if (ids.length === 1) return tables.find(t => t.id === ids[0])?.label ?? '—'
+    return ids.map(id => tables.find(t => t.id === id)?.label).filter(Boolean).join(' + ')
   }
 
   function handleTableSave() {
-    if (pickedComboId) {
-      tablesMutation.mutate({ combination_id: pickedComboId })
-    } else if (pickedTableIds.size > 0) {
-      tablesMutation.mutate({ table_ids: [...pickedTableIds] })
-    }
+    if (pickedTableIds.size === 0) return
+    tablesMutation.mutate({ table_ids: [...pickedTableIds] })
   }
 
-  const canSave   = pickedComboId || pickedTableIds.size > 0
-  const warning   = showTablePicker ? capacityWarning() : null
+  const canSave = pickedTableIds.size > 0
+  const warning = showTablePicker ? capacityWarning() : null
+
+  // ── Header contextual save action ─────────────────────────
+  // Whichever section is in edit mode gets the save button in the header.
+  const headerAction = (() => {
+    if (editingNotes)    return {
+      label:    notesMutation.isPending    ? 'Saving…'        : 'Save notes',
+      onClick:  () => notesMutation.mutate(),
+      disabled: notesMutation.isPending,
+    }
+    if (editingGuest)    return {
+      label:    guestMutation.isPending    ? 'Saving…'        : 'Save details',
+      onClick:  handleGuestSave,
+      disabled: guestMutation.isPending,
+    }
+    if (showTablePicker) return {
+      label:    tablesMutation.isPending   ? 'Saving…'        : `Assign ${pickedLabel()}`,
+      onClick:  handleTableSave,
+      disabled: tablesMutation.isPending || !canSave,
+    }
+    if (showReschedule)  return {
+      label:    moveMutation.isPending     ? 'Moving…'        : 'Move booking',
+      onClick:  handleReschedule,
+      disabled: moveMutation.isPending,
+    }
+    return null
+  })()
 
   return (
     <>
@@ -180,15 +199,26 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
       {/* Drawer */}
       <div className="fixed right-0 top-0 bottom-0 w-96 bg-background border-l shadow-xl z-50 flex flex-col overflow-hidden">
 
-        {/* Header */}
+        {/* ── Header — booking name + contextual save + close ─ */}
         <div className="flex items-center justify-between px-4 h-14 border-b shrink-0">
-          <div>
-            <p className="font-semibold text-sm">{booking.guest_name}</p>
+          <div className="min-w-0 mr-2">
+            <p className="font-semibold text-sm truncate">{booking.guest_name}</p>
             <p className="text-xs text-muted-foreground">#{booking.reference}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {headerAction && (
+              <button
+                onClick={headerAction.onClick}
+                disabled={headerAction.disabled}
+                className="text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 whitespace-nowrap"
+              >
+                {headerAction.label}
+              </button>
+            )}
+            <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
@@ -202,7 +232,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
             </span>
           </div>
 
-          {/* ── Booking time + reschedule ────────────────── */}
+          {/* ── Date & time + reschedule ──────────────────── */}
           <Section
             title="Date & time"
             action={
@@ -245,16 +275,11 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={handleReschedule}
-                    disabled={moveMutation.isPending}
-                    className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded disabled:opacity-50"
-                  >
-                    {moveMutation.isPending ? 'Moving…' : 'Move booking'}
-                  </button>
-                  <button
                     onClick={() => setShowReschedule(false)}
                     className="text-xs px-3 py-1.5 border rounded"
-                  >Cancel</button>
+                  >
+                    Cancel
+                  </button>
                 </div>
                 {moveMutation.isError && (
                   <p className="text-xs text-destructive">{moveMutation.error?.message ?? 'Failed to move booking'}</p>
@@ -303,14 +328,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
                   onChange={v => setGuestFields(p => ({ ...p, covers: v }))}
                   inputClass="w-20"
                 />
-                <div className="flex gap-2 pt-1">
-                  <button
-                    onClick={handleGuestSave}
-                    disabled={guestMutation.isPending}
-                    className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded disabled:opacity-50"
-                  >
-                    {guestMutation.isPending ? 'Saving…' : 'Save'}
-                  </button>
+                <div className="pt-1">
                   <button
                     onClick={() => {
                       setGuestFields({
@@ -322,7 +340,9 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
                       setEditingGuest(false)
                     }}
                     className="text-xs px-3 py-1.5 border rounded"
-                  >Cancel</button>
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
             ) : (
@@ -339,7 +359,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
             )}
           </Section>
 
-          {/* ── Table / combination override ─────────────── */}
+          {/* ── Table assignment — checkboxes only ───────── */}
           <Section
             title="Table assignment"
             action={
@@ -353,18 +373,14 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
             }
           >
             {!showTablePicker ? (
-              <p className="text-sm">
-                {booking.combination_name
-                  ? <span className="font-medium">{booking.combination_name}</span>
-                  : <span className="font-medium">{booking.table_label ?? '—'}</span>}
-                {booking.combination_name && (
-                  <span className="text-xs text-muted-foreground ml-1">(combination)</span>
-                )}
+              // Display current assignment — combination_name is already "T1 + T2 + T3A" style
+              <p className="text-sm font-medium">
+                {booking.combination_name ?? booking.table_label ?? '—'}
               </p>
             ) : (
               <div className="space-y-3">
 
-                {/* Warning */}
+                {/* Capacity warning */}
                 {warning && (
                   <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
                     <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -372,81 +388,48 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
                   </div>
                 )}
 
-                {/* Individual tables — multi-select checkboxes */}
-                {tables.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-1.5">
-                      Individual tables
-                      <span className="font-normal ml-1">(select one or more)</span>
-                    </p>
-                    <div className="space-y-1">
-                      {tables.filter(t => t.is_active).map(t => {
-                        const selected = pickedTableIds.has(t.id)
-                        const singleFits = currentCovers >= t.min_covers && currentCovers <= t.max_covers
-                        return (
-                          <label
-                            key={t.id}
-                            className={cn(
-                              'flex items-center gap-2 px-2.5 py-1.5 rounded-lg border cursor-pointer text-sm transition-colors',
-                              selected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50',
-                            )}
-                          >
-                            <input
-                              type="checkbox"
-                              className="accent-primary w-3.5 h-3.5"
-                              checked={selected}
-                              onChange={() => toggleTable(t.id)}
-                            />
-                            <span className="font-medium">{t.label}</span>
-                            <span className="text-xs text-muted-foreground ml-auto">{t.min_covers}–{t.max_covers} cov</span>
-                          </label>
-                        )
-                      })}
-                    </div>
+                {/* Individual table checkboxes */}
+                {tables.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Loading tables…</p>
+                ) : (
+                  <div className="space-y-1">
+                    {tables.filter(t => t.is_active && !t.is_unallocated).map(t => {
+                      const selected = pickedTableIds.has(t.id)
+                      return (
+                        <label
+                          key={t.id}
+                          className={cn(
+                            'flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg border cursor-pointer text-sm transition-colors',
+                            selected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50',
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            className="accent-primary w-3.5 h-3.5 shrink-0"
+                            checked={selected}
+                            onChange={() => toggleTable(t.id)}
+                          />
+                          <span className="font-medium">{t.label}</span>
+                          {t.section_name && (
+                            <span className="text-[10px] text-muted-foreground">{t.section_name}</span>
+                          )}
+                          <span className="text-xs text-muted-foreground ml-auto shrink-0">
+                            {t.min_covers}–{t.max_covers} cov
+                          </span>
+                        </label>
+                      )
+                    })}
                   </div>
                 )}
 
-                {/* Combinations — single radio select */}
-                {combinations.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-1.5">Preset combinations</p>
-                    <div className="space-y-1">
-                      {combinations.filter(c => c.is_active).map(c => {
-                        const fits = currentCovers >= c.min_covers && currentCovers <= c.max_covers
-                        const selected = pickedComboId === c.id
-                        return (
-                          <label
-                            key={c.id}
-                            className={cn(
-                              'flex items-center gap-2 px-2.5 py-1.5 rounded-lg border cursor-pointer text-sm transition-colors',
-                              selected ? 'border-primary bg-primary/5' : 'hover:bg-muted/50',
-                              !fits && 'opacity-60'
-                            )}
-                          >
-                            <input
-                              type="radio"
-                              name="combo-pick"
-                              className="accent-primary"
-                              checked={selected}
-                              onChange={() => selectCombo(c.id)}
-                            />
-                            <span className="font-medium">{c.name}</span>
-                            <span className="text-xs text-muted-foreground ml-auto">{c.min_covers}–{c.max_covers} cov</span>
-                            {!fits && <AlertTriangle className="w-3 h-3 text-amber-500" />}
-                          </label>
-                        )
-                      })}
-                    </div>
-                  </div>
+                {pickedTableIds.size > 1 && (
+                  <p className="text-xs text-muted-foreground">
+                    Combined capacity: up to {combinedMaxCovers} covers
+                    {!warning && currentCovers <= combinedMaxCovers && (
+                      <span className="text-green-700 ml-1">✓</span>
+                    )}
+                  </p>
                 )}
-
-                <button
-                  onClick={handleTableSave}
-                  disabled={tablesMutation.isPending || !canSave}
-                  className="w-full text-sm py-1.5 bg-primary text-primary-foreground rounded-lg disabled:opacity-40"
-                >
-                  {tablesMutation.isPending ? 'Saving…' : `Assign to ${pickedLabel()}`}
-                </button>
               </div>
             )}
           </Section>
@@ -482,20 +465,17 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
                   onChange={e => setNotes(e.target.value)}
                   className="w-full text-sm border rounded p-2 resize-none min-h-20"
                   placeholder="Internal notes…"
+                  autoFocus
                 />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => notesMutation.mutate()}
-                    disabled={notesMutation.isPending}
-                    className="text-xs px-3 py-1.5 bg-primary text-primary-foreground rounded disabled:opacity-50"
-                  >
-                    {notesMutation.isPending ? 'Saving…' : 'Save'}
-                  </button>
-                  <button
-                    onClick={() => { setNotes(booking.operator_notes ?? ''); setEditingNotes(false) }}
-                    className="text-xs px-3 py-1.5 border rounded"
-                  >Cancel</button>
-                </div>
+                <button
+                  onClick={() => { setNotes(booking.operator_notes ?? ''); setEditingNotes(false) }}
+                  className="text-xs px-3 py-1.5 border rounded"
+                >
+                  Cancel
+                </button>
+                {notesMutation.isError && (
+                  <p className="text-xs text-destructive">{notesMutation.error?.message ?? 'Failed to save'}</p>
+                )}
               </div>
             ) : (
               <div
