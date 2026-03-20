@@ -41,23 +41,26 @@ function durationToWidth(startIso, endIso) {
 }
 
 // ── Draggable booking card ────────────────────────────────────
-function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart }) {
+// spanRows: 1 = normal single-row card
+//           N = spans N consecutive table rows (height multiplied)
+function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1 }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
   })
 
-  const x = timeToX(booking.starts_at)
-  const endsAtMs = resizePreviewMs ?? new Date(booking.ends_at).getTime()
+  const x        = timeToX(booking.starts_at)
   const endsAtIso = resizePreviewMs ? new Date(resizePreviewMs).toISOString() : booking.ends_at
-  const w = durationToWidth(booking.starts_at, endsAtIso)
+  const w        = durationToWidth(booking.starts_at, endsAtIso)
 
   const style = {
     left:      x,
     width:     Math.max(w - 4, 40),
-    transform: transform
-      ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
-      : undefined,
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    // Spanning cards use explicit height; normal cards use CSS bottom:4px
+    ...(spanRows > 1 ? { height: ROW_HEIGHT * spanRows - 8, bottom: 'auto' } : {}),
+    // Z-order: dragging > spanning > normal. Must be above row borders (z=0) but below sticky labels (z=10).
+    zIndex: isDragging ? 20 : spanRows > 1 ? 5 : 1,
   }
 
   return (
@@ -96,33 +99,45 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 }
 
 // ── Droppable table row ───────────────────────────────────────
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs }) {
+// comboSpanMap: Map<bookingId, Map<tableId, spanRows>>
+//   spanRows > 1  → this row is the "primary" of a contiguous group; render tall card
+//   spanRows === 0 → this row is "secondary" (covered by a spanning card above); skip
+//   undefined     → normal single-table booking; render normally
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id },
   })
 
-  // Hour grid lines
   const gridLines = Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => i)
+
+  // If any booking in this row spawns a multi-row card, the canvas needs its own
+  // stacking context (z-index) so it paints above the subsequent row dividers.
+  const hasSpanningCard = bookings.some(b => {
+    const si = comboSpanMap?.get(b.id)
+    return si && (si.get(table.id) ?? 1) > 1
+  })
 
   return (
     <div className="timeline-grid border-b last:border-b-0">
-      {/* Table label — sticky so it stays visible while scrolling horizontally */}
-      <div className="flex items-center px-3 border-r bg-muted sticky left-0 z-[2] shrink-0">
+      {/* Table label — sticky left + z above spanning cards */}
+      <div className="flex items-center px-3 border-r bg-muted sticky left-0 z-[10] shrink-0">
         <div>
           <p className="text-sm font-medium">{table.label}</p>
           <p className="text-xs text-muted-foreground">{table.min_covers}–{table.max_covers} covers</p>
         </div>
       </div>
 
-      {/* Booking canvas */}
+      {/* Booking canvas — overflow:visible so spanning cards can extend into adjacent rows */}
       <div
         ref={setNodeRef}
-        className={cn(
-          'relative overflow-hidden transition-colors',
-          isOver && 'bg-blue-50'
-        )}
-        style={{ height: ROW_HEIGHT, width: TOTAL_WIDTH }}
+        className={cn('relative transition-colors', isOver && 'bg-blue-50')}
+        style={{
+          height: ROW_HEIGHT,
+          width:  TOTAL_WIDTH,
+          // Elevate stacking context so spanning cards render above subsequent rows
+          ...(hasSpanningCard ? { zIndex: 3 } : {}),
+        }}
       >
         {/* Hour grid lines */}
         {gridLines.map(i => (
@@ -134,16 +149,23 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         ))}
 
         {/* Bookings */}
-        {bookings.map(b => (
-          <BookingCard
-            key={b.id}
-            booking={b}
-            onClick={onBookingClick}
-            isDragging={b.id === activeId}
-            onResizeStart={onResizeStart}
-            resizePreviewMs={b.id === resizeBookingId ? resizePreviewMs : null}
-          />
-        ))}
+        {bookings.map(b => {
+          const spanInfo = comboSpanMap?.get(b.id)
+          const spanRows = spanInfo ? (spanInfo.get(table.id) ?? 1) : 1
+          // Skip secondary rows — the primary row above renders a tall spanning card
+          if (spanRows === 0) return null
+          return (
+            <BookingCard
+              key={b.id}
+              booking={b}
+              onClick={onBookingClick}
+              isDragging={b.id === activeId}
+              onResizeStart={onResizeStart}
+              resizePreviewMs={b.id === resizeBookingId ? resizePreviewMs : null}
+              spanRows={spanRows}
+            />
+          )
+        })}
       </div>
     </div>
   )
@@ -153,8 +175,8 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
 function TimelineHeader() {
   return (
     <div className="timeline-grid border-b sticky top-0 bg-background z-10">
-      {/* Sticky label cell — stays pinned to left while scrolling horizontally */}
-      <div className="border-r sticky left-0 bg-background z-[3]" style={{ height: 40 }} />
+      {/* Sticky label cell — z-[12] keeps it above spanning cards (z=5) and canvas stacking contexts (z=3) */}
+      <div className="border-r sticky left-0 bg-background z-[12]" style={{ height: 40 }} />
       <div className="relative overflow-hidden" style={{ width: TOTAL_WIDTH, height: 40 }}>
         {Array.from({ length: TOTAL_HOURS }, (_, i) => (
           <div
@@ -333,6 +355,7 @@ export default function Timeline() {
   }, [bookingsRes])
 
   // ── Group tables by section ────────────────────────────────
+  // NOTE: must be computed BEFORE comboSpanMap (which depends on sections)
   const sections = useMemo(() => {
     const map = {}
     for (const t of tables) {
@@ -342,6 +365,55 @@ export default function Timeline() {
     }
     return Object.entries(map)
   }, [tables])
+
+  // ── Combination span map ───────────────────────────────────
+  // For each combination booking, determines which table row renders the card
+  // and how tall it should be (spanRows), based on row adjacency in the timeline.
+  //
+  // Result: Map<bookingId, Map<tableId, spanRows>>
+  //   spanRows  > 1  → primary row; render a card spanning this many rows
+  //   spanRows === 0 → secondary row covered by the card above; render nothing
+  //   not in map     → normal single-table booking
+  const comboSpanMap = useMemo(() => {
+    // Build the full ordered list of table IDs as they appear top-to-bottom
+    const orderedIds = sections.flatMap(([, ts]) => ts.map(t => t.id))
+    const rowIndex   = new Map(orderedIds.map((id, i) => [id, i]))
+    const result     = new Map()
+
+    for (const b of bookingsRes) {
+      if (!Array.isArray(b.member_table_ids) || b.member_table_ids.length < 2) continue
+
+      // Sort member tables by their position in the rendered timeline
+      const sorted = b.member_table_ids
+        .filter(id => rowIndex.has(id))
+        .map(id => ({ id, i: rowIndex.get(id) }))
+        .sort((a, c) => a.i - c.i)
+
+      if (sorted.length < 2) continue
+
+      // Split into contiguous groups (gap in row index = new group = separate tile)
+      const groups = []
+      let group = [sorted[0]]
+      for (let k = 1; k < sorted.length; k++) {
+        if (sorted[k].i === sorted[k - 1].i + 1) {
+          group.push(sorted[k])
+        } else {
+          groups.push(group)
+          group = [sorted[k]]
+        }
+      }
+      groups.push(group)
+
+      // First table of each group → spanRows = group size; rest → 0 (hidden)
+      const spanInfo = new Map()
+      for (const g of groups) {
+        spanInfo.set(g[0].id, g.length)
+        for (let k = 1; k < g.length; k++) spanInfo.set(g[k].id, 0)
+      }
+      result.set(b.id, spanInfo)
+    }
+    return result
+  }, [bookingsRes, sections])
 
   const activeBooking = useMemo(() =>
     bookingsRes.find(b => b.id === activeId), [bookingsRes, activeId])
@@ -436,14 +508,15 @@ export default function Timeline() {
                       onResizeStart={handleResizeStart}
                       resizeBookingId={resizeState?.bookingId}
                       resizePreviewMs={resizePreviewMs}
+                      comboSpanMap={comboSpanMap}
                     />
                   ))}
                 </div>
               ))}
             </div>
 
-            {/* Drag overlay — ghost card while dragging */}
-            <DragOverlay>
+            {/* Drag overlay — ghost card while dragging (explicit z-index beats sticky headers) */}
+            <DragOverlay style={{ zIndex: 999 }}>
               {activeBooking && (
                 <div className={cn('timeline-slot px-2 w-28 shadow-xl', activeBooking.status)}>
                   <p className="text-xs font-semibold truncate">{activeBooking.guest_name}</p>

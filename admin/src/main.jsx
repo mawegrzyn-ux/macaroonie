@@ -14,6 +14,8 @@ import Tables      from '@/pages/Tables'
 import Schedule    from '@/pages/Schedule'
 import Rules       from '@/pages/Rules'
 import WidgetTest  from '@/pages/WidgetTest'
+import Docs        from '@/pages/Docs'
+import Help        from '@/pages/Help'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -69,6 +71,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="rules"       element={<Rules />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="team"        element={<Placeholder title="Team management" />} />
+                <Route path="docs"        element={<Docs />} />
+                <Route path="help"        element={<Help />} />
               </Route>
             </Routes>
           </RequireAuth>

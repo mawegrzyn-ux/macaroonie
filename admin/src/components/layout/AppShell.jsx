@@ -6,6 +6,7 @@ import {
   LayoutDashboard, CalendarDays, BookOpen,
   Building2, Table2, Clock, Settings, Users,
   LogOut, Utensils, LayoutTemplate, Menu, X,
+  BookMarked, HelpCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,7 +21,10 @@ const NAV = [
   { label: 'Rules',       to: '/rules',       icon: Settings },
   { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate },
   null,
-  { label: 'Team',        to: '/team',        icon: Users },
+  { label: 'Team',          to: '/team',   icon: Users },
+  null,
+  { label: 'Documentation', to: '/docs',   icon: BookMarked },
+  { label: 'Help',          to: '/help',   icon: HelpCircle },
 ]
 
 function NavItem({ item, open }) {

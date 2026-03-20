@@ -1,0 +1,660 @@
+// src/pages/Help.jsx
+// Operator-facing user guide — step-by-step instructions for restaurant staff.
+import { useState, useEffect } from 'react'
+import { cn } from '@/lib/utils'
+
+const SECTIONS = [
+  { id: 'getting-started', label: 'Getting Started' },
+  { id: 'venues',          label: 'Managing Venues' },
+  { id: 'tables',          label: 'Tables & Combinations' },
+  { id: 'schedule',        label: 'Setting Your Schedule' },
+  { id: 'rules',           label: 'Booking Rules' },
+  { id: 'deposits',        label: 'Deposits & Payments' },
+  { id: 'timeline',        label: 'Using the Timeline' },
+  { id: 'bookings',        label: 'Managing Bookings' },
+  { id: 'widget',          label: 'Booking Widget' },
+  { id: 'faq',             label: 'FAQ & Troubleshooting' },
+]
+
+export default function Help() {
+  const [activeId, setActiveId] = useState('getting-started')
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      entries => {
+        const visible = entries.filter(e => e.isIntersecting)
+        if (visible.length) setActiveId(visible[0].target.id)
+      },
+      { rootMargin: '-10% 0px -75% 0px' },
+    )
+    document.querySelectorAll('section[data-help]').forEach(el => observer.observe(el))
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* TOC */}
+      <aside className="w-52 shrink-0 border-r overflow-y-auto py-6 px-3 hidden md:block">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-2 mb-3">
+          Contents
+        </p>
+        <nav className="space-y-0.5">
+          {SECTIONS.map(s => (
+            <a
+              key={s.id}
+              href={`#${s.id}`}
+              className={cn(
+                'block px-2 py-1.5 rounded text-sm transition-colors',
+                activeId === s.id
+                  ? 'bg-primary/10 text-primary font-medium'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent',
+              )}
+            >
+              {s.label}
+            </a>
+          ))}
+        </nav>
+      </aside>
+
+      {/* Content */}
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-6 py-8 space-y-16">
+          <div>
+            <h1 className="text-2xl font-bold">Help &amp; User Guide</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Step-by-step instructions for restaurant operators and front-of-house staff.
+            </p>
+          </div>
+
+          {/* ── GETTING STARTED ───────────────────────────── */}
+          <section id="getting-started" data-help="">
+            <H2>Getting Started</H2>
+            <P>
+              Welcome to Macaroonie. Follow this checklist to get your restaurant set up and ready to take
+              bookings. Each step links to a section in this guide.
+            </P>
+
+            <div className="space-y-3 mb-6">
+              {[
+                ['Create your venue', 'Give it a name, address, and timezone. The timezone is critical — all booking times display in your local time.'],
+                ['Add tables and sections', 'Organise your floor plan into sections (Main Floor, Terrace, Bar, etc.), then add each table with its seating capacity.'],
+                ['Set up table combinations', 'If adjacent tables can be pushed together for larger parties, create a combination (e.g. T1 + T2 = combined table for 6).'],
+                ['Configure your weekly schedule', 'Define which days you open and add sittings (Lunch, Dinner). Each sitting has its own slot duration, interval, and cover cap.'],
+                ['Set booking rules', 'Configure minimum and maximum covers per booking, the hold time limit, and the cutoff before a slot starts.'],
+                ['(Optional) Enable deposits', 'Connect a Stripe account and set a deposit amount if you want to require payment to confirm bookings.'],
+                ['Test the booking widget', 'Go to Widget Test in the sidebar and run a test booking end-to-end before going live.'],
+              ].map(([title, desc], i) => (
+                <div key={i} className="flex gap-3">
+                  <span className="shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs flex items-center justify-center font-bold mt-0.5">
+                    {i + 1}
+                  </span>
+                  <div>
+                    <p className="text-sm font-medium">{title}</p>
+                    <p className="text-xs text-muted-foreground">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <H3>Roles explained</H3>
+            <div className="space-y-2">
+              {[
+                ['Owner', 'Full access. Can manage billing, team, and all settings.'],
+                ['Admin', 'Can configure venues, tables, schedules, and rules. Can manage bookings.'],
+                ['Operator', 'Can create and manage bookings. Cannot change venue configuration.'],
+                ['Viewer', 'Read-only. Can view bookings and schedules but cannot make changes.'],
+              ].map(([role, desc]) => (
+                <div key={role} className="flex gap-3 items-start border rounded-lg px-3 py-2">
+                  <span className="text-sm font-semibold w-20 shrink-0">{role}</span>
+                  <span className="text-sm text-muted-foreground">{desc}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* ── VENUES ────────────────────────────────────── */}
+          <section id="venues" data-help="">
+            <H2>Managing Venues</H2>
+            <P>
+              A venue is a physical restaurant location. You can have multiple venues under one account
+              (useful for restaurant groups or franchises). Each venue has its own tables, schedule, and rules.
+            </P>
+
+            <H3>Creating a venue</H3>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Go to <strong>Venues</strong> in the sidebar.</li>
+              <li>Click <strong>Add venue</strong>.</li>
+              <li>Enter the venue name, address, and — most importantly — the correct timezone.</li>
+              <li>Save. The venue will appear in the Venues list.</li>
+            </ol>
+
+            <InfoBox type="warn">
+              Always set the correct <strong>timezone</strong> for your venue. All booking times, slot
+              generation, and cutoff calculations use this timezone. A wrong timezone will cause slots
+              to appear at the wrong times in the widget.
+            </InfoBox>
+
+            <H3>Activating and deactivating a venue</H3>
+            <P>
+              Only <strong>active</strong> venues appear in the booking widget and accept new bookings.
+              Deactivate a venue to take it offline temporarily (e.g. for renovation) without deleting it.
+              You can reactivate it at any time from the Venues page.
+            </P>
+            <InfoBox type="tip">
+              If your widget shows no slots and you suspect a configuration issue, first check that the
+              venue is active. It is easy to accidentally deactivate a venue when editing settings.
+            </InfoBox>
+
+            <H3>Venue settings</H3>
+            <P>
+              From the venue detail page you can also access <strong>Booking Rules</strong> and{' '}
+              <strong>Deposit Rules</strong> — shortcut links are shown below the venue details.
+              These settings are per-venue, so each location can have different rules.
+            </P>
+          </section>
+
+          {/* ── TABLES ────────────────────────────────────── */}
+          <section id="tables" data-help="">
+            <H2>Tables &amp; Combinations</H2>
+
+            <H3>Adding tables</H3>
+            <P>
+              Go to <strong>Tables</strong> in the sidebar. Select your venue, then click{' '}
+              <strong>Add table</strong>. Each table needs:
+            </P>
+            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
+              <li><strong>Label</strong> — the name shown on the Timeline (e.g. T1, Bar 3, Garden A).</li>
+              <li><strong>Section</strong> — which area of the restaurant this table belongs to.</li>
+              <li><strong>Min covers</strong> — smallest party size this table suits.</li>
+              <li><strong>Max covers</strong> — largest party size this table suits.</li>
+            </ul>
+            <P>
+              Tables with <strong>Active</strong> turned off will not appear in the Timeline or widget
+              and cannot be booked.
+            </P>
+
+            <H3>Sections</H3>
+            <P>
+              Sections group tables into areas of your restaurant — for example, <em>Main Floor</em>,{' '}
+              <em>Terrace</em>, or <em>Private Dining Room</em>. Sections appear as labelled groups in
+              the Timeline, making it easier to find a table at a glance. Create sections on the Tables
+              page before adding tables to them.
+            </P>
+
+            <H3>Table combinations</H3>
+            <P>
+              A table combination defines two or more tables that can be pushed together to accommodate
+              a larger party. For example, T1 and T2 can form a combined table for up to 8 covers.
+            </P>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Scroll to the <strong>Table combinations</strong> section at the bottom of the Tables page.</li>
+              <li>Click <strong>Add combination</strong>.</li>
+              <li>Give it a name (e.g. "T1 + T2"), set the min and max covers for the combined space, and select which tables are part of it.</li>
+              <li>Save. The combination will now be offered by the booking widget for appropriately sized parties.</li>
+            </ol>
+            <InfoBox type="info">
+              The booking widget automatically selects the right table or combination based on party size.
+              When multiple options fit, the widget prefers individual tables first and only suggests
+              combinations when needed for larger parties.
+            </InfoBox>
+
+            <H3>How combination tiles appear in the Timeline</H3>
+            <P>
+              When a combination booking is confirmed, the Timeline shows it as a single tall tile spanning
+              all the member table rows — as long as those tables are adjacent in the Timeline list.
+              If non-adjacent tables are combined (e.g. T1+T2 and T4, with T3A between them in the list),
+              separate tiles appear at each group's position.
+            </P>
+          </section>
+
+          {/* ── SCHEDULE ──────────────────────────────────── */}
+          <section id="schedule" data-help="">
+            <H2>Setting Your Schedule</H2>
+            <P>
+              The schedule controls when guests can book. It has three layers, each overriding the one below:
+              date overrides → weekly template → nothing (closed).
+            </P>
+
+            <H3>Weekly template</H3>
+            <P>
+              Go to <strong>Schedule</strong> in the sidebar. The 7-day grid shows Monday through Sunday.
+              For each day you open, add one or more <strong>sittings</strong>.
+            </P>
+
+            <H3>Sittings</H3>
+            <P>
+              A sitting is a named service period — for example, <em>Lunch</em> from 12:00 to 15:00, or{' '}
+              <em>Dinner</em> from 18:00 to 23:00. Each sitting has:
+            </P>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {[
+                ['Name', 'Displayed in the booking widget (e.g. "Dinner").'],
+                ['Start & end time', 'When this service period runs. Last slot is generated before the end time.'],
+                ['Slot duration', 'How long each booking lasts (e.g. 90 minutes). Guests hold the table for this duration.'],
+                ['Slot interval', 'How often new slots start (e.g. every 30 min). Shorter = more slots, more flexibility.'],
+                ['Max covers', 'Total covers allowed per slot across all tables in this sitting.'],
+                ['Active', 'Toggle to temporarily disable a sitting without deleting it.'],
+              ].map(([label, desc]) => (
+                <div key={label} className="border rounded-lg p-2.5">
+                  <p className="text-xs font-semibold mb-0.5">{label}</p>
+                  <p className="text-xs text-muted-foreground">{desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <InfoBox type="info">
+              <strong>Slot duration ≠ slot interval.</strong> Duration is how long a booking occupies the
+              table. Interval is how frequently new bookings can start. For example: duration 90 min,
+              interval 30 min means slots at 18:00, 18:30, 19:00, etc., each holding the table for 90 minutes.
+            </InfoBox>
+
+            <H3>Slot cap overrides</H3>
+            <P>
+              Below each sitting you can set a cover cap for a specific time slot — for example, limit
+              the 13:00 slot to 20 covers even though the sitting allows 50. Set a cap to 0 to block
+              a specific slot entirely. Leave the cap field empty to use the sitting's default.
+            </P>
+
+            <H3>Copying a day's schedule</H3>
+            <P>
+              Click the copy icon on any day column to copy all its sittings to another day.
+              This is useful when your Mon–Fri schedule is the same: configure Monday, then copy to
+              Tuesday through Friday.
+            </P>
+
+            <H3>Date overrides</H3>
+            <P>
+              A date override replaces the weekly template for a specific date. Use it to:
+            </P>
+            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
+              <li>Close on a bank holiday — mark the date as <strong>Closed</strong>.</li>
+              <li>Run a different schedule on a special event day — add custom sittings for that date.</li>
+            </ul>
+            <P>
+              Date overrides are added from the Schedule page by clicking the calendar icon on the
+              relevant day.
+            </P>
+          </section>
+
+          {/* ── RULES ─────────────────────────────────────── */}
+          <section id="rules" data-help="">
+            <H2>Booking Rules</H2>
+            <P>
+              Booking rules control the constraints applied to all bookings at a venue.
+              Go to <strong>Rules</strong> in the sidebar, or access them via your venue's settings page.
+            </P>
+
+            <div className="space-y-3 mb-6">
+              {[
+                {
+                  label: 'Min / Max covers',
+                  desc: 'The smallest and largest party size accepted per booking. Guests entering a party size outside this range will be told no tables are available.',
+                },
+                {
+                  label: 'Hold time limit (hold_ttl_secs)',
+                  desc: 'How long a guest has to complete their booking after selecting a slot. Default is 300 seconds (5 minutes). After this, the slot is released and becomes available again. The widget shows a countdown.',
+                },
+                {
+                  label: 'Booking cutoff (cutoff_before_mins)',
+                  desc: 'How many minutes before a slot starts it becomes unbookable online. For example, a 30-minute cutoff means guests cannot book the 19:00 slot after 18:30. Walk-ins are not affected.',
+                },
+                {
+                  label: 'Slot duration',
+                  desc: 'The default booking duration in minutes. This is used when creating holds and bookings. It can be overridden per sitting in the Schedule. Individual bookings can also be manually resized from the Timeline.',
+                },
+              ].map(({ label, desc }) => (
+                <div key={label} className="border rounded-lg p-3">
+                  <p className="text-sm font-semibold mb-1">{label}</p>
+                  <p className="text-sm text-muted-foreground">{desc}</p>
+                </div>
+              ))}
+            </div>
+
+            <InfoBox type="tip">
+              Start with a 5-minute hold time for busy services. Increase to 10–15 minutes if your
+              guests tend to be slower completing the booking form, or if you see many abandoned holds.
+            </InfoBox>
+          </section>
+
+          {/* ── DEPOSITS ──────────────────────────────────── */}
+          <section id="deposits" data-help="">
+            <H2>Deposits &amp; Payments</H2>
+            <P>
+              Macaroonie integrates with Stripe Connect so each restaurant can take deposits directly into
+              their own bank account. The platform deducts a small fee automatically.
+            </P>
+
+            <H3>Setting up Stripe</H3>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Go to your venue's <strong>Deposit Rules</strong> page.</li>
+              <li>Click <strong>Connect with Stripe</strong> and complete the Stripe onboarding flow.</li>
+              <li>Once connected, enable <strong>Require deposit</strong> and set the deposit amount in pence (e.g. 1000 = £10.00).</li>
+              <li>Save. New bookings for this venue will now require payment before confirmation.</li>
+            </ol>
+
+            <H3>How the deposit flow works</H3>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Guest selects a slot — a hold is created (slot is temporarily reserved).</li>
+              <li>Guest sees the deposit amount and completes payment in the widget.</li>
+              <li>Stripe confirms payment via webhook → booking is confirmed automatically.</li>
+              <li>If the guest abandons, the hold expires and the slot is released. No charge is taken.</li>
+            </ol>
+
+            <InfoBox type="warn">
+              Bookings are only confirmed after Stripe's webhook is received — not when the guest sees
+              the payment success screen. This prevents double-bookings and ensures payment has actually
+              cleared before the slot is permanently held.
+            </InfoBox>
+
+            <H3>Issuing refunds</H3>
+            <P>
+              Open the booking from the Timeline, click the booking tile to open the detail drawer, and
+              click <strong>Issue refund</strong> in the Payment section. The refund is processed
+              immediately via Stripe and returns to the guest's original payment method within 5–10 days.
+            </P>
+          </section>
+
+          {/* ── TIMELINE ──────────────────────────────────── */}
+          <section id="timeline" data-help="">
+            <H2>Using the Timeline</H2>
+            <P>
+              The Timeline is your main day-to-day tool. It shows all tables as rows and time as columns,
+              with confirmed bookings displayed as coloured tiles.
+            </P>
+
+            <H3>Navigation</H3>
+            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
+              <li>Use the <strong>← →</strong> arrows to move one day at a time, or click the date field to jump to any date.</li>
+              <li>Click <strong>Today</strong> to return to the current date instantly.</li>
+              <li>Use the <strong>venue selector</strong> to switch between venues.</li>
+              <li>Scroll horizontally to see earlier or later times. <strong>Table labels stay pinned</strong> on the left so you always know which row you're looking at.</li>
+            </ul>
+
+            <H3>Booking tile colours</H3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-6">
+              {[
+                ['Confirmed', '#dbeafe', '#3b82f6'],
+                ['Pending payment', '#fef9c3', '#eab308'],
+                ['Completed', '#dcfce7', '#22c55e'],
+                ['Cancelled', '#fee2e2', '#ef4444'],
+                ['No show', '#f3f4f6', '#9ca3af'],
+              ].map(([label, bg, border]) => (
+                <div
+                  key={label}
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-lg border-l-4 text-sm"
+                  style={{ background: bg, borderLeftColor: border }}
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
+
+            <H3>Making a new booking</H3>
+            <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Click <strong>+ New booking</strong> in the top-right toolbar.</li>
+              <li>Select the party size (covers).</li>
+              <li>Pick the date (defaults to the currently displayed date).</li>
+              <li>Select an available time slot. The slot label shows which table or combination is assigned.</li>
+              <li>Enter the guest's name, email, and optionally phone number and notes.</li>
+              <li>Click <strong>Confirm booking</strong>. The booking appears on the Timeline immediately.</li>
+            </ol>
+
+            <H3>Drag to reschedule (desktop)</H3>
+            <P>
+              Click and drag any booking tile to a different time or a different table row. Release to confirm.
+              The booking is updated immediately and the change is broadcast to all other logged-in users.
+            </P>
+
+            <H3>Hold to drag (mobile / touch screen)</H3>
+            <P>
+              On a touch device, tap a booking tile to open the detail drawer. To drag it, press and hold
+              for <strong>0.25 seconds</strong> until the tile activates, then drag to the new position.
+              A short tap always opens the drawer — a long press starts the drag.
+            </P>
+
+            <H3>Resize booking duration</H3>
+            <P>
+              On desktop, grab the <strong>right edge</strong> of any booking tile and drag left or right
+              to shorten or extend the booking. Duration snaps to 15-minute increments. The new end time
+              is saved automatically when you release. This override is remembered — dragging the booking
+              later will preserve the custom duration.
+            </P>
+
+            <H3>Full screen mode</H3>
+            <P>
+              Click the <strong>⛶</strong> (Maximize) icon in the toolbar to expand the Timeline to full
+              screen — useful on tablets at the host stand. Press <strong>Escape</strong> or click the
+              icon again to exit.
+            </P>
+
+            <H3>Live updates</H3>
+            <P>
+              The Timeline updates automatically via WebSocket when bookings are created, modified, or
+              cancelled by another user. You do not need to refresh the page. The refresh button in the
+              toolbar forces an immediate re-fetch if you suspect the view is out of sync.
+            </P>
+          </section>
+
+          {/* ── BOOKINGS ──────────────────────────────────── */}
+          <section id="bookings" data-help="">
+            <H2>Managing Bookings</H2>
+            <P>
+              Tap or click any booking tile on the Timeline to open the <strong>Booking Drawer</strong> —
+              a panel on the right side of the screen with full details and editing options.
+            </P>
+
+            <H3>Editing guest details</H3>
+            <P>
+              Click <strong>Edit</strong> next to the Guest details section header to change the guest's
+              name, email, phone number, or the number of covers. Changes save immediately and update
+              the booking record.
+            </P>
+
+            <H3>Rescheduling a booking</H3>
+            <P>
+              Click <strong>Reschedule</strong> next to the Date &amp; time section. A date picker and
+              time picker appear pre-filled with the current booking time. Change the date and/or time,
+              then click <strong>Move booking</strong>. The booking keeps the same table and its original
+              duration.
+            </P>
+
+            <H3>Reassigning a table or combination</H3>
+            <P>
+              Click <strong>Override</strong> in the Table assignment section. You will see a list of
+              individual tables (with checkboxes — you can select more than one) and preset combinations
+              (radio buttons). Select your preferred option. A warning appears if the selected
+              table/combination does not fit the booking's cover count.
+            </P>
+            <InfoBox type="info">
+              If you select multiple individual tables that don't match any existing combination,
+              Macaroonie automatically creates a new combination for that group and assigns the booking
+              to it. The new combination will also appear in the Tables page for future use.
+            </InfoBox>
+
+            <H3>Changing booking status</H3>
+            <P>
+              Status transition buttons appear at the bottom of the drawer. Available transitions depend
+              on the current status:
+            </P>
+            <div className="space-y-2 mb-4">
+              {[
+                ['Confirmed', ['Mark completed', 'Mark no show', 'Cancel']],
+                ['Pending payment', ['Confirm manually', 'Cancel']],
+                ['Completed / No show / Cancelled', ['No further transitions available']],
+              ].map(([from, tos]) => (
+                <div key={from} className="flex flex-wrap gap-2 items-center text-sm">
+                  <span className="font-medium w-40 shrink-0">{from}</span>
+                  <span className="text-muted-foreground">→</span>
+                  <span className="text-muted-foreground">{tos.join(', ')}</span>
+                </div>
+              ))}
+            </div>
+
+            <H3>Operator notes</H3>
+            <P>
+              Click the notes area at the bottom of the drawer to add or edit internal notes. Notes are
+              visible only to staff — they are never shown to guests. Useful for allergy information,
+              special occasion details, or follow-up actions.
+            </P>
+
+            <H3>Issuing a refund</H3>
+            <P>
+              If a deposit was taken, a <strong>Payment</strong> section appears in the drawer showing
+              the amount and status. Click <strong>Issue refund</strong> to process a full refund via
+              Stripe. The refund is instant on Macaroonie's side; the guest receives funds within 5–10
+              business days depending on their bank.
+            </P>
+
+            <H3>Viewing all bookings</H3>
+            <P>
+              The <strong>Bookings</strong> page in the sidebar shows a searchable, filterable list of
+              all bookings across all dates — useful for looking up a specific guest or reference number.
+            </P>
+          </section>
+
+          {/* ── WIDGET ────────────────────────────────────── */}
+          <section id="widget" data-help="">
+            <H2>Booking Widget</H2>
+            <P>
+              The booking widget is an embeddable piece of your website that lets guests book a table
+              directly, without calling the restaurant. It enforces all your booking rules automatically.
+            </P>
+
+            <H3>Testing the widget</H3>
+            <P>
+              Before embedding on your website, use the built-in test page at{' '}
+              <strong>Widget Test</strong> in the sidebar. This runs the full booking flow in your
+              browser so you can confirm slots appear correctly and bookings land in the Timeline.
+            </P>
+
+            <H3>Guest booking flow</H3>
+            <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li><strong>Party size</strong> — guest enters the number of covers.</li>
+              <li><strong>Date</strong> — guest picks a date from the calendar.</li>
+              <li><strong>Time slot</strong> — available slots are shown based on your schedule and current bookings.</li>
+              <li><strong>Guest details</strong> — name, email, phone (optional), and special notes.</li>
+              <li><strong>Payment</strong> (if deposit required) — guest completes card payment.</li>
+              <li><strong>Confirmation</strong> — booking reference shown; confirmation email sent.</li>
+            </ol>
+
+            <H3>Hold timer</H3>
+            <P>
+              Once a guest selects a slot, it is temporarily reserved with a countdown timer (based on
+              your hold time limit in Booking Rules, default 5 minutes). If the guest doesn't complete
+              the booking within the countdown, the slot is released for others. This prevents guests
+              from "parking" on a popular slot indefinitely.
+            </P>
+
+            <H3>Embedding on your website</H3>
+            <P>
+              Add the following script tag to your website, replacing <code className="bg-muted px-1 rounded text-xs">YOUR_VENUE_ID</code> with
+              your venue's UUID (found on the Venues page):
+            </P>
+            <pre className="bg-gray-900 text-green-300 text-xs rounded-lg p-4 overflow-x-auto mb-4 leading-relaxed">
+{`<script
+  src="https://your-domain.com/widget/loader.js"
+  data-venue-id="YOUR_VENUE_ID"
+  defer
+></script>
+<div id="macaroonie-widget"></div>`}
+            </pre>
+
+            <H3>Customising the widget appearance</H3>
+            <P>
+              The widget reads CSS custom properties from your website for theming. Add these to
+              your website's CSS to match your brand:
+            </P>
+            <pre className="bg-gray-900 text-green-300 text-xs rounded-lg p-4 overflow-x-auto mb-4 leading-relaxed">
+{`:root {
+  --booking-accent: #d97706;     /* Button and highlight colour */
+  --booking-radius: 8px;         /* Border radius */
+  --booking-font: 'Your Font';   /* Font family */
+}`}
+            </pre>
+          </section>
+
+          {/* ── FAQ ───────────────────────────────────────── */}
+          <section id="faq" data-help="">
+            <H2>FAQ &amp; Troubleshooting</H2>
+            <div className="space-y-4">
+              {[
+                {
+                  q: 'My venue is not showing any slots in the widget.',
+                  a: 'Check that (1) the venue is active — it is easy to accidentally deactivate it in settings. (2) The venue has a schedule with sittings for the day you are testing. (3) The date is not blocked by a date override marked as Closed. (4) The booking cutoff has not passed for those slots.',
+                },
+                {
+                  q: 'A guest says the slot was available but they got a conflict error at checkout.',
+                  a: 'This is expected behaviour. The slot was available when the guest started, but another guest completed their booking first. The double-booking protection (database UNIQUE constraint + FOR UPDATE lock) prevents two bookings for the same slot. The guest should select another time.',
+                },
+                {
+                  q: 'Bookings are not appearing on the Timeline after they are confirmed.',
+                  a: 'Click the refresh button in the Timeline toolbar. If bookings still do not appear, log out and log back in — Auth0 tokens expire after a period of inactivity, which prevents data from loading. This is not a data loss issue; the bookings are saved correctly in the database.',
+                },
+                {
+                  q: 'How do I block off a specific date (bank holiday, private event)?',
+                  a: 'Go to Schedule → click the calendar/override icon on the day → Add date override → mark it as Closed (or add custom sittings with reduced hours). The override applies to all tables at that venue for that date.',
+                },
+                {
+                  q: 'Can the same table be booked twice in one day?',
+                  a: 'Yes — multiple bookings at different times on the same table is normal and correct. The system only prevents overlapping bookings on the same table. The slot generator subtracts confirmed bookings and active holds when calculating what is available.',
+                },
+                {
+                  q: 'What happens if a guest does not complete their booking within the hold time?',
+                  a: 'The hold expires automatically. The slot becomes available again within the next minute (pg_cron sweep runs every minute). The guest sees an "expired" message if they try to continue. There is no charge taken for expired holds.',
+                },
+                {
+                  q: 'How do I change the party size limit for my venue?',
+                  a: 'Go to Rules for your venue and update Min Covers and Max Covers. These limits apply to all bookings for that venue. The widget will only show slots for party sizes within this range.',
+                },
+                {
+                  q: 'A combination booking is only showing one tile in the Timeline, not spanning all the tables.',
+                  a: 'The Timeline merges tiles for adjacent tables. If the combination includes non-adjacent tables (with other tables between them in the list), you will see separate tiles. This is correct — each contiguous group of tables in the combination shows as one merged tile, and non-adjacent groups show as separate tiles.',
+                },
+                {
+                  q: 'I dragged a booking to a new time but the duration changed.',
+                  a: 'This is fixed in the current version. Dragging now preserves the booking\'s actual duration (including any manual resize). If you see the duration reset to the default slot duration, ensure your API is up to date.',
+                },
+                {
+                  q: 'The venue selector is empty on the Timeline.',
+                  a: 'This usually means your Auth0 session has expired. Log out and log back in. If the issue persists, check that at least one venue is active for your account on the Venues page.',
+                },
+              ].map(({ q, a }) => (
+                <div key={q} className="border rounded-lg p-4">
+                  <p className="text-sm font-semibold mb-2">Q: {q}</p>
+                  <p className="text-sm text-muted-foreground">A: {a}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+        </div>
+      </main>
+    </div>
+  )
+}
+
+// ── Shared primitives ─────────────────────────────────────────
+
+function H2({ children }) {
+  return <h2 className="text-xl font-bold mb-4 pb-2 border-b">{children}</h2>
+}
+function H3({ children, className }) {
+  return <h3 className={cn('text-base font-semibold mt-6 mb-3', className)}>{children}</h3>
+}
+function P({ children }) {
+  return <p className="text-sm text-muted-foreground leading-relaxed mb-3">{children}</p>
+}
+function InfoBox({ type = 'info', children }) {
+  const s = {
+    info: 'bg-blue-50 border-blue-200 text-blue-900',
+    warn: 'bg-amber-50 border-amber-200 text-amber-900',
+    tip:  'bg-green-50 border-green-200 text-green-900',
+  }
+  const icons = { info: 'ℹ️', warn: '⚠️', tip: '💡' }
+  return (
+    <div className={cn('border rounded-lg p-3 text-sm flex gap-2 mb-4', s[type])}>
+      <span className="shrink-0 mt-0.5">{icons[type]}</span>
+      <span>{children}</span>
+    </div>
+  )
+}
