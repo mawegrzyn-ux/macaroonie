@@ -79,7 +79,7 @@ export default function Docs() {
             <Code>{`/
 ├── api/          Node.js API (Fastify)
 ├── admin/        React admin portal (Vite)
-├── migrations/   PostgreSQL migration files (001–010, run in order)
+├── migrations/   PostgreSQL migration files (001–011, run in order)
 ├── setup.sh      One-shot Lightsail server setup
 ├── deploy.sh     Subsequent deployments
 └── CLAUDE.md     Developer context and outstanding items`}</Code>
@@ -225,11 +225,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['tables', 'Individual bookable tables. is_unallocated flags the system-managed "Unallocated" pseudo-table auto-created by the smart-relocate engine.', 'venue_id, section_id, label, min_covers, max_covers, sort_order, is_active, is_unallocated'],
                 ['table_combinations', 'Pre-configured merged table sets for larger parties.', 'venue_id, name, min_covers, max_covers, is_active'],
                 ['table_combination_members', 'Junction table — which tables belong to a combination.', 'combination_id, table_id (composite PK)'],
-                ['schedule_templates', 'Weekly schedule template per venue. One row per venue.', 'venue_id'],
+                ['schedule_templates', 'Weekly schedule template per venue. One row per venue.', 'venue_id, doors_close_time'],
                 ['schedule_sittings', 'Named service period within a day-of-week (e.g. Lunch Mon–Fri).', 'template_id, dow, name, start_time, end_time, slot_duration_mins, slot_interval_mins, max_covers'],
                 ['schedule_overrides', 'Replaces sittings for a specific date (bank holidays, closures).', 'venue_id, override_date, is_closed'],
                 ['slot_caps', 'Per-slot cover cap overrides. Sparse — only stored when different from sitting default.', 'sitting_id, slot_time, max_covers'],
-                ['booking_rules', 'Per-venue booking constraints. Includes smart-allocation rule flags.', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo'],
+                ['booking_rules', 'Per-venue booking constraints. Includes smart-allocation rule flags.', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo, allow_widget_bookings_after_doors_close'],
                 ['deposit_rules', 'Per-venue deposit configuration.', 'venue_id, requires_deposit, amount_pence, stripe_account_id'],
                 ['booking_holds', 'Temporary slot reservations. UNIQUE (table_id, starts_at).', 'venue_id, table_id, combination_id, starts_at, ends_at, expires_at, guest_name, guest_email'],
                 ['bookings', 'Confirmed bookings.', 'venue_id, table_id, combination_id, starts_at, ends_at, covers, status, reference, guest_name, guest_email, guest_phone, guest_notes, operator_notes'],
@@ -281,7 +281,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Method', 'Path', 'Auth', 'Description']}
               rows={[
-                ['GET', '/', 'public', 'Available slots for venue_id + date + covers. Returns table_id or combination_id per slot. Computed by PG function — never from a stored table.'],
+                ['GET', '/', 'public', 'Available slots for venue_id + date + covers. Returns table_id or combination_id per slot. Computed by PG function — never from a stored table. Widget calls (unauthenticated) automatically hide slots at/after venue doors_close_time when allow_widget_bookings_after_doors_close rule is off.'],
               ]}
             />
 
@@ -313,6 +313,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Method', 'Path', 'Min role', 'Description']}
               rows={[
                 ['GET', '/', 'any', 'Full schedule (template + sittings + slot caps + overrides)'],
+                ['PUT', '/template/:dow', 'admin', 'Upsert day template. Accepts is_open, slot_interval_mins, doors_close_time.'],
                 ['POST', '/sittings', 'admin', 'Create sitting'],
                 ['PATCH', '/sittings/:id', 'admin', 'Update sitting'],
                 ['DELETE', '/sittings/:id', 'admin', 'Delete sitting'],
@@ -397,7 +398,7 @@ Guest cancels or abandons
   → Stripe fires webhook → POST /payments/webhook
       confirm_hold(hold_id, tenant_id)
         → SELECT ... FOR UPDATE NOWAIT   (second race guard)
-        → INSERT bookings
+        → INSERT bookings  (copies combination_id + guest_notes from hold)
         → DELETE booking_holds
       broadcastBooking('booking.created') → WS push to Timeline
 
@@ -564,7 +565,7 @@ allTables sorted by sort_order → target at index i
 
 # Apply migrations in order
 psql $DATABASE_URL -f migrations/001_tenants_users.sql
-# ... through 010_allocation_rules.sql
+# ... through 011_doors_close_time.sql
 
 # API
 cd api && cp .env.example .env   # fill in values

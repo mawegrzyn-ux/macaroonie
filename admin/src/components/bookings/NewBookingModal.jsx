@@ -19,17 +19,26 @@ const GuestSchema = z.object({
   covers:      z.coerce.number().int().min(1),
 })
 
-export default function NewBookingModal({ venueId, date, prefillTime = null, prefillTableId = null, onClose, onCreated }) {
+export default function NewBookingModal({ venueId, date: initialDate, prefillTime = null, prefillTableId = null, onClose, onCreated }) {
   const api = useApi()
-  const [step,          setStep]    = useState('slot')
-  const [tableId,       setTableId] = useState(null)
-  const [combinationId, setComboId] = useState(null)
-  const [selectedSlot,  setSlot]    = useState(null)
-  const [covers,        setCovers]  = useState(2)
-  const [holdData,      setHoldData] = useState(null)
+  const [step,          setStep]       = useState('slot')
+  const [bookingDate,   setBookingDate] = useState(initialDate)
+  const [tableId,       setTableId]   = useState(null)
+  const [combinationId, setComboId]   = useState(null)
+  const [selectedSlot,  setSlot]      = useState(null)
+  const [covers,        setCovers]    = useState(2)
+  const [holdData,      setHoldData]  = useState(null)
 
   function selectTable(id) { setTableId(id); setComboId(null) }
   function selectCombo(id)  { setComboId(id); setTableId(null) }
+
+  // When the operator picks a different date, clear any selected slot so
+  // the slot list refreshes for the new date.
+  function handleDateChange(newDate) {
+    setBookingDate(newDate)
+    setSlot(null)
+    autoSelectedRef.current = false
+  }
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm({
     resolver: zodResolver(GuestSchema),
@@ -59,8 +68,8 @@ export default function NewBookingModal({ venueId, date, prefillTime = null, pre
   // because the dep array [availableSlots, …] is evaluated during render and
   // referencing a const before its declaration is a TDZ error.
   const { data: slotsRes, isLoading: loadingSlots } = useQuery({
-    queryKey: ['slots', venueId, date, covers],
-    queryFn:  () => api.get(`/venues/${venueId}/slots?date=${date}&covers=${covers}`),
+    queryKey: ['slots', venueId, bookingDate, covers],
+    queryFn:  () => api.get(`/venues/${venueId}/slots?date=${bookingDate}&covers=${covers}`),
     enabled:  !!venueId && step === 'slot',
   })
 
@@ -97,7 +106,8 @@ export default function NewBookingModal({ venueId, date, prefillTime = null, pre
       covers:      guestData.covers,
       guest_notes: guestData.guest_notes ?? null,
     }),
-    onSuccess: onCreated,
+    // Pass bookingDate back so the Timeline can navigate to it if it differs
+    onSuccess: () => onCreated(bookingDate),
   })
 
   function handleSlotConfirm() {
@@ -131,7 +141,12 @@ export default function NewBookingModal({ venueId, date, prefillTime = null, pre
           <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
             <div>
               <p className="font-semibold">New booking</p>
-              <p className="text-xs text-muted-foreground">{date}</p>
+              <input
+                type="date"
+                value={bookingDate}
+                onChange={e => handleDateChange(e.target.value)}
+                className="text-xs text-muted-foreground border-0 p-0 bg-transparent focus:outline-none focus:ring-0 cursor-pointer"
+              />
             </div>
             <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
               <X className="w-4 h-4" />

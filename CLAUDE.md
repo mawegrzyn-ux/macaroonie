@@ -16,7 +16,7 @@ Owner: Obscure Kitty. Stack chosen for familiarity with existing plugin work (No
 /
 ├── api/              Node.js API (Fastify)
 ├── admin/            React admin portal (Vite)
-├── migrations/       PostgreSQL migration files (run in order 001–010)
+├── migrations/       PostgreSQL migration files (run in order 001–011)
 ├── setup.sh          One-shot Lightsail server setup script
 ├── deploy.sh         Subsequent deployment script
 └── CLAUDE.md         This file
@@ -91,7 +91,7 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/middleware/auth.js` — JWT validation + tenant resolution. Auth0 claim namespace is `https://${AUTH0_DOMAIN}/claims/`.
 - `src/middleware/error.js` — Global error handler. PG error codes mapped to HTTP codes here.
 - `src/routes/bookings.js` — Hold creation, free booking confirm, list/detail, status updates.
-- `src/routes/payments.js` — Payment intent creation + Stripe webhook handler.
+- `src/routes/payments.js` — Payment intent creation + Stripe webhook. `handlePaymentSucceeded` copies `combination_id` and `guest_notes` from hold to booking INSERT.
 - `src/routes/schedules.js` — Full schedule CRUD (templates, sittings, slot caps, overrides).
 - `src/routes/slots.js` — Calls `get_available_slots()` PG function. Thin wrapper.
 - `src/config/ws.js` — WebSocket server. Rooms keyed by venue_id. Auth via JWT query param.
@@ -170,6 +170,9 @@ Additionally implemented across development sessions:
 - ✅ **Schedule sitting edit** — pencil button on each sitting opens inline edit form for times + default covers
 - ✅ **Schedule slot_time fix** — PostgreSQL `TIME` columns return `HH:MM:SS`; normalised to `HH:MM` on load and save to match API validation regex
 - ✅ **Docs + Help pages** wired into AppShell nav and main.jsx routes
+- ✅ **Doors close time** — `venue_schedule_templates.doors_close_time` column (migration 011); "Last order time" label on sitting closes_at; "Doors close" time picker per day in Schedule; widget slot filtering enforced in `GET /slots` for unauthenticated callers
+- ✅ **Widget booking hours rule** — `allow_widget_bookings_after_doors_close` on `booking_rules`; "Opening hours enforcement" section in Rules page
+- ✅ **Stripe webhook booking fix** — `combination_id` and `guest_notes` now copied from hold into booking INSERT in `handlePaymentSucceeded` (payments.js)
 
 ---
 
@@ -193,11 +196,6 @@ No tests exist yet. Recommended approach:
 - API: Vitest + supertest for route integration tests
 - DB: Use a test database with migrations applied, reset between test runs
 - Priority test targets: `confirm_hold()` race condition, slot resolver output, booking flow end-to-end
-
-**4. confirm_hold() PG function — combination_id**
-The `confirm_hold()` PG function (Stripe webhook path) does not yet copy `combination_id`
-from the hold into the booking INSERT. The free-booking path (POST /bookings) is fixed.
-Fix the function in `006_functions.sql` and redeploy.
 
 ---
 
@@ -226,6 +224,7 @@ Key vars to set before running:
 - **pg_cron is a fallback** — the primary hold release is the explicit `DELETE /holds/:id` call. Don't rely on the sweep as the main path.
 - **`slot_time` from DB is `HH:MM:SS`** — PostgreSQL `TIME` columns serialise to `HH:MM:SS` in JSON, but the API validation regex expects `HH:MM`. Always call `.slice(0, 5)` on slot_time values before using them as keys or sending them back to the API.
 - **`combination_id` must be copied from hold to booking** — `POST /bookings` (free-booking path) copies it; `confirm_hold()` PG function does not yet — see Outstanding items. Never assume the booking record has `combination_id` set just because the hold had it (on the Stripe webhook path).
+- **`guest_notes` was silently dropped on paid bookings** — now fixed. The Stripe webhook INSERT previously omitted both `combination_id` and `guest_notes`. Both are now copied from the hold record.
 - **`/relocate` throws 422 when no combo exists for expanded table set** — step 4 no longer auto-creates combinations. If adjacency expansion finds T8+T9+T10 but no pre-configured combination exists for those tables, the endpoint returns 422 and the drag snaps back. Operators must create the combination in the Tables page first.
 
 ---
@@ -239,8 +238,8 @@ Key vars to set before running:
 cd api
 cp .env.example .env   # fill in values
 psql $DATABASE_URL -f ../migrations/001_tenants_users.sql
-# ... run 002-009 in order
-psql $DATABASE_URL -f ../migrations/010_allocation_rules.sql
+# ... run 002-010 in order
+psql $DATABASE_URL -f ../migrations/011_doors_close_time.sql
 npm install
 npm run dev            # starts on :3000 with --watch
 

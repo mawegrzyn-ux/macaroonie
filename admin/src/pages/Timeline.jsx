@@ -411,7 +411,11 @@ export default function Timeline() {
     const x        = e.clientX - rect.left
     // Convert pixel offset → minutes since START_HOUR, snapped to 15 min
     const rawMins  = (x / HOUR_WIDTH) * 60 + START_HOUR * 60
-    const snapped  = Math.round(rawMins / 15) * 15
+    // Clamp to valid timeline range so clicks at the edge never produce 24:xx or 28:xx
+    const snapped  = Math.min(
+      (END_HOUR * 60) - 15,          // latest valid slot: 23:45
+      Math.max(START_HOUR * 60, Math.round(rawMins / 15) * 15)
+    )
     const h        = Math.floor(snapped / 60)
     const m        = snapped % 60
     const timeStr  = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
@@ -676,10 +680,13 @@ export default function Timeline() {
           prefillTime={newBookingPrefill?.time ?? null}
           prefillTableId={newBookingPrefill?.tableId ?? null}
           onClose={() => { setShowNew(false); setNewBookingPrefill(null) }}
-          onCreated={() => {
+          onCreated={(createdDate) => {
             setShowNew(false)
             setNewBookingPrefill(null)
-            queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
+            // Navigate the timeline to whatever date the booking was made on
+            // (may differ from current date if the operator changed it in the modal)
+            setDate(createdDate)
+            queryClient.invalidateQueries({ queryKey: ['bookings', venueId, createdDate] })
           }}
         />
       )}

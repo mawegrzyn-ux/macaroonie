@@ -277,6 +277,25 @@ export default function Help() {
               The caps editor will re-generate slots from the new times immediately.
             </P>
 
+            <H3>Last order time and Doors close</H3>
+            <P>
+              Each sitting has a <strong>Last order</strong> time — this is the latest slot that will be
+              offered to guests. No new booking slots are generated after this time within the sitting.
+              You can set or change it by clicking the pencil icon on the sitting row.
+            </P>
+            <P>
+              Each day also has a <strong>Doors close</strong> time, set via the time picker that appears
+              in the day header when the day is toggled open (next to the Interval field). This represents
+              when the venue physically closes. By default, the booking widget will <strong>hide all slots
+              at or after the Doors close time</strong> — guests will not see those slots, even if they
+              are technically available in the schedule.
+            </P>
+            <InfoBox type="info">
+              The Doors close time affects the widget only. Slots at or after that time remain fully
+              visible and bookable from the admin Timeline. Use it to stop online bookings running into
+              your closing time without having to adjust your sitting end times.
+            </InfoBox>
+
             <H3>Slot cap overrides</H3>
             <P>
               Below each sitting you can set a cover cap for a specific time slot — for example, limit
@@ -383,6 +402,24 @@ export default function Help() {
               Disallowed pairs apply only to the smart-allocation engine (drag-to-table on the Timeline).
               An operator can still manually assign any table combination via the booking drawer Override.
             </InfoBox>
+
+            <H3>Opening hours enforcement</H3>
+            <P>
+              Found in the <strong>Rules</strong> page under its own section heading.
+            </P>
+            <div className="space-y-3 mb-4">
+              {[
+                {
+                  label: 'Allow widget bookings past doors-close time',
+                  desc: 'When off (default), the booking widget hides all slots at or after the Doors close time set on each day in the Schedule. Admin-created bookings from the Timeline always bypass this restriction. Turn it on if you want guests to be able to book late slots that run past physical closing — for example, a late-night sitting that ends after the bar closes.',
+                },
+              ].map(({ label, desc }) => (
+                <div key={label} className="border rounded-lg p-3">
+                  <p className="text-sm font-semibold mb-1">{label}</p>
+                  <p className="text-sm text-muted-foreground">{desc}</p>
+                </div>
+              ))}
+            </div>
           </section>
 
           {/* ── DEPOSITS ──────────────────────────────────── */}
@@ -777,6 +814,14 @@ export default function Help() {
                 {
                   q: 'I want to prevent certain tables from being combined by the smart-allocation engine.',
                   a: 'Go to Tables → scroll to Disallowed pairs → select the two tables and click Add. The engine will never combine that pair, regardless of party size or adjacency. Note: this only restricts the engine — operators can still manually assign any table combination via the booking drawer Override.',
+                },
+                {
+                  q: 'Guests can\'t see late slots in the widget but they appear in the admin timeline.',
+                  a: 'Check the Doors close time on that day in the Schedule page. If it\'s set, the widget hides slots at or after that time. Either remove the Doors close time, move it later, or enable \'Allow widget bookings past doors-close time\' in Rules → Opening hours enforcement.',
+                },
+                {
+                  q: 'A paid booking via the widget didn\'t show the guest\'s notes / appeared as single table instead of combination.',
+                  a: 'This was a bug in the Stripe webhook — fixed. The webhook now correctly copies both combination_id and guest_notes from the hold into the booking. If you have affected historical bookings, you\'ll need to manually update them via the drawer.',
                 },
               ].map(({ q, a }) => (
                 <div key={q} className="border rounded-lg p-4">

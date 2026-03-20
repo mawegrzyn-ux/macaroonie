@@ -59,9 +59,10 @@ export default async function slotsRoutes(app) {
           (
             SELECT t.id
               FROM tables t
-             WHERE t.venue_id  = ${venue.id}
-               AND t.tenant_id = ${venue.tenant_id}
-               AND t.is_active = true
+             WHERE t.venue_id       = ${venue.id}
+               AND t.tenant_id      = ${venue.tenant_id}
+               AND t.is_active      = true
+               AND t.is_unallocated = false
                AND t.max_covers >= ${covers}
                AND t.min_covers <= ${covers}
                -- No direct booking on this table
