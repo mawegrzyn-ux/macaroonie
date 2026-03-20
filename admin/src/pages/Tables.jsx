@@ -634,18 +634,38 @@ export default function Tables() {
                 onDragEnd={handleDragEnd}
               >
                 <div className="grid gap-1.5">
-                  {orderedTables.map(table => (
-                    <SortableRow
-                      key={table.id}
-                      table={table}
-                      sections={sections}
-                      venueId={venueId}
-                      editingTable={editingTable}
-                      setEditingTable={setEditingTable}
-                      onDelete={softDeleteMutation.mutate}
-                      isDragActive={!!activeId}
-                    />
-                  ))}
+                  {orderedTables.reduce((acc, table, idx) => {
+                    // Insert a section sub-header whenever the section changes
+                    const prev = orderedTables[idx - 1]
+                    const sectionChanged = prev?.section_id !== table.section_id
+                    if (sectionChanged && table.section_name) {
+                      acc.push(
+                        <div
+                          key={`sec-hdr-${table.section_id}-${idx}`}
+                          className={cn(
+                            'flex items-center gap-1.5 text-xs font-semibold text-muted-foreground',
+                            idx > 0 ? 'mt-3' : 'mt-0',
+                          )}
+                        >
+                          <Layers className="w-3 h-3" />
+                          {table.section_name}
+                        </div>
+                      )
+                    }
+                    acc.push(
+                      <SortableRow
+                        key={table.id}
+                        table={table}
+                        sections={sections}
+                        venueId={venueId}
+                        editingTable={editingTable}
+                        setEditingTable={setEditingTable}
+                        onDelete={softDeleteMutation.mutate}
+                        isDragActive={!!activeId}
+                      />
+                    )
+                    return acc
+                  }, [])}
                 </div>
 
                 {/* Ghost card while dragging */}
