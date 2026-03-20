@@ -2,7 +2,7 @@
 // Admin creates a booking on behalf of a guest.
 // Flow: pick table + slot → fill guest details → confirm (bypasses payment for admin)
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -31,10 +31,15 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
   function selectTable(id) { setTableId(id); setComboId(null) }
   function selectCombo(id)  { setComboId(id); setTableId(null) }
 
-  const { register, handleSubmit, formState: { errors } } = useForm({
+  const { register, handleSubmit, reset, formState: { errors } } = useForm({
     resolver: zodResolver(GuestSchema),
-    defaultValues: { covers: 2 },
+    defaultValues: { covers },
   })
+
+  // Sync covers into guest form whenever step changes to 'guest'
+  useEffect(() => {
+    if (step === 'guest') reset(v => ({ ...v, covers }))
+  }, [step])
 
   // Fetch tables + combinations
   const { data: tables = [] } = useQuery({
@@ -78,11 +83,15 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
   })
 
   function handleSlotConfirm() {
-    if ((!tableId && !combinationId) || !selectedSlot) return
+    if (!selectedSlot) return
+    // Use the table/combination the slot resolver already assigned
+    const assignedTableId = selectedSlot.table_id ?? null
+    const assignedComboId = selectedSlot.combination_id ?? null
+    if (!assignedTableId && !assignedComboId) return
     holdMutation.mutate({
       venue_id:       venueId,
-      ...(tableId       ? { table_id: tableId }           : {}),
-      ...(combinationId ? { combination_id: combinationId } : {}),
+      ...(assignedTableId ? { table_id: assignedTableId }           : {}),
+      ...(assignedComboId ? { combination_id: assignedComboId }     : {}),
       starts_at:   selectedSlot.slot_time,
       covers,
       guest_name:  'TBC',
@@ -149,44 +158,7 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
                   </div>
                 </div>
 
-                {/* Table / Combination */}
-                <div>
-                  <label className="text-sm font-medium block mb-1.5">Table</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {tables.filter(t => t.is_active && t.max_covers >= covers).map(t => (
-                      <button
-                        key={t.id}
-                        onClick={() => selectTable(t.id)}
-                        className={cn(
-                          'text-sm p-2 rounded-lg border text-left transition-colors',
-                          tableId === t.id
-                            ? 'bg-primary/10 border-primary text-primary'
-                            : 'hover:bg-accent'
-                        )}
-                      >
-                        <p className="font-medium">{t.label}</p>
-                        <p className="text-xs text-muted-foreground">{t.min_covers}–{t.max_covers}</p>
-                      </button>
-                    ))}
-                    {combinations.filter(c => c.is_active && c.max_covers >= covers).map(c => (
-                      <button
-                        key={c.id}
-                        onClick={() => selectCombo(c.id)}
-                        className={cn(
-                          'text-sm p-2 rounded-lg border text-left transition-colors',
-                          combinationId === c.id
-                            ? 'bg-primary/10 border-primary text-primary'
-                            : 'hover:bg-accent'
-                        )}
-                      >
-                        <p className="font-medium">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">{c.min_covers}–{c.max_covers} · combo</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Slots */}
+                {/* Slots — table is auto-assigned by the slot resolver */}
                 <div>
                   <label className="text-sm font-medium block mb-1.5">Time slot</label>
                   {loadingSlots ? (
@@ -195,21 +167,38 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
                     <p className="text-sm text-muted-foreground">No available slots for {covers} covers on this date.</p>
                   ) : (
                     <div className="grid grid-cols-4 gap-1.5">
-                      {availableSlots.map(slot => (
-                        <button
-                          key={slot.slot_time}
-                          onClick={() => setSlot(slot)}
-                          className={cn(
-                            'text-sm py-2 rounded-lg border text-center font-medium transition-colors',
-                            selectedSlot?.slot_time === slot.slot_time
-                              ? 'bg-primary text-primary-foreground border-primary'
-                              : 'hover:bg-accent'
-                          )}
-                        >
-                          {formatTime(slot.slot_time)}
-                        </button>
-                      ))}
+                      {availableSlots.map(slot => {
+                        const label = slot.combination_id
+                          ? (combinations.find(c => c.id === slot.combination_id)?.name ?? 'combo')
+                          : (tables.find(t => t.id === slot.table_id)?.label ?? '')
+                        return (
+                          <button
+                            key={slot.slot_time}
+                            onClick={() => setSlot(slot)}
+                            title={label ? `Table: ${label}` : undefined}
+                            className={cn(
+                              'text-sm py-2 px-1 rounded-lg border text-center transition-colors',
+                              selectedSlot?.slot_time === slot.slot_time
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'hover:bg-accent'
+                            )}
+                          >
+                            <p className="font-medium">{formatTime(slot.slot_time)}</p>
+                            {label && <p className="text-[10px] opacity-70 leading-tight">{label}</p>}
+                          </button>
+                        )
+                      })}
                     </div>
+                  )}
+                  {selectedSlot && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Table:{' '}
+                      <span className="font-medium text-foreground">
+                        {selectedSlot.combination_id
+                          ? (combinations.find(c => c.id === selectedSlot.combination_id)?.name ?? 'combo')
+                          : (tables.find(t => t.id === selectedSlot.table_id)?.label ?? '—')}
+                      </span>
+                    </p>
                   )}
                 </div>
               </div>
@@ -246,7 +235,7 @@ export default function NewBookingModal({ venueId, date, onClose, onCreated }) {
             {step === 'slot' && (
               <button
                 onClick={handleSlotConfirm}
-                disabled={(!tableId && !combinationId) || !selectedSlot || holdMutation.isPending}
+                disabled={!selectedSlot || (!selectedSlot?.table_id && !selectedSlot?.combination_id) || holdMutation.isPending}
                 className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40"
               >
                 {holdMutation.isPending ? 'Holding…' : 'Continue'}
