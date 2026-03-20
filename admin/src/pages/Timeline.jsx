@@ -73,6 +73,9 @@ function BookingCard({ booking, onClick, isDragging }) {
     >
       <p className="text-xs font-semibold truncate leading-tight mt-0.5">
         {booking.guest_name}
+        {booking.combination_name && (
+          <span className="font-normal text-[10px] opacity-60 ml-1">({booking.combination_name})</span>
+        )}
       </p>
       <p className="text-xs text-gray-600 truncate">
         {booking.covers} covers · {formatTime(booking.starts_at)}
@@ -229,11 +232,17 @@ export default function Timeline() {
   }
 
   // ── Group bookings by table ────────────────────────────────
+  // Combination bookings appear on ALL member table rows (not just the primary)
   const bookingsByTable = useMemo(() => {
     const map = {}
     for (const b of bookingsRes) {
-      if (!map[b.table_id]) map[b.table_id] = []
-      map[b.table_id].push(b)
+      const tableIds = Array.isArray(b.member_table_ids) && b.member_table_ids.length > 0
+        ? b.member_table_ids
+        : [b.table_id]
+      for (const tid of tableIds) {
+        if (!map[tid]) map[tid] = []
+        map[tid].push(b)
+      }
     }
     return map
   }, [bookingsRes])

@@ -230,12 +230,22 @@ export default async function bookingsRoutes(app) {
         v.timezone   AS venue_timezone,
         p.id         AS payment_id,
         p.amount     AS payment_amount,
-        p.status     AS payment_status
+        p.status     AS payment_status,
+        -- All member table IDs for combination bookings (for timeline row expansion)
+        CASE WHEN b.combination_id IS NOT NULL THEN (
+          SELECT json_agg(m.table_id ORDER BY t2.sort_order, t2.label)
+            FROM table_combination_members m
+            JOIN tables t2 ON t2.id = m.table_id
+           WHERE m.combination_id = b.combination_id
+        ) END AS member_table_ids,
+        -- Combination name for display
+        tc.name      AS combination_name
       FROM bookings b
       JOIN tables t         ON t.id = b.table_id
       JOIN venues v         ON v.id = b.venue_id
-      LEFT JOIN venue_sections s ON s.id = t.section_id
-      LEFT JOIN payments p  ON p.booking_id = b.id
+      LEFT JOIN venue_sections s        ON s.id = t.section_id
+      LEFT JOIN payments p              ON p.booking_id = b.id
+      LEFT JOIN table_combinations tc   ON tc.id = b.combination_id
      WHERE b.tenant_id = ${req.tenantId}
        AND (${q.venue_id ?? null}::uuid IS NULL OR b.venue_id = ${q.venue_id ?? null}::uuid)
        AND (${q.date ?? null}::date    IS NULL OR b.starts_at::date = ${q.date ?? null}::date)
