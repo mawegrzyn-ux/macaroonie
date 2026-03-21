@@ -15,39 +15,34 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   X, Mail, Phone, Users, Clock, CreditCard,
-  Pencil, AlertTriangle, Calendar,
+  Pencil, AlertTriangle, Calendar, ChevronDown,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
-// Transitions from each status.
-// unconfirmed is always listed — if a booking has that status, you must be
-// able to resolve it even if the rule is later turned off.
-const NEXT_STATUSES = {
-  unconfirmed:     ['confirmed', 'cancelled'],
-  confirmed:       ['completed', 'no_show', 'cancelled'],
-  pending_payment: ['confirmed', 'cancelled'],
-  completed:       [],
-  no_show:         [],
-  cancelled:       [],
-}
+// All statuses an operator can manually set.
+// pending_payment is excluded — it is set by Stripe, not manually.
+const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'completed', 'no_show', 'cancelled']
 
-// Colour classes for each next-status button
-const STATUS_BTN_COLOURS = {
-  confirmed:  'border-blue-400   text-blue-700   hover:bg-blue-50',
-  completed:  'border-green-500  text-green-700  hover:bg-green-50',
-  no_show:    'border-gray-400   text-gray-600   hover:bg-gray-50',
-  cancelled:  'border-red-400    text-destructive hover:bg-destructive/10',
+// Coloured dot for each status in the dropdown list
+const STATUS_DOT = {
+  unconfirmed:     'bg-amber-500',
+  confirmed:       'bg-blue-500',
+  pending_payment: 'bg-yellow-500',
+  cancelled:       'bg-red-500',
+  no_show:         'bg-gray-400',
+  completed:       'bg-green-500',
 }
 
 export default function BookingDrawer({ booking, onClose, onUpdated }) {
   const api = useApi()
 
   // ── Edit mode flags ───────────────────────────────────────
-  const [editingNotes,    setEditingNotes]    = useState(false)
-  const [editingGuest,    setEditingGuest]    = useState(false)
-  const [showTablePicker, setShowTablePicker] = useState(false)
-  const [showReschedule,  setShowReschedule]  = useState(false)
+  const [editingNotes,      setEditingNotes]      = useState(false)
+  const [editingGuest,      setEditingGuest]      = useState(false)
+  const [showTablePicker,   setShowTablePicker]   = useState(false)
+  const [showReschedule,    setShowReschedule]    = useState(false)
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false)
 
   // ── Operator notes ────────────────────────────────────────
   const [notes, setNotes] = useState(booking.operator_notes ?? '')
@@ -206,8 +201,6 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
     return null
   })()
 
-  const nextStatuses = NEXT_STATUSES[booking.status] ?? []
-
   return (
     <>
       {/* Backdrop */}
@@ -241,12 +234,47 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
 
-          {/* Status badge */}
-          <div>
-            <span className={cn('inline-flex px-3 py-1 rounded-full text-xs font-semibold',
-              STATUS_COLOURS[booking.status])}>
-              {STATUS_LABELS[booking.status]}
-            </span>
+          {/* Status dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowStatusDropdown(v => !v)}
+              disabled={statusMutation.isPending}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold touch-manipulation transition-opacity disabled:opacity-50',
+                STATUS_COLOURS[booking.status],
+              )}
+            >
+              {statusMutation.isPending ? 'Updating…' : STATUS_LABELS[booking.status]}
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+
+            {showStatusDropdown && (
+              <>
+                {/* Backdrop */}
+                <div className="fixed inset-0 z-10" onClick={() => setShowStatusDropdown(false)} />
+                <div className="absolute left-0 top-full mt-1 w-52 bg-background rounded-xl border shadow-lg z-20 overflow-hidden py-1">
+                  {SELECTABLE_STATUSES
+                    .filter(s => s !== booking.status)
+                    .map(s => (
+                      <button
+                        key={s}
+                        onClick={() => { statusMutation.mutate(s); setShowStatusDropdown(false) }}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-sm font-medium text-left hover:bg-muted transition-colors touch-manipulation"
+                      >
+                        <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', STATUS_DOT[s])} />
+                        {STATUS_LABELS[s]}
+                      </button>
+                    ))
+                  }
+                </div>
+              </>
+            )}
+
+            {statusMutation.isError && (
+              <p className="text-xs text-destructive mt-1">
+                {statusMutation.error?.message ?? 'Failed to update status'}
+              </p>
+            )}
           </div>
 
           {/* ── Date & time + reschedule ─────────────────── */}
@@ -490,34 +518,6 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
 
         </div>
 
-        {/* ── Footer: status change buttons ──────────────── */}
-        {nextStatuses.length > 0 && (
-          <div className="p-4 border-t shrink-0">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-              Change status
-            </p>
-            <div className="flex gap-2">
-              {nextStatuses.map(s => (
-                <button
-                  key={s}
-                  onClick={() => statusMutation.mutate(s)}
-                  disabled={statusMutation.isPending}
-                  className={cn(
-                    'flex-1 py-3 text-sm rounded-xl border-2 font-medium transition-colors disabled:opacity-50',
-                    STATUS_BTN_COLOURS[s] ?? 'border-gray-300 text-gray-700 hover:bg-gray-50',
-                  )}
-                >
-                  {STATUS_LABELS[s]}
-                </button>
-              ))}
-            </div>
-            {statusMutation.isError && (
-              <p className="text-xs text-destructive mt-2">
-                {statusMutation.error?.message ?? 'Failed to update status'}
-              </p>
-            )}
-          </div>
-        )}
       </div>
     </>
   )
