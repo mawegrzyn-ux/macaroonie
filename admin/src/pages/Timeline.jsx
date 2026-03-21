@@ -362,8 +362,10 @@ export default function Timeline() {
     for (let i = 0; i < slots.length; i++) {
       const x = timeToX(slots[i].slot_time)
 
-      // 2. Unavailable (full/capped) slot
-      if (!slots[i].available) strips.push({ x, width: intervalPx })
+      // 2. Explicit cap=0 slot only — fully-booked slots stay white
+      //    reason='unavailable' = operator set cap to 0 for this interval
+      //    reason='full'        = just booked up, not structurally closed
+      if (slots[i].reason === 'unavailable') strips.push({ x, width: intervalPx })
 
       // 3. Gap to next slot — if significantly wider than the slot interval
       //    it's a between-sittings gap, not just consecutive slots
