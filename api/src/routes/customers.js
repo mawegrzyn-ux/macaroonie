@@ -84,6 +84,7 @@ export default async function customersRoutes(app) {
   // ── POST /customers/import ─────────────────────────────────
   // Bulk create/update customers from a CSV upload.
   // Each row: upsert by email (if provided); skip walk-in/TBC emails.
+  // Processed in batches of 500 to avoid one giant transaction.
   // Returns { created, updated, skipped, errors[] }.
   app.post('/import', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req, reply) => {
     const body = z.object({
@@ -93,59 +94,65 @@ export default async function customersRoutes(app) {
         phone:       z.string().max(30).nullable().optional(),
         notes:       z.string().max(2000).nullable().optional(),
         visit_count: z.number().int().min(0).optional(),
-      })).min(1).max(1000),
+      })).min(1).max(50_000),
     }).parse(req.body)
 
-    const SKIP = new Set(['walkin@walkin.com', 'tbc@placeholder.com'])
+    const SKIP       = new Set(['walkin@walkin.com', 'tbc@placeholder.com'])
+    const BATCH_SIZE = 500
     let created = 0, updated = 0, skipped = 0
     const errors = []
 
-    await withTenant(req.tenantId, async tx => {
-      for (const c of body.customers) {
-        try {
-          if (c.email && SKIP.has(c.email.toLowerCase())) { skipped++; continue }
+    // Process in chunks so no single DB transaction handles the full file
+    for (let i = 0; i < body.customers.length; i += BATCH_SIZE) {
+      const batch = body.customers.slice(i, i + BATCH_SIZE)
 
-          const visits = c.visit_count ?? 0
+      await withTenant(req.tenantId, async tx => {
+        for (const c of batch) {
+          try {
+            if (c.email && SKIP.has(c.email.toLowerCase())) { skipped++; continue }
 
-          if (c.email) {
-            // Upsert by email
-            const [existing] = await tx`
-              SELECT id FROM customers
-               WHERE tenant_id    = ${req.tenantId}
-                 AND lower(email) = lower(${c.email})
-                 AND is_anonymised = false
-            `
-            if (existing) {
-              await tx`
-                UPDATE customers
-                   SET name        = ${c.name},
-                       phone       = COALESCE(${c.phone ?? null}, phone),
-                       notes       = COALESCE(${c.notes ?? null}, notes),
-                       visit_count = GREATEST(visit_count, ${visits}),
-                       updated_at  = now()
-                 WHERE id = ${existing.id}
+            const visits = c.visit_count ?? 0
+
+            if (c.email) {
+              // Upsert by email
+              const [existing] = await tx`
+                SELECT id FROM customers
+                 WHERE tenant_id    = ${req.tenantId}
+                   AND lower(email) = lower(${c.email})
+                   AND is_anonymised = false
               `
-              updated++
+              if (existing) {
+                await tx`
+                  UPDATE customers
+                     SET name        = ${c.name},
+                         phone       = COALESCE(${c.phone ?? null}, phone),
+                         notes       = COALESCE(${c.notes ?? null}, notes),
+                         visit_count = GREATEST(visit_count, ${visits}),
+                         updated_at  = now()
+                   WHERE id = ${existing.id}
+                `
+                updated++
+              } else {
+                await tx`
+                  INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
+                  VALUES (${req.tenantId}, ${c.name}, ${c.email}, ${c.phone ?? null}, ${c.notes ?? null}, ${visits})
+                `
+                created++
+              }
             } else {
+              // No email — always insert (can't deduplicate)
               await tx`
                 INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
-                VALUES (${req.tenantId}, ${c.name}, ${c.email}, ${c.phone ?? null}, ${c.notes ?? null}, ${visits})
+                VALUES (${req.tenantId}, ${c.name}, null, ${c.phone ?? null}, ${c.notes ?? null}, ${visits})
               `
               created++
             }
-          } else {
-            // No email — always insert (can't deduplicate)
-            await tx`
-              INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
-              VALUES (${req.tenantId}, ${c.name}, null, ${c.phone ?? null}, ${c.notes ?? null}, ${visits})
-            `
-            created++
+          } catch (e) {
+            errors.push({ name: c.name, error: e.message })
           }
-        } catch (e) {
-          errors.push({ name: c.name, error: e.message })
         }
-      }
-    })
+      })
+    }
 
     return reply.send({ created, updated, skipped, errors })
   })

@@ -19,25 +19,44 @@ import { useApi } from '@/lib/api'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
 // ── CSV parser ────────────────────────────────────────────────
-// Accepts: name,email,phone,notes,visits  (optional header row, optional fields)
+// Supports two column orderings (auto-detected from header):
+//   Standard:  name, email, phone, notes, visits
+//   Phone-first: name, phone, email, notes, visits  (e.g. CRM exports)
+//
+// Header row is detected case-insensitively and skipped automatically.
+// A header is any first row whose first cell contains "name" (not a real name).
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   if (!lines.length) return []
 
-  // Detect and skip a header row
-  const first = lines[0].toLowerCase()
-  const hasHeader = first.startsWith('name') || first.startsWith('"name')
+  const clean = (s) => (s ?? '').trim().replace(/^"|"$/g, '').trim()
+
+  function splitLine(line) {
+    return line.match(/(".*?"|[^,]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g) ?? []
+  }
+
+  // Detect header row — first cell contains "name" (case-insensitive)
+  const firstCells = splitLine(lines[0]).map(c => clean(c).toLowerCase())
+  const hasHeader  = firstCells[0]?.includes('name') ?? false
+
+  // Detect column order from header names if present, otherwise assume standard
+  // phone-first: col[1] looks like "phone" and col[2] looks like "email"
+  let phoneFirst = false
+  if (hasHeader) {
+    phoneFirst = firstCells[1]?.includes('phone') && firstCells[2]?.includes('email')
+  }
+
   const dataLines = hasHeader ? lines.slice(1) : lines
 
   return dataLines.map(line => {
-    // Naive CSV split — handles simple quoted fields
-    const parts = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g) ?? []
-    const clean  = (s) => (s ?? '').trim().replace(/^"|"$/g, '').trim()
+    const parts  = splitLine(line)
     const visits = parseInt(clean(parts[4]), 10)
+    const col1   = clean(parts[1]) || null
+    const col2   = clean(parts[2]) || null
     return {
       name:        clean(parts[0]),
-      email:       clean(parts[1]) || null,
-      phone:       clean(parts[2]) || null,
+      email:       phoneFirst ? col2 : col1,
+      phone:       phoneFirst ? col1 : col2,
       notes:       clean(parts[3]) || null,
       visit_count: isNaN(visits) ? 0 : Math.max(0, visits),
     }
@@ -708,17 +727,18 @@ function ImportModal({ api, onClose, onImported }) {
                 <p className="text-sm text-muted-foreground">
                   Upload a CSV file with customer data. One row per customer.
                 </p>
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs font-semibold mb-1">Expected column order:</p>
-                  <code className="text-xs text-primary">name, email, phone, notes, visits</code>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Only <strong>name</strong> is required. A header row is detected and skipped automatically.
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
+                  <p className="text-xs font-semibold">Column order (auto-detected from header):</p>
+                  <div className="space-y-0.5">
+                    <p className="text-xs"><code className="text-primary">name, email, phone, notes, visits</code> <span className="text-muted-foreground">— standard</span></p>
+                    <p className="text-xs"><code className="text-primary">name, phone, email, notes, visits</code> <span className="text-muted-foreground">— phone-first (CRM exports)</span></p>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Only <strong>name</strong> is required. Header row detected and skipped automatically (case-insensitive). Up to <strong>50,000 rows</strong> per import.
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    <strong>visits</strong> — integer; sets the historical visit count. On update, the higher of the existing or imported value is kept.
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Existing customers are matched by email and updated. New emails create new records.
+                  <p className="text-xs text-muted-foreground">
+                    <strong>visits</strong> — integer; sets historical visit count. On update, the higher value is kept.
+                    Existing customers matched by email.
                   </p>
                 </div>
 
