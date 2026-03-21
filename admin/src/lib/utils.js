@@ -22,6 +22,7 @@ export function formatDateTime(iso) {
 export const STATUS_LABELS = {
   unconfirmed:     'Not confirmed',
   confirmed:       'Confirmed',
+  reconfirmed:     'Re-confirmed',
   pending_payment: 'Pending payment',
   cancelled:       'Cancelled',
   no_show:         'No show',
@@ -31,6 +32,7 @@ export const STATUS_LABELS = {
 export const STATUS_COLOURS = {
   unconfirmed:     'bg-amber-100 text-amber-800',
   confirmed:       'bg-blue-100 text-blue-800',
+  reconfirmed:     'bg-indigo-100 text-indigo-800',
   pending_payment: 'bg-yellow-100 text-yellow-800',
   cancelled:       'bg-red-100 text-red-800',
   no_show:         'bg-gray-100 text-gray-700',

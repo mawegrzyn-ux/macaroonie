@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, AlertTriangle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, AlertTriangle, EyeOff, Eye, PanelRight } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -314,6 +314,8 @@ export default function Timeline() {
   const [isFullscreen,   setIsFullscreen]   = useState(false)
   const [relocateError,  setRelocateError]  = useState(null)   // message | null
   const [newBookingPrefill, setNewBookingPrefill] = useState(null) // { time, tableId } | null
+  const [hideInactive,   setHideInactive]   = useState(false)  // hide cancelled + no_show cards
+  const [panelMode,      setPanelMode]      = useState(false)  // drawer as side panel (no backdrop)
 
   // ── Data fetching ────────────────────────────────────────
   const { data: venues = [] } = useQuery({
@@ -599,8 +601,10 @@ export default function Timeline() {
   // ── Group bookings by table ────────────────────────────────
   // Combination bookings appear on ALL member table rows (not just the primary)
   const bookingsByTable = useMemo(() => {
+    const INACTIVE = new Set(['cancelled', 'no_show'])
+    const source = hideInactive ? bookingsRes.filter(b => !INACTIVE.has(b.status)) : bookingsRes
     const map = {}
-    for (const b of bookingsRes) {
+    for (const b of source) {
       const tableIds = Array.isArray(b.member_table_ids) && b.member_table_ids.length > 0
         ? b.member_table_ids
         : [b.table_id]
@@ -610,7 +614,7 @@ export default function Timeline() {
       }
     }
     return map
-  }, [bookingsRes])
+  }, [bookingsRes, hideInactive])
 
   // ── Group tables by section ────────────────────────────────
   // NOTE: must be computed BEFORE comboSpanMap (which depends on sections)
@@ -712,6 +716,33 @@ export default function Timeline() {
           >
             {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
+
+          {/* Hide cancelled / no-show toggle */}
+          <button
+            onClick={() => setHideInactive(v => !v)}
+            title={hideInactive ? 'Show cancelled & no-show' : 'Hide cancelled & no-show'}
+            className={cn(
+              'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium border touch-manipulation transition-colors',
+              hideInactive
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'text-muted-foreground border-border hover:bg-accent',
+            )}
+          >
+            {hideInactive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">Cancelled &amp; no-show</span>
+          </button>
+
+          {/* Side panel mode toggle */}
+          <button
+            onClick={() => setPanelMode(v => !v)}
+            title={panelMode ? 'Drawer overlay mode' : 'Side panel mode'}
+            className={cn(
+              'p-1.5 rounded hover:bg-accent touch-manipulation transition-colors',
+              panelMode ? 'text-primary bg-primary/10' : 'text-muted-foreground',
+            )}
+          >
+            <PanelRight className="w-4 h-4" />
+          </button>
 
           <button onClick={() => refetch()}
             className="p-1.5 rounded hover:bg-accent text-muted-foreground">
@@ -847,6 +878,7 @@ export default function Timeline() {
           booking={selected}
           onClose={() => setSelected(null)}
           onUpdated={() => queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
+          panelMode={panelMode}
         />
       )}
 

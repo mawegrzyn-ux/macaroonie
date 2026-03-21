@@ -555,7 +555,9 @@ export default function Help() {
             <H3>Booking tile colours</H3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-6">
               {[
+                ['Not confirmed', '#ffedd5', '#f97316'],
                 ['Confirmed', '#dbeafe', '#3b82f6'],
+                ['Re-confirmed', '#e0e7ff', '#6366f1'],
                 ['Pending payment', '#fef9c3', '#eab308'],
                 ['Completed', '#dcfce7', '#22c55e'],
                 ['Cancelled', '#fee2e2', '#ef4444'],

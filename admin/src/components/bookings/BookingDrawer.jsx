@@ -22,19 +22,20 @@ import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
 // All statuses an operator can manually set.
 // pending_payment is excluded — it is set by Stripe, not manually.
-const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'completed', 'no_show', 'cancelled']
+const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'completed', 'no_show', 'cancelled']
 
 // Coloured dot for each status in the dropdown list
 const STATUS_DOT = {
   unconfirmed:     'bg-amber-500',
   confirmed:       'bg-blue-500',
+  reconfirmed:     'bg-indigo-500',
   pending_payment: 'bg-yellow-500',
   cancelled:       'bg-red-500',
   no_show:         'bg-gray-400',
   completed:       'bg-green-500',
 }
 
-export default function BookingDrawer({ booking, onClose, onUpdated }) {
+export default function BookingDrawer({ booking, onClose, onUpdated, panelMode = false }) {
   const api = useApi()
 
   // ── Edit mode flags ───────────────────────────────────────
@@ -203,11 +204,17 @@ export default function BookingDrawer({ booking, onClose, onUpdated }) {
 
   return (
     <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
+      {/* Backdrop — only in overlay mode */}
+      {!panelMode && (
+        <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
+      )}
 
-      {/* Drawer — full-width on mobile, fixed 420px on sm+ */}
-      <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[420px] bg-background border-l shadow-xl z-50 flex flex-col overflow-hidden">
+      {/* Drawer — overlay mode: fixed right panel with shadow
+               panel mode:   fixed right panel, no backdrop, no shadow */}
+      <div className={cn(
+        'fixed right-0 top-0 bottom-0 w-full sm:w-[420px] bg-background border-l flex flex-col overflow-hidden',
+        panelMode ? 'z-30' : 'z-50 shadow-xl',
+      )}>
 
         {/* ── Header ─────────────────────────────────────── */}
         <div className="flex items-center justify-between px-4 h-14 border-b shrink-0">

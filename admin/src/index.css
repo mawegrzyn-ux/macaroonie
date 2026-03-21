@@ -50,7 +50,9 @@
 .timeline-slot:hover      { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
 .timeline-slot.dragging   { opacity: 0.7; cursor: grabbing; box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
 
+.timeline-slot.unconfirmed    { background: #ffedd5; border-left: 3px solid #f97316; }
 .timeline-slot.confirmed      { background: #dbeafe; border-left: 3px solid #3b82f6; }
+.timeline-slot.reconfirmed    { background: #e0e7ff; border-left: 3px solid #6366f1; }
 .timeline-slot.pending_payment{ background: #fef9c3; border-left: 3px solid #eab308; }
 .timeline-slot.cancelled      { background: #fee2e2; border-left: 3px solid #ef4444; opacity: 0.5; }
 .timeline-slot.no_show        { background: #f3f4f6; border-left: 3px solid #9ca3af; }
