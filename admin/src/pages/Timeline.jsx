@@ -891,6 +891,7 @@ export default function Timeline() {
           date={date}
           prefillTime={newBookingPrefill?.time ?? null}
           prefillTableId={newBookingPrefill?.tableId ?? null}
+          openManual={!!newBookingPrefill}
           onClose={() => { setShowNew(false); setNewBookingPrefill(null) }}
           onCreated={(createdDate) => {
             setShowNew(false)

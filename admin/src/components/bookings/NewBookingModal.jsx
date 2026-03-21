@@ -30,7 +30,7 @@ const GuestSchema = z.object({
   covers:      z.coerce.number().int().min(1),
 })
 
-export default function NewBookingModal({ venueId, date: initialDate, prefillTime = null, prefillTableId = null, onClose, onCreated }) {
+export default function NewBookingModal({ venueId, date: initialDate, prefillTime = null, prefillTableId = null, openManual = false, onClose, onCreated }) {
   const api = useApi()
   const [step,          setStep]       = useState('slot')
   const [bookingDate,   setBookingDate] = useState(initialDate)
@@ -41,7 +41,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   const [holdData,      setHoldData]  = useState(null)
   // Manual allocation state — set when admin bypasses the slot resolver
   const [manualAlloc,     setManualAlloc]     = useState(null)  // { date, time, tableIds, unallocated }
-  const [showManualAlloc, setShowManualAlloc] = useState(false)
+  const [showManualAlloc, setShowManualAlloc] = useState(openManual)
 
   function selectTable(id) { setTableId(id); setComboId(null) }
   function selectCombo(id)  { setComboId(id); setTableId(null) }
@@ -406,10 +406,11 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
           venueId={venueId}
           initialDate={bookingDate}
           initialTime={selectedSlot ? (() => { const d = new Date(selectedSlot.slot_time); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` })() : prefillTime ?? '12:00'}
+          initialTableIds={prefillTableId ? [prefillTableId] : []}
           covers={covers}
           tables={tables}
           api={api}
-          onClose={() => setShowManualAlloc(false)}
+          onClose={() => { setShowManualAlloc(false); if (openManual) onClose() }}
           onConfirm={(alloc) => {
             setManualAlloc(alloc)
             setShowManualAlloc(false)
@@ -559,10 +560,10 @@ function Field({ label, error, children }) {
 // ── Manual allocation modal ─────────────────────────────────────
 // Lets admins pick any date, time, and tables (or unallocated) without
 // being constrained by schedule, capacity, or booking-window rules.
-function ManualAllocModal({ venueId, initialDate, initialTime, covers, tables, api, onConfirm, onClose }) {
+function ManualAllocModal({ venueId, initialDate, initialTime, initialTableIds = [], covers, tables, api, onConfirm, onClose }) {
   const [date,        setDate]        = useState(initialDate)
   const [time,        setTime]        = useState(initialTime || '12:00')
-  const [selTableIds, setSelTableIds] = useState(new Set())
+  const [selTableIds, setSelTableIds] = useState(new Set(initialTableIds))
   const [unallocated, setUnallocated] = useState(false)
 
   // Fetch same-day bookings to show "Booked" indicator on each table
