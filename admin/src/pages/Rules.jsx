@@ -22,6 +22,7 @@ const BookingRulesSchema = z.object({
   allow_non_adjacent_combo:                 z.boolean().default(false),
   allow_widget_bookings_after_doors_close:  z.boolean().default(false),
   enable_unconfirmed_flow:                  z.boolean().default(false),
+  enable_reconfirmed_status:                z.boolean().default(false),
 })
 
 const DepositSchema = z.object({
@@ -106,6 +107,7 @@ export default function Rules() {
       allow_non_adjacent_combo:                 false,
       allow_widget_bookings_after_doors_close:  false,
       enable_unconfirmed_flow:                  false,
+      enable_reconfirmed_status:                false,
     },
   })
 
@@ -259,6 +261,21 @@ export default function Rules() {
                       New bookings will be set to <strong>Not confirmed</strong> until an operator
                       calls the guest and moves the status to <strong>Confirmed</strong>.
                       Admin-created bookings follow the same flow when this is on.
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    {...regRules('enable_reconfirmed_status')}
+                    className="w-4 h-4 mt-0.5 shrink-0"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Enable re-confirmed status</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Adds a <strong>Re-confirmed</strong> status for operators to record
+                      that they called the guest the day before and confirmed attendance.
+                      Only shown in the booking drawer when this is on.
                     </p>
                   </div>
                 </label>
