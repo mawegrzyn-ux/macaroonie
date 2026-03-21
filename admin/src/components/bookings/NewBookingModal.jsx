@@ -250,6 +250,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                   type="date"
                   value={bookingDate}
                   onChange={e => handleDateChange(e.target.value)}
+                  onClick={e => { try { e.target.showPicker() } catch (_) {} }}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 />
               </label>
