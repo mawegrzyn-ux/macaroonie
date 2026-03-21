@@ -141,12 +141,25 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
     return si && (si.get(table.id) ?? 1) > 1
   })
 
-  // Secondary rows are covered by a spanning card rendered in the row above.
-  // Suppress grey strips here — they would bleed visually through the card.
-  const isSecondaryRow = bookings.some(b => {
-    const si = comboSpanMap?.get(b.id)
-    return si && si.get(table.id) === 0
-  })
+  // For secondary combo rows (spanRows === 0), a spanning card rendered in
+  // the primary row above visually covers part of this canvas. Grey strips
+  // must be clipped to exclude ONLY that booking's time window — outside the
+  // booking the row should show the same grey as every other row so time
+  // columns remain visually consistent (no partial-column grey).
+  const clippedStrips = (() => {
+    const coveredRanges = bookings
+      .filter(b => { const si = comboSpanMap?.get(b.id); return si && si.get(table.id) === 0 })
+      .map(b => ({
+        startX: timeToX(b.starts_at),
+        endX:   timeToX(b.starts_at) + durationToWidth(b.starts_at, b.ends_at),
+      }))
+    if (!coveredRanges.length) return unavailableStrips
+    // Keep strips that don't intersect any covered range
+    return unavailableStrips.filter(s => {
+      const sEnd = s.x + s.width
+      return !coveredRanges.some(c => s.x < c.endX && sEnd > c.startX)
+    })
+  })()
 
   return (
     <div className="timeline-grid border-b last:border-b-0">
@@ -189,10 +202,10 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         }}
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
-        {/* B1: Unavailable / out-of-session strips behind booking cards.
-            Suppressed on secondary combo rows where a spanning card from the
-            row above already covers the canvas — strips would bleed through. */}
-        {!isSecondaryRow && unavailableStrips.map(({ x, width }, i) => (
+        {/* B1: Unavailable / out-of-session strips.
+            Clipped for secondary combo rows so the spanning card's own time
+            window is excluded but the rest of the row stays consistent. */}
+        {clippedStrips.map(({ x, width }, i) => (
           <div
             key={i}
             className="absolute top-0 bottom-0 bg-zinc-100 pointer-events-none"
