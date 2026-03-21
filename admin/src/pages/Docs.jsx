@@ -205,10 +205,11 @@ export default function Docs() {
             <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 space-y-1">
               <li>No sitting covers that time (before first sitting, between sittings, after last sitting)</li>
               <li>A slot cap is explicitly set to 0 for that interval (<Mono>reason = 'unavailable'</Mono>)</li>
+              <li>The slot is fully booked with 0 covers remaining (<Mono>reason = 'full'</Mono>)</li>
             </ul>
             <P>
-              Fully-booked slots (<Mono>reason = 'full'</Mono>) are <strong>not</strong> greyed — the column
-              stays white so operators can distinguish "capacity used" from "venue closed".
+              Both <Mono>reason = 'unavailable'</Mono> and <Mono>reason = 'full'</Mono> result in grey.
+              The slot overlay query uses <Mono>covers=1</Mono>, so <Mono>full</Mono> means zero covers remain.
             </P>
           </section>
 

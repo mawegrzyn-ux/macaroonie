@@ -541,15 +541,15 @@ export default function Help() {
               head={['Column colour', 'Meaning']}
               rows={[
                 ['White / clear', 'The venue is open at this time and there is available capacity.'],
-                ['Grey', 'The venue is closed at this time (before/after sittings, between sittings) OR a slot cap has been explicitly set to 0.'],
+                ['Grey', 'The venue is closed at this time (before/after sittings, between sittings), a slot cap has been set to 0, or the slot is fully booked.'],
                 ['Blue card', 'A confirmed booking occupies this table at this time.'],
                 ['Light blue card', 'A combination booking spanning multiple table rows.'],
               ]}
             />
             <InfoBox type="info">
-              A grey column does not mean all tables are full — it means the schedule says the venue is not open
-              at that time. If a table shows white but has no booking card, capacity is available. Use
-              Manual allocation to book outside the schedule if needed.
+              A grey column means the venue is closed at that time, the slot cap is set to 0, or the slot
+              is fully booked. If a table shows white but has no booking card, capacity is still available.
+              Use Manual allocation to book outside the schedule if needed.
             </InfoBox>
 
             <H3>Booking tile colours</H3>

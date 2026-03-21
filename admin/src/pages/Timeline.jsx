@@ -332,10 +332,15 @@ export default function Timeline() {
   const enableUnconfirmedFlow = rulesData?.enable_unconfirmed_flow ?? false
 
   // B1: Compute grey strip positions covering:
-  //   • time before the first sitting
-  //   • gaps between sittings
-  //   • unavailable (fully-booked / capped) slots within a sitting
-  //   • time after the last sitting
+  //   • time before the first sitting (outside schedule)
+  //   • gaps between sittings (outside schedule)
+  //   • slots where available = false (reason='full' OR reason='unavailable')
+  //   • time after the last sitting (outside schedule)
+  //
+  // Grey rules (in full):
+  //   1. Hours outside schedule (before first sitting open, after last sitting close) → grey
+  //   2. Slot cap explicitly set to 0 (reason='unavailable') → grey
+  //   3. Slot fully booked with no remaining covers (reason='full') → grey
   //
   // Slot interval is derived as the minimum gap between consecutive slot_times
   // so a large inter-sitting gap is never mistaken for the interval.
@@ -355,20 +360,20 @@ export default function Timeline() {
 
     const strips = []
 
-    // 1. Before the first slot
+    // 1. Before the first slot (outside schedule)
     const firstX = Math.max(0, timeToX(slots[0].slot_time))
     if (firstX > 0) strips.push({ x: 0, width: firstX })
 
     for (let i = 0; i < slots.length; i++) {
       const x = timeToX(slots[i].slot_time)
 
-      // 2. Explicit cap=0 slot only — fully-booked slots stay white
-      //    reason='unavailable' = operator set cap to 0 for this interval
-      //    reason='full'        = just booked up, not structurally closed
-      if (slots[i].reason === 'unavailable') strips.push({ x, width: intervalPx })
+      // 2+3. Grey when slot is unavailable for any reason:
+      //   reason='unavailable' → cap explicitly set to 0
+      //   reason='full'        → fully booked (0 covers remaining for covers=1 query)
+      if (!slots[i].available) strips.push({ x, width: intervalPx })
 
-      // 3. Gap to next slot — if significantly wider than the slot interval
-      //    it's a between-sittings gap, not just consecutive slots
+      // Gap to next slot — if significantly wider than the slot interval
+      // it's a between-sittings gap, not just the natural spacing between slots
       if (i < slots.length - 1) {
         const nextX = timeToX(slots[i + 1].slot_time)
         const gapPx = nextX - x
@@ -378,7 +383,7 @@ export default function Timeline() {
       }
     }
 
-    // 4. After the last slot
+    // After the last slot (outside schedule)
     const lastX = timeToX(slots[slots.length - 1].slot_time)
     const afterX = lastX + intervalPx
     if (afterX < TOTAL_WIDTH) strips.push({ x: afterX, width: TOTAL_WIDTH - afterX })
