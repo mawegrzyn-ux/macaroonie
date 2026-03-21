@@ -221,6 +221,126 @@ export default async function bookingsRoutes(app) {
     return reply.code(201).send(booking)
   })
 
+  // ── POST /bookings/admin-override ────────────────────────
+  // Admin creates a booking directly, bypassing slot availability, booking
+  // window, and capacity checks. Table assignment is explicit (one table,
+  // multi-table auto-combo, or unallocated row).
+  // Requires operator+ role.
+  app.post('/admin-override', { preHandler: requireRole('operator', 'admin', 'owner') }, async (req, reply) => {
+    const body = z.object({
+      venue_id:    z.string().uuid(),
+      starts_at:   z.string().min(1),                          // YYYY-MM-DDTHH:MM:SS (server-local TZ)
+      covers:      z.number().int().min(1),
+      table_ids:   z.array(z.string().uuid()).default([]),      // empty → unallocated row
+      guest_name:  z.string().min(1).max(200),
+      guest_email: z.string().email(),
+      guest_phone: z.string().max(30).nullable().optional(),
+      guest_notes: z.string().max(1000).nullable().optional(),
+    }).parse(req.body)
+
+    const booking = await withTenant(req.tenantId, async tx => {
+      const [rules] = await tx`
+        SELECT slot_duration_mins, enable_unconfirmed_flow
+          FROM booking_rules WHERE venue_id = ${body.venue_id}
+      `
+      const durationMins  = rules?.slot_duration_mins ?? 90
+      const initialStatus = rules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+      const startsAt = new Date(body.starts_at)
+      const endsAt   = new Date(startsAt.getTime() + durationMins * 60_000)
+
+      // ── Resolve table / combination ──────────────────────
+      let tableId       = null
+      let combinationId = null
+
+      if (body.table_ids.length === 0) {
+        // Unallocated — use the venue's designated unallocated table row
+        const [unalloc] = await tx`
+          SELECT id FROM tables
+           WHERE venue_id = ${body.venue_id} AND is_unallocated = true
+           LIMIT 1
+        `
+        if (!unalloc) throw httpError(422, 'No unallocated table row configured for this venue')
+        tableId = unalloc.id
+
+      } else if (body.table_ids.length === 1) {
+        tableId = body.table_ids[0]
+
+      } else {
+        // Multiple tables — find an existing combination or auto-create one
+        const sortedIds = [...body.table_ids].sort()
+
+        const [existing] = await tx`
+          SELECT tc.id
+            FROM table_combinations tc
+           WHERE tc.venue_id = ${body.venue_id}
+             AND (
+               SELECT array_agg(m.table_id ORDER BY m.table_id)
+                 FROM table_combination_members m
+                WHERE m.combination_id = tc.id
+             ) = ${sortedIds}::uuid[]
+           LIMIT 1
+        `
+
+        if (existing) {
+          combinationId = existing.id
+        } else {
+          const tableRows = await tx`
+            SELECT id, label, min_covers, max_covers
+              FROM tables
+             WHERE id = ANY(${body.table_ids}::uuid[])
+               AND venue_id = ${body.venue_id}
+          `
+          const maxCovers = tableRows.reduce((s, t) => s + Number(t.max_covers), 0)
+          const minCovers = Math.max(1, maxCovers - 1)
+          const comboName = tableRows.map(t => t.label).join(' + ')
+
+          const [newCombo] = await tx`
+            INSERT INTO table_combinations (venue_id, tenant_id, name, min_covers, max_covers)
+            VALUES (${body.venue_id}, ${req.tenantId}, ${comboName}, ${minCovers}, ${maxCovers})
+            RETURNING id
+          `
+          combinationId = newCombo.id
+
+          for (const tid of body.table_ids) {
+            await tx`
+              INSERT INTO table_combination_members (combination_id, table_id, tenant_id)
+              VALUES (${combinationId}, ${tid}, ${req.tenantId})
+              ON CONFLICT DO NOTHING
+            `
+          }
+        }
+
+        // Canonical table_id = first member (keeps timeline JOIN intact)
+        const [first] = await tx`
+          SELECT m.table_id FROM table_combination_members m
+            JOIN tables t ON t.id = m.table_id
+           WHERE m.combination_id = ${combinationId}
+           ORDER BY t.sort_order, t.label LIMIT 1
+        `
+        tableId = first.table_id
+      }
+
+      const [bk] = await tx`
+        INSERT INTO bookings
+          (venue_id, table_id, combination_id, tenant_id,
+           starts_at, ends_at, covers,
+           guest_name, guest_email, guest_phone, guest_notes, status)
+        VALUES
+          (${body.venue_id}, ${tableId}, ${combinationId ?? null}, ${req.tenantId},
+           ${startsAt.toISOString()}, ${endsAt.toISOString()}, ${body.covers},
+           ${body.guest_name}, ${body.guest_email},
+           ${body.guest_phone ?? null}, ${body.guest_notes ?? null},
+           ${initialStatus}::booking_status)
+        RETURNING *
+      `
+      return bk
+    })
+
+    await notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: req.tenantId, type: 'confirmation' })
+    broadcastBooking('booking.created', booking)
+    return reply.code(201).send(booking)
+  })
+
   // ── GET /bookings ─────────────────────────────────────────
   // Admin timeline query — filter by venue + date + status.
   app.get('/', async (req) => {

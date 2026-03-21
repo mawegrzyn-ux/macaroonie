@@ -9,7 +9,7 @@
 //  A4. Covers in guest form: +/− stepper; tapping the value shows a custom numeric
 //      keypad popup (touch devices only, inputMode="none" suppresses native keyboard)
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -39,6 +39,9 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   const [selectedSlot,  setSlot]      = useState(null)
   const [covers,        setCovers]    = useState(2)
   const [holdData,      setHoldData]  = useState(null)
+  // Manual allocation state — set when admin bypasses the slot resolver
+  const [manualAlloc,     setManualAlloc]     = useState(null)  // { date, time, tableIds, unallocated }
+  const [showManualAlloc, setShowManualAlloc] = useState(false)
 
   function selectTable(id) { setTableId(id); setComboId(null) }
   function selectCombo(id)  { setComboId(id); setTableId(null) }
@@ -122,6 +125,21 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     onSuccess: () => onCreated(bookingDate),
   })
 
+  // Admin override — bypasses slot resolver, capacity, and booking window checks.
+  const confirmOverrideMutation = useMutation({
+    mutationFn: (guestData) => api.post('/bookings/admin-override', {
+      venue_id:    venueId,
+      starts_at:   `${manualAlloc.date}T${manualAlloc.time}:00`,
+      covers:      guestData.covers,
+      table_ids:   manualAlloc.tableIds,
+      guest_name:  guestData.guest_name,
+      guest_email: guestData.guest_email,
+      guest_phone: guestData.guest_phone ?? null,
+      guest_notes: guestData.guest_notes ?? null,
+    }),
+    onSuccess: () => onCreated(manualAlloc.date),
+  })
+
   function handleSlotConfirm() {
     if (!selectedSlot) return
     // Use the table/combination the slot resolver already assigned
@@ -140,7 +158,11 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   }
 
   function onGuestSubmit(data) {
-    confirmMutation.mutate(data)
+    if (manualAlloc) {
+      confirmOverrideMutation.mutate(data)
+    } else {
+      confirmMutation.mutate(data)
+    }
   }
 
   return (
@@ -176,14 +198,13 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
 
           {/* Step indicator */}
           <div className="flex items-center gap-1 px-5 py-3 text-xs border-b shrink-0">
-            {['slot', 'guest'].map((s, i) => (
-              <div key={s} className="flex items-center gap-1">
-                {i > 0 && <ChevronRight className="w-3 h-3 text-muted-foreground" />}
-                <span className={cn('font-medium', step === s ? 'text-primary' : 'text-muted-foreground')}>
-                  {s === 'slot' ? 'Select slot' : 'Guest details'}
-                </span>
-              </div>
-            ))}
+            <span className={cn('font-medium', step === 'slot' ? 'text-primary' : 'text-muted-foreground')}>
+              {manualAlloc ? 'Manual allocation' : 'Select slot'}
+            </span>
+            <ChevronRight className="w-3 h-3 text-muted-foreground" />
+            <span className={cn('font-medium', step === 'guest' ? 'text-primary' : 'text-muted-foreground')}>
+              Guest details
+            </span>
           </div>
 
           <div className="flex-1 overflow-y-auto p-5">
@@ -316,33 +337,68 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
 
           {/* Footer */}
           <div className="flex items-center justify-end gap-3 px-5 py-4 border-t shrink-0">
-            <button onClick={onClose} className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation">
-              Cancel
-            </button>
-            {step === 'slot' && (
-              <button
-                onClick={handleSlotConfirm}
-                disabled={!selectedSlot || (!selectedSlot?.table_id && !selectedSlot?.combination_id) || holdMutation.isPending}
-                className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
-              >
-                {holdMutation.isPending ? 'Holding…' : 'Continue'}
-              </button>
-            )}
-            {step === 'guest' && (
-              <button
-                type="submit"
-                form="guest-form"
-                disabled={confirmMutation.isPending}
-                className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
-              >
-                {confirmMutation.isPending ? 'Confirming…' : 'Confirm booking'}
-              </button>
+            {step === 'guest' ? (
+              // Guest step: Back + Confirm
+              <>
+                <button
+                  onClick={() => { setStep('slot'); setManualAlloc(null); setHoldData(null) }}
+                  className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  form="guest-form"
+                  disabled={confirmMutation.isPending || confirmOverrideMutation.isPending}
+                  className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
+                >
+                  {(confirmMutation.isPending || confirmOverrideMutation.isPending) ? 'Confirming…' : 'Confirm booking'}
+                </button>
+              </>
+            ) : (
+              // Slot step: Cancel + Manual allocation + Continue
+              <>
+                <button onClick={onClose} className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => setShowManualAlloc(true)}
+                  className="text-sm px-4 py-2 border border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg touch-manipulation"
+                >
+                  Manual allocation
+                </button>
+                <button
+                  onClick={handleSlotConfirm}
+                  disabled={!selectedSlot || (!selectedSlot?.table_id && !selectedSlot?.combination_id) || holdMutation.isPending}
+                  className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
+                >
+                  {holdMutation.isPending ? 'Holding…' : 'Continue'}
+                </button>
+              </>
             )}
           </div>
         </div>
       </div>
 
       <style>{`.input { width: 100%; border: 1px solid hsl(var(--border)); border-radius: 0.5rem; padding: 0.5rem 0.625rem; font-size: 0.875rem; outline: none; background: hsl(var(--background)); } .input:focus { border-color: hsl(var(--primary)); }`}</style>
+
+      {/* Manual allocation modal — sits above the booking modal (z-[60]) */}
+      {showManualAlloc && (
+        <ManualAllocModal
+          venueId={venueId}
+          initialDate={bookingDate}
+          initialTime={selectedSlot ? (() => { const d = new Date(selectedSlot.slot_time); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` })() : prefillTime ?? '12:00'}
+          covers={covers}
+          tables={tables}
+          api={api}
+          onClose={() => setShowManualAlloc(false)}
+          onConfirm={(alloc) => {
+            setManualAlloc(alloc)
+            setShowManualAlloc(false)
+            setStep('guest')
+          }}
+        />
+      )}
     </>
   )
 }
@@ -478,6 +534,200 @@ function Field({ label, error, children }) {
       <label className="text-sm font-medium block mb-1.5">{label}</label>
       {children}
       {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+    </div>
+  )
+}
+
+// ── Manual allocation modal ─────────────────────────────────────
+// Lets admins pick any date, time, and tables (or unallocated) without
+// being constrained by schedule, capacity, or booking-window rules.
+function ManualAllocModal({ venueId, initialDate, initialTime, covers, tables, api, onConfirm, onClose }) {
+  const [date,        setDate]        = useState(initialDate)
+  const [time,        setTime]        = useState(initialTime || '12:00')
+  const [selTableIds, setSelTableIds] = useState(new Set())
+  const [unallocated, setUnallocated] = useState(false)
+
+  // Fetch same-day bookings to show "Booked" indicator on each table
+  const { data: dayBookings = [] } = useQuery({
+    queryKey: ['bookings-manualalloc', venueId, date],
+    queryFn:  () => api.get(`/bookings?venue_id=${venueId}&date=${date}`),
+    enabled:  !!venueId && !!date,
+  })
+
+  // Fetch rules for slot duration (needed for overlap window)
+  const { data: rules } = useQuery({
+    queryKey: ['booking-rules', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/rules`),
+    enabled:  !!venueId,
+  })
+  const slotDuration = rules?.slot_duration_mins ?? 90
+
+  // Group real tables by section (exclude the virtual unallocated row)
+  const sections = useMemo(() => {
+    const real = tables.filter(t => !t.is_unallocated)
+    const map  = new Map()
+    real.forEach(t => {
+      const sec = t.section_name || 'Tables'
+      if (!map.has(sec)) map.set(sec, [])
+      map.get(sec).push(t)
+    })
+    return [...map.entries()]
+  }, [tables])
+
+  function isBooked(table) {
+    if (!date || !time || !dayBookings.length) return false
+    const start = new Date(`${date}T${time}:00`)
+    const end   = new Date(start.getTime() + slotDuration * 60_000)
+    return dayBookings.some(b => {
+      const uses = b.table_id === table.id ||
+                   (Array.isArray(b.member_table_ids) && b.member_table_ids.includes(table.id))
+      return uses && new Date(b.starts_at) < end && new Date(b.ends_at) > start
+    })
+  }
+
+  function toggleTable(id) {
+    if (unallocated) return
+    setSelTableIds(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const canConfirm = date && time && (unallocated || selTableIds.size > 0)
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+      <div className="bg-background rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh]">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+          <div>
+            <h2 className="font-semibold">Manual allocation</h2>
+            <p className="text-xs text-amber-600 mt-0.5">Bypasses schedule, capacity, and booking-window rules</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+
+          {/* Date + Time */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium block mb-1.5">Date</label>
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium block mb-1.5">Time</label>
+              <input
+                type="time"
+                value={time}
+                onChange={e => setTime(e.target.value)}
+                className="w-full border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-primary"
+              />
+            </div>
+          </div>
+
+          {/* Tables */}
+          <div>
+            <label className="text-sm font-medium block mb-2">Tables</label>
+            <div className="space-y-4">
+              {sections.map(([sectionName, sectionTables]) => (
+                <div key={sectionName}>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1.5">
+                    {sectionName}
+                  </p>
+                  <div className="space-y-1.5">
+                    {sectionTables.map(table => {
+                      const booked  = isBooked(table)
+                      const checked = selTableIds.has(table.id)
+                      return (
+                        <label
+                          key={table.id}
+                          onClick={() => toggleTable(table.id)}
+                          className={cn(
+                            'flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer select-none transition-colors',
+                            checked ? 'border-primary bg-primary/5' : 'border-border',
+                            unallocated && 'pointer-events-none opacity-40',
+                            !unallocated && !checked && 'hover:bg-muted/50',
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            readOnly
+                            className="w-4 h-4 shrink-0 pointer-events-none"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-medium">{table.label}</span>
+                            <span className="text-xs text-muted-foreground ml-2">
+                              {table.min_covers}–{table.max_covers} covers
+                            </span>
+                          </div>
+                          {booked && (
+                            <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded shrink-0">
+                              Booked
+                            </span>
+                          )}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Unallocated option */}
+            <div className="mt-3 pt-3 border-t">
+              <label
+                onClick={() => {
+                  setUnallocated(v => !v)
+                  if (!unallocated) setSelTableIds(new Set())
+                }}
+                className={cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer select-none transition-colors',
+                  unallocated ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50',
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={unallocated}
+                  readOnly
+                  className="w-4 h-4 shrink-0 pointer-events-none"
+                />
+                <div>
+                  <p className="text-sm font-medium">Unallocated</p>
+                  <p className="text-xs text-muted-foreground">No specific table — assign from timeline later</p>
+                </div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t shrink-0">
+          <button
+            onClick={onClose}
+            className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => canConfirm && onConfirm({ date, time, tableIds: [...selTableIds], unallocated })}
+            disabled={!canConfirm}
+            className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
+          >
+            Continue to guest details
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
