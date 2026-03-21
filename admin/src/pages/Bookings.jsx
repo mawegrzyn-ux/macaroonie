@@ -395,7 +395,7 @@ function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStat
 
       {/* Table + section */}
       <div className="shrink-0 text-right hidden sm:block">
-        <p className="text-sm font-medium">{b.table_label}</p>
+        <p className="text-sm font-medium">{b.combination_name ?? b.table_label}</p>
         {b.section_name && (
           <p className="text-xs text-muted-foreground">{b.section_name}</p>
         )}
