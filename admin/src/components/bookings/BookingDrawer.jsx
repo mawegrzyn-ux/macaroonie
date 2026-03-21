@@ -15,7 +15,7 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   X, Mail, Phone, Users, Clock, CreditCard,
-  Pencil, TriangleAlert, Calendar, ChevronDown,
+  Pencil, TriangleAlert, Calendar, ChevronDown, Trash2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
@@ -46,6 +46,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
   const [showTablePicker,   setShowTablePicker]   = useState(false)
   const [showReschedule,    setShowReschedule]    = useState(false)
   const [showStatusDropdown, setShowStatusDropdown] = useState(false)
+  const [confirmDelete,     setConfirmDelete]     = useState(false)
 
   // ── Operator notes ────────────────────────────────────────
   const [notes, setNotes] = useState(booking.operator_notes ?? '')
@@ -133,6 +134,11 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
         starts_at: startsAt,
       }),
     onSuccess: () => { setShowReschedule(false); onUpdated() },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => api.delete(`/bookings/${booking.id}`),
+    onSuccess:  () => { onUpdated(); onClose() },
   })
 
   // ── Reschedule handler ─────────────────────────────────────
@@ -544,6 +550,47 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
               </div>
             )}
           </Section>
+
+          {/* ── Delete booking ────────────────────────────── */}
+          <div className="pt-2 border-t">
+            {!confirmDelete ? (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="flex items-center gap-2 text-sm text-destructive hover:text-destructive/80 touch-manipulation py-1"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete booking
+              </button>
+            ) : (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 space-y-3">
+                <p className="text-sm font-medium text-destructive">
+                  Permanently delete this booking?
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  This cannot be undone. The booking record will be removed completely.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => deleteMutation.mutate()}
+                    disabled={deleteMutation.isPending}
+                    className="flex-1 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium disabled:opacity-50 touch-manipulation"
+                  >
+                    {deleteMutation.isPending ? 'Deleting…' : 'Yes, delete'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deleteMutation.isPending}
+                    className="flex-1 py-2 rounded-lg border text-sm touch-manipulation"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {deleteMutation.isError && (
+                  <p className="text-xs text-destructive">{deleteMutation.error?.message ?? 'Delete failed'}</p>
+                )}
+              </div>
+            )}
+          </div>
 
         </div>
 

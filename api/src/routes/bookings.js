@@ -210,12 +210,9 @@ export default async function bookingsRoutes(app) {
       return booking
     })
 
-    // Enqueue confirmation email
-    await notificationQueue.add('confirmation', {
-      bookingId: booking.id,
-      tenantId:  req.tenantId,
-      type:      'confirmation',
-    })
+    // Enqueue confirmation email (fire-and-forget — never block the response)
+    notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: req.tenantId, type: 'confirmation' })
+      .catch(e => req.log.warn({ err: e }, 'notification queue unavailable — confirmation email skipped'))
     broadcastBooking('booking.created', booking)
 
     return reply.code(201).send(booking)
@@ -336,7 +333,9 @@ export default async function bookingsRoutes(app) {
       return bk
     })
 
-    await notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: req.tenantId, type: 'confirmation' })
+    // Fire-and-forget — never block the response
+    notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: req.tenantId, type: 'confirmation' })
+      .catch(e => req.log.warn({ err: e }, 'notification queue unavailable — booking created but confirmation email skipped'))
     broadcastBooking('booking.created', booking)
     return reply.code(201).send(booking)
   })
@@ -411,17 +410,30 @@ export default async function bookingsRoutes(app) {
     `)
     if (!booking) throw httpError(404, 'Booking not found')
 
-    // Enqueue notifications for certain transitions
+    // Enqueue notifications for certain transitions (fire-and-forget — never block the response)
     if (status === 'cancelled') {
-      await notificationQueue.add('cancellation', {
-        bookingId: booking.id,
-        tenantId:  req.tenantId,
-        type:      'cancellation',
-      })
+      notificationQueue.add('cancellation', { bookingId: booking.id, tenantId: req.tenantId, type: 'cancellation' })
+        .catch(e => req.log.warn({ err: e }, 'notification queue unavailable — cancellation email skipped'))
     }
     broadcastBooking('booking.updated', booking)
 
     return booking
+  })
+
+  // ── DELETE /bookings/:id ──────────────────────────────────
+  // Hard-delete a booking. Restricted to admin/owner only.
+  // Broadcasts booking.deleted so the timeline removes the card immediately.
+  app.delete('/:id', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const [booking] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM bookings
+       WHERE id        = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+      RETURNING *
+    `)
+    if (!booking) throw httpError(404, 'Booking not found')
+
+    broadcastBooking('booking.deleted', booking)
+    return reply.code(204).send()
   })
 
   // ── PATCH /bookings/:id/move ──────────────────────────────

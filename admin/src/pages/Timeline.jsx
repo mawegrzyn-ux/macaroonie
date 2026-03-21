@@ -874,15 +874,19 @@ export default function Timeline() {
         )}
       </div>
 
-      {/* Booking detail drawer */}
-      {selected && (
-        <BookingDrawer
-          booking={selected}
-          onClose={() => setSelected(null)}
-          onUpdated={() => queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
-          panelMode={panelMode}
-        />
-      )}
+      {/* Booking detail drawer — use live booking from query so status updates reflect immediately */}
+      {selected && (() => {
+        const liveBooking = bookingsRes.find(b => b.id === selected.id) ?? selected
+        return (
+          <BookingDrawer
+            key={liveBooking.id}
+            booking={liveBooking}
+            onClose={() => setSelected(null)}
+            onUpdated={() => queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
+            panelMode={panelMode}
+          />
+        )
+      })()}
 
       {/* New booking modal */}
       {showNew && (
