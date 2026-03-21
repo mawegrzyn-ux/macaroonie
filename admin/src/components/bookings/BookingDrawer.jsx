@@ -11,11 +11,11 @@
 // Action buttons have dotted borders for larger tap targets.
 // Status buttons are large and pill-shaped.
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   X, Mail, Phone, Users, Clock, CreditCard,
-  Pencil, TriangleAlert, Calendar, Trash2,
+  Pencil, TriangleAlert, Calendar, Trash2, UserSearch,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
@@ -57,6 +57,38 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     guest_phone: booking.guest_phone ?? '',
     covers:      booking.covers      ?? 2,
   })
+
+  // ── Customer search (guest edit mode) ────────────────────
+  const [customerQ,    setCustomerQ]    = useState('')
+  const customerQTimer = useRef(null)
+
+  const { data: custSuggestions } = useQuery({
+    queryKey: ['customers-search', customerQ],
+    queryFn:  () => api.get(`/customers?q=${encodeURIComponent(customerQ)}&limit=6`),
+    enabled:  editingGuest && customerQ.length >= 2,
+    staleTime: 10_000,
+  })
+
+  function handleCustSearch(name, email, phone) {
+    clearTimeout(customerQTimer.current)
+    customerQTimer.current = setTimeout(() => {
+      const q = (email?.length >= 2 ? email : null)
+             ?? (name?.length  >= 2 ? name  : null)
+             ?? (phone?.length >= 2 ? phone : null)
+             ?? ''
+      setCustomerQ(q)
+    }, 300)
+  }
+
+  function handleCustomerSelect(c) {
+    setGuestFields(p => ({
+      ...p,
+      guest_name:  c.name  ?? p.guest_name,
+      guest_email: c.email ?? '',
+      guest_phone: c.phone ?? '',
+    }))
+    setCustomerQ('')
+  }
 
   // ── Table override: individual checkboxes only ───────────
   // Pre-populate from member_table_ids (works for both single & combo bookings)
@@ -364,6 +396,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                       covers:      booking.covers      ?? 2,
                     })
                     setEditingGuest(false)
+                    setCustomerQ('')
                   }} variant="cancel">
                     Cancel
                   </ActionButton>
@@ -374,27 +407,56 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                 <GuestField
                   label="Name"
                   value={guestFields.guest_name}
-                  onChange={v => setGuestFields(p => ({ ...p, guest_name: v }))}
+                  onChange={v => { setGuestFields(p => ({ ...p, guest_name: v })); handleCustSearch(v, guestFields.guest_email, guestFields.guest_phone) }}
                 />
+                {/* Customer suggestions */}
+                {custSuggestions?.length > 0 && (
+                  <div className="rounded-xl border bg-background shadow-md overflow-hidden">
+                    <p className="text-[10px] text-muted-foreground font-medium px-3 pt-2 pb-1 flex items-center gap-1">
+                      <UserSearch className="w-3 h-3" />Customer match
+                    </p>
+                    {custSuggestions.slice(0, 5).map(c => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleCustomerSelect(c)}
+                        className="w-full text-left px-3 py-2 hover:bg-accent transition-colors touch-manipulation border-t border-border/40"
+                      >
+                        <p className="text-sm font-medium">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <GuestField
                   label="Email"
                   type="email"
                   value={guestFields.guest_email}
-                  onChange={v => setGuestFields(p => ({ ...p, guest_email: v }))}
+                  onChange={v => { setGuestFields(p => ({ ...p, guest_email: v })); handleCustSearch(guestFields.guest_name, v, guestFields.guest_phone) }}
                 />
                 <GuestField
                   label="Phone"
                   value={guestFields.guest_phone}
-                  onChange={v => setGuestFields(p => ({ ...p, guest_phone: v }))}
+                  onChange={v => { setGuestFields(p => ({ ...p, guest_phone: v })); handleCustSearch(guestFields.guest_name, guestFields.guest_email, v) }}
                   placeholder="+44 7700 900000"
                 />
-                <GuestField
-                  label="Covers"
-                  type="number"
-                  value={guestFields.covers}
-                  onChange={v => setGuestFields(p => ({ ...p, covers: v }))}
-                  inputClass="w-24"
-                />
+                {/* Covers with ± buttons */}
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-1">Covers</label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setGuestFields(p => ({ ...p, covers: Math.max(1, Number(p.covers) - 1) }))}
+                      className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent active:bg-accent/80 touch-manipulation select-none"
+                    >−</button>
+                    <span className="w-12 text-center text-sm font-semibold">{guestFields.covers}</span>
+                    <button
+                      type="button"
+                      onClick={() => setGuestFields(p => ({ ...p, covers: Math.min(99, Number(p.covers) + 1) }))}
+                      className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent active:bg-accent/80 touch-manipulation select-none"
+                    >+</button>
+                  </div>
+                </div>
               </div>
             ) : (
               <div className="space-y-2.5">

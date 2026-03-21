@@ -13,13 +13,13 @@ import { format, parseISO } from 'date-fns'
 import {
   Search, User, Mail, Phone, Download, Plus, Upload,
   ShieldAlert, ChevronRight, Pencil, X, Check, FileText,
-  TriangleAlert,
+  TriangleAlert, TrendingUp, Minus,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
 // ── CSV parser ────────────────────────────────────────────────
-// Accepts: name,email,phone,notes  (optional header row, optional fields)
+// Accepts: name,email,phone,notes,visits  (optional header row, optional fields)
 function parseCSV(text) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   if (!lines.length) return []
@@ -33,11 +33,13 @@ function parseCSV(text) {
     // Naive CSV split — handles simple quoted fields
     const parts = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|(?<=,)$|^(?=,))/g) ?? []
     const clean  = (s) => (s ?? '').trim().replace(/^"|"$/g, '').trim()
+    const visits = parseInt(clean(parts[4]), 10)
     return {
-      name:  clean(parts[0]),
-      email: clean(parts[1]) || null,
-      phone: clean(parts[2]) || null,
-      notes: clean(parts[3]) || null,
+      name:        clean(parts[0]),
+      email:       clean(parts[1]) || null,
+      phone:       clean(parts[2]) || null,
+      notes:       clean(parts[3]) || null,
+      visit_count: isNaN(visits) ? 0 : Math.max(0, visits),
     }
   }).filter(r => r.name.length > 0)
 }
@@ -166,6 +168,7 @@ export default function Customers() {
                   <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Name</th>
                   <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Email</th>
                   <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Phone</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground">Visits</th>
                   <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Since</th>
                   <th className="w-6" />
                 </tr>
@@ -184,6 +187,9 @@ export default function Customers() {
                     <td className="px-4 py-3 font-medium">{c.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{c.email ?? '—'}</td>
                     <td className="px-4 py-3 text-muted-foreground">{c.phone ?? '—'}</td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="text-sm font-semibold tabular-nums">{c.visit_count ?? 0}</span>
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground text-xs">
                       {format(parseISO(c.created_at), 'dd MMM yyyy')}
                     </td>
@@ -250,29 +256,36 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised }) {
   const [editing,          setEditing]          = useState(false)
   const [confirmAnonymise, setConfirmAnonymise] = useState(false)
   const [form, setForm] = useState({
-    name:  customer.name  ?? '',
-    email: customer.email ?? '',
-    phone: customer.phone ?? '',
-    notes: customer.notes ?? '',
+    name:        customer.name        ?? '',
+    email:       customer.email       ?? '',
+    phone:       customer.phone       ?? '',
+    notes:       customer.notes       ?? '',
+    visit_count: customer.visit_count ?? 0,
   })
 
   // Keep form in sync if parent re-fetches the same customer
   useEffect(() => {
     setForm({
-      name:  customer.name  ?? '',
-      email: customer.email ?? '',
-      phone: customer.phone ?? '',
-      notes: customer.notes ?? '',
+      name:        customer.name        ?? '',
+      email:       customer.email       ?? '',
+      phone:       customer.phone       ?? '',
+      notes:       customer.notes       ?? '',
+      visit_count: customer.visit_count ?? 0,
     })
     setEditing(false)
   }, [customer.id])
 
+  // Total visits = historical adjustment + bookings in system
+  const systemBookings  = customer.bookings?.length ?? 0
+  const totalVisits     = (customer.visit_count ?? 0) + systemBookings
+
   const saveMutation = useMutation({
     mutationFn: () => api.patch(`/customers/${customer.id}`, {
-      name:  form.name  || undefined,
-      email: form.email || null,
-      phone: form.phone || null,
-      notes: form.notes || null,
+      name:        form.name  || undefined,
+      email:       form.email || null,
+      phone:       form.phone || null,
+      notes:       form.notes || null,
+      visit_count: form.visit_count,
     }),
     onSuccess: () => {
       setEditing(false)
@@ -302,6 +315,14 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised }) {
             Customer since {format(parseISO(customer.created_at), 'dd MMM yyyy')}
           </p>
         </div>
+        {/* Analytics stat pill */}
+        {!customer.is_anonymised && !editing && (
+          <div className="flex items-center gap-1.5 shrink-0 ml-3 px-2.5 py-1.5 rounded-lg bg-primary/8 text-primary">
+            <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+            <span className="text-sm font-bold tabular-nums">{totalVisits}</span>
+            <span className="text-xs opacity-70">visits</span>
+          </div>
+        )}
         {!customer.is_anonymised && (
           editing ? (
             <div className="flex items-center gap-1.5 shrink-0 ml-2">
@@ -384,6 +405,25 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised }) {
                   placeholder="Internal notes…"
                 />
               </EditField>
+              {/* Visit count adjustment stepper */}
+              <EditField label="Historical visit count adjustment">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, visit_count: Math.max(0, f.visit_count - 1) }))}
+                    className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent active:bg-accent/80 touch-manipulation select-none"
+                  ><Minus className="w-4 h-4" /></button>
+                  <span className="w-14 text-center text-sm font-semibold tabular-nums">{form.visit_count}</span>
+                  <button
+                    type="button"
+                    onClick={() => setForm(f => ({ ...f, visit_count: f.visit_count + 1 }))}
+                    className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent active:bg-accent/80 touch-manipulation select-none"
+                  >+</button>
+                  <span className="text-xs text-muted-foreground ml-1">
+                    + {systemBookings} system → <strong>{form.visit_count + systemBookings} total</strong>
+                  </span>
+                </div>
+              </EditField>
               {saveMutation.isError && (
                 <p className="text-xs text-destructive">{saveMutation.error?.message ?? 'Save failed'}</p>
               )}
@@ -403,6 +443,24 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised }) {
             </>
           )}
         </Section>
+
+        {/* Visit analytics */}
+        {!customer.is_anonymised && (
+          <Section title="Visit analytics">
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'Total visits',  value: totalVisits,    colour: 'text-primary bg-primary/8' },
+                { label: 'System bookings', value: systemBookings, colour: 'text-blue-700 bg-blue-50' },
+                { label: 'Prior history', value: customer.visit_count ?? 0, colour: 'text-muted-foreground bg-muted/40' },
+              ].map(({ label, value, colour }) => (
+                <div key={label} className={`rounded-lg p-3 text-center ${colour}`}>
+                  <p className="text-2xl font-bold tabular-nums">{value}</p>
+                  <p className="text-xs font-medium leading-tight mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* Booking history */}
         <Section title={`Bookings (${customer.bookings?.length ?? 0})`}>
@@ -492,15 +550,16 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised }) {
 
 // ── Add customer modal ────────────────────────────────────────
 function AddCustomerModal({ api, onClose, onCreated }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', visit_count: 0 })
   const [error, setError] = useState(null)
 
   const createMutation = useMutation({
     mutationFn: () => api.post('/customers', {
-      name:  form.name.trim(),
-      email: form.email.trim() || null,
-      phone: form.phone.trim() || null,
-      notes: form.notes.trim() || null,
+      name:        form.name.trim(),
+      email:       form.email.trim() || null,
+      phone:       form.phone.trim() || null,
+      notes:       form.notes.trim() || null,
+      visit_count: form.visit_count,
     }),
     onSuccess: (data) => onCreated(data.id),
     onError:   (e)    => setError(e.message ?? 'Failed to create customer'),
@@ -560,6 +619,20 @@ function AddCustomerModal({ api, onClose, onCreated }) {
                 className="field-input min-h-[60px] resize-none"
                 placeholder="Internal notes…"
               />
+            </EditField>
+            <EditField label="Historical visit count">
+              <div className="flex items-center gap-2">
+                <button type="button"
+                  onClick={() => setForm(f => ({ ...f, visit_count: Math.max(0, f.visit_count - 1) }))}
+                  className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent touch-manipulation select-none"
+                ><Minus className="w-4 h-4" /></button>
+                <span className="w-12 text-center text-sm font-semibold tabular-nums">{form.visit_count}</span>
+                <button type="button"
+                  onClick={() => setForm(f => ({ ...f, visit_count: f.visit_count + 1 }))}
+                  className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent touch-manipulation select-none"
+                >+</button>
+                <span className="text-xs text-muted-foreground">pre-system visits</span>
+              </div>
             </EditField>
             {error && <p className="text-xs text-destructive">{error}</p>}
             <div className="flex gap-2 pt-1">
@@ -637,9 +710,12 @@ function ImportModal({ api, onClose, onImported }) {
                 </p>
                 <div className="rounded-lg border bg-muted/30 p-3">
                   <p className="text-xs font-semibold mb-1">Expected column order:</p>
-                  <code className="text-xs text-primary">name, email, phone, notes</code>
+                  <code className="text-xs text-primary">name, email, phone, notes, visits</code>
                   <p className="text-xs text-muted-foreground mt-1">
                     Only <strong>name</strong> is required. A header row is detected and skipped automatically.
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    <strong>visits</strong> — integer; sets the historical visit count. On update, the higher of the existing or imported value is kept.
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
                     Existing customers are matched by email and updated. New emails create new records.
@@ -680,6 +756,7 @@ function ImportModal({ api, onClose, onImported }) {
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">Email</th>
                         <th className="text-left px-3 py-2 font-medium text-muted-foreground">Phone</th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">Visits</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -688,6 +765,7 @@ function ImportModal({ api, onClose, onImported }) {
                           <td className="px-3 py-2">{r.name || <span className="text-destructive">—</span>}</td>
                           <td className="px-3 py-2 text-muted-foreground">{r.email ?? '—'}</td>
                           <td className="px-3 py-2 text-muted-foreground">{r.phone ?? '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{r.visit_count || '—'}</td>
                         </tr>
                       ))}
                     </tbody>

@@ -66,16 +66,17 @@ export default async function customersRoutes(app) {
   // Manually create a customer record.
   app.post('/', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req, reply) => {
     const body = z.object({
-      name:  z.string().min(1).max(200),
-      email: z.string().email().nullable().optional(),
-      phone: z.string().max(30).nullable().optional(),
-      notes: z.string().max(2000).nullable().optional(),
+      name:        z.string().min(1).max(200),
+      email:       z.string().email().nullable().optional(),
+      phone:       z.string().max(30).nullable().optional(),
+      notes:       z.string().max(2000).nullable().optional(),
+      visit_count: z.number().int().min(0).optional(),
     }).parse(req.body)
 
     const [created] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO customers (tenant_id, name, email, phone, notes)
-      VALUES (${req.tenantId}, ${body.name}, ${body.email ?? null}, ${body.phone ?? null}, ${body.notes ?? null})
-      RETURNING id, name, email, phone, notes, is_anonymised, created_at, updated_at
+      INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
+      VALUES (${req.tenantId}, ${body.name}, ${body.email ?? null}, ${body.phone ?? null}, ${body.notes ?? null}, ${body.visit_count ?? 0})
+      RETURNING id, name, email, phone, notes, visit_count, is_anonymised, created_at, updated_at
     `)
     return reply.code(201).send(created)
   })
@@ -87,10 +88,11 @@ export default async function customersRoutes(app) {
   app.post('/import', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req, reply) => {
     const body = z.object({
       customers: z.array(z.object({
-        name:  z.string().min(1).max(200),
-        email: z.string().email().nullable().optional(),
-        phone: z.string().max(30).nullable().optional(),
-        notes: z.string().max(2000).nullable().optional(),
+        name:        z.string().min(1).max(200),
+        email:       z.string().email().nullable().optional(),
+        phone:       z.string().max(30).nullable().optional(),
+        notes:       z.string().max(2000).nullable().optional(),
+        visit_count: z.number().int().min(0).optional(),
       })).min(1).max(1000),
     }).parse(req.body)
 
@@ -103,6 +105,8 @@ export default async function customersRoutes(app) {
         try {
           if (c.email && SKIP.has(c.email.toLowerCase())) { skipped++; continue }
 
+          const visits = c.visit_count ?? 0
+
           if (c.email) {
             // Upsert by email
             const [existing] = await tx`
@@ -114,25 +118,26 @@ export default async function customersRoutes(app) {
             if (existing) {
               await tx`
                 UPDATE customers
-                   SET name       = ${c.name},
-                       phone      = COALESCE(${c.phone ?? null}, phone),
-                       notes      = COALESCE(${c.notes ?? null}, notes),
-                       updated_at = now()
+                   SET name        = ${c.name},
+                       phone       = COALESCE(${c.phone ?? null}, phone),
+                       notes       = COALESCE(${c.notes ?? null}, notes),
+                       visit_count = GREATEST(visit_count, ${visits}),
+                       updated_at  = now()
                  WHERE id = ${existing.id}
               `
               updated++
             } else {
               await tx`
-                INSERT INTO customers (tenant_id, name, email, phone, notes)
-                VALUES (${req.tenantId}, ${c.name}, ${c.email}, ${c.phone ?? null}, ${c.notes ?? null})
+                INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
+                VALUES (${req.tenantId}, ${c.name}, ${c.email}, ${c.phone ?? null}, ${c.notes ?? null}, ${visits})
               `
               created++
             }
           } else {
             // No email — always insert (can't deduplicate)
             await tx`
-              INSERT INTO customers (tenant_id, name, email, phone, notes)
-              VALUES (${req.tenantId}, ${c.name}, null, ${c.phone ?? null}, ${c.notes ?? null})
+              INSERT INTO customers (tenant_id, name, email, phone, notes, visit_count)
+              VALUES (${req.tenantId}, ${c.name}, null, ${c.phone ?? null}, ${c.notes ?? null}, ${visits})
             `
             created++
           }
@@ -154,7 +159,7 @@ export default async function customersRoutes(app) {
 
     if (q.length < 2) {
       return withTenant(req.tenantId, tx => tx`
-        SELECT id, name, email, phone, is_anonymised, created_at, updated_at
+        SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
           FROM customers
          WHERE is_anonymised = false
          ORDER BY updated_at DESC
@@ -163,7 +168,7 @@ export default async function customersRoutes(app) {
     }
 
     return withTenant(req.tenantId, tx => tx`
-      SELECT id, name, email, phone, is_anonymised, created_at, updated_at
+      SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
         FROM customers
        WHERE is_anonymised = false
          AND (
@@ -180,7 +185,7 @@ export default async function customersRoutes(app) {
   // Returns the customer + their full booking history.
   app.get('/:id', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
     const [customer] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, name, email, phone, notes, is_anonymised, anonymised_at, created_at, updated_at
+      SELECT id, name, email, phone, notes, visit_count, is_anonymised, anonymised_at, created_at, updated_at
         FROM customers
        WHERE id = ${req.params.id}
     `)
@@ -205,22 +210,24 @@ export default async function customersRoutes(app) {
   // ── PATCH /customers/:id ───────────────────────────────────
   app.patch('/:id', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
     const body = z.object({
-      name:  z.string().min(1).max(200).optional(),
-      email: z.string().email().nullable().optional(),
-      phone: z.string().max(30).nullable().optional(),
-      notes: z.string().max(2000).nullable().optional(),
+      name:        z.string().min(1).max(200).optional(),
+      email:       z.string().email().nullable().optional(),
+      phone:       z.string().max(30).nullable().optional(),
+      notes:       z.string().max(2000).nullable().optional(),
+      visit_count: z.number().int().min(0).optional(),
     }).parse(req.body)
 
     const [updated] = await withTenant(req.tenantId, tx => tx`
       UPDATE customers
-         SET name       = COALESCE(${body.name ?? null}, name),
-             email      = CASE WHEN ${body.email !== undefined} THEN ${body.email ?? null} ELSE email END,
-             phone      = CASE WHEN ${body.phone !== undefined} THEN ${body.phone ?? null} ELSE phone END,
-             notes      = CASE WHEN ${body.notes !== undefined} THEN ${body.notes ?? null} ELSE notes END,
-             updated_at = now()
+         SET name        = COALESCE(${body.name ?? null}, name),
+             email       = CASE WHEN ${body.email !== undefined} THEN ${body.email ?? null} ELSE email END,
+             phone       = CASE WHEN ${body.phone !== undefined} THEN ${body.phone ?? null} ELSE phone END,
+             notes       = CASE WHEN ${body.notes !== undefined} THEN ${body.notes ?? null} ELSE notes END,
+             visit_count = CASE WHEN ${body.visit_count !== undefined} THEN ${body.visit_count ?? 0} ELSE visit_count END,
+             updated_at  = now()
        WHERE id        = ${req.params.id}
          AND is_anonymised = false
-      RETURNING id, name, email, phone, notes, updated_at
+      RETURNING id, name, email, phone, notes, visit_count, updated_at
     `)
     if (!updated) throw httpError(404, 'Customer not found or already anonymised')
     return updated
@@ -275,7 +282,7 @@ export default async function customersRoutes(app) {
   // GDPR data export — returns a JSON file download.
   app.get('/:id/export', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const [customer] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, name, email, phone, notes, created_at, updated_at, is_anonymised
+      SELECT id, name, email, phone, notes, visit_count, created_at, updated_at, is_anonymised
         FROM customers
        WHERE id = ${req.params.id}
     `)
@@ -297,11 +304,12 @@ export default async function customersRoutes(app) {
     const payload = {
       exported_at:  new Date().toISOString(),
       customer: {
-        name:       customer.name,
-        email:      customer.email,
-        phone:      customer.phone,
-        notes:      customer.notes,
-        created_at: customer.created_at,
+        name:        customer.name,
+        email:       customer.email,
+        phone:       customer.phone,
+        notes:       customer.notes,
+        visit_count: customer.visit_count,
+        created_at:  customer.created_at,
       },
       bookings: bookings.map(b => ({
         reference:  b.reference,

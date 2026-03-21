@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, TriangleAlert, EyeOff, Eye, Columns } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, TriangleAlert, EyeOff, Eye, Columns, Layers } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -338,9 +338,10 @@ export default function Timeline() {
   const [isFullscreen,   setIsFullscreen]   = useState(false)
   const [relocateError,  setRelocateError]  = useState(null)   // message | null
   const [newBookingPrefill, setNewBookingPrefill] = useState(null) // { time, tableId } | null
-  const [hideInactive,   setHideInactive]   = useState(false)  // hide cancelled + no_show cards
-  const [panelMode,      setPanelMode]      = useState(false)  // drawer as side panel (no backdrop)
-  const [nowMs,          setNowMs]          = useState(() => Date.now())
+  const [hideInactive,     setHideInactive]     = useState(false)  // hide cancelled + no_show cards
+  const [panelMode,        setPanelMode]        = useState(false)  // drawer docked alongside timeline
+  const [groupBySections,  setGroupBySections]  = useState(true)   // show section dividers
+  const [nowMs,            setNowMs]            = useState(() => Date.now())
 
   // ── Current-time indicator ───────────────────────────────
   // Update every 30 seconds. Only shown when the selected date is today.
@@ -778,6 +779,18 @@ export default function Timeline() {
             <span className="hidden sm:inline">Cancelled &amp; no-show</span>
           </button>
 
+          {/* Section grouping toggle */}
+          <button
+            onClick={() => setGroupBySections(v => !v)}
+            title={groupBySections ? 'Hide section dividers' : 'Show section dividers'}
+            className={cn(
+              'p-1.5 rounded hover:bg-accent touch-manipulation transition-colors',
+              groupBySections ? 'text-primary bg-primary/10' : 'text-muted-foreground',
+            )}
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+
           {/* Side panel mode toggle */}
           <button
             onClick={() => setPanelMode(v => !v)}
@@ -814,6 +827,12 @@ export default function Timeline() {
           </button>
         </div>
       </div>
+
+      {/* Body row — timeline + optional docked panel */}
+      <div className="flex-1 flex min-h-0">
+
+      {/* Left column: error banner + scrollable timeline */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
       {/* Relocate error banner */}
       {relocateError && (
@@ -875,36 +894,58 @@ export default function Timeline() {
                 </div>
               )}
 
-              {sections.map(([sectionName, sectionTables]) => (
-                <div key={sectionName}>
-                  {/* Section header */}
-                  <div className="px-3 py-1.5 bg-muted/50 border-b">
-                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      {sectionName}
-                    </span>
+              {groupBySections ? (
+                /* ── Grouped: section header + rows ─────────────── */
+                sections.map(([sectionName, sectionTables]) => (
+                  <div key={sectionName}>
+                    <div className="px-3 py-1.5 bg-muted/50 border-b sticky top-[40px] z-[9]">
+                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        {sectionName}
+                      </span>
+                    </div>
+                    {sectionTables.map(table => (
+                      <TableRow
+                        key={table.id}
+                        table={table}
+                        bookings={bookingsByTable[table.id] ?? []}
+                        date={date}
+                        onBookingClick={setSelected}
+                        activeId={activeId}
+                        onResizeStart={handleResizeStart}
+                        resizeBookingId={resizeState?.bookingId}
+                        resizePreviewMs={resizePreviewMs}
+                        comboSpanMap={comboSpanMap}
+                        onCanvasClick={handleCanvasClick}
+                        unavailableStrips={unavailableStrips}
+                        enableUnconfirmedFlow={enableUnconfirmedFlow}
+                        onConfirm={confirmStatusMutation.mutate}
+                        nowX={nowX}
+                      />
+                    ))}
                   </div>
-
-                  {sectionTables.map(table => (
-                    <TableRow
-                      key={table.id}
-                      table={table}
-                      bookings={bookingsByTable[table.id] ?? []}
-                      date={date}
-                      onBookingClick={setSelected}
-                      activeId={activeId}
-                      onResizeStart={handleResizeStart}
-                      resizeBookingId={resizeState?.bookingId}
-                      resizePreviewMs={resizePreviewMs}
-                      comboSpanMap={comboSpanMap}
-                      onCanvasClick={handleCanvasClick}
-                      unavailableStrips={unavailableStrips}
-                      enableUnconfirmedFlow={enableUnconfirmedFlow}
-                      onConfirm={confirmStatusMutation.mutate}
-                      nowX={nowX}
-                    />
-                  ))}
-                </div>
-              ))}
+                ))
+              ) : (
+                /* ── Flat: all tables in sort order, no dividers ─── */
+                sections.flatMap(([, ts]) => ts).map(table => (
+                  <TableRow
+                    key={table.id}
+                    table={table}
+                    bookings={bookingsByTable[table.id] ?? []}
+                    date={date}
+                    onBookingClick={setSelected}
+                    activeId={activeId}
+                    onResizeStart={handleResizeStart}
+                    resizeBookingId={resizeState?.bookingId}
+                    resizePreviewMs={resizePreviewMs}
+                    comboSpanMap={comboSpanMap}
+                    onCanvasClick={handleCanvasClick}
+                    unavailableStrips={unavailableStrips}
+                    enableUnconfirmedFlow={enableUnconfirmedFlow}
+                    onConfirm={confirmStatusMutation.mutate}
+                    nowX={nowX}
+                  />
+                ))
+              )}
             </div>
 
             {/* Drag overlay — ghost card while dragging (explicit z-index beats sticky headers) */}
@@ -919,9 +960,12 @@ export default function Timeline() {
           </DndContext>
         )}
       </div>
+      {/* end timeline scroll */}
+      </div>
+      {/* end left column */}
 
-      {/* Booking detail drawer — use live booking from query so status updates reflect immediately */}
-      {selected && (() => {
+      {/* Docked panel — rendered as flex sibling when panelMode is on */}
+      {panelMode && selected && (() => {
         const liveBooking = bookingsRes.find(b => b.id === selected.id) ?? selected
         return (
           <BookingDrawer
@@ -929,7 +973,23 @@ export default function Timeline() {
             booking={liveBooking}
             onClose={() => setSelected(null)}
             onUpdated={() => queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
-            panelMode={panelMode}
+            inlineMode={true}
+          />
+        )
+      })()}
+
+      </div>
+      {/* end body row */}
+
+      {/* Overlay drawer — floating, only when panelMode is off */}
+      {!panelMode && selected && (() => {
+        const liveBooking = bookingsRes.find(b => b.id === selected.id) ?? selected
+        return (
+          <BookingDrawer
+            key={liveBooking.id}
+            booking={liveBooking}
+            onClose={() => setSelected(null)}
+            onUpdated={() => queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
           />
         )
       })()}
