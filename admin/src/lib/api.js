@@ -38,12 +38,29 @@ export function useApi() {
     return request(token, method, path, body)
   }, [getAccessTokenSilently])
 
+  // download: fetches a binary resource with auth and triggers a browser Save dialog.
+  const download = useCallback(async (path, filename) => {
+    const token = await getAccessTokenSilently()
+    const res   = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null))
+    const blob = await res.blob()
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = filename ?? path.split('/').pop()
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [getAccessTokenSilently])
+
   return {
-    get:    (path)        => call('GET',    path),
-    post:   (path, body)  => call('POST',   path, body),
-    patch:  (path, body)  => call('PATCH',  path, body),
-    put:    (path, body)  => call('PUT',    path, body),
-    delete: (path)        => call('DELETE', path),
+    get:      (path)        => call('GET',    path),
+    post:     (path, body)  => call('POST',   path, body),
+    patch:    (path, body)  => call('PATCH',  path, body),
+    put:      (path, body)  => call('PUT',    path, body),
+    delete:   (path)        => call('DELETE', path),
+    download,
   }
 }
 

@@ -4,7 +4,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   LayoutDashboard, CalendarDays, BookOpen,
-  Building2, Table2, Clock, Settings, Users,
+  Building2, Table2, Clock, Settings, Users, UserRound,
   LogOut, Utensils, LayoutTemplate, Menu, X,
   BookMarked, HelpCircle,
 } from 'lucide-react'
@@ -14,6 +14,7 @@ const NAV = [
   { label: 'Dashboard',   to: '/',            icon: LayoutDashboard },
   { label: 'Timeline',    to: '/timeline',    icon: CalendarDays },
   { label: 'Bookings',    to: '/bookings',    icon: BookOpen },
+  { label: 'Customers',   to: '/customers',   icon: UserRound },
   null,
   { label: 'Venues',      to: '/venues',      icon: Building2 },
   { label: 'Tables',      to: '/tables',      icon: Table2 },

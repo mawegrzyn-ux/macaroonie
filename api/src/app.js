@@ -8,10 +8,11 @@ import rateLimit from '@fastify/rate-limit'
 import { env }          from './config/env.js'
 import { errorHandler } from './middleware/error.js'
 
-import venuesRoutes   from './routes/venues.js'
-import schedulesRoutes from './routes/schedules.js'
-import slotsRoutes    from './routes/slots.js'
-import bookingsRoutes from './routes/bookings.js'
+import venuesRoutes    from './routes/venues.js'
+import schedulesRoutes  from './routes/schedules.js'
+import slotsRoutes      from './routes/slots.js'
+import bookingsRoutes   from './routes/bookings.js'
+import customersRoutes  from './routes/customers.js'
 import paymentsRoutes, { webhookRoutes } from './routes/payments.js'
 
 export async function buildApp() {
@@ -55,6 +56,7 @@ export async function buildApp() {
   await app.register(schedulesRoutes, { prefix: '/api/venues' })
   await app.register(slotsRoutes,     { prefix: '/api/venues' })
   await app.register(bookingsRoutes,  { prefix: '/api/bookings' })
+  await app.register(customersRoutes, { prefix: '/api/customers' })
   await app.register(paymentsRoutes,  { prefix: '/api/payments' })
 
   // ── Health check ─────────────────────────────────────────

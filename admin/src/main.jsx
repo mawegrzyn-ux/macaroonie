@@ -9,6 +9,7 @@ import AppShell    from '@/components/layout/AppShell'
 import Dashboard   from '@/pages/Dashboard'
 import Timeline    from '@/pages/Timeline'
 import Bookings    from '@/pages/Bookings'
+import Customers   from '@/pages/Customers'
 import Venues      from '@/pages/Venues'
 import Tables      from '@/pages/Tables'
 import Schedule    from '@/pages/Schedule'
@@ -64,8 +65,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route element={<AppShell />}>
                 <Route index          element={<Dashboard />} />
                 <Route path="timeline" element={<Timeline />} />
-                <Route path="bookings" element={<Bookings />} />
-                <Route path="venues"   element={<Venues />} />
+                <Route path="bookings"   element={<Bookings />} />
+                <Route path="customers" element={<Customers />} />
+                <Route path="venues"    element={<Venues />} />
                 <Route path="tables"   element={<Tables />} />
                 <Route path="schedule" element={<Schedule />} />
                 <Route path="rules"       element={<Rules />} />

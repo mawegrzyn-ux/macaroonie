@@ -14,6 +14,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
+import { upsertCustomer } from './customers.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -210,6 +211,18 @@ export default async function bookingsRoutes(app) {
       return booking
     })
 
+    // Auto-upsert customer record (fire-and-forget — never block the response)
+    withTenant(req.tenantId, async tx => {
+      const customerId = await upsertCustomer(tx, req.tenantId, {
+        name:  body.guest_name  ?? booking.guest_name,
+        email: body.guest_email ?? booking.guest_email,
+        phone: body.guest_phone ?? booking.guest_phone,
+      })
+      if (customerId) {
+        await tx`UPDATE bookings SET customer_id = ${customerId} WHERE id = ${booking.id}`
+      }
+    }).catch(e => req.log.warn({ err: e }, 'customer upsert failed — booking created without customer link'))
+
     // Enqueue confirmation email (fire-and-forget — never block the response)
     notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: req.tenantId, type: 'confirmation' })
       .catch(e => req.log.warn({ err: e }, 'notification queue unavailable — confirmation email skipped'))
@@ -332,6 +345,18 @@ export default async function bookingsRoutes(app) {
       `
       return bk
     })
+
+    // Auto-upsert customer record (fire-and-forget — never block the response)
+    withTenant(req.tenantId, async tx => {
+      const customerId = await upsertCustomer(tx, req.tenantId, {
+        name:  body.guest_name,
+        email: body.guest_email,
+        phone: body.guest_phone,
+      })
+      if (customerId) {
+        await tx`UPDATE bookings SET customer_id = ${customerId} WHERE id = ${booking.id}`
+      }
+    }).catch(e => req.log.warn({ err: e }, 'customer upsert failed — booking created without customer link'))
 
     // Fire-and-forget — never block the response
     notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: req.tenantId, type: 'confirmation' })

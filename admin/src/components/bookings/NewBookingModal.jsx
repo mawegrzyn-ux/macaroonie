@@ -14,7 +14,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, ChevronRight, Calendar } from 'lucide-react'
+import { X, ChevronRight, Calendar, UserSearch } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime } from '@/lib/utils'
 
@@ -43,6 +43,10 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   const [manualAlloc,     setManualAlloc]     = useState(null)  // { date, time, tableIds, unallocated }
   const [showManualAlloc, setShowManualAlloc] = useState(openManual)
 
+  // Customer search — debounced query driven by guest form fields
+  const [customerQ,    setCustomerQ]    = useState('')
+  const customerQTimer = useRef(null)
+
   function selectTable(id) { setTableId(id); setComboId(null) }
   function selectCombo(id)  { setComboId(id); setTableId(null) }
 
@@ -58,12 +62,41 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     resolver: zodResolver(GuestSchema),
     defaultValues: { covers },
   })
-  const formCovers = watch('covers') ?? covers
+  const formCovers   = watch('covers')      ?? covers
+  const watchedName  = watch('guest_name')  ?? ''
+  const watchedEmail = watch('guest_email') ?? ''
+  const watchedPhone = watch('guest_phone') ?? ''
 
   // Sync covers into guest form whenever step changes to 'guest'
   useEffect(() => {
     if (step === 'guest') reset(v => ({ ...v, covers }))
   }, [step])
+
+  // Debounce customer search — prefer email (most unique), fall back to name, then phone
+  useEffect(() => {
+    if (step !== 'guest') return
+    const term = watchedEmail.length >= 2 ? watchedEmail
+               : watchedName.length  >= 2 ? watchedName
+               : watchedPhone.length >= 2 ? watchedPhone
+               : ''
+    clearTimeout(customerQTimer.current)
+    customerQTimer.current = setTimeout(() => setCustomerQ(term), 300)
+    return () => clearTimeout(customerQTimer.current)
+  }, [watchedEmail, watchedName, watchedPhone, step])
+
+  const { data: customerSuggestions = [] } = useQuery({
+    queryKey: ['customers', 'search', customerQ],
+    queryFn:  () => api.get(`/customers?q=${encodeURIComponent(customerQ)}&limit=8`),
+    enabled:  customerQ.length >= 2 && step === 'guest',
+    staleTime: 10_000,
+  })
+
+  function handleCustomerSelect(customer) {
+    setValue('guest_name',  customer.name,         { shouldValidate: true })
+    setValue('guest_email', customer.email ?? '',  { shouldValidate: true })
+    setValue('guest_phone', customer.phone ?? '',  { shouldValidate: true })
+    setCustomerQ('')  // hide suggestions after selection
+  }
 
   // Fetch tables + combinations
   const { data: tables = [] } = useQuery({
@@ -175,10 +208,12 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     }
   }
 
+  const showSuggestions = step === 'guest' && customerSuggestions.length > 0
+
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 gap-3">
         <div className="bg-background rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh]">
 
           {/* Header */}
@@ -396,6 +431,30 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
             )}
           </div>
         </div>
+
+        {/* Customer suggestions panel — shown to the right of the modal during guest step */}
+        {showSuggestions && (
+          <div className="bg-background rounded-xl shadow-2xl border w-64 shrink-0 flex flex-col overflow-hidden max-h-[70vh] self-center">
+            <div className="flex items-center gap-2 px-3 py-2.5 border-b shrink-0">
+              <UserSearch className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs font-medium text-muted-foreground">Matching customers</span>
+            </div>
+            <div className="overflow-y-auto">
+              {customerSuggestions.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => handleCustomerSelect(c)}
+                  className="w-full text-left px-3 py-2.5 hover:bg-accent border-b last:border-b-0 touch-manipulation transition-colors"
+                >
+                  <p className="text-sm font-medium truncate">{c.name}</p>
+                  {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
+                  {c.phone && <p className="text-xs text-muted-foreground">{c.phone}</p>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <style>{`.input { width: 100%; border: 1px solid hsl(var(--border)); border-radius: 0.5rem; padding: 0.5rem 0.625rem; font-size: 0.875rem; outline: none; background: hsl(var(--background)); } .input:focus { border-color: hsl(var(--primary)); }`}</style>
