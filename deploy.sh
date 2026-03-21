@@ -26,8 +26,10 @@ deploy_api() {
   npm install --production --silent
   # Validate env file exists
   [[ -f .env ]] || die ".env not found at ${APP_DIR}/api/.env"
-  pm2 reload macaroonie-api --update-env 2>/dev/null || pm2 start "${APP_DIR}/ecosystem.config.cjs"
-  pm2 save --force
+  # PM2 runs as APP_USER, not root — use sudo -u to talk to the correct daemon
+  sudo -u "${APP_USER}" pm2 reload macaroonie-api --update-env 2>/dev/null \
+    || sudo -u "${APP_USER}" pm2 start "${APP_DIR}/ecosystem.config.cjs"
+  sudo -u "${APP_USER}" pm2 save --force
   log "API deployed and reloaded"
 }
 
@@ -50,4 +52,4 @@ esac
 
 echo ""
 echo -e "${GREEN}${BOLD}Deploy complete.${NC}"
-pm2 status
+sudo -u "${APP_USER}" pm2 status
