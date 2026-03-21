@@ -233,13 +233,14 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
         {/* B1: Unavailable / out-of-session strips.
-            Clipped for secondary combo rows so the spanning card's own time
-            window is excluded but the rest of the row stays consistent. */}
+            Rendered at zIndex 2 (above booking tiles at z=1) as a semi-transparent
+            tint so the closed-period grey shows even over booking tiles that run
+            past the sitting boundary. pointer-events: none so tiles remain clickable. */}
         {clippedStrips.map(({ x, width }, i) => (
           <div
             key={i}
-            className="absolute top-0 bottom-0 bg-zinc-100 pointer-events-none"
-            style={{ left: Math.max(0, x), width, zIndex: 0 }}
+            className="absolute top-0 bottom-0 pointer-events-none"
+            style={{ left: Math.max(0, x), width, zIndex: 2, background: 'rgba(160,160,160,0.18)' }}
           />
         ))}
 

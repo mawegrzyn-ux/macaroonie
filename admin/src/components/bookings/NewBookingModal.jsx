@@ -128,6 +128,13 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     enabled:  !!venueId && step === 'slot',
   })
 
+  const { data: rulesRes } = useQuery({
+    queryKey: ['booking-rules', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/rules`),
+    enabled:  !!venueId,
+  })
+  const slotDuration = rulesRes?.slot_duration_mins ?? 90
+
   const availableSlots = slotsRes?.slots?.filter(s => s.available) ?? []
 
   // Auto-select the slot matching prefillTime when slots arrive (canvas click flow)
