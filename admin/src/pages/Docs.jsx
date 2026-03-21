@@ -81,7 +81,7 @@ export default function Docs() {
             <Code>{`/
 ├── api/          Node.js API (Fastify)
 ├── admin/        React admin portal (Vite)
-├── migrations/   PostgreSQL migration files (001–018, run in order)
+├── migrations/   PostgreSQL migration files (001–020, run in order)
 ├── setup.sh      One-shot Lightsail server setup
 ├── deploy.sh     Subsequent deployments
 └── CLAUDE.md     Developer context and outstanding items`}</Code>
@@ -168,13 +168,14 @@ export default function Docs() {
             <DataTable
               head={['Page', 'Route', 'Purpose']}
               rows={[
-                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click to create booking. Grey columns = closed or cap=0. Red current-time line (today only).'],
-                ['Bookings', '/bookings', 'Guestplan-style time-grouped list. Stats bar. Inline status change. Phone visible. Permanent resizable right panel.'],
+                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click → ManualAllocModal. Grey columns = closed or cap=0. Red current-time line (today only). FAB (+ button) bottom-right for new bookings.'],
+                ['Bookings', '/bookings', 'Guestplan-style time-grouped list. Stats bar. Inline status change. Phone visible. Permanent resizable right panel (BookingDrawer inlineMode).'],
                 ['Customers', '/customers', 'Customer profiles. Search by name/email/phone. GDPR anonymise and export. Auto-populated from booking confirms.'],
                 ['Venues', '/venues', 'Create and manage restaurant locations.'],
                 ['Tables', '/tables', 'Add tables, define sections, create combinations, set sort order, manage disallowed pairs.'],
                 ['Schedule', '/schedule', 'Weekly template sittings, slot caps, date overrides, schedule exceptions.'],
-                ['Rules', '/rules', 'Booking window, covers limits, hold TTL, smart allocation flags, deposit config, unconfirmed/reconfirmed flow toggles.'],
+                ['Rules', '/rules', 'Booking window, covers limits, hold TTL, smart allocation flags, deposit config, unconfirmed/reconfirmed flow toggles, opening hours enforcement.'],
+                ['Settings', '/settings', 'Theme colour (applied live via CSS custom properties). Timeline view defaults (panel mode, section dividers, hide inactive). Persisted to localStorage.'],
                 ['Team', '/team', 'Invite staff via Auth0 Management API (in development).'],
                 ['Widget test', '/widget-test', 'Runs the full guest booking flow in the portal for testing.'],
                 ['Documentation', '/docs', 'This page.'],
@@ -182,10 +183,12 @@ export default function Docs() {
               ]}
             />
 
-            <H3>New booking modal — two paths</H3>
+            <H3>New booking — FAB &amp; two paths</H3>
             <P>
-              The <strong>+ New booking</strong> button (and canvas click on the Timeline) opens the new booking modal.
-              There are two paths through it:
+              A round <strong>floating action button (FAB)</strong> sits at the bottom-right of the Timeline canvas
+              (<Mono>absolute bottom-6 right-6</Mono>). Tapping it opens the new booking modal.
+              Clicking an empty canvas cell opens <strong>ManualAllocModal</strong> directly with that time and table
+              pre-populated. There are two paths through the modal:
             </P>
             <DataTable
               head={['Path', 'How to trigger', 'Behaviour']}
@@ -227,14 +230,15 @@ export default function Docs() {
             <DataTable
               head={['Status', 'Colour', 'Meaning']}
               rows={[
-                ['unconfirmed', 'Orange', 'Guest booked online; venue must call to confirm (enable_unconfirmed_flow).'],
-                ['confirmed', 'Blue', 'Booking confirmed.'],
-                ['reconfirmed', 'Indigo', 'Operator has called and re-confirmed (enable_reconfirmed_status).'],
-                ['arrived', 'Cyan', 'Guest has arrived at the venue.'],
-                ['seated', 'Green', 'Guest is seated.'],
-                ['checked_out', 'Muted green', 'Guest has left. Excluded from capacity calculations same as cancelled.'],
-                ['cancelled', 'Red', 'Booking cancelled. Excluded from capacity.'],
-                ['no_show', 'Grey', 'Guest did not arrive. Excluded from capacity.'],
+                ['unconfirmed', 'Orange (#fed7aa / #f97316)', 'Guest booked online; venue must call to confirm (enable_unconfirmed_flow).'],
+                ['confirmed', 'Blue (#bfdbfe / #3b82f6)', 'Booking confirmed.'],
+                ['reconfirmed', 'Indigo (#c7d2fe / #6366f1)', 'Operator has called and re-confirmed (enable_reconfirmed_status).'],
+                ['pending_payment', 'Amber (#fde68a / #d97706)', 'Hold awaiting Stripe payment. Set by webhook — not manually selectable.'],
+                ['arrived', 'Cyan (#a5f3fc / #0891b2)', 'Guest has arrived at the venue.'],
+                ['seated', 'Green (#86efac / #16a34a)', 'Guest is seated at their table.'],
+                ['checked_out', 'Grey (#e5e7eb / #9ca3af)', 'Guest has left. Excluded from capacity (same as cancelled / no_show).'],
+                ['cancelled', 'Red (#fca5a5 / #ef4444, opacity 0.45)', 'Booking cancelled. Excluded from capacity.'],
+                ['no_show', 'Grey (#d1d5db / #9ca3af, opacity 0.45)', 'Guest did not arrive. Excluded from capacity.'],
               ]}
             />
 
@@ -244,6 +248,32 @@ export default function Docs() {
               A dot and time label appear in the header bar above the line. The position updates every 30 seconds.
               The indicator is hidden when viewing any date other than today.
             </P>
+
+            <H3>Timeline sidebar controls</H3>
+            <P>
+              All Timeline view controls live in the <strong>AppShell sidebar</strong> above the logout button,
+              only visible when the current route is <Mono>/timeline</Mono>. Controls:
+            </P>
+            <DataTable
+              head={['Control', 'Description']}
+              rows={[
+                ['Venue selector', 'Shown only when the tenant has more than one venue. Stored in TimelineSettingsContext (venueId).'],
+                ['Inactive toggle', 'Hides cancelled/no-show/checked-out bookings from the canvas. Persisted to localStorage.'],
+                ['Sections toggle', 'Shows/hides section divider rows between table groups. Persisted to localStorage.'],
+                ['Panel toggle', 'Switches BookingDrawer between docked right-panel mode and overlay mode. Persisted to localStorage.'],
+                ['Refresh button', 'Triggers an immediate refetch of bookings for the current date.'],
+                ['Fullscreen button', 'Calls document.documentElement.requestFullscreen() / exitFullscreen(). Icon updates on fullscreenchange event.'],
+              ]}
+            />
+
+            <H3>Settings page</H3>
+            <P>
+              Route <Mono>/settings</Mono>. Persists two concerns:
+            </P>
+            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
+              <li><strong>Theme colour</strong> — stored in <Mono>SettingsContext</Mono> (<Mono>maca_settings</Mono> localStorage key). Applied at runtime by converting hex → HSL and writing to <Mono>--primary</Mono> and <Mono>--primary-foreground</Mono> CSS variables on <Mono>:root</Mono>. Foreground is auto-chosen (white/near-black) based on relative luminance.</li>
+              <li><strong>Timeline view defaults</strong> — panel mode, section dividers, hide inactive. Delegates to <Mono>TimelineSettingsContext</Mono> setters which already persist to <Mono>maca_timeline_prefs</Mono>.</li>
+            </ul>
           </section>
 
           {/* ── MULTITENANCY ──────────────────────────────── */}
@@ -568,7 +598,17 @@ Function logic (slot resolution priority):
   4. zero_cap_display:
        'hidden'      → skip slot entirely
        'unavailable' → return with available=false
-  5. Return: { slot_time, available, table_id, combination_id }`}</Code>
+  5. Return per-slot: {
+       slot_time, available, available_covers, reason,
+       table_id, combination_id,
+       sitting_closes_at,   ← last order time for this sitting
+       sitting_doors_close  ← doors close time (nullable)
+     }
+
+Note: a slot is generated if slot_time < closes_at, even if
+slot_time + duration would run past closes_at. The frontend
+shows a warning in the booking modal when the booking end
+time would exceed sitting_closes_at or sitting_doors_close.`}</Code>
 
             <H3>Combination tile spanning (Timeline)</H3>
             <P>
@@ -702,9 +742,28 @@ allTables sorted by sort_order → target at index i
             <H3>Running locally</H3>
             <Code>{`# Prerequisites: Postgres 16, Redis 7, Node 22
 
-# Apply migrations in order
+# Apply migrations in order (001 → 020)
 psql $DATABASE_URL -f migrations/001_tenants_users.sql
-# ... through 015_fix_get_available_slots.sql
+psql $DATABASE_URL -f migrations/002_venues.sql
+psql $DATABASE_URL -f migrations/003_schedules.sql
+psql $DATABASE_URL -f migrations/004_booking_rules.sql
+psql $DATABASE_URL -f migrations/005_bookings.sql
+psql $DATABASE_URL -f migrations/006_functions.sql
+psql $DATABASE_URL -f migrations/007_seed_example.sql
+psql $DATABASE_URL -f migrations/008_table_combinations.sql
+psql $DATABASE_URL -f migrations/009_unallocated.sql
+psql $DATABASE_URL -f migrations/010_allocation_rules.sql
+psql $DATABASE_URL -f migrations/011_doors_close_time.sql
+psql $DATABASE_URL -f migrations/012_reconfirmed_status.sql
+psql $DATABASE_URL -f migrations/012_unconfirmed_status.sql
+psql $DATABASE_URL -f migrations/013_doors_close_per_sitting.sql
+psql $DATABASE_URL -f migrations/014_schedule_exceptions.sql
+psql $DATABASE_URL -f migrations/015_fix_get_available_slots.sql
+psql $DATABASE_URL -f migrations/016_noslot_noshow_cancelled.sql
+psql $DATABASE_URL -f migrations/017_seated_checked_out.sql
+psql $DATABASE_URL -f migrations/018_customers.sql
+psql $DATABASE_URL -f migrations/019_customer_visit_count.sql
+psql $DATABASE_URL -f migrations/020_slot_start_filter.sql
 
 # API
 cd api && cp .env.example .env   # fill in values

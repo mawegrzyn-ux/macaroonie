@@ -15,6 +15,7 @@ const SECTIONS = [
   { id: 'manual-booking',      label: 'Manual Booking' },
   { id: 'bookings',            label: 'Managing Bookings' },
   { id: 'customers',           label: 'Customers & GDPR' },
+  { id: 'settings',            label: 'Settings' },
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
@@ -282,21 +283,26 @@ export default function Help() {
 
             <H3>Last order time and Doors close</H3>
             <P>
-              Each sitting has a <strong>Last order</strong> time — this is the latest slot that will be
-              offered to guests. No new booking slots are generated after this time within the sitting.
-              You can set or change it by clicking the pencil icon on the sitting row.
+              Each sitting has a <strong>Last order</strong> time (the sitting's end time). The system
+              generates booking slots for all times that <em>start</em> at or before the last order time —
+              including the last order time itself. A booking may therefore run past the last order time.
+              If it does, the booking modal will show an amber notice ("This booking ends at HH:MM,
+              after last orders"). The booking can still be confirmed.
             </P>
             <P>
-              Each day also has a <strong>Doors close</strong> time, set via the time picker that appears
-              in the day header when the day is toggled open (next to the Interval field). This represents
-              when the venue physically closes. By default, the booking widget will <strong>hide all slots
-              at or after the Doors close time</strong> — guests will not see those slots, even if they
-              are technically available in the schedule.
+              Each sitting also has an optional <strong>Doors close</strong> time. This represents when
+              the venue physically closes. If a booking would end after doors close, the booking modal
+              shows a red warning. Again, this is informational — the operator can still proceed.
+            </P>
+            <P>
+              The widget uses <strong>Doors close</strong> as a hard cut-off for guest-facing bookings:
+              slots at or after that time are hidden from guests. Operators creating bookings from the
+              admin portal bypass this restriction entirely.
             </P>
             <InfoBox type="info">
-              The Doors close time affects the widget only. Slots at or after that time remain fully
-              visible and bookable from the admin Timeline. Use it to stop online bookings running into
-              your closing time without having to adjust your sitting end times.
+              Set Last order time to when you want to stop accepting new sittings. Set Doors close to
+              when the venue physically closes. The system handles the rest — bookings that start before
+              last order but run past it or past doors close time get a warning, not a block.
             </InfoBox>
 
             <H3>Slot cap overrides</H3>
@@ -530,7 +536,7 @@ export default function Help() {
             <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
               <li>Use the <strong>← →</strong> arrows to move one day at a time, or click the date field to jump to any date.</li>
               <li>Click <strong>Today</strong> to return to the current date instantly.</li>
-              <li>Use the <strong>venue selector</strong> to switch between venues.</li>
+              <li>Switch venue using the <strong>venue selector</strong> in the sidebar (shown only if you have more than one venue).</li>
               <li>Scroll horizontally to see earlier or later times. <strong>Table labels stay pinned</strong> on the left so you always know which row you're looking at.</li>
             </ul>
 
@@ -556,13 +562,15 @@ export default function Help() {
             <H3>Booking tile colours</H3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-6">
               {[
-                ['Not confirmed', '#ffedd5', '#f97316'],
-                ['Confirmed', '#dbeafe', '#3b82f6'],
-                ['Re-confirmed', '#e0e7ff', '#6366f1'],
-                ['Pending payment', '#fef9c3', '#eab308'],
-                ['Completed', '#dcfce7', '#22c55e'],
-                ['Cancelled', '#fee2e2', '#ef4444'],
-                ['No show', '#f3f4f6', '#9ca3af'],
+                ['Not confirmed', '#fed7aa', '#f97316'],
+                ['Confirmed', '#bfdbfe', '#3b82f6'],
+                ['Re-confirmed', '#c7d2fe', '#6366f1'],
+                ['Pending payment', '#fde68a', '#d97706'],
+                ['Arrived', '#a5f3fc', '#0891b2'],
+                ['Seated', '#86efac', '#16a34a'],
+                ['Checked out', '#e5e7eb', '#9ca3af'],
+                ['Cancelled', '#fca5a5', '#ef4444'],
+                ['No show', '#d1d5db', '#9ca3af'],
               ].map(([label, bg, border]) => (
                 <div
                   key={label}
@@ -574,9 +582,26 @@ export default function Help() {
               ))}
             </div>
 
+            <H3>Timeline controls</H3>
+            <P>
+              View settings for the Timeline live in the <strong>sidebar</strong> (left panel), just above
+              the logout button. They only appear when you are on the Timeline page.
+            </P>
+            <DataTable
+              head={['Control', 'What it does']}
+              rows={[
+                ['Venue selector', 'Switch between venues (shown only if you have more than one).'],
+                ['Inactive', 'Hide/show cancelled, no-show, and checked-out bookings on the canvas.'],
+                ['Sections', 'Show/hide section divider labels between table groups.'],
+                ['Panel', 'Switch between a docked right panel and a floating overlay for the booking detail drawer.'],
+                ['Refresh', 'Force-reload all bookings for the current date.'],
+                ['Full screen', 'Expand to full screen — useful at the host stand. Press Escape or click again to exit.'],
+              ]}
+            />
+
             <H3>Making a new booking</H3>
             <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
-              <li>Click <strong>+ New booking</strong> in the top-right toolbar — <em>or</em> click directly on any empty cell on the Timeline canvas. Clicking on the canvas pre-selects that time slot automatically.</li>
+              <li>Tap the <strong>round + button</strong> at the bottom-right of the Timeline — <em>or</em> click directly on any empty cell on the Timeline canvas. Clicking the canvas opens the manual allocation screen pre-filled with that time and table.</li>
               <li>Select the party size (covers).</li>
               <li>Select an available time slot. If you clicked the canvas, the matching slot is already highlighted. The slot label shows which table or combination will be assigned.</li>
               <li>Click <strong>Continue</strong> to proceed to guest details.</li>
@@ -652,9 +677,9 @@ export default function Help() {
 
             <H3>Full screen mode</H3>
             <P>
-              Click the <strong>⛶</strong> (Maximize) icon in the toolbar to expand the Timeline to full
-              screen — useful on tablets at the host stand. Press <strong>Escape</strong> or click the
-              icon again to exit.
+              Click the <strong>Full screen</strong> button in the sidebar (Timeline controls section) to
+              expand to full screen — useful on tablets at the host stand. The icon changes to a Minimize
+              icon when you are in full screen. Press <strong>Escape</strong> or click the icon again to exit.
             </P>
 
             <H3>Live updates</H3>
@@ -684,7 +709,7 @@ export default function Help() {
 
             <H3>How to create a manual booking</H3>
             <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
-              <li>Click <strong>+ New booking</strong> in the top toolbar of the Timeline.</li>
+              <li>Tap the <strong>round + button</strong> at the bottom-right of the Timeline — <em>or</em> click any empty cell on the canvas (which opens the manual allocation screen directly with that time pre-filled).</li>
               <li>Select the number of covers on the slot-selection screen.</li>
               <li>Instead of picking a time slot, click the <strong>Manual allocation</strong> button (amber, next to Continue).</li>
               <li>In the Manual allocation panel, set the <strong>date</strong> and <strong>time</strong> freely — any date or time is valid regardless of your schedule.</li>
@@ -734,10 +759,23 @@ export default function Help() {
             <H3>Rescheduling a booking</H3>
             <P>
               Click <strong>Reschedule</strong> next to the Date &amp; time section. A date picker and
-              time picker appear pre-filled with the current booking time. Change the date and/or time,
-              then click <strong>Move booking</strong>. The booking keeps the same table and its original
-              duration.
+              start-time picker appear pre-filled with the current booking time. Change the date and/or
+              start time, then click <strong>Move booking</strong> in the drawer header.
+              The booking keeps the same table and its original duration.
             </P>
+
+            <H3>Changing the end time</H3>
+            <P>
+              To extend or shorten a booking without changing the start time, click <strong>End time</strong>
+              next to the Date &amp; time section. A time picker appears showing the current end time.
+              Change it and click <strong>Save end time</strong> in the drawer header. The new end time
+              is saved immediately. On a tablet, the native OS time picker opens — use the scroll wheels
+              to select the new time.
+            </P>
+            <InfoBox type="tip">
+              Use "End time" when a table is running over — update the end time so the Timeline reflects
+              the actual occupancy and staff know the table is still in use.
+            </InfoBox>
 
             <H3>Reassigning a table or combination</H3>
             <P>
@@ -764,16 +802,16 @@ export default function Help() {
 
             <H3>Booking statuses</H3>
             <DataTable
-              head={['Status', 'When to use']}
+              head={['Status', 'Tile colour', 'When to use']}
               rows={[
-                ['Unconfirmed', 'Guest booked online; you need to call to confirm (only shown when the "Call to confirm" flow is enabled in Rules).'],
-                ['Confirmed', 'Booking is confirmed and expected.'],
-                ['Reconfirmed', 'You have called the guest to reconfirm their attendance (optional flow, enabled in Rules).'],
-                ['Arrived', 'Guest has arrived at the venue. Set this when the party walks in.'],
-                ['Seated', 'Guest has been shown to their table and is seated.'],
-                ['Checked out', 'Guest has finished and left. The table is now free.'],
-                ['Cancelled', 'Booking has been cancelled. The slot is released back to availability.'],
-                ['No show', 'Guest did not arrive. The slot is released.'],
+                ['Unconfirmed', 'Orange', 'Guest booked online; you need to call to confirm. Only shown when the "Call to confirm" flow is enabled in Rules.'],
+                ['Confirmed', 'Blue', 'Booking is confirmed and expected.'],
+                ['Re-confirmed', 'Indigo', 'You have called the guest to reconfirm their attendance. Optional — enable in Rules.'],
+                ['Arrived', 'Cyan', 'Guest has arrived at the venue. Set this when the party walks in the door.'],
+                ['Seated', 'Green', 'Guest has been shown to their table and is seated.'],
+                ['Checked out', 'Grey', 'Guest has finished and left. Table is free. This status is excluded from capacity counts.'],
+                ['Cancelled', 'Red (faded)', 'Booking has been cancelled. The slot is released back to availability.'],
+                ['No show', 'Grey (faded)', 'Guest did not arrive. The slot is released.'],
               ]}
             />
             <InfoBox type="tip">
@@ -857,6 +895,45 @@ export default function Help() {
               Anonymisation is permanent and irreversible. Once confirmed, the customer's personal details
               cannot be recovered. Only proceed when you have received a valid erasure request.
             </InfoBox>
+          </section>
+
+          {/* ── SETTINGS ──────────────────────────────────── */}
+          <section id="settings" data-help="">
+            <H2>Settings</H2>
+            <P>
+              Go to <strong>Settings</strong> in the sidebar to customise the look and default behaviour
+              of the admin portal. Changes apply immediately and are saved to your browser — they persist
+              across sessions.
+            </P>
+
+            <H3>Theme colour</H3>
+            <P>
+              Click the colour swatch (or the hex text box) to choose a brand colour. The entire portal
+              updates instantly — buttons, active nav items, and primary actions all use the chosen colour.
+              Six preset swatches are provided for quick selection. Your custom colour is remembered even
+              after you close and reopen the browser.
+            </P>
+            <InfoBox type="info">
+              The theme colour is stored locally in your browser. It is not synced across devices or users.
+              Each staff member can set their own preferred colour, or all use the default.
+            </InfoBox>
+
+            <H3>Timeline defaults</H3>
+            <P>
+              The three toggles in the Timeline defaults section control how the Timeline opens by default:
+            </P>
+            <DataTable
+              head={['Setting', 'Description']}
+              rows={[
+                ['Side panel mode', 'When on, the booking detail drawer opens as a docked right panel beside the Timeline. When off, it opens as an overlay on top.'],
+                ['Section dividers', 'When on, table sections (Main Floor, Terrace, etc.) are shown as labelled separator rows in the Timeline.'],
+                ['Hide inactive', 'When on, cancelled, no-show, and checked-out bookings are hidden from the Timeline canvas by default.'],
+              ]}
+            />
+            <P>
+              You can also toggle these live from the sidebar while on the Timeline page — the Settings
+              page just sets the starting state when you next open a new session.
+            </P>
           </section>
 
           {/* ── WIDGET ────────────────────────────────────── */}
@@ -1020,6 +1097,34 @@ export default function Help() {
                 {
                   q: 'Grey columns appear where I expect the venue to be open.',
                   a: 'Grey columns mean the slot query returned no available slots for that time. This usually means no sitting covers that time in your schedule. Check your sittings on the Schedule page and ensure the day is toggled open.',
+                },
+                {
+                  q: 'I can see fewer slots than expected — some late slots are missing.',
+                  a: 'This was fixed in migration 020. Previously the system only showed slots where the entire booking would finish before the last order time. Now any slot that starts at or before the last order time is shown. If you still see fewer slots than expected after applying migration 020, check that the sitting\'s end time (Last order) is set correctly in the Schedule.',
+                },
+                {
+                  q: 'The booking modal shows a warning about running past last orders or doors close.',
+                  a: 'This is informational only — the booking can still be confirmed. The amber warning means the booking end time falls after the sitting\'s last order time. The red warning means it falls after the sitting\'s doors close time. Both warnings are shown to help you plan staffing, but neither blocks the booking.',
+                },
+                {
+                  q: 'A guest\'s booking is running longer than expected — how do I update the end time?',
+                  a: 'Open the booking in the drawer (tap the tile on the Timeline). In the Date & time section, tap the End time button. A time picker appears — select the new end time and tap Save end time in the drawer header. The Timeline updates immediately. On a tablet, the native OS time picker opens automatically.',
+                },
+                {
+                  q: 'I want to change the brand colour / make the portal look different.',
+                  a: 'Go to Settings in the sidebar. In the Appearance section, pick a colour using the colour picker, type a hex value directly, or select one of the preset swatches. The change applies instantly across the whole portal. Settings are saved in your browser and persist across sessions.',
+                },
+                {
+                  q: 'The + New booking button has disappeared from the toolbar.',
+                  a: 'The + New booking button moved from the toolbar to a round floating button at the bottom-right corner of the Timeline canvas. You can also click any empty cell on the canvas to start a manual booking at that time.',
+                },
+                {
+                  q: 'The venue selector / refresh / fullscreen controls are gone from the Timeline toolbar.',
+                  a: 'These controls moved to the sidebar (left menu). They appear above the logout button when you are on the Timeline page. If the sidebar is collapsed to icon-only mode, you will see small icon buttons; expand the sidebar to see the full labels.',
+                },
+                {
+                  q: 'How do I hide cancelled and no-show bookings from the Timeline?',
+                  a: 'In the sidebar, while on the Timeline page, tap the Inactive toggle. This hides cancelled, no-show, and checked-out bookings from the canvas. Tap it again to show them. The setting persists across sessions — it is also configurable as a default in Settings → Timeline defaults.',
                 },
               ].map(({ q, a }) => (
                 <div key={q} className="border rounded-lg p-4">

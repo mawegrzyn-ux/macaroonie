@@ -127,8 +127,11 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/pages/Customers.jsx` — Customer list + resizable detail panel. GDPR anonymise (double-confirm inline) + export (JSON download via api.download()).
 - `src/pages/Docs.jsx` — in-app technical documentation (auto-synced with codebase).
 - `src/pages/Help.jsx` — operator user guide.
-- `src/components/bookings/BookingDrawer.jsx` — booking detail side-panel. Save button in header (contextual per edit mode). Table override: individual checkboxes only, pre-populated from member_table_ids.
-- `src/components/bookings/NewBookingModal.jsx` — admin new booking. Touch-optimised: 48px cover buttons, date-as-button (OS picker), tel input for phone, custom numeric keypad for covers on touch devices. Accepts prefillTime/prefillTableId (canvas click flow). Auto-selects slot matching prefillTime. **Manual allocation** button bypasses slot resolver — opens ManualAllocModal where admin can choose any date, time, and tables regardless of schedule or capacity limits. Customer search panel: as operator types name/email/phone, debounced GET /customers?q= query shows a suggestions panel to the right of the modal. Clicking a result pre-fills all three fields. Walk In button skips guest details (books as 'Walk In', dummy email walkin@walkin.com). autoFocus suppressed on touch devices to prevent iOS keyboard popup.
+- `src/pages/Settings.jsx` — theme colour picker (live CSS var update) + timeline view defaults.
+- `src/contexts/SettingsContext.jsx` — `themeHex` state + `hexToHsl`/`fgForHex`/`applyTheme` helpers. Default `#630812`. Persisted to `maca_settings` localStorage key.
+- `src/contexts/TimelineSettingsContext.jsx` — `hideInactive`, `groupBySections`, `panelMode`, `venueId`, `refetchTrigger`. All three toggles persisted to `maca_timeline_prefs` localStorage.
+- `src/components/bookings/BookingDrawer.jsx` — booking detail side-panel. Save button in header (contextual per edit mode). Table override: individual checkboxes only, pre-populated from member_table_ids. **End time editor**: "End time" button in Date & time section; `PATCH /bookings/:id/duration`; midnight crossover handled.
+- `src/components/bookings/NewBookingModal.jsx` — admin new booking. Touch-optimised: 48px cover buttons, date-as-button (OS picker), tel input for phone, custom numeric keypad for covers on touch devices. Accepts `openManual`/`prefillTime`/`prefillTableId`. **Canvas click flow** opens ManualAllocModal directly. **Manual allocation** button bypasses slot resolver. Customer search: debounced suggestions panel (desktop: side panel; mobile: inline below phone field with × dismiss). Walk In button. autoFocus suppressed on touch. **Slot warnings**: amber when booking end > `sitting_closes_at`; red when > `sitting_doors_close`.
 - `src/components/widget/BookingWidget.jsx` — Self-contained widget component. This is the reference implementation for the Ember.js widget.
 
 ---
@@ -136,12 +139,14 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 ## Database — critical patterns
 
 ### Slot generation
-Slots are **never stored**. They are computed at request time by the `get_available_slots(venue_id, date, covers)` PG function in `006_functions.sql`. The function:
+Slots are **never stored**. They are computed at request time by the `get_available_slots(venue_id, date, covers)` PG function (current definition in `020_slot_start_filter.sql`). The function:
 1. Checks for named schedule exceptions (highest priority) → date override → weekly template
-2. Iterates sittings, generates candidate times at `slot_interval_mins`
-3. Looks up per-slot cover cap (sparse — only stored if different from sitting default)
-4. Subtracts active bookings + non-expired holds from the cap
-5. Applies `zero_cap_display` logic (hidden vs unavailable)
+2. Iterates sittings, generates candidate times at `slot_interval_mins` while `slot_time < closes_at`
+3. **Slot is generated as long as `slot_time < closes_at`** — the booking may run past `closes_at`. Contrast with the old rule which required `slot_time + duration ≤ closes_at`.
+4. Looks up per-slot cover cap (sparse — only stored if different from sitting default)
+5. Subtracts active bookings + non-expired holds from the cap
+6. Applies `zero_cap_display` logic (hidden vs unavailable)
+7. Returns `sitting_closes_at` and `sitting_doors_close` per slot for frontend warnings
 
 ### Double-booking prevention
 Two layers:
@@ -214,6 +219,16 @@ Additionally implemented across development sessions:
 - ✅ **iOS autoFocus suppressed** — `autoFocus={!IS_TOUCH}` on guest name field prevents iOS keyboard popping on modal open
 - ✅ **deploy.sh always builds as ubuntu** — both `npm install` and `npm run build` in `deploy_admin()` and `deploy_api()` now run via `sudo -u ubuntu bash -c ...` so dist/ files are never owned by root
 - ✅ **table_combination_members tenant_id bug** — admin-override INSERT was passing `tenant_id` to `table_combination_members` which has no such column; removed
+- ✅ **checked_out tile colour** — changed from light green to grey (`#e5e7eb` / `#9ca3af`)
+- ✅ **New booking FAB** — `+ New booking` moved from toolbar to round floating action button (`absolute bottom-6 right-6 z-30 w-14 h-14 rounded-full`) on timeline canvas
+- ✅ **Booking tile shape** — `clip-path` arrow polygon removed; tiles are plain rounded rectangles
+- ✅ **Timeline controls → sidebar** — venue selector, inactive toggle, sections toggle, panel toggle, refresh, fullscreen all moved to AppShell sidebar above logout; shown only when route is `/timeline`; icon-only variants for collapsed sidebar
+- ✅ **"Inactive" label** — renamed from "Cancelled and no-show" throughout
+- ✅ **Settings page** — new `/settings` route; `SettingsContext` for `themeHex` (default `#630812`); `hexToHsl` + `fgForHex` helpers; `--primary`/`--primary-foreground` CSS vars applied at runtime; timeline defaults toggles delegate to `TimelineSettingsContext`; persisted to `localStorage` as `maca_settings`
+- ✅ **panelMode to sidebar + localStorage** — `panelMode` moved from local Timeline state into `TimelineSettingsContext`; persisted alongside `hideInactive` and `groupBySections` in `maca_timeline_prefs`
+- ✅ **Mobile customer search inline** — on small screens (`< sm`) suggestions panel moved inline below phone field with × dismiss; desktop side-panel unchanged; pure CSS responsive classes
+- ✅ **Slot start-time filter** — `get_available_slots()` now generates slots where `slot_time < closes_at` only (not `slot_time + duration ≤ closes_at`); migration 020 drops/recreates `slot_result` type adding `sitting_closes_at` and `sitting_doors_close` fields; `GET /slots` passes both fields through; `NewBookingModal` shows amber/red warning when booking end exceeds last-order/doors-close time
+- ✅ **BookingDrawer end-time editor** — "End time" button added to Date & time section; native `<input type="time">` on OS picker; calls existing `PATCH /bookings/:id/duration`; midnight crossover handled; Save in drawer header
 
 ---
 
@@ -280,6 +295,9 @@ Key vars to set before running:
 - **Customer anonymise never deletes** — GDPR right to erasure is implemented by overwriting PII fields with placeholder values and setting `is_anonymised=true`. The row is kept for audit/reporting. Never DELETE a customer row.
 - **`api.download()` in the frontend** — use `api.download(path, filename)` to fetch auth-protected binary responses (JSON exports, etc.). It handles the Auth0 token injection and creates a temporary object URL for the browser Save dialog.
 - **deploy.sh requires root but builds as ubuntu** — the script requires `sudo` to talk to PM2, but all `npm install` / `npm run build` steps must run as the `ubuntu` user to keep `dist/` and `node_modules/` owned by ubuntu. If `dist/` becomes root-owned, run `sudo chown -R ubuntu:ubuntu /home/ubuntu/app/admin/dist` then redeploy.
+- **`slot_result` type requires DROP + CREATE** — PostgreSQL composite types used in functions cannot be altered. Any migration that adds fields to `slot_result` must `DROP FUNCTION get_available_slots` first, then `DROP TYPE slot_result`, then recreate both. See migration 020.
+- **slot warning in booking modal uses local time** — `new Date(slot_time).getHours()` interprets the UTC timestamp in the browser's local timezone. If the server timezone and browser timezone differ, warning thresholds may be slightly off. Fix: use `slotsRes.timezone` to convert properly (outstanding).
+- **`checked_out` is NOT the same as `completed`** — `completed` was renamed to `seated` in migration 017. `checked_out` is a new separate status (after seated). Do not confuse the two in queries or UI labels.
 
 ---
 
