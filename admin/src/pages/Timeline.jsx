@@ -15,12 +15,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, TriangleAlert, EyeOff, Eye, Columns, Layers } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, TriangleAlert, Columns } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
+import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 // ── Constants ────────────────────────────────────────────────
 const HOUR_WIDTH   = 80     // px per hour
@@ -143,8 +144,6 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
     data: { tableId: table.id, isUnallocated },
   })
 
-  const gridLines = Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => i)
-
   // If any booking in this row spawns a multi-row card, the canvas needs its own
   // stacking context (z-index) so it paints above the subsequent row dividers.
   const hasSpanningCard = bookings.some(b => {
@@ -245,7 +244,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         ))}
 
         {/* Hour grid lines */}
-        {gridLines.map(i => (
+        {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => (
           <div
             key={i}
             className="absolute top-0 bottom-0 border-l border-border/40"
@@ -328,20 +327,21 @@ function TimelineHeader({ nowX, nowLabel }) {
 export default function Timeline() {
   const api         = useApi()
   const queryClient = useQueryClient()
+
+  // View settings shared with AppShell sidebar
+  const tlSettings = useTimelineSettings()
+  const { hideInactive, groupBySections, refetchTrigger } = tlSettings
+
   const [date,            setDate]          = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [selectedVenueId, setVenueId]       = useState(null)
   const [activeId,        setActiveId]      = useState(null)
   const [selected,        setSelected]      = useState(null)
   const [showNew,         setShowNew]       = useState(false)
   const [resizeState,     setResizeState]   = useState(null)  // { bookingId, startX, originalEndMs, originalStartMs }
   const [resizePreviewMs, setResizePreviewMs] = useState(null) // ms timestamp for live preview
-  const [isFullscreen,   setIsFullscreen]   = useState(false)
   const [relocateError,  setRelocateError]  = useState(null)   // message | null
   const [newBookingPrefill, setNewBookingPrefill] = useState(null) // { time, tableId } | null
-  const [hideInactive,     setHideInactive]     = useState(false)  // hide cancelled + no_show cards
   const [panelMode,        setPanelMode]        = useState(true)   // docked panel — on by default
   const [panelWidth,       setPanelWidth]       = useState(420)    // px — resizable when docked
-  const [groupBySections,  setGroupBySections]  = useState(true)   // show section dividers
   const [nowMs,            setNowMs]            = useState(() => Date.now())
   const isPanelResizing = useRef(false)
 
@@ -397,8 +397,8 @@ export default function Timeline() {
     queryFn:  () => api.get('/venues'),
   })
 
-  // Computed venueId — avoids null during first render
-  const venueId = selectedVenueId ?? venues[0]?.id ?? null
+  // Computed venueId — AppShell venue selector writes to context; fall back to first venue
+  const venueId = tlSettings.venueId ?? venues[0]?.id ?? null
 
   useRealtimeBookings(venueId)
 
@@ -437,6 +437,11 @@ export default function Timeline() {
     queryFn:  () => api.get(`/venues/${venueId}/slots?date=${date}&covers=1`),
     enabled:  !!venueId,
   })
+
+  // Refresh triggered from the AppShell sidebar button
+  useEffect(() => {
+    if (refetchTrigger > 0) refetch()
+  }, [refetchTrigger])
 
   // B2: Booking rules — check enable_unconfirmed_flow
   const { data: rulesData } = useQuery({
@@ -552,21 +557,6 @@ export default function Timeline() {
       document.removeEventListener('pointerup',   handleUp)
     }
   }, [resizeState])
-
-  // ── Fullscreen ────────────────────────────────────────────
-  useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', handler)
-    return () => document.removeEventListener('fullscreenchange', handler)
-  }, [])
-
-  function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.()
-    } else {
-      document.exitFullscreen?.()
-    }
-  }
 
   // ── Drag handlers ─────────────────────────────────────────
   // PATCH /move  — same-table time-only shift (lightweight, no conflict cascade)
@@ -776,9 +766,10 @@ export default function Timeline() {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 h-14 border-b shrink-0 gap-4">
+        {/* Date navigation */}
         <div className="flex items-center gap-2">
           <button onClick={() => setDate(format(subDays(new Date(date), 1), 'yyyy-MM-dd'))}
-            className="p-1.5 rounded hover:bg-accent"><ChevronLeft className="w-4 h-4" /></button>
+            className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
           <input
             type="date"
             value={date}
@@ -786,90 +777,29 @@ export default function Timeline() {
             className="text-sm border rounded px-2 py-1"
           />
           <button onClick={() => setDate(format(addDays(new Date(date), 1), 'yyyy-MM-dd'))}
-            className="p-1.5 rounded hover:bg-accent"><ChevronRight className="w-4 h-4" /></button>
+            className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronRight className="w-4 h-4" /></button>
           <button onClick={() => setDate(format(new Date(), 'yyyy-MM-dd'))}
-            className="text-xs px-2 py-1 rounded border hover:bg-accent">Today</button>
+            className="text-xs px-2 py-1 rounded border hover:bg-accent touch-manipulation">Today</button>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Venue selector */}
-          <select
-            value={venueId ?? ''}
-            onChange={e => setVenueId(e.target.value)}
-            className="text-sm border rounded px-2 py-1"
-          >
-            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-          </select>
-
-          {/* Hide cancelled / no-show toggle */}
-          <button
-            onClick={() => setHideInactive(v => !v)}
-            title={hideInactive ? 'Show cancelled & no-show' : 'Hide cancelled & no-show'}
-            className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium border touch-manipulation transition-colors',
-              hideInactive
-                ? 'bg-primary text-primary-foreground border-primary'
-                : 'text-muted-foreground border-border hover:bg-accent',
-            )}
-          >
-            {hideInactive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">Cancelled &amp; no-show</span>
-          </button>
-
-          {/* Section grouping toggle */}
-          <button
-            onClick={() => setGroupBySections(v => !v)}
-            title={groupBySections ? 'Hide section dividers' : 'Show section dividers'}
-            className={cn(
-              'p-1.5 rounded hover:bg-accent touch-manipulation transition-colors',
-              groupBySections ? 'text-primary bg-primary/10' : 'text-muted-foreground',
-            )}
-          >
-            <Layers className="w-4 h-4" />
-          </button>
-
-          {/* Side panel mode toggle */}
-          <button
-            onClick={() => setPanelMode(v => !v)}
-            title={panelMode ? 'Drawer overlay mode' : 'Side panel mode'}
-            className={cn(
-              'p-1.5 rounded hover:bg-accent touch-manipulation transition-colors',
-              panelMode ? 'text-primary bg-primary/10' : 'text-muted-foreground',
-            )}
-          >
-            <Columns className="w-4 h-4" />
-          </button>
-
-          <button onClick={() => refetch()}
-            className="p-1.5 rounded hover:bg-accent text-muted-foreground">
-            <RefreshCw className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={toggleFullscreen}
-            className="p-1.5 rounded hover:bg-accent text-muted-foreground"
-            title={isFullscreen ? 'Exit full screen' : 'Full screen'}
-          >
-            {isFullscreen
-              ? <Minimize2 className="w-4 h-4" />
-              : <Maximize2 className="w-4 h-4" />}
-          </button>
-
-          <button
-            onClick={() => setShowNew(true)}
-            disabled={!venueId}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-sm font-medium disabled:opacity-50"
-          >
-            <Plus className="w-4 h-4" /> New booking
-          </button>
-        </div>
+        {/* Side panel mode toggle — everything else moved to AppShell sidebar */}
+        <button
+          onClick={() => setPanelMode(v => !v)}
+          title={panelMode ? 'Drawer overlay mode' : 'Side panel mode'}
+          className={cn(
+            'p-1.5 rounded hover:bg-accent touch-manipulation transition-colors',
+            panelMode ? 'text-primary bg-primary/10' : 'text-muted-foreground',
+          )}
+        >
+          <Columns className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Body row — timeline + optional docked panel */}
       <div className="flex-1 flex min-h-0">
 
       {/* Left column: error banner + scrollable timeline */}
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative">
 
       {/* Relocate error banner */}
       {relocateError && (
@@ -1005,6 +935,17 @@ export default function Timeline() {
       </div>
       {/* end timeline scroll */}
       </div>
+
+      {/* FAB — New booking, anchored to the timeline content column */}
+      <button
+        onClick={() => setShowNew(true)}
+        disabled={!venueId}
+        className="absolute bottom-6 right-6 z-30 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center disabled:opacity-50 touch-manipulation hover:bg-primary/90 transition-colors"
+        title="New booking"
+      >
+        <Plus className="w-6 h-6" />
+      </button>
+
       {/* end left column */}
 
       {/* ── Right panel (docked) ─────────────────────────────

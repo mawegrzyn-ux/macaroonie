@@ -60,6 +60,6 @@
 .timeline-slot.pending_payment{ background: #fde68a; border-left: 3px solid #d97706; }
 .timeline-slot.arrived        { background: #a5f3fc; border-left: 3px solid #0891b2; }
 .timeline-slot.seated         { background: #86efac; border-left: 3px solid #16a34a; }
-.timeline-slot.checked_out    { background: #bbf7d0; border-left: 3px solid #4ade80; }
+.timeline-slot.checked_out    { background: #e5e7eb; border-left: 3px solid #9ca3af; }
 .timeline-slot.cancelled      { background: #fca5a5; border-left: 3px solid #ef4444; opacity: 0.45; }
 .timeline-slot.no_show        { background: #d1d5db; border-left: 3px solid #9ca3af; opacity: 0.45; }

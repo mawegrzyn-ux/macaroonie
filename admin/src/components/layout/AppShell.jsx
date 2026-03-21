@@ -1,14 +1,18 @@
 // src/components/layout/AppShell.jsx
-import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
+import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, CalendarDays, BookOpen,
   Building2, Table2, Clock, Settings, Users, UserRound,
   LogOut, Utensils, LayoutTemplate, Menu, X,
   BookMarked, HelpCircle,
+  Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useApi } from '@/lib/api'
+import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 const NAV = [
   { label: 'Dashboard',   to: '/',            icon: LayoutDashboard },
@@ -51,10 +55,38 @@ function NavItem({ item, open }) {
 
 export default function AppShell() {
   const { user, logout } = useAuth0()
+  const location         = useLocation()
+  const api              = useApi()
+  const tlSettings       = useTimelineSettings()
+  const isOnTimeline     = location.pathname === '/timeline'
+
   // Default: open on desktop (≥1024px), closed on mobile
   const [open, setOpen] = useState(
     () => typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
   )
+
+  // Fullscreen state — tracked here so the sidebar toggle can update its icon
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.()
+    else document.exitFullscreen?.()
+  }
+
+  // Venues list — only fetched when on timeline (TanStack Query caches so
+  // Timeline's own venues query reuses the same data with no extra request)
+  const { data: venues = [] } = useQuery({
+    queryKey: ['venues'],
+    queryFn:  () => api.get('/venues'),
+    enabled:  isOnTimeline,
+  })
+
+  // Derived effective venueId (mirrors Timeline's own fallback logic)
+  const effectiveVenueId = tlSettings.venueId ?? venues[0]?.id ?? ''
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -113,6 +145,112 @@ export default function AppShell() {
               : <NavItem key={item.to} item={item} open={open} />
           )}
         </nav>
+
+        {/* Timeline view settings — shown above logout when on the Timeline page */}
+        {isOnTimeline && (
+          <div className={cn('shrink-0 border-t', open ? 'p-2' : 'p-1')}>
+            {open ? (
+              <>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-1.5">
+                  Timeline
+                </p>
+                {/* Venue selector */}
+                {venues.length > 1 && (
+                  <select
+                    value={effectiveVenueId}
+                    onChange={e => tlSettings.setVenueId(e.target.value)}
+                    className="w-full text-xs border rounded px-2 py-1.5 mb-1.5 bg-background touch-manipulation"
+                  >
+                    {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                )}
+                {/* Toggle buttons */}
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    onClick={() => tlSettings.setHideInactive(v => !v)}
+                    title={tlSettings.hideInactive ? 'Show inactive bookings' : 'Hide inactive bookings'}
+                    className={cn(
+                      'flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation transition-colors',
+                      tlSettings.hideInactive
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'text-muted-foreground border-border hover:bg-accent',
+                    )}
+                  >
+                    {tlSettings.hideInactive ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    Inactive
+                  </button>
+                  <button
+                    onClick={() => tlSettings.setGroupBySections(v => !v)}
+                    title={tlSettings.groupBySections ? 'Hide section dividers' : 'Show section dividers'}
+                    className={cn(
+                      'flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation transition-colors',
+                      tlSettings.groupBySections
+                        ? 'bg-primary/10 text-primary border-primary/30'
+                        : 'text-muted-foreground border-border hover:bg-accent',
+                    )}
+                  >
+                    <Layers className="w-3 h-3" />
+                    Sections
+                  </button>
+                  <button
+                    onClick={tlSettings.triggerRefetch}
+                    title="Refresh timeline"
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation text-muted-foreground border-border hover:bg-accent transition-colors"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Refresh
+                  </button>
+                  <button
+                    onClick={toggleFullscreen}
+                    title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation text-muted-foreground border-border hover:bg-accent transition-colors"
+                  >
+                    {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                    {isFullscreen ? 'Exit' : 'Full'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* Icon-only mode */
+              <div className="flex flex-col items-center gap-0.5">
+                <button
+                  onClick={() => tlSettings.setHideInactive(v => !v)}
+                  title={tlSettings.hideInactive ? 'Show inactive' : 'Hide inactive'}
+                  className={cn(
+                    'p-2 rounded touch-manipulation transition-colors',
+                    tlSettings.hideInactive ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:bg-accent',
+                  )}
+                >
+                  {tlSettings.hideInactive ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+                <button
+                  onClick={() => tlSettings.setGroupBySections(v => !v)}
+                  title={tlSettings.groupBySections ? 'Hide sections' : 'Show sections'}
+                  className={cn(
+                    'p-2 rounded touch-manipulation transition-colors',
+                    tlSettings.groupBySections ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:bg-accent',
+                  )}
+                >
+                  <Layers className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={tlSettings.triggerRefetch}
+                  title="Refresh"
+                  className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={toggleFullscreen}
+                  title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+                  className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation"
+                >
+                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* User footer */}
         <div className="shrink-0 p-2 border-t">

@@ -6,6 +6,7 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import AppShell    from '@/components/layout/AppShell'
+import { TimelineSettingsProvider } from '@/contexts/TimelineSettingsContext'
 import Dashboard   from '@/pages/Dashboard'
 import Timeline    from '@/pages/Timeline'
 import Bookings    from '@/pages/Bookings'
@@ -59,6 +60,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       cacheLocation="localstorage"
     >
       <QueryClientProvider client={queryClient}>
+        <TimelineSettingsProvider>
         <BrowserRouter>
           <RequireAuth>
             <Routes>
@@ -79,6 +81,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             </Routes>
           </RequireAuth>
         </BrowserRouter>
+        </TimelineSettingsProvider>
       </QueryClientProvider>
     </Auth0Provider>
   </React.StrictMode>
