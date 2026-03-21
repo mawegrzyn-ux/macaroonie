@@ -107,6 +107,91 @@ export default async function schedulesRoutes(app) {
     })
   })
 
+  // ── GET /venues/:venueId/schedule/sittings-for-date?date= ─
+  // Returns the resolved sittings (opens_at, closes_at) for a specific date,
+  // applying the same Priority 1→2→3 resolution as get_available_slots():
+  //   1. schedule_exceptions  2. schedule_date_overrides  3. venue_schedule_templates
+  // Used by the Timeline to draw accurate grey strips based on exact sitting
+  // open/close times, independent of slot_duration_mins constraints.
+  app.get('/:venueId/schedule/sittings-for-date', async (req) => {
+    const { venueId } = req.params
+    const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(req.query.date)
+    // DOW: 0=Sun … 6=Sat, matching PostgreSQL EXTRACT(DOW FROM date)
+    const dow = new Date(date + 'T12:00:00Z').getUTCDay()
+
+    return withTenant(req.tenantId, async tx => {
+      // Priority 1: named schedule exception
+      const [exception] = await tx`
+        SELECT id, is_closed
+          FROM schedule_exceptions
+         WHERE venue_id  = ${venueId}
+           AND ${date}::date BETWEEN date_from AND date_to
+         ORDER BY priority DESC, (date_to - date_from) ASC
+         LIMIT 1
+      `
+
+      if (exception) {
+        if (exception.is_closed) return { sittings: [] }
+
+        const [excTemplate] = await tx`
+          SELECT id, is_open
+            FROM exception_day_templates
+           WHERE exception_id = ${exception.id}
+             AND day_of_week  = ${dow}
+        `
+
+        if (excTemplate) {
+          if (!excTemplate.is_open) return { sittings: [] }
+          const sittings = await tx`
+            SELECT opens_at, closes_at
+              FROM exception_sittings
+             WHERE template_id = ${excTemplate.id}
+             ORDER BY opens_at
+          `
+          return { sittings }
+        }
+        // Exception found but no DOW template — fall through to override / weekly
+      }
+
+      // Priority 2: single-date override
+      const [override] = await tx`
+        SELECT id, is_open
+          FROM schedule_date_overrides
+         WHERE venue_id     = ${venueId}
+           AND override_date = ${date}::date
+      `
+
+      if (override) {
+        if (!override.is_open) return { sittings: [] }
+        const sittings = await tx`
+          SELECT opens_at, closes_at
+            FROM override_sittings
+           WHERE override_id = ${override.id}
+           ORDER BY opens_at
+        `
+        return { sittings }
+      }
+
+      // Priority 3: weekly template
+      const [template] = await tx`
+        SELECT id, is_open
+          FROM venue_schedule_templates
+         WHERE venue_id    = ${venueId}
+           AND day_of_week = ${dow}
+      `
+
+      if (!template || !template.is_open) return { sittings: [] }
+
+      const sittings = await tx`
+        SELECT opens_at, closes_at
+          FROM venue_sittings
+         WHERE template_id = ${template.id}
+         ORDER BY opens_at
+      `
+      return { sittings }
+    })
+  })
+
   // ── PUT /venues/:venueId/schedule/template/:dow ───────────
   // Upsert a day template (is_open + interval).
   app.put('/:venueId/schedule/template/:dow', { preHandler: requireRole('admin', 'owner') }, async (req) => {

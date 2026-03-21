@@ -36,6 +36,13 @@ function timeToX(iso) {
   return (hours - START_HOUR) * HOUR_WIDTH
 }
 
+// Convert a Postgres TIME string ('HH:MM' or 'HH:MM:SS') to canvas x position.
+// Used to convert sitting opens_at/closes_at (not full timestamps) to pixels.
+function sittingTimeToX(t) {
+  const [h, m] = t.split(':').map(Number)
+  return (h + m / 60 - START_HOUR) * HOUR_WIDTH
+}
+
 function durationToWidth(startIso, endIso) {
   const start = parseISO(startIso)
   const end   = parseISO(endIso)
@@ -316,7 +323,16 @@ export default function Timeline() {
     refetchInterval: 60_000,
   })
 
-  // B1: Slot availability overlay — grey strips for fully-unavailable slots
+  // B1a: Resolved sittings for the selected date — used for precise grey boundaries.
+  // Applies Priority 1→2→3 resolution server-side; returns exact opens_at/closes_at
+  // strings ('HH:MM:SS') unaffected by slot_duration_mins filtering.
+  const { data: sittingsForDate } = useQuery({
+    queryKey: ['sittings-for-date', venueId, date],
+    queryFn:  () => api.get(`/venues/${venueId}/schedule/sittings-for-date?date=${date}`),
+    enabled:  !!venueId,
+  })
+
+  // B1b: Slot overlay — used only to detect cap=0 slots (reason='unavailable').
   const { data: slotsOverlay } = useQuery({
     queryKey: ['slots-overlay', venueId, date],
     queryFn:  () => api.get(`/venues/${venueId}/slots?date=${date}&covers=1`),
@@ -331,65 +347,62 @@ export default function Timeline() {
   })
   const enableUnconfirmedFlow = rulesData?.enable_unconfirmed_flow ?? false
 
-  // B1: Compute grey strip positions covering:
-  //   • time before the first sitting (outside schedule)
-  //   • gaps between sittings (outside schedule)
-  //   • slots where cap is explicitly set to 0 (reason='unavailable')
-  //   • time after the last sitting (outside schedule)
+  // B1: Compute grey strips.
   //
   // Grey rules (exactly two):
-  //   1. Hours outside schedule (before first sitting open, after last sitting close) → grey
+  //   1. Hours outside sitting open→close times → grey
+  //      Uses exact opens_at/closes_at from the resolved sittings endpoint,
+  //      so slot_duration_mins has no effect on where grey starts/ends.
   //   2. Slot cap explicitly set to 0 (reason='unavailable') → grey
-  //   Fully-booked slots (reason='full') are NOT greyed — they stay white.
   //
-  // Slot interval is derived as the minimum gap between consecutive slot_times
-  // so a large inter-sitting gap is never mistaken for the interval.
+  // Fully-booked slots (reason='full') are NOT greyed — they stay white.
   const unavailableStrips = useMemo(() => {
-    const slots = slotsOverlay?.slots ?? []
+    const sittings = sittingsForDate?.sittings ?? null
+    const slots    = slotsOverlay?.slots        ?? []
 
-    // No slots → entire timeline is grey (no schedule configured for this date)
-    if (slots.length === 0) return [{ x: 0, width: TOTAL_WIDTH }]
+    // Not loaded yet — show nothing (avoid flash of full-grey before data arrives)
+    if (sittings === null) return []
 
-    // Infer the slot interval (minimum gap between any two consecutive slots)
-    let intervalMs = Infinity
-    for (let i = 1; i < slots.length; i++) {
-      const gap = new Date(slots[i].slot_time) - new Date(slots[i - 1].slot_time)
-      if (gap < intervalMs) intervalMs = gap
-    }
-    const intervalPx = (intervalMs / 3_600_000) * HOUR_WIDTH
+    // No sittings on this date → entire timeline grey
+    if (sittings.length === 0) return [{ x: 0, width: TOTAL_WIDTH }]
 
     const strips = []
 
-    // 1. Before the first slot (outside schedule)
-    const firstX = Math.max(0, timeToX(slots[0].slot_time))
-    if (firstX > 0) strips.push({ x: 0, width: firstX })
+    // Rule 1: outside sitting hours
+    const sorted = [...sittings].sort((a, b) => a.opens_at.localeCompare(b.opens_at))
 
-    for (let i = 0; i < slots.length; i++) {
-      const x = timeToX(slots[i].slot_time)
+    // Before first sitting
+    const firstOpenX = sittingTimeToX(sorted[0].opens_at)
+    if (firstOpenX > 0) strips.push({ x: 0, width: firstOpenX })
 
-      // 2. Cap explicitly set to 0 → grey
-      //    reason='unavailable' = operator blocked this interval (cap = 0)
-      //    reason='full'        = booked up — NOT greyed, stays white
-      if (slots[i].reason === 'unavailable') strips.push({ x, width: intervalPx })
+    // Gaps between sittings + after last sitting
+    for (let i = 0; i < sorted.length; i++) {
+      const closeX    = sittingTimeToX(sorted[i].closes_at)
+      const nextOpenX = i < sorted.length - 1
+        ? sittingTimeToX(sorted[i + 1].opens_at)
+        : TOTAL_WIDTH   // grey from last sitting close to right edge of canvas
+      if (nextOpenX > closeX) {
+        strips.push({ x: closeX, width: nextOpenX - closeX })
+      }
+    }
 
-      // Gap to next slot — if significantly wider than the slot interval
-      // it's a between-sittings gap, not just the natural spacing between slots
-      if (i < slots.length - 1) {
-        const nextX = timeToX(slots[i + 1].slot_time)
-        const gapPx = nextX - x
-        if (gapPx > intervalPx * 1.5) {
-          strips.push({ x: x + intervalPx, width: gapPx - intervalPx })
+    // Rule 2: cap=0 slots within sittings
+    if (slots.length > 1) {
+      let intervalMs = Infinity
+      for (let i = 1; i < slots.length; i++) {
+        const gap = new Date(slots[i].slot_time) - new Date(slots[i - 1].slot_time)
+        if (gap < intervalMs) intervalMs = gap
+      }
+      const intervalPx = (intervalMs / 3_600_000) * HOUR_WIDTH
+      for (const slot of slots) {
+        if (slot.reason === 'unavailable') {
+          strips.push({ x: timeToX(slot.slot_time), width: intervalPx })
         }
       }
     }
 
-    // After the last slot (outside schedule)
-    const lastX = timeToX(slots[slots.length - 1].slot_time)
-    const afterX = lastX + intervalPx
-    if (afterX < TOTAL_WIDTH) strips.push({ x: afterX, width: TOTAL_WIDTH - afterX })
-
     return strips
-  }, [slotsOverlay])
+  }, [sittingsForDate, slotsOverlay])
 
   // ── Resize handlers ───────────────────────────────────────
   const resizeMutation = useMutation({
