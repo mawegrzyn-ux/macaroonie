@@ -7,7 +7,7 @@
     --background:         0 0% 100%;
     --foreground:         224 14% 10%;
     --border:             220 13% 91%;
-    --primary:            221 83% 53%;
+    --primary:            353 85% 21%;
     --primary-foreground: 0 0% 100%;
     --muted:              220 14% 96%;
     --muted-foreground:   220 9% 46%;
@@ -37,10 +37,7 @@
   position: absolute;
   top: 2px;
   bottom: 2px;
-  /* Arrow / flag shape — right edge tapers to a point at 50% height.
-     The 8px notch keeps resize handle clearance. */
-  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%);
-  border-radius: 3px 0 0 3px;
+  border-radius: 3px;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;

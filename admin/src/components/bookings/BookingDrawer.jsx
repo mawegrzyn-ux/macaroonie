@@ -45,6 +45,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
   const [editingGuest,    setEditingGuest]    = useState(false)
   const [showTablePicker, setShowTablePicker] = useState(false)
   const [showReschedule,  setShowReschedule]  = useState(false)
+  const [editingEndTime,  setEditingEndTime]  = useState(false)
   const [confirmDelete,   setConfirmDelete]   = useState(false)
 
   // ── Operator notes ────────────────────────────────────────
@@ -109,6 +110,10 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     const d = new Date(booking.starts_at)
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   })
+  const [endTimeValue, setEndTimeValue] = useState(() => {
+    const d = new Date(booking.ends_at)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  })
 
   // ── Venue rules — controls which statuses appear in the dropdown ─
   const { data: rules } = useQuery({
@@ -167,6 +172,11 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     onSuccess: () => { setShowReschedule(false); onUpdated() },
   })
 
+  const durationMutation = useMutation({
+    mutationFn: ({ endsAt }) => api.patch(`/bookings/${booking.id}/duration`, { ends_at: endsAt }),
+    onSuccess: () => { setEditingEndTime(false); onUpdated() },
+  })
+
   const deleteMutation = useMutation({
     mutationFn: () => api.delete(`/bookings/${booking.id}`),
     onSuccess:  () => { onUpdated(); onClose() },
@@ -177,6 +187,18 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     const local = new Date(`${rescheduleDate}T${rescheduleTime}:00`)
     if (isNaN(local.getTime())) return
     moveMutation.mutate({ startsAt: local.toISOString() })
+  }
+
+  // ── End time handler ──────────────────────────────────────
+  function handleEndTimeSave() {
+    const startDate = new Date(booking.starts_at).toISOString().slice(0, 10)
+    let local       = new Date(`${startDate}T${endTimeValue}:00`)
+    if (isNaN(local.getTime())) return
+    // If end time is not after start (e.g. crosses midnight), bump to next day
+    if (local <= new Date(booking.starts_at)) {
+      local = new Date(local.getTime() + 24 * 60 * 60_000)
+    }
+    durationMutation.mutate({ endsAt: local.toISOString() })
   }
 
   // ── Guest edit helpers ────────────────────────────────────
@@ -252,6 +274,11 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
       label:    moveMutation.isPending     ? 'Moving…'   : 'Move booking',
       onClick:  handleReschedule,
       disabled: moveMutation.isPending,
+    }
+    if (editingEndTime) return {
+      label:    durationMutation.isPending ? 'Saving…'   : 'Save end time',
+      onClick:  handleEndTimeSave,
+      disabled: durationMutation.isPending,
     }
     return null
   })()
@@ -337,13 +364,14 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
           <Section
             title="Date & time"
             action={
-              !showReschedule
-                ? <ActionButton icon={Calendar} onClick={() => setShowReschedule(true)}>
-                    Reschedule
-                  </ActionButton>
-                : <ActionButton onClick={() => setShowReschedule(false)} variant="cancel">
-                    Cancel
-                  </ActionButton>
+              showReschedule
+                ? <ActionButton onClick={() => setShowReschedule(false)} variant="cancel">Cancel</ActionButton>
+                : editingEndTime
+                  ? <ActionButton onClick={() => setEditingEndTime(false)} variant="cancel">Cancel</ActionButton>
+                  : <div className="flex gap-1.5">
+                      <ActionButton icon={Calendar} onClick={() => setShowReschedule(true)}>Reschedule</ActionButton>
+                      <ActionButton icon={Clock} onClick={() => setEditingEndTime(true)}>End time</ActionButton>
+                    </div>
             }
           >
             <Row icon={Clock}>
@@ -359,22 +387,43 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                       type="date"
                       value={rescheduleDate}
                       onChange={e => setRescheduleDate(e.target.value)}
-                      className="w-full text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary"
+                      className="w-full text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary touch-manipulation"
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-muted-foreground block mb-1">Time</label>
+                    <label className="text-xs text-muted-foreground block mb-1">Start time</label>
                     <input
                       type="time"
                       step="900"
                       value={rescheduleTime}
                       onChange={e => setRescheduleTime(e.target.value)}
-                      className="text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary"
+                      className="text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary touch-manipulation"
                     />
                   </div>
                 </div>
                 {moveMutation.isError && (
                   <p className="text-xs text-destructive">{moveMutation.error?.message ?? 'Failed to move booking'}</p>
+                )}
+              </div>
+            )}
+
+            {editingEndTime && (
+              <div className="mt-4 space-y-3">
+                <div className="flex items-end gap-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground block mb-1">End time</label>
+                    <input
+                      type="time"
+                      step="900"
+                      value={endTimeValue}
+                      onChange={e => setEndTimeValue(e.target.value)}
+                      className="text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary touch-manipulation"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground pb-2.5">Starts: {formatDateTime(booking.starts_at)}</p>
+                </div>
+                {durationMutation.isError && (
+                  <p className="text-xs text-destructive">{durationMutation.error?.message ?? 'Failed to update end time'}</p>
                 )}
               </div>
             )}

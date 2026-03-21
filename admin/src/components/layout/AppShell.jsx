@@ -7,8 +7,8 @@ import {
   LayoutDashboard, CalendarDays, BookOpen,
   Building2, Table2, Clock, Settings, Users, UserRound,
   LogOut, Utensils, LayoutTemplate, Menu, X,
-  BookMarked, HelpCircle,
-  Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2,
+  BookMarked, HelpCircle, SlidersHorizontal,
+  Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
@@ -24,6 +24,7 @@ const NAV = [
   { label: 'Tables',      to: '/tables',      icon: Table2 },
   { label: 'Schedule',    to: '/schedule',    icon: Clock },
   { label: 'Rules',       to: '/rules',       icon: Settings },
+  { label: 'Settings',    to: '/settings',    icon: SlidersHorizontal },
   { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate },
   null,
   { label: 'Team',          to: '/team',   icon: Users },
@@ -193,6 +194,19 @@ export default function AppShell() {
                     Sections
                   </button>
                   <button
+                    onClick={() => tlSettings.setPanelMode(v => !v)}
+                    title={tlSettings.panelMode ? 'Drawer overlay mode' : 'Side panel mode'}
+                    className={cn(
+                      'flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation transition-colors',
+                      tlSettings.panelMode
+                        ? 'bg-primary/10 text-primary border-primary/30'
+                        : 'text-muted-foreground border-border hover:bg-accent',
+                    )}
+                  >
+                    <Columns className="w-3 h-3" />
+                    Panel
+                  </button>
+                  <button
                     onClick={tlSettings.triggerRefetch}
                     title="Refresh timeline"
                     className="flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation text-muted-foreground border-border hover:bg-accent transition-colors"
@@ -232,6 +246,16 @@ export default function AppShell() {
                   )}
                 >
                   <Layers className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => tlSettings.setPanelMode(v => !v)}
+                  title={tlSettings.panelMode ? 'Drawer overlay mode' : 'Side panel mode'}
+                  className={cn(
+                    'p-2 rounded touch-manipulation transition-colors',
+                    tlSettings.panelMode ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:bg-accent',
+                  )}
+                >
+                  <Columns className="w-4 h-4" />
                 </button>
                 <button
                   onClick={tlSettings.triggerRefetch}

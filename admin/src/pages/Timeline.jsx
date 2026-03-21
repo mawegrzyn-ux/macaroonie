@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, TriangleAlert, Columns } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, TriangleAlert } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -328,9 +328,9 @@ export default function Timeline() {
   const api         = useApi()
   const queryClient = useQueryClient()
 
-  // View settings shared with AppShell sidebar
+  // View settings shared with AppShell sidebar (panelMode now lives in context)
   const tlSettings = useTimelineSettings()
-  const { hideInactive, groupBySections, refetchTrigger } = tlSettings
+  const { hideInactive, groupBySections, panelMode, refetchTrigger } = tlSettings
 
   const [date,            setDate]          = useState(format(new Date(), 'yyyy-MM-dd'))
   const [activeId,        setActiveId]      = useState(null)
@@ -340,7 +340,6 @@ export default function Timeline() {
   const [resizePreviewMs, setResizePreviewMs] = useState(null) // ms timestamp for live preview
   const [relocateError,  setRelocateError]  = useState(null)   // message | null
   const [newBookingPrefill, setNewBookingPrefill] = useState(null) // { time, tableId } | null
-  const [panelMode,        setPanelMode]        = useState(true)   // docked panel — on by default
   const [panelWidth,       setPanelWidth]       = useState(420)    // px — resizable when docked
   const [nowMs,            setNowMs]            = useState(() => Date.now())
   const isPanelResizing = useRef(false)
@@ -764,35 +763,20 @@ export default function Timeline() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 h-14 border-b shrink-0 gap-4">
-        {/* Date navigation */}
-        <div className="flex items-center gap-2">
-          <button onClick={() => setDate(format(subDays(new Date(date), 1), 'yyyy-MM-dd'))}
-            className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="text-sm border rounded px-2 py-1"
-          />
-          <button onClick={() => setDate(format(addDays(new Date(date), 1), 'yyyy-MM-dd'))}
-            className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronRight className="w-4 h-4" /></button>
-          <button onClick={() => setDate(format(new Date(), 'yyyy-MM-dd'))}
-            className="text-xs px-2 py-1 rounded border hover:bg-accent touch-manipulation">Today</button>
-        </div>
-
-        {/* Side panel mode toggle — everything else moved to AppShell sidebar */}
-        <button
-          onClick={() => setPanelMode(v => !v)}
-          title={panelMode ? 'Drawer overlay mode' : 'Side panel mode'}
-          className={cn(
-            'p-1.5 rounded hover:bg-accent touch-manipulation transition-colors',
-            panelMode ? 'text-primary bg-primary/10' : 'text-muted-foreground',
-          )}
-        >
-          <Columns className="w-4 h-4" />
-        </button>
+      {/* Toolbar — date navigation only; view controls are in AppShell sidebar */}
+      <div className="flex items-center px-4 h-14 border-b shrink-0 gap-2">
+        <button onClick={() => setDate(format(subDays(new Date(date), 1), 'yyyy-MM-dd'))}
+          className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
+        <input
+          type="date"
+          value={date}
+          onChange={e => setDate(e.target.value)}
+          className="text-sm border rounded px-2 py-1"
+        />
+        <button onClick={() => setDate(format(addDays(new Date(date), 1), 'yyyy-MM-dd'))}
+          className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronRight className="w-4 h-4" /></button>
+        <button onClick={() => setDate(format(new Date(), 'yyyy-MM-dd'))}
+          className="text-xs px-2 py-1 rounded border hover:bg-accent touch-manipulation">Today</button>
       </div>
 
       {/* Body row — timeline + optional docked panel */}

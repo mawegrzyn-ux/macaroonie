@@ -14,7 +14,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, ChevronRight, Calendar, UserSearch } from 'lucide-react'
+import { X, ChevronRight, Calendar, UserSearch, TriangleAlert } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
@@ -338,16 +338,39 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                       })}
                     </div>
                   )}
-                  {selectedSlot && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Table:{' '}
-                      <span className="font-medium text-foreground">
-                        {selectedSlot.combination_id
-                          ? (combinations.find(c => c.id === selectedSlot.combination_id)?.name ?? 'combo')
-                          : (tables.find(t => t.id === selectedSlot.table_id)?.label ?? '—')}
-                      </span>
-                    </p>
-                  )}
+                  {selectedSlot && (() => {
+                    const slotEndMs   = new Date(selectedSlot.slot_time).getTime() + slotDuration * 60_000
+                    const slotEnd     = new Date(slotEndMs)
+                    const endHHMM     = `${String(slotEnd.getHours()).padStart(2,'0')}:${String(slotEnd.getMinutes()).padStart(2,'0')}`
+                    const closesAt    = selectedSlot.sitting_closes_at?.slice(0, 5)
+                    const doorsClose  = selectedSlot.sitting_doors_close?.slice(0, 5)
+                    const overLastOrder = closesAt   && endHHMM > closesAt
+                    const overDoors     = doorsClose && endHHMM > doorsClose
+                    return (
+                      <>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Table:{' '}
+                          <span className="font-medium text-foreground">
+                            {selectedSlot.combination_id
+                              ? (combinations.find(c => c.id === selectedSlot.combination_id)?.name ?? 'combo')
+                              : (tables.find(t => t.id === selectedSlot.table_id)?.label ?? '—')}
+                          </span>
+                        </p>
+                        {overDoors && (
+                          <div className="flex items-start gap-2 mt-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/30 text-xs text-destructive">
+                            <TriangleAlert className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                            <span>This booking ends at <strong>{endHHMM}</strong>, after doors close ({doorsClose}).</span>
+                          </div>
+                        )}
+                        {!overDoors && overLastOrder && (
+                          <div className="flex items-start gap-2 mt-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                            <TriangleAlert className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                            <span>This booking ends at <strong>{endHHMM}</strong>, after last orders ({closesAt}).</span>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
             )}
@@ -396,6 +419,40 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                     placeholder="+44 7700 900000"
                   />
                 </Field>
+
+                {/* Mobile customer suggestions — shown inline below fields on small screens */}
+                {showSuggestions && (
+                  <div className="sm:hidden border rounded-lg overflow-hidden bg-background">
+                    <div className="flex items-center gap-2 px-3 py-2 border-b">
+                      <UserSearch className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                      <span className="text-xs font-medium text-muted-foreground flex-1">Matching customers</span>
+                      <button
+                        type="button"
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => { setCustomerQ(''); setActiveSearchField(null) }}
+                        className="p-0.5 rounded hover:bg-accent touch-manipulation"
+                        title="Dismiss"
+                      >
+                        <X className="w-3.5 h-3.5 text-muted-foreground" />
+                      </button>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {customerSuggestions.map(c => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => handleCustomerSelect(c)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-accent border-b last:border-b-0 touch-manipulation transition-colors"
+                        >
+                          <p className="text-sm font-medium truncate">{c.name}</p>
+                          {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
+                          {c.phone && <p className="text-xs text-muted-foreground">{c.phone}</p>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* A4: Covers stepper — +/− buttons flanking a tappable value.
                     On touch devices the value opens a custom numeric keypad
@@ -467,10 +524,10 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
           </div>
         </div>
 
-        {/* Customer suggestions — absolutely anchored to the right of the modal.
-            The modal never moves; this panel just appears alongside it. */}
+        {/* Customer suggestions — desktop/tablet: panel to the right of the modal.
+            Hidden on mobile (sm:hidden screens use the inline panel inside the form). */}
         {showSuggestions && (
-          <div className="absolute left-[calc(100%+12px)] top-0 bg-background rounded-xl shadow-2xl border w-64 flex flex-col overflow-hidden max-h-[70vh]">
+          <div className="hidden sm:flex absolute left-[calc(100%+12px)] top-0 bg-background rounded-xl shadow-2xl border w-64 flex-col overflow-hidden max-h-[70vh]">
             <div className="flex items-center gap-2 px-3 py-2.5 border-b shrink-0">
               <UserSearch className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               <span className="text-xs font-medium text-muted-foreground">Matching customers</span>

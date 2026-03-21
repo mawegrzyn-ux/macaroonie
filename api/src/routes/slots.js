@@ -55,6 +55,8 @@ export default async function slotsRoutes(app) {
           s.available,
           s.available_covers,
           s.reason,
+          s.sitting_closes_at,
+          s.sitting_doors_close,
           -- First available individual table for these covers at this slot
           (
             SELECT t.id
