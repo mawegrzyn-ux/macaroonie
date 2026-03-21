@@ -15,7 +15,7 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   X, Mail, Phone, Users, Clock, CreditCard,
-  Pencil, TriangleAlert, Calendar, ChevronDown, Trash2,
+  Pencil, TriangleAlert, Calendar, Trash2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
@@ -41,12 +41,11 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
   const api = useApi()
 
   // ── Edit mode flags ───────────────────────────────────────
-  const [editingNotes,      setEditingNotes]      = useState(false)
-  const [editingGuest,      setEditingGuest]      = useState(false)
-  const [showTablePicker,   setShowTablePicker]   = useState(false)
-  const [showReschedule,    setShowReschedule]    = useState(false)
-  const [showStatusDropdown, setShowStatusDropdown] = useState(false)
-  const [confirmDelete,     setConfirmDelete]     = useState(false)
+  const [editingNotes,    setEditingNotes]    = useState(false)
+  const [editingGuest,    setEditingGuest]    = useState(false)
+  const [showTablePicker, setShowTablePicker] = useState(false)
+  const [showReschedule,  setShowReschedule]  = useState(false)
+  const [confirmDelete,   setConfirmDelete]   = useState(false)
 
   // ── Operator notes ────────────────────────────────────────
   const [notes, setNotes] = useState(booking.operator_notes ?? '')
@@ -269,48 +268,38 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
 
-          {/* Status dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowStatusDropdown(v => !v)}
-              disabled={statusMutation.isPending}
-              className={cn(
-                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold touch-manipulation transition-opacity disabled:opacity-50',
-                STATUS_COLOURS[booking.status],
-              )}
-            >
-              {statusMutation.isPending ? 'Updating…' : STATUS_LABELS[booking.status]}
-              <ChevronDown className="w-3.5 h-3.5" />
-            </button>
-
-            {showStatusDropdown && (
-              <>
-                {/* Backdrop */}
-                <div className="fixed inset-0 z-10" onClick={() => setShowStatusDropdown(false)} />
-                <div className="absolute left-0 top-full mt-1 w-52 bg-background rounded-xl border shadow-lg z-20 overflow-hidden py-1">
-                  {selectableStatuses
-                    .filter(s => s !== booking.status)
-                    .map(s => (
-                      <button
-                        key={s}
-                        onClick={() => { statusMutation.mutate(s); setShowStatusDropdown(false) }}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 text-sm font-medium text-left hover:bg-muted transition-colors touch-manipulation"
-                      >
-                        <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', STATUS_DOT[s])} />
-                        {STATUS_LABELS[s]}
-                      </button>
-                    ))
-                  }
-                </div>
-              </>
-            )}
-
+          {/* ── Status ───────────────────────────────────── */}
+          <Section title="Status">
+            <div className="flex flex-wrap gap-2">
+              {selectableStatuses.map(s => {
+                const isActive = s === booking.status
+                return (
+                  <button
+                    key={s}
+                    onClick={() => !isActive && statusMutation.mutate(s)}
+                    disabled={statusMutation.isPending}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold touch-manipulation transition-all disabled:opacity-50',
+                      isActive
+                        ? cn(STATUS_COLOURS[s], 'ring-2 ring-offset-1 ring-current/60 cursor-default')
+                        : 'bg-muted text-muted-foreground hover:bg-muted/60',
+                    )}
+                  >
+                    <span className={cn(
+                      'w-2 h-2 rounded-full shrink-0',
+                      isActive ? STATUS_DOT[s] : 'bg-current opacity-40',
+                    )} />
+                    {statusMutation.isPending && isActive ? 'Updating…' : STATUS_LABELS[s]}
+                  </button>
+                )
+              })}
+            </div>
             {statusMutation.isError && (
-              <p className="text-xs text-destructive mt-1">
+              <p className="text-xs text-destructive mt-2">
                 {statusMutation.error?.message ?? 'Failed to update status'}
               </p>
             )}
-          </div>
+          </Section>
 
           {/* ── Date & time + reschedule ─────────────────── */}
           <Section

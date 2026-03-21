@@ -62,6 +62,89 @@ export default async function customersRoutes(app) {
   // Require a valid Auth0 JWT on every route in this plugin
   app.addHook('preHandler', requireAuth)
 
+  // ── POST /customers ───────────────────────────────────────
+  // Manually create a customer record.
+  app.post('/', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req, reply) => {
+    const body = z.object({
+      name:  z.string().min(1).max(200),
+      email: z.string().email().nullable().optional(),
+      phone: z.string().max(30).nullable().optional(),
+      notes: z.string().max(2000).nullable().optional(),
+    }).parse(req.body)
+
+    const [created] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO customers (tenant_id, name, email, phone, notes)
+      VALUES (${req.tenantId}, ${body.name}, ${body.email ?? null}, ${body.phone ?? null}, ${body.notes ?? null})
+      RETURNING id, name, email, phone, notes, is_anonymised, created_at, updated_at
+    `)
+    return reply.code(201).send(created)
+  })
+
+  // ── POST /customers/import ─────────────────────────────────
+  // Bulk create/update customers from a CSV upload.
+  // Each row: upsert by email (if provided); skip walk-in/TBC emails.
+  // Returns { created, updated, skipped, errors[] }.
+  app.post('/import', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req, reply) => {
+    const body = z.object({
+      customers: z.array(z.object({
+        name:  z.string().min(1).max(200),
+        email: z.string().email().nullable().optional(),
+        phone: z.string().max(30).nullable().optional(),
+        notes: z.string().max(2000).nullable().optional(),
+      })).min(1).max(1000),
+    }).parse(req.body)
+
+    const SKIP = new Set(['walkin@walkin.com', 'tbc@placeholder.com'])
+    let created = 0, updated = 0, skipped = 0
+    const errors = []
+
+    await withTenant(req.tenantId, async tx => {
+      for (const c of body.customers) {
+        try {
+          if (c.email && SKIP.has(c.email.toLowerCase())) { skipped++; continue }
+
+          if (c.email) {
+            // Upsert by email
+            const [existing] = await tx`
+              SELECT id FROM customers
+               WHERE tenant_id    = ${req.tenantId}
+                 AND lower(email) = lower(${c.email})
+                 AND is_anonymised = false
+            `
+            if (existing) {
+              await tx`
+                UPDATE customers
+                   SET name       = ${c.name},
+                       phone      = COALESCE(${c.phone ?? null}, phone),
+                       notes      = COALESCE(${c.notes ?? null}, notes),
+                       updated_at = now()
+                 WHERE id = ${existing.id}
+              `
+              updated++
+            } else {
+              await tx`
+                INSERT INTO customers (tenant_id, name, email, phone, notes)
+                VALUES (${req.tenantId}, ${c.name}, ${c.email}, ${c.phone ?? null}, ${c.notes ?? null})
+              `
+              created++
+            }
+          } else {
+            // No email — always insert (can't deduplicate)
+            await tx`
+              INSERT INTO customers (tenant_id, name, email, phone, notes)
+              VALUES (${req.tenantId}, ${c.name}, null, ${c.phone ?? null}, ${c.notes ?? null})
+            `
+            created++
+          }
+        } catch (e) {
+          errors.push({ name: c.name, error: e.message })
+        }
+      }
+    })
+
+    return reply.send({ created, updated, skipped, errors })
+  })
+
   // ── GET /customers?q=search&limit=20 ───────────────────────
   // q < 2 chars → return 20 most-recently-updated customers.
   // q >= 2 chars → full-text search across name, email, phone.
@@ -123,6 +206,7 @@ export default async function customersRoutes(app) {
   app.patch('/:id', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
     const body = z.object({
       name:  z.string().min(1).max(200).optional(),
+      email: z.string().email().nullable().optional(),
       phone: z.string().max(30).nullable().optional(),
       notes: z.string().max(2000).nullable().optional(),
     }).parse(req.body)
@@ -130,6 +214,7 @@ export default async function customersRoutes(app) {
     const [updated] = await withTenant(req.tenantId, tx => tx`
       UPDATE customers
          SET name       = COALESCE(${body.name ?? null}, name),
+             email      = CASE WHEN ${body.email !== undefined} THEN ${body.email ?? null} ELSE email END,
              phone      = CASE WHEN ${body.phone !== undefined} THEN ${body.phone ?? null} ELSE phone END,
              notes      = CASE WHEN ${body.notes !== undefined} THEN ${body.notes ?? null} ELSE notes END,
              updated_at = now()
