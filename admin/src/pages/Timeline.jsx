@@ -141,6 +141,13 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
     return si && (si.get(table.id) ?? 1) > 1
   })
 
+  // Secondary rows are covered by a spanning card rendered in the row above.
+  // Suppress grey strips here — they would bleed visually through the card.
+  const isSecondaryRow = bookings.some(b => {
+    const si = comboSpanMap?.get(b.id)
+    return si && si.get(table.id) === 0
+  })
+
   return (
     <div className="timeline-grid border-b last:border-b-0">
       {/* Table label — sticky left + z above spanning cards */}
@@ -182,8 +189,10 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         }}
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
-        {/* B1: Unavailable slot strips — grey background behind bookings */}
-        {unavailableStrips.map(({ x, width }, i) => (
+        {/* B1: Unavailable / out-of-session strips behind booking cards.
+            Suppressed on secondary combo rows where a spanning card from the
+            row above already covers the canvas — strips would bleed through. */}
+        {!isSecondaryRow && unavailableStrips.map(({ x, width }, i) => (
           <div
             key={i}
             className="absolute top-0 bottom-0 bg-zinc-100 pointer-events-none"
@@ -309,19 +318,57 @@ export default function Timeline() {
   })
   const enableUnconfirmedFlow = rulesData?.enable_unconfirmed_flow ?? false
 
-  // B1: Compute grey strip positions from unavailable slots
-  // Infer interval from the gap between the first two consecutive slots.
+  // B1: Compute grey strip positions covering:
+  //   • time before the first sitting
+  //   • gaps between sittings
+  //   • unavailable (fully-booked / capped) slots within a sitting
+  //   • time after the last sitting
+  //
+  // Slot interval is derived as the minimum gap between consecutive slot_times
+  // so a large inter-sitting gap is never mistaken for the interval.
   const unavailableStrips = useMemo(() => {
     const slots = slotsOverlay?.slots ?? []
-    if (slots.length < 2) return []
-    const intervalMs = new Date(slots[1].slot_time) - new Date(slots[0].slot_time)
+
+    // No slots → entire timeline is grey (no schedule configured for this date)
+    if (slots.length === 0) return [{ x: 0, width: TOTAL_WIDTH }]
+
+    // Infer the slot interval (minimum gap between any two consecutive slots)
+    let intervalMs = Infinity
+    for (let i = 1; i < slots.length; i++) {
+      const gap = new Date(slots[i].slot_time) - new Date(slots[i - 1].slot_time)
+      if (gap < intervalMs) intervalMs = gap
+    }
     const intervalPx = (intervalMs / 3_600_000) * HOUR_WIDTH
-    return slots
-      .filter(s => !s.available)
-      .map(s => ({
-        x:     timeToX(s.slot_time),
-        width: intervalPx,
-      }))
+
+    const strips = []
+
+    // 1. Before the first slot
+    const firstX = Math.max(0, timeToX(slots[0].slot_time))
+    if (firstX > 0) strips.push({ x: 0, width: firstX })
+
+    for (let i = 0; i < slots.length; i++) {
+      const x = timeToX(slots[i].slot_time)
+
+      // 2. Unavailable (full/capped) slot
+      if (!slots[i].available) strips.push({ x, width: intervalPx })
+
+      // 3. Gap to next slot — if significantly wider than the slot interval
+      //    it's a between-sittings gap, not just consecutive slots
+      if (i < slots.length - 1) {
+        const nextX = timeToX(slots[i + 1].slot_time)
+        const gapPx = nextX - x
+        if (gapPx > intervalPx * 1.5) {
+          strips.push({ x: x + intervalPx, width: gapPx - intervalPx })
+        }
+      }
+    }
+
+    // 4. After the last slot
+    const lastX = timeToX(slots[slots.length - 1].slot_time)
+    const afterX = lastX + intervalPx
+    if (afterX < TOTAL_WIDTH) strips.push({ x: afterX, width: TOTAL_WIDTH - afterX })
+
+    return strips
   }, [slotsOverlay])
 
   // ── Resize handlers ───────────────────────────────────────
