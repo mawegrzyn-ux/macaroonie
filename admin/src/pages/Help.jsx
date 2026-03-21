@@ -4,16 +4,18 @@ import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 
 const SECTIONS = [
-  { id: 'getting-started', label: 'Getting Started' },
-  { id: 'venues',          label: 'Managing Venues' },
-  { id: 'tables',          label: 'Tables & Combinations' },
-  { id: 'schedule',        label: 'Setting Your Schedule' },
-  { id: 'rules',           label: 'Booking Rules' },
-  { id: 'deposits',        label: 'Deposits & Payments' },
-  { id: 'timeline',        label: 'Using the Timeline' },
-  { id: 'bookings',        label: 'Managing Bookings' },
-  { id: 'widget',          label: 'Booking Widget' },
-  { id: 'faq',             label: 'FAQ & Troubleshooting' },
+  { id: 'getting-started',     label: 'Getting Started' },
+  { id: 'venues',              label: 'Managing Venues' },
+  { id: 'tables',              label: 'Tables & Combinations' },
+  { id: 'schedule',            label: 'Setting Your Schedule' },
+  { id: 'schedule-exceptions', label: 'Schedule Exceptions' },
+  { id: 'rules',               label: 'Booking Rules' },
+  { id: 'deposits',            label: 'Deposits & Payments' },
+  { id: 'timeline',            label: 'Using the Timeline' },
+  { id: 'manual-booking',      label: 'Manual Booking' },
+  { id: 'bookings',            label: 'Managing Bookings' },
+  { id: 'widget',              label: 'Booking Widget' },
+  { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
 
 export default function Help() {
@@ -324,6 +326,53 @@ export default function Help() {
             </P>
           </section>
 
+          {/* ── SCHEDULE EXCEPTIONS ───────────────────────── */}
+          <section id="schedule-exceptions" data-help="">
+            <H2>Schedule Exceptions</H2>
+            <P>
+              Schedule exceptions let you apply alternative schedules or closures for a specific date range —
+              for example, a Christmas closure, reduced hours during a refurbishment, or a special event week
+              with different sitting times. Exceptions override your normal weekly schedule during the date range.
+            </P>
+
+            <H3>Types of exception</H3>
+            <DataTable
+              head={['Type', 'When to use', 'What happens']}
+              rows={[
+                ['Closed', 'Bank holidays, full closures', 'No slots are offered for any date in the range. Widget shows no availability.'],
+                ['Alternative schedule', 'Reduced hours, seasonal menus, special events', 'You configure a separate weekly schedule for the exception period. Days with no exception template fall back to your normal weekly schedule.'],
+              ]}
+            />
+
+            <H3>Creating an exception</H3>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Go to <strong>Schedule</strong> and scroll to the <strong>Schedule Exceptions</strong> section below the weekly grid.</li>
+              <li>Click <strong>Add exception</strong>.</li>
+              <li>Give it a descriptive name (e.g. "Christmas 2026"), set the date range, and choose whether the period is <strong>Closed</strong> or has an <strong>Alternative schedule</strong>.</li>
+              <li>Set a <strong>Priority</strong> number. Higher priority wins when two exceptions cover the same date. Narrower date ranges win on equal priority.</li>
+              <li>Save. A card appears in the exceptions list.</li>
+            </ol>
+
+            <H3>Configuring an alternative schedule exception</H3>
+            <P>
+              After creating an alternative-schedule exception, click <strong>Configure</strong> on its card.
+              You will see 7 day cards (Monday–Sunday). For each day you want to customise:
+            </P>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Toggle the day <strong>Open</strong>.</li>
+              <li>Set the slot interval for that day.</li>
+              <li>Add sittings with their own start/end times, cover cap, and doors-close time.</li>
+            </ol>
+            <InfoBox type="info">
+              Days within the exception period that have no exception day template fall back to your normal
+              weekly schedule automatically — you only need to configure the days that differ.
+            </InfoBox>
+            <InfoBox type="warn">
+              Exceptions are resolved at slot-generation time. Changes take effect for all future slot requests
+              immediately — no rebuild required.
+            </InfoBox>
+          </section>
+
           {/* ── RULES ─────────────────────────────────────── */}
           <section id="rules" data-help="">
             <H2>Booking Rules</H2>
@@ -420,6 +469,14 @@ export default function Help() {
                 </div>
               ))}
             </div>
+
+            <H3>Re-confirmed status</H3>
+            <P>
+              When <strong>Enable re-confirmed status</strong> is turned on in Rules, a <em>Re-confirmed</em> status
+              option appears in the booking status dropdown inside the booking drawer. Use this to record that
+              a staff member has called the guest the day before and confirmed they are still attending.
+              This is separate from the call-to-confirm workflow — both can be enabled independently.
+            </P>
           </section>
 
           {/* ── DEPOSITS ──────────────────────────────────── */}
@@ -475,6 +532,25 @@ export default function Help() {
               <li>Use the <strong>venue selector</strong> to switch between venues.</li>
               <li>Scroll horizontally to see earlier or later times. <strong>Table labels stay pinned</strong> on the left so you always know which row you're looking at.</li>
             </ul>
+
+            <H3>Reading the Timeline</H3>
+            <P>
+              Time columns on the Timeline are colour-coded to help you see availability at a glance:
+            </P>
+            <DataTable
+              head={['Column colour', 'Meaning']}
+              rows={[
+                ['White / clear', 'The venue is open at this time and there is available capacity.'],
+                ['Grey', 'The venue is closed at this time (before/after sittings, between sittings) OR a slot cap has been explicitly set to 0.'],
+                ['Blue card', 'A confirmed booking occupies this table at this time.'],
+                ['Light blue card', 'A combination booking spanning multiple table rows.'],
+              ]}
+            />
+            <InfoBox type="info">
+              A grey column does not mean all tables are full — it means the schedule says the venue is not open
+              at that time. If a table shows white but has no booking card, capacity is available. Use
+              Manual allocation to book outside the schedule if needed.
+            </InfoBox>
 
             <H3>Booking tile colours</H3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-6">
@@ -583,6 +659,41 @@ export default function Help() {
               The Timeline updates automatically via WebSocket when bookings are created, modified, or
               cancelled by another user. You do not need to refresh the page. The refresh button in the
               toolbar forces an immediate re-fetch if you suspect the view is out of sync.
+            </P>
+          </section>
+
+          {/* ── MANUAL BOOKING ────────────────────────────── */}
+          <section id="manual-booking" data-help="">
+            <H2>Manual Booking</H2>
+            <P>
+              The standard <strong>+ New booking</strong> flow automatically finds the best available table for
+              the chosen date, time, and covers. Sometimes you need to place a booking that bypasses these rules —
+              for example, a walk-in after last orders, a VIP seated at a reserved table, or a booking made
+              during a closed period. Use <strong>Manual allocation</strong> for these cases.
+            </P>
+
+            <H3>How to create a manual booking</H3>
+            <ol className="space-y-2 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Click <strong>+ New booking</strong> in the top toolbar of the Timeline.</li>
+              <li>Select the number of covers on the slot-selection screen.</li>
+              <li>Instead of picking a time slot, click the <strong>Manual allocation</strong> button (amber, next to Continue).</li>
+              <li>In the Manual allocation panel, set the <strong>date</strong> and <strong>time</strong> freely — any date or time is valid regardless of your schedule.</li>
+              <li>Select the <strong>table(s)</strong> for this booking. Tables that already have a booking at the chosen time are shown with a <strong>Booked</strong> badge — but you can still select them if needed (you are overriding the system).</li>
+              <li>If no specific table is needed, tick <strong>Unallocated</strong> instead. The booking will appear in the Unallocated row on the Timeline and can be dragged to a table later.</li>
+              <li>Click <strong>Continue to guest details</strong>, fill in the guest's name and email, then confirm.</li>
+            </ol>
+
+            <InfoBox type="warn">
+              Manual allocation bypasses schedule, capacity, and booking-window rules entirely. It will not
+              prevent double-booking a table — the system trusts the operator's judgement. Use with care.
+            </InfoBox>
+
+            <H3>Multiple tables in a manual booking</H3>
+            <P>
+              You can select more than one table in the manual allocation panel. If a combination already exists
+              for those exact tables, it will be used. If not, a new combination is automatically created and
+              named after the selected tables (e.g. "T1 + T2"). The combination appears in the Timeline as a
+              single spanning tile across all member table rows.
             </P>
           </section>
 
@@ -823,6 +934,18 @@ export default function Help() {
                   q: 'A paid booking via the widget didn\'t show the guest\'s notes / appeared as single table instead of combination.',
                   a: 'This was a bug in the Stripe webhook — fixed. The webhook now correctly copies both combination_id and guest_notes from the hold into the booking. If you have affected historical bookings, you\'ll need to manually update them via the drawer.',
                 },
+                {
+                  q: 'The Manual allocation button does not appear.',
+                  a: 'It is always visible on the slot selection step of the New booking modal, next to the Continue button. If you do not see it, check that you are on the Timeline page (not the Bookings list) and that the modal has fully loaded.',
+                },
+                {
+                  q: 'I created a schedule exception but slots still show normally.',
+                  a: 'Check that the exception\'s date range covers today\'s date and that the priority is set correctly. If two exceptions overlap the same date, the one with the higher priority number wins. Also verify migration 014 and 015 have been run on your database.',
+                },
+                {
+                  q: 'Grey columns appear where I expect the venue to be open.',
+                  a: 'Grey columns mean the slot query returned no available slots for that time. This usually means no sitting covers that time in your schedule. Check your sittings on the Schedule page and ensure the day is toggled open.',
+                },
               ].map(({ q, a }) => (
                 <div key={q} className="border rounded-lg p-4">
                   <p className="text-sm font-semibold mb-2">Q: {q}</p>
@@ -860,6 +983,34 @@ function InfoBox({ type = 'info', children }) {
     <div className={cn('border rounded-lg p-3 text-sm flex gap-2 mb-4', s[type])}>
       <span className="shrink-0 mt-0.5">{icons[type]}</span>
       <span>{children}</span>
+    </div>
+  )
+}
+function DataTable({ head, rows }) {
+  return (
+    <div className="overflow-x-auto mb-4 rounded-lg border">
+      <table className="w-full text-xs border-collapse">
+        <thead>
+          <tr className="bg-muted">
+            {head.map(h => (
+              <th key={h} className="text-left px-3 py-2 font-semibold text-muted-foreground border-b">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className={i % 2 === 1 ? 'bg-muted/20' : ''}>
+              {row.map((cell, j) => (
+                <td key={j} className="px-3 py-2 border-b border-border/50 text-muted-foreground align-top">
+                  {j === 0 ? <strong className="font-semibold text-foreground">{cell}</strong> : cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
