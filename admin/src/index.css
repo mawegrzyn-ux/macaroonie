@@ -19,7 +19,7 @@
 
     /* Timeline specific */
     --timeline-hour-width: 80px;
-    --timeline-row-height: 52px;
+    --timeline-row-height: 32px;
     --timeline-header-height: 40px;
   }
 
@@ -30,32 +30,36 @@
 /* Timeline styles */
 .timeline-grid {
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: 80px 1fr;
 }
 
 .timeline-slot {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  border-radius: 6px;
+  top: 2px;
+  bottom: 2px;
+  /* Arrow / flag shape — right edge tapers to a point at 50% height.
+     The 8px notch keeps resize handle clearance. */
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 0 100%);
+  border-radius: 3px 0 0 3px;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
-  -webkit-touch-callout: none;  /* suppress iOS long-press context menu */
-  touch-action: none;           /* required for dnd-kit touch sensors */
-  z-index: 1;                   /* creates stacking context; overridden inline for spanning/dragging */
-  transition: box-shadow 0.15s, opacity 0.15s;
+  -webkit-touch-callout: none;
+  touch-action: none;
+  z-index: 1;
+  transition: filter 0.1s, opacity 0.15s;
 }
 
-.timeline-slot:hover      { box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-.timeline-slot.dragging   { opacity: 0.7; cursor: grabbing; box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+.timeline-slot:hover    { filter: brightness(0.92); }
+.timeline-slot.dragging { opacity: 0.7; cursor: grabbing; filter: none; }
 
-.timeline-slot.unconfirmed    { background: #ffedd5; border-left: 3px solid #f97316; }
-.timeline-slot.confirmed      { background: #dbeafe; border-left: 3px solid #3b82f6; }
-.timeline-slot.reconfirmed    { background: #e0e7ff; border-left: 3px solid #6366f1; }
-.timeline-slot.pending_payment{ background: #fef9c3; border-left: 3px solid #eab308; }
-.timeline-slot.arrived        { background: #cffafe; border-left: 3px solid #06b6d4; }
-.timeline-slot.seated         { background: #dcfce7; border-left: 3px solid #22c55e; }
-.timeline-slot.checked_out    { background: #e2efe9; border-left: 3px solid #86a98f; }
-.timeline-slot.cancelled      { background: #fee2e2; border-left: 3px solid #ef4444; opacity: 0.5; }
-.timeline-slot.no_show        { background: #f3f4f6; border-left: 3px solid #9ca3af; opacity: 0.5; }
+/* Compact solid-fill status colours */
+.timeline-slot.unconfirmed    { background: #fed7aa; border-left: 3px solid #f97316; }
+.timeline-slot.confirmed      { background: #bfdbfe; border-left: 3px solid #3b82f6; }
+.timeline-slot.reconfirmed    { background: #c7d2fe; border-left: 3px solid #6366f1; }
+.timeline-slot.pending_payment{ background: #fde68a; border-left: 3px solid #d97706; }
+.timeline-slot.arrived        { background: #a5f3fc; border-left: 3px solid #0891b2; }
+.timeline-slot.seated         { background: #86efac; border-left: 3px solid #16a34a; }
+.timeline-slot.checked_out    { background: #bbf7d0; border-left: 3px solid #4ade80; }
+.timeline-slot.cancelled      { background: #fca5a5; border-left: 3px solid #ef4444; opacity: 0.45; }
+.timeline-slot.no_show        { background: #d1d5db; border-left: 3px solid #9ca3af; opacity: 0.45; }

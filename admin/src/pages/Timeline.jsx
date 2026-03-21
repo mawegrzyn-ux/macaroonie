@@ -24,7 +24,7 @@ import NewBookingModal from '@/components/bookings/NewBookingModal'
 
 // ── Constants ────────────────────────────────────────────────
 const HOUR_WIDTH   = 80     // px per hour
-const ROW_HEIGHT   = 52     // px per table row
+const ROW_HEIGHT   = 32     // px per table row (compact single-line)
 const START_HOUR   = 9      // timeline starts at 09:00
 const END_HOUR     = 24     // timeline ends at 24:00
 const TOTAL_HOURS  = END_HOUR - START_HOUR
@@ -86,36 +86,37 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
       {...attributes}
       onClick={(e) => { e.stopPropagation(); onClick(booking) }}
       className={cn(
-        'timeline-slot px-2 overflow-hidden',
+        'timeline-slot overflow-hidden',
         booking.status,
         isDragging && 'dragging'
       )}
     >
-      <p className="text-xs font-semibold truncate leading-tight mt-0.5 flex items-center gap-1">
-        {overCapacity && <TriangleAlert className="w-3 h-3 text-orange-500 shrink-0" />}
-        {booking.guest_name}
-        {booking.combination_name && (
-          <span className="font-normal text-[10px] opacity-60 ml-1">({booking.combination_name})</span>
+      {/* Single compact row: covers · name */}
+      <div className="flex items-center h-full pl-1.5 pr-[18px] gap-1 min-w-0">
+        {/* Covers badge */}
+        <span className="text-[10px] font-bold tabular-nums shrink-0 opacity-70 leading-none">
+          {booking.covers}
+        </span>
+        {overCapacity && <TriangleAlert className="w-2.5 h-2.5 text-orange-600 shrink-0" />}
+        {/* Guest name — truncates if card is too narrow */}
+        <span className="text-[11px] font-semibold truncate leading-none">
+          {booking.guest_name}
+        </span>
+        {/* B2: Quick-confirm — tiny inline tick when unconfirmed flow is on */}
+        {showConfirmBtn && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onConfirm(booking.id) }}
+            className="shrink-0 text-[9px] px-1 py-0.5 rounded bg-amber-500 hover:bg-amber-600
+              text-white font-bold leading-none touch-manipulation"
+          >
+            ✓
+          </button>
         )}
-      </p>
-      <p className="text-xs text-gray-600 truncate">
-        {booking.covers} covers · {formatTime(booking.starts_at)}
-      </p>
+      </div>
 
-      {/* B2: Quick-confirm button — only visible when unconfirmed flow is enabled */}
-      {showConfirmBtn && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onConfirm(booking.id) }}
-          className="mt-0.5 text-[9px] px-1.5 py-0.5 rounded bg-amber-500 hover:bg-amber-600
-            text-white font-semibold leading-none touch-manipulation transition-colors"
-        >
-          Confirm ✓
-        </button>
-      )}
-
-      {/* Resize handle — right edge */}
+      {/* Resize handle — kept at right: 8px so it falls inside the arrow clip polygon at all heights */}
       <div
-        className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize hover:bg-white/40 rounded-r"
+        className="absolute right-[8px] top-0 bottom-0 w-2 cursor-ew-resize hover:bg-black/10"
         onPointerDown={(e) => {
           e.stopPropagation()
           e.preventDefault()
@@ -198,24 +199,21 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
     <div className="timeline-grid border-b last:border-b-0">
       {/* Table label — sticky left + z above spanning cards */}
       <div className={cn(
-        'flex items-center px-3 border-r sticky left-0 z-[10] shrink-0',
+        'flex items-center justify-between px-2 border-r sticky left-0 z-[10] shrink-0',
         isUnallocated ? 'bg-orange-50' : 'bg-muted',
       )}>
-        <div>
-          {isUnallocated ? (
-            <>
-              <p className="text-sm font-medium text-orange-700 flex items-center gap-1">
-                <TriangleAlert className="w-3 h-3" /> Unallocated
-              </p>
-              <p className="text-xs text-orange-500">Drag to reassign</p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm font-medium">{table.label}</p>
-              <p className="text-xs text-muted-foreground">{table.min_covers}–{table.max_covers} covers</p>
-            </>
-          )}
-        </div>
+        {isUnallocated ? (
+          <span className="text-[10px] font-semibold text-orange-700 flex items-center gap-0.5 truncate">
+            <TriangleAlert className="w-2.5 h-2.5 shrink-0" /> Unalloc.
+          </span>
+        ) : (
+          <>
+            <span className="text-xs font-semibold truncate">{table.label}</span>
+            <span className="text-[10px] text-muted-foreground tabular-nums shrink-0 ml-1">
+              {table.max_covers}
+            </span>
+          </>
+        )}
       </div>
 
       {/* Booking canvas — overflow:visible so spanning cards can extend into adjacent rows */}
@@ -909,10 +907,10 @@ export default function Timeline() {
                   Bookings can be DRAGGED OUT; dropping INTO this row is blocked. */}
               {unallocatedTable && (bookingsByTable[unallocatedTable.id]?.length ?? 0) > 0 && (
                 <div>
-                  <div className="px-3 py-1.5 bg-orange-50 border-b border-orange-200 sticky top-[40px] z-[9]">
-                    <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide flex items-center gap-1.5">
-                      <TriangleAlert className="w-3 h-3" />
-                      Unallocated — drag bookings to a table row to reassign
+                  <div className="px-3 py-1 bg-orange-50 border-b border-orange-200 sticky top-[40px] z-[9]">
+                    <span className="text-[10px] font-semibold text-orange-700 uppercase tracking-wider flex items-center gap-1">
+                      <TriangleAlert className="w-2.5 h-2.5" />
+                      Unallocated — drag to reassign
                     </span>
                   </div>
                   <TableRow
@@ -938,8 +936,8 @@ export default function Timeline() {
                 /* ── Grouped: section header + rows ─────────────── */
                 sections.map(([sectionName, sectionTables]) => (
                   <div key={sectionName}>
-                    <div className="px-3 py-1.5 bg-muted/50 border-b sticky top-[40px] z-[9]">
-                      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    <div className="px-3 py-1 bg-muted/50 border-b sticky top-[40px] z-[9]">
+                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                         {sectionName}
                       </span>
                     </div>
@@ -993,9 +991,12 @@ export default function Timeline() {
             {/* Drag overlay — ghost card while dragging (explicit z-index beats sticky headers) */}
             <DragOverlay style={{ zIndex: 999 }}>
               {activeBooking && (
-                <div className={cn('timeline-slot px-2 w-28 shadow-xl', activeBooking.status)}>
-                  <p className="text-xs font-semibold truncate">{activeBooking.guest_name}</p>
-                  <p className="text-xs text-gray-600">{activeBooking.covers} covers</p>
+                <div className={cn('timeline-slot w-28 shadow-xl', activeBooking.status)}
+                  style={{ height: ROW_HEIGHT - 4 }}>
+                  <div className="flex items-center h-full pl-1.5 pr-4 gap-1">
+                    <span className="text-[10px] font-bold opacity-70 shrink-0">{activeBooking.covers}</span>
+                    <span className="text-[11px] font-semibold truncate">{activeBooking.guest_name}</span>
+                  </div>
                 </div>
               )}
             </DragOverlay>

@@ -283,15 +283,17 @@ Key vars to set before running:
 
 ---
 
-## Server (Lightsail) — ALL development is done here via SSH
+## Deployment — CI/CD via GitHub Actions
 
-**Nothing runs locally.** The developer works exclusively on the Lightsail server over SSH.
-Never suggest running commands locally. Always give server commands.
+**Deployment is fully automated on push.** A GitHub Actions workflow (`.yml`) handles build and
+deploy automatically when changes are pushed from the developer's laptop. **Never suggest running
+`deploy.sh` manually** — it is not needed and should not be referenced at the end of responses.
 
-- **OS user is `ubuntu`** — NEVER use `booking` as the username. App lives at `/home/ubuntu/app`.
-- **Deploy:** `sudo /home/ubuntu/app/deploy.sh` (all), `sudo /home/ubuntu/app/deploy.sh api`, or `sudo /home/ubuntu/app/deploy.sh admin`
-- **Migrations:** connect via `psql` then `\i /home/ubuntu/app/migrations/NNN_name.sql`
-- **deploy.sh** has `APP_USER="ubuntu"` — do not change it back to `booking`
+- **To deploy:** `git push` from the local laptop. The Actions workflow does the rest.
+- **Migrations** still require a manual step: connect to the server via SSH then
+  `psql` → `\i /home/ubuntu/app/migrations/NNN_name.sql`
+- **OS user is `ubuntu`** — app lives at `/home/ubuntu/app`.
+- **deploy.sh** exists on the server as a fallback but is not part of the normal workflow.
 
 ---
 
