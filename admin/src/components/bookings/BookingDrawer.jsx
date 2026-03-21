@@ -76,6 +76,21 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   })
 
+  // ── Venue rules — controls which statuses appear in the dropdown ─
+  const { data: rules } = useQuery({
+    queryKey: ['rules', booking.venue_id],
+    queryFn:  () => api.get(`/venues/${booking.venue_id}/rules`),
+  })
+
+  // Build the selectable status list from the base set, filtered by enabled rules.
+  // Always include a status if the booking currently has it — so operators can
+  // always move away from it even if the feature was disabled after booking.
+  const selectableStatuses = SELECTABLE_STATUSES.filter(s => {
+    if (s === 'unconfirmed')  return (rules?.enable_unconfirmed_flow   ?? false) || booking.status === 'unconfirmed'
+    if (s === 'reconfirmed')  return (rules?.enable_reconfirmed_status ?? false) || booking.status === 'reconfirmed'
+    return true
+  })
+
   // ── Data: tables for this venue (loaded when picker opens) ─
   const { data: tables = [] } = useQuery({
     queryKey: ['tables', booking.venue_id],
@@ -260,7 +275,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                 {/* Backdrop */}
                 <div className="fixed inset-0 z-10" onClick={() => setShowStatusDropdown(false)} />
                 <div className="absolute left-0 top-full mt-1 w-52 bg-background rounded-xl border shadow-lg z-20 overflow-hidden py-1">
-                  {SELECTABLE_STATUSES
+                  {selectableStatuses
                     .filter(s => s !== booking.status)
                     .map(s => (
                       <button

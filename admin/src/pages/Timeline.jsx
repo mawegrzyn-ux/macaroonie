@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, AlertTriangle, EyeOff, Eye, PanelRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, AlertTriangle, EyeOff, Eye, Columns } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -70,8 +70,10 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     // Spanning cards use explicit height; normal cards use CSS bottom:4px
     ...(spanRows > 1 ? { height: ROW_HEIGHT * spanRows - 8, bottom: 'auto' } : {}),
-    // Z-order: dragging > spanning > normal. Must be above row borders (z=0) but below sticky labels (z=10).
-    zIndex: isDragging ? 20 : spanRows > 1 ? 5 : 1,
+    // Z-order: dragging > spanning > active > inactive.
+    // Inactive (cancelled/no_show) render below active bookings so when a new
+    // booking occupies the same slot, the active card always shows on top.
+    zIndex: isDragging ? 20 : spanRows > 1 ? 5 : (['cancelled','no_show'].includes(booking.status) ? 0 : 1),
   }
 
   const showConfirmBtn = enableUnconfirmedFlow && booking.status === 'unconfirmed'
@@ -741,7 +743,7 @@ export default function Timeline() {
               panelMode ? 'text-primary bg-primary/10' : 'text-muted-foreground',
             )}
           >
-            <PanelRight className="w-4 h-4" />
+            <Columns className="w-4 h-4" />
           </button>
 
           <button onClick={() => refetch()}

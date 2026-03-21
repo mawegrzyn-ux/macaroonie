@@ -55,5 +55,5 @@
 .timeline-slot.reconfirmed    { background: #e0e7ff; border-left: 3px solid #6366f1; }
 .timeline-slot.pending_payment{ background: #fef9c3; border-left: 3px solid #eab308; }
 .timeline-slot.cancelled      { background: #fee2e2; border-left: 3px solid #ef4444; opacity: 0.5; }
-.timeline-slot.no_show        { background: #f3f4f6; border-left: 3px solid #9ca3af; }
+.timeline-slot.no_show        { background: #f3f4f6; border-left: 3px solid #9ca3af; opacity: 0.5; }
 .timeline-slot.completed      { background: #dcfce7; border-left: 3px solid #22c55e; }
