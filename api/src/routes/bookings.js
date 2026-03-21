@@ -374,6 +374,7 @@ export default async function bookingsRoutes(app) {
       SELECT
         b.*,
         t.label          AS table_label,
+        t.max_covers     AS table_max_covers,
         t.section_id,
         t.is_unallocated AS table_is_unallocated,
         s.name           AS section_name,
@@ -389,8 +390,9 @@ export default async function bookingsRoutes(app) {
             JOIN tables t2 ON t2.id = m.table_id
            WHERE m.combination_id = b.combination_id
         ) END AS member_table_ids,
-        -- Combination name for display
-        tc.name      AS combination_name
+        -- Combination name + capacity for display
+        tc.name       AS combination_name,
+        tc.max_covers AS combination_max_covers
       FROM bookings b
       JOIN tables t         ON t.id = b.table_id
       JOIN venues v         ON v.id = b.venue_id

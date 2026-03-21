@@ -9,7 +9,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
-import { ChevronLeft, ChevronRight, Download, Search, ChevronDown } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Search, ChevronDown, Eye, EyeOff, TriangleAlert } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
@@ -40,6 +40,7 @@ export default function Bookings() {
   const [statusFilter,     setStatusFilter] = useState('')
   const [statusDropdownId, setStatusDropdownId] = useState(null) // booking.id with open dropdown
   const [panelWidth,       setPanelWidth]       = useState(420)  // px — draggable
+  const [hideInactive,     setHideInactive]     = useState(true) // hide cancelled/no_show/checked_out by default
   const isResizing = useRef(false)
 
   const onResizeStart = useCallback((e) => {
@@ -97,10 +98,13 @@ export default function Bookings() {
   })
 
   // ── Filter / sort ────────────────────────────────────────────
+  const INACTIVE_STATUSES = new Set(['cancelled', 'no_show', 'checked_out'])
+
   const filtered = useMemo(() => {
     let list = [...bookings].sort((a, b) =>
       new Date(a.starts_at) - new Date(b.starts_at)
     )
+    if (hideInactive && !statusFilter) list = list.filter(b => !INACTIVE_STATUSES.has(b.status))
     if (statusFilter) list = list.filter(b => b.status === statusFilter)
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -111,7 +115,7 @@ export default function Bookings() {
       )
     }
     return list
-  }, [bookings, statusFilter, search])
+  }, [bookings, statusFilter, search, hideInactive])
 
   // ── Stats ────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -284,6 +288,21 @@ export default function Bookings() {
           </button>
         )}
 
+        {/* Hide inactive toggle */}
+        <button
+          onClick={() => setHideInactive(v => !v)}
+          title={hideInactive ? 'Show cancelled, no-show & checked-out' : 'Hide cancelled, no-show & checked-out'}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border touch-manipulation transition-colors',
+            hideInactive
+              ? 'text-muted-foreground border-border hover:bg-accent'
+              : 'bg-primary/10 text-primary border-primary/30',
+          )}
+        >
+          {hideInactive ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+          <span className="hidden sm:inline">Inactive</span>
+        </button>
+
         <span className="ml-auto text-xs text-muted-foreground">
           {filtered.length} booking{filtered.length !== 1 ? 's' : ''}
         </span>
@@ -365,6 +384,8 @@ export default function Bookings() {
 // ── Booking row ───────────────────────────────────────────────
 function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStatuses, onRowClick, onStatusClick, onStatusSelect, onDropdownClose }) {
   const endTime = b.ends_at ? formatTime(b.ends_at) : null
+  const maxCovers = b.combination_max_covers ?? b.table_max_covers ?? null
+  const overCapacity = maxCovers !== null && b.covers > maxCovers
 
   return (
     <div
@@ -374,10 +395,13 @@ function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStat
         isSelected && 'bg-primary/5 border-l-2 border-l-primary',
       )}
     >
-      {/* Covers */}
-      <div className="w-12 shrink-0 text-center">
-        <span className="text-base font-semibold">{b.covers}</span>
+      {/* Covers — orange if over capacity */}
+      <div className="w-12 shrink-0 text-center relative">
+        <span className={cn('text-base font-semibold', overCapacity && 'text-orange-600')}>{b.covers}</span>
         <span className="text-xs text-muted-foreground"> p.</span>
+        {overCapacity && (
+          <TriangleAlert className="absolute -top-1 -right-1 w-3.5 h-3.5 text-orange-500" title={`${b.covers} covers exceeds table capacity (${maxCovers})`} />
+        )}
       </div>
 
       {/* Name + phone */}

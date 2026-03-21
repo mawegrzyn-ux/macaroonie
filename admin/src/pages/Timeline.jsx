@@ -54,7 +54,7 @@ function durationToWidth(startIso, endIso) {
 // spanRows: 1 = normal single-row card
 //           N = spans N consecutive table rows (height multiplied)
 // enableUnconfirmedFlow: show Confirm button when status === 'unconfirmed'
-function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm }) {
+function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
@@ -91,7 +91,8 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
         isDragging && 'dragging'
       )}
     >
-      <p className="text-xs font-semibold truncate leading-tight mt-0.5">
+      <p className="text-xs font-semibold truncate leading-tight mt-0.5 flex items-center gap-1">
+        {overCapacity && <TriangleAlert className="w-3 h-3 text-orange-500 shrink-0" />}
         {booking.guest_name}
         {booking.combination_name && (
           <span className="font-normal text-[10px] opacity-60 ml-1">({booking.combination_name})</span>
@@ -135,7 +136,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, unavailableStrips = [], enableUnconfirmedFlow = false, onConfirm, nowX }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, unavailableStrips = [], enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set() }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -279,6 +280,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
               spanRows={spanRows}
               enableUnconfirmedFlow={enableUnconfirmedFlow}
               onConfirm={onConfirm}
+              overCapacity={overCapacityIds.has(b.id)}
             />
           )
         })}
@@ -339,7 +341,7 @@ export default function Timeline() {
   const [relocateError,  setRelocateError]  = useState(null)   // message | null
   const [newBookingPrefill, setNewBookingPrefill] = useState(null) // { time, tableId } | null
   const [hideInactive,     setHideInactive]     = useState(false)  // hide cancelled + no_show cards
-  const [panelMode,        setPanelMode]        = useState(false)  // drawer docked alongside timeline
+  const [panelMode,        setPanelMode]        = useState(true)   // docked panel — on by default
   const [groupBySections,  setGroupBySections]  = useState(true)   // show section dividers
   const [nowMs,            setNowMs]            = useState(() => Date.now())
 
@@ -732,6 +734,16 @@ export default function Timeline() {
     return result
   }, [bookingsRes, sections])
 
+  // Set of booking IDs where covers exceeds the table/combination capacity
+  const overCapacityIds = useMemo(() => {
+    const ids = new Set()
+    for (const b of bookingsRes) {
+      const max = b.combination_max_covers ?? b.table_max_covers ?? null
+      if (max !== null && b.covers > max) ids.add(b.id)
+    }
+    return ids
+  }, [bookingsRes])
+
   const activeBooking = useMemo(() =>
     bookingsRes.find(b => b.id === activeId), [bookingsRes, activeId])
 
@@ -890,6 +902,7 @@ export default function Timeline() {
                     enableUnconfirmedFlow={enableUnconfirmedFlow}
                     onConfirm={confirmStatusMutation.mutate}
                     nowX={nowX}
+                    overCapacityIds={overCapacityIds}
                   />
                 </div>
               )}
@@ -920,6 +933,7 @@ export default function Timeline() {
                         enableUnconfirmedFlow={enableUnconfirmedFlow}
                         onConfirm={confirmStatusMutation.mutate}
                         nowX={nowX}
+                        overCapacityIds={overCapacityIds}
                       />
                     ))}
                   </div>
@@ -943,6 +957,7 @@ export default function Timeline() {
                     enableUnconfirmedFlow={enableUnconfirmedFlow}
                     onConfirm={confirmStatusMutation.mutate}
                     nowX={nowX}
+                    overCapacityIds={overCapacityIds}
                   />
                 ))
               )}
@@ -964,19 +979,29 @@ export default function Timeline() {
       </div>
       {/* end left column */}
 
-      {/* Docked panel — rendered as flex sibling when panelMode is on */}
-      {panelMode && selected && (() => {
-        const liveBooking = bookingsRes.find(b => b.id === selected.id) ?? selected
-        return (
-          <BookingDrawer
-            key={liveBooking.id}
-            booking={liveBooking}
-            onClose={() => setSelected(null)}
-            onUpdated={() => queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
-            inlineMode={true}
-          />
-        )
-      })()}
+      {/* ── Right panel (docked) ─────────────────────────────
+           Always present when panelMode=true so h-full works correctly.
+           Shows a placeholder when no booking is selected, drawer when one is. */}
+      {panelMode && (
+        <div className="w-[420px] shrink-0 flex flex-col overflow-hidden border-l">
+          {selected ? (() => {
+            const liveBooking = bookingsRes.find(b => b.id === selected.id) ?? selected
+            return (
+              <BookingDrawer
+                key={liveBooking.id}
+                booking={liveBooking}
+                onClose={() => setSelected(null)}
+                onUpdated={() => queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
+                inlineMode={true}
+              />
+            )
+          })() : (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+              <p className="text-sm">Select a booking to view details</p>
+            </div>
+          )}
+        </div>
+      )}
 
       </div>
       {/* end body row */}

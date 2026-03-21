@@ -268,7 +268,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
            panelMode    — fixed right panel, no backdrop, no shadow
            inlineMode   — flows in normal document layout (flex child) */}
       <div className={cn(
-        'bg-background border-l flex flex-col overflow-hidden',
+        'relative bg-background border-l flex flex-col overflow-hidden',
         inlineMode
           ? 'w-[420px] shrink-0 h-full'
           : 'fixed right-0 top-0 bottom-0 w-full sm:w-[420px]',
@@ -408,36 +408,20 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                   label="Name"
                   value={guestFields.guest_name}
                   onChange={v => { setGuestFields(p => ({ ...p, guest_name: v })); handleCustSearch(v, guestFields.guest_email, guestFields.guest_phone) }}
+                  onBlur={() => setTimeout(() => setCustomerQ(''), 200)}
                 />
-                {/* Customer suggestions */}
-                {custSuggestions?.length > 0 && (
-                  <div className="rounded-xl border bg-background shadow-md overflow-hidden">
-                    <p className="text-[10px] text-muted-foreground font-medium px-3 pt-2 pb-1 flex items-center gap-1">
-                      <UserSearch className="w-3 h-3" />Customer match
-                    </p>
-                    {custSuggestions.slice(0, 5).map(c => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => handleCustomerSelect(c)}
-                        className="w-full text-left px-3 py-2 hover:bg-accent transition-colors touch-manipulation border-t border-border/40"
-                      >
-                        <p className="text-sm font-medium">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
-                      </button>
-                    ))}
-                  </div>
-                )}
                 <GuestField
                   label="Email"
                   type="email"
                   value={guestFields.guest_email}
                   onChange={v => { setGuestFields(p => ({ ...p, guest_email: v })); handleCustSearch(guestFields.guest_name, v, guestFields.guest_phone) }}
+                  onBlur={() => setTimeout(() => setCustomerQ(''), 200)}
                 />
                 <GuestField
                   label="Phone"
                   value={guestFields.guest_phone}
                   onChange={v => { setGuestFields(p => ({ ...p, guest_phone: v })); handleCustSearch(guestFields.guest_name, guestFields.guest_email, v) }}
+                  onBlur={() => setTimeout(() => setCustomerQ(''), 200)}
                   placeholder="+44 7700 900000"
                 />
                 {/* Covers with ± buttons */}
@@ -645,6 +629,27 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
 
         </div>
 
+        {/* ── Customer match panel (absolutely positioned to the LEFT) ── */}
+        {custSuggestions?.length > 0 && editingGuest && (
+          <div className="absolute right-full top-14 w-64 bg-background rounded-xl shadow-2xl border z-50 overflow-hidden max-h-[60vh] mr-2">
+            <p className="text-[10px] text-muted-foreground font-medium px-3 pt-2 pb-1 flex items-center gap-1">
+              <UserSearch className="w-3 h-3" />Customer match
+            </p>
+            {custSuggestions.slice(0, 6).map(c => (
+              <button
+                key={c.id}
+                type="button"
+                onMouseDown={e => e.preventDefault()}
+                onClick={() => handleCustomerSelect(c)}
+                className="w-full text-left px-3 py-2 hover:bg-accent transition-colors touch-manipulation border-t border-border/40"
+              >
+                <p className="text-sm font-medium">{c.name}</p>
+                <p className="text-xs text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
+              </button>
+            ))}
+          </div>
+        )}
+
       </div>
     </>
   )
@@ -691,7 +696,7 @@ function ActionButton({ icon: Icon, onClick, children, variant = 'default' }) {
   )
 }
 
-function GuestField({ label, value, onChange, type = 'text', placeholder, inputClass = '' }) {
+function GuestField({ label, value, onChange, onBlur, type = 'text', placeholder, inputClass = '' }) {
   return (
     <div>
       <label className="text-xs text-muted-foreground block mb-1">{label}</label>
@@ -699,6 +704,7 @@ function GuestField({ label, value, onChange, type = 'text', placeholder, inputC
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={placeholder}
         className={cn(
           'w-full text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary',
