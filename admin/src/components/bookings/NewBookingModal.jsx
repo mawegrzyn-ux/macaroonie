@@ -24,7 +24,7 @@ const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 
 
 const GuestSchema = z.object({
   guest_name:  z.string().min(1, 'Required'),
-  guest_email: z.string().email('Valid email required'),
+  guest_email: z.string().email('Valid email required').or(z.literal('')).optional(),
   guest_phone: z.string().optional(),
   guest_notes: z.string().optional(),
   covers:      z.coerce.number().int().min(1),
@@ -162,6 +162,16 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
       confirmOverrideMutation.mutate(data)
     } else {
       confirmMutation.mutate(data)
+    }
+  }
+
+  // Walk-in: skip all guest details, book immediately as "Walk In"
+  function handleWalkIn() {
+    const walkInData = { guest_name: 'Walk In', guest_email: '', covers, guest_notes: '' }
+    if (manualAlloc) {
+      confirmOverrideMutation.mutate(walkInData)
+    } else {
+      confirmMutation.mutate(walkInData)
     }
   }
 
@@ -338,13 +348,21 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
           {/* Footer */}
           <div className="flex items-center justify-end gap-3 px-5 py-4 border-t shrink-0">
             {step === 'guest' ? (
-              // Guest step: Back + Confirm
+              // Guest step: Back + Walk In + Confirm
               <>
                 <button
                   onClick={() => { setStep('slot'); setManualAlloc(null); setHoldData(null) }}
                   className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation"
                 >
                   Back
+                </button>
+                <button
+                  type="button"
+                  onClick={handleWalkIn}
+                  disabled={confirmMutation.isPending || confirmOverrideMutation.isPending}
+                  className="text-sm px-4 py-2 border border-green-500 text-green-700 bg-green-50 hover:bg-green-100 rounded-lg disabled:opacity-40 touch-manipulation"
+                >
+                  Walk In
                 </button>
                 <button
                   type="submit"

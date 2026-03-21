@@ -1,147 +1,255 @@
 // src/pages/Bookings.jsx
-// Filterable, searchable bookings list.
-// Clicking a row opens BookingDrawer (same component as timeline).
+// Guestplan-style daily booking list.
+// Layout: date nav + stats bar + filter bar + time-grouped rows | BookingDrawer panel
+//
+// List row: covers · name · phone · Ends badge · table · section · status pill (clickable)
+// Clicking status pill opens an inline dropdown to change it.
+// Clicking a row opens BookingDrawer in panel mode on the right.
 
-import { useState, useMemo } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Search, Filter, Download } from 'lucide-react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { format, addDays, subDays, parseISO } from 'date-fns'
+import { ChevronLeft, ChevronRight, Download, Search, ChevronDown } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
+import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 
-const STATUSES = ['', 'confirmed', 'pending_payment', 'cancelled', 'no_show', 'completed']
+// All statuses the operator can manually set (pending_payment is Stripe-only)
+const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'completed', 'no_show', 'cancelled']
 
-function StatusBadge({ status }) {
-  return (
-    <span className={cn(
-      'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium',
-      STATUS_COLOURS[status]
-    )}>
-      {STATUS_LABELS[status]}
-    </span>
-  )
+const STATUS_DOT = {
+  unconfirmed:     'bg-amber-500',
+  confirmed:       'bg-blue-500',
+  reconfirmed:     'bg-indigo-500',
+  pending_payment: 'bg-yellow-500',
+  cancelled:       'bg-red-500',
+  no_show:         'bg-gray-400',
+  completed:       'bg-green-500',
 }
 
 export default function Bookings() {
   const api = useApi()
   const qc  = useQueryClient()
 
-  const [search,   setSearch]   = useState('')
-  const [status,   setStatus]   = useState('')
-  const [venueId,  setVenueId]  = useState('')
-  const [date,     setDate]     = useState('')
-  const [selected, setSelected] = useState(null)
-  const [page,     setPage]     = useState(0)
-  const LIMIT = 50
+  const [date,             setDate]         = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [selectedVenueId,  setVenueId]      = useState(null)
+  const [selected,         setSelected]     = useState(null)
+  const [search,           setSearch]       = useState('')
+  const [statusFilter,     setStatusFilter] = useState('')
+  const [statusDropdownId, setStatusDropdownId] = useState(null) // booking.id with open dropdown
 
+  // ── Data ────────────────────────────────────────────────────
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
   })
 
-  // Build query string
-  const params = new URLSearchParams()
-  if (venueId) params.set('venue_id', venueId)
-  if (date)    params.set('date', date)
-  if (status)  params.set('status', status)
-  params.set('limit',  LIMIT)
-  params.set('offset', page * LIMIT)
+  const venueId = selectedVenueId ?? venues[0]?.id ?? null
 
-  const { data: bookings = [], isLoading } = useQuery({
-    queryKey: ['bookings-list', venueId, date, status, page],
-    queryFn:  () => api.get(`/bookings?${params}`),
+  // Venue rules (for filtering selectable statuses in dropdown)
+  const { data: rules } = useQuery({
+    queryKey: ['rules', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/rules`),
+    enabled:  !!venueId,
   })
 
-  // Client-side search filter (name / email / reference)
-  const filtered = useMemo(() => {
-    if (!search.trim()) return bookings
-    const q = search.toLowerCase()
-    return bookings.filter(b =>
-      b.guest_name.toLowerCase().includes(q)  ||
-      b.guest_email.toLowerCase().includes(q) ||
-      b.reference.toLowerCase().includes(q)
-    )
-  }, [bookings, search])
+  const { data: bookings = [], isLoading } = useQuery({
+    queryKey: ['bookings', venueId, date],
+    queryFn:  () => api.get(`/bookings?venue_id=${venueId}&date=${date}`),
+    enabled:  !!venueId,
+  })
 
-  function resetFilters() {
-    setSearch(''); setStatus(''); setVenueId(''); setDate(''); setPage(0)
+  // ── Inline status mutation ───────────────────────────────────
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }) => api.patch(`/bookings/${id}/status`, { status }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] }),
+  })
+
+  // ── Filter / sort ────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    let list = [...bookings].sort((a, b) =>
+      new Date(a.starts_at) - new Date(b.starts_at)
+    )
+    if (statusFilter) list = list.filter(b => b.status === statusFilter)
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(b =>
+        (b.guest_name  ?? '').toLowerCase().includes(q) ||
+        (b.guest_email ?? '').toLowerCase().includes(q) ||
+        (b.guest_phone ?? '').toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [bookings, statusFilter, search])
+
+  // ── Stats ────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    const active = bookings.filter(b => !['cancelled', 'no_show'].includes(b.status))
+    const tableSet = new Set(active.map(b => b.table_id).filter(Boolean))
+    const guests   = active.reduce((s, b) => s + (b.covers ?? 0), 0)
+    return { reservations: active.length, tables: tableSet.size, guests }
+  }, [bookings])
+
+  // ── Group filtered bookings by start time ────────────────────
+  const grouped = useMemo(() => {
+    const map = new Map()
+    for (const b of filtered) {
+      const key = formatTime(b.starts_at)
+      if (!map.has(key)) map.set(key, [])
+      map.get(key).push(b)
+    }
+    return [...map.entries()]
+  }, [filtered])
+
+  // ── Selectable statuses for the inline dropdown ──────────────
+  function selectableFor(booking) {
+    return SELECTABLE_STATUSES.filter(s => {
+      if (s === booking.status) return false
+      if (s === 'unconfirmed') return (rules?.enable_unconfirmed_flow ?? false) || booking.status === 'unconfirmed'
+      if (s === 'reconfirmed') return (rules?.enable_reconfirmed_status ?? false) || booking.status === 'reconfirmed'
+      return true
+    })
   }
 
-  // CSV export of current filtered view
+  // ── CSV export ───────────────────────────────────────────────
   function exportCSV() {
-    const headers = ['Reference','Guest','Email','Phone','Covers','Venue','Table','Start','End','Status','Payment']
+    const headers = ['Guest', 'Phone', 'Email', 'Covers', 'Date', 'Start', 'End', 'Table', 'Section', 'Status']
     const rows = filtered.map(b => [
-      b.reference, b.guest_name, b.guest_email, b.guest_phone ?? '',
-      b.covers, b.venue_name, b.table_label,
-      b.starts_at, b.ends_at, b.status,
-      b.payment_amount ? `${b.payment_amount} ${b.payment_currency}` : '',
+      b.guest_name, b.guest_phone ?? '', b.guest_email ?? '',
+      b.covers, date, formatTime(b.starts_at), b.ends_at ? formatTime(b.ends_at) : '',
+      b.table_label, b.section_name ?? '', b.status,
     ])
     const csv = [headers, ...rows].map(r => r.map(v => `"${v}"`).join(',')).join('\n')
     const blob = new Blob([csv], { type: 'text/csv' })
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a'); a.href = url
-    a.download = `bookings-${date || 'all'}.csv`; a.click()
+    a.download = `bookings-${date}.csv`; a.click()
     URL.revokeObjectURL(url)
   }
 
+  // ── Date navigation ──────────────────────────────────────────
+  const isToday = date === format(new Date(), 'yyyy-MM-dd')
+  function goDay(delta) {
+    setDate(format(delta > 0 ? addDays(parseISO(date), 1) : subDays(parseISO(date), 1), 'yyyy-MM-dd'))
+    setSelected(null)
+  }
+
+  // Close status dropdown on outside click
+  const listRef = useRef(null)
+  useEffect(() => {
+    if (!statusDropdownId) return
+    function handle(e) {
+      if (listRef.current && !listRef.current.contains(e.target)) setStatusDropdownId(null)
+    }
+    document.addEventListener('mousedown', handle)
+    return () => document.removeEventListener('mousedown', handle)
+  }, [statusDropdownId])
+
+  // Keep selected booking fresh after status update
+  useEffect(() => {
+    if (!selected) return
+    const fresh = bookings.find(b => b.id === selected.id)
+    if (fresh) setSelected(fresh)
+  }, [bookings])
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
-        <h1 className="font-semibold">Bookings</h1>
-        <button
-          onClick={exportCSV}
-          className="flex items-center gap-1.5 text-sm px-3 py-1.5 border rounded-lg hover:bg-accent"
-        >
-          <Download className="w-4 h-4" /> Export CSV
-        </button>
+
+      {/* ── Top bar ───────────────────────────────────────────── */}
+      <div className="flex items-center gap-4 px-5 h-14 border-b shrink-0">
+        {/* Venue selector */}
+        {venues.length > 1 && (
+          <select
+            value={venueId ?? ''}
+            onChange={e => { setVenueId(e.target.value); setSelected(null) }}
+            className="text-sm border rounded-lg px-2 py-1.5 bg-background"
+          >
+            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        )}
+
+        {/* Date navigation */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => goDay(-1)}
+            className="p-1.5 rounded hover:bg-accent touch-manipulation"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <div className="relative">
+            <button className="px-3 py-1.5 text-sm font-medium rounded-lg hover:bg-accent touch-manipulation min-w-[140px] text-center">
+              {isToday ? 'Today' : format(parseISO(date), 'EEE d MMM yyyy')}
+            </button>
+            <input
+              type="date"
+              value={date}
+              onChange={e => { setDate(e.target.value); setSelected(null) }}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full"
+            />
+          </div>
+          <button
+            onClick={() => goDay(1)}
+            className="p-1.5 rounded hover:bg-accent touch-manipulation"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          {!isToday && (
+            <button
+              onClick={() => { setDate(format(new Date(), 'yyyy-MM-dd')); setSelected(null) }}
+              className="text-xs px-2.5 py-1.5 rounded-lg border hover:bg-accent touch-manipulation ml-1"
+            >
+              Today
+            </button>
+          )}
+        </div>
+
+        {/* Stats */}
+        <div className="flex items-center gap-4 text-sm text-muted-foreground ml-2">
+          <span><span className="font-semibold text-foreground">{stats.reservations}</span> reservations</span>
+          <span><span className="font-semibold text-foreground">{stats.tables}</span> tables</span>
+          <span><span className="font-semibold text-foreground">{stats.guests}</span> guests</span>
+        </div>
+
+        {/* Spacer + Export */}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={exportCSV}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 border rounded-lg hover:bg-accent touch-manipulation"
+          >
+            <Download className="w-4 h-4" /> Export
+          </button>
+        </div>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex items-center gap-3 px-6 py-3 border-b bg-muted/30 shrink-0 flex-wrap">
-        {/* Search */}
+      {/* ── Filter bar ────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 px-5 py-2.5 border-b bg-muted/20 shrink-0">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Name, email or ref…"
-            className="pl-8 pr-3 py-1.5 text-sm border rounded-lg w-52 bg-background"
+            placeholder="Name, email or phone…"
+            className="pl-8 pr-3 py-1.5 text-sm border rounded-lg w-52 bg-background focus:outline-none focus:border-primary"
           />
         </div>
 
-        {/* Venue */}
         <select
-          value={venueId}
-          onChange={e => { setVenueId(e.target.value); setPage(0) }}
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
           className="text-sm border rounded-lg px-2 py-1.5 bg-background"
         >
-          <option value="">All venues</option>
-          {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
-
-        {/* Date */}
-        <input
-          type="date"
-          value={date}
-          onChange={e => { setDate(e.target.value); setPage(0) }}
-          className="text-sm border rounded-lg px-2 py-1.5 bg-background"
-        />
-
-        {/* Status */}
-        <select
-          value={status}
-          onChange={e => { setStatus(e.target.value); setPage(0) }}
-          className="text-sm border rounded-lg px-2 py-1.5 bg-background"
-        >
-          {STATUSES.map(s => (
-            <option key={s} value={s}>{s ? STATUS_LABELS[s] : 'All statuses'}</option>
+          <option value="">All statuses</option>
+          {SELECTABLE_STATUSES.map(s => (
+            <option key={s} value={s}>{STATUS_LABELS[s]}</option>
           ))}
         </select>
 
-        {(search || status || venueId || date) && (
-          <button onClick={resetFilters} className="text-xs text-muted-foreground underline-offset-2 hover:underline">
-            Clear filters
+        {(search || statusFilter) && (
+          <button
+            onClick={() => { setSearch(''); setStatusFilter('') }}
+            className="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+          >
+            Clear
           </button>
         )}
 
@@ -150,99 +258,138 @@ export default function Bookings() {
         </span>
       </div>
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">Loading…</div>
-        ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-            No bookings found
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-muted/80 backdrop-blur border-b">
-              <tr>
-                {['Ref','Guest','Date & time','Venue / table','Covers','Status','Payment'].map(h => (
-                  <th key={h} className="text-left text-xs font-semibold text-muted-foreground px-4 py-2.5">
-                    {h}
-                  </th>
+      {/* ── Main content ──────────────────────────────────────── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Booking list */}
+        <div ref={listRef} className="flex-1 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+              Loading…
+            </div>
+          ) : grouped.length === 0 ? (
+            <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+              No bookings for this date
+            </div>
+          ) : (
+            grouped.map(([time, rows]) => (
+              <div key={time}>
+                {/* Time header */}
+                <div className="px-5 py-2 bg-muted/30 border-b border-t sticky top-0 z-10">
+                  <span className="text-sm font-semibold">{time}</span>
+                </div>
+
+                {/* Booking rows */}
+                {rows.map(b => (
+                  <BookingRow
+                    key={b.id}
+                    booking={b}
+                    isSelected={selected?.id === b.id}
+                    statusDropdownOpen={statusDropdownId === b.id}
+                    selectableStatuses={selectableFor(b)}
+                    onRowClick={() => setSelected(b)}
+                    onStatusClick={(e) => {
+                      e.stopPropagation()
+                      setStatusDropdownId(v => v === b.id ? null : b.id)
+                    }}
+                    onStatusSelect={(newStatus) => {
+                      statusMutation.mutate({ id: b.id, status: newStatus })
+                      setStatusDropdownId(null)
+                    }}
+                    onDropdownClose={() => setStatusDropdownId(null)}
+                  />
                 ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filtered.map(b => (
-                <tr
-                  key={b.id}
-                  onClick={() => setSelected(b)}
-                  className="hover:bg-accent/50 cursor-pointer transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <span className="font-mono text-xs text-muted-foreground">{b.reference}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{b.guest_name}</p>
-                    <p className="text-xs text-muted-foreground">{b.guest_email}</p>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {formatDateTime(b.starts_at)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <p>{b.venue_name}</p>
-                    <p className="text-xs text-muted-foreground">{b.table_label}</p>
-                  </td>
-                  <td className="px-4 py-3 text-center">{b.covers}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={b.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    {b.payment_amount
-                      ? <span className={cn(
-                          'text-xs font-medium',
-                          b.payment_status === 'succeeded' ? 'text-green-700' : 'text-yellow-700'
-                        )}>
-                          {b.payment_amount} {b.payment_currency}
-                        </span>
-                      : <span className="text-xs text-muted-foreground">—</span>
-                    }
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* BookingDrawer panel */}
+        {selected && (
+          <BookingDrawer
+            booking={selected}
+            panelMode
+            onClose={() => setSelected(null)}
+            onUpdated={() => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Booking row ───────────────────────────────────────────────
+function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStatuses, onRowClick, onStatusClick, onStatusSelect, onDropdownClose }) {
+  const endTime = b.ends_at ? formatTime(b.ends_at) : null
+
+  return (
+    <div
+      onClick={onRowClick}
+      className={cn(
+        'flex items-center gap-4 px-5 py-3 border-b cursor-pointer transition-colors hover:bg-accent/40 touch-manipulation',
+        isSelected && 'bg-primary/5 border-l-2 border-l-primary',
+      )}
+    >
+      {/* Covers */}
+      <div className="w-12 shrink-0 text-center">
+        <span className="text-base font-semibold">{b.covers}</span>
+        <span className="text-xs text-muted-foreground"> p.</span>
+      </div>
+
+      {/* Name + phone */}
+      <div className="flex-1 min-w-0">
+        <p className="font-medium truncate">{b.guest_name}</p>
+        {b.guest_phone && (
+          <p className="text-xs text-muted-foreground truncate">{b.guest_phone}</p>
         )}
       </div>
 
-      {/* Pagination */}
-      {bookings.length === LIMIT && (
-        <div className="flex items-center justify-between px-6 py-3 border-t shrink-0">
-          <button
-            onClick={() => setPage(p => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="text-sm px-3 py-1.5 border rounded-lg disabled:opacity-40 hover:bg-accent"
-          >
-            Previous
-          </button>
-          <span className="text-xs text-muted-foreground">Page {page + 1}</span>
-          <button
-            onClick={() => setPage(p => p + 1)}
-            className="text-sm px-3 py-1.5 border rounded-lg hover:bg-accent"
-          >
-            Next
-          </button>
-        </div>
+      {/* Ends badge */}
+      {endTime && (
+        <span className="shrink-0 text-xs text-muted-foreground border rounded px-1.5 py-0.5 whitespace-nowrap">
+          Ends: {endTime}
+        </span>
       )}
 
-      {/* Booking drawer */}
-      {selected && (
-        <BookingDrawer
-          booking={selected}
-          onClose={() => setSelected(null)}
-          onUpdated={() => {
-            qc.invalidateQueries({ queryKey: ['bookings-list'] })
-            setSelected(null)
-          }}
-        />
-      )}
+      {/* Table + section */}
+      <div className="shrink-0 text-right hidden sm:block">
+        <p className="text-sm font-medium">{b.table_label}</p>
+        {b.section_name && (
+          <p className="text-xs text-muted-foreground">{b.section_name}</p>
+        )}
+      </div>
+
+      {/* Status pill — clickable dropdown */}
+      <div className="shrink-0 relative" onClick={e => e.stopPropagation()}>
+        <button
+          onClick={onStatusClick}
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold touch-manipulation',
+            STATUS_COLOURS[b.status]
+          )}
+        >
+          {STATUS_LABELS[b.status]}
+          <ChevronDown className="w-3 h-3 opacity-70" />
+        </button>
+
+        {statusDropdownOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={onDropdownClose} />
+            <div className="absolute right-0 top-full mt-1 w-44 bg-background rounded-xl border shadow-lg z-20 overflow-hidden py-1">
+              {selectableStatuses.map(s => (
+                <button
+                  key={s}
+                  onClick={() => onStatusSelect(s)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-left hover:bg-muted transition-colors touch-manipulation"
+                >
+                  <span className={cn('w-2 h-2 rounded-full shrink-0', STATUS_DOT[s])} />
+                  {STATUS_LABELS[s]}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }

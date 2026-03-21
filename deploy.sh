@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-APP_USER="booking"
+APP_USER="ubuntu"
 APP_DIR="/home/${APP_USER}/app"
 TARGET=${1:-"all"}
 

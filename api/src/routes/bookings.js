@@ -33,7 +33,7 @@ const HoldBody = z.object({
 const BookingBody = z.object({
   hold_id:       z.string().uuid(),
   guest_name:    z.string().min(1).optional(),
-  guest_email:   z.string().email().optional(),
+  guest_email:   z.union([z.string().email(), z.literal(''), z.null()]).optional(),
   guest_phone:   z.string().optional().nullable(),
   covers:        z.coerce.number().int().min(1).optional(),
   guest_notes:   z.string().max(1000).nullable().optional(),
@@ -200,7 +200,7 @@ export default async function bookingsRoutes(app) {
         VALUES
           (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${req.tenantId},
            ${h.starts_at}, ${h.ends_at}, ${body.covers ?? h.covers},
-           ${body.guest_name ?? h.guest_name}, ${body.guest_email ?? h.guest_email}, ${body.guest_phone ?? h.guest_phone ?? null},
+           ${body.guest_name ?? h.guest_name}, ${body.guest_email || h.guest_email || null}, ${body.guest_phone ?? h.guest_phone ?? null},
            ${body.guest_notes ?? null}, ${initialStatus}::booking_status)
         RETURNING *
       `
@@ -233,7 +233,7 @@ export default async function bookingsRoutes(app) {
       covers:      z.number().int().min(1),
       table_ids:   z.array(z.string().uuid()).default([]),      // empty → unallocated row
       guest_name:  z.string().min(1).max(200),
-      guest_email: z.string().email(),
+      guest_email: z.string().email().nullable().optional(),   // optional for walk-ins
       guest_phone: z.string().max(30).nullable().optional(),
       guest_notes: z.string().max(1000).nullable().optional(),
     }).parse(req.body)

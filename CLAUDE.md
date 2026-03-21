@@ -256,6 +256,18 @@ Key vars to set before running:
 
 ---
 
+## Server (Lightsail) — ALL development is done here via SSH
+
+**Nothing runs locally.** The developer works exclusively on the Lightsail server over SSH.
+Never suggest running commands locally. Always give server commands.
+
+- **OS user is `ubuntu`** — NEVER use `booking` as the username. App lives at `/home/ubuntu/app`.
+- **Deploy:** `sudo /home/ubuntu/app/deploy.sh` (all), `sudo /home/ubuntu/app/deploy.sh api`, or `sudo /home/ubuntu/app/deploy.sh admin`
+- **Migrations:** connect via `psql` then `\i /home/ubuntu/app/migrations/NNN_name.sql`
+- **deploy.sh** has `APP_USER="ubuntu"` — do not change it back to `booking`
+
+---
+
 ## Running locally
 
 ```bash
