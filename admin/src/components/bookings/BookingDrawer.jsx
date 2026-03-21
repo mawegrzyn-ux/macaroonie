@@ -35,7 +35,7 @@ const STATUS_DOT = {
   completed:       'bg-green-500',
 }
 
-export default function BookingDrawer({ booking, onClose, onUpdated, panelMode = false }) {
+export default function BookingDrawer({ booking, onClose, onUpdated, panelMode = false, inlineMode = false }) {
   const api = useApi()
 
   // ── Edit mode flags ───────────────────────────────────────
@@ -220,15 +220,20 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
   return (
     <>
       {/* Backdrop — only in overlay mode */}
-      {!panelMode && (
+      {!panelMode && !inlineMode && (
         <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
       )}
 
-      {/* Drawer — overlay mode: fixed right panel with shadow
-               panel mode:   fixed right panel, no backdrop, no shadow */}
+      {/* Drawer:
+           overlay mode — fixed right panel with shadow + backdrop
+           panelMode    — fixed right panel, no backdrop, no shadow
+           inlineMode   — flows in normal document layout (flex child) */}
       <div className={cn(
-        'fixed right-0 top-0 bottom-0 w-full sm:w-[420px] bg-background border-l flex flex-col overflow-hidden',
-        panelMode ? 'z-30' : 'z-50 shadow-xl',
+        'bg-background border-l flex flex-col overflow-hidden',
+        inlineMode
+          ? 'w-[420px] shrink-0 h-full'
+          : 'fixed right-0 top-0 bottom-0 w-full sm:w-[420px]',
+        !inlineMode && (panelMode ? 'z-30' : 'z-50 shadow-xl'),
       )}>
 
         {/* ── Header ─────────────────────────────────────── */}

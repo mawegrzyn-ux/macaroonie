@@ -6,7 +6,7 @@
 // Clicking status pill opens an inline dropdown to change it.
 // Clicking a row opens BookingDrawer in panel mode on the right.
 
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ChevronLeft, ChevronRight, Download, Search, ChevronDown } from 'lucide-react'
@@ -37,6 +37,35 @@ export default function Bookings() {
   const [search,           setSearch]       = useState('')
   const [statusFilter,     setStatusFilter] = useState('')
   const [statusDropdownId, setStatusDropdownId] = useState(null) // booking.id with open dropdown
+  const [panelWidth,       setPanelWidth]       = useState(420)  // px — draggable
+  const isResizing = useRef(false)
+
+  const onResizeStart = useCallback((e) => {
+    e.preventDefault()
+    isResizing.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    function onMove(ev) {
+      if (!isResizing.current) return
+      const clientX = ev.touches ? ev.touches[0].clientX : ev.clientX
+      const newWidth = window.innerWidth - clientX
+      setPanelWidth(Math.min(700, Math.max(280, newWidth)))
+    }
+    function onUp() {
+      isResizing.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup',   onUp)
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend',  onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup',   onUp)
+    window.addEventListener('touchmove', onMove, { passive: false })
+    window.addEventListener('touchend',  onUp)
+  }, [])
 
   // ── Data ────────────────────────────────────────────────────
   const { data: venues = [] } = useQuery({
@@ -304,15 +333,28 @@ export default function Bookings() {
           )}
         </div>
 
-        {/* BookingDrawer panel */}
-        {selected && (
-          <BookingDrawer
-            booking={selected}
-            panelMode
-            onClose={() => setSelected(null)}
-            onUpdated={() => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
-          />
-        )}
+        {/* Resize handle */}
+        <div
+          onMouseDown={onResizeStart}
+          onTouchStart={onResizeStart}
+          className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-primary/40 transition-colors touch-manipulation"
+        />
+
+        {/* Permanent right panel */}
+        <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: panelWidth }}>
+          {selected ? (
+            <BookingDrawer
+              booking={selected}
+              inlineMode
+              onClose={() => setSelected(null)}
+              onUpdated={() => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+              <p className="text-sm">Select a booking to view details</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
