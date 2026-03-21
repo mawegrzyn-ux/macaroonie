@@ -72,17 +72,19 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     if (step === 'guest') reset(v => ({ ...v, covers }))
   }, [step])
 
-  // Debounce customer search — prefer email (most unique), fall back to name, then phone
+  // Track which guest field the operator is currently typing in.
+  // Search fires only for the active field — ignoring whatever is in the others.
+  const [activeSearchField, setActiveSearchField] = useState(null)
+
   useEffect(() => {
-    if (step !== 'guest') return
-    const term = watchedEmail.length >= 2 ? watchedEmail
-               : watchedName.length  >= 2 ? watchedName
-               : watchedPhone.length >= 2 ? watchedPhone
-               : ''
+    if (step !== 'guest' || !activeSearchField) return
+    const term = activeSearchField === 'email' ? watchedEmail
+               : activeSearchField === 'phone' ? watchedPhone
+               : watchedName
     clearTimeout(customerQTimer.current)
-    customerQTimer.current = setTimeout(() => setCustomerQ(term), 300)
+    customerQTimer.current = setTimeout(() => setCustomerQ(term.length >= 2 ? term : ''), 300)
     return () => clearTimeout(customerQTimer.current)
-  }, [watchedEmail, watchedName, watchedPhone, step])
+  }, [watchedEmail, watchedName, watchedPhone, step, activeSearchField])
 
   const { data: customerSuggestions = [] } = useQuery({
     queryKey: ['customers', 'search', customerQ],
@@ -95,7 +97,8 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     setValue('guest_name',  customer.name,         { shouldValidate: true })
     setValue('guest_email', customer.email ?? '',  { shouldValidate: true })
     setValue('guest_phone', customer.phone ?? '',  { shouldValidate: true })
-    setCustomerQ('')  // hide suggestions after selection
+    setCustomerQ('')
+    setActiveSearchField(null)
   }
 
   // Fetch tables + combinations
@@ -213,8 +216,10 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 gap-3">
-        <div className="bg-background rounded-xl shadow-2xl w-full max-w-md flex flex-col max-h-[85vh]">
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        {/* Relative wrapper — modal stays centred; suggestions panel anchors to its right edge */}
+        <div className="relative w-full max-w-md">
+        <div className="bg-background rounded-xl shadow-2xl w-full flex flex-col max-h-[85vh]">
 
           {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
@@ -346,16 +351,17 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
               <form id="guest-form" onSubmit={handleSubmit(onGuestSubmit)} className="space-y-4">
                 <Field label="Full name" error={errors.guest_name?.message}>
                   {/* autoFocus only on desktop — on iOS/Android it would instantly pop the keyboard */}
-                  <input {...register('guest_name')} className="input" placeholder="Jane Smith" autoFocus={!IS_TOUCH} />
+                  <input {...register('guest_name')} onFocus={() => setActiveSearchField('name')} className="input" placeholder="Jane Smith" autoFocus={!IS_TOUCH} />
                 </Field>
                 <Field label="Email" error={errors.guest_email?.message}>
-                  <input {...register('guest_email')} type="email" inputMode="email" className="input" placeholder="jane@example.com" />
+                  <input {...register('guest_email')} onFocus={() => setActiveSearchField('email')} type="email" inputMode="email" className="input" placeholder="jane@example.com" />
                 </Field>
 
                 {/* A3: Phone — type="tel" triggers numeric keypad on iOS/Android */}
                 <Field label="Phone" error={errors.guest_phone?.message}>
                   <input
                     {...register('guest_phone')}
+                    onFocus={() => setActiveSearchField('phone')}
                     type="tel"
                     inputMode="tel"
                     className="input"
@@ -433,9 +439,10 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
           </div>
         </div>
 
-        {/* Customer suggestions panel — shown to the right of the modal during guest step */}
+        {/* Customer suggestions — absolutely anchored to the right of the modal.
+            The modal never moves; this panel just appears alongside it. */}
         {showSuggestions && (
-          <div className="bg-background rounded-xl shadow-2xl border w-64 shrink-0 flex flex-col overflow-hidden max-h-[70vh] self-center">
+          <div className="absolute left-[calc(100%+12px)] top-0 bg-background rounded-xl shadow-2xl border w-64 flex flex-col overflow-hidden max-h-[70vh]">
             <div className="flex items-center gap-2 px-3 py-2.5 border-b shrink-0">
               <UserSearch className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               <span className="text-xs font-medium text-muted-foreground">Matching customers</span>
@@ -456,6 +463,8 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
             </div>
           </div>
         )}
+
+        </div>{/* end relative wrapper */}
       </div>
 
       <style>{`.input { width: 100%; border: 1px solid hsl(var(--border)); border-radius: 0.5rem; padding: 0.5rem 0.625rem; font-size: 0.875rem; outline: none; background: hsl(var(--background)); } .input:focus { border-color: hsl(var(--primary)); }`}</style>
