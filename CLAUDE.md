@@ -194,7 +194,7 @@ Additionally implemented across development sessions:
 - ✅ **Schedule exceptions** — `schedule_exceptions`, `exception_day_templates`, `exception_sittings`, `exception_sitting_slot_caps` tables (migration 014); `get_available_slots()` updated with Priority 1 exception resolution; full CRUD in `schedules.js`; `ExceptionsSection` / `ExceptionCard` / `ExceptionDayCard` components in `Schedule.jsx`
 - ✅ **get_available_slots() bug fix** — `v_exc_template_id uuid` scalar variable replaces direct record field access to prevent "record not assigned yet" PG 55000 error (migration 015)
 - ✅ **Admin manual allocation** — `POST /bookings/admin-override` API endpoint; ManualAllocModal in NewBookingModal with free date/time/table selection, "Booked" indicators from day bookings query, unallocated option
-- ✅ **Timeline grey column overlay** — `GET /slots?covers=1` used to compute unavailable time strips; grey = outside sittings, cap=0 (reason='unavailable'), or fully-booked (reason='full'); strips clipped in secondary combo rows to avoid bleed-through the spanning card
+- ✅ **Timeline grey column overlay** — `GET /slots?covers=1` used to compute unavailable time strips; grey = outside sittings or cap=0 (reason='unavailable'); fully-booked (reason='full') stays white; strips clipped in secondary combo rows to avoid bleed-through the spanning card
 - ✅ **New Booking Modal touch optimisation** — 48px cover buttons, date-as-button overlay, `type="tel"` phone, custom numeric keypad on touch devices
 - ✅ **enable_reconfirmed_status** — added to `booking_rules` (migration 012), `BookingRulesBody` schema in venues.js, `BookingRulesSchema` and UI toggle in Rules.jsx
 
@@ -252,7 +252,7 @@ Key vars to set before running:
 - **`/relocate` throws 422 when no combo exists for expanded table set** — step 4 no longer auto-creates combinations. If adjacency expansion finds T8+T9+T10 but no pre-configured combination exists for those tables, the endpoint returns 422 and the drag snaps back. Operators must create the combination in the Tables page first.
 - **`v_exc_template` in `get_available_slots()`** — when no schedule exception covers the date, the record variable is never assigned by SELECT INTO. Accessing `.id` on an uninitialized PL/pgSQL RECORD throws PG 55000 'not assigned yet'. Always use a scalar UUID variable (`v_exc_template_id uuid := NULL`) and assign it only when the record IS found.
 - **Admin override `starts_at` is server-local time** — `POST /bookings/admin-override` receives `YYYY-MM-DDTHH:MM:SS` without a timezone offset and passes it to `new Date()`, which interprets it as server-local time. If the server and venue are in different timezones, the stored `starts_at` will be offset. Future work: pass the venue's IANA timezone and convert in the server.
-- **Timeline grey strips are per-column, not per-row** — grey = outside any sitting OR slot cap explicitly set to 0 (reason='unavailable') OR fully booked (reason='full'). Three rules only: closed hours, cap=0, fully booked. Secondary combo rows clip grey strips to the booking's own time window only; grey IS shown outside the booking's time.
+- **Timeline grey strips are per-column, not per-row** — grey = outside any sitting OR slot cap explicitly set to 0 (reason='unavailable'). Fully-booked slots (reason='full') are NOT greyed — they stay white. Secondary combo rows clip grey strips to the booking's own time window only; grey IS shown outside the booking's time.
 
 ---
 

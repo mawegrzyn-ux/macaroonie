@@ -334,13 +334,13 @@ export default function Timeline() {
   // B1: Compute grey strip positions covering:
   //   • time before the first sitting (outside schedule)
   //   • gaps between sittings (outside schedule)
-  //   • slots where available = false (reason='full' OR reason='unavailable')
+  //   • slots where cap is explicitly set to 0 (reason='unavailable')
   //   • time after the last sitting (outside schedule)
   //
-  // Grey rules (in full):
+  // Grey rules (exactly two):
   //   1. Hours outside schedule (before first sitting open, after last sitting close) → grey
   //   2. Slot cap explicitly set to 0 (reason='unavailable') → grey
-  //   3. Slot fully booked with no remaining covers (reason='full') → grey
+  //   Fully-booked slots (reason='full') are NOT greyed — they stay white.
   //
   // Slot interval is derived as the minimum gap between consecutive slot_times
   // so a large inter-sitting gap is never mistaken for the interval.
@@ -367,10 +367,10 @@ export default function Timeline() {
     for (let i = 0; i < slots.length; i++) {
       const x = timeToX(slots[i].slot_time)
 
-      // 2+3. Grey when slot is unavailable for any reason:
-      //   reason='unavailable' → cap explicitly set to 0
-      //   reason='full'        → fully booked (0 covers remaining for covers=1 query)
-      if (!slots[i].available) strips.push({ x, width: intervalPx })
+      // 2. Cap explicitly set to 0 → grey
+      //    reason='unavailable' = operator blocked this interval (cap = 0)
+      //    reason='full'        = booked up — NOT greyed, stays white
+      if (slots[i].reason === 'unavailable') strips.push({ x, width: intervalPx })
 
       // Gap to next slot — if significantly wider than the slot interval
       // it's a between-sittings gap, not just the natural spacing between slots
