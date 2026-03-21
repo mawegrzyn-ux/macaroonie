@@ -153,6 +153,10 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
   // must be clipped to exclude ONLY that booking's time window — outside the
   // booking the row should show the same grey as every other row so time
   // columns remain visually consistent (no partial-column grey).
+  //
+  // We split each strip around covered ranges rather than dropping the whole
+  // strip, so a booking that starts mid-strip (e.g. inside the pre-sitting
+  // grey) doesn't wipe grey on either side of the card.
   const clippedStrips = (() => {
     const coveredRanges = bookings
       .filter(b => { const si = comboSpanMap?.get(b.id); return si && si.get(table.id) === 0 })
@@ -161,11 +165,30 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         endX:   timeToX(b.starts_at) + durationToWidth(b.starts_at, b.ends_at),
       }))
     if (!coveredRanges.length) return unavailableStrips
-    // Keep strips that don't intersect any covered range
-    return unavailableStrips.filter(s => {
-      const sEnd = s.x + s.width
-      return !coveredRanges.some(c => s.x < c.endX && sEnd > c.startX)
-    })
+
+    const result = []
+    for (const strip of unavailableStrips) {
+      // Start with the full strip then subtract each covered range
+      let segments = [{ x: strip.x, width: strip.width }]
+      for (const c of coveredRanges) {
+        const next = []
+        for (const seg of segments) {
+          const segEnd = seg.x + seg.width
+          if (c.startX >= segEnd || c.endX <= seg.x) {
+            next.push(seg)                                      // no overlap — keep
+          } else {
+            if (seg.x < c.startX)                              // left remainder
+              next.push({ x: seg.x, width: c.startX - seg.x })
+            if (segEnd > c.endX)                               // right remainder
+              next.push({ x: c.endX, width: segEnd - c.endX })
+            // portion inside covered range is discarded
+          }
+        }
+        segments = next
+      }
+      result.push(...segments)
+    }
+    return result
   })()
 
   return (

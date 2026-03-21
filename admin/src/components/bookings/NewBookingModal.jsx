@@ -651,7 +651,7 @@ function ManualAllocModal({ venueId, initialDate, initialTime, covers, tables, a
                       return (
                         <label
                           key={table.id}
-                          onClick={() => toggleTable(table.id)}
+                          onClick={(e) => { e.preventDefault(); toggleTable(table.id) }}
                           className={cn(
                             'flex items-center gap-3 px-3 py-2.5 rounded-lg border cursor-pointer select-none transition-colors',
                             checked ? 'border-primary bg-primary/5' : 'border-border',
