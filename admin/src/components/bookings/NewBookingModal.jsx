@@ -167,7 +167,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
 
   // Walk-in: skip all guest details, book immediately as "Walk In"
   function handleWalkIn() {
-    const walkInData = { guest_name: 'Walk In', guest_email: '', covers, guest_notes: '' }
+    const walkInData = { guest_name: 'Walk In', guest_email: null, covers, guest_notes: '' }
     if (manualAlloc) {
       confirmOverrideMutation.mutate(walkInData)
     } else {

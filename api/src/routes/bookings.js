@@ -33,7 +33,7 @@ const HoldBody = z.object({
 const BookingBody = z.object({
   hold_id:       z.string().uuid(),
   guest_name:    z.string().min(1).optional(),
-  guest_email:   z.union([z.string().email(), z.literal(''), z.null()]).optional(),
+  guest_email:   z.union([z.string().email(), z.null()]).optional(),
   guest_phone:   z.string().optional().nullable(),
   covers:        z.coerce.number().int().min(1).optional(),
   guest_notes:   z.string().max(1000).nullable().optional(),
@@ -233,7 +233,7 @@ export default async function bookingsRoutes(app) {
       covers:      z.number().int().min(1),
       table_ids:   z.array(z.string().uuid()).default([]),      // empty → unallocated row
       guest_name:  z.string().min(1).max(200),
-      guest_email: z.string().email().nullable().optional(),   // optional for walk-ins
+      guest_email: z.union([z.string().email(), z.null()]).optional(),  // null for walk-ins
       guest_phone: z.string().max(30).nullable().optional(),
       guest_notes: z.string().max(1000).nullable().optional(),
     }).parse(req.body)
