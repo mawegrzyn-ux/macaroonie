@@ -22,10 +22,12 @@ die()  { echo -e "${RED}[✗]${NC} $1"; exit 1; }
 
 deploy_api() {
   info "Deploying API…"
-  cd "${APP_DIR}/api"
-  npm install --production --silent
-  # Validate env file exists
-  [[ -f .env ]] || die ".env not found at ${APP_DIR}/api/.env"
+  [[ -f "${APP_DIR}/api/.env" ]] || die ".env not found at ${APP_DIR}/api/.env"
+  # Install as APP_USER so node_modules are never root-owned
+  sudo -u "${APP_USER}" bash -c "
+    cd '${APP_DIR}/api'
+    npm install --production --silent
+  "
   # PM2 runs as APP_USER, not root — use sudo -u to talk to the correct daemon
   sudo -u "${APP_USER}" pm2 reload macaroonie-api --update-env 2>/dev/null \
     || sudo -u "${APP_USER}" pm2 start "${APP_DIR}/ecosystem.config.cjs"
@@ -35,10 +37,13 @@ deploy_api() {
 
 deploy_admin() {
   info "Building admin portal…"
-  cd "${APP_DIR}/admin"
-  [[ -f .env ]] || die ".env not found at ${APP_DIR}/admin/.env"
-  npm install --silent
-  npm run build
+  [[ -f "${APP_DIR}/admin/.env" ]] || die ".env not found at ${APP_DIR}/admin/.env"
+  # Build as APP_USER so dist/ files are never owned by root
+  sudo -u "${APP_USER}" bash -c "
+    cd '${APP_DIR}/admin'
+    npm install --silent
+    npm run build
+  "
   log "Admin portal built → ${APP_DIR}/admin/dist/"
   # Nginx serves directly from dist/ — no reload needed
 }

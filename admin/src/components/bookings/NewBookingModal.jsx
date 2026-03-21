@@ -345,7 +345,8 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
             {step === 'guest' && (
               <form id="guest-form" onSubmit={handleSubmit(onGuestSubmit)} className="space-y-4">
                 <Field label="Full name" error={errors.guest_name?.message}>
-                  <input {...register('guest_name')} className="input" placeholder="Jane Smith" autoFocus />
+                  {/* autoFocus only on desktop — on iOS/Android it would instantly pop the keyboard */}
+                  <input {...register('guest_name')} className="input" placeholder="Jane Smith" autoFocus={!IS_TOUCH} />
                 </Field>
                 <Field label="Email" error={errors.guest_email?.message}>
                   <input {...register('guest_email')} type="email" inputMode="email" className="input" placeholder="jane@example.com" />
