@@ -15,7 +15,7 @@ import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   X, Mail, Phone, Users, Clock, CreditCard,
-  Pencil, AlertTriangle, Calendar, ChevronDown,
+  Pencil, TriangleAlert, Calendar, ChevronDown,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
@@ -430,7 +430,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
 
                 {warning && (
                   <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0" />
                     <span>{warning}</span>
                   </div>
                 )}

@@ -904,7 +904,11 @@ export default async function bookingsRoutes(app) {
       for (const conflict of conflicts) {
         const usedArr = [...usedTableIds]
 
-        // 6a. Try smallest free single table that fits
+        // 6a. Try smallest free single table that fits.
+        // Exclude both the conflict booking AND the primary booking being moved
+        // (req.params.id) — the primary is vacating its table in this transaction,
+        // so that table must be treated as free when finding a home for the conflict.
+        const excludeIds = [conflict.id, req.params.id]
         const [freeTable] = await tx`
           SELECT t.id FROM tables t
            WHERE t.venue_id       = ${booking.venue_id}
@@ -917,7 +921,7 @@ export default async function bookingsRoutes(app) {
                    SELECT 1 FROM bookings b2
                     WHERE b2.table_id  = t.id
                       AND b2.tenant_id = ${req.tenantId}
-                      AND b2.id       != ${conflict.id}
+                      AND b2.id != ALL(${excludeIds}::uuid[])
                       AND b2.status NOT IN ('cancelled', 'no_show')
                       AND b2.starts_at < ${conflict.ends_at}
                       AND b2.ends_at   > ${conflict.starts_at}
@@ -948,14 +952,16 @@ export default async function bookingsRoutes(app) {
                     WHERE m2.combination_id = c.id
                       AND m2.table_id = ANY(${usedArr}::uuid[])
                  )
-             -- None of the combination's member tables have a conflicting booking
+             -- None of the combination's member tables have a conflicting booking.
+             -- Exclude both the conflict and the primary booking being moved (its
+             -- table is vacating in this transaction so must be treated as free).
              AND NOT EXISTS (
                    SELECT 1 FROM table_combination_members m3
                     JOIN bookings b2 ON b2.table_id = m3.table_id
                    WHERE m3.combination_id = c.id
                      AND b2.tenant_id = ${req.tenantId}
                      AND b2.status NOT IN ('cancelled', 'no_show')
-                     AND b2.id       != ${conflict.id}
+                     AND b2.id != ALL(${excludeIds}::uuid[])
                      AND b2.starts_at < ${conflict.ends_at}
                      AND b2.ends_at   > ${conflict.starts_at}
                  )

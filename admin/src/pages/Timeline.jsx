@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, AlertTriangle, EyeOff, Eye, Columns } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw, Maximize2, Minimize2, TriangleAlert, EyeOff, Eye, Columns } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -204,7 +204,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           {isUnallocated ? (
             <>
               <p className="text-sm font-medium text-orange-700 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" /> Unallocated
+                <TriangleAlert className="w-3 h-3" /> Unallocated
               </p>
               <p className="text-xs text-orange-500">Drag to reassign</p>
             </>
@@ -774,7 +774,7 @@ export default function Timeline() {
       {/* Relocate error banner */}
       {relocateError && (
         <div className="flex items-center gap-2 px-4 py-2 bg-destructive/10 border-b border-destructive/20 text-sm text-destructive shrink-0">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <TriangleAlert className="w-4 h-4 shrink-0" />
           <span className="flex-1">{relocateError}</span>
           <button
             onClick={() => setRelocateError(null)}
@@ -809,7 +809,7 @@ export default function Timeline() {
                 <div>
                   <div className="px-3 py-1.5 bg-orange-50 border-b border-orange-200 sticky top-[40px] z-[9]">
                     <span className="text-xs font-semibold text-orange-700 uppercase tracking-wide flex items-center gap-1.5">
-                      <AlertTriangle className="w-3 h-3" />
+                      <TriangleAlert className="w-3 h-3" />
                       Unallocated — drag bookings to a table row to reassign
                     </span>
                   </div>

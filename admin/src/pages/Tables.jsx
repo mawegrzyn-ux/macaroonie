@@ -16,7 +16,7 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import {
   Plus, Pencil, Trash2, Check, X, Layers, Link2,
-  GripVertical, Save, Ban, AlertTriangle,
+  GripVertical, Save, Ban, TriangleAlert,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -258,7 +258,7 @@ function CombinationForm({ venueId, tables, combo, rules, disallowedPairs = [], 
                 ? 'bg-destructive/10 text-destructive border border-destructive/20'
                 : 'bg-amber-50 text-amber-700 border border-amber-200',
             )}>
-              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <TriangleAlert className="w-3.5 h-3.5 mt-0.5 shrink-0" />
               <span>{v.msg}</span>
             </div>
           ))}
