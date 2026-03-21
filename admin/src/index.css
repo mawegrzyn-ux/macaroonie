@@ -54,6 +54,8 @@
 .timeline-slot.confirmed      { background: #dbeafe; border-left: 3px solid #3b82f6; }
 .timeline-slot.reconfirmed    { background: #e0e7ff; border-left: 3px solid #6366f1; }
 .timeline-slot.pending_payment{ background: #fef9c3; border-left: 3px solid #eab308; }
+.timeline-slot.arrived        { background: #cffafe; border-left: 3px solid #06b6d4; }
+.timeline-slot.seated         { background: #dcfce7; border-left: 3px solid #22c55e; }
+.timeline-slot.checked_out    { background: #e2efe9; border-left: 3px solid #86a98f; }
 .timeline-slot.cancelled      { background: #fee2e2; border-left: 3px solid #ef4444; opacity: 0.5; }
 .timeline-slot.no_show        { background: #f3f4f6; border-left: 3px solid #9ca3af; opacity: 0.5; }
-.timeline-slot.completed      { background: #dcfce7; border-left: 3px solid #22c55e; }

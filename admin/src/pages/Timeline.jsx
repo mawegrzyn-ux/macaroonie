@@ -73,7 +73,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
     // Z-order: dragging > spanning > active > inactive.
     // Inactive (cancelled/no_show) render below active bookings so when a new
     // booking occupies the same slot, the active card always shows on top.
-    zIndex: isDragging ? 20 : spanRows > 1 ? 5 : (['cancelled','no_show'].includes(booking.status) ? 0 : 1),
+    zIndex: isDragging ? 20 : spanRows > 1 ? 5 : (['cancelled','no_show','checked_out'].includes(booking.status) ? 0 : 1),
   }
 
   const showConfirmBtn = enableUnconfirmedFlow && booking.status === 'unconfirmed'
@@ -603,7 +603,7 @@ export default function Timeline() {
   // ── Group bookings by table ────────────────────────────────
   // Combination bookings appear on ALL member table rows (not just the primary)
   const bookingsByTable = useMemo(() => {
-    const INACTIVE = new Set(['cancelled', 'no_show'])
+    const INACTIVE = new Set(['cancelled', 'no_show', 'checked_out'])
     const source = hideInactive ? bookingsRes.filter(b => !INACTIVE.has(b.status)) : bookingsRes
     const map = {}
     for (const b of source) {

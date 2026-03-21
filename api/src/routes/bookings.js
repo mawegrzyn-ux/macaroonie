@@ -33,20 +33,20 @@ const HoldBody = z.object({
 const BookingBody = z.object({
   hold_id:       z.string().uuid(),
   guest_name:    z.string().min(1).optional(),
-  guest_email:   z.union([z.string().email(), z.null()]).optional(),
+  guest_email:   z.string().email().optional(),
   guest_phone:   z.string().optional().nullable(),
   covers:        z.coerce.number().int().min(1).optional(),
   guest_notes:   z.string().max(1000).nullable().optional(),
 })
 
 const StatusBody = z.object({
-  status: z.enum(['unconfirmed', 'confirmed', 'cancelled', 'no_show', 'completed']),
+  status: z.enum(['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'cancelled', 'no_show']),
 })
 
 const ListQuery = z.object({
   venue_id: z.string().uuid().optional(),
   date:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  status:   z.enum(['pending_payment', 'unconfirmed', 'confirmed', 'cancelled', 'no_show', 'completed']).optional(),
+  status:   z.enum(['pending_payment', 'unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'cancelled', 'no_show']).optional(),
   limit:    z.coerce.number().int().min(1).max(200).default(100),
   offset:   z.coerce.number().int().min(0).default(0),
 })
@@ -233,7 +233,7 @@ export default async function bookingsRoutes(app) {
       covers:      z.number().int().min(1),
       table_ids:   z.array(z.string().uuid()).default([]),      // empty → unallocated row
       guest_name:  z.string().min(1).max(200),
-      guest_email: z.union([z.string().email(), z.null()]).optional(),  // null for walk-ins
+      guest_email: z.string().email(),
       guest_phone: z.string().max(30).nullable().optional(),
       guest_notes: z.string().max(1000).nullable().optional(),
     }).parse(req.body)
@@ -881,7 +881,7 @@ export default async function bookingsRoutes(app) {
                b.starts_at, b.ends_at, b.guest_name
           FROM bookings b
          WHERE b.tenant_id = ${req.tenantId}
-           AND b.status NOT IN ('cancelled', 'no_show')
+           AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
            AND b.id     != ${req.params.id}
            AND b.starts_at < ${newEnd.toISOString()}
            AND b.ends_at   > ${newStart.toISOString()}

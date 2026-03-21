@@ -22,7 +22,7 @@ import { cn, formatDateTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
 // All statuses an operator can manually set.
 // pending_payment is excluded — it is set by Stripe, not manually.
-const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'completed', 'no_show', 'cancelled']
+const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'no_show', 'cancelled']
 
 // Coloured dot for each status in the dropdown list
 const STATUS_DOT = {
@@ -30,9 +30,11 @@ const STATUS_DOT = {
   confirmed:       'bg-blue-500',
   reconfirmed:     'bg-indigo-500',
   pending_payment: 'bg-yellow-500',
+  arrived:         'bg-cyan-500',
+  seated:          'bg-green-500',
+  checked_out:     'bg-green-300',
   cancelled:       'bg-red-500',
   no_show:         'bg-gray-400',
-  completed:       'bg-green-500',
 }
 
 export default function BookingDrawer({ booking, onClose, onUpdated, panelMode = false, inlineMode = false }) {
