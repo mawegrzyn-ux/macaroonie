@@ -12,6 +12,7 @@ const SECTIONS = [
   { id: 'auth',         label: 'Authentication' },
   { id: 'database',     label: 'Database Schema' },
   { id: 'api',          label: 'API Reference' },
+  { id: 'customers',    label: 'Customers & GDPR' },
   { id: 'services',     label: 'Services & Jobs' },
   { id: 'data-flows',   label: 'Data Flows' },
   { id: 'deployment',   label: 'Deployment' },
@@ -80,7 +81,7 @@ export default function Docs() {
             <Code>{`/
 ├── api/          Node.js API (Fastify)
 ├── admin/        React admin portal (Vite)
-├── migrations/   PostgreSQL migration files (001–015, run in order)
+├── migrations/   PostgreSQL migration files (001–018, run in order)
 ├── setup.sh      One-shot Lightsail server setup
 ├── deploy.sh     Subsequent deployments
 └── CLAUDE.md     Developer context and outstanding items`}</Code>
@@ -167,8 +168,9 @@ export default function Docs() {
             <DataTable
               head={['Page', 'Route', 'Purpose']}
               rows={[
-                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click to create booking. Grey columns = closed or cap=0.'],
-                ['Bookings', '/bookings', 'Flat list of all bookings. Opens BookingDrawer for detail/edit.'],
+                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click to create booking. Grey columns = closed or cap=0. Red current-time line (today only).'],
+                ['Bookings', '/bookings', 'Guestplan-style time-grouped list. Stats bar. Inline status change. Phone visible. Permanent resizable right panel.'],
+                ['Customers', '/customers', 'Customer profiles. Search by name/email/phone. GDPR anonymise and export. Auto-populated from booking confirms.'],
                 ['Venues', '/venues', 'Create and manage restaurant locations.'],
                 ['Tables', '/tables', 'Add tables, define sections, create combinations, set sort order, manage disallowed pairs.'],
                 ['Schedule', '/schedule', 'Weekly template sittings, slot caps, date overrides, schedule exceptions.'],
@@ -190,12 +192,22 @@ export default function Docs() {
               rows={[
                 ['Automatic allocation', 'Select a slot → Continue', 'Slot resolver assigns the best available table/combination. Obeys all schedule, capacity, and booking-window rules.'],
                 ['Manual allocation', 'Click "Manual allocation" button', 'Opens ManualAllocModal. Admin freely picks date, time, and any table(s) — or Unallocated. No schedule or capacity checks. POST /bookings/admin-override.'],
+                ['Walk In', 'Click "Walk In" button in guest step', 'Skips all guest details. Books immediately as "Walk In". No email sent. Useful for same-day walk-up guests.'],
               ]}
             />
             <InfoBox type="warn">
               Manual allocation bypasses all rules. Use it for walk-ins, VIP overrides, or bookings outside normal hours.
               The booking is still broadcast to all timeline clients via WebSocket.
             </InfoBox>
+
+            <H3>Customer search in booking modal</H3>
+            <P>
+              When the admin reaches the guest details step, typing in the name, email, or phone field
+              triggers a debounced search against the customer database (<Mono>GET /customers?q=</Mono>).
+              If matching records are found, a suggestions panel appears to the right of the modal. Clicking
+              a suggestion pre-fills all three fields. The customer database is populated automatically — a
+              customer record is upserted on every booking confirmation.
+            </P>
 
             <H3>Timeline — grey column overlay</H3>
             <P>
@@ -209,6 +221,28 @@ export default function Docs() {
             <P>
               Fully-booked slots (<Mono>reason = 'full'</Mono>) are <strong>not</strong> greyed — the column
               stays white so operators can see the time is structurally open even though capacity is used up.
+            </P>
+
+            <H3>Booking statuses</H3>
+            <DataTable
+              head={['Status', 'Colour', 'Meaning']}
+              rows={[
+                ['unconfirmed', 'Orange', 'Guest booked online; venue must call to confirm (enable_unconfirmed_flow).'],
+                ['confirmed', 'Blue', 'Booking confirmed.'],
+                ['reconfirmed', 'Indigo', 'Operator has called and re-confirmed (enable_reconfirmed_status).'],
+                ['arrived', 'Cyan', 'Guest has arrived at the venue.'],
+                ['seated', 'Green', 'Guest is seated.'],
+                ['checked_out', 'Muted green', 'Guest has left. Excluded from capacity calculations same as cancelled.'],
+                ['cancelled', 'Red', 'Booking cancelled. Excluded from capacity.'],
+                ['no_show', 'Grey', 'Guest did not arrive. Excluded from capacity.'],
+              ]}
+            />
+
+            <H3>Timeline current-time indicator</H3>
+            <P>
+              When viewing today's date, a red vertical line spans all table rows at the current time.
+              A dot and time label appear in the header bar above the line. The position updates every 30 seconds.
+              The indicator is hidden when viewing any date other than today.
             </P>
           </section>
 
@@ -307,7 +341,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['booking_rules', 'Per-venue booking constraints. Includes smart-allocation rule flags.', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo, allow_widget_bookings_after_doors_close, enable_unconfirmed_flow, enable_reconfirmed_status'],
                 ['deposit_rules', 'Per-venue deposit configuration.', 'venue_id, requires_deposit, amount_pence, stripe_account_id'],
                 ['booking_holds', 'Temporary slot reservations. UNIQUE (table_id, starts_at).', 'venue_id, table_id, combination_id, starts_at, ends_at, expires_at, guest_name, guest_email'],
-                ['bookings', 'Confirmed bookings.', 'venue_id, table_id, combination_id, starts_at, ends_at, covers, status, reference, guest_name, guest_email, guest_phone, guest_notes, operator_notes'],
+                ['bookings', 'Confirmed bookings.', 'venue_id, table_id, combination_id, starts_at, ends_at, covers, status, reference, guest_name, guest_email, guest_phone, guest_notes, operator_notes, customer_id'],
+                ['customers', 'Customer profiles with GDPR support. Auto-created on booking confirm. is_anonymised flag for GDPR erasure.', 'tenant_id, name, email, phone, notes, is_anonymised, anonymised_at, created_at'],
                 ['payments', 'Stripe payment records.', 'booking_id, stripe_pi_id, amount, currency, status'],
                 ['disallowed_table_pairs', 'Junction table — specific table pairs the smart-allocation engine must never combine. Normalised so table_id_a < table_id_b.', 'venue_id, tenant_id, table_id_a, table_id_b (UNIQUE)'],
               ].map(([name, desc, cols]) => (
@@ -416,6 +451,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST', '/intent', 'any', 'Create Stripe PaymentIntent for a hold'],
                 ['POST', '/webhook', 'Stripe sig', 'Stripe webhook — confirms booking on payment_intent.succeeded'],
                 ['POST', '/:id/refund', 'admin', 'Issue refund via Stripe for a payment'],
+              ]}
+            />
+
+            <H3>Customers — <span className="font-mono font-normal text-sm">/api/customers</span></H3>
+            <DataTable
+              head={['Method', 'Path', 'Min role', 'Description']}
+              rows={[
+                ['GET', '/', 'operator', 'Search customers by name/email/phone (?q=term). Returns 20 most-recent if q < 2 chars.'],
+                ['GET', '/:id', 'operator', 'Customer detail including full booking history.'],
+                ['PATCH', '/:id', 'operator', 'Update name, phone, or notes.'],
+                ['POST', '/:id/anonymise', 'admin', 'GDPR erasure — replaces all PII with placeholders, anonymises linked bookings. Never deletes the row.'],
+                ['GET', '/:id/export', 'admin', 'GDPR data export — returns a JSON file download with customer + all booking records.'],
               ]}
             />
           </section>

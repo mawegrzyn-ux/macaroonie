@@ -14,7 +14,7 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireRole } from '../middleware/auth.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
 
 function httpError(code, msg) {
   const e = new Error(msg)
@@ -59,6 +59,8 @@ export async function upsertCustomer(tx, tenantId, { name, email, phone }) {
 
 // ── Route plugin ───────────────────────────────────────────────────────────────
 export default async function customersRoutes(app) {
+  // Require a valid Auth0 JWT on every route in this plugin
+  app.addHook('preHandler', requireAuth)
 
   // ── GET /customers?q=search&limit=20 ───────────────────────
   // q < 2 chars → return 20 most-recently-updated customers.

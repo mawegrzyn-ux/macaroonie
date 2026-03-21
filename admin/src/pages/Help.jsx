@@ -14,6 +14,7 @@ const SECTIONS = [
   { id: 'timeline',            label: 'Using the Timeline' },
   { id: 'manual-booking',      label: 'Manual Booking' },
   { id: 'bookings',            label: 'Managing Bookings' },
+  { id: 'customers',           label: 'Customers & GDPR' },
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
@@ -662,6 +663,13 @@ export default function Help() {
               cancelled by another user. You do not need to refresh the page. The refresh button in the
               toolbar forces an immediate re-fetch if you suspect the view is out of sync.
             </P>
+
+            <H3>Current time indicator</H3>
+            <P>
+              When you are viewing <strong>today's date</strong>, a red vertical line runs across all table
+              rows showing the current time. A dot and the time label appear in the header bar at the top of
+              the line. The line updates every 30 seconds. It is not shown when viewing past or future dates.
+            </P>
           </section>
 
           {/* ── MANUAL BOOKING ────────────────────────────── */}
@@ -696,6 +704,15 @@ export default function Help() {
               for those exact tables, it will be used. If not, a new combination is automatically created and
               named after the selected tables (e.g. "T1 + T2"). The combination appears in the Timeline as a
               single spanning tile across all member table rows.
+            </P>
+
+            <H3>Walk In bookings</H3>
+            <P>
+              For guests who arrive without a booking, click <strong>+ New booking</strong>, choose a slot or
+              click <strong>Manual allocation</strong>, then on the guest details step click the{' '}
+              <strong>Walk In</strong> button instead of filling in any details. The booking is created
+              immediately as "Walk In" with no guest name or email required. Walk-in bookings appear on the
+              Timeline and Bookings list like any other booking and their status can be updated as normal.
             </P>
           </section>
 
@@ -745,24 +762,24 @@ export default function Help() {
               "Save notes") to save changes.
             </InfoBox>
 
-            <H3>Changing booking status</H3>
-            <P>
-              Status transition buttons appear at the bottom of the drawer. Available transitions depend
-              on the current status:
-            </P>
-            <div className="space-y-2 mb-4">
-              {[
-                ['Confirmed', ['Mark completed', 'Mark no show', 'Cancel']],
-                ['Pending payment', ['Confirm manually', 'Cancel']],
-                ['Completed / No show / Cancelled', ['No further transitions available']],
-              ].map(([from, tos]) => (
-                <div key={from} className="flex flex-wrap gap-2 items-center text-sm">
-                  <span className="font-medium w-40 shrink-0">{from}</span>
-                  <span className="text-muted-foreground">→</span>
-                  <span className="text-muted-foreground">{tos.join(', ')}</span>
-                </div>
-              ))}
-            </div>
+            <H3>Booking statuses</H3>
+            <DataTable
+              head={['Status', 'When to use']}
+              rows={[
+                ['Unconfirmed', 'Guest booked online; you need to call to confirm (only shown when the "Call to confirm" flow is enabled in Rules).'],
+                ['Confirmed', 'Booking is confirmed and expected.'],
+                ['Reconfirmed', 'You have called the guest to reconfirm their attendance (optional flow, enabled in Rules).'],
+                ['Arrived', 'Guest has arrived at the venue. Set this when the party walks in.'],
+                ['Seated', 'Guest has been shown to their table and is seated.'],
+                ['Checked out', 'Guest has finished and left. The table is now free.'],
+                ['Cancelled', 'Booking has been cancelled. The slot is released back to availability.'],
+                ['No show', 'Guest did not arrive. The slot is released.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              Change status quickly by clicking the status badge in the Bookings list — a dropdown appears inline.
+              On the Timeline, click a booking card to open the detail panel and change status there.
+            </InfoBox>
 
             <H3>Operator notes</H3>
             <P>
@@ -784,6 +801,62 @@ export default function Help() {
               The <strong>Bookings</strong> page in the sidebar shows a searchable, filterable list of
               all bookings across all dates — useful for looking up a specific guest or reference number.
             </P>
+          </section>
+
+          {/* ── CUSTOMERS & GDPR ──────────────────────────────── */}
+          <section id="customers" data-help="">
+            <H2>Customers &amp; GDPR</H2>
+            <P>
+              Macaroonie automatically builds a customer database as bookings are confirmed. Every time a
+              booking is made with an email address, a customer profile is created or updated. You can search,
+              view, and manage customer records from the <strong>Customers</strong> page in the sidebar.
+            </P>
+
+            <H3>Searching for a customer</H3>
+            <P>
+              Go to <strong>Customers</strong> and type in the search box at the top. You can search by
+              name, email address, or phone number. Results appear immediately as you type. Click any
+              customer row to open their full profile in the right-hand panel.
+            </P>
+
+            <H3>Customer profile</H3>
+            <P>
+              The detail panel shows the customer's contact details and their full booking history — date,
+              venue, table, covers, and status for every booking linked to their record.
+            </P>
+
+            <H3>Customer search while taking a booking</H3>
+            <P>
+              When creating a new booking via the <strong>+ New booking</strong> button, as you type a
+              name, email, or phone number in the guest details step, a panel appears to the right of the
+              booking form showing matching customer records. Clicking a match pre-fills the name, email,
+              and phone fields automatically — no need to type everything out for returning guests.
+            </P>
+
+            <H3>GDPR — Exporting a customer's data</H3>
+            <P>
+              If a customer requests a copy of all personal data held about them (a Subject Access Request
+              under GDPR), open their profile from the Customers page and click{' '}
+              <strong>Export customer data (JSON)</strong>. This downloads a JSON file containing their
+              contact details and the full history of their bookings with your venue.
+            </P>
+
+            <H3>GDPR — Anonymising a customer</H3>
+            <P>
+              If a customer requests that their personal data be deleted (a Right to Erasure request under
+              GDPR), open their profile and click <strong>Anonymise all personal data</strong>. You will be
+              asked to confirm twice before anything changes.
+            </P>
+            <P>
+              Anonymisation <strong>replaces</strong> all identifying information — name, email, phone, and
+              notes — with placeholder values. All their linked bookings are also anonymised. The records
+              themselves are retained for audit and financial purposes, but no personal information remains.
+              This process cannot be undone.
+            </P>
+            <InfoBox type="warn">
+              Anonymisation is permanent and irreversible. Once confirmed, the customer's personal details
+              cannot be recovered. Only proceed when you have received a valid erasure request.
+            </InfoBox>
           </section>
 
           {/* ── WIDGET ────────────────────────────────────── */}
