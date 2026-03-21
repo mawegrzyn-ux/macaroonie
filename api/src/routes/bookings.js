@@ -313,8 +313,8 @@ export default async function bookingsRoutes(app) {
 
           for (const tid of body.table_ids) {
             await tx`
-              INSERT INTO table_combination_members (combination_id, table_id, tenant_id)
-              VALUES (${combinationId}, ${tid}, ${req.tenantId})
+              INSERT INTO table_combination_members (combination_id, table_id)
+              VALUES (${combinationId}, ${tid})
               ON CONFLICT DO NOTHING
             `
           }

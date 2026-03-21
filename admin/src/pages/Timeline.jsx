@@ -135,7 +135,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, unavailableStrips = [], enableUnconfirmedFlow = false, onConfirm }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, unavailableStrips = [], enableUnconfirmedFlow = false, onConfirm, nowX }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -254,6 +254,14 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           />
         ))}
 
+        {/* Current-time vertical line — only in today's view */}
+        {nowX != null && (
+          <div
+            className="absolute top-0 bottom-0 w-0.5 bg-red-400 pointer-events-none"
+            style={{ left: nowX, zIndex: 15 }}
+          />
+        )}
+
         {/* Bookings */}
         {bookings.map(b => {
           const spanInfo = comboSpanMap?.get(b.id)
@@ -279,8 +287,8 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
   )
 }
 
-// ── Timeline header (hour labels) ─────────────────────────────
-function TimelineHeader() {
+// ── Timeline header (hour labels + optional now marker) ────────
+function TimelineHeader({ nowX, nowLabel }) {
   return (
     <div className="timeline-grid border-b sticky top-0 bg-background z-10">
       {/* Sticky label cell — z-[12] keeps it above spanning cards (z=5) and canvas stacking contexts (z=3) */}
@@ -297,6 +305,20 @@ function TimelineHeader() {
             </span>
           </div>
         ))}
+
+        {/* Current-time marker: label at top, line down, dot at bottom */}
+        {nowX != null && (
+          <div
+            className="absolute inset-y-0 flex flex-col items-center pointer-events-none z-20"
+            style={{ left: nowX, transform: 'translateX(-50%)' }}
+          >
+            <span className="text-[10px] font-bold text-red-500 leading-none bg-background px-0.5 pt-0.5 shrink-0">
+              {nowLabel}
+            </span>
+            <div className="flex-1 w-0.5 bg-red-400" />
+            <div className="w-2 h-2 rounded-full bg-red-500 shrink-0" />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -318,6 +340,28 @@ export default function Timeline() {
   const [newBookingPrefill, setNewBookingPrefill] = useState(null) // { time, tableId } | null
   const [hideInactive,   setHideInactive]   = useState(false)  // hide cancelled + no_show cards
   const [panelMode,      setPanelMode]      = useState(false)  // drawer as side panel (no backdrop)
+  const [nowMs,          setNowMs]          = useState(() => Date.now())
+
+  // ── Current-time indicator ───────────────────────────────
+  // Update every 30 seconds. Only shown when the selected date is today.
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const nowX = useMemo(() => {
+    if (date !== today) return null
+    const now   = new Date(nowMs)
+    const hours = now.getHours() + now.getMinutes() / 60
+    const x     = (hours - START_HOUR) * HOUR_WIDTH
+    return x >= 0 && x <= TOTAL_WIDTH ? x : null
+  }, [date, today, nowMs])
+
+  const nowLabel = useMemo(() => {
+    const d = new Date(nowMs)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }, [nowMs])
 
   // ── Data fetching ────────────────────────────────────────
   const { data: venues = [] } = useQuery({
@@ -799,7 +843,7 @@ export default function Timeline() {
             onDragEnd={handleDragEnd}
           >
             <div style={{ minWidth: 160 + TOTAL_WIDTH }}>
-              <TimelineHeader />
+              <TimelineHeader nowX={nowX} nowLabel={nowLabel} />
 
               {/* ── Unallocated row ─────────────────────────────────────
                   Shown only when the system has pushed bookings here because no
@@ -826,6 +870,7 @@ export default function Timeline() {
                     isUnallocated={true}
                     enableUnconfirmedFlow={enableUnconfirmedFlow}
                     onConfirm={confirmStatusMutation.mutate}
+                    nowX={nowX}
                   />
                 </div>
               )}
@@ -855,6 +900,7 @@ export default function Timeline() {
                       unavailableStrips={unavailableStrips}
                       enableUnconfirmedFlow={enableUnconfirmedFlow}
                       onConfirm={confirmStatusMutation.mutate}
+                      nowX={nowX}
                     />
                   ))}
                 </div>
