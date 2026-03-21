@@ -342,8 +342,35 @@ export default function Timeline() {
   const [newBookingPrefill, setNewBookingPrefill] = useState(null) // { time, tableId } | null
   const [hideInactive,     setHideInactive]     = useState(false)  // hide cancelled + no_show cards
   const [panelMode,        setPanelMode]        = useState(true)   // docked panel — on by default
+  const [panelWidth,       setPanelWidth]       = useState(420)    // px — resizable when docked
   const [groupBySections,  setGroupBySections]  = useState(true)   // show section dividers
   const [nowMs,            setNowMs]            = useState(() => Date.now())
+  const isPanelResizing = useRef(false)
+
+  const onPanelResizeStart = useCallback((e) => {
+    e.preventDefault()
+    isPanelResizing.current = true
+    document.body.style.cursor     = 'col-resize'
+    document.body.style.userSelect = 'none'
+    function onMove(ev) {
+      if (!isPanelResizing.current) return
+      const x = ev.touches ? ev.touches[0].clientX : ev.clientX
+      setPanelWidth(Math.min(700, Math.max(280, window.innerWidth - x)))
+    }
+    function onUp() {
+      isPanelResizing.current = false
+      document.body.style.cursor     = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup',   onUp)
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend',  onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup',   onUp)
+    window.addEventListener('touchmove', onMove, { passive: false })
+    window.addEventListener('touchend',  onUp)
+  }, [])
 
   // ── Current-time indicator ───────────────────────────────
   // Update every 30 seconds. Only shown when the selected date is today.
@@ -983,7 +1010,21 @@ export default function Timeline() {
            Always present when panelMode=true so h-full works correctly.
            Shows a placeholder when no booking is selected, drawer when one is. */}
       {panelMode && (
-        <div className="w-[420px] shrink-0 flex flex-col overflow-hidden border-l">
+        <>
+        {/* Resize handle */}
+        <div
+          onMouseDown={onPanelResizeStart}
+          onTouchStart={onPanelResizeStart}
+          className="relative w-3 shrink-0 cursor-col-resize group touch-manipulation select-none"
+        >
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border group-hover:bg-primary/30 transition-colors" />
+          <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 flex flex-col gap-[3px]">
+            {[0,1,2,3,4].map(i => (
+              <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary/60 transition-colors" />
+            ))}
+          </div>
+        </div>
+        <div className="shrink-0 flex flex-col overflow-hidden border-l" style={{ width: panelWidth }}>
           {selected ? (() => {
             const liveBooking = bookingsRes.find(b => b.id === selected.id) ?? selected
             return (
@@ -1001,6 +1042,7 @@ export default function Timeline() {
             </div>
           )}
         </div>
+        </>
       )}
 
       </div>

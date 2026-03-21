@@ -227,8 +227,15 @@ export default function Customers() {
       <div
         onMouseDown={onResizeStart}
         onTouchStart={onResizeStart}
-        className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-primary/40 transition-colors touch-manipulation"
-      />
+        className="relative w-3 shrink-0 cursor-col-resize group touch-manipulation select-none"
+      >
+        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border group-hover:bg-primary/30 transition-colors" />
+        <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 flex flex-col gap-[3px]">
+          {[0,1,2,3,4].map(i => (
+            <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary/60 transition-colors" />
+          ))}
+        </div>
+      </div>
 
       {/* ── Right: detail panel ────────────────────────────── */}
       <div className="shrink-0 flex flex-col overflow-hidden border-l" style={{ width: panelWidth }}>

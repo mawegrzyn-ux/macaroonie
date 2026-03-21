@@ -16,7 +16,10 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { X, ChevronRight, Calendar, UserSearch } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { cn, formatTime } from '@/lib/utils'
+import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
+
+// Statuses an operator can assign when creating a booking
+const NEW_BOOKING_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated']
 
 // Detect touch-capable device (tablet / phone) once at module load.
 // navigator.maxTouchPoints > 0 is true on every iOS/Android device.
@@ -42,6 +45,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   // Manual allocation state — set when admin bypasses the slot resolver
   const [manualAlloc,     setManualAlloc]     = useState(null)  // { date, time, tableIds, unallocated }
   const [showManualAlloc, setShowManualAlloc] = useState(openManual)
+  const [bookingStatus,   setBookingStatus]   = useState('confirmed')
 
   // Customer search — debounced query driven by guest form fields
   const [customerQ,    setCustomerQ]    = useState('')
@@ -156,6 +160,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
       guest_phone: guestData.guest_phone ?? null,
       covers:      guestData.covers,
       guest_notes: guestData.guest_notes ?? null,
+      status:      bookingStatus,
     }),
     // Pass bookingDate back so the Timeline can navigate to it if it differs
     onSuccess: () => onCreated(bookingDate),
@@ -172,6 +177,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
       guest_email: guestData.guest_email,
       guest_phone: guestData.guest_phone ?? null,
       guest_notes: guestData.guest_notes ?? null,
+      status:      bookingStatus,
     }),
     onSuccess: () => onCreated(manualAlloc.date),
   })
@@ -349,6 +355,28 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
             {/* ── Step 2: Guest details ──────────────────── */}
             {step === 'guest' && (
               <form id="guest-form" onSubmit={handleSubmit(onGuestSubmit)} className="space-y-4">
+                {/* Booking status */}
+                <div>
+                  <label className="text-sm font-medium block mb-2">Booking status</label>
+                  <div className="flex flex-wrap gap-2">
+                    {NEW_BOOKING_STATUSES.map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => setBookingStatus(s)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-full text-xs font-semibold touch-manipulation transition-all',
+                          bookingStatus === s
+                            ? cn(STATUS_COLOURS[s], 'ring-2 ring-offset-1 ring-current/50')
+                            : 'bg-muted text-muted-foreground hover:bg-muted/60',
+                        )}
+                      >
+                        {STATUS_LABELS[s]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <Field label="Full name" error={errors.guest_name?.message}>
                   {/* autoFocus only on desktop — on iOS/Android it would instantly pop the keyboard */}
                   <input {...register('guest_name')} onFocus={() => setActiveSearchField('name')} className="input" placeholder="Jane Smith" autoFocus={!IS_TOUCH} />

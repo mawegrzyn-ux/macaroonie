@@ -31,6 +31,8 @@ const HoldBody = z.object({
   message: 'Either table_id or combination_id is required',
 })
 
+const BOOKING_STATUSES = z.enum(['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'cancelled', 'no_show'])
+
 const BookingBody = z.object({
   hold_id:       z.string().uuid(),
   guest_name:    z.string().min(1).optional(),
@@ -38,6 +40,7 @@ const BookingBody = z.object({
   guest_phone:   z.string().optional().nullable(),
   covers:        z.coerce.number().int().min(1).optional(),
   guest_notes:   z.string().max(1000).nullable().optional(),
+  status:        BOOKING_STATUSES.optional(),
 })
 
 const StatusBody = z.object({
@@ -192,7 +195,8 @@ export default async function bookingsRoutes(app) {
       const [bookingRules] = await tx`
         SELECT enable_unconfirmed_flow FROM booking_rules WHERE venue_id = ${h.venue_id}
       `
-      const initialStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+      const defaultStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+      const initialStatus = body.status ?? defaultStatus
 
       const [booking] = await tx`
         INSERT INTO bookings
@@ -246,6 +250,7 @@ export default async function bookingsRoutes(app) {
       guest_email: z.string().email(),
       guest_phone: z.string().max(30).nullable().optional(),
       guest_notes: z.string().max(1000).nullable().optional(),
+      status:      BOOKING_STATUSES.optional(),
     }).parse(req.body)
 
     const booking = await withTenant(req.tenantId, async tx => {
@@ -254,7 +259,8 @@ export default async function bookingsRoutes(app) {
           FROM booking_rules WHERE venue_id = ${body.venue_id}
       `
       const durationMins  = rules?.slot_duration_mins ?? 90
-      const initialStatus = rules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+      const defaultStatus = rules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+      const initialStatus = body.status ?? defaultStatus
       const startsAt = new Date(body.starts_at)
       const endsAt   = new Date(startsAt.getTime() + durationMins * 60_000)
 

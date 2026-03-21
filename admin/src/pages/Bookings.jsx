@@ -9,7 +9,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
-import { ChevronLeft, ChevronRight, Download, Search, ChevronDown, Eye, EyeOff, TriangleAlert } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Search, ChevronDown, Eye, EyeOff, TriangleAlert, UserSearch } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
@@ -41,7 +41,9 @@ export default function Bookings() {
   const [statusDropdownId, setStatusDropdownId] = useState(null) // booking.id with open dropdown
   const [panelWidth,       setPanelWidth]       = useState(420)  // px — draggable
   const [hideInactive,     setHideInactive]     = useState(true) // hide cancelled/no_show/checked_out by default
-  const isResizing = useRef(false)
+  const [showCustSugg,     setShowCustSugg]     = useState(false)
+  const isResizing        = useRef(false)
+  const custDismissTimer  = useRef(null)
 
   const onResizeStart = useCallback((e) => {
     e.preventDefault()
@@ -89,6 +91,14 @@ export default function Bookings() {
     queryKey: ['bookings', venueId, date],
     queryFn:  () => api.get(`/bookings?venue_id=${venueId}&date=${date}`),
     enabled:  !!venueId,
+  })
+
+  // ── Customer search suggestions (filter bar) ─────────────────
+  const { data: custSuggestions = [] } = useQuery({
+    queryKey: ['customers-search-bookings', search],
+    queryFn:  () => api.get(`/customers?q=${encodeURIComponent(search)}&limit=6`),
+    enabled:  search.length >= 2 && showCustSugg,
+    staleTime: 10_000,
   })
 
   // ── Inline status mutation ───────────────────────────────────
@@ -263,9 +273,36 @@ export default function Bookings() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
+            onFocus={() => {
+              clearTimeout(custDismissTimer.current)
+              setShowCustSugg(true)
+            }}
+            onBlur={() => {
+              custDismissTimer.current = setTimeout(() => setShowCustSugg(false), 200)
+            }}
             placeholder="Name, email or phone…"
             className="pl-8 pr-3 py-1.5 text-sm border rounded-lg w-52 bg-background focus:outline-none focus:border-primary"
           />
+          {/* Customer match suggestions */}
+          {showCustSugg && custSuggestions.length > 0 && (
+            <div className="absolute top-full left-0 mt-1 w-72 bg-background rounded-xl shadow-2xl border z-50 overflow-hidden">
+              <p className="text-[10px] text-muted-foreground font-medium px-3 pt-2 pb-1 flex items-center gap-1">
+                <UserSearch className="w-3 h-3" />Customer match
+              </p>
+              {custSuggestions.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { setSearch(c.name); setShowCustSugg(false) }}
+                  className="w-full text-left px-3 py-2 hover:bg-accent transition-colors border-t border-border/40 touch-manipulation"
+                >
+                  <p className="text-sm font-medium">{c.name}</p>
+                  <p className="text-xs text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <select
@@ -358,8 +395,15 @@ export default function Bookings() {
         <div
           onMouseDown={onResizeStart}
           onTouchStart={onResizeStart}
-          className="w-1 shrink-0 cursor-col-resize bg-border hover:bg-primary/40 transition-colors touch-manipulation"
-        />
+          className="relative w-3 shrink-0 cursor-col-resize group touch-manipulation select-none"
+        >
+          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border group-hover:bg-primary/30 transition-colors" />
+          <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 flex flex-col gap-[3px]">
+            {[0,1,2,3,4].map(i => (
+              <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary/60 transition-colors" />
+            ))}
+          </div>
+        </div>
 
         {/* Permanent right panel */}
         <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: panelWidth }}>
