@@ -7,13 +7,13 @@
 //   view   — contact info + booking history + GDPR actions
 //   edit   — inline edit of name / email / phone / notes
 
-import { useState, useRef, useCallback, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
   Search, User, Mail, Phone, Download, Plus, Upload,
   ShieldAlert, ChevronRight, Pencil, X, Check, FileText,
-  TriangleAlert, TrendingUp, Minus,
+  TriangleAlert, TrendingUp, Minus, ChevronUp, ChevronDown, ArrowUpDown,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
@@ -74,9 +74,18 @@ export default function Customers() {
   const [panelWidth, setPanelWidth] = useState(460)
   const [showAdd,    setShowAdd]    = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [sort,       setSort]       = useState({ col: 'updated_at', dir: 'desc' })
 
   const isResizing    = useRef(false)
   const debounceTimer = useRef(null)
+  const sentinelRef   = useRef(null)
+
+  function onSort(col) {
+    setSort(s => s.col === col
+      ? { col, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+      : { col, dir: 'asc' }
+    )
+  }
 
   // Debounce search
   useEffect(() => {
@@ -111,12 +120,39 @@ export default function Customers() {
     window.addEventListener('touchend',  onUp)
   }, [])
 
-  // ── Data ─────────────────────────────────────────────────────
-  const { data: customers = [], isLoading } = useQuery({
-    queryKey: ['customers', debouncedQ],
-    queryFn:  () => api.get(`/customers?q=${encodeURIComponent(debouncedQ)}&limit=50`),
+  // ── Data — infinite-scroll paginated list ────────────────────
+  const PAGE_SIZE = 50
+  const {
+    data:              infiniteData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+  } = useInfiniteQuery({
+    queryKey:         ['customers', debouncedQ, sort],
+    queryFn:          ({ pageParam }) =>
+      api.get(`/customers?q=${encodeURIComponent(debouncedQ)}&limit=${PAGE_SIZE}&offset=${pageParam}&sort=${sort.col}&dir=${sort.dir}`),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((n, p) => n + p.rows.length, 0)
+      return loaded < lastPage.total ? loaded : undefined
+    },
     staleTime: 30_000,
   })
+
+  const customers  = useMemo(() => infiniteData?.pages.flatMap(p => p.rows) ?? [], [infiniteData])
+  const totalCount = infiniteData?.pages[0]?.total ?? null
+
+  // Auto-load next page when sentinel scrolls into view
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const io = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) fetchNextPage()
+    }, { rootMargin: '200px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   const { data: detail } = useQuery({
     queryKey: ['customers', selectedId],
@@ -137,7 +173,12 @@ export default function Customers() {
 
         {/* Header */}
         <div className="flex items-center gap-2 px-4 h-14 border-b shrink-0">
-          <h1 className="font-semibold text-sm mr-2">Customers</h1>
+          <h1 className="font-semibold text-sm">Customers</h1>
+          {totalCount !== null && (
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {totalCount.toLocaleString()}
+            </span>
+          )}
 
           {/* Search */}
           <div className="relative flex-1 max-w-xs">
@@ -174,7 +215,7 @@ export default function Customers() {
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <p className="text-sm text-muted-foreground p-6">Loading…</p>
-          ) : customers.length === 0 ? (
+          ) : customers.length === 0 && !isFetchingNextPage ? (
             <p className="text-sm text-muted-foreground p-6">
               {debouncedQ
                 ? 'No customers match your search.'
@@ -182,13 +223,13 @@ export default function Customers() {
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/30">
-                  <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Name</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Email</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Phone</th>
-                  <th className="text-right px-4 py-2.5 font-medium text-xs text-muted-foreground">Visits</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-xs text-muted-foreground">Since</th>
+              <thead className="sticky top-0 z-10">
+                <tr className="border-b bg-muted">
+                  <SortableHeader col="name"        label="Name"   align="left"  sort={sort} onSort={onSort} />
+                  <SortableHeader col="email"       label="Email"  align="left"  sort={sort} onSort={onSort} />
+                  <SortableHeader col="phone"       label="Phone"  align="left"  sort={sort} onSort={onSort} />
+                  <SortableHeader col="visit_count" label="Visits" align="right" sort={sort} onSort={onSort} />
+                  <SortableHeader col="created_at"  label="Since"  align="left"  sort={sort} onSort={onSort} />
                   <th className="w-6" />
                 </tr>
               </thead>
@@ -217,6 +258,16 @@ export default function Customers() {
                     </td>
                   </tr>
                 ))}
+                {/* Infinite scroll sentinel + footer status */}
+                <tr ref={sentinelRef}>
+                  <td colSpan={6} className="py-4 text-center text-xs text-muted-foreground">
+                    {isFetchingNextPage
+                      ? 'Loading more…'
+                      : !hasNextPage && totalCount !== null
+                        ? `${customers.length.toLocaleString()} of ${totalCount.toLocaleString()} customers`
+                        : null}
+                  </td>
+                </tr>
               </tbody>
             </table>
           )}
@@ -273,6 +324,26 @@ export default function Customers() {
         />
       )}
     </div>
+  )
+}
+
+// ── Sortable column header ────────────────────────────────────
+function SortableHeader({ col, label, align = 'left', sort, onSort }) {
+  const active = sort.col === col
+  const Icon   = active ? (sort.dir === 'asc' ? ChevronUp : ChevronDown) : ArrowUpDown
+  return (
+    <th
+      onClick={() => onSort(col)}
+      className={cn(
+        'px-4 py-2.5 font-medium text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none touch-manipulation whitespace-nowrap',
+        align === 'right' ? 'text-right' : 'text-left',
+      )}
+    >
+      <span className={cn('inline-flex items-center gap-1', align === 'right' && 'flex-row-reverse')}>
+        {label}
+        <Icon className={cn('w-3 h-3 shrink-0', active ? 'text-primary' : 'opacity-30')} />
+      </span>
+    </th>
   )
 }
 

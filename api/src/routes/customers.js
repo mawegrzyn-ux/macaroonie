@@ -13,7 +13,7 @@
 // booking confirm so the customer DB grows automatically.
 
 import { z } from 'zod'
-import { withTenant } from '../config/db.js'
+import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 
 function httpError(code, msg) {
@@ -157,13 +157,65 @@ export default async function customersRoutes(app) {
     return reply.send({ created, updated, skipped, errors })
   })
 
-  // ── GET /customers?q=search&limit=20 ───────────────────────
-  // q < 2 chars → return 20 most-recently-updated customers.
-  // q >= 2 chars → full-text search across name, email, phone.
+  // ── GET /customers?q=&limit=50&offset=0&sort=name&dir=asc ──
+  // Paginated list mode (when offset param is present):
+  //   returns { rows: [...], total: N } for infinite scroll
+  // Legacy search mode (no offset — used by booking-form suggestion dropdowns):
+  //   returns plain array
   app.get('/', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
-    const { q = '', limit = '20' } = req.query
-    const lim = Math.min(parseInt(limit, 10) || 20, 100)
+    const { q = '', limit = '50', offset: rawOffset, sort: rawSort, dir: rawDir } = req.query
+    const paginate = rawOffset !== undefined
+    const lim = Math.min(parseInt(limit, 10) || 50, 200)
+    const off = Math.max(0, parseInt(rawOffset, 10) || 0)
 
+    // Whitelist column names — ORDER BY uses sql.unsafe because postgres.js
+    // does not parameterise identifiers, but both col and dir are hardcoded here.
+    const SORT_MAP = { name: 'name', email: 'email', visit_count: 'visit_count', created_at: 'created_at', updated_at: 'updated_at' }
+    const col  = SORT_MAP[rawSort] ?? (q.length >= 2 ? 'name' : 'updated_at')
+    const dir  = rawDir === 'asc' ? 'ASC' : 'DESC'
+    const nulls = (col === 'name' || col === 'email') ? ' NULLS LAST' : ''
+    const orderSQL = `${col} ${dir}${nulls}`
+
+    if (paginate) {
+      if (q.length >= 2) {
+        return withTenant(req.tenantId, async tx => {
+          const [countRow] = await tx`
+            SELECT COUNT(*)::int AS total FROM customers
+             WHERE is_anonymised = false
+               AND (lower(name)               LIKE lower(${'%' + q + '%'})
+                 OR lower(coalesce(email,'')) LIKE lower(${'%' + q + '%'})
+                 OR       coalesce(phone,'')  LIKE ${'%' + q + '%'})
+          `
+          const rows = await tx`
+            SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
+              FROM customers
+             WHERE is_anonymised = false
+               AND (lower(name)               LIKE lower(${'%' + q + '%'})
+                 OR lower(coalesce(email,'')) LIKE lower(${'%' + q + '%'})
+                 OR       coalesce(phone,'')  LIKE ${'%' + q + '%'})
+             ORDER BY ${sql.unsafe(orderSQL)}
+             LIMIT ${lim} OFFSET ${off}
+          `
+          return { rows, total: countRow.total }
+        })
+      } else {
+        return withTenant(req.tenantId, async tx => {
+          const [countRow] = await tx`
+            SELECT COUNT(*)::int AS total FROM customers WHERE is_anonymised = false
+          `
+          const rows = await tx`
+            SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
+              FROM customers
+             WHERE is_anonymised = false
+             ORDER BY ${sql.unsafe(orderSQL)}
+             LIMIT ${lim} OFFSET ${off}
+          `
+          return { rows, total: countRow.total }
+        })
+      }
+    }
+
+    // ── Legacy: no offset → plain array (booking-form search dropdowns) ──
     if (q.length < 2) {
       return withTenant(req.tenantId, tx => tx`
         SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
@@ -178,11 +230,9 @@ export default async function customersRoutes(app) {
       SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
         FROM customers
        WHERE is_anonymised = false
-         AND (
-               lower(name)                       LIKE lower(${'%' + q + '%'})
-            OR lower(coalesce(email, ''))         LIKE lower(${'%' + q + '%'})
-            OR         coalesce(phone, '')        LIKE ${'%' + q + '%'}
-         )
+         AND (lower(name)               LIKE lower(${'%' + q + '%'})
+           OR lower(coalesce(email,'')) LIKE lower(${'%' + q + '%'})
+           OR       coalesce(phone,'')  LIKE ${'%' + q + '%'})
        ORDER BY name
        LIMIT ${lim}
     `)
