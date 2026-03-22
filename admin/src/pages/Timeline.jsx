@@ -203,11 +203,26 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
     return result
   })()
 
-  // Label column width in px — must match .timeline-grid grid-template-columns (80px).
-  const LABEL_COL_PX = 80
+  // For secondary rows there are no booking tiles to layer above, so instead of
+  // using absolutely-positioned overlay divs (which fight z-index stacking contexts),
+  // encode the unavailable bands directly as a CSS linear-gradient background on
+  // the canvas.  The gradient covers the full TOTAL_WIDTH so it scrolls with the canvas.
+  const secondaryBg = isSecondaryRow && clippedStrips.length > 0 ? (() => {
+    const grey = 'rgba(140,140,140,0.38)'
+    const stops = []
+    let prev = 0
+    const sorted = [...clippedStrips].sort((a, b) => a.x - b.x)
+    for (const { x, width } of sorted) {
+      if (x > prev) stops.push(`transparent ${prev}px`, `transparent ${x}px`)
+      stops.push(`${grey} ${x}px`, `${grey} ${x + width}px`)
+      prev = x + width
+    }
+    if (prev < TOTAL_WIDTH) stops.push(`transparent ${prev}px`)
+    return `linear-gradient(to right, ${stops.join(', ')})`
+  })() : null
 
   return (
-    <div className="timeline-grid border-b last:border-b-0" style={isSecondaryRow ? { position: 'relative' } : undefined}>
+    <div className="timeline-grid border-b last:border-b-0">
       {/* Table label — sticky left + z above spanning cards */}
       <div className={cn(
         'flex items-center justify-between px-2 border-r sticky left-0 z-[10] shrink-0',
@@ -241,13 +256,14 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           width:  TOTAL_WIDTH,
           // Primary rows with spanning cards need a stacking context above row dividers
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
+          // Secondary rows: paint unavailable bands as background gradient (no z-index needed)
+          ...(secondaryBg ? { background: secondaryBg } : {}),
         }}
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
         {/* B1: Unavailable / out-of-session strips (primary rows only).
             Rendered at zIndex 2, above booking tiles at z=1.
-            Secondary rows render their strips outside the canvas (see below)
-            to avoid stacking-context conflicts with the spanning card. */}
+            Secondary rows use a CSS background gradient instead (see secondaryBg above). */}
         {!isSecondaryRow && clippedStrips.map(({ x, width }, i) => (
           <div
             key={i}
@@ -296,25 +312,6 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         })}
       </div>
 
-      {/* B1 (secondary rows): Grey strips rendered OUTSIDE the canvas as
-          absolutely-positioned children of the timeline-grid row div.
-          This avoids stacking-context conflicts with the primary row's
-          spanning card (z=3 stacking context). z=20 ensures they paint
-          above the spanning card and all canvas content.
-          left = LABEL_COL_PX + strip_x so they align with the canvas. */}
-      {isSecondaryRow && clippedStrips.map(({ x, width }, i) => (
-        <div
-          key={`sec-${i}`}
-          className="absolute top-0 pointer-events-none"
-          style={{
-            left:   LABEL_COL_PX + Math.max(0, x),
-            width,
-            height: ROW_HEIGHT,
-            zIndex: 20,
-            background: 'rgba(140,140,140,0.38)',
-          }}
-        />
-      ))}
     </div>
   )
 }
