@@ -22,6 +22,7 @@ import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
+import { useSettings } from '@/contexts/SettingsContext'
 
 // ── Constants ────────────────────────────────────────────────
 const HOUR_WIDTH   = 80     // px per hour
@@ -293,6 +294,7 @@ export default function Timeline() {
   // View settings shared with AppShell sidebar (panelMode now lives in context)
   const tlSettings = useTimelineSettings()
   const { hideInactive, groupBySections, panelMode, refetchTrigger } = tlSettings
+  const { timelineBg } = useSettings()
 
   const [date,            setDate]          = useState(format(new Date(), 'yyyy-MM-dd'))
   const [activeId,        setActiveId]      = useState(null)
@@ -796,7 +798,11 @@ export default function Timeline() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div style={{ minWidth: 160 + TOTAL_WIDTH, background: greyBackground || undefined }}>
+            <div style={{
+              minWidth: 160 + TOTAL_WIDTH,
+              backgroundColor: timelineBg,
+              backgroundImage: greyBackground || undefined,
+            }}>
               <TimelineHeader nowX={nowX} nowLabel={nowLabel} />
 
               {/* ── Unallocated row ─────────────────────────────────────
