@@ -407,6 +407,17 @@ export default function Timeline() {
     return () => clearInterval(id)
   }, [])
 
+  // Row height + column width derived from tile mode / wide-columns setting.
+  // Declared early so nowX useMemo (below) can reference hourWidth/totalWidth
+  // without hitting the Temporal Dead Zone.
+  const { tileMode, compactFontSize, wideColumns } = tlSettings
+  const rowHeight  = tileMode === 'extensive'
+    ? ROW_HEIGHT_MAP.extensive
+    : (ROW_HEIGHT_MAP.compact[compactFontSize] ?? ROW_HEIGHT_MAP.compact.sm)
+  // Column width: wide mode is 50% wider than the standard 80 px
+  const hourWidth  = wideColumns ? 120 : HOUR_WIDTH
+  const totalWidth = TOTAL_HOURS * hourWidth
+
   const today = format(new Date(), 'yyyy-MM-dd')
   const nowX = useMemo(() => {
     if (date !== today) return null
@@ -414,7 +425,7 @@ export default function Timeline() {
     const hours = now.getHours() + now.getMinutes() / 60
     const x     = (hours - START_HOUR) * hourWidth
     return x >= 0 && x <= totalWidth ? x : null
-  }, [date, today, nowMs])
+  }, [date, today, nowMs, hourWidth, totalWidth])
 
   const nowLabel = useMemo(() => {
     const d = new Date(nowMs)
@@ -451,15 +462,6 @@ export default function Timeline() {
     for (const t of tables) m.set(t.id, t)
     return m
   }, [tables])
-
-  // Row height derived from current tile mode + compact font size
-  const { tileMode, compactFontSize, wideColumns } = tlSettings
-  const rowHeight  = tileMode === 'extensive'
-    ? ROW_HEIGHT_MAP.extensive
-    : (ROW_HEIGHT_MAP.compact[compactFontSize] ?? ROW_HEIGHT_MAP.compact.sm)
-  // Column width: wide mode is 50% wider than the standard 80 px
-  const hourWidth  = wideColumns ? 120 : HOUR_WIDTH
-  const totalWidth = TOTAL_HOURS * hourWidth
 
   const { data: bookingsRes = [], isLoading, refetch } = useQuery({
     queryKey: ['bookings', venueId, date],
@@ -575,7 +577,9 @@ export default function Timeline() {
   //   Layer 1 (top)    — diagonal stripe for each doors-close zone
   //   Layer 2 (bottom) — solid grey linear-gradient for truly-closed columns
   // Layers are combined via CSS multiple-backgrounds (comma-separated image / position / size).
+  // Wrapped in try/catch so any unexpected data shape falls back to plain backgroundColor.
   const backgroundStyle = useMemo(() => {
+    try {
     const stripeCol = hexToRgba(greyColour, 0.38)
 
     // Solid grey gradient (all unavailable / outside-sitting strips)
@@ -625,6 +629,10 @@ export default function Timeline() {
         backgroundSize:     sizes.join(', '),
         backgroundRepeat:   repeats.join(', '),
       } : {}),
+    }
+    } catch (e) {
+      // Defensive fallback — plain background colour, no strips
+      return { backgroundColor: timelineBg }
     }
   }, [unavailableStrips, doorsCloseStrips, greyColour, timelineBg])
 
