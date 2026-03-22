@@ -4,12 +4,18 @@
 // venueId, hideInactive, groupBySections, panelMode are managed here so
 // AppShell can render the controls and Timeline can read/react without prop drilling.
 // Boolean view preferences are persisted to localStorage so they survive page reloads.
+// selectedDate is also persisted so the last-viewed date is restored across page visits
+// and when switching between the Timeline and Bookings pages.
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 
 const TimelineSettingsCtx = createContext(null)
 
 const TL_KEY = 'maca_timeline_prefs'
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10)
+}
 
 function loadPrefs() {
   try {
@@ -20,9 +26,10 @@ function loadPrefs() {
       panelMode:       s?.panelMode       ?? true,
       tileMode:        s?.tileMode        ?? 'compact',
       compactFontSize: s?.compactFontSize ?? 'sm',
+      selectedDate:    s?.selectedDate    ?? todayStr(),
     }
   } catch {
-    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm' }
+    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm', selectedDate: todayStr() }
   }
 }
 
@@ -38,6 +45,7 @@ export function TimelineSettingsProvider({ children }) {
   const [panelMode,        setPanelMode]        = useState(prefs.panelMode)
   const [tileMode,         setTileMode]         = useState(prefs.tileMode)
   const [compactFontSize,  setCompactFontSize]  = useState(prefs.compactFontSize)
+  const [selectedDate,     setSelectedDate]     = useState(prefs.selectedDate)
   // Counter that Timeline watches to trigger a manual refetch
   const [refetchTrigger,   setRefetchTrigger]   = useState(0)
 
@@ -45,8 +53,8 @@ export function TimelineSettingsProvider({ children }) {
 
   // Persist view prefs whenever they change
   useEffect(() => {
-    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize })
-  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize])
+    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate })
+  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate])
 
   return (
     <TimelineSettingsCtx.Provider value={{
@@ -56,6 +64,7 @@ export function TimelineSettingsProvider({ children }) {
       panelMode,        setPanelMode,
       tileMode,         setTileMode,
       compactFontSize,  setCompactFontSize,
+      selectedDate,     setSelectedDate,
       refetchTrigger,   triggerRefetch,
     }}>
       {children}

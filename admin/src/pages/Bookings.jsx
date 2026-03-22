@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight, Download, Search, ChevronDown, Eye, EyeOff, 
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
+import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 // All statuses the operator can manually set (pending_payment is Stripe-only)
 const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'no_show', 'cancelled']
@@ -30,10 +31,14 @@ const STATUS_DOT = {
 }
 
 export default function Bookings() {
-  const api = useApi()
-  const qc  = useQueryClient()
+  const api         = useApi()
+  const qc          = useQueryClient()
+  const tlSettings  = useTimelineSettings()
 
-  const [date,             setDate]         = useState(format(new Date(), 'yyyy-MM-dd'))
+  // date / setDate — persisted in shared context so last-viewed date survives
+  // navigation between Bookings and Timeline pages
+  const date    = tlSettings.selectedDate
+  const setDate = tlSettings.setSelectedDate
   const [selectedVenueId,  setVenueId]      = useState(null)
   const [selected,         setSelected]     = useState(null)
   const [search,           setSearch]       = useState('')
@@ -201,7 +206,8 @@ export default function Bookings() {
     <div className="flex flex-col h-full overflow-hidden">
 
       {/* ── Top bar ───────────────────────────────────────────── */}
-      <div className="flex items-center gap-4 px-5 h-14 border-b shrink-0">
+      {/* pl-14 on mobile offsets past the floating burger button (fixed top-3.5 left-3.5). */}
+      <div className="flex items-center gap-4 pl-14 pr-5 lg:pl-5 h-14 border-b shrink-0">
         {/* Venue selector */}
         {venues.length > 1 && (
           <select

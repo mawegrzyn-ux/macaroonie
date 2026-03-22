@@ -350,7 +350,10 @@ export default function Timeline() {
   const { hideInactive, groupBySections, panelMode, refetchTrigger } = tlSettings
   const { timelineBg, greyColour } = useSettings()
 
-  const [date,            setDate]          = useState(format(new Date(), 'yyyy-MM-dd'))
+  // date / setDate — persisted in shared context so last-viewed date survives
+  // navigation between Timeline and Bookings pages
+  const date    = tlSettings.selectedDate
+  const setDate = tlSettings.setSelectedDate
   const [activeId,        setActiveId]      = useState(null)
   const [selected,        setSelected]      = useState(null)
   const [showNew,         setShowNew]       = useState(false)
@@ -816,8 +819,9 @@ export default function Timeline() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Toolbar — date navigation only; view controls are in AppShell sidebar */}
-      <div className="flex items-center px-4 h-14 border-b shrink-0 gap-2">
+      {/* Toolbar — date navigation only; view controls are in AppShell sidebar.
+          pl-14 on mobile offsets content past the floating burger button (fixed top-3.5 left-3.5). */}
+      <div className="flex items-center pl-14 pr-4 lg:pl-4 h-14 border-b shrink-0 gap-2">
         <button onClick={() => setDate(format(subDays(new Date(date), 1), 'yyyy-MM-dd'))}
           className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
         <input
