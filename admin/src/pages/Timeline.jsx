@@ -256,7 +256,11 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           width:  TOTAL_WIDTH,
           // Primary rows with spanning cards need a stacking context above row dividers
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
-          // Secondary rows: paint unavailable bands as background gradient (no z-index needed)
+          // Secondary rows: z=4 puts them ABOVE the primary row's z=3 stacking context so
+          // the clipped gradient background (grey outside the booking, transparent inside)
+          // is visible.  Transparent portions let the spanning card show through via compositing.
+          // pointer-events:none lets click/drag events pass through to T3A's spanning card.
+          ...(isSecondaryRow ? { zIndex: 4, pointerEvents: 'none' } : {}),
           ...(secondaryBg ? { background: secondaryBg } : {}),
         }}
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
