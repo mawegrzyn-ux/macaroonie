@@ -30,6 +30,7 @@ const START_HOUR   = 9      // timeline starts at 09:00
 const END_HOUR     = 24     // timeline ends at 24:00
 const TOTAL_HOURS  = END_HOUR - START_HOUR
 const TOTAL_WIDTH  = TOTAL_HOURS * HOUR_WIDTH
+const LABEL_WIDTH  = 80    // px — must match .timeline-grid { grid-template-columns: 80px 1fr }
 
 function timeToX(iso) {
   const d    = parseISO(iso)
@@ -134,11 +135,9 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //   spanRows === 0 → this row is "secondary" (covered by a spanning card above); skip
 //   undefined     → normal single-table booking; render normally
 //
-// unavailableStrips: { x: number, width: number }[] — grey background bands
-//
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, unavailableStrips = [], enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set() }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set() }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -157,69 +156,13 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
   // booking the row should show the same grey as every other row so time
   // columns remain visually consistent (no partial-column grey).
   //
-  // We split each strip around covered ranges rather than dropping the whole
-  // strip, so a booking that starts mid-strip (e.g. inside the pre-sitting
-  // grey) doesn't wipe grey on either side of the card.
-
-  // True when this row is the secondary leg of a spanning combo card.
-  // Strips for secondary rows are rendered outside the canvas (below) to avoid
-  // stacking-context conflicts with the primary row's spanning card.
+  // Secondary row: this table is the lower leg of a spanning combo card rendered
+  // by the primary row above.  pointer-events:none lets clicks/drags pass through
+  // to the primary row's spanning card which visually covers this area.
   const isSecondaryRow = bookings.some(b => {
     const si = comboSpanMap?.get(b.id)
     return si && si.get(table.id) === 0
   })
-
-  const clippedStrips = (() => {
-    const coveredRanges = bookings
-      .filter(b => { const si = comboSpanMap?.get(b.id); return si && si.get(table.id) === 0 })
-      .map(b => ({
-        startX: timeToX(b.starts_at),
-        endX:   timeToX(b.starts_at) + durationToWidth(b.starts_at, b.ends_at),
-      }))
-    if (!coveredRanges.length) return unavailableStrips
-
-    const result = []
-    for (const strip of unavailableStrips) {
-      // Start with the full strip then subtract each covered range
-      let segments = [{ x: strip.x, width: strip.width }]
-      for (const c of coveredRanges) {
-        const next = []
-        for (const seg of segments) {
-          const segEnd = seg.x + seg.width
-          if (c.startX >= segEnd || c.endX <= seg.x) {
-            next.push(seg)                                      // no overlap — keep
-          } else {
-            if (seg.x < c.startX)                              // left remainder
-              next.push({ x: seg.x, width: c.startX - seg.x })
-            if (segEnd > c.endX)                               // right remainder
-              next.push({ x: c.endX, width: segEnd - c.endX })
-            // portion inside covered range is discarded
-          }
-        }
-        segments = next
-      }
-      result.push(...segments)
-    }
-    return result
-  })()
-
-  // For secondary rows there are no booking tiles to layer above, so instead of
-  // using absolutely-positioned overlay divs (which fight z-index stacking contexts),
-  // encode the unavailable bands directly as a CSS linear-gradient background on
-  // the canvas.  The gradient covers the full TOTAL_WIDTH so it scrolls with the canvas.
-  const secondaryBg = isSecondaryRow && clippedStrips.length > 0 ? (() => {
-    const grey = 'rgba(140,140,140,0.38)'
-    const stops = []
-    let prev = 0
-    const sorted = [...clippedStrips].sort((a, b) => a.x - b.x)
-    for (const { x, width } of sorted) {
-      if (x > prev) stops.push(`transparent ${prev}px`, `transparent ${x}px`)
-      stops.push(`${grey} ${x}px`, `${grey} ${x + width}px`)
-      prev = x + width
-    }
-    if (prev < TOTAL_WIDTH) stops.push(`transparent ${prev}px`)
-    return `linear-gradient(to right, ${stops.join(', ')})`
-  })() : null
 
   return (
     <div className="timeline-grid border-b last:border-b-0">
@@ -256,26 +199,11 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           width:  TOTAL_WIDTH,
           // Primary rows with spanning cards need a stacking context above row dividers
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
-          // Secondary rows: z=4 puts them ABOVE the primary row's z=3 stacking context so
-          // the clipped gradient background (grey outside the booking, transparent inside)
-          // is visible.  Transparent portions let the spanning card show through via compositing.
-          // pointer-events:none lets click/drag events pass through to T3A's spanning card.
-          ...(isSecondaryRow ? { zIndex: 4, pointerEvents: 'none' } : {}),
-          ...(secondaryBg ? { background: secondaryBg } : {}),
+          // Secondary rows pass clicks/drags through to the primary row's spanning card
+          ...(isSecondaryRow ? { pointerEvents: 'none' } : {}),
         }}
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
-        {/* B1: Unavailable / out-of-session strips (primary rows only).
-            Rendered at zIndex 2, above booking tiles at z=1.
-            Secondary rows use a CSS background gradient instead (see secondaryBg above). */}
-        {!isSecondaryRow && clippedStrips.map(({ x, width }, i) => (
-          <div
-            key={i}
-            className="absolute top-0 bottom-0 pointer-events-none"
-            style={{ left: Math.max(0, x), width, zIndex: 2, background: 'rgba(140,140,140,0.38)' }}
-          />
-        ))}
-
         {/* Hour grid lines */}
         {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => (
           <div
@@ -540,6 +468,28 @@ export default function Timeline() {
 
     return strips
   }, [sittingsForDate, slotsOverlay])
+
+  // Convert unavailableStrips into a single CSS linear-gradient that is applied
+  // as the background of the entire rows wrapper div — completely independent of
+  // per-row rendering, z-index, or stacking contexts.  Strips are offset by
+  // LABEL_WIDTH so the label column stays unaffected.  Booking tiles cover the
+  // grey naturally via their own colored backgrounds.
+  const greyBackground = useMemo(() => {
+    if (!unavailableStrips.length) return null
+    const grey = 'rgba(140,140,140,0.38)'
+    const stops = []
+    let prev = 0
+    const sorted = [...unavailableStrips].sort((a, b) => a.x - b.x)
+    for (const { x, width } of sorted) {
+      const ax = x + LABEL_WIDTH
+      const ae = ax + width
+      if (ax > prev) stops.push(`transparent ${prev}px`, `transparent ${ax}px`)
+      stops.push(`${grey} ${ax}px`, `${grey} ${ae}px`)
+      prev = ae
+    }
+    stops.push(`transparent ${prev}px`)
+    return `linear-gradient(to right, ${stops.join(', ')})`
+  }, [unavailableStrips])
 
   // ── Resize handlers ───────────────────────────────────────
   const resizeMutation = useMutation({
@@ -846,7 +796,7 @@ export default function Timeline() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div style={{ minWidth: 160 + TOTAL_WIDTH }}>
+            <div style={{ minWidth: 160 + TOTAL_WIDTH, background: greyBackground || undefined }}>
               <TimelineHeader nowX={nowX} nowLabel={nowLabel} />
 
               {/* ── Unallocated row ─────────────────────────────────────
@@ -902,7 +852,6 @@ export default function Timeline() {
                         resizePreviewMs={resizePreviewMs}
                         comboSpanMap={comboSpanMap}
                         onCanvasClick={handleCanvasClick}
-                        unavailableStrips={unavailableStrips}
                         enableUnconfirmedFlow={enableUnconfirmedFlow}
                         onConfirm={confirmStatusMutation.mutate}
                         nowX={nowX}
@@ -926,7 +875,6 @@ export default function Timeline() {
                     resizePreviewMs={resizePreviewMs}
                     comboSpanMap={comboSpanMap}
                     onCanvasClick={handleCanvasClick}
-                    unavailableStrips={unavailableStrips}
                     enableUnconfirmedFlow={enableUnconfirmedFlow}
                     onConfirm={confirmStatusMutation.mutate}
                     nowX={nowX}
