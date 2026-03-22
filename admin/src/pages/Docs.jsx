@@ -81,7 +81,7 @@ export default function Docs() {
             <Code>{`/
 ├── api/          Node.js API (Fastify)
 ├── admin/        React admin portal (Vite)
-├── migrations/   PostgreSQL migration files (001–020, run in order)
+├── migrations/   PostgreSQL migration files (001–021, run in order)
 ├── setup.sh      One-shot Lightsail server setup
 ├── deploy.sh     Subsequent deployments
 └── CLAUDE.md     Developer context and outstanding items`}</Code>
@@ -368,7 +368,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['exception_day_templates', 'Per-DOW schedule within an exception. Overrides weekly template for that day.', 'exception_id, day_of_week, is_open, slot_interval_mins'],
                 ['exception_sittings', 'Sittings for an exception day template.', 'template_id, opens_at, closes_at, default_max_covers, doors_close_time, sort_order'],
                 ['exception_sitting_slot_caps', 'Sparse per-slot cover cap overrides within exception sittings.', 'sitting_id, slot_time, max_covers'],
-                ['booking_rules', 'Per-venue booking constraints. Includes smart-allocation rule flags.', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo, allow_widget_bookings_after_doors_close, enable_unconfirmed_flow, enable_reconfirmed_status'],
+                ['booking_rules', 'Per-venue booking constraints. Smart-allocation flags, status-flow toggles (unconfirmed, reconfirmed, arrived).', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo, allow_widget_bookings_after_doors_close, enable_unconfirmed_flow, enable_reconfirmed_status, enable_arrived_status'],
                 ['deposit_rules', 'Per-venue deposit configuration.', 'venue_id, requires_deposit, amount_pence, stripe_account_id'],
                 ['booking_holds', 'Temporary slot reservations. UNIQUE (table_id, starts_at).', 'venue_id, table_id, combination_id, starts_at, ends_at, expires_at, guest_name, guest_email'],
                 ['bookings', 'Confirmed bookings.', 'venue_id, table_id, combination_id, starts_at, ends_at, covers, status, reference, guest_name, guest_email, guest_phone, guest_notes, operator_notes, customer_id'],
@@ -441,7 +441,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST', '/:id/combinations', 'admin', 'Create combination'],
                 ['PATCH', '/:id/combinations/:cid', 'admin', 'Update combination name / covers'],
                 ['DELETE', '/:id/combinations/:cid', 'admin', 'Delete combination'],
-                ['GET | PATCH', '/:id/rules', 'any | admin', 'Get or update booking rules (includes allow_cross_section_combo, allow_non_adjacent_combo flags)'],
+                ['GET | PATCH', '/:id/rules', 'any | admin', 'Get or update booking rules (includes allow_cross_section_combo, allow_non_adjacent_combo, enable_arrived_status flags)'],
                 ['GET | PATCH', '/:id/deposit-rules', 'any | admin', 'Get or update deposit rules'],
                 ['GET', '/:id/disallowed-pairs', 'any', 'List disallowed table pairs for smart allocation'],
                 ['POST', '/:id/disallowed-pairs', 'admin', 'Add a disallowed pair { table_id_a, table_id_b }'],
@@ -708,6 +708,7 @@ allTables sorted by sort_order → target at index i
                 ['Normal booking card', '1', 'CSS .timeline-slot default'],
                 ['Spanning combo card', '5', 'Inline override — above row borders'],
                 ['Canvas with spanning card', '3', 'Creates stacking context above subsequent rows'],
+                ['Secondary combo row canvas', '4 + pointer-events:none', 'Paints gradient background above primary z=3; transparent holes let spanning card show through; pointer-events:none passes click/drag to primary card'],
                 ['Sticky label column', '10', 'Always above all booking cards'],
                 ['Sticky header row', '12', 'Topmost sticky element'],
                 ['DragOverlay ghost', '999', 'Portal-rendered — always on top of everything'],
@@ -742,7 +743,7 @@ allTables sorted by sort_order → target at index i
             <H3>Running locally</H3>
             <Code>{`# Prerequisites: Postgres 16, Redis 7, Node 22
 
-# Apply migrations in order (001 → 020)
+# Apply migrations in order (001 → 021)
 psql $DATABASE_URL -f migrations/001_tenants_users.sql
 psql $DATABASE_URL -f migrations/002_venues.sql
 psql $DATABASE_URL -f migrations/003_schedules.sql
@@ -764,6 +765,7 @@ psql $DATABASE_URL -f migrations/017_seated_checked_out.sql
 psql $DATABASE_URL -f migrations/018_customers.sql
 psql $DATABASE_URL -f migrations/019_customer_visit_count.sql
 psql $DATABASE_URL -f migrations/020_slot_start_filter.sql
+psql $DATABASE_URL -f migrations/021_enable_arrived_status.sql
 
 # API
 cd api && cp .env.example .env   # fill in values

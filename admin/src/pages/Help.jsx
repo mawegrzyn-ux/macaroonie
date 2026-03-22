@@ -484,6 +484,14 @@ export default function Help() {
               a staff member has called the guest the day before and confirmed they are still attending.
               This is separate from the call-to-confirm workflow — both can be enabled independently.
             </P>
+
+            <H3>Arrived status</H3>
+            <P>
+              When <strong>Enable arrived status</strong> is turned on in Rules (it is on by default),
+              an <em>Arrived</em> status option appears in the booking status dropdown. Set a booking to
+              Arrived when the guest walks in — before they are shown to their table. This gives
+              front-of-house a clear intermediate state between Confirmed and Seated.
+            </P>
           </section>
 
           {/* ── DEPOSITS ──────────────────────────────────── */}
@@ -752,29 +760,30 @@ export default function Help() {
             <H3>Editing guest details</H3>
             <P>
               Click <strong>Edit</strong> next to the Guest details section header to change the guest's
-              name, email, phone number, or the number of covers. Changes save immediately and update
-              the booking record.
+              name, email, phone number, or the number of covers. The covers field supports both the ±
+              buttons and direct typing — tap the number to type a new value directly. Changes save
+              when you click the save button in the drawer header.
             </P>
 
-            <H3>Rescheduling a booking</H3>
+            <H3>Rescheduling or changing the end time</H3>
             <P>
-              Click <strong>Reschedule</strong> next to the Date &amp; time section. A date picker and
-              start-time picker appear pre-filled with the current booking time. Change the date and/or
-              start time, then click <strong>Move booking</strong> in the drawer header.
-              The booking keeps the same table and its original duration.
+              In the Date &amp; time section of the booking drawer, you will see two pill buttons — one
+              showing the start date and time, and one showing the end time. Click either pill to open
+              the inline date and time editor:
             </P>
-
-            <H3>Changing the end time</H3>
+            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
+              <li><strong>Date</strong> — click the field to open the OS date picker.</li>
+              <li><strong>Start time</strong> — change the booking start time.</li>
+              <li><strong>End time</strong> — extend or shorten the booking without affecting the start time.</li>
+            </ul>
             <P>
-              To extend or shorten a booking without changing the start time, click <strong>End time</strong>
-              next to the Date &amp; time section. A time picker appears showing the current end time.
-              Change it and click <strong>Save end time</strong> in the drawer header. The new end time
-              is saved immediately. On a tablet, the native OS time picker opens — use the scroll wheels
-              to select the new time.
+              Once you have made your changes, click the contextual save button that appears in the drawer
+              header (e.g. <em>"Move booking"</em> or <em>"Save end time"</em>). The booking is updated
+              immediately. Click the start pill again to close the editor without saving.
             </P>
             <InfoBox type="tip">
-              Use "End time" when a table is running over — update the end time so the Timeline reflects
-              the actual occupancy and staff know the table is still in use.
+              Use the end time field when a table is running over — update it so the Timeline reflects
+              actual occupancy and staff know the table is still in use.
             </InfoBox>
 
             <H3>Reassigning a table or combination</H3>
@@ -1125,6 +1134,14 @@ export default function Help() {
                 {
                   q: 'How do I hide cancelled and no-show bookings from the Timeline?',
                   a: 'In the sidebar, while on the Timeline page, tap the Inactive toggle. This hides cancelled, no-show, and checked-out bookings from the canvas. Tap it again to show them. The setting persists across sessions — it is also configurable as a default in Settings → Timeline defaults.',
+                },
+                {
+                  q: 'How do I edit the start time and end time of a booking from the drawer?',
+                  a: 'In the booking drawer, tap either the start time pill or the end time pill in the Date & time section. Both open the same unified editor showing the date, start time, and end time together. Change whichever values you need, then tap the save button in the drawer header. To close without saving, tap the start pill again.',
+                },
+                {
+                  q: 'Can I type a number directly into the covers field in the booking drawer?',
+                  a: 'Yes. In the booking drawer, tap the covers number in the Guest details section — it becomes a direct-entry field. You can also use the + and − buttons. The value saves when you tap the save button in the drawer header.',
                 },
               ].map(({ q, a }) => (
                 <div key={q} className="border rounded-lg p-4">

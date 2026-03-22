@@ -229,6 +229,9 @@ Additionally implemented across development sessions:
 - ✅ **Mobile customer search inline** — on small screens (`< sm`) suggestions panel moved inline below phone field with × dismiss; desktop side-panel unchanged; pure CSS responsive classes
 - ✅ **Slot start-time filter** — `get_available_slots()` now generates slots where `slot_time < closes_at` only (not `slot_time + duration ≤ closes_at`); migration 020 drops/recreates `slot_result` type adding `sitting_closes_at` and `sitting_doors_close` fields; `GET /slots` passes both fields through; `NewBookingModal` shows amber/red warning when booking end exceeds last-order/doors-close time
 - ✅ **BookingDrawer end-time editor** — "End time" button added to Date & time section; native `<input type="time">` on OS picker; calls existing `PATCH /bookings/:id/duration`; midnight crossover handled; Save in drawer header
+- ✅ **enable_arrived_status flag** — added to `booking_rules` (migration 021); controls whether "Arrived" status is shown in booking drawer; defaults to `true`; included in `BookingRulesBody` Zod schema and Rules page toggle
+- ✅ **BookingDrawer redesign (UX polish)** — new full-panel layout; unified `editMode` string (`null | 'guest' | 'datetime' | 'table' | 'notes'`) replaces multiple boolean flags; guest count supports direct typing (`type="tel"`) in addition to ± buttons; date/time unified editor: clicking either the start-time pill or the end-time pill opens a single inline card with date + start + end pickers (replaced separate Reschedule/End-time modes); customer search panel rendered as `fixed right-[420px] top-14` sibling outside `overflow-hidden` drawer div (fixes previous clipping); `handleCustSearch(changedValue)` called per-field (not multi-field priority) so editing any of name/email/phone independently triggers search
+- ✅ **Timeline grey strips in secondary combo rows** — secondary row canvas now rendered at `z-index: 4` (above primary row's z=3 stacking context) with `pointer-events: none` (passes clicks through to the primary's spanning card); clipped `linear-gradient` background makes grey strips visible outside the booking time while remaining transparent where the spanning card sits
 
 ---
 
@@ -298,6 +301,8 @@ Key vars to set before running:
 - **`slot_result` type requires DROP + CREATE** — PostgreSQL composite types used in functions cannot be altered. Any migration that adds fields to `slot_result` must `DROP FUNCTION get_available_slots` first, then `DROP TYPE slot_result`, then recreate both. See migration 020.
 - **slot warning in booking modal uses local time** — `new Date(slot_time).getHours()` interprets the UTC timestamp in the browser's local timezone. If the server timezone and browser timezone differ, warning thresholds may be slightly off. Fix: use `slotsRes.timezone` to convert properly (outstanding).
 - **`checked_out` is NOT the same as `completed`** — `completed` was renamed to `seated` in migration 017. `checked_out` is a new separate status (after seated). Do not confuse the two in queries or UI labels.
+- **Secondary combo row canvas at z=4** — secondary combo rows (where the spanning card from the primary row above paints over them) must have `z-index: 4` AND `pointer-events: none` on their canvas div. z=4 ensures their clipped gradient background paints above the primary's z=3 stacking context. `pointer-events: none` lets click and drag events pass through to the primary row's spanning card. Without z=4, the gradient is invisible (the primary's z=3 stacking context covers T3B entirely).
+- **`handleCustSearch` in BookingDrawer takes a single field value** — pass only the value of the field that just changed, not all three fields. The previous multi-field priority logic meant editing name while email was already filled always searched by email, so name-only changes never triggered search.
 
 ---
 
@@ -330,6 +335,12 @@ psql $DATABASE_URL -f ../migrations/012_reconfirmed_status.sql
 psql $DATABASE_URL -f ../migrations/013_doors_close_per_sitting.sql
 psql $DATABASE_URL -f ../migrations/014_schedule_exceptions.sql
 psql $DATABASE_URL -f ../migrations/015_fix_get_available_slots.sql
+psql $DATABASE_URL -f ../migrations/016_noslot_noshow_cancelled.sql
+psql $DATABASE_URL -f ../migrations/017_seated_checked_out.sql
+psql $DATABASE_URL -f ../migrations/018_customers.sql
+psql $DATABASE_URL -f ../migrations/019_customer_visit_count.sql
+psql $DATABASE_URL -f ../migrations/020_slot_start_filter.sql
+psql $DATABASE_URL -f ../migrations/021_enable_arrived_status.sql
 npm install
 npm run dev            # starts on :3000 with --watch
 
