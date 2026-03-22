@@ -191,8 +191,13 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
   })
 
   const tablesMutation = useMutation({
-    mutationFn: (data) => api.patch(`/bookings/${booking.id}/tables`, data),
-    onSuccess:  () => { setEditMode(null); onUpdated() },
+    mutationFn: (data) => {
+      if (data.target_table_id) {
+        return api.patch(`/bookings/${booking.id}/relocate`, data)
+      }
+      return api.patch(`/bookings/${booking.id}/tables`, data)
+    },
+    onSuccess: () => { setEditMode(null); onUpdated() },
   })
 
   const refundMutation = useMutation({
@@ -252,7 +257,12 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
 
   function handleTableSave() {
     if (pickedTableIds.size === 0) return
-    tablesMutation.mutate({ table_ids: [...pickedTableIds] })
+    const ids = [...pickedTableIds]
+    if (ids.length === 1) {
+      tablesMutation.mutate({ target_table_id: ids[0], starts_at: booking.starts_at })
+    } else {
+      tablesMutation.mutate({ table_ids: ids })
+    }
   }
 
   // ── Header save action ─────────────────────────────────────

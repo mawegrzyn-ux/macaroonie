@@ -28,9 +28,11 @@ function loadPrefs() {
       compactFontSize: s?.compactFontSize ?? 'sm',
       selectedDate:    s?.selectedDate    ?? todayStr(),
       wideColumns:     s?.wideColumns     ?? false,
+      timelineStart:   s?.timelineStart   ?? 9,
+      timelineEnd:     s?.timelineEnd     ?? 24,
     }
   } catch {
-    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm', selectedDate: todayStr(), wideColumns: false }
+    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm', selectedDate: todayStr(), wideColumns: false, timelineStart: 9, timelineEnd: 24 }
   }
 }
 
@@ -48,6 +50,8 @@ export function TimelineSettingsProvider({ children }) {
   const [compactFontSize,  setCompactFontSize]  = useState(prefs.compactFontSize)
   const [selectedDate,     setSelectedDate]     = useState(prefs.selectedDate)
   const [wideColumns,      setWideColumns]      = useState(prefs.wideColumns)
+  const [timelineStart,    setTimelineStart]    = useState(prefs.timelineStart)
+  const [timelineEnd,      setTimelineEnd]      = useState(prefs.timelineEnd)
   // Counter that Timeline watches to trigger a manual refetch
   const [refetchTrigger,   setRefetchTrigger]   = useState(0)
 
@@ -55,8 +59,8 @@ export function TimelineSettingsProvider({ children }) {
 
   // Persist view prefs whenever they change
   useEffect(() => {
-    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns })
-  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns])
+    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns, timelineStart, timelineEnd })
+  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns, timelineStart, timelineEnd])
 
   return (
     <TimelineSettingsCtx.Provider value={{
@@ -68,6 +72,8 @@ export function TimelineSettingsProvider({ children }) {
       compactFontSize,  setCompactFontSize,
       selectedDate,     setSelectedDate,
       wideColumns,      setWideColumns,
+      timelineStart,    setTimelineStart,
+      timelineEnd,      setTimelineEnd,
       refetchTrigger,   triggerRefetch,
     }}>
       {children}

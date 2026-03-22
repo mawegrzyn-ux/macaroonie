@@ -42,17 +42,17 @@ const TOTAL_HOURS  = END_HOUR - START_HOUR
 const TOTAL_WIDTH  = TOTAL_HOURS * HOUR_WIDTH
 const LABEL_WIDTH  = 80    // px — must match .timeline-grid { grid-template-columns: 80px 1fr }
 
-function timeToX(iso, hw = HOUR_WIDTH) {
+function timeToX(iso, hw = HOUR_WIDTH, sh = START_HOUR) {
   const d    = parseISO(iso)
   const hours = d.getHours() + d.getMinutes() / 60
-  return (hours - START_HOUR) * hw
+  return (hours - sh) * hw
 }
 
 // Convert a Postgres TIME string ('HH:MM' or 'HH:MM:SS') to canvas x position.
 // Used to convert sitting opens_at/closes_at (not full timestamps) to pixels.
-function sittingTimeToX(t, hw = HOUR_WIDTH) {
+function sittingTimeToX(t, hw = HOUR_WIDTH, sh = START_HOUR) {
   const [h, m] = t.split(':').map(Number)
-  return (h + m / 60 - START_HOUR) * hw
+  return (h + m / 60 - sh) * hw
 }
 
 function durationToWidth(startIso, endIso, hw = HOUR_WIDTH) {
@@ -68,13 +68,13 @@ function durationToWidth(startIso, endIso, hw = HOUR_WIDTH) {
 // tileMode: 'compact' | 'extensive'
 // compactFontSize: 'sm' | 'md' | 'lg'  (ignored in extensive mode)
 // tableById: Map<uuid, table> — used in extensive mode for table label display
-function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false, rowHeight, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH }) {
+function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false, isOverlap = false, rowHeight, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH, startHour = START_HOUR }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
   })
 
-  const x         = timeToX(booking.starts_at, hourWidth)
+  const x         = timeToX(booking.starts_at, hourWidth, startHour)
   const endsAtIso = resizePreviewMs ? new Date(resizePreviewMs).toISOString() : booking.ends_at
   const w         = durationToWidth(booking.starts_at, endsAtIso, hourWidth)
 
@@ -113,8 +113,14 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
       {...listeners}
       {...attributes}
       onClick={(e) => { e.stopPropagation(); onClick(booking) }}
-      className={cn('timeline-slot overflow-hidden', booking.status, isDragging && 'dragging')}
+      className={cn('timeline-slot overflow-hidden', booking.status, isDragging && 'dragging', isOverlap && 'ring-2 ring-red-500 ring-inset')}
     >
+      {isOverlap && (
+        <span
+          className="absolute top-0.5 right-0.5 text-[10px] leading-none pointer-events-none z-10"
+          title="Double-booked — overlapping table assignment"
+        >⛔</span>
+      )}
       {tileMode === 'extensive' ? (
         /* ── Extensive layout: 3 info lines ─────────────────── */
         <div className="flex flex-col justify-center h-full pl-2 pr-[18px] py-1 gap-[3px] min-w-0">
@@ -188,7 +194,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set(), rowHeight = ROW_HEIGHT, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set(), overlappingIds = null, rowHeight = ROW_HEIGHT, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH, startHour = START_HOUR, totalHours = TOTAL_HOURS }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -247,7 +253,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         )}
         style={{
           height: rowHeight,
-          width:  TOTAL_HOURS * hourWidth,
+          width:  totalHours * hourWidth,
           // Primary rows with spanning cards need a stacking context above row dividers
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
           // Secondary rows pass clicks/drags through to the primary row's spanning card
@@ -256,7 +262,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
         {/* Hour grid lines */}
-        {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => (
+        {Array.from({ length: totalHours + 1 }, (_, i) => (
           <div
             key={i}
             className="absolute top-0 bottom-0 border-l border-border/40"
@@ -290,11 +296,13 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
               enableUnconfirmedFlow={enableUnconfirmedFlow}
               onConfirm={onConfirm}
               overCapacity={overCapacityIds.has(b.id)}
+              isOverlap={overlappingIds?.has(b.id) ?? false}
               rowHeight={rowHeight}
               tileMode={tileMode}
               compactFontSize={compactFontSize}
               tableById={tableById}
               hourWidth={hourWidth}
+              startHour={startHour}
             />
           )
         })}
@@ -305,7 +313,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
 }
 
 // ── Timeline header (hour labels + optional now marker) ────────
-function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH, headerBgStrips = false, backgroundStyle = {}, showStartLine = false, sessionStartXs = [], startLineColour = '#630812' }) {
+function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH, headerBgStrips = false, backgroundStyle = {}, showStartLine = false, sessionStartXs = [], startLineColour = '#630812', startHour = START_HOUR, totalHours = TOTAL_HOURS }) {
   // When headerBgStrips is on, apply the same closed-area shading to the header row.
   // bg-background class is always present; backgroundStyle.backgroundColor overrides it when strips are on.
   // The sticky label cell always keeps its own bg-background to mask scrolling content behind it.
@@ -314,15 +322,15 @@ function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH, headerBgStrips
     <div className="timeline-grid border-b sticky top-0 z-10 bg-background" style={outerStyle}>
       {/* Sticky label cell — z-[12] keeps it above spanning cards (z=5) and canvas stacking contexts (z=3) */}
       <div className="border-r sticky left-0 bg-background z-[12]" style={{ height: 40 }} />
-      <div className="relative overflow-hidden" style={{ width: TOTAL_HOURS * hourWidth, height: 40 }}>
-        {Array.from({ length: TOTAL_HOURS }, (_, i) => (
+      <div className="relative overflow-hidden" style={{ width: totalHours * hourWidth, height: 40 }}>
+        {Array.from({ length: totalHours }, (_, i) => (
           <div
             key={i}
             className="absolute top-0 bottom-0 flex items-center border-l border-border/40"
             style={{ left: i * hourWidth, width: hourWidth }}
           >
             <span className="text-xs text-muted-foreground pl-1">
-              {String(START_HOUR + i).padStart(2, '0')}:00
+              {String(startHour + i).padStart(2, '0')}:00
             </span>
           </div>
         ))}
@@ -424,22 +432,25 @@ export default function Timeline() {
   // Row height + column width derived from tile mode / wide-columns setting.
   // Declared early so nowX useMemo (below) can reference hourWidth/totalWidth
   // without hitting the Temporal Dead Zone.
-  const { tileMode, compactFontSize, wideColumns } = tlSettings
+  const { tileMode, compactFontSize, wideColumns, timelineStart, timelineEnd } = tlSettings
+  const startHour  = timelineStart ?? START_HOUR
+  const endHour    = timelineEnd   ?? END_HOUR
+  const totalHours = endHour - startHour
   const rowHeight  = tileMode === 'extensive'
     ? ROW_HEIGHT_MAP.extensive
     : (ROW_HEIGHT_MAP.compact[compactFontSize] ?? ROW_HEIGHT_MAP.compact.sm)
   // Column width: wide mode is 50% wider than the standard 80 px
   const hourWidth  = wideColumns ? 120 : HOUR_WIDTH
-  const totalWidth = TOTAL_HOURS * hourWidth
+  const totalWidth = totalHours * hourWidth
 
   const today = format(new Date(), 'yyyy-MM-dd')
   const nowX = useMemo(() => {
     if (date !== today) return null
     const now   = new Date(nowMs)
     const hours = now.getHours() + now.getMinutes() / 60
-    const x     = (hours - START_HOUR) * hourWidth
+    const x     = (hours - startHour) * hourWidth
     return x >= 0 && x <= totalWidth ? x : null
-  }, [date, today, nowMs, hourWidth, totalWidth])
+  }, [date, today, nowMs, startHour, hourWidth, totalWidth])
 
   const nowLabel = useMemo(() => {
     const d = new Date(nowMs)
@@ -538,7 +549,7 @@ export default function Timeline() {
     const sorted = [...sittings].sort((a, b) => a.opens_at.localeCompare(b.opens_at))
 
     // Before first sitting
-    const firstOpenX = sittingTimeToX(sorted[0].opens_at, hourWidth)
+    const firstOpenX = sittingTimeToX(sorted[0].opens_at, hourWidth, startHour)
     if (firstOpenX > 0) strips.push({ x: 0, width: firstOpenX })
 
     // Gaps between sittings + after last sitting.
@@ -546,9 +557,9 @@ export default function Timeline() {
     // between closes_at and doors_close_time gets diagonal stripes instead.
     for (let i = 0; i < sorted.length; i++) {
       const effectiveClose = sorted[i].doors_close_time ?? sorted[i].closes_at
-      const closeX    = sittingTimeToX(effectiveClose, hourWidth)
+      const closeX    = sittingTimeToX(effectiveClose, hourWidth, startHour)
       const nextOpenX = i < sorted.length - 1
-        ? sittingTimeToX(sorted[i + 1].opens_at, hourWidth)
+        ? sittingTimeToX(sorted[i + 1].opens_at, hourWidth, startHour)
         : totalWidth   // grey from doors-close to right edge of canvas
       if (nextOpenX > closeX) {
         strips.push({ x: closeX, width: nextOpenX - closeX })
@@ -565,13 +576,13 @@ export default function Timeline() {
       const intervalPx = (intervalMs / 3_600_000) * hourWidth
       for (const slot of slots) {
         if (slot.reason === 'unavailable') {
-          strips.push({ x: timeToX(slot.slot_time, hourWidth), width: intervalPx })
+          strips.push({ x: timeToX(slot.slot_time, hourWidth, startHour), width: intervalPx })
         }
       }
     }
 
     return strips
-  }, [sittingsForDate, slotsOverlay, hourWidth, totalWidth])
+  }, [sittingsForDate, slotsOverlay, hourWidth, totalWidth, startHour])
 
   // Diagonal-stripe zone: from sitting closes_at (last orders) to doors_close_time.
   // Uses doors_close_time as the solid-grey boundary in unavailableStrips so the
@@ -581,17 +592,17 @@ export default function Timeline() {
     return sittings
       .filter(s => s.doors_close_time && s.doors_close_time > s.closes_at)
       .map(s => ({
-        x:     sittingTimeToX(s.closes_at,       hourWidth),
-        width: sittingTimeToX(s.doors_close_time, hourWidth) - sittingTimeToX(s.closes_at, hourWidth),
+        x:     sittingTimeToX(s.closes_at,       hourWidth, startHour),
+        width: sittingTimeToX(s.doors_close_time, hourWidth, startHour) - sittingTimeToX(s.closes_at, hourWidth, startHour),
       }))
       .filter(s => s.width > 0)
-  }, [sittingsForDate, hourWidth])
+  }, [sittingsForDate, hourWidth, startHour])
 
   // X positions of each sitting's opens_at — one line per sitting (e.g. lunch + dinner).
   const sessionStartXs = useMemo(() => {
     const sittings = sittingsForDate?.sittings ?? []
-    return sittings.map(s => sittingTimeToX(s.opens_at, hourWidth))
-  }, [sittingsForDate, hourWidth])
+    return sittings.map(s => sittingTimeToX(s.opens_at, hourWidth, startHour))
+  }, [sittingsForDate, hourWidth, startHour])
 
   // Build combined wrapper background style:
   //   Layer 1 (top)    — diagonal stripe for each doors-close zone
@@ -798,12 +809,12 @@ export default function Timeline() {
   function handleCanvasClick(e, table) {
     const rect     = e.currentTarget.getBoundingClientRect()
     const x        = e.clientX - rect.left
-    // Convert pixel offset → minutes since START_HOUR, snapped to 15 min
-    const rawMins  = (x / hourWidth) * 60 + START_HOUR * 60
+    // Convert pixel offset → minutes since startHour, snapped to 15 min
+    const rawMins  = (x / hourWidth) * 60 + startHour * 60
     // Clamp to valid timeline range so clicks at the edge never produce 24:xx or 28:xx
     const snapped  = Math.min(
-      (END_HOUR * 60) - 15,          // latest valid slot: 23:45
-      Math.max(START_HOUR * 60, Math.round(rawMins / 15) * 15)
+      (endHour * 60) - 15,           // latest valid slot: endHour - 15 min
+      Math.max(startHour * 60, Math.round(rawMins / 15) * 15)
     )
     const h        = Math.floor(snapped / 60)
     const m        = snapped % 60
@@ -909,6 +920,37 @@ export default function Timeline() {
     return ids
   }, [bookingsRes])
 
+  // Detect bookings that share a table and have overlapping time windows.
+  // These are highlighted with a stop sign on their tile.
+  const overlappingIds = useMemo(() => {
+    const active = bookingsRes.filter(b =>
+      !['cancelled', 'no_show', 'checked_out'].includes(b.status)
+    )
+    const ids = new Set()
+    for (let i = 0; i < active.length; i++) {
+      for (let j = i + 1; j < active.length; j++) {
+        const a = active[i], b = active[j]
+        const aTables = new Set(
+          Array.isArray(a.member_table_ids) && a.member_table_ids.length
+            ? a.member_table_ids : a.table_id ? [a.table_id] : []
+        )
+        const bTables = new Set(
+          Array.isArray(b.member_table_ids) && b.member_table_ids.length
+            ? b.member_table_ids : b.table_id ? [b.table_id] : []
+        )
+        const shared = [...aTables].some(t => bTables.has(t))
+        if (!shared) continue
+        const aStart = new Date(a.starts_at), aEnd = new Date(a.ends_at)
+        const bStart = new Date(b.starts_at), bEnd = new Date(b.ends_at)
+        if (aStart < bEnd && bStart < aEnd) {
+          ids.add(a.id)
+          ids.add(b.id)
+        }
+      }
+    }
+    return ids
+  }, [bookingsRes])
+
   const activeBooking = useMemo(() =>
     bookingsRes.find(b => b.id === activeId), [bookingsRes, activeId])
 
@@ -917,18 +959,25 @@ export default function Timeline() {
       {/* Toolbar — date navigation only; view controls are in AppShell sidebar.
           pl-14 on mobile offsets content past the floating burger button (fixed top-3.5 left-3.5). */}
       <div className="flex items-center pl-14 pr-4 lg:pl-4 h-14 border-b shrink-0 gap-2">
-        <button onClick={() => setDate(format(subDays(new Date(date), 1), 'yyyy-MM-dd'))}
+        <button onClick={() => setDate(format(subDays(parseISO(date), 1), 'yyyy-MM-dd'))}
           className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          className="text-sm border rounded px-2 py-1"
-        />
-        <button onClick={() => setDate(format(addDays(new Date(date), 1), 'yyyy-MM-dd'))}
+        <div className="relative">
+          <button className="px-3 py-1.5 text-sm font-medium rounded-lg hover:bg-accent touch-manipulation min-w-[220px] text-center">
+            {date === today ? 'Today' : format(parseISO(date), 'EEEE d MMMM yyyy')}
+          </button>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full"
+          />
+        </div>
+        <button onClick={() => setDate(format(addDays(parseISO(date), 1), 'yyyy-MM-dd'))}
           className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronRight className="w-4 h-4" /></button>
-        <button onClick={() => setDate(format(new Date(), 'yyyy-MM-dd'))}
-          className="text-xs px-2 py-1 rounded border hover:bg-accent touch-manipulation">Today</button>
+        {date !== today && (
+          <button onClick={() => setDate(today)}
+            className="text-xs px-2.5 py-1.5 rounded-lg border hover:bg-accent touch-manipulation">Today</button>
+        )}
       </div>
 
       {/* Body row — timeline + optional docked panel */}
@@ -987,6 +1036,8 @@ export default function Timeline() {
                 showStartLine={showStartLine}
                 sessionStartXs={sessionStartXs}
                 startLineColour={startLineColour}
+                startHour={startHour}
+                totalHours={totalHours}
               />
 
               {/* ── Unallocated row ─────────────────────────────────────
@@ -1016,11 +1067,14 @@ export default function Timeline() {
                     onConfirm={confirmStatusMutation.mutate}
                     nowX={nowX}
                     overCapacityIds={overCapacityIds}
+                    overlappingIds={overlappingIds}
                     rowHeight={rowHeight}
                     tileMode={tileMode}
                     compactFontSize={compactFontSize}
                     tableById={tableById}
                     hourWidth={hourWidth}
+                    startHour={startHour}
+                    totalHours={totalHours}
                   />
                 </div>
               )}
@@ -1051,6 +1105,14 @@ export default function Timeline() {
                         onConfirm={confirmStatusMutation.mutate}
                         nowX={nowX}
                         overCapacityIds={overCapacityIds}
+                        overlappingIds={overlappingIds}
+                        rowHeight={rowHeight}
+                        tileMode={tileMode}
+                        compactFontSize={compactFontSize}
+                        tableById={tableById}
+                        hourWidth={hourWidth}
+                        startHour={startHour}
+                        totalHours={totalHours}
                       />
                     ))}
                   </div>
@@ -1074,11 +1136,14 @@ export default function Timeline() {
                     onConfirm={confirmStatusMutation.mutate}
                     nowX={nowX}
                     overCapacityIds={overCapacityIds}
+                    overlappingIds={overlappingIds}
                     rowHeight={rowHeight}
                     tileMode={tileMode}
                     compactFontSize={compactFontSize}
                     tableById={tableById}
                     hourWidth={hourWidth}
+                    startHour={startHour}
+                    totalHours={totalHours}
                   />
                 ))
               )}

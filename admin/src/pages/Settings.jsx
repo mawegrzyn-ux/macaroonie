@@ -594,6 +594,30 @@ export default function Settings() {
           >
             <Toggle value={tlSettings.hideInactive} onChange={tlSettings.setHideInactive} label="Toggle hide inactive" />
           </SettingRow>
+
+          <SettingRow label="Timeline hours" description="Set the first and last hour shown on the timeline canvas.">
+            <div className="flex items-center gap-2 shrink-0">
+              <select
+                value={tlSettings.timelineStart}
+                onChange={e => tlSettings.setTimelineStart(Number(e.target.value))}
+                className="text-sm border rounded px-2 py-1 bg-background touch-manipulation"
+              >
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{String(i).padStart(2,'0')}:00</option>
+                ))}
+              </select>
+              <span className="text-sm text-muted-foreground">to</span>
+              <select
+                value={tlSettings.timelineEnd}
+                onChange={e => tlSettings.setTimelineEnd(Number(e.target.value))}
+                className="text-sm border rounded px-2 py-1 bg-background touch-manipulation"
+              >
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i + 1} value={i + 1}>{String(i + 1).padStart(2,'0')}:00</option>
+                ))}
+              </select>
+            </div>
+          </SettingRow>
         </SectionCard>
 
       </div>

@@ -229,7 +229,7 @@ export default function Bookings() {
           </button>
           <div className="relative">
             <button className="px-3 py-1.5 text-sm font-medium rounded-lg hover:bg-accent touch-manipulation min-w-[140px] text-center">
-              {isToday ? 'Today' : format(parseISO(date), 'EEE d MMM yyyy')}
+              {isToday ? 'Today' : format(parseISO(date), 'EEEE d MMMM yyyy')}
             </button>
             <input
               type="date"
