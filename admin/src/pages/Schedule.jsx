@@ -96,7 +96,7 @@ function DayCard({ dow, template, venueId, allDows }) {
   const [editingSittingId, setEditingSittingId] = useState(null)
   const [editData,         setEditData]         = useState({})
   const [addingSitting,    setAddingSitting]     = useState(false)
-  const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '' })
+  const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '', name: '' })
   const [showCopyDay, setShowCopyDay] = useState(false)
   const [copySourceDow, setCopySourceDow] = useState('')
 
@@ -127,7 +127,7 @@ function DayCard({ dow, template, venueId, allDows }) {
     onSuccess: () => {
       qc.invalidateQueries(['schedule', venueId])
       setAddingSitting(false)
-      setNewSitting({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '' })
+      setNewSitting({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '', name: '' })
     },
   })
 
@@ -148,6 +148,7 @@ function DayCard({ dow, template, venueId, allDows }) {
       closes_at:          String(sitting.closes_at).slice(0, 5),
       default_max_covers: sitting.default_max_covers ?? '',
       doors_close_time:   sitting.doors_close_time ? String(sitting.doors_close_time).slice(0, 5) : '',
+      name:               sitting.name ?? '',
     })
     setEditingSittingId(sitting.id)
     setExpandedSitting(null)  // close caps editor if open
@@ -161,6 +162,7 @@ function DayCard({ dow, template, venueId, allDows }) {
         closes_at:          editData.closes_at,
         default_max_covers: editData.default_max_covers === '' ? null : Number(editData.default_max_covers),
         doors_close_time:   editData.doors_close_time || null,
+        name:               editData.name || null,
       },
     })
   }
@@ -249,6 +251,17 @@ function DayCard({ dow, template, venueId, allDows }) {
                 /* ── Inline edit form ───────────────────── */
                 <div className="px-3 py-2 bg-background space-y-2">
                   <p className="text-xs font-medium text-muted-foreground">Edit sitting</p>
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground">Session name (optional)</label>
+                    <input
+                      type="text"
+                      value={editData.name ?? ''}
+                      onChange={e => setEditData(prev => ({ ...prev, name: e.target.value || null }))}
+                      placeholder="e.g. Lunch, Dinner, Brunch"
+                      className="w-full text-sm border rounded-lg px-3 py-2 mt-1 outline-none focus:border-primary touch-manipulation"
+                      maxLength={100}
+                    />
+                  </div>
                   <div className="flex flex-wrap gap-2 items-center">
                     <div>
                       <label className="text-xs text-muted-foreground block mb-0.5">Opens</label>
@@ -316,6 +329,7 @@ function DayCard({ dow, template, venueId, allDows }) {
                     className="flex items-center gap-2 text-sm font-medium flex-1 text-left min-w-0"
                   >
                     <span className="shrink-0">
+                      {sitting.name && <span className="font-medium text-foreground mr-1">{sitting.name}</span>}
                       {String(sitting.opens_at).slice(0, 5)} – {String(sitting.closes_at).slice(0, 5)}
                     </span>
                     <span className="text-xs text-muted-foreground font-normal truncate">
@@ -367,6 +381,17 @@ function DayCard({ dow, template, venueId, allDows }) {
           {addingSitting ? (
             <div className="border rounded-md p-3 space-y-2 bg-muted/20">
               <p className="text-xs font-medium">New sitting</p>
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Session name (optional)</label>
+                <input
+                  type="text"
+                  value={newSitting.name ?? ''}
+                  onChange={e => setNewSitting(p => ({ ...p, name: e.target.value || null }))}
+                  placeholder="e.g. Lunch, Dinner, Brunch"
+                  className="w-full text-sm border rounded-lg px-3 py-2 mt-1 outline-none focus:border-primary touch-manipulation"
+                  maxLength={100}
+                />
+              </div>
               <div className="flex flex-wrap gap-2 items-end">
                 <div>
                   <label className="text-xs text-muted-foreground block mb-0.5">Opens</label>
@@ -736,7 +761,7 @@ function ExceptionDayCard({ exc, dow, template, venueId }) {
   const [addingSitting,    setAddingSitting]    = useState(false)
   const [editingSittingId, setEditingSittingId] = useState(null)
   const [editData,         setEditData]         = useState({})
-  const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '' })
+  const [newSitting, setNewSitting] = useState({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '', name: '' })
 
   const isOpen = template?.is_open ?? false
   const eid = exc.id
@@ -758,7 +783,7 @@ function ExceptionDayCard({ exc, dow, template, venueId }) {
     onSuccess: () => {
       qc.invalidateQueries(['exceptions', venueId])
       setAddingSitting(false)
-      setNewSitting({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '' })
+      setNewSitting({ opens_at: '12:00', closes_at: '15:00', default_max_covers: '', doors_close_time: '', name: '' })
     },
   })
 
@@ -778,6 +803,7 @@ function ExceptionDayCard({ exc, dow, template, venueId }) {
       closes_at:          String(sitting.closes_at).slice(0, 5),
       default_max_covers: sitting.default_max_covers ?? '',
       doors_close_time:   sitting.doors_close_time ? String(sitting.doors_close_time).slice(0, 5) : '',
+      name:               sitting.name ?? '',
     })
     setEditingSittingId(sitting.id)
   }
@@ -790,6 +816,7 @@ function ExceptionDayCard({ exc, dow, template, venueId }) {
         closes_at:          editData.closes_at,
         default_max_covers: editData.default_max_covers === '' ? null : Number(editData.default_max_covers),
         doors_close_time:   editData.doors_close_time || null,
+        name:               editData.name || null,
       },
     })
   }
@@ -821,6 +848,17 @@ function ExceptionDayCard({ exc, dow, template, venueId }) {
             <div key={sitting.id} className="border rounded bg-background overflow-hidden">
               {editingSittingId === sitting.id ? (
                 <div className="px-2 py-2 space-y-2">
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground">Session name (optional)</label>
+                    <input
+                      type="text"
+                      value={editData.name ?? ''}
+                      onChange={e => setEditData(prev => ({ ...prev, name: e.target.value || null }))}
+                      placeholder="e.g. Lunch, Dinner, Brunch"
+                      className="w-full text-sm border rounded-lg px-3 py-2 mt-1 outline-none focus:border-primary touch-manipulation"
+                      maxLength={100}
+                    />
+                  </div>
                   <div className="flex flex-wrap gap-2 items-end">
                     <div>
                       <label className="text-xs text-muted-foreground block mb-0.5">Opens</label>
@@ -858,7 +896,10 @@ function ExceptionDayCard({ exc, dow, template, venueId }) {
               ) : (
                 <div className="flex items-center justify-between px-2 py-1.5">
                   <div className="text-sm">
-                    <span className="font-medium">{String(sitting.opens_at).slice(0, 5)} – {String(sitting.closes_at).slice(0, 5)}</span>
+                    <span className="font-medium">
+                      {sitting.name && <span className="mr-1">{sitting.name}</span>}
+                      {String(sitting.opens_at).slice(0, 5)} – {String(sitting.closes_at).slice(0, 5)}
+                    </span>
                     <span className="text-xs text-muted-foreground ml-2">
                       {sitting.default_max_covers != null ? `${sitting.default_max_covers} covers` : 'no cap'}
                       {sitting.doors_close_time && <span className="ml-1.5 text-orange-600">doors {String(sitting.doors_close_time).slice(0, 5)}</span>}
@@ -879,6 +920,17 @@ function ExceptionDayCard({ exc, dow, template, venueId }) {
 
           {addingSitting ? (
             <div className="border rounded bg-background p-2 space-y-2">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground">Session name (optional)</label>
+                <input
+                  type="text"
+                  value={newSitting.name ?? ''}
+                  onChange={e => setNewSitting(p => ({ ...p, name: e.target.value || null }))}
+                  placeholder="e.g. Lunch, Dinner, Brunch"
+                  className="w-full text-sm border rounded-lg px-3 py-2 mt-1 outline-none focus:border-primary touch-manipulation"
+                  maxLength={100}
+                />
+              </div>
               <div className="flex flex-wrap gap-2 items-end">
                 <div>
                   <label className="text-xs text-muted-foreground block mb-0.5">Opens</label>

@@ -509,6 +509,7 @@ export default function Timeline() {
     queryKey: ['slots-overlay', venueId, date],
     queryFn:  () => api.get(`/venues/${venueId}/slots?date=${date}&covers=1`),
     enabled:  !!venueId,
+    staleTime: 0,
   })
 
   // Refresh triggered from the AppShell sidebar button
@@ -567,8 +568,9 @@ export default function Timeline() {
     }
 
     // Rule 2: cap=0 slots within sittings
-    if (slots.length > 1) {
-      let intervalMs = Infinity
+    if (slots.length >= 1) {
+      // Compute minimum interval between slots; fallback to 15 min if only one slot exists
+      let intervalMs = 15 * 60 * 1000
       for (let i = 1; i < slots.length; i++) {
         const gap = new Date(slots[i].slot_time) - new Date(slots[i - 1].slot_time)
         if (gap < intervalMs) intervalMs = gap
@@ -910,6 +912,33 @@ export default function Timeline() {
     return result
   }, [bookingsRes, sections])
 
+  // Per-sitting booking stats for the top bar.
+  // Maps each active booking to a sitting by checking if booking start time (HH:MM)
+  // falls within the sitting's opens_at–closes_at window.
+  const sittingStats = useMemo(() => {
+    const active = bookingsRes.filter(b =>
+      !['cancelled', 'no_show', 'checked_out'].includes(b.status)
+    )
+    const totalCount  = active.length
+    const totalCovers = active.reduce((s, b) => s + (b.covers ?? 0), 0)
+    const sittings = sittingsForDate?.sittings ?? []
+    const bySitting = sittings.map(sitting => {
+      const label = sitting.name
+        ?? `${sitting.opens_at.slice(0, 5)}–${sitting.closes_at.slice(0, 5)}`
+      const sittingBookings = active.filter(b => {
+        const d = new Date(b.starts_at)
+        const hhmm = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+        return hhmm >= sitting.opens_at.slice(0, 5) && hhmm < sitting.closes_at.slice(0, 5)
+      })
+      return {
+        label,
+        count:  sittingBookings.length,
+        covers: sittingBookings.reduce((s, b) => s + (b.covers ?? 0), 0),
+      }
+    })
+    return { totalCount, totalCovers, bySitting }
+  }, [bookingsRes, sittingsForDate])
+
   // Set of booking IDs where covers exceeds the table/combination capacity
   const overCapacityIds = useMemo(() => {
     const ids = new Set()
@@ -978,6 +1007,24 @@ export default function Timeline() {
           <button onClick={() => setDate(today)}
             className="text-xs px-2.5 py-1.5 rounded-lg border hover:bg-accent touch-manipulation">Today</button>
         )}
+
+        {/* Per-sitting stats — hidden on mobile */}
+        <div className="hidden sm:flex items-center gap-3 ml-4 text-sm text-muted-foreground">
+          <span>
+            <span className="font-semibold text-foreground">{sittingStats.totalCount}</span>
+            {' '}bk
+            {' · '}
+            <span className="font-semibold text-foreground">{sittingStats.totalCovers}</span>
+            {' '}cov
+          </span>
+          {sittingStats.bySitting.filter(s => s.count > 0).map((s, i) => (
+            <span key={i} className="text-xs border-l pl-3">
+              <span className="font-medium text-foreground">{s.label}</span>
+              {': '}
+              {s.count} bk · {s.covers} cov
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* Body row — timeline + optional docked panel */}

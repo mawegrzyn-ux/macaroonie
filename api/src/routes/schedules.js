@@ -41,6 +41,7 @@ const SittingBody = z.object({
   default_max_covers:  z.number().int().min(0).nullable().default(null),
   sort_order:          z.number().int().default(0),
   doors_close_time:    z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  name:                z.string().max(100).nullable().optional(),
 })
 
 // Array of { slot_time, max_covers } — replaces all caps for a sitting
@@ -88,6 +89,7 @@ export default async function schedulesRoutes(app) {
                    'default_max_covers',  s.default_max_covers,
                    'sort_order',          s.sort_order,
                    'doors_close_time',    s.doors_close_time,
+                   'name',                s.name,
                    'caps', (
                      SELECT COALESCE(json_agg(
                        json_build_object('slot_time', c.slot_time, 'max_covers', c.max_covers)
@@ -143,7 +145,7 @@ export default async function schedulesRoutes(app) {
         if (excTemplate) {
           if (!excTemplate.is_open) return { sittings: [] }
           const sittings = await tx`
-            SELECT opens_at, closes_at, doors_close_time
+            SELECT opens_at, closes_at, doors_close_time, name
               FROM exception_sittings
              WHERE template_id = ${excTemplate.id}
              ORDER BY opens_at
@@ -164,7 +166,7 @@ export default async function schedulesRoutes(app) {
       if (override) {
         if (!override.is_open) return { sittings: [] }
         const sittings = await tx`
-          SELECT opens_at, closes_at, doors_close_time
+          SELECT opens_at, closes_at, doors_close_time, name
             FROM override_sittings
            WHERE override_id = ${override.id}
            ORDER BY opens_at
@@ -183,7 +185,7 @@ export default async function schedulesRoutes(app) {
       if (!template || !template.is_open) return { sittings: [] }
 
       const sittings = await tx`
-        SELECT opens_at, closes_at, doors_close_time
+        SELECT opens_at, closes_at, doors_close_time, name
           FROM venue_sittings
          WHERE template_id = ${template.id}
          ORDER BY opens_at
@@ -230,11 +232,11 @@ export default async function schedulesRoutes(app) {
       return tx`
         INSERT INTO venue_sittings
           (template_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order,
-           doors_close_time)
+           doors_close_time, name)
         VALUES
           (${tmpl.id}, ${venueId}, ${req.tenantId},
            ${body.opens_at}, ${body.closes_at}, ${body.default_max_covers}, ${body.sort_order},
-           ${body.doors_close_time ?? null})
+           ${body.doors_close_time ?? null}, ${body.name ?? null})
         RETURNING *
       `
     })
@@ -432,6 +434,7 @@ export default async function schedulesRoutes(app) {
                    'default_max_covers', s.default_max_covers,
                    'sort_order',         s.sort_order,
                    'doors_close_time',   s.doors_close_time,
+                   'name',               s.name,
                    'caps', (
                      SELECT COALESCE(json_agg(
                        json_build_object('slot_time', c.slot_time, 'max_covers', c.max_covers)
@@ -504,11 +507,11 @@ export default async function schedulesRoutes(app) {
     const [sitting] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO override_sittings
         (override_id, venue_id, tenant_id, opens_at, closes_at, default_max_covers, sort_order,
-         doors_close_time)
+         doors_close_time, name)
       VALUES
         (${req.params.oid}, ${req.params.venueId}, ${req.tenantId},
          ${body.opens_at}, ${body.closes_at}, ${body.default_max_covers}, ${body.sort_order},
-         ${body.doors_close_time ?? null})
+         ${body.doors_close_time ?? null}, ${body.name ?? null})
       RETURNING *
     `)
     return reply.code(201).send(sitting)
@@ -571,6 +574,7 @@ export default async function schedulesRoutes(app) {
                          'default_max_covers', s.default_max_covers,
                          'doors_close_time',   s.doors_close_time,
                          'sort_order',         s.sort_order,
+                         'name',               s.name,
                          'caps', (
                            SELECT COALESCE(json_agg(
                              json_build_object('slot_time', c.slot_time, 'max_covers', c.max_covers)
@@ -686,11 +690,12 @@ export default async function schedulesRoutes(app) {
       return tx`
         INSERT INTO exception_sittings
           (template_id, venue_id, tenant_id, opens_at, closes_at,
-           default_max_covers, sort_order, doors_close_time)
+           default_max_covers, sort_order, doors_close_time, name)
         VALUES
           (${tmpl.id}, ${venueId}, ${req.tenantId},
            ${body.opens_at}, ${body.closes_at},
-           ${body.default_max_covers}, ${body.sort_order}, ${body.doors_close_time ?? null})
+           ${body.default_max_covers}, ${body.sort_order}, ${body.doors_close_time ?? null},
+           ${body.name ?? null})
         RETURNING *
       `
     })

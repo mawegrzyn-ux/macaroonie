@@ -35,6 +35,7 @@ function MacaroonIcon({ className = 'w-5 h-5' }) {
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
+import { useSettings } from '@/contexts/SettingsContext'
 
 const NAV = [
   { label: 'Dashboard',   to: '/',            icon: LayoutDashboard },
@@ -81,11 +82,14 @@ export default function AppShell() {
   const location         = useLocation()
   const api              = useApi()
   const tlSettings       = useTimelineSettings()
+  const { sidebarExpandedDefault } = useSettings()
   const isOnTimeline     = location.pathname === '/timeline'
 
-  // Default: open on desktop (≥1024px), closed on mobile
+  // Default: on desktop use the saved preference, on mobile always start closed
   const [open, setOpen] = useState(
-    () => typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+    () => typeof window !== 'undefined'
+      ? window.innerWidth >= 1024 ? sidebarExpandedDefault : false
+      : sidebarExpandedDefault
   )
 
   // Fullscreen state — tracked here so the sidebar toggle can update its icon

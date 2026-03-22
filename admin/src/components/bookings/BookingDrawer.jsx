@@ -136,12 +136,20 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     return true
   })
 
-  // ── Tables for picker (lazy) ───────────────────────────────
+  // ── Tables for picker ─────────────────────────────────────
   const { data: tables = [] } = useQuery({
     queryKey: ['tables', booking.venue_id],
     queryFn:  () => api.get(`/venues/${booking.venue_id}/tables`),
-    enabled:  editMode === 'table',
   })
+
+  const unallocatedTable = tables.find(t => t.is_unallocated)
+  const isCurrentlyUnallocated = !!(
+    booking.table_id && unallocatedTable && booking.table_id === unallocatedTable.id
+  )
+
+  // Capacity warning for current assignment (shown outside edit mode too)
+  const currentTableMax = booking.combination_max_covers ?? booking.table_max_covers ?? null
+  const hasCapacityIssue = currentTableMax !== null && booking.covers > currentTableMax
 
   const currentCovers      = Number(guestFields.covers ?? booking.covers)
   const combinedMaxCovers  = [...pickedTableIds].reduce((sum, id) => {
@@ -159,6 +167,8 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
   function toggleTable(id) {
     setPickedTableIds(prev => {
       const next = new Set(prev)
+      // Deselect unallocated when picking a real table
+      if (unallocatedTable) next.delete(unallocatedTable.id)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
@@ -258,7 +268,10 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
   function handleTableSave() {
     if (pickedTableIds.size === 0) return
     const ids = [...pickedTableIds]
-    if (ids.length === 1) {
+    // If unallocated is selected, assign directly without relocate
+    if (unallocatedTable && ids.length === 1 && ids[0] === unallocatedTable.id) {
+      tablesMutation.mutate({ table_ids: ids })
+    } else if (ids.length === 1) {
       tablesMutation.mutate({ target_table_id: ids[0], starts_at: booking.starts_at })
     } else {
       tablesMutation.mutate({ table_ids: ids })
@@ -535,10 +548,21 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                     : 'border-border hover:border-primary/50 hover:bg-muted/50',
                 )}
               >
-                {booking.combination_name ?? booking.table_label ?? '—'}
+                {isCurrentlyUnallocated
+                  ? <span className="text-orange-700 font-medium">Unallocated</span>
+                  : (booking.combination_name ?? booking.table_label ?? '—')
+                }
                 <ChevronDown className="w-3.5 h-3.5 shrink-0" />
               </button>
             </div>
+
+            {/* Always-visible capacity warning (outside edit mode) */}
+            {hasCapacityIssue && editMode !== 'table' && (
+              <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5 mt-1">
+                <TriangleAlert className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>Table seats up to {currentTableMax} — booking has {booking.covers} covers</span>
+              </div>
+            )}
 
             {/* Table picker */}
             {editMode === 'table' && (
@@ -553,6 +577,28 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                   <p className="text-xs text-muted-foreground">Loading tables…</p>
                 ) : (
                   <div className="space-y-1.5">
+                    {/* Unallocated option */}
+                    {unallocatedTable && (
+                      <label
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 cursor-pointer text-sm transition-colors',
+                          pickedTableIds.has(unallocatedTable.id)
+                            ? 'border-orange-400 bg-orange-50'
+                            : 'border-transparent bg-muted/50 hover:bg-muted',
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="accent-primary w-4 h-4 shrink-0"
+                          checked={pickedTableIds.has(unallocatedTable.id)}
+                          onChange={() => {
+                            setPickedTableIds(new Set([unallocatedTable.id]))
+                          }}
+                        />
+                        <span className="font-medium text-orange-700">Unallocated</span>
+                        <span className="text-xs text-muted-foreground ml-auto shrink-0">No table</span>
+                      </label>
+                    )}
                     {tables.filter(t => t.is_active && !t.is_unallocated).map(t => {
                       const selected = pickedTableIds.has(t.id)
                       return (

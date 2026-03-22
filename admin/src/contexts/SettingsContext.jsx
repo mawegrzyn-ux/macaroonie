@@ -131,14 +131,16 @@ function load() {
       timelineBg:       s.timelineBg       ?? DEFAULT_TIMELINE_BG,
       greyColour:       s.greyColour       ?? DEFAULT_GREY_COLOUR,
       startLineColour:  s.startLineColour  ?? DEFAULT_START_LINE_COLOUR,
-      showStartLine:    s.showStartLine    ?? true,
-      headerBgStrips:   s.headerBgStrips   ?? false,
+      showStartLine:          s.showStartLine          ?? true,
+      headerBgStrips:         s.headerBgStrips         ?? false,
+      sidebarExpandedDefault: s.sidebarExpandedDefault ?? true,
     }
   } catch {
     return {
       themeHex: DEFAULT_THEME_HEX, statusColours: DEFAULT_STATUS_COLOURS,
       timelineBg: DEFAULT_TIMELINE_BG, greyColour: DEFAULT_GREY_COLOUR,
       startLineColour: DEFAULT_START_LINE_COLOUR, showStartLine: true, headerBgStrips: false,
+      sidebarExpandedDefault: true,
     }
   }
 }
@@ -203,15 +205,20 @@ export function SettingsProvider({ children }) {
     update({ headerBgStrips: val })
   }, [])
 
+  const setSidebarExpandedDefault = useCallback((val) => {
+    update({ sidebarExpandedDefault: val })
+  }, [])
+
   return (
     <Ctx.Provider value={{
-      themeHex:           settings.themeHex,
-      statusColours:      settings.statusColours,
-      timelineBg:         settings.timelineBg,
-      greyColour:         settings.greyColour,
-      startLineColour:    settings.startLineColour,
-      showStartLine:      settings.showStartLine,
-      headerBgStrips:     settings.headerBgStrips,
+      themeHex:                settings.themeHex,
+      statusColours:           settings.statusColours,
+      timelineBg:              settings.timelineBg,
+      greyColour:              settings.greyColour,
+      startLineColour:         settings.startLineColour,
+      showStartLine:           settings.showStartLine,
+      headerBgStrips:          settings.headerBgStrips,
+      sidebarExpandedDefault:  settings.sidebarExpandedDefault,
       setThemeHex,
       setStatusColour,
       resetStatusColours,
@@ -220,6 +227,7 @@ export function SettingsProvider({ children }) {
       setStartLineColour,
       setShowStartLine,
       setHeaderBgStrips,
+      setSidebarExpandedDefault,
     }}>
       {children}
     </Ctx.Provider>

@@ -311,6 +311,7 @@ export default function Settings() {
     startLineColour, setStartLineColour,
     showStartLine, setShowStartLine,
     headerBgStrips, setHeaderBgStrips,
+    sidebarExpandedDefault, setSidebarExpandedDefault,
   } = useSettings()
   const tlSettings = useTimelineSettings()
 
@@ -333,6 +334,20 @@ export default function Settings() {
       </div>
 
       <div className="flex-1 p-5 max-w-xl space-y-5">
+
+        {/* ── Interface ────────────────────────────────────── */}
+        <SectionCard title="Interface">
+          <SettingRow
+            label="Sidebar expanded by default"
+            description="Show the full sidebar with labels when the app opens. Turn off to start with icon-only sidebar."
+          >
+            <Toggle
+              value={sidebarExpandedDefault}
+              onChange={setSidebarExpandedDefault}
+              label="Toggle sidebar default"
+            />
+          </SettingRow>
+        </SectionCard>
 
         {/* ── Appearance ───────────────────────────────────── */}
         <SectionCard title="Appearance">

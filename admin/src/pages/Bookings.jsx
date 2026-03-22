@@ -98,6 +98,12 @@ export default function Bookings() {
     enabled:  !!venueId,
   })
 
+  const { data: sittingsForDate } = useQuery({
+    queryKey: ['sittings-for-date', venueId, date],
+    queryFn:  () => api.get(`/venues/${venueId}/schedule/sittings-for-date?date=${date}`),
+    enabled:  !!venueId,
+  })
+
   // ── Customer search suggestions (filter bar) ─────────────────
   const { data: custSuggestions = [] } = useQuery({
     queryKey: ['customers-search-bookings', search],
@@ -137,8 +143,22 @@ export default function Bookings() {
     const active = bookings.filter(b => !['cancelled', 'no_show'].includes(b.status))
     const tableSet = new Set(active.map(b => b.table_id).filter(Boolean))
     const guests   = active.reduce((s, b) => s + (b.covers ?? 0), 0)
-    return { reservations: active.length, tables: tableSet.size, guests }
-  }, [bookings])
+    const sittings = sittingsForDate?.sittings ?? []
+    const bySitting = sittings.map(sitting => {
+      const label = sitting.name ?? `${sitting.opens_at.slice(0,5)}–${sitting.closes_at.slice(0,5)}`
+      const sittingBookings = active.filter(b => {
+        const d = new Date(b.starts_at)
+        const hhmm = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+        return hhmm >= sitting.opens_at.slice(0,5) && hhmm < sitting.closes_at.slice(0,5)
+      })
+      return {
+        label,
+        count:  sittingBookings.length,
+        covers: sittingBookings.reduce((s, b) => s + (b.covers ?? 0), 0),
+      }
+    })
+    return { reservations: active.length, tables: tableSet.size, guests, bySitting }
+  }, [bookings, sittingsForDate])
 
   // ── Group filtered bookings by start time ────────────────────
   const grouped = useMemo(() => {
@@ -254,11 +274,21 @@ export default function Bookings() {
           )}
         </div>
 
-        {/* Stats */}
-        <div className="flex items-center gap-4 text-sm text-muted-foreground ml-2">
-          <span><span className="font-semibold text-foreground">{stats.reservations}</span> reservations</span>
-          <span><span className="font-semibold text-foreground">{stats.tables}</span> tables</span>
-          <span><span className="font-semibold text-foreground">{stats.guests}</span> guests</span>
+        {/* Stats — hidden on mobile */}
+        <div className="hidden sm:flex items-center gap-3 text-sm text-muted-foreground ml-2 flex-wrap">
+          <span>
+            <span className="font-semibold text-foreground">{stats.reservations}</span>
+            {' bk · '}
+            <span className="font-semibold text-foreground">{stats.guests}</span>
+            {' cov'}
+          </span>
+          {stats.bySitting.filter(s => s.count > 0).map((s, i) => (
+            <span key={i} className="text-xs border-l pl-3">
+              <span className="font-medium text-foreground">{s.label}</span>
+              {': '}
+              {s.count} bk · {s.covers} cov
+            </span>
+          ))}
         </div>
 
         {/* Spacer + Export */}
