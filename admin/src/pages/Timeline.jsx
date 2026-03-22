@@ -240,7 +240,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           <div
             key={i}
             className="absolute top-0 bottom-0 pointer-events-none"
-            style={{ left: Math.max(0, x), width, zIndex: 2, background: 'rgba(160,160,160,0.18)' }}
+            style={{ left: Math.max(0, x), width, zIndex: 2, background: 'rgba(140,140,140,0.38)', mixBlendMode: 'multiply' }}
           />
         ))}
 

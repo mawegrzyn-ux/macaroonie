@@ -23,6 +23,7 @@ const BookingRulesSchema = z.object({
   allow_widget_bookings_after_doors_close:  z.boolean().default(false),
   enable_unconfirmed_flow:                  z.boolean().default(false),
   enable_reconfirmed_status:                z.boolean().default(false),
+  enable_arrived_status:                    z.boolean().default(true),
 })
 
 const DepositSchema = z.object({
@@ -108,6 +109,7 @@ export default function Rules() {
       allow_widget_bookings_after_doors_close:  false,
       enable_unconfirmed_flow:                  false,
       enable_reconfirmed_status:                false,
+      enable_arrived_status:                    true,
     },
   })
 
@@ -276,6 +278,21 @@ export default function Rules() {
                       Adds a <strong>Re-confirmed</strong> status for operators to record
                       that they called the guest the day before and confirmed attendance.
                       Only shown in the booking drawer when this is on.
+                    </p>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    {...regRules('enable_arrived_status')}
+                    className="w-4 h-4 mt-0.5 shrink-0"
+                  />
+                  <div>
+                    <p className="text-sm font-medium">Enable arrived status</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Shows an <strong>Arrived</strong> status (cyan) between Confirmed and Seated.
+                      Disable if your workflow goes directly from Confirmed to Seated.
+                      On by default.
                     </p>
                   </div>
                 </label>

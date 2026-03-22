@@ -319,6 +319,7 @@ export default async function venuesRoutes(app) {
     allow_widget_bookings_after_doors_close:  z.boolean().optional(),
     enable_unconfirmed_flow:                  z.boolean().optional(),
     enable_reconfirmed_status:                z.boolean().optional(),
+    enable_arrived_status:                    z.boolean().optional(),
   })
 
   const DepositRulesBody = z.object({
@@ -348,7 +349,7 @@ export default async function venuesRoutes(app) {
          min_covers, max_covers, book_from_days, book_until_days,
          cutoff_before_mins, hold_ttl_secs,
          allow_widget_bookings_after_doors_close,
-         enable_unconfirmed_flow, enable_reconfirmed_status)
+         enable_unconfirmed_flow, enable_reconfirmed_status, enable_arrived_status)
       VALUES
         (${req.params.id}, ${req.tenantId},
          ${body.slot_duration_mins  ?? 90},
@@ -361,7 +362,8 @@ export default async function venuesRoutes(app) {
          ${body.hold_ttl_secs       ?? 300},
          ${body.allow_widget_bookings_after_doors_close ?? false},
          ${body.enable_unconfirmed_flow     ?? false},
-         ${body.enable_reconfirmed_status   ?? false})
+         ${body.enable_reconfirmed_status   ?? false},
+         ${body.enable_arrived_status       ?? true})
       ON CONFLICT (venue_id) DO UPDATE
          SET slot_duration_mins = EXCLUDED.slot_duration_mins,
              buffer_after_mins  = EXCLUDED.buffer_after_mins,
@@ -374,6 +376,7 @@ export default async function venuesRoutes(app) {
              allow_widget_bookings_after_doors_close = EXCLUDED.allow_widget_bookings_after_doors_close,
              enable_unconfirmed_flow    = EXCLUDED.enable_unconfirmed_flow,
              enable_reconfirmed_status  = EXCLUDED.enable_reconfirmed_status,
+             enable_arrived_status      = EXCLUDED.enable_arrived_status,
              updated_at         = now()
       RETURNING *
     `)
