@@ -381,6 +381,8 @@ psql $DATABASE_URL -f ../migrations/018_customers.sql
 psql $DATABASE_URL -f ../migrations/019_customer_visit_count.sql
 psql $DATABASE_URL -f ../migrations/020_slot_start_filter.sql
 psql $DATABASE_URL -f ../migrations/021_enable_arrived_status.sql
+psql $DATABASE_URL -f ../migrations/022_slot_inclusive_last_order.sql
+psql $DATABASE_URL -f ../migrations/023_sitting_names.sql
 npm install
 npm run dev            # starts on :3000 with --watch
 

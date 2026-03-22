@@ -814,7 +814,7 @@ allTables sorted by sort_order → target at index i
             <H3>Running locally</H3>
             <Code>{`# Prerequisites: Postgres 16, Redis 7, Node 22
 
-# Apply migrations in order (001 → 021)
+# Apply migrations in order (001 → 023)
 psql $DATABASE_URL -f migrations/001_tenants_users.sql
 psql $DATABASE_URL -f migrations/002_venues.sql
 psql $DATABASE_URL -f migrations/003_schedules.sql
@@ -827,7 +827,6 @@ psql $DATABASE_URL -f migrations/009_unallocated.sql
 psql $DATABASE_URL -f migrations/010_allocation_rules.sql
 psql $DATABASE_URL -f migrations/011_doors_close_time.sql
 psql $DATABASE_URL -f migrations/012_reconfirmed_status.sql
-psql $DATABASE_URL -f migrations/012_unconfirmed_status.sql
 psql $DATABASE_URL -f migrations/013_doors_close_per_sitting.sql
 psql $DATABASE_URL -f migrations/014_schedule_exceptions.sql
 psql $DATABASE_URL -f migrations/015_fix_get_available_slots.sql
@@ -837,6 +836,8 @@ psql $DATABASE_URL -f migrations/018_customers.sql
 psql $DATABASE_URL -f migrations/019_customer_visit_count.sql
 psql $DATABASE_URL -f migrations/020_slot_start_filter.sql
 psql $DATABASE_URL -f migrations/021_enable_arrived_status.sql
+psql $DATABASE_URL -f migrations/022_slot_inclusive_last_order.sql
+psql $DATABASE_URL -f migrations/023_sitting_names.sql
 
 # API
 cd api && cp .env.example .env   # fill in values
@@ -846,12 +847,23 @@ npm install && npm run dev        # :3000 with --watch
 cd admin && cp .env.example .env  # fill in VITE_ values
 npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
             <H3>Production deploy</H3>
-            <Code>{`bash setup.sh    # first time only — installs Node, Redis, Postgres, Nginx, PM2
-bash deploy.sh   # subsequent — git pull, npm ci, pm2 reload api`}</Code>
-            <InfoBox type="info">
-              <Mono>setup.sh</Mono> provisions a fresh Ubuntu 24.04 Lightsail instance from scratch.
-              Run it once. Use <Mono>deploy.sh</Mono> for all subsequent updates.
+            <P>
+              Deployment is automated via <strong>GitHub Actions</strong> on every push. To deploy: run{' '}
+              <Mono>git push</Mono> from the local laptop — the Actions workflow builds and restarts the
+              API and admin portal automatically.
+            </P>
+            <InfoBox type="warn">
+              Migrations are <strong>not</strong> run by the Actions workflow. Apply new migrations
+              manually via SSH:{' '}
+              <Mono>\i /home/ubuntu/app/migrations/NNN_name.sql</Mono> in psql.
             </InfoBox>
+            <Code>{`# First-time server setup only
+bash setup.sh    # provisions Ubuntu 24.04: Node, Redis, Postgres, Nginx, PM2
+
+# Apply a new migration (SSH to server)
+psql $DATABASE_URL
+\\i /home/ubuntu/app/migrations/022_slot_inclusive_last_order.sql
+\\i /home/ubuntu/app/migrations/023_sitting_names.sql`}</Code>
           </section>
 
         </div>
