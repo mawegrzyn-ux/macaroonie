@@ -77,15 +77,16 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     staleTime: 10_000,
   })
 
-  function handleCustSearch(name, email, phone) {
+  // Trigger customer search using whatever field was just modified.
+  // Called with only the changed value so email editing doesn't silently
+  // use the existing name or phone as the query.
+  function handleCustSearch(changedValue) {
     clearTimeout(customerQTimer.current)
-    customerQTimer.current = setTimeout(() => {
-      const q = (email?.length >= 2 ? email : null)
-             ?? (name?.length  >= 2 ? name  : null)
-             ?? (phone?.length >= 2 ? phone : null)
-             ?? ''
-      setCustomerQ(q)
-    }, 300)
+    if (!changedValue || changedValue.length < 2) {
+      setCustomerQ('')
+      return
+    }
+    customerQTimer.current = setTimeout(() => setCustomerQ(changedValue), 300)
   }
 
   function handleCustomerSelect(c) {
@@ -230,18 +231,23 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
     guestMutation.mutate(payload)
   }
 
-  function handleStartSave() {
-    const local = new Date(`${rescheduleDate}T${rescheduleTime}:00`)
-    if (isNaN(local.getTime())) return
-    moveMutation.mutate({ startsAt: local.toISOString() })
-  }
+  // Unified save for the datetime editor — fires move and/or duration
+  // mutations depending on which values actually changed.
+  function handleDateTimeSave() {
+    const origStart  = new Date(booking.starts_at)
+    const newStart   = new Date(`${rescheduleDate}T${rescheduleTime}:00`)
+    const startChanged = !isNaN(newStart.getTime()) && newStart.getTime() !== origStart.getTime()
 
-  function handleEndSave() {
-    const startDate = new Date(booking.starts_at).toISOString().slice(0, 10)
-    let local       = new Date(`${startDate}T${endTimeValue}:00`)
-    if (isNaN(local.getTime())) return
-    if (local <= new Date(booking.starts_at)) local = new Date(local.getTime() + 24 * 60 * 60_000)
-    durationMutation.mutate({ endsAt: local.toISOString() })
+    // End time is always relative to the original start date (midnight crossover handled)
+    const startDate = origStart.toISOString().slice(0, 10)
+    let newEnd      = new Date(`${startDate}T${endTimeValue}:00`)
+    if (isNaN(newEnd.getTime())) return
+    if (newEnd <= origStart) newEnd = new Date(newEnd.getTime() + 24 * 60 * 60_000)
+    const endChanged = newEnd.getTime() !== new Date(booking.ends_at).getTime()
+
+    if (!startChanged && !endChanged) { setEditMode(null); return }
+    if (startChanged) moveMutation.mutate({ startsAt: newStart.toISOString() })
+    if (endChanged)   durationMutation.mutate({ endsAt: newEnd.toISOString() })
   }
 
   function handleTableSave() {
@@ -266,15 +272,10 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
       onClick:  handleTableSave,
       disabled: tablesMutation.isPending || pickedTableIds.size === 0,
     }
-    if (editMode === 'start') return {
-      label:    moveMutation.isPending     ? 'Moving…'  : 'Move booking',
-      onClick:  handleStartSave,
-      disabled: moveMutation.isPending,
-    }
-    if (editMode === 'end') return {
-      label:    durationMutation.isPending ? 'Saving…'  : 'Save end time',
-      onClick:  handleEndSave,
-      disabled: durationMutation.isPending,
+    if (editMode === 'datetime') return {
+      label:    (moveMutation.isPending || durationMutation.isPending) ? 'Saving…' : 'Save',
+      onClick:  handleDateTimeSave,
+      disabled: moveMutation.isPending || durationMutation.isPending,
     }
     return null
   })()
@@ -361,7 +362,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                   autoFocus
                   onChange={v => {
                     setGuestFields(p => ({ ...p, guest_name: v }))
-                    handleCustSearch(v, guestFields.guest_email, guestFields.guest_phone)
+                    handleCustSearch(v)
                   }}
                   onBlur={() => setTimeout(() => setCustomerQ(''), 200)}
                 />
@@ -371,7 +372,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                   value={guestFields.guest_email}
                   onChange={v => {
                     setGuestFields(p => ({ ...p, guest_email: v }))
-                    handleCustSearch(guestFields.guest_name, v, guestFields.guest_phone)
+                    handleCustSearch(v)
                   }}
                   onBlur={() => setTimeout(() => setCustomerQ(''), 200)}
                 />
@@ -382,7 +383,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                   placeholder="+44 7700 900000"
                   onChange={v => {
                     setGuestFields(p => ({ ...p, guest_phone: v }))
-                    handleCustSearch(guestFields.guest_name, guestFields.guest_email, v)
+                    handleCustSearch(v)
                   }}
                   onBlur={() => setTimeout(() => setCustomerQ(''), 200)}
                 />
@@ -405,94 +406,70 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
 
           <div className="px-5 py-4 space-y-5">
 
-            {/* ── Start / End pill row ──────────────────────── */}
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Start pill */}
-                <button
-                  onClick={() => setEditMode(m => m === 'start' ? null : 'start')}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-2 rounded-full text-sm border transition-colors touch-manipulation',
-                    editMode === 'start'
-                      ? 'border-primary bg-primary/5 text-primary'
-                      : 'border-border hover:border-primary/50 hover:bg-muted/50',
-                  )}
-                >
-                  <Calendar className="w-3.5 h-3.5 shrink-0" />
-                  {fmtDate(booking.starts_at)}, {fmtTime(booking.starts_at)}
-                </button>
-                <span className="text-muted-foreground text-sm select-none">→</span>
-                {/* End pill */}
-                <button
-                  onClick={() => setEditMode(m => m === 'end' ? null : 'end')}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-2 rounded-full text-sm border transition-colors touch-manipulation',
-                    editMode === 'end'
-                      ? 'border-primary bg-primary/5 text-primary'
-                      : 'border-border hover:border-primary/50 hover:bg-muted/50',
-                  )}
-                >
-                  <Clock className="w-3.5 h-3.5 shrink-0" />
-                  {fmtTime(booking.ends_at)}
-                </button>
-              </div>
-
-              {/* Start editor */}
-              {editMode === 'start' && (
-                <div className="flex gap-3 pt-1">
-                  <div className="flex-1">
+            {/* ── Date / time ───────────────────────────────── */}
+            {editMode === 'datetime' ? (
+              /* Edit mode — single inline card with all three pickers */
+              <div className="bg-muted/30 rounded-xl p-3 space-y-3">
+                <div className="flex gap-2 flex-wrap">
+                  <div className="flex-1 min-w-[120px]">
                     <label className="text-[11px] text-muted-foreground block mb-1">Date</label>
                     <input
                       type="date"
                       value={rescheduleDate}
                       onChange={e => setRescheduleDate(e.target.value)}
                       onClick={e => { try { e.target.showPicker() } catch (_) {} }}
-                      className="w-full text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary touch-manipulation"
+                      className="w-full text-sm border rounded-lg px-2.5 py-2 outline-none focus:border-primary bg-background touch-manipulation"
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] text-muted-foreground block mb-1">Time</label>
+                    <label className="text-[11px] text-muted-foreground block mb-1">Start</label>
                     <input
                       type="time"
                       step="900"
                       value={rescheduleTime}
                       onChange={e => setRescheduleTime(e.target.value)}
-                      className="text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary touch-manipulation"
+                      className="text-sm border rounded-lg px-2.5 py-2 outline-none focus:border-primary bg-background touch-manipulation"
                     />
                   </div>
-                  {moveMutation.isError && (
-                    <p className="text-xs text-destructive self-end pb-2.5">
-                      {moveMutation.error?.message ?? 'Failed to move'}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* End editor */}
-              {editMode === 'end' && (
-                <div className="flex items-end gap-3 pt-1">
+                  <div className="flex items-end pb-2 text-muted-foreground text-sm select-none">→</div>
                   <div>
-                    <label className="text-[11px] text-muted-foreground block mb-1">End time</label>
+                    <label className="text-[11px] text-muted-foreground block mb-1">End</label>
                     <input
                       type="time"
                       step="900"
                       value={endTimeValue}
                       min={rescheduleTime}
                       onChange={e => setEndTimeValue(e.target.value)}
-                      className="text-sm border rounded-lg px-3 py-2 outline-none focus:border-primary touch-manipulation"
+                      className="text-sm border rounded-lg px-2.5 py-2 outline-none focus:border-primary bg-background touch-manipulation"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground pb-2.5">
-                    Starts: {fmtTime(booking.starts_at)}
-                  </p>
-                  {durationMutation.isError && (
-                    <p className="text-xs text-destructive pb-2.5">
-                      {durationMutation.error?.message ?? 'Failed to update'}
-                    </p>
-                  )}
                 </div>
-              )}
-            </div>
+                {(moveMutation.isError || durationMutation.isError) && (
+                  <p className="text-xs text-destructive">
+                    {moveMutation.error?.message ?? durationMutation.error?.message ?? 'Failed to save'}
+                  </p>
+                )}
+              </div>
+            ) : (
+              /* View mode — two clickable pills */
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setEditMode('datetime')}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors touch-manipulation"
+                >
+                  <Calendar className="w-3.5 h-3.5 shrink-0" />
+                  {fmtDate(booking.starts_at)}, {fmtTime(booking.starts_at)}
+                </button>
+                <span className="text-muted-foreground text-sm select-none">→</span>
+                <button
+                  onClick={() => setEditMode('datetime')}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-full text-sm border border-border hover:border-primary/50 hover:bg-muted/50 transition-colors touch-manipulation"
+                >
+                  <Clock className="w-3.5 h-3.5 shrink-0" />
+                  {fmtTime(booking.ends_at)}
+                </button>
+              </div>
+            )}
 
             {/* ── Covers stepper + Table pill ───────────────── */}
             <div className="flex items-center gap-3 flex-wrap">
@@ -508,7 +485,25 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                 >−</button>
                 <div className="flex items-center gap-1.5 text-sm min-w-0">
                   <Users className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  <span className="font-semibold w-6 text-center tabular-nums">{guestFields.covers}</span>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    value={guestFields.covers}
+                    onChange={e => {
+                      const v = parseInt(e.target.value, 10)
+                      if (!isNaN(v) && v >= 1 && v <= 99)
+                        setGuestFields(p => ({ ...p, covers: v }))
+                      else if (e.target.value === '')
+                        setGuestFields(p => ({ ...p, covers: '' }))
+                    }}
+                    onBlur={e => {
+                      const v = parseInt(e.target.value, 10)
+                      setGuestFields(p => ({ ...p, covers: isNaN(v) || v < 1 ? 1 : v }))
+                      setEditMode('guest')
+                    }}
+                    onClick={() => setEditMode('guest')}
+                    className="w-10 text-center text-sm font-semibold tabular-nums border-b border-transparent focus:border-primary outline-none bg-transparent touch-manipulation"
+                  />
                 </div>
                 <button
                   type="button"
