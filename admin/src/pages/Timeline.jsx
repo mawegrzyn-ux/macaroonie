@@ -305,13 +305,13 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
 }
 
 // ── Timeline header (hour labels + optional now marker) ────────
-function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH, headerBgStrips = false, backgroundStyle = {} }) {
+function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH, headerBgStrips = false, backgroundStyle = {}, showStartLine = false, sessionStartXs = [], startLineColour = '#630812' }) {
   // When headerBgStrips is on, apply the same closed-area shading to the header row.
-  // The outer div loses bg-background (overridden by backgroundStyle.backgroundColor).
-  // The sticky label cell keeps its own bg-background so it covers scrolling content.
+  // bg-background class is always present; backgroundStyle.backgroundColor overrides it when strips are on.
+  // The sticky label cell always keeps its own bg-background to mask scrolling content behind it.
   const outerStyle = headerBgStrips ? backgroundStyle : {}
   return (
-    <div className="timeline-grid border-b sticky top-0 z-10" style={outerStyle}>
+    <div className="timeline-grid border-b sticky top-0 z-10 bg-background" style={outerStyle}>
       {/* Sticky label cell — z-[12] keeps it above spanning cards (z=5) and canvas stacking contexts (z=3) */}
       <div className="border-r sticky left-0 bg-background z-[12]" style={{ height: 40 }} />
       <div className="relative overflow-hidden" style={{ width: TOTAL_HOURS * hourWidth, height: 40 }}>
@@ -325,6 +325,16 @@ function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH, headerBgStrips
               {String(START_HOUR + i).padStart(2, '0')}:00
             </span>
           </div>
+        ))}
+
+        {/* Session-start lines inside header — only drawn when headerBgStrips is on
+            (otherwise the header's bg-background hides the lines from the wrapper below) */}
+        {headerBgStrips && showStartLine && sessionStartXs.map((x, i) => (
+          <div
+            key={i}
+            className="absolute inset-y-0 pointer-events-none"
+            style={{ left: x, width: 3, backgroundColor: startLineColour, zIndex: 2 }}
+          />
         ))}
 
         {/* Current-time marker: label at top, line down, dot at bottom */}
@@ -577,12 +587,10 @@ export default function Timeline() {
       .filter(s => s.width > 0)
   }, [sittingsForDate, hourWidth])
 
-  // X position of the first sitting's opens_at — used to draw the start-of-service line.
-  const firstOpenX = useMemo(() => {
+  // X positions of each sitting's opens_at — one line per sitting (e.g. lunch + dinner).
+  const sessionStartXs = useMemo(() => {
     const sittings = sittingsForDate?.sittings ?? []
-    if (!sittings.length) return null
-    const sorted = [...sittings].sort((a, b) => a.opens_at.localeCompare(b.opens_at))
-    return sittingTimeToX(sorted[0].opens_at, hourWidth)
+    return sittings.map(s => sittingTimeToX(s.opens_at, hourWidth))
   }, [sittingsForDate, hourWidth])
 
   // Build combined wrapper background style:
@@ -957,21 +965,28 @@ export default function Timeline() {
             onDragEnd={handleDragEnd}
           >
             <div className="relative" style={{ minWidth: 160 + totalWidth, ...backgroundStyle }}>
-              {/* ── Start-of-service vertical line ──────────────────────
-                  Full-height line at the first sitting's opens_at time.
-                  Renders behind booking cards (pointer-events:none, low z). */}
-              {showStartLine && firstOpenX != null && (
+              {/* ── Session-start vertical lines ─────────────────────
+                  One line per sitting at its opens_at time.
+                  Renders behind booking cards (pointer-events:none, z=2).
+                  Lines inside the header row are drawn by TimelineHeader
+                  when headerBgStrips is on (header bg-background hides
+                  these wrapper-level lines from the header area). */}
+              {showStartLine && sessionStartXs.map((x, i) => (
                 <div
+                  key={i}
                   className="absolute inset-y-0 pointer-events-none"
-                  style={{ left: LABEL_WIDTH + firstOpenX, width: 3, backgroundColor: startLineColour, zIndex: 2 }}
+                  style={{ left: LABEL_WIDTH + x, width: 3, backgroundColor: startLineColour, zIndex: 2 }}
                 />
-              )}
+              ))}
               <TimelineHeader
                 nowX={nowX}
                 nowLabel={nowLabel}
                 hourWidth={hourWidth}
                 headerBgStrips={headerBgStrips}
                 backgroundStyle={backgroundStyle}
+                showStartLine={showStartLine}
+                sessionStartXs={sessionStartXs}
+                startLineColour={startLineColour}
               />
 
               {/* ── Unallocated row ─────────────────────────────────────
