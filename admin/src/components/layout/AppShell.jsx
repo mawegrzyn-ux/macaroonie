@@ -6,10 +6,32 @@ import { useQuery } from '@tanstack/react-query'
 import {
   LayoutDashboard, CalendarDays, BookOpen,
   Building2, Table2, Clock, Settings, Users, UserRound,
-  LogOut, Utensils, LayoutTemplate, Menu, X,
+  LogOut, LayoutTemplate, Menu, X,
   BookMarked, HelpCircle, SlidersHorizontal,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns,
 } from 'lucide-react'
+
+// Macaroon SVG logo — matches favicon.svg
+function MacaroonIcon({ className = 'w-5 h-5' }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" className={className} aria-hidden="true">
+      <ellipse cx="32" cy="42" rx="22" ry="10" fill="#f4a7b9"/>
+      <circle cx="22" cy="41" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="32" cy="43" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="42" cy="41" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="27" cy="39" r="1.4" fill="#e8829a" opacity="0.5"/>
+      <circle cx="37" cy="39" r="1.4" fill="#e8829a" opacity="0.5"/>
+      <ellipse cx="32" cy="34" rx="22" ry="5" fill="#fdf3c8"/>
+      <ellipse cx="32" cy="26" rx="22" ry="10" fill="#f4a7b9"/>
+      <circle cx="22" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="32" cy="27" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="42" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="27" cy="23" r="1.4" fill="#e8829a" opacity="0.5"/>
+      <circle cx="37" cy="23" r="1.4" fill="#e8829a" opacity="0.5"/>
+      <ellipse cx="28" cy="20" rx="8" ry="4" fill="white" opacity="0.25"/>
+    </svg>
+  )
+}
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
@@ -116,7 +138,7 @@ export default function AppShell() {
         )}>
           {open ? (
             <>
-              <Utensils className="w-5 h-5 text-primary shrink-0" />
+              <MacaroonIcon className="w-6 h-6 shrink-0" />
               <span className="font-semibold text-sm flex-1 whitespace-nowrap">Macaroonie</span>
               <button
                 onClick={() => setOpen(false)}
@@ -133,7 +155,7 @@ export default function AppShell() {
               className="p-2 rounded hover:bg-accent text-primary"
               title="Expand sidebar"
             >
-              <Utensils className="w-5 h-5" />
+              <MacaroonIcon className="w-6 h-6" />
             </button>
           )}
         </div>

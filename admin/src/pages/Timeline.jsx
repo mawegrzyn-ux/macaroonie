@@ -160,6 +160,14 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
   // We split each strip around covered ranges rather than dropping the whole
   // strip, so a booking that starts mid-strip (e.g. inside the pre-sitting
   // grey) doesn't wipe grey on either side of the card.
+  // True when this row is the secondary leg of a spanning combo card rendered
+  // in the primary row above. Used to lift the canvas above the primary row's
+  // stacking context so grey strips remain visible through the spanning card.
+  const isSecondaryRow = bookings.some(b => {
+    const si = comboSpanMap?.get(b.id)
+    return si && si.get(table.id) === 0
+  })
+
   const clippedStrips = (() => {
     const coveredRanges = bookings
       .filter(b => { const si = comboSpanMap?.get(b.id); return si && si.get(table.id) === 0 })
@@ -227,8 +235,14 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         style={{
           height: ROW_HEIGHT,
           width:  TOTAL_WIDTH,
-          // Elevate stacking context so spanning cards render above subsequent rows
+          // Primary rows with spanning cards need a stacking context above row dividers
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
+          // Secondary combo rows must paint ABOVE the primary row's stacking context
+          // (z=3) so their grey unavailability strips are visible through the spanning
+          // card. pointer-events:none lets clicks fall through to the spanning card;
+          // @dnd-kit collision detection uses getBoundingClientRect, not pointer events,
+          // so droppability is unaffected.
+          ...(isSecondaryRow ? { zIndex: 4, pointerEvents: 'none' } : {}),
         }}
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
