@@ -7,9 +7,10 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 const Ctx = createContext(null)
 
 const STORAGE_KEY = 'maca_settings'
-export const DEFAULT_THEME_HEX    = '#630812'
-export const DEFAULT_TIMELINE_BG  = '#ffffff'
-export const DEFAULT_GREY_COLOUR  = '#8c8c8c'
+export const DEFAULT_THEME_HEX        = '#630812'
+export const DEFAULT_TIMELINE_BG     = '#ffffff'
+export const DEFAULT_GREY_COLOUR     = '#8c8c8c'
+export const DEFAULT_START_LINE_COLOUR = '#630812'
 
 export const DEFAULT_STATUS_COLOURS = {
   unconfirmed:     '#fed7aa',
@@ -125,13 +126,20 @@ function load() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? {}
     return {
-      themeHex:      s.themeHex      ?? DEFAULT_THEME_HEX,
-      statusColours: { ...DEFAULT_STATUS_COLOURS, ...(s.statusColours ?? {}) },
-      timelineBg:    s.timelineBg    ?? DEFAULT_TIMELINE_BG,
-      greyColour:    s.greyColour    ?? DEFAULT_GREY_COLOUR,
+      themeHex:         s.themeHex         ?? DEFAULT_THEME_HEX,
+      statusColours:    { ...DEFAULT_STATUS_COLOURS, ...(s.statusColours ?? {}) },
+      timelineBg:       s.timelineBg       ?? DEFAULT_TIMELINE_BG,
+      greyColour:       s.greyColour       ?? DEFAULT_GREY_COLOUR,
+      startLineColour:  s.startLineColour  ?? DEFAULT_START_LINE_COLOUR,
+      showStartLine:    s.showStartLine    ?? true,
+      headerBgStrips:   s.headerBgStrips   ?? false,
     }
   } catch {
-    return { themeHex: DEFAULT_THEME_HEX, statusColours: DEFAULT_STATUS_COLOURS, timelineBg: DEFAULT_TIMELINE_BG, greyColour: DEFAULT_GREY_COLOUR }
+    return {
+      themeHex: DEFAULT_THEME_HEX, statusColours: DEFAULT_STATUS_COLOURS,
+      timelineBg: DEFAULT_TIMELINE_BG, greyColour: DEFAULT_GREY_COLOUR,
+      startLineColour: DEFAULT_START_LINE_COLOUR, showStartLine: true, headerBgStrips: false,
+    }
   }
 }
 
@@ -183,17 +191,35 @@ export function SettingsProvider({ children }) {
     update({ greyColour: hex })
   }, [])
 
+  const setStartLineColour = useCallback((hex) => {
+    update({ startLineColour: hex })
+  }, [])
+
+  const setShowStartLine = useCallback((val) => {
+    update({ showStartLine: val })
+  }, [])
+
+  const setHeaderBgStrips = useCallback((val) => {
+    update({ headerBgStrips: val })
+  }, [])
+
   return (
     <Ctx.Provider value={{
       themeHex:           settings.themeHex,
       statusColours:      settings.statusColours,
       timelineBg:         settings.timelineBg,
       greyColour:         settings.greyColour,
+      startLineColour:    settings.startLineColour,
+      showStartLine:      settings.showStartLine,
+      headerBgStrips:     settings.headerBgStrips,
       setThemeHex,
       setStatusColour,
       resetStatusColours,
       setTimelineBg,
       setGreyColour,
+      setStartLineColour,
+      setShowStartLine,
+      setHeaderBgStrips,
     }}>
       {children}
     </Ctx.Provider>

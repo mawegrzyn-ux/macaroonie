@@ -8,6 +8,7 @@ import {
   DEFAULT_THEME_HEX,
   DEFAULT_TIMELINE_BG,
   DEFAULT_GREY_COLOUR,
+  DEFAULT_START_LINE_COLOUR,
   hexToHsl,
   deriveBorderFromBg,
 } from '@/contexts/SettingsContext'
@@ -303,7 +304,14 @@ const TIMELINE_BG_SWATCHES = [
 ]
 
 export default function Settings() {
-  const { themeHex, setThemeHex, timelineBg, setTimelineBg, greyColour, setGreyColour } = useSettings()
+  const {
+    themeHex, setThemeHex,
+    timelineBg, setTimelineBg,
+    greyColour, setGreyColour,
+    startLineColour, setStartLineColour,
+    showStartLine, setShowStartLine,
+    headerBgStrips, setHeaderBgStrips,
+  } = useSettings()
   const tlSettings = useTimelineSettings()
 
   // Local hex input state so user can type freely; only apply on blur/enter
@@ -447,6 +455,50 @@ export default function Settings() {
               />
             ))}
           </div>
+
+          {/* ── Opening hour line ── */}
+          <SettingRow
+            label="Opening hour line"
+            description="Thick vertical line marking the start of the first sitting. Spans the full height of the Timeline."
+          >
+            <div className="flex items-center gap-3">
+              <Toggle value={showStartLine} onChange={setShowStartLine} label="Toggle opening hour line" />
+              {showStartLine && (
+                <ColourPickerRow
+                  value={startLineColour}
+                  activeHex={startLineColour}
+                  onChange={setStartLineColour}
+                  swatches={[]}
+                  label="opening hour line colour"
+                />
+              )}
+            </div>
+          </SettingRow>
+          {showStartLine && (
+            <div className="flex gap-2 flex-wrap -mt-2">
+              {['#630812', '#1d4ed8', '#15803d', '#7c3aed', '#b45309', '#0f172a'].map(hex => (
+                <button
+                  key={hex}
+                  type="button"
+                  onClick={() => setStartLineColour(hex)}
+                  className={cn(
+                    'w-8 h-8 rounded-lg border-2 touch-manipulation transition-transform hover:scale-110',
+                    startLineColour === hex ? 'border-foreground scale-110' : 'border-transparent',
+                  )}
+                  style={{ background: hex }}
+                  title={hex}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* ── Extend shading to header ── */}
+          <SettingRow
+            label="Shade closed areas in header row"
+            description="Apply the closed / unavailable shading and diagonal stripes to the hours header row as well as the table rows."
+          >
+            <Toggle value={headerBgStrips} onChange={setHeaderBgStrips} label="Toggle header shading" />
+          </SettingRow>
 
           {/* ── Divider ── */}
           <div className="border-t pt-5 -mx-5 px-5">

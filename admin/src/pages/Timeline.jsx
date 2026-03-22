@@ -154,7 +154,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
         </div>
       ) : (
         /* ── Compact layout: single row ─────────────────────── */
-        <div className={cn('flex items-center h-full pr-[18px] gap-1 min-w-0', compactCfg.pl, compactCfg.gap)}>
+        <div className={cn('flex items-center h-full pr-[18px] gap-1 min-w-0 py-[3px]', compactCfg.pl, compactCfg.gap)}>
           <span className={cn('font-bold tabular-nums shrink-0 opacity-70 leading-none', compactCfg.covers)}>
             {booking.covers}
           </span>
@@ -305,9 +305,13 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
 }
 
 // ── Timeline header (hour labels + optional now marker) ────────
-function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH }) {
+function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH, headerBgStrips = false, backgroundStyle = {} }) {
+  // When headerBgStrips is on, apply the same closed-area shading to the header row.
+  // The outer div loses bg-background (overridden by backgroundStyle.backgroundColor).
+  // The sticky label cell keeps its own bg-background so it covers scrolling content.
+  const outerStyle = headerBgStrips ? backgroundStyle : {}
   return (
-    <div className="timeline-grid border-b sticky top-0 bg-background z-10">
+    <div className="timeline-grid border-b sticky top-0 z-10" style={outerStyle}>
       {/* Sticky label cell — z-[12] keeps it above spanning cards (z=5) and canvas stacking contexts (z=3) */}
       <div className="border-r sticky left-0 bg-background z-[12]" style={{ height: 40 }} />
       <div className="relative overflow-hidden" style={{ width: TOTAL_HOURS * hourWidth, height: 40 }}>
@@ -349,7 +353,7 @@ export default function Timeline() {
   // View settings shared with AppShell sidebar (panelMode now lives in context)
   const tlSettings = useTimelineSettings()
   const { hideInactive, groupBySections, panelMode, refetchTrigger } = tlSettings
-  const { timelineBg, greyColour } = useSettings()
+  const { timelineBg, greyColour, startLineColour, showStartLine, headerBgStrips } = useSettings()
 
   // date / setDate — persisted in shared context so last-viewed date survives
   // navigation between Timeline and Bookings pages
@@ -571,6 +575,14 @@ export default function Timeline() {
         width: sittingTimeToX(s.doors_close_time, hourWidth) - sittingTimeToX(s.closes_at, hourWidth),
       }))
       .filter(s => s.width > 0)
+  }, [sittingsForDate, hourWidth])
+
+  // X position of the first sitting's opens_at — used to draw the start-of-service line.
+  const firstOpenX = useMemo(() => {
+    const sittings = sittingsForDate?.sittings ?? []
+    if (!sittings.length) return null
+    const sorted = [...sittings].sort((a, b) => a.opens_at.localeCompare(b.opens_at))
+    return sittingTimeToX(sorted[0].opens_at, hourWidth)
   }, [sittingsForDate, hourWidth])
 
   // Build combined wrapper background style:
@@ -944,8 +956,23 @@ export default function Timeline() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div style={{ minWidth: 160 + totalWidth, ...backgroundStyle }}>
-              <TimelineHeader nowX={nowX} nowLabel={nowLabel} hourWidth={hourWidth} />
+            <div className="relative" style={{ minWidth: 160 + totalWidth, ...backgroundStyle }}>
+              {/* ── Start-of-service vertical line ──────────────────────
+                  Full-height line at the first sitting's opens_at time.
+                  Renders behind booking cards (pointer-events:none, low z). */}
+              {showStartLine && firstOpenX != null && (
+                <div
+                  className="absolute inset-y-0 pointer-events-none"
+                  style={{ left: LABEL_WIDTH + firstOpenX, width: 3, backgroundColor: startLineColour, zIndex: 2 }}
+                />
+              )}
+              <TimelineHeader
+                nowX={nowX}
+                nowLabel={nowLabel}
+                hourWidth={hourWidth}
+                headerBgStrips={headerBgStrips}
+                backgroundStyle={backgroundStyle}
+              />
 
               {/* ── Unallocated row ─────────────────────────────────────
                   Shown only when the system has pushed bookings here because no
