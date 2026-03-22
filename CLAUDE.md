@@ -16,7 +16,7 @@ Owner: Obscure Kitty. Stack chosen for familiarity with existing plugin work (No
 /
 ├── api/              Node.js API (Fastify)
 ├── admin/            React admin portal (Vite)
-├── migrations/       PostgreSQL migration files (run in order 001–015)
+├── migrations/       PostgreSQL migration files (run in order 001–021)
 ├── setup.sh          One-shot Lightsail server setup script
 ├── deploy.sh         Subsequent deployment script
 └── CLAUDE.md         This file
@@ -240,6 +240,10 @@ Additionally implemented across development sessions:
 - ✅ **Wide time columns** — `wideColumns` boolean in `TimelineSettingsContext` (default `false`); `const hourWidth = wideColumns ? 120 : HOUR_WIDTH`; all three utility functions (`timeToX`, `sittingTimeToX`, `durationToWidth`) accept optional `hw` param defaulting to `HOUR_WIDTH`; all resize/drag/canvas-click/grey-strip calculations use `hourWidth`; `TableRow`, `BookingCard`, `TimelineHeader` all accept `hourWidth` prop; toggle in Settings → Timeline defaults
 - ✅ **ColourPickerRow sync fix** — `useEffect(() => setHexInput(value), [value])` added so local picker state syncs when an external swatch button updates the context value (previously only colour wheel/hex input worked; swatches appeared to do nothing)
 - ✅ **Resize drag no-drawer-open** — `wasResizingRef` boolean ref set to `true` in `handleUp` after resize mutation fires; `handleBookingClick` checks ref and returns early (suppressing drawer open) then resets ref; prevents the `click` event that fires after `pointerup` from opening the booking drawer
+- ✅ **Timeline TDZ fix** — `hourWidth`, `totalWidth`, `rowHeight` declarations (and their `tileMode`/`compactFontSize`/`wideColumns` destructure) moved to before the `nowX` useMemo in `Timeline.jsx`. Previously they were declared ~50 lines after `nowX`, causing a `ReferenceError: Cannot access '...' before initialization` crash (Temporal Dead Zone) that made the entire Timeline render blank. Also added `hourWidth, totalWidth` to the `nowX` dep array.
+- ✅ **Compact tile vertical padding** — `py-[3px]` added to the compact tile content div (`flex items-center h-full ...`) so there is a small top/bottom gap around text inside each booking tile in compact mode.
+- ✅ **Opening hour line** — `showStartLine` (boolean, default `true`) and `startLineColour` (hex, default `#630812`) added to `SettingsContext`; `firstOpenX` useMemo in Timeline computes x-position of first sitting's `opens_at` for the selected date; a `position:absolute` 3px-wide full-height overlay div is rendered inside the Timeline wrapper at `LABEL_WIDTH + firstOpenX` (z=2, `pointer-events:none`) when `showStartLine` is true; Settings → Appearance shows toggle + colour picker + 6 swatches (only visible when line is enabled).
+- ✅ **Shade header row** — `headerBgStrips` boolean (default `false`) added to `SettingsContext`; when true the same `backgroundStyle` object (grey strips + diagonal stripes) is applied as inline style to the `TimelineHeader` outer div, replacing `bg-background`; sticky label cell retains `bg-background` regardless; toggle in Settings → Appearance.
 
 ---
 
@@ -314,6 +318,9 @@ Key vars to set before running:
 - **`ColourPickerRow` has local `hexInput` state** — the component uses `useState(value)` for the colour wheel and hex text input, which only initialises once. If the context value changes externally (e.g. an external swatch button calls `setTimelineBg(hex)`), the picker will show a stale colour unless synced via `useEffect(() => setHexInput(value), [value])`. Always include this effect when using `ColourPickerRow` alongside external swatch buttons that update the same context value.
 - **`hourWidth` must be threaded everywhere in Timeline** — `HOUR_WIDTH = 80` is the module-level constant used as the default param in utility functions. The runtime `hourWidth` (80 or 120 from `wideColumns`) must be passed as a prop to `TableRow`, `BookingCard`, and `TimelineHeader`, and used in all pixel calculations (drag/resize deltas, `nowX`, `unavailableStrips`, gradient offsets, `handleCanvasClick`). Using the module constant directly in any of these bypasses the wide-columns setting.
 - **`wideColumns` dep in useMemos** — `unavailableStrips` useMemo depends on `[sittingsForDate, slotsOverlay, hourWidth, totalWidth]`. If `hourWidth` is omitted from the dep array, the grey strips will not reposition when the wide-columns toggle changes.
+- **`hourWidth`/`totalWidth`/`rowHeight` must be declared before `nowX` useMemo** — these are `const` declarations inside the component function body. `nowX` references `hourWidth` and `totalWidth` inside its callback. Because `useMemo` runs synchronously on first render, accessing a `const` that appears later in the function body throws a Temporal Dead Zone (TDZ) `ReferenceError`. Always keep `hourWidth`/`totalWidth`/`rowHeight` above any useMemo that references them.
+- **`headerBgStrips` removes `bg-background` from `TimelineHeader` outer div** — when `headerBgStrips` is true, `backgroundStyle` is applied as inline style to the header's outer div, which overrides the Tailwind `bg-background` class (inline styles win). The sticky label cell inside still carries its own `bg-background` to mask scrolling content behind it. If you add any new wrapper classes to `TimelineHeader` that set a background, they will be silently overridden when `headerBgStrips` is on.
+- **`showStartLine` colour picker only mounts when line is enabled** — in Settings, the `ColourPickerRow` for `startLineColour` is conditionally rendered inside `{showStartLine && ...}`. This means the picker's local state is reset each time the toggle is switched on. This is intentional (avoids a stale picker) but means the hex input always initialises from the context value when re-shown.
 
 ---
 

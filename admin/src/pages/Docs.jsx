@@ -168,14 +168,14 @@ export default function Docs() {
             <DataTable
               head={['Page', 'Route', 'Purpose']}
               rows={[
-                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click → ManualAllocModal. Grey columns = closed or cap=0. Red current-time line (today only). FAB (+ button) bottom-right for new bookings. Two tile modes: compact (configurable S/M/L row height) and extensive (3-line). Hour column width: 80 px (standard) or 120 px (wide). All controlled via TimelineSettingsContext.'],
+                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click → ManualAllocModal. Grey columns = closed or cap=0. Red current-time line (today only). FAB (+ button) bottom-right for new bookings. Two tile modes: compact (configurable S/M/L row height, 3px inner padding) and extensive (3-line). Hour column width: 80 px (standard) or 120 px (wide). Opening hour line: thick 3px vertical at first sitting opens_at (configurable colour, toggleable). Header shading: closed-area background optionally extended to the hours header row. All controlled via TimelineSettingsContext + SettingsContext.'],
                 ['Bookings', '/bookings', 'Guestplan-style time-grouped list. Stats bar. Inline status change. Phone visible. Permanent resizable right panel (BookingDrawer inlineMode).'],
                 ['Customers', '/customers', 'Customer profiles. Search by name/email/phone. GDPR anonymise and export. Auto-populated from booking confirms.'],
                 ['Venues', '/venues', 'Create and manage restaurant locations.'],
                 ['Tables', '/tables', 'Add tables, define sections, create combinations, set sort order, manage disallowed pairs.'],
                 ['Schedule', '/schedule', 'Weekly template sittings, slot caps, date overrides, schedule exceptions.'],
                 ['Rules', '/rules', 'Booking window, covers limits, hold TTL, smart allocation flags, deposit config, unconfirmed/reconfirmed flow toggles, opening hours enforcement.'],
-                ['Settings', '/settings', 'Appearance: theme colour, per-status booking colours (9 statuses, CSS custom properties), timeline background colour, closed-area shading colour. Timeline defaults: tile mode, compact font size, wide columns toggle, panel mode, section dividers, hide inactive. All persisted to localStorage.'],
+                ['Settings', '/settings', 'Appearance: theme colour, per-status booking colours (9 statuses, CSS custom properties), timeline background colour, closed-area shading colour, opening hour line (toggle + colour), shade header row toggle. Timeline defaults: tile mode, compact font size, wide columns toggle, panel mode, section dividers, hide inactive. All persisted to localStorage.'],
                 ['Team', '/team', 'Invite staff via Auth0 Management API (in development).'],
                 ['Widget test', '/widget-test', 'Runs the full guest booking flow in the portal for testing.'],
                 ['Documentation', '/docs', 'This page.'],
@@ -283,8 +283,19 @@ export default function Docs() {
                 ['Side panel mode', 'maca_timeline_prefs (TimelineSettingsContext)', 'BookingDrawer rendered as docked panel (inlineMode) vs floating overlay.'],
                 ['Section dividers', 'maca_timeline_prefs (TimelineSettingsContext)', 'Show/hide section label rows in Timeline.'],
                 ['Hide inactive', 'maca_timeline_prefs (TimelineSettingsContext)', 'Filter out cancelled/no_show/checked_out bookings from canvas.'],
+                ['Opening hour line (showStartLine)', 'maca_settings (SettingsContext)', 'Boolean toggle. When true, a 3px vertical line is rendered at firstOpenX + LABEL_WIDTH as a position:absolute full-height overlay on the Timeline wrapper div (z=2, pointer-events:none). Colour configurable via startLineColour. Default: enabled, colour #630812.'],
+                ['Opening hour line colour (startLineColour)', 'maca_settings (SettingsContext)', 'Hex colour for the opening hour line. Applied as backgroundColor on the overlay div. Default #630812 (matches theme default).'],
+                ['Shade header row (headerBgStrips)', 'maca_settings (SettingsContext)', 'Boolean toggle. When true, backgroundStyle (closed-area grey + diagonal stripe CSS backgrounds) is also applied to the TimelineHeader outer div via inline style, replacing bg-background. Sticky label cell keeps its own bg-background. Default: false.'],
               ]}
             />
+            <H3>firstOpenX computation</H3>
+            <P>
+              <Mono>firstOpenX</Mono> is a useMemo in Timeline.jsx that returns the canvas x-pixel position
+              of the first sitting's <Mono>opens_at</Mono> time for the selected date. Computed from{' '}
+              <Mono>sittingsForDate?.sittings</Mono>, sorted by <Mono>opens_at</Mono> ascending.
+              Returns <Mono>null</Mono> when no sittings exist (no line drawn). Depends on{' '}
+              <Mono>[sittingsForDate, hourWidth]</Mono>.
+            </P>
             <H3>ColourPickerRow sync pattern</H3>
             <P>
               <Mono>ColourPickerRow</Mono> uses local <Mono>hexInput</Mono> state for the colour wheel and hex input.
@@ -723,6 +734,7 @@ allTables sorted by sort_order → target at index i
             <DataTable
               head={['Element', 'z-index', 'Notes']}
               rows={[
+                ['Opening hour line overlay', '2', 'position:absolute full-height div at LABEL_WIDTH + firstOpenX. pointer-events:none. Renders behind booking cards (cards are z=1 but painted after in DOM order).'],
                 ['Normal booking card', '1', 'CSS .timeline-slot default'],
                 ['Spanning combo card', '5', 'Inline override — above row borders'],
                 ['Canvas with spanning card', '3', 'Creates stacking context above subsequent rows'],

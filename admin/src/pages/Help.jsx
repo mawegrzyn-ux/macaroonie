@@ -717,6 +717,14 @@ export default function Help() {
               rows showing the current time. A dot and the time label appear in the header bar at the top of
               the line. The line updates every 30 seconds. It is not shown when viewing past or future dates.
             </P>
+
+            <H3>Opening hour line</H3>
+            <P>
+              A configurable thick vertical line marks the start time of the first sitting for the day.
+              It spans the full height of the Timeline — through the header row and all table rows — so you
+              can see at a glance when service begins. Colour and visibility are controlled in{' '}
+              <strong>Settings → Appearance → Opening hour line</strong>.
+            </P>
           </section>
 
           {/* ── MANUAL BOOKING ────────────────────────────── */}
@@ -971,6 +979,22 @@ export default function Help() {
               shade is always applied at 38% opacity so it stays subtle over any background.
             </P>
 
+            <H3>Opening hour line</H3>
+            <P>
+              A thick vertical line that runs the full height of the Timeline, marking the point where the
+              first sitting of the day opens. Use the toggle to show or hide it, and the colour picker to
+              match your brand or make it more visible against your chosen background. Six preset colour
+              swatches are available when the line is enabled. The line is on by default.
+            </P>
+
+            <H3>Shade closed areas in header row</H3>
+            <P>
+              When this toggle is on, the same grey shading and diagonal stripes that appear in the table
+              rows for closed and last-orders periods are also drawn in the hours header row at the top of
+              the Timeline. Off by default — turn it on if you find the header row hard to read against the
+              rest of the canvas.
+            </P>
+
             <H3>Timeline defaults</H3>
             <P>
               These settings control how the Timeline opens each time. You can also change all of them
@@ -1218,6 +1242,14 @@ export default function Help() {
                   <p className="text-sm text-muted-foreground">A: {a}</p>
                 </div>
               ))}
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">What is the thick coloured line on the Timeline?</p>
+                <p className="text-sm text-muted-foreground">
+                  That is the <strong>opening hour line</strong> — a visual marker at the start of the
+                  first sitting for the day. You can change its colour or turn it off entirely in{' '}
+                  <strong>Settings → Appearance → Opening hour line</strong>.
+                </p>
+              </div>
             </div>
           </section>
 
