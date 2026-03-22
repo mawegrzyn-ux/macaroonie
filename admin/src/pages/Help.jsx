@@ -590,6 +590,19 @@ export default function Help() {
               ))}
             </div>
 
+            <H3>Tile modes</H3>
+            <P>
+              The Timeline supports two tile layouts. Toggle between them using the{' '}
+              <strong>Detail</strong> button in the sidebar:
+            </P>
+            <DataTable
+              head={['Mode', 'What it shows']}
+              rows={[
+                ['Compact (default)', 'Single-line tile: covers count and guest name. Row height and font size adjustable (S/M/L) in Settings.'],
+                ['Detailed', 'Three-line tile: name + covers + notes indicator / phone number / table allocation. Row height is fixed at 72 px.'],
+              ]}
+            />
+
             <H3>Timeline controls</H3>
             <P>
               View settings for the Timeline live in the <strong>sidebar</strong> (left panel), just above
@@ -599,6 +612,7 @@ export default function Help() {
               head={['Control', 'What it does']}
               rows={[
                 ['Venue selector', 'Switch between venues (shown only if you have more than one).'],
+                ['Detail toggle', 'Switch between compact (dense) and detailed (3-line) tile layout. See Tile modes above.'],
                 ['Inactive', 'Hide/show cancelled, no-show, and checked-out bookings on the canvas.'],
                 ['Sections', 'Show/hide section divider labels between table groups.'],
                 ['Panel', 'Switch between a docked right panel and a floating overlay for the booking detail drawer.'],
@@ -911,38 +925,73 @@ export default function Help() {
             <H2>Settings</H2>
             <P>
               Go to <strong>Settings</strong> in the sidebar to customise the look and default behaviour
-              of the admin portal. Changes apply immediately and are saved to your browser — they persist
-              across sessions.
+              of the admin portal. All changes apply immediately and are saved to your browser — they
+              persist across sessions without needing to log out or refresh.
             </P>
 
             <H3>Theme colour</H3>
             <P>
-              Click the colour swatch (or the hex text box) to choose a brand colour. The entire portal
-              updates instantly — buttons, active nav items, and primary actions all use the chosen colour.
-              Six preset swatches are provided for quick selection. Your custom colour is remembered even
-              after you close and reopen the browser.
+              Choose a brand colour from the preset swatches or enter a hex value in the text box.
+              The entire portal updates instantly — buttons, active nav items, and primary actions all
+              use the chosen colour. Your choice is remembered even after closing the browser.
             </P>
             <InfoBox type="info">
-              The theme colour is stored locally in your browser. It is not synced across devices or users.
-              Each staff member can set their own preferred colour, or all use the default.
+              Settings are stored locally in your browser — they are not synced across devices or users.
+              Each staff member can have their own colour preference.
             </InfoBox>
+
+            <H3>Booking status colours</H3>
+            <P>
+              Each of the nine booking statuses has its own tile colour on the Timeline. You can
+              customise any status colour from the <strong>Booking status colours</strong> section:
+            </P>
+            <ol className="space-y-1.5 text-sm text-muted-foreground list-decimal list-inside ml-2 mb-4">
+              <li>Tap a status tile (e.g. <em>Confirmed</em>) to expand its editor.</li>
+              <li>Choose from the 12 preset pastel swatches, or use the colour picker / hex input for a custom colour.</li>
+              <li>Tap <strong>Done</strong> to apply. A border colour is automatically derived from the background you set.</li>
+              <li>Use <strong>Reset all</strong> to return every status to the default palette in one tap.</li>
+            </ol>
+            <InfoBox type="info">
+              Status colour changes apply to the Timeline tiles and the status colour reference swatches
+              in this Help guide immediately. The booking status labels and their meanings do not change —
+              only the visual colour.
+            </InfoBox>
+
+            <H3>Timeline background colour</H3>
+            <P>
+              Change the background colour of the empty canvas area on the Timeline. Six preset swatches
+              range from pure white to soft pastels. You can also use the colour picker or type a hex
+              value for a precise match. The change applies in real time on the Timeline.
+            </P>
+
+            <H3>Closed / unavailable areas colour</H3>
+            <P>
+              The grey shading that marks closed hours and blocked slots on the Timeline can be
+              recoloured here. Six grey and neutral tones are provided, plus a custom picker. The
+              shade is always applied at 38% opacity so it stays subtle over any background.
+            </P>
 
             <H3>Timeline defaults</H3>
             <P>
-              The three toggles in the Timeline defaults section control how the Timeline opens by default:
+              These settings control how the Timeline opens each time. You can also change all of them
+              live from the sidebar while on the Timeline — the Settings page just saves the starting state.
             </P>
             <DataTable
               head={['Setting', 'Description']}
               rows={[
-                ['Side panel mode', 'When on, the booking detail drawer opens as a docked right panel beside the Timeline. When off, it opens as an overlay on top.'],
-                ['Section dividers', 'When on, table sections (Main Floor, Terrace, etc.) are shown as labelled separator rows in the Timeline.'],
-                ['Hide inactive', 'When on, cancelled, no-show, and checked-out bookings are hidden from the Timeline canvas by default.'],
+                ['Default tile mode', 'Compact (default) — dense, one-line tiles. Detailed — three-line tiles showing name, phone, and table allocation.'],
+                ['Compact tile size', 'When in Compact mode, choose S (smallest), M (medium), or L (largest) row and font size.'],
+                ['Wide time columns', 'Increases each hour column from 80 px to 120 px wide — useful on large screens or when bookings are closely spaced.'],
+                ['Side panel mode', 'When on, the booking drawer opens as a docked right panel. When off, it opens as a floating overlay.'],
+                ['Section dividers', 'Show or hide the section label rows (Main Floor, Terrace, etc.) between table groups.'],
+                ['Hide inactive', 'Hide cancelled, no-show, and checked-out bookings from the Timeline canvas by default.'],
               ]}
             />
-            <P>
-              You can also toggle these live from the sidebar while on the Timeline page — the Settings
-              page just sets the starting state when you next open a new session.
-            </P>
+            <InfoBox type="tip">
+              On a large monitor, try Detailed tile mode with Wide time columns for a clear, at-a-glance
+              service view. On a tablet at the host stand, Compact S keeps the maximum number of tables
+              visible without scrolling.
+            </InfoBox>
           </section>
 
           {/* ── WIDGET ────────────────────────────────────── */}
@@ -1142,6 +1191,26 @@ export default function Help() {
                 {
                   q: 'Can I type a number directly into the covers field in the booking drawer?',
                   a: 'Yes. In the booking drawer, tap the covers number in the Guest details section — it becomes a direct-entry field. You can also use the + and − buttons. The value saves when you tap the save button in the drawer header.',
+                },
+                {
+                  q: 'How do I change the colour of a specific booking status on the Timeline?',
+                  a: 'Go to Settings → Booking status colours. Tap the status tile you want to change (e.g. Confirmed). Choose one of the 12 preset swatches or use the colour picker for a custom shade. Tap Done. To restore all statuses to their defaults at once, tap Reset all.',
+                },
+                {
+                  q: 'The Timeline background colour swatch I clicked did not seem to change anything.',
+                  a: 'The colour did apply — the swatch selected applies immediately to the Timeline canvas. If the change is hard to see, try a more distinct colour (e.g. a warm cream or pale blue from the swatches). The colour picker circle in Settings also updates to reflect the newly selected swatch.',
+                },
+                {
+                  q: 'How do I make the Timeline tiles show the phone number and table allocation?',
+                  a: 'Tap the Detail toggle in the sidebar (on the Timeline page) to switch to Detailed tile mode. Each tile will expand to show three lines: name + covers, phone number, and table allocation. You can set Detailed as the default in Settings → Timeline defaults → Default tile mode.',
+                },
+                {
+                  q: 'The booking tiles are too small to read on my large monitor.',
+                  a: 'Two options: (1) In Settings → Timeline defaults, increase the Compact tile size from S to M or L for larger text and row height while staying in compact mode. (2) Switch to Detailed mode using the Detail toggle in the sidebar for the fullest information display. You can also enable Wide time columns in Settings to spread the Timeline out horizontally.',
+                },
+                {
+                  q: 'Can I make the hour columns wider so I can see booking times more clearly?',
+                  a: 'Yes. Go to Settings → Timeline defaults → Wide time columns and toggle it on. This increases each hour column from 80 px to 120 px. The change applies instantly on the Timeline and persists across sessions.',
                 },
               ].map(({ q, a }) => (
                 <div key={q} className="border rounded-lg p-4">

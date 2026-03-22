@@ -42,24 +42,24 @@ const TOTAL_HOURS  = END_HOUR - START_HOUR
 const TOTAL_WIDTH  = TOTAL_HOURS * HOUR_WIDTH
 const LABEL_WIDTH  = 80    // px — must match .timeline-grid { grid-template-columns: 80px 1fr }
 
-function timeToX(iso) {
+function timeToX(iso, hw = HOUR_WIDTH) {
   const d    = parseISO(iso)
   const hours = d.getHours() + d.getMinutes() / 60
-  return (hours - START_HOUR) * HOUR_WIDTH
+  return (hours - START_HOUR) * hw
 }
 
 // Convert a Postgres TIME string ('HH:MM' or 'HH:MM:SS') to canvas x position.
 // Used to convert sitting opens_at/closes_at (not full timestamps) to pixels.
-function sittingTimeToX(t) {
+function sittingTimeToX(t, hw = HOUR_WIDTH) {
   const [h, m] = t.split(':').map(Number)
-  return (h + m / 60 - START_HOUR) * HOUR_WIDTH
+  return (h + m / 60 - START_HOUR) * hw
 }
 
-function durationToWidth(startIso, endIso) {
+function durationToWidth(startIso, endIso, hw = HOUR_WIDTH) {
   const start = parseISO(startIso)
   const end   = parseISO(endIso)
   const mins  = (end - start) / 60_000
-  return (mins / 60) * HOUR_WIDTH
+  return (mins / 60) * hw
 }
 
 // ── Draggable booking card ────────────────────────────────────
@@ -68,15 +68,15 @@ function durationToWidth(startIso, endIso) {
 // tileMode: 'compact' | 'extensive'
 // compactFontSize: 'sm' | 'md' | 'lg'  (ignored in extensive mode)
 // tableById: Map<uuid, table> — used in extensive mode for table label display
-function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false, rowHeight, tileMode = 'compact', compactFontSize = 'sm', tableById }) {
+function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false, rowHeight, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
   })
 
-  const x         = timeToX(booking.starts_at)
+  const x         = timeToX(booking.starts_at, hourWidth)
   const endsAtIso = resizePreviewMs ? new Date(resizePreviewMs).toISOString() : booking.ends_at
-  const w         = durationToWidth(booking.starts_at, endsAtIso)
+  const w         = durationToWidth(booking.starts_at, endsAtIso, hourWidth)
 
   const style = {
     left:      x,
@@ -188,7 +188,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set(), rowHeight = ROW_HEIGHT, tileMode = 'compact', compactFontSize = 'sm', tableById }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set(), rowHeight = ROW_HEIGHT, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -247,7 +247,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
         )}
         style={{
           height: rowHeight,
-          width:  TOTAL_WIDTH,
+          width:  TOTAL_HOURS * hourWidth,
           // Primary rows with spanning cards need a stacking context above row dividers
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
           // Secondary rows pass clicks/drags through to the primary row's spanning card
@@ -260,7 +260,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           <div
             key={i}
             className="absolute top-0 bottom-0 border-l border-border/40"
-            style={{ left: i * HOUR_WIDTH }}
+            style={{ left: i * hourWidth }}
           />
         ))}
 
@@ -294,6 +294,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
               tileMode={tileMode}
               compactFontSize={compactFontSize}
               tableById={tableById}
+              hourWidth={hourWidth}
             />
           )
         })}
@@ -304,17 +305,17 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
 }
 
 // ── Timeline header (hour labels + optional now marker) ────────
-function TimelineHeader({ nowX, nowLabel }) {
+function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH }) {
   return (
     <div className="timeline-grid border-b sticky top-0 bg-background z-10">
       {/* Sticky label cell — z-[12] keeps it above spanning cards (z=5) and canvas stacking contexts (z=3) */}
       <div className="border-r sticky left-0 bg-background z-[12]" style={{ height: 40 }} />
-      <div className="relative overflow-hidden" style={{ width: TOTAL_WIDTH, height: 40 }}>
+      <div className="relative overflow-hidden" style={{ width: TOTAL_HOURS * hourWidth, height: 40 }}>
         {Array.from({ length: TOTAL_HOURS }, (_, i) => (
           <div
             key={i}
             className="absolute top-0 bottom-0 flex items-center border-l border-border/40"
-            style={{ left: i * HOUR_WIDTH, width: HOUR_WIDTH }}
+            style={{ left: i * hourWidth, width: hourWidth }}
           >
             <span className="text-xs text-muted-foreground pl-1">
               {String(START_HOUR + i).padStart(2, '0')}:00
@@ -364,6 +365,15 @@ export default function Timeline() {
   const [panelWidth,       setPanelWidth]       = useState(420)    // px — resizable when docked
   const [nowMs,            setNowMs]            = useState(() => Date.now())
   const isPanelResizing = useRef(false)
+  // Set to true by the resize pointerup handler so the subsequent click event
+  // on the booking card does not open the drawer after a resize drag.
+  const wasResizingRef  = useRef(false)
+
+  // Wrapper used as onBookingClick — swallows the first click that follows a resize.
+  const handleBookingClick = useCallback((booking) => {
+    if (wasResizingRef.current) { wasResizingRef.current = false; return }
+    setSelected(booking)
+  }, [])
 
   const onPanelResizeStart = useCallback((e) => {
     e.preventDefault()
@@ -402,8 +412,8 @@ export default function Timeline() {
     if (date !== today) return null
     const now   = new Date(nowMs)
     const hours = now.getHours() + now.getMinutes() / 60
-    const x     = (hours - START_HOUR) * HOUR_WIDTH
-    return x >= 0 && x <= TOTAL_WIDTH ? x : null
+    const x     = (hours - START_HOUR) * hourWidth
+    return x >= 0 && x <= totalWidth ? x : null
   }, [date, today, nowMs])
 
   const nowLabel = useMemo(() => {
@@ -443,10 +453,13 @@ export default function Timeline() {
   }, [tables])
 
   // Row height derived from current tile mode + compact font size
-  const { tileMode, compactFontSize } = tlSettings
-  const rowHeight = tileMode === 'extensive'
+  const { tileMode, compactFontSize, wideColumns } = tlSettings
+  const rowHeight  = tileMode === 'extensive'
     ? ROW_HEIGHT_MAP.extensive
     : (ROW_HEIGHT_MAP.compact[compactFontSize] ?? ROW_HEIGHT_MAP.compact.sm)
+  // Column width: wide mode is 50% wider than the standard 80 px
+  const hourWidth  = wideColumns ? 120 : HOUR_WIDTH
+  const totalWidth = TOTAL_HOURS * hourWidth
 
   const { data: bookingsRes = [], isLoading, refetch } = useQuery({
     queryKey: ['bookings', venueId, date],
@@ -501,7 +514,7 @@ export default function Timeline() {
     if (sittings === null) return []
 
     // No sittings on this date → entire timeline grey
-    if (sittings.length === 0) return [{ x: 0, width: TOTAL_WIDTH }]
+    if (sittings.length === 0) return [{ x: 0, width: totalWidth }]
 
     const strips = []
 
@@ -509,15 +522,18 @@ export default function Timeline() {
     const sorted = [...sittings].sort((a, b) => a.opens_at.localeCompare(b.opens_at))
 
     // Before first sitting
-    const firstOpenX = sittingTimeToX(sorted[0].opens_at)
+    const firstOpenX = sittingTimeToX(sorted[0].opens_at, hourWidth)
     if (firstOpenX > 0) strips.push({ x: 0, width: firstOpenX })
 
-    // Gaps between sittings + after last sitting
+    // Gaps between sittings + after last sitting.
+    // Use doors_close_time (if set) as the solid-grey boundary so the zone
+    // between closes_at and doors_close_time gets diagonal stripes instead.
     for (let i = 0; i < sorted.length; i++) {
-      const closeX    = sittingTimeToX(sorted[i].closes_at)
+      const effectiveClose = sorted[i].doors_close_time ?? sorted[i].closes_at
+      const closeX    = sittingTimeToX(effectiveClose, hourWidth)
       const nextOpenX = i < sorted.length - 1
-        ? sittingTimeToX(sorted[i + 1].opens_at)
-        : TOTAL_WIDTH   // grey from last sitting close to right edge of canvas
+        ? sittingTimeToX(sorted[i + 1].opens_at, hourWidth)
+        : totalWidth   // grey from doors-close to right edge of canvas
       if (nextOpenX > closeX) {
         strips.push({ x: closeX, width: nextOpenX - closeX })
       }
@@ -530,38 +546,87 @@ export default function Timeline() {
         const gap = new Date(slots[i].slot_time) - new Date(slots[i - 1].slot_time)
         if (gap < intervalMs) intervalMs = gap
       }
-      const intervalPx = (intervalMs / 3_600_000) * HOUR_WIDTH
+      const intervalPx = (intervalMs / 3_600_000) * hourWidth
       for (const slot of slots) {
         if (slot.reason === 'unavailable') {
-          strips.push({ x: timeToX(slot.slot_time), width: intervalPx })
+          strips.push({ x: timeToX(slot.slot_time, hourWidth), width: intervalPx })
         }
       }
     }
 
     return strips
-  }, [sittingsForDate, slotsOverlay])
+  }, [sittingsForDate, slotsOverlay, hourWidth, totalWidth])
 
-  // Convert unavailableStrips into a single CSS linear-gradient that is applied
-  // as the background of the entire rows wrapper div — completely independent of
-  // per-row rendering, z-index, or stacking contexts.  Strips are offset by
-  // LABEL_WIDTH so the label column stays unaffected.  Booking tiles cover the
-  // grey naturally via their own colored backgrounds.
-  const greyBackground = useMemo(() => {
-    if (!unavailableStrips.length) return null
-    const grey = hexToRgba(greyColour, 0.38)
-    const stops = []
-    let prev = 0
-    const sorted = [...unavailableStrips].sort((a, b) => a.x - b.x)
-    for (const { x, width } of sorted) {
-      const ax = x + LABEL_WIDTH
-      const ae = ax + width
-      if (ax > prev) stops.push(`transparent ${prev}px`, `transparent ${ax}px`)
-      stops.push(`${grey} ${ax}px`, `${grey} ${ae}px`)
-      prev = ae
+  // Diagonal-stripe zone: from sitting closes_at (last orders) to doors_close_time.
+  // Uses doors_close_time as the solid-grey boundary in unavailableStrips so the
+  // fully-grey area only starts after the venue physically closes.
+  const doorsCloseStrips = useMemo(() => {
+    const sittings = sittingsForDate?.sittings ?? []
+    return sittings
+      .filter(s => s.doors_close_time && s.doors_close_time > s.closes_at)
+      .map(s => ({
+        x:     sittingTimeToX(s.closes_at,       hourWidth),
+        width: sittingTimeToX(s.doors_close_time, hourWidth) - sittingTimeToX(s.closes_at, hourWidth),
+      }))
+      .filter(s => s.width > 0)
+  }, [sittingsForDate, hourWidth])
+
+  // Build combined wrapper background style:
+  //   Layer 1 (top)    — diagonal stripe for each doors-close zone
+  //   Layer 2 (bottom) — solid grey linear-gradient for truly-closed columns
+  // Layers are combined via CSS multiple-backgrounds (comma-separated image / position / size).
+  const backgroundStyle = useMemo(() => {
+    const stripeCol = hexToRgba(greyColour, 0.38)
+
+    // Solid grey gradient (all unavailable / outside-sitting strips)
+    let greyGradient = null
+    if (unavailableStrips.length) {
+      const stops = []
+      let prev = 0
+      const sorted = [...unavailableStrips].sort((a, b) => a.x - b.x)
+      for (const { x, width } of sorted) {
+        const ax = x + LABEL_WIDTH
+        const ae = ax + width
+        if (ax > prev) stops.push(`transparent ${prev}px`, `transparent ${ax}px`)
+        stops.push(`${stripeCol} ${ax}px`, `${stripeCol} ${ae}px`)
+        prev = ae
+      }
+      stops.push(`transparent ${prev}px`)
+      greyGradient = `linear-gradient(to right, ${stops.join(', ')})`
     }
-    stops.push(`transparent ${prev}px`)
-    return `linear-gradient(to right, ${stops.join(', ')})`
-  }, [unavailableStrips, greyColour])
+
+    const images    = []
+    const positions = []
+    const sizes     = []
+    const repeats   = []
+
+    // Diagonal stripe layers (one per doors-close strip)
+    const stripePattern = `repeating-linear-gradient(-45deg, ${timelineBg} 0px, ${timelineBg} 5px, ${stripeCol} 5px, ${stripeCol} 10px)`
+    for (const { x, width } of doorsCloseStrips) {
+      images.push(stripePattern)
+      positions.push(`${x + LABEL_WIDTH}px 0`)
+      sizes.push(`${width}px 100%`)
+      repeats.push('no-repeat')
+    }
+
+    // Solid grey layer
+    if (greyGradient) {
+      images.push(greyGradient)
+      positions.push('0 0')
+      sizes.push('100% 100%')
+      repeats.push('no-repeat')
+    }
+
+    return {
+      backgroundColor: timelineBg,
+      ...(images.length > 0 ? {
+        backgroundImage:    images.join(', '),
+        backgroundPosition: positions.join(', '),
+        backgroundSize:     sizes.join(', '),
+        backgroundRepeat:   repeats.join(', '),
+      } : {}),
+    }
+  }, [unavailableStrips, doorsCloseStrips, greyColour, timelineBg])
 
   // ── Resize handlers ───────────────────────────────────────
   const resizeMutation = useMutation({
@@ -585,7 +650,7 @@ export default function Timeline() {
     if (!resizeState) return
     function handleMove(e) {
       const deltaPx = e.clientX - resizeState.startX
-      const deltaMs = (deltaPx / HOUR_WIDTH) * 60 * 60 * 1000
+      const deltaMs = (deltaPx / hourWidth) * 60 * 60 * 1000
       const rawMs   = resizeState.originalEndMs + deltaMs
       const minEnd  = resizeState.originalStartMs + 15 * 60 * 1000
       setResizePreviewMs(
@@ -594,7 +659,7 @@ export default function Timeline() {
     }
     function handleUp(e) {
       const deltaPx = e.clientX - resizeState.startX
-      const deltaMs = (deltaPx / HOUR_WIDTH) * 60 * 60 * 1000
+      const deltaMs = (deltaPx / hourWidth) * 60 * 60 * 1000
       const rawMs   = resizeState.originalEndMs + deltaMs
       const minEnd  = resizeState.originalStartMs + 15 * 60 * 1000
       const snapped = Math.round(Math.max(rawMs, minEnd) / (15 * 60 * 1000)) * (15 * 60 * 1000)
@@ -602,6 +667,8 @@ export default function Timeline() {
         bookingId: resizeState.bookingId,
         endsAt:    new Date(snapped).toISOString(),
       })
+      // Flag so the click event that fires after pointerup does not open the drawer
+      wasResizingRef.current = true
       setResizeState(null)
       setResizePreviewMs(null)
     }
@@ -611,7 +678,7 @@ export default function Timeline() {
       document.removeEventListener('pointermove', handleMove)
       document.removeEventListener('pointerup',   handleUp)
     }
-  }, [resizeState])
+  }, [resizeState, hourWidth])
 
   // ── Drag handlers ─────────────────────────────────────────
   // PATCH /move  — same-table time-only shift (lightweight, no conflict cascade)
@@ -678,7 +745,7 @@ export default function Timeline() {
     const tableChanged = !currentTableIds.includes(targetTableId)
 
     // Calculate new start time from horizontal delta (snapped to 15 min)
-    const deltaMins = Math.round((delta.x / HOUR_WIDTH) * 60 / 15) * 15
+    const deltaMins = Math.round((delta.x / hourWidth) * 60 / 15) * 15
     const newStart  = new Date(parseISO(booking.starts_at).getTime() + deltaMins * 60_000)
 
     if (tableChanged) {
@@ -704,7 +771,7 @@ export default function Timeline() {
     const rect     = e.currentTarget.getBoundingClientRect()
     const x        = e.clientX - rect.left
     // Convert pixel offset → minutes since START_HOUR, snapped to 15 min
-    const rawMins  = (x / HOUR_WIDTH) * 60 + START_HOUR * 60
+    const rawMins  = (x / hourWidth) * 60 + START_HOUR * 60
     // Clamp to valid timeline range so clicks at the edge never produce 24:xx or 28:xx
     const snapped  = Math.min(
       (END_HOUR * 60) - 15,          // latest valid slot: 23:45
@@ -869,12 +936,8 @@ export default function Timeline() {
             onDragStart={handleDragStart}
             onDragEnd={handleDragEnd}
           >
-            <div style={{
-              minWidth: 160 + TOTAL_WIDTH,
-              backgroundColor: timelineBg,
-              backgroundImage: greyBackground || undefined,
-            }}>
-              <TimelineHeader nowX={nowX} nowLabel={nowLabel} />
+            <div style={{ minWidth: 160 + totalWidth, ...backgroundStyle }}>
+              <TimelineHeader nowX={nowX} nowLabel={nowLabel} hourWidth={hourWidth} />
 
               {/* ── Unallocated row ─────────────────────────────────────
                   Shown only when the system has pushed bookings here because no
@@ -892,7 +955,7 @@ export default function Timeline() {
                     table={unallocatedTable}
                     bookings={bookingsByTable[unallocatedTable.id] ?? []}
                     date={date}
-                    onBookingClick={setSelected}
+                    onBookingClick={handleBookingClick}
                     activeId={activeId}
                     onResizeStart={handleResizeStart}
                     resizeBookingId={resizeState?.bookingId}
@@ -907,6 +970,7 @@ export default function Timeline() {
                     tileMode={tileMode}
                     compactFontSize={compactFontSize}
                     tableById={tableById}
+                    hourWidth={hourWidth}
                   />
                 </div>
               )}
@@ -926,7 +990,7 @@ export default function Timeline() {
                         table={table}
                         bookings={bookingsByTable[table.id] ?? []}
                         date={date}
-                        onBookingClick={setSelected}
+                        onBookingClick={handleBookingClick}
                         activeId={activeId}
                         onResizeStart={handleResizeStart}
                         resizeBookingId={resizeState?.bookingId}
@@ -949,7 +1013,7 @@ export default function Timeline() {
                     table={table}
                     bookings={bookingsByTable[table.id] ?? []}
                     date={date}
-                    onBookingClick={setSelected}
+                    onBookingClick={handleBookingClick}
                     activeId={activeId}
                     onResizeStart={handleResizeStart}
                     resizeBookingId={resizeState?.bookingId}
@@ -964,6 +1028,7 @@ export default function Timeline() {
                     tileMode={tileMode}
                     compactFontSize={compactFontSize}
                     tableById={tableById}
+                    hourWidth={hourWidth}
                   />
                 ))
               )}

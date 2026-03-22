@@ -143,7 +143,7 @@ export default async function schedulesRoutes(app) {
         if (excTemplate) {
           if (!excTemplate.is_open) return { sittings: [] }
           const sittings = await tx`
-            SELECT opens_at, closes_at
+            SELECT opens_at, closes_at, doors_close_time
               FROM exception_sittings
              WHERE template_id = ${excTemplate.id}
              ORDER BY opens_at
@@ -164,7 +164,7 @@ export default async function schedulesRoutes(app) {
       if (override) {
         if (!override.is_open) return { sittings: [] }
         const sittings = await tx`
-          SELECT opens_at, closes_at
+          SELECT opens_at, closes_at, doors_close_time
             FROM override_sittings
            WHERE override_id = ${override.id}
            ORDER BY opens_at
@@ -183,7 +183,7 @@ export default async function schedulesRoutes(app) {
       if (!template || !template.is_open) return { sittings: [] }
 
       const sittings = await tx`
-        SELECT opens_at, closes_at
+        SELECT opens_at, closes_at, doors_close_time
           FROM venue_sittings
          WHERE template_id = ${template.id}
          ORDER BY opens_at

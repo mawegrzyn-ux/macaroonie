@@ -1,7 +1,7 @@
 // src/pages/Settings.jsx
 // Global app settings — theme colour, status colours, timeline background, timeline defaults.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Eye, EyeOff, Layers, Columns, Check, RotateCcw } from 'lucide-react'
 import {
   useSettings,
@@ -64,6 +64,12 @@ function ColourPickerRow({ value, onChange, swatches, activeHex, label }) {
   const [hexInput, setHexInput] = useState(value)
   const [applied, setApplied] = useState(false)
 
+  // Sync local input state when the context value changes externally
+  // (e.g. clicking a swatch button rendered outside this component)
+  useEffect(() => {
+    if (/^#[0-9a-fA-F]{6}$/.test(value)) setHexInput(value)
+  }, [value])
+
   function commit(hex) {
     if (/^#[0-9a-fA-F]{6}$/.test(hex)) {
       onChange(hex)
@@ -74,8 +80,8 @@ function ColourPickerRow({ value, onChange, swatches, activeHex, label }) {
 
   return (
     <div className="space-y-3">
-      {/* Preset swatches */}
-      <div className="flex gap-1.5 flex-wrap">
+      {/* Preset swatches — only rendered when swatches are provided */}
+      {swatches.length > 0 && <div className="flex gap-1.5 flex-wrap">
         {swatches.map(hex => (
           <button
             key={hex}
@@ -89,7 +95,7 @@ function ColourPickerRow({ value, onChange, swatches, activeHex, label }) {
             title={hex}
           />
         ))}
-      </div>
+      </div>}
 
       {/* Native colour picker + hex text */}
       <div className="flex items-center gap-2">
@@ -384,30 +390,11 @@ export default function Settings() {
             Changes apply immediately and are saved for next visit.
           </p>
 
-          {/* ── Divider ── */}
-          <div className="border-t pt-5 -mx-5 px-5">
-            <p className="text-sm font-medium mb-1">Timeline background</p>
-            <p className="text-xs text-muted-foreground mb-4">
-              Background colour of the empty areas on the Timeline canvas.
-            </p>
-
-            {/* 6 predefined bg swatches */}
-            <div className="flex gap-2 flex-wrap mb-3">
-              {TIMELINE_BG_SWATCHES.map(hex => (
-                <button
-                  key={hex}
-                  type="button"
-                  onClick={() => setTimelineBg(hex)}
-                  className={cn(
-                    'w-8 h-8 rounded-lg border-2 touch-manipulation transition-transform hover:scale-110',
-                    timelineBg === hex ? 'border-foreground scale-110' : 'border-border',
-                  )}
-                  style={{ background: hex }}
-                  title={hex}
-                />
-              ))}
-            </div>
-
+          {/* ── Timeline background ── */}
+          <SettingRow
+            label="Timeline background"
+            description="Background colour of the empty areas on the Timeline canvas."
+          >
             <ColourPickerRow
               value={timelineBg}
               activeHex={timelineBg}
@@ -415,30 +402,28 @@ export default function Settings() {
               swatches={[]}
               label="timeline background"
             />
+          </SettingRow>
+          <div className="flex gap-2 flex-wrap -mt-2">
+            {TIMELINE_BG_SWATCHES.map(hex => (
+              <button
+                key={hex}
+                type="button"
+                onClick={() => setTimelineBg(hex)}
+                className={cn(
+                  'w-8 h-8 rounded-lg border-2 touch-manipulation transition-transform hover:scale-110',
+                  timelineBg === hex ? 'border-foreground scale-110' : 'border-border',
+                )}
+                style={{ background: hex }}
+                title={hex}
+              />
+            ))}
           </div>
 
-          {/* ── Divider ── */}
-          <div className="border-t pt-5 -mx-5 px-5">
-            <p className="text-sm font-medium mb-1">Closed / unavailable areas</p>
-            <p className="text-xs text-muted-foreground mb-4">
-              Colour of the grey shading that marks closed hours and blocked slots on the Timeline.
-              Applied at 38% opacity so the shade stays subtle over any background.
-            </p>
-            <div className="flex gap-2 flex-wrap mb-3">
-              {['#8c8c8c', '#a09080', '#8090a8', '#6b7280', '#b0b0b0', '#707060'].map(hex => (
-                <button
-                  key={hex}
-                  type="button"
-                  onClick={() => setGreyColour(hex)}
-                  className={cn(
-                    'w-8 h-8 rounded-lg border-2 touch-manipulation transition-transform hover:scale-110',
-                    greyColour === hex ? 'border-foreground scale-110' : 'border-transparent',
-                  )}
-                  style={{ background: hex }}
-                  title={hex}
-                />
-              ))}
-            </div>
+          {/* ── Closed / unavailable areas ── */}
+          <SettingRow
+            label="Closed / unavailable areas"
+            description="Shading colour for closed hours and blocked slots. Applied at 38% opacity. Also used as one stripe colour for the last-orders → doors-close transitional zone."
+          >
             <ColourPickerRow
               value={greyColour}
               activeHex={greyColour}
@@ -446,6 +431,21 @@ export default function Settings() {
               swatches={[]}
               label="unavailable areas colour"
             />
+          </SettingRow>
+          <div className="flex gap-2 flex-wrap -mt-2">
+            {['#8c8c8c', '#a09080', '#8090a8', '#6b7280', '#b0b0b0', '#707060'].map(hex => (
+              <button
+                key={hex}
+                type="button"
+                onClick={() => setGreyColour(hex)}
+                className={cn(
+                  'w-8 h-8 rounded-lg border-2 touch-manipulation transition-transform hover:scale-110',
+                  greyColour === hex ? 'border-foreground scale-110' : 'border-transparent',
+                )}
+                style={{ background: hex }}
+                title={hex}
+              />
+            ))}
           </div>
 
           {/* ── Divider ── */}
@@ -513,6 +513,13 @@ export default function Settings() {
                 </button>
               ))}
             </div>
+          </SettingRow>
+
+          <SettingRow
+            label="Wide time columns"
+            description="Increase the width of each hour column by 50% (80 → 120 px) for more precise booking placement."
+          >
+            <Toggle value={tlSettings.wideColumns} onChange={tlSettings.setWideColumns} label="Toggle wide columns" />
           </SettingRow>
 
           <SettingRow

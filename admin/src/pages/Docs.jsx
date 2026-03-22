@@ -168,14 +168,14 @@ export default function Docs() {
             <DataTable
               head={['Page', 'Route', 'Purpose']}
               rows={[
-                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click → ManualAllocModal. Grey columns = closed or cap=0. Red current-time line (today only). FAB (+ button) bottom-right for new bookings.'],
+                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click → ManualAllocModal. Grey columns = closed or cap=0. Red current-time line (today only). FAB (+ button) bottom-right for new bookings. Two tile modes: compact (configurable S/M/L row height) and extensive (3-line). Hour column width: 80 px (standard) or 120 px (wide). All controlled via TimelineSettingsContext.'],
                 ['Bookings', '/bookings', 'Guestplan-style time-grouped list. Stats bar. Inline status change. Phone visible. Permanent resizable right panel (BookingDrawer inlineMode).'],
                 ['Customers', '/customers', 'Customer profiles. Search by name/email/phone. GDPR anonymise and export. Auto-populated from booking confirms.'],
                 ['Venues', '/venues', 'Create and manage restaurant locations.'],
                 ['Tables', '/tables', 'Add tables, define sections, create combinations, set sort order, manage disallowed pairs.'],
                 ['Schedule', '/schedule', 'Weekly template sittings, slot caps, date overrides, schedule exceptions.'],
                 ['Rules', '/rules', 'Booking window, covers limits, hold TTL, smart allocation flags, deposit config, unconfirmed/reconfirmed flow toggles, opening hours enforcement.'],
-                ['Settings', '/settings', 'Theme colour (applied live via CSS custom properties). Timeline view defaults (panel mode, section dividers, hide inactive). Persisted to localStorage.'],
+                ['Settings', '/settings', 'Appearance: theme colour, per-status booking colours (9 statuses, CSS custom properties), timeline background colour, closed-area shading colour. Timeline defaults: tile mode, compact font size, wide columns toggle, panel mode, section dividers, hide inactive. All persisted to localStorage.'],
                 ['Team', '/team', 'Invite staff via Auth0 Management API (in development).'],
                 ['Widget test', '/widget-test', 'Runs the full guest booking flow in the portal for testing.'],
                 ['Documentation', '/docs', 'This page.'],
@@ -268,12 +268,30 @@ export default function Docs() {
 
             <H3>Settings page</H3>
             <P>
-              Route <Mono>/settings</Mono>. Persists two concerns:
+              Route <Mono>/settings</Mono>. All values persist across sessions via localStorage.
             </P>
-            <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
-              <li><strong>Theme colour</strong> — stored in <Mono>SettingsContext</Mono> (<Mono>maca_settings</Mono> localStorage key). Applied at runtime by converting hex → HSL and writing to <Mono>--primary</Mono> and <Mono>--primary-foreground</Mono> CSS variables on <Mono>:root</Mono>. Foreground is auto-chosen (white/near-black) based on relative luminance.</li>
-              <li><strong>Timeline view defaults</strong> — panel mode, section dividers, hide inactive. Delegates to <Mono>TimelineSettingsContext</Mono> setters which already persist to <Mono>maca_timeline_prefs</Mono>.</li>
-            </ul>
+            <DataTable
+              head={['Setting group', 'Storage', 'Details']}
+              rows={[
+                ['Theme colour', 'maca_settings (SettingsContext)', 'Hex → HSL conversion writes --primary / --primary-foreground CSS vars on :root. Foreground auto-chosen by relative luminance.'],
+                ['Booking status colours', 'maca_settings (SettingsContext)', '9 statuses. Each stores a bg hex. Border auto-derived via deriveBorderFromBg() (HSL lightness −30pp). Written as --status-{name}-bg/bd CSS custom properties. applyStatusColours() called on mount + on every change.'],
+                ['Timeline background colour', 'maca_settings (SettingsContext)', 'Applied as backgroundColor on the Timeline rows wrapper div. Default #ffffff.'],
+                ['Closed/unavailable area colour', 'maca_settings (SettingsContext)', 'Applied at 38% opacity via hexToRgba() inside the greyBackground CSS linear-gradient. Default #8c8c8c.'],
+                ['Default tile mode', 'maca_timeline_prefs (TimelineSettingsContext)', "'compact' | 'extensive'. Compact = single-row tile with configurable font size. Extensive = 3-line tile (name+covers, phone, table). Row height: compact sm=36, md=44, lg=52; extensive=72."],
+                ['Compact tile size', 'maca_timeline_prefs (TimelineSettingsContext)', "'sm' | 'md' | 'lg'. Only applies in compact mode. Controls font sizes and row height via ROW_HEIGHT_MAP."],
+                ['Wide time columns', 'maca_timeline_prefs (TimelineSettingsContext)', 'Boolean. hourWidth = wideColumns ? 120 : 80. All pixel calculations (timeToX, durationToWidth, sittingTimeToX, canvas width, drag/resize deltas) use hourWidth at runtime.'],
+                ['Side panel mode', 'maca_timeline_prefs (TimelineSettingsContext)', 'BookingDrawer rendered as docked panel (inlineMode) vs floating overlay.'],
+                ['Section dividers', 'maca_timeline_prefs (TimelineSettingsContext)', 'Show/hide section label rows in Timeline.'],
+                ['Hide inactive', 'maca_timeline_prefs (TimelineSettingsContext)', 'Filter out cancelled/no_show/checked_out bookings from canvas.'],
+              ]}
+            />
+            <H3>ColourPickerRow sync pattern</H3>
+            <P>
+              <Mono>ColourPickerRow</Mono> uses local <Mono>hexInput</Mono> state for the colour wheel and hex input.
+              A <Mono>useEffect(() =&gt; setHexInput(value), [value])</Mono> syncs it whenever the context value
+              changes externally (e.g. clicking a swatch button rendered outside the component).
+              Without this, external swatch clicks update the context but the picker circle shows the stale colour.
+            </P>
           </section>
 
           {/* ── MULTITENANCY ──────────────────────────────── */}

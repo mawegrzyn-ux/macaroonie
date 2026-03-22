@@ -27,9 +27,10 @@ function loadPrefs() {
       tileMode:        s?.tileMode        ?? 'compact',
       compactFontSize: s?.compactFontSize ?? 'sm',
       selectedDate:    s?.selectedDate    ?? todayStr(),
+      wideColumns:     s?.wideColumns     ?? false,
     }
   } catch {
-    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm', selectedDate: todayStr() }
+    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm', selectedDate: todayStr(), wideColumns: false }
   }
 }
 
@@ -46,6 +47,7 @@ export function TimelineSettingsProvider({ children }) {
   const [tileMode,         setTileMode]         = useState(prefs.tileMode)
   const [compactFontSize,  setCompactFontSize]  = useState(prefs.compactFontSize)
   const [selectedDate,     setSelectedDate]     = useState(prefs.selectedDate)
+  const [wideColumns,      setWideColumns]      = useState(prefs.wideColumns)
   // Counter that Timeline watches to trigger a manual refetch
   const [refetchTrigger,   setRefetchTrigger]   = useState(0)
 
@@ -53,8 +55,8 @@ export function TimelineSettingsProvider({ children }) {
 
   // Persist view prefs whenever they change
   useEffect(() => {
-    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate })
-  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate])
+    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns })
+  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns])
 
   return (
     <TimelineSettingsCtx.Provider value={{
@@ -65,6 +67,7 @@ export function TimelineSettingsProvider({ children }) {
       tileMode,         setTileMode,
       compactFontSize,  setCompactFontSize,
       selectedDate,     setSelectedDate,
+      wideColumns,      setWideColumns,
       refetchTrigger,   triggerRefetch,
     }}>
       {children}
