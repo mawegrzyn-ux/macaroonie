@@ -9,6 +9,7 @@ const Ctx = createContext(null)
 const STORAGE_KEY = 'maca_settings'
 export const DEFAULT_THEME_HEX    = '#630812'
 export const DEFAULT_TIMELINE_BG  = '#ffffff'
+export const DEFAULT_GREY_COLOUR  = '#8c8c8c'
 
 export const DEFAULT_STATUS_COLOURS = {
   unconfirmed:     '#fed7aa',
@@ -20,6 +21,16 @@ export const DEFAULT_STATUS_COLOURS = {
   checked_out:     '#e5e7eb',
   cancelled:       '#fca5a5',
   no_show:         '#d1d5db',
+}
+
+// Convert a hex colour + alpha to a CSS rgba() string.
+// Used so stored hex colours can be applied with a specific opacity.
+export function hexToRgba(hex, alpha = 1) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return `rgba(140,140,140,${alpha})`
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${alpha})`
 }
 
 // ── Colour helpers ──────────────────────────────────────────────
@@ -117,9 +128,10 @@ function load() {
       themeHex:      s.themeHex      ?? DEFAULT_THEME_HEX,
       statusColours: { ...DEFAULT_STATUS_COLOURS, ...(s.statusColours ?? {}) },
       timelineBg:    s.timelineBg    ?? DEFAULT_TIMELINE_BG,
+      greyColour:    s.greyColour    ?? DEFAULT_GREY_COLOUR,
     }
   } catch {
-    return { themeHex: DEFAULT_THEME_HEX, statusColours: DEFAULT_STATUS_COLOURS, timelineBg: DEFAULT_TIMELINE_BG }
+    return { themeHex: DEFAULT_THEME_HEX, statusColours: DEFAULT_STATUS_COLOURS, timelineBg: DEFAULT_TIMELINE_BG, greyColour: DEFAULT_GREY_COLOUR }
   }
 }
 
@@ -167,15 +179,21 @@ export function SettingsProvider({ children }) {
     update({ timelineBg: hex })
   }, [])
 
+  const setGreyColour = useCallback((hex) => {
+    update({ greyColour: hex })
+  }, [])
+
   return (
     <Ctx.Provider value={{
       themeHex:           settings.themeHex,
       statusColours:      settings.statusColours,
       timelineBg:         settings.timelineBg,
+      greyColour:         settings.greyColour,
       setThemeHex,
       setStatusColour,
       resetStatusColours,
       setTimelineBg,
+      setGreyColour,
     }}>
       {children}
     </Ctx.Provider>

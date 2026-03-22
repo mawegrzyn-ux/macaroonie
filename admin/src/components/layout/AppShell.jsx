@@ -8,7 +8,7 @@ import {
   Building2, Table2, Clock, Settings, Users, UserRound,
   LogOut, LayoutTemplate, Menu, X,
   BookMarked, HelpCircle, SlidersHorizontal,
-  Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns,
+  Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -229,6 +229,19 @@ export default function AppShell() {
                     Panel
                   </button>
                   <button
+                    onClick={() => tlSettings.setTileMode(m => m === 'compact' ? 'extensive' : 'compact')}
+                    title={tlSettings.tileMode === 'extensive' ? 'Switch to compact tiles' : 'Switch to detailed tiles'}
+                    className={cn(
+                      'flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation transition-colors',
+                      tlSettings.tileMode === 'extensive'
+                        ? 'bg-primary/10 text-primary border-primary/30'
+                        : 'text-muted-foreground border-border hover:bg-accent',
+                    )}
+                  >
+                    <LayoutList className="w-3 h-3" />
+                    Detail
+                  </button>
+                  <button
                     onClick={tlSettings.triggerRefetch}
                     title="Refresh timeline"
                     className="flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation text-muted-foreground border-border hover:bg-accent transition-colors"
@@ -278,6 +291,16 @@ export default function AppShell() {
                   )}
                 >
                   <Columns className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => tlSettings.setTileMode(m => m === 'compact' ? 'extensive' : 'compact')}
+                  title={tlSettings.tileMode === 'extensive' ? 'Compact tiles' : 'Detailed tiles'}
+                  className={cn(
+                    'p-2 rounded touch-manipulation transition-colors',
+                    tlSettings.tileMode === 'extensive' ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:bg-accent',
+                  )}
+                >
+                  <LayoutList className="w-4 h-4" />
                 </button>
                 <button
                   onClick={tlSettings.triggerRefetch}

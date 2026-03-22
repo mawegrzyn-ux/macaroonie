@@ -18,9 +18,11 @@ function loadPrefs() {
       hideInactive:    s?.hideInactive    ?? false,
       groupBySections: s?.groupBySections ?? true,
       panelMode:       s?.panelMode       ?? true,
+      tileMode:        s?.tileMode        ?? 'compact',
+      compactFontSize: s?.compactFontSize ?? 'sm',
     }
   } catch {
-    return { hideInactive: false, groupBySections: true, panelMode: true }
+    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm' }
   }
 }
 
@@ -34,6 +36,8 @@ export function TimelineSettingsProvider({ children }) {
   const [hideInactive,     setHideInactive]     = useState(prefs.hideInactive)
   const [groupBySections,  setGroupBySections]  = useState(prefs.groupBySections)
   const [panelMode,        setPanelMode]        = useState(prefs.panelMode)
+  const [tileMode,         setTileMode]         = useState(prefs.tileMode)
+  const [compactFontSize,  setCompactFontSize]  = useState(prefs.compactFontSize)
   // Counter that Timeline watches to trigger a manual refetch
   const [refetchTrigger,   setRefetchTrigger]   = useState(0)
 
@@ -41,16 +45,18 @@ export function TimelineSettingsProvider({ children }) {
 
   // Persist view prefs whenever they change
   useEffect(() => {
-    savePrefs({ hideInactive, groupBySections, panelMode })
-  }, [hideInactive, groupBySections, panelMode])
+    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize })
+  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize])
 
   return (
     <TimelineSettingsCtx.Provider value={{
-      venueId,         setVenueId,
-      hideInactive,    setHideInactive,
-      groupBySections, setGroupBySections,
-      panelMode,       setPanelMode,
-      refetchTrigger,  triggerRefetch,
+      venueId,          setVenueId,
+      hideInactive,     setHideInactive,
+      groupBySections,  setGroupBySections,
+      panelMode,        setPanelMode,
+      tileMode,         setTileMode,
+      compactFontSize,  setCompactFontSize,
+      refetchTrigger,   triggerRefetch,
     }}>
       {children}
     </TimelineSettingsCtx.Provider>

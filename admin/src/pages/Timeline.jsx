@@ -15,19 +15,28 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, TriangleAlert } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, TriangleAlert, Phone, Info } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
-import { useSettings } from '@/contexts/SettingsContext'
+import { useSettings, hexToRgba } from '@/contexts/SettingsContext'
 
 // ── Constants ────────────────────────────────────────────────
 const HOUR_WIDTH   = 80     // px per hour
-const ROW_HEIGHT   = 32     // px per table row (compact single-line)
 const START_HOUR   = 9      // timeline starts at 09:00
+
+// Row height per tile mode / compact font size.
+// Compact heights give slightly larger tiles vs the original 32 px for readability.
+// Extensive height fits 3 lines of booking info.
+const ROW_HEIGHT_MAP = {
+  compact: { sm: 36, md: 44, lg: 52 },
+  extensive: 72,
+}
+// Fallback used anywhere that still references the old constant (e.g. initial render)
+const ROW_HEIGHT   = 36
 const END_HOUR     = 24     // timeline ends at 24:00
 const TOTAL_HOURS  = END_HOUR - START_HOUR
 const TOTAL_WIDTH  = TOTAL_HOURS * HOUR_WIDTH
@@ -56,30 +65,46 @@ function durationToWidth(startIso, endIso) {
 // ── Draggable booking card ────────────────────────────────────
 // spanRows: 1 = normal single-row card
 //           N = spans N consecutive table rows (height multiplied)
-// enableUnconfirmedFlow: show Confirm button when status === 'unconfirmed'
-function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false }) {
+// tileMode: 'compact' | 'extensive'
+// compactFontSize: 'sm' | 'md' | 'lg'  (ignored in extensive mode)
+// tableById: Map<uuid, table> — used in extensive mode for table label display
+function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false, rowHeight, tileMode = 'compact', compactFontSize = 'sm', tableById }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
   })
 
-  const x        = timeToX(booking.starts_at)
+  const x         = timeToX(booking.starts_at)
   const endsAtIso = resizePreviewMs ? new Date(resizePreviewMs).toISOString() : booking.ends_at
-  const w        = durationToWidth(booking.starts_at, endsAtIso)
+  const w         = durationToWidth(booking.starts_at, endsAtIso)
 
   const style = {
     left:      x,
     width:     Math.max(w - 4, 40),
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-    // Spanning cards use explicit height; normal cards use CSS bottom:4px
-    ...(spanRows > 1 ? { height: ROW_HEIGHT * spanRows - 8, bottom: 'auto' } : {}),
-    // Z-order: dragging > spanning > active > inactive.
-    // Inactive (cancelled/no_show) render below active bookings so when a new
-    // booking occupies the same slot, the active card always shows on top.
+    ...(spanRows > 1 ? { height: rowHeight * spanRows - 8, bottom: 'auto' } : {}),
     zIndex: isDragging ? 20 : spanRows > 1 ? 5 : (['cancelled','no_show','checked_out'].includes(booking.status) ? 0 : 1),
   }
 
   const showConfirmBtn = enableUnconfirmedFlow && booking.status === 'unconfirmed'
+  const hasNotes = !!(booking.operator_notes || booking.guest_notes)
+
+  // Table label string for extensive mode
+  const tableDisplay = (() => {
+    const ids = booking.member_table_ids?.length
+      ? booking.member_table_ids
+      : booking.table_id ? [booking.table_id] : []
+    if (!ids.length) return null
+    return ids.map(id => tableById?.get(id)?.label ?? '?').join(' + ')
+  })()
+
+  // ── Compact tile ──────────────────────────────────────────
+  // Font/padding scales with compactFontSize setting
+  const compactCfg = {
+    sm: { covers: 'text-[11px]', name: 'text-[12px]', pl: 'pl-2',   gap: 'gap-1'   },
+    md: { covers: 'text-[12px]', name: 'text-[13px]', pl: 'pl-2.5', gap: 'gap-1.5' },
+    lg: { covers: 'text-[14px]', name: 'text-[15px]', pl: 'pl-3',   gap: 'gap-1.5' },
+  }[compactFontSize] ?? { covers: 'text-[11px]', name: 'text-[12px]', pl: 'pl-2', gap: 'gap-1' }
 
   return (
     <div
@@ -88,43 +113,68 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
       {...listeners}
       {...attributes}
       onClick={(e) => { e.stopPropagation(); onClick(booking) }}
-      className={cn(
-        'timeline-slot overflow-hidden',
-        booking.status,
-        isDragging && 'dragging'
-      )}
+      className={cn('timeline-slot overflow-hidden', booking.status, isDragging && 'dragging')}
     >
-      {/* Single compact row: covers · name */}
-      <div className="flex items-center h-full pl-1.5 pr-[18px] gap-1 min-w-0">
-        {/* Covers badge */}
-        <span className="text-[10px] font-bold tabular-nums shrink-0 opacity-70 leading-none">
-          {booking.covers}
-        </span>
-        {overCapacity && <TriangleAlert className="w-2.5 h-2.5 text-orange-600 shrink-0" />}
-        {/* Guest name — truncates if card is too narrow */}
-        <span className="text-[11px] font-semibold truncate leading-none">
-          {booking.guest_name}
-        </span>
-        {/* B2: Quick-confirm — tiny inline tick when unconfirmed flow is on */}
-        {showConfirmBtn && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onConfirm(booking.id) }}
-            className="shrink-0 text-[9px] px-1 py-0.5 rounded bg-amber-500 hover:bg-amber-600
-              text-white font-bold leading-none touch-manipulation"
-          >
-            ✓
-          </button>
-        )}
-      </div>
+      {tileMode === 'extensive' ? (
+        /* ── Extensive layout: 3 info lines ─────────────────── */
+        <div className="flex flex-col justify-center h-full pl-2 pr-[18px] py-1 gap-[3px] min-w-0">
+          {/* Line 1: covers · name · overCapacity · notes icon · confirm btn */}
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="text-[11px] font-bold tabular-nums shrink-0 opacity-80 leading-none">
+              {booking.covers}
+            </span>
+            {overCapacity && <TriangleAlert className="w-2.5 h-2.5 text-orange-600 shrink-0" />}
+            <span className="text-[12px] font-semibold truncate leading-none flex-1">
+              {booking.guest_name}
+            </span>
+            {hasNotes && (
+              <Info className="w-3 h-3 shrink-0 opacity-50" />
+            )}
+            {showConfirmBtn && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onConfirm(booking.id) }}
+                className="shrink-0 text-[9px] px-1 py-0.5 rounded bg-amber-500 hover:bg-amber-600 text-white font-bold leading-none touch-manipulation"
+              >✓</button>
+            )}
+          </div>
+          {/* Line 2: phone */}
+          <div className="flex items-center gap-1 min-w-0">
+            <Phone className="w-2.5 h-2.5 shrink-0 opacity-50" />
+            <span className="text-[10px] opacity-70 truncate leading-none">
+              {booking.guest_phone || '—'}
+            </span>
+          </div>
+          {/* Line 3: table allocation */}
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="text-[10px] font-medium opacity-50 shrink-0 leading-none">T</span>
+            <span className="text-[10px] opacity-70 truncate leading-none font-medium">
+              {tableDisplay || '—'}
+            </span>
+          </div>
+        </div>
+      ) : (
+        /* ── Compact layout: single row ─────────────────────── */
+        <div className={cn('flex items-center h-full pr-[18px] gap-1 min-w-0', compactCfg.pl, compactCfg.gap)}>
+          <span className={cn('font-bold tabular-nums shrink-0 opacity-70 leading-none', compactCfg.covers)}>
+            {booking.covers}
+          </span>
+          {overCapacity && <TriangleAlert className="w-2.5 h-2.5 text-orange-600 shrink-0" />}
+          <span className={cn('font-semibold truncate leading-none', compactCfg.name)}>
+            {booking.guest_name}
+          </span>
+          {showConfirmBtn && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onConfirm(booking.id) }}
+              className="shrink-0 text-[9px] px-1 py-0.5 rounded bg-amber-500 hover:bg-amber-600 text-white font-bold leading-none touch-manipulation"
+            >✓</button>
+          )}
+        </div>
+      )}
 
-      {/* Resize handle — kept at right: 8px so it falls inside the arrow clip polygon at all heights */}
+      {/* Resize handle */}
       <div
         className="absolute right-[8px] top-0 bottom-0 w-2 cursor-ew-resize hover:bg-black/10"
-        onPointerDown={(e) => {
-          e.stopPropagation()
-          e.preventDefault()
-          onResizeStart(booking, e.clientX)
-        }}
+        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); onResizeStart(booking, e.clientX) }}
       />
     </div>
   )
@@ -138,7 +188,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set() }) {
+function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set(), rowHeight = ROW_HEIGHT, tileMode = 'compact', compactFontSize = 'sm', tableById }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -196,7 +246,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
             : isOver ? 'bg-blue-50' : 'cursor-cell',
         )}
         style={{
-          height: ROW_HEIGHT,
+          height: rowHeight,
           width:  TOTAL_WIDTH,
           // Primary rows with spanning cards need a stacking context above row dividers
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
@@ -240,6 +290,10 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
               enableUnconfirmedFlow={enableUnconfirmedFlow}
               onConfirm={onConfirm}
               overCapacity={overCapacityIds.has(b.id)}
+              rowHeight={rowHeight}
+              tileMode={tileMode}
+              compactFontSize={compactFontSize}
+              tableById={tableById}
             />
           )
         })}
@@ -294,7 +348,7 @@ export default function Timeline() {
   // View settings shared with AppShell sidebar (panelMode now lives in context)
   const tlSettings = useTimelineSettings()
   const { hideInactive, groupBySections, panelMode, refetchTrigger } = tlSettings
-  const { timelineBg } = useSettings()
+  const { timelineBg, greyColour } = useSettings()
 
   const [date,            setDate]          = useState(format(new Date(), 'yyyy-MM-dd'))
   const [activeId,        setActiveId]      = useState(null)
@@ -377,6 +431,19 @@ export default function Timeline() {
     queryFn:  () => api.get(`/venues/${venueId}/tables`),
     enabled:  !!venueId,
   })
+
+  // Fast id → table lookup used by BookingCard in extensive mode to show table labels
+  const tableById = useMemo(() => {
+    const m = new Map()
+    for (const t of tables) m.set(t.id, t)
+    return m
+  }, [tables])
+
+  // Row height derived from current tile mode + compact font size
+  const { tileMode, compactFontSize } = tlSettings
+  const rowHeight = tileMode === 'extensive'
+    ? ROW_HEIGHT_MAP.extensive
+    : (ROW_HEIGHT_MAP.compact[compactFontSize] ?? ROW_HEIGHT_MAP.compact.sm)
 
   const { data: bookingsRes = [], isLoading, refetch } = useQuery({
     queryKey: ['bookings', venueId, date],
@@ -478,7 +545,7 @@ export default function Timeline() {
   // grey naturally via their own colored backgrounds.
   const greyBackground = useMemo(() => {
     if (!unavailableStrips.length) return null
-    const grey = 'rgba(140,140,140,0.38)'
+    const grey = hexToRgba(greyColour, 0.38)
     const stops = []
     let prev = 0
     const sorted = [...unavailableStrips].sort((a, b) => a.x - b.x)
@@ -491,7 +558,7 @@ export default function Timeline() {
     }
     stops.push(`transparent ${prev}px`)
     return `linear-gradient(to right, ${stops.join(', ')})`
-  }, [unavailableStrips])
+  }, [unavailableStrips, greyColour])
 
   // ── Resize handlers ───────────────────────────────────────
   const resizeMutation = useMutation({
@@ -832,6 +899,10 @@ export default function Timeline() {
                     onConfirm={confirmStatusMutation.mutate}
                     nowX={nowX}
                     overCapacityIds={overCapacityIds}
+                    rowHeight={rowHeight}
+                    tileMode={tileMode}
+                    compactFontSize={compactFontSize}
+                    tableById={tableById}
                   />
                 </div>
               )}
@@ -885,6 +956,10 @@ export default function Timeline() {
                     onConfirm={confirmStatusMutation.mutate}
                     nowX={nowX}
                     overCapacityIds={overCapacityIds}
+                    rowHeight={rowHeight}
+                    tileMode={tileMode}
+                    compactFontSize={compactFontSize}
+                    tableById={tableById}
                   />
                 ))
               )}
@@ -893,12 +968,25 @@ export default function Timeline() {
             {/* Drag overlay — ghost card while dragging (explicit z-index beats sticky headers) */}
             <DragOverlay style={{ zIndex: 999 }}>
               {activeBooking && (
-                <div className={cn('timeline-slot w-28 shadow-xl', activeBooking.status)}
-                  style={{ height: ROW_HEIGHT - 4 }}>
-                  <div className="flex items-center h-full pl-1.5 pr-4 gap-1">
-                    <span className="text-[10px] font-bold opacity-70 shrink-0">{activeBooking.covers}</span>
-                    <span className="text-[11px] font-semibold truncate">{activeBooking.guest_name}</span>
-                  </div>
+                <div className={cn('timeline-slot w-36 shadow-xl', activeBooking.status)}
+                  style={{ height: rowHeight - 4 }}>
+                  {tileMode === 'extensive' ? (
+                    <div className="flex flex-col justify-center h-full pl-2 pr-2 py-1 gap-[3px] min-w-0">
+                      <div className="flex items-center gap-1 min-w-0">
+                        <span className="text-[11px] font-bold opacity-80 shrink-0">{activeBooking.covers}</span>
+                        <span className="text-[12px] font-semibold truncate">{activeBooking.guest_name}</span>
+                      </div>
+                      <div className="flex items-center gap-1 min-w-0">
+                        <Phone className="w-2.5 h-2.5 shrink-0 opacity-50" />
+                        <span className="text-[10px] opacity-70 truncate">{activeBooking.guest_phone || '—'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center h-full pl-2 pr-4 gap-1.5">
+                      <span className="text-[11px] font-bold opacity-70 shrink-0">{activeBooking.covers}</span>
+                      <span className="text-[12px] font-semibold truncate">{activeBooking.guest_name}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </DragOverlay>

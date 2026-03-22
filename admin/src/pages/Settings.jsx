@@ -7,6 +7,7 @@ import {
   useSettings,
   DEFAULT_THEME_HEX,
   DEFAULT_TIMELINE_BG,
+  DEFAULT_GREY_COLOUR,
   hexToHsl,
   deriveBorderFromBg,
 } from '@/contexts/SettingsContext'
@@ -296,7 +297,7 @@ const TIMELINE_BG_SWATCHES = [
 ]
 
 export default function Settings() {
-  const { themeHex, setThemeHex, timelineBg, setTimelineBg } = useSettings()
+  const { themeHex, setThemeHex, timelineBg, setTimelineBg, greyColour, setGreyColour } = useSettings()
   const tlSettings = useTimelineSettings()
 
   // Local hex input state so user can type freely; only apply on blur/enter
@@ -418,6 +419,37 @@ export default function Settings() {
 
           {/* ── Divider ── */}
           <div className="border-t pt-5 -mx-5 px-5">
+            <p className="text-sm font-medium mb-1">Closed / unavailable areas</p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Colour of the grey shading that marks closed hours and blocked slots on the Timeline.
+              Applied at 38% opacity so the shade stays subtle over any background.
+            </p>
+            <div className="flex gap-2 flex-wrap mb-3">
+              {['#8c8c8c', '#a09080', '#8090a8', '#6b7280', '#b0b0b0', '#707060'].map(hex => (
+                <button
+                  key={hex}
+                  type="button"
+                  onClick={() => setGreyColour(hex)}
+                  className={cn(
+                    'w-8 h-8 rounded-lg border-2 touch-manipulation transition-transform hover:scale-110',
+                    greyColour === hex ? 'border-foreground scale-110' : 'border-transparent',
+                  )}
+                  style={{ background: hex }}
+                  title={hex}
+                />
+              ))}
+            </div>
+            <ColourPickerRow
+              value={greyColour}
+              activeHex={greyColour}
+              onChange={setGreyColour}
+              swatches={[]}
+              label="unavailable areas colour"
+            />
+          </div>
+
+          {/* ── Divider ── */}
+          <div className="border-t pt-5 -mx-5 px-5">
             <p className="text-sm font-medium mb-1">Booking status colours</p>
             <StatusColourEditor />
           </div>
@@ -429,6 +461,59 @@ export default function Settings() {
           <p className="text-xs text-muted-foreground -mt-1">
             These become the starting state when you open the Timeline. You can still change them per-session via the sidebar.
           </p>
+
+          <SettingRow
+            label="Default tile mode"
+            description="Whether the Timeline opens in compact (dense) or detailed view by default."
+          >
+            <div className="flex gap-1">
+              {[
+                { value: 'compact',   label: 'Compact'  },
+                { value: 'extensive', label: 'Detailed' },
+              ].map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => tlSettings.setTileMode(value)}
+                  className={cn(
+                    'px-3 py-1.5 rounded text-xs border touch-manipulation transition-colors',
+                    tlSettings.tileMode === value
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'text-muted-foreground border-border hover:bg-accent',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </SettingRow>
+
+          <SettingRow
+            label="Compact tile size"
+            description="Font and row size for compact view. Applies when tile mode is Compact."
+          >
+            <div className="flex gap-1">
+              {[
+                { value: 'sm', label: 'S' },
+                { value: 'md', label: 'M' },
+                { value: 'lg', label: 'L' },
+              ].map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => tlSettings.setCompactFontSize(value)}
+                  className={cn(
+                    'w-9 h-9 rounded border text-sm font-semibold touch-manipulation transition-colors',
+                    tlSettings.compactFontSize === value
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'text-muted-foreground border-border hover:bg-accent',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </SettingRow>
 
           <SettingRow
             label="Side panel mode"
