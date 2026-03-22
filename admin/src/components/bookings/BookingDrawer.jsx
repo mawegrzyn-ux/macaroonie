@@ -729,28 +729,31 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
           </div>
         </div>
 
-        {/* ── Customer suggestion panel (floats left) ────── */}
-        {custSuggestions?.length > 0 && editMode === 'guest' && (
-          <div className="absolute right-full top-14 w-64 bg-background rounded-xl shadow-2xl border z-50 overflow-hidden max-h-[60vh] mr-2">
-            <p className="text-[10px] text-muted-foreground font-medium px-3 pt-2 pb-1 flex items-center gap-1">
-              <UserSearch className="w-3 h-3" />Customer match
-            </p>
-            {custSuggestions.slice(0, 6).map(c => (
-              <button
-                key={c.id}
-                type="button"
-                onMouseDown={e => e.preventDefault()}
-                onClick={() => handleCustomerSelect(c)}
-                className="w-full text-left px-3 py-2 hover:bg-accent transition-colors touch-manipulation border-t border-border/40"
-              >
-                <p className="text-sm font-medium">{c.name}</p>
-                <p className="text-xs text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
-              </button>
-            ))}
-          </div>
-        )}
-
       </div>
+
+      {/* ── Customer suggestion panel ─────────────────────────────
+          Rendered OUTSIDE the overflow-hidden drawer div as a fixed
+          sibling so it is never clipped. Appears to the left of the
+          420 px drawer on sm+ screens; hidden on mobile (no room). */}
+      {custSuggestions?.length > 0 && editMode === 'guest' && (
+        <div className="hidden sm:block fixed right-[420px] top-14 w-64 bg-background rounded-xl shadow-2xl border z-[60] overflow-hidden max-h-[60vh] mr-2">
+          <p className="text-[10px] text-muted-foreground font-medium px-3 pt-2 pb-1 flex items-center gap-1">
+            <UserSearch className="w-3 h-3" />Customer match
+          </p>
+          {custSuggestions.slice(0, 6).map(c => (
+            <button
+              key={c.id}
+              type="button"
+              onMouseDown={e => e.preventDefault()}
+              onClick={() => handleCustomerSelect(c)}
+              className="w-full text-left px-3 py-2 hover:bg-accent transition-colors touch-manipulation border-t border-border/40"
+            >
+              <p className="text-sm font-medium">{c.name}</p>
+              <p className="text-xs text-muted-foreground">{[c.email, c.phone].filter(Boolean).join(' · ')}</p>
+            </button>
+          ))}
+        </div>
+      )}
     </>
   )
 }

@@ -160,9 +160,10 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
   // We split each strip around covered ranges rather than dropping the whole
   // strip, so a booking that starts mid-strip (e.g. inside the pre-sitting
   // grey) doesn't wipe grey on either side of the card.
-  // True when this row is the secondary leg of a spanning combo card rendered
-  // in the primary row above. Used to lift the canvas above the primary row's
-  // stacking context so grey strips remain visible through the spanning card.
+
+  // True when this row is the secondary leg of a spanning combo card.
+  // Strips for secondary rows are rendered outside the canvas (below) to avoid
+  // stacking-context conflicts with the primary row's spanning card.
   const isSecondaryRow = bookings.some(b => {
     const si = comboSpanMap?.get(b.id)
     return si && si.get(table.id) === 0
@@ -202,8 +203,11 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
     return result
   })()
 
+  // Label column width in px — must match .timeline-grid grid-template-columns (80px).
+  const LABEL_COL_PX = 80
+
   return (
-    <div className="timeline-grid border-b last:border-b-0">
+    <div className="timeline-grid border-b last:border-b-0" style={isSecondaryRow ? { position: 'relative' } : undefined}>
       {/* Table label — sticky left + z above spanning cards */}
       <div className={cn(
         'flex items-center justify-between px-2 border-r sticky left-0 z-[10] shrink-0',
@@ -237,24 +241,18 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           width:  TOTAL_WIDTH,
           // Primary rows with spanning cards need a stacking context above row dividers
           ...(hasSpanningCard ? { zIndex: 3 } : {}),
-          // Secondary combo rows must paint ABOVE the primary row's stacking context
-          // (z=3) so their grey unavailability strips are visible through the spanning
-          // card. pointer-events:none lets clicks fall through to the spanning card;
-          // @dnd-kit collision detection uses getBoundingClientRect, not pointer events,
-          // so droppability is unaffected.
-          ...(isSecondaryRow ? { zIndex: 4, pointerEvents: 'none' } : {}),
         }}
         onClick={isUnallocated || !onCanvasClick ? undefined : (e) => onCanvasClick(e, table)}
       >
-        {/* B1: Unavailable / out-of-session strips.
-            Rendered at zIndex 2 (above booking tiles at z=1) as a semi-transparent
-            tint so the closed-period grey shows even over booking tiles that run
-            past the sitting boundary. pointer-events: none so tiles remain clickable. */}
-        {clippedStrips.map(({ x, width }, i) => (
+        {/* B1: Unavailable / out-of-session strips (primary rows only).
+            Rendered at zIndex 2, above booking tiles at z=1.
+            Secondary rows render their strips outside the canvas (see below)
+            to avoid stacking-context conflicts with the spanning card. */}
+        {!isSecondaryRow && clippedStrips.map(({ x, width }, i) => (
           <div
             key={i}
             className="absolute top-0 bottom-0 pointer-events-none"
-            style={{ left: Math.max(0, x), width, zIndex: 2, background: 'rgba(140,140,140,0.38)', mixBlendMode: 'multiply' }}
+            style={{ left: Math.max(0, x), width, zIndex: 2, background: 'rgba(140,140,140,0.38)' }}
           />
         ))}
 
@@ -297,6 +295,26 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
           )
         })}
       </div>
+
+      {/* B1 (secondary rows): Grey strips rendered OUTSIDE the canvas as
+          absolutely-positioned children of the timeline-grid row div.
+          This avoids stacking-context conflicts with the primary row's
+          spanning card (z=3 stacking context). z=20 ensures they paint
+          above the spanning card and all canvas content.
+          left = LABEL_COL_PX + strip_x so they align with the canvas. */}
+      {isSecondaryRow && clippedStrips.map(({ x, width }, i) => (
+        <div
+          key={`sec-${i}`}
+          className="absolute top-0 pointer-events-none"
+          style={{
+            left:   LABEL_COL_PX + Math.max(0, x),
+            width,
+            height: ROW_HEIGHT,
+            zIndex: 20,
+            background: 'rgba(140,140,140,0.38)',
+          }}
+        />
+      ))}
     </div>
   )
 }
