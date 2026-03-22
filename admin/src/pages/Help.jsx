@@ -281,6 +281,19 @@ export default function Help() {
               The caps editor will re-generate slots from the new times immediately.
             </P>
 
+            <H3>Session names</H3>
+            <P>
+              Give each sitting a name to identify it in reports and the top bar stats. Open the sitting
+              editor (pencil icon) and enter a name in the <strong>Session name</strong> field — for
+              example "Lunch", "Dinner", or "Brunch". The name appears next to the sitting's time range
+              in the Schedule page and is used to label the per-sitting booking counts in the Timeline
+              and Bookings top bars.
+            </P>
+            <InfoBox type="tip">
+              Naming your sessions is optional but recommended. Without names, the stats bar shows the
+              time range (e.g. "12:00–15:00") instead of a friendly label.
+            </InfoBox>
+
             <H3>Last order time and Doors close</H3>
             <P>
               Each sitting has a <strong>Last order</strong> time (the sitting's end time). The system
@@ -725,6 +738,24 @@ export default function Help() {
               can see at a glance when service begins. Colour and visibility are controlled in{' '}
               <strong>Settings → Appearance → Opening hour line</strong>.
             </P>
+
+            <H3>Top bar stats</H3>
+            <P>
+              On tablet and desktop, the top bar shows a live count of active bookings and covers for
+              the selected date. When you have two or more sittings, each sitting appears separately
+              with its booking count and cover count — using the session name if you have set one, or
+              the sitting time range as a fallback. Cancelled, no-show, and checked-out bookings are
+              excluded from all counts.
+            </P>
+
+            <H3>Overlapping bookings</H3>
+            <P>
+              If two active bookings are assigned to the same table at the same time, both tiles are
+              highlighted with a <strong>red border</strong> and a <strong>⛔ stop sign</strong> badge
+              in the top-right corner. This is a warning — the system will not prevent you from creating
+              the overlap (some operators do this intentionally for walk-ins). Resolve the conflict by
+              dragging one booking to a different table or updating its table assignment in the drawer.
+            </P>
           </section>
 
           {/* ── MANUAL BOOKING ────────────────────────────── */}
@@ -818,12 +849,18 @@ export default function Help() {
             <ul className="list-disc list-inside text-sm text-muted-foreground ml-2 mb-4 space-y-1">
               <li>Select a <strong>single table</strong> — the booking moves to that table alone.</li>
               <li>Select <strong>multiple tables</strong> — Macaroonie finds a matching pre-configured combination or creates one automatically. The new combination will also appear in the Tables page for future use.</li>
+              <li>Select <strong>Unallocated</strong> at the top of the list to move the booking out of any table assignment. It will appear in the orange Unallocated row on the Timeline and can be dragged to a real table later.</li>
               <li>A warning appears if the selected table(s) cannot seat the booking's party size.</li>
             </ul>
             <P>
               The <strong>Save</strong> button for the override appears at the top of the drawer panel,
               next to the × close button — so it is always visible without scrolling.
             </P>
+            <InfoBox type="warn">
+              If the booking's cover count exceeds the capacity of the currently assigned table or
+              combination, an amber warning is shown in the table section of the drawer — even when
+              you are not in table-edit mode. This is a reminder to reassign to a larger table.
+            </InfoBox>
             <InfoBox type="tip">
               All save actions (table override, guest details, notes, reschedule) appear in the drawer
               header next to the × button when you are in an edit mode. Click × to close the drawer —
@@ -995,6 +1032,14 @@ export default function Help() {
               rest of the canvas.
             </P>
 
+            <H3>Interface</H3>
+            <P>
+              The <strong>Sidebar expanded by default</strong> toggle controls whether the left navigation
+              sidebar starts open (showing labels) or collapsed (showing icons only) when the app loads.
+              Turn it off at the host stand if you want maximum screen space from the moment you open the app.
+              You can always expand the sidebar manually at any time using the toggle at the top of the sidebar.
+            </P>
+
             <H3>Timeline defaults</H3>
             <P>
               These settings control how the Timeline opens each time. You can also change all of them
@@ -1009,6 +1054,7 @@ export default function Help() {
                 ['Side panel mode', 'When on, the booking drawer opens as a docked right panel. When off, it opens as a floating overlay.'],
                 ['Section dividers', 'Show or hide the section label rows (Main Floor, Terrace, etc.) between table groups.'],
                 ['Hide inactive', 'Hide cancelled, no-show, and checked-out bookings from the Timeline canvas by default.'],
+                ['Timeline hours', 'Set the first and last hour shown on the timeline canvas. Default 09:00–24:00. Narrow it to hide unused hours and make the canvas more compact.'],
               ]}
             />
             <InfoBox type="tip">
@@ -1248,6 +1294,38 @@ export default function Help() {
                   That is the <strong>opening hour line</strong> — a visual marker at the start of the
                   first sitting for the day. You can change its colour or turn it off entirely in{' '}
                   <strong>Settings → Appearance → Opening hour line</strong>.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">Why is a booking showing a ⛔ stop sign?</p>
+                <p className="text-sm text-muted-foreground">
+                  Two or more active bookings are assigned to the same table at the same time. Both tiles
+                  are flagged with a red border and the stop sign. Open one of the bookings and either
+                  change its table assignment or adjust its time to resolve the conflict.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">The stats bar doesn't show Lunch and Dinner separately — it shows a time range instead.</p>
+                <p className="text-sm text-muted-foreground">
+                  Session names haven't been set yet. Go to <strong>Schedule</strong>, click the pencil
+                  icon on each sitting, and enter a name (e.g. "Lunch", "Dinner"). The stats bar will
+                  use these names automatically.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">How do I hide the early-morning columns on the Timeline?</p>
+                <p className="text-sm text-muted-foreground">
+                  Go to <strong>Settings → Timeline defaults → Timeline hours</strong> and change the
+                  start hour to match when your day actually begins (e.g. 11:00). The timeline canvas
+                  will only show hours from that point onwards.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">Can I assign a booking to no table (Unallocated)?</p>
+                <p className="text-sm text-muted-foreground">
+                  Yes. Open the booking drawer, click <strong>Override</strong> in the table section, and
+                  select <strong>Unallocated</strong> at the top of the table list. The booking moves to
+                  the orange Unallocated row on the Timeline where it can be dragged to a real table later.
                 </p>
               </div>
             </div>

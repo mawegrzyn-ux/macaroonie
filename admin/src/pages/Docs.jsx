@@ -168,14 +168,14 @@ export default function Docs() {
             <DataTable
               head={['Page', 'Route', 'Purpose']}
               rows={[
-                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click → ManualAllocModal. Grey columns = closed or cap=0. Red current-time line (today only). FAB (+ button) bottom-right for new bookings. Two tile modes: compact (configurable S/M/L row height, 3px inner padding) and extensive (3-line). Hour column width: 80 px (standard) or 120 px (wide). Opening hour line: thick 3px vertical at first sitting opens_at (configurable colour, toggleable). Header shading: closed-area background optionally extended to the hours header row. All controlled via TimelineSettingsContext + SettingsContext.'],
-                ['Bookings', '/bookings', 'Guestplan-style time-grouped list. Stats bar. Inline status change. Phone visible. Permanent resizable right panel (BookingDrawer inlineMode).'],
+                ['Timeline', '/timeline', 'Gantt view. Drag-to-reschedule, drag-to-relocate, resize, canvas click → ManualAllocModal. Grey columns = closed or cap=0. Red current-time line (today only). FAB (+ button) bottom-right for new bookings. Two tile modes: compact (configurable S/M/L row height, 3px inner padding) and extensive (3-line). Hour column width: 80 px (standard) or 120 px (wide). Session-start lines: one per sitting (sessionStartXs array), configurable colour, toggleable. Header shading: closed-area background optionally extended to the hours header row. Per-sitting stats bar in top bar (hidden on mobile): shows count, covers, and name per sitting with at least one active booking. Overlap detection: ⛔ badge + red ring-2 ring-red-500 ring-inset on tiles that share a table at the same time (overlappingIds useMemo, frontend-only). Date displayed as full weekday + date (EEEE d MMMM yyyy) via styled button with invisible <input type="date"> overlay. All controlled via TimelineSettingsContext + SettingsContext.'],
+                ['Bookings', '/bookings', 'Guestplan-style time-grouped list. Per-sitting stats bar in top bar (hidden on mobile, mirrors Timeline stats). Date displayed as full weekday + date (EEEE d MMMM yyyy) via styled button with invisible date input overlay. Inline status change. Phone visible. Permanent resizable right panel (BookingDrawer inlineMode).'],
                 ['Customers', '/customers', 'Customer profiles. Search by name/email/phone. GDPR anonymise and export. Auto-populated from booking confirms.'],
                 ['Venues', '/venues', 'Create and manage restaurant locations.'],
                 ['Tables', '/tables', 'Add tables, define sections, create combinations, set sort order, manage disallowed pairs.'],
                 ['Schedule', '/schedule', 'Weekly template sittings, slot caps, date overrides, schedule exceptions.'],
                 ['Rules', '/rules', 'Booking window, covers limits, hold TTL, smart allocation flags, deposit config, unconfirmed/reconfirmed flow toggles, opening hours enforcement.'],
-                ['Settings', '/settings', 'Appearance: theme colour, per-status booking colours (9 statuses, CSS custom properties), timeline background colour, closed-area shading colour, opening hour line (toggle + colour), shade header row toggle. Timeline defaults: tile mode, compact font size, wide columns toggle, panel mode, section dividers, hide inactive. All persisted to localStorage.'],
+                ['Settings', '/settings', 'Appearance: theme colour, per-status booking colours (9 statuses, CSS custom properties), timeline background colour, closed-area shading colour, opening hour line (toggle + colour), shade header row toggle, sidebar expanded by default (sidebarExpandedDefault). Timeline defaults: tile mode, compact font size, wide columns toggle, panel mode, section dividers, hide inactive. All persisted to localStorage.'],
                 ['Team', '/team', 'Invite staff via Auth0 Management API (in development).'],
                 ['Widget test', '/widget-test', 'Runs the full guest booking flow in the portal for testing.'],
                 ['Documentation', '/docs', 'This page.'],
@@ -286,6 +286,7 @@ export default function Docs() {
                 ['Opening hour line (showStartLine)', 'maca_settings (SettingsContext)', 'Boolean toggle. When true, a 3px vertical line is rendered at firstOpenX + LABEL_WIDTH as a position:absolute full-height overlay on the Timeline wrapper div (z=2, pointer-events:none). Colour configurable via startLineColour. Default: enabled, colour #630812.'],
                 ['Opening hour line colour (startLineColour)', 'maca_settings (SettingsContext)', 'Hex colour for the opening hour line. Applied as backgroundColor on the overlay div. Default #630812 (matches theme default).'],
                 ['Shade header row (headerBgStrips)', 'maca_settings (SettingsContext)', 'Boolean toggle. When true, backgroundStyle (closed-area grey + diagonal stripe CSS backgrounds) is also applied to the TimelineHeader outer div via inline style, replacing bg-background. Sticky label cell keeps its own bg-background. Default: false.'],
+                ['Sidebar expanded by default (sidebarExpandedDefault)', 'maca_settings (SettingsContext)', 'Boolean (default true). Controls the initial open state of the AppShell sidebar on desktop. Mobile always starts collapsed regardless. Applied as the initial value of the useState in AppShell — subsequent manual toggles work normally per-session.'],
               ]}
             />
             <H3>firstOpenX computation</H3>
@@ -302,6 +303,43 @@ export default function Docs() {
               A <Mono>useEffect(() =&gt; setHexInput(value), [value])</Mono> syncs it whenever the context value
               changes externally (e.g. clicking a swatch button rendered outside the component).
               Without this, external swatch clicks update the context but the picker circle shows the stale colour.
+            </P>
+
+            <H3>Session names on sittings</H3>
+            <P>
+              Migration <Mono>023_sitting_names.sql</Mono> adds a nullable <Mono>name text</Mono> column
+              to <Mono>venue_sittings</Mono>, <Mono>override_sittings</Mono>, and{' '}
+              <Mono>exception_sittings</Mono>. Set via the Schedule page sitting editor.
+              Returned by <Mono>sittings-for-date</Mono> and all schedule GET endpoints.
+              Frontend always falls back to the time-range string when name is null:{' '}
+              <Mono>sitting.name ?? `{'${sitting.opens_at.slice(0,5)}–${sitting.closes_at.slice(0,5)}'}`</Mono>.
+            </P>
+
+            <H3>Per-sitting stats bar</H3>
+            <P>
+              <Mono>sittingStats</Mono> useMemo in <Mono>Timeline.jsx</Mono> (and a parallel pattern in{' '}
+              <Mono>Bookings.jsx</Mono>) maps active bookings to their sitting by comparing the booking's
+              local-time HH:MM string against each sitting's <Mono>opens_at</Mono>/<Mono>closes_at</Mono>.
+              Returns <Mono>{'{ totalCount, totalCovers, bySitting }'}</Mono>.
+              Rendered as a <Mono>hidden sm:flex</Mono> row in the top bar alongside the date navigator.
+              Only sittings with at least one active booking are shown.
+            </P>
+            <InfoBox type="warn">
+              The HH:MM comparison uses <Mono>new Date(b.starts_at).getHours()</Mono> (local browser time).
+              If the server timezone differs from the browser, bookings near sitting boundaries may be
+              assigned to the wrong sitting in the stats display. This is cosmetic — no business logic depends on it.
+            </InfoBox>
+
+            <H3>Overlap detection</H3>
+            <P>
+              <Mono>overlappingIds</Mono> useMemo performs an O(n²) pairwise scan of all active bookings.
+              Two bookings overlap when they share at least one table (checking both{' '}
+              <Mono>member_table_ids</Mono> and <Mono>table_id</Mono>) and their time windows intersect
+              (<Mono>aStart {'<'} bEnd && bStart {'<'} aEnd</Mono>).
+              Overlapping tiles receive a red <Mono>ring-2 ring-red-500 ring-inset</Mono> border and a{' '}
+              <Mono>⛔</Mono> badge in the top-right corner.
+              Detection is frontend-only — it operates on the in-memory <Mono>bookingsRes</Mono> array
+              and does not call the API.
             </P>
           </section>
 
@@ -391,11 +429,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['table_combination_members', 'Junction table — which tables belong to a combination.', 'combination_id, table_id (composite PK)'],
                 ['schedule_templates', 'Weekly schedule template per venue. One row per venue.', 'venue_id'],
                 ['schedule_sittings', 'Named service period within a day-of-week (e.g. Lunch Mon–Fri).', 'template_id, dow, name, start_time, end_time, slot_duration_mins, slot_interval_mins, max_covers, doors_close_time'],
+                ['venue_sittings', 'Sitting within a weekly template day. name column (nullable) holds an optional session label (e.g. "Lunch", "Dinner") added in migration 023_sitting_names.sql.', 'template_id, opens_at, closes_at, default_max_covers, doors_close_time, sort_order, name text nullable'],
+                ['override_sittings', 'Sitting for a specific date override. Also has name (nullable) from migration 023.', 'override_id, opens_at, closes_at, default_max_covers, doors_close_time, sort_order, name text nullable'],
                 ['schedule_overrides', 'Replaces sittings for a specific date (bank holidays, closures).', 'venue_id, override_date, is_closed'],
                 ['slot_caps', 'Per-slot cover cap overrides. Sparse — only stored when different from sitting default.', 'sitting_id, slot_time, max_covers'],
                 ['schedule_exceptions', 'Named date-range exception with optional alternative weekly schedule. is_closed=true closes the period entirely.', 'venue_id, name, date_from, date_to, is_closed, priority'],
                 ['exception_day_templates', 'Per-DOW schedule within an exception. Overrides weekly template for that day.', 'exception_id, day_of_week, is_open, slot_interval_mins'],
-                ['exception_sittings', 'Sittings for an exception day template.', 'template_id, opens_at, closes_at, default_max_covers, doors_close_time, sort_order'],
+                ['exception_sittings', 'Sittings for an exception day template. Also has name (nullable) from migration 023.', 'template_id, opens_at, closes_at, default_max_covers, doors_close_time, sort_order, name text nullable'],
                 ['exception_sitting_slot_caps', 'Sparse per-slot cover cap overrides within exception sittings.', 'sitting_id, slot_time, max_covers'],
                 ['booking_rules', 'Per-venue booking constraints. Smart-allocation flags, status-flow toggles (unconfirmed, reconfirmed, arrived).', 'venue_id, hold_ttl_secs, min_covers, max_covers, cutoff_before_mins, slot_duration_mins, allow_cross_section_combo, allow_non_adjacent_combo, allow_widget_bookings_after_doors_close, enable_unconfirmed_flow, enable_reconfirmed_status, enable_arrived_status'],
                 ['deposit_rules', 'Per-venue deposit configuration.', 'venue_id, requires_deposit, amount_pence, stripe_account_id'],
@@ -483,9 +523,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Method', 'Path', 'Min role', 'Description']}
               rows={[
                 ['GET', '/', 'any', 'Full schedule (template + sittings + slot caps + overrides)'],
+                ['GET', '/sittings-for-date', 'any', 'Returns the resolved sittings for a specific date (applying exceptions → overrides → weekly template priority). Each sitting includes name (nullable) for use in the stats bar and Timeline session-start lines.'],
                 ['PUT', '/template/:dow', 'admin', 'Upsert day template. Accepts is_open, slot_interval_mins, doors_close_time.'],
                 ['POST', '/sittings', 'admin', 'Create sitting'],
-                ['PATCH', '/sittings/:id', 'admin', 'Update sitting'],
+                ['PATCH', '/sittings/:id', 'admin', 'Update sitting. Accepts name (nullable string) to set the session label shown in the stats bar and Timeline header.'],
                 ['DELETE', '/sittings/:id', 'admin', 'Delete sitting'],
                 ['POST', '/caps', 'admin', 'Set slot cap override for a specific time'],
                 ['POST', '/overrides', 'admin', 'Create date override (e.g. bank holiday closure)'],
@@ -734,7 +775,7 @@ allTables sorted by sort_order → target at index i
             <DataTable
               head={['Element', 'z-index', 'Notes']}
               rows={[
-                ['Opening hour line overlay', '2', 'position:absolute full-height div at LABEL_WIDTH + firstOpenX. pointer-events:none. Renders behind booking cards (cards are z=1 but painted after in DOM order).'],
+                ['Session-start line overlays', '2', 'One position:absolute full-height div per sitting at LABEL_WIDTH + x (from sessionStartXs array). pointer-events:none. Renders behind booking cards. TimelineHeader renders matching lines inside its canvas div when headerBgStrips is on.'],
                 ['Normal booking card', '1', 'CSS .timeline-slot default'],
                 ['Spanning combo card', '5', 'Inline override — above row borders'],
                 ['Canvas with spanning card', '3', 'Creates stacking context above subsequent rows'],
