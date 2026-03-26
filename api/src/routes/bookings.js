@@ -1101,13 +1101,22 @@ export default async function bookingsRoutes(app) {
              AND t.max_covers     >= ${conflict.covers}
              AND t.id != ALL(${usedArr}::uuid[])
              AND NOT EXISTS (
+                   -- Check both direct table_id bookings AND combination bookings
+                   -- where this table is a member (e.g. T2 occupied via T1+T2 combo).
                    SELECT 1 FROM bookings b2
-                    WHERE b2.table_id  = t.id
-                      AND b2.tenant_id = ${req.tenantId}
+                    WHERE b2.tenant_id = ${req.tenantId}
                       AND b2.id != ALL(${excludeIds}::uuid[])
-                      AND b2.status NOT IN ('cancelled', 'no_show')
+                      AND b2.status NOT IN ('cancelled', 'no_show', 'checked_out')
                       AND b2.starts_at < ${conflict.ends_at}
                       AND b2.ends_at   > ${conflict.starts_at}
+                      AND (
+                            b2.table_id = t.id
+                            OR (b2.combination_id IS NOT NULL AND EXISTS (
+                                  SELECT 1 FROM table_combination_members m
+                                   WHERE m.combination_id = b2.combination_id
+                                     AND m.table_id = t.id
+                                ))
+                          )
                  )
            ORDER BY t.max_covers ASC
            LIMIT 1
@@ -1138,15 +1147,27 @@ export default async function bookingsRoutes(app) {
              -- None of the combination's member tables have a conflicting booking.
              -- Exclude both the conflict and the primary booking being moved (its
              -- table is vacating in this transaction so must be treated as free).
+             -- Check BOTH direct table_id bookings AND combination bookings where
+             -- the member table is used (e.g. T2 occupied via a T1+T2 combo booking).
              AND NOT EXISTS (
                    SELECT 1 FROM table_combination_members m3
-                    JOIN bookings b2 ON b2.table_id = m3.table_id
-                   WHERE m3.combination_id = c.id
-                     AND b2.tenant_id = ${req.tenantId}
-                     AND b2.status NOT IN ('cancelled', 'no_show')
-                     AND b2.id != ALL(${excludeIds}::uuid[])
-                     AND b2.starts_at < ${conflict.ends_at}
-                     AND b2.ends_at   > ${conflict.starts_at}
+                    WHERE m3.combination_id = c.id
+                      AND EXISTS (
+                            SELECT 1 FROM bookings b2
+                             WHERE b2.tenant_id = ${req.tenantId}
+                               AND b2.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                               AND b2.id != ALL(${excludeIds}::uuid[])
+                               AND b2.starts_at < ${conflict.ends_at}
+                               AND b2.ends_at   > ${conflict.starts_at}
+                               AND (
+                                     b2.table_id = m3.table_id
+                                     OR (b2.combination_id IS NOT NULL AND EXISTS (
+                                           SELECT 1 FROM table_combination_members m4
+                                            WHERE m4.combination_id = b2.combination_id
+                                              AND m4.table_id = m3.table_id
+                                         ))
+                                   )
+                          )
                  )
            ORDER BY c.max_covers ASC
            LIMIT 1
