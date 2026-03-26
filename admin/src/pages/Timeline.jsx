@@ -729,6 +729,13 @@ export default function Timeline() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
     },
+    onError: (err) => {
+      // Surface the conflict message and force a data refresh so the
+      // Timeline shows the actual server state (avoids repeated 409s on stale positions)
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Could not move booking'
+      setRelocateError(msg)
+      queryClient.invalidateQueries({ queryKey: ['bookings', venueId, date] })
+    },
   })
 
   // PATCH /relocate — cross-table drop (finds best allocation, cascades conflicts)
