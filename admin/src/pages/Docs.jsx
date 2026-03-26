@@ -175,7 +175,7 @@ export default function Docs() {
                 ['Tables', '/tables', 'Add tables, define sections, create combinations, set sort order, manage disallowed pairs.'],
                 ['Schedule', '/schedule', 'Weekly template sittings, slot caps, date overrides, schedule exceptions.'],
                 ['Rules', '/rules', 'Booking window, covers limits, hold TTL, smart allocation flags, deposit config, unconfirmed/reconfirmed flow toggles, opening hours enforcement.'],
-                ['Settings', '/settings', 'Appearance: theme colour, per-status booking colours (9 statuses, CSS custom properties), timeline background colour, closed-area shading colour, opening hour line (toggle + colour), shade header row toggle, sidebar expanded by default (sidebarExpandedDefault). Timeline defaults: tile mode, compact font size, wide columns toggle, panel mode, section dividers, hide inactive. All persisted to localStorage.'],
+                ['Settings', '/settings', 'Appearance: theme colour, per-status booking colours (9 statuses, CSS custom properties), timeline background colour, closed-area shading colour, opening hour line (toggle + colour), shade header row toggle, sidebar expanded by default (sidebarExpandedDefault). Timeline defaults: tile mode, compact font size, wide columns toggle, panel mode, section dividers, hide inactive, timeline start/end hour range. All persisted to localStorage.'],
                 ['Team', '/team', 'Invite staff via Auth0 Management API (in development).'],
                 ['Widget test', '/widget-test', 'Runs the full guest booking flow in the portal for testing.'],
                 ['Documentation', '/docs', 'This page.'],
@@ -287,15 +287,17 @@ export default function Docs() {
                 ['Opening hour line colour (startLineColour)', 'maca_settings (SettingsContext)', 'Hex colour for the opening hour line. Applied as backgroundColor on the overlay div. Default #630812 (matches theme default).'],
                 ['Shade header row (headerBgStrips)', 'maca_settings (SettingsContext)', 'Boolean toggle. When true, backgroundStyle (closed-area grey + diagonal stripe CSS backgrounds) is also applied to the TimelineHeader outer div via inline style, replacing bg-background. Sticky label cell keeps its own bg-background. Default: false.'],
                 ['Sidebar expanded by default (sidebarExpandedDefault)', 'maca_settings (SettingsContext)', 'Boolean (default true). Controls the initial open state of the AppShell sidebar on desktop. Mobile always starts collapsed regardless. Applied as the initial value of the useState in AppShell — subsequent manual toggles work normally per-session.'],
+                ['Timeline start hour (timelineStart)', 'maca_timeline_prefs (TimelineSettingsContext)', 'Integer hour (0–23, default 9). Combined with timelineEnd to derive startHour, endHour, totalHours in Timeline component. All pixel calculations (timeToX, sittingTimeToX, nowX, grey strips, drag/resize) use startHour instead of the module constant START_HOUR. Settings → Timeline defaults shows hour dropdowns.'],
+                ['Timeline end hour (timelineEnd)', 'maca_timeline_prefs (TimelineSettingsContext)', 'Integer hour (1–24, default 24). Combined with timelineStart to determine totalHours = endHour − startHour. Drives canvas totalWidth = totalHours * hourWidth. TimelineHeader renders totalHours column labels starting at startHour.'],
               ]}
             />
-            <H3>firstOpenX computation</H3>
+            <H3>sessionStartXs computation</H3>
             <P>
-              <Mono>firstOpenX</Mono> is a useMemo in Timeline.jsx that returns the canvas x-pixel position
-              of the first sitting's <Mono>opens_at</Mono> time for the selected date. Computed from{' '}
-              <Mono>sittingsForDate?.sittings</Mono>, sorted by <Mono>opens_at</Mono> ascending.
-              Returns <Mono>null</Mono> when no sittings exist (no line drawn). Depends on{' '}
-              <Mono>[sittingsForDate, hourWidth]</Mono>.
+              <Mono>sessionStartXs</Mono> is a useMemo in Timeline.jsx that returns an array of canvas
+              x-pixel positions — one per sitting — at each sitting's <Mono>opens_at</Mono> time for
+              the selected date. Replaces the former scalar <Mono>firstOpenX</Mono>. A 3px vertical
+              line is rendered for each entry so venues with both lunch and dinner sessions each get
+              their own opening-hour line. Depends on <Mono>[sittingsForDate, hourWidth, startHour]</Mono>.
             </P>
             <H3>ColourPickerRow sync pattern</H3>
             <P>
@@ -303,6 +305,19 @@ export default function Docs() {
               A <Mono>useEffect(() =&gt; setHexInput(value), [value])</Mono> syncs it whenever the context value
               changes externally (e.g. clicking a swatch button rendered outside the component).
               Without this, external swatch clicks update the context but the picker circle shows the stale colour.
+            </P>
+
+            <H3>startHour threading in Timeline</H3>
+            <P>
+              <Mono>startHour</Mono> and <Mono>endHour</Mono> are derived from{' '}
+              <Mono>TimelineSettingsContext.timelineStart/timelineEnd</Mono> in the Timeline component.
+              They replace the module-level constants <Mono>START_HOUR</Mono> and <Mono>END_HOUR</Mono>{' '}
+              in all runtime calculations. Both <Mono>timeToX(iso, hw, sh)</Mono> and{' '}
+              <Mono>sittingTimeToX(t, hw, sh)</Mono> accept <Mono>sh</Mono> as a third optional param
+              (defaults to <Mono>START_HOUR</Mono>). <Mono>startHour</Mono> is passed as a prop to{' '}
+              <Mono>TableRow</Mono>, <Mono>BookingCard</Mono>, and <Mono>TimelineHeader</Mono> — the same
+              threading pattern as <Mono>hourWidth</Mono>. All useMemos that call these functions include{' '}
+              <Mono>startHour</Mono> in their dep arrays.
             </P>
 
             <H3>Session names on sittings</H3>
@@ -776,6 +791,7 @@ allTables sorted by sort_order → target at index i
               head={['Element', 'z-index', 'Notes']}
               rows={[
                 ['Session-start line overlays', '2', 'One position:absolute full-height div per sitting at LABEL_WIDTH + x (from sessionStartXs array). pointer-events:none. Renders behind booking cards. TimelineHeader renders matching lines inside its canvas div when headerBgStrips is on.'],
+                ['Overlap stop-sign badge', '10 (within tile)', 'position:absolute span inside BookingCard. Rendered when overlappingIds.has(booking.id). Tile also gets ring-2 ring-red-500 ring-inset. Detection is frontend-only — computed from bookingsRes in-memory array.'],
                 ['Normal booking card', '1', 'CSS .timeline-slot default'],
                 ['Spanning combo card', '5', 'Inline override — above row borders'],
                 ['Canvas with spanning card', '3', 'Creates stacking context above subsequent rows'],
