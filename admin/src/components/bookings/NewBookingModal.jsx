@@ -157,6 +157,20 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     }
   }, [availableSlots, prefillTime, selectedSlot])
 
+  // Release the active hold (fire-and-forget DELETE) — called on Close, Cancel, and Back
+  function releaseHold() {
+    if (holdData) {
+      api.delete(`/bookings/holds/${holdData.id}`).catch(() => {})
+      setHoldData(null)
+    }
+  }
+
+  // Wrap onClose so any active hold is always released before the modal unmounts
+  function handleClose() {
+    releaseHold()
+    onClose()
+  }
+
   // Create hold
   const holdMutation = useMutation({
     mutationFn: (data) => api.post('/bookings/holds', data),
@@ -174,8 +188,8 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
       guest_notes: guestData.guest_notes ?? null,
       status:      bookingStatus,
     }),
-    // Pass bookingDate back so the Timeline can navigate to it if it differs
-    onSuccess: () => onCreated(bookingDate),
+    // Hold consumed by confirm_hold() — clear so handleClose doesn't try to delete it again
+    onSuccess: () => { setHoldData(null); onCreated(bookingDate) },
   })
 
   // Admin override — bypasses slot resolver, capacity, and booking window checks.
@@ -258,7 +272,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/30 z-40" onClick={handleClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
         {/* Relative wrapper — modal stays centred; suggestions panel anchors to its right edge */}
         <div className="relative w-full max-w-md">
@@ -285,7 +299,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                 />
               </label>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded hover:bg-accent">
+            <button onClick={handleClose} className="p-1.5 rounded hover:bg-accent">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -550,7 +564,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
               // Guest step: Back + Walk In + Confirm
               <>
                 <button
-                  onClick={() => { setStep('slot'); setManualAlloc(null); setHoldData(null) }}
+                  onClick={() => { releaseHold(); setStep('slot'); setManualAlloc(null); setDisplaceAlloc(null) }}
                   className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation"
                 >
                   Back
@@ -558,7 +572,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                 <button
                   type="button"
                   onClick={handleWalkIn}
-                  disabled={confirmMutation.isPending || confirmOverrideMutation.isPending}
+                  disabled={confirmMutation.isPending || confirmOverrideMutation.isPending || confirmDisplaceMutation.isPending}
                   className="text-sm px-4 py-2 border border-green-500 text-green-700 bg-green-50 hover:bg-green-100 rounded-lg disabled:opacity-40 touch-manipulation"
                 >
                   Walk In
@@ -566,16 +580,16 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                 <button
                   type="submit"
                   form="guest-form"
-                  disabled={confirmMutation.isPending || confirmOverrideMutation.isPending}
+                  disabled={confirmMutation.isPending || confirmOverrideMutation.isPending || confirmDisplaceMutation.isPending}
                   className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
                 >
-                  {(confirmMutation.isPending || confirmOverrideMutation.isPending) ? 'Confirming…' : 'Confirm booking'}
+                  {(confirmMutation.isPending || confirmOverrideMutation.isPending || confirmDisplaceMutation.isPending) ? 'Confirming…' : 'Confirm booking'}
                 </button>
               </>
             ) : (
               // Slot step: Cancel + Manual allocation + Continue
               <>
-                <button onClick={onClose} className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation">
+                <button onClick={handleClose} className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation">
                   Cancel
                 </button>
                 <button
@@ -586,7 +600,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                 </button>
                 <button
                   onClick={handleSlotConfirm}
-                  disabled={!selectedSlot || (!selectedSlot?.table_id && !selectedSlot?.combination_id) || holdMutation.isPending}
+                  disabled={!selectedSlot || holdMutation.isPending || (!selectedSlot?.table_id && !selectedSlot?.combination_id && !selectedSlot?.displace_candidate)}
                   className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
                 >
                   {holdMutation.isPending ? 'Holding…' : 'Continue'}
