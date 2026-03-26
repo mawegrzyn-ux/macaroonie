@@ -923,7 +923,7 @@ export default async function bookingsRoutes(app) {
       // ── 5. Find conflicts at the new time for all allocated tables ─
       const conflicts = await tx`
         SELECT b.id, b.table_id, b.combination_id, b.covers,
-               b.starts_at, b.ends_at, b.guest_name
+               b.starts_at, b.ends_at, b.guest_name, b.table_locked
           FROM bookings b
          WHERE b.tenant_id = ${req.tenantId}
            AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
@@ -939,6 +939,13 @@ export default async function bookingsRoutes(app) {
                      ))
                )
       `
+
+      // ── 5b. Reject immediately if any conflict has table_locked = true ──
+      const locked = conflicts.find(c => c.table_locked)
+      if (locked) {
+        const name = locked.guest_name ? `"${locked.guest_name}"` : 'A booking'
+        throw httpError(422, `${name} on the target table has table locking enabled — unlock it first before moving this booking.`)
+      }
 
       // ── 6. Resolve each conflict — free table, free combo, or unallocated ─
       // usedTableIds tracks all tables committed in this transaction so we
@@ -1103,6 +1110,23 @@ export default async function bookingsRoutes(app) {
     for (const d of result.displaced) broadcastBooking('booking.updated', d)
 
     return result
+  })
+
+  // ── PATCH /bookings/:id/lock ──────────────────────────────
+  // Toggle table_locked. When locked, /relocate will refuse to cascade-
+  // displace this booking to make room for another booking.
+  app.patch('/:id/lock', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+    const { locked } = z.object({ locked: z.boolean() }).parse(req.body)
+
+    const [booking] = await withTenant(req.tenantId, tx => tx`
+      UPDATE bookings
+         SET table_locked = ${locked}, updated_at = now()
+       WHERE id        = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+      RETURNING id, table_locked, updated_at
+    `)
+    if (!booking) throw httpError(404, 'Booking not found')
+    return booking
   })
 
   // ── PATCH /bookings/:id/notes ─────────────────────────────

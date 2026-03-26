@@ -18,6 +18,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   X, Users, Clock, CreditCard,
   TriangleAlert, Trash2, UserSearch, ChevronDown, Calendar,
+  Lock, Unlock,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
@@ -208,6 +209,11 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
       return api.patch(`/bookings/${booking.id}/tables`, data)
     },
     onSuccess: () => { setEditMode(null); onUpdated() },
+  })
+
+  const lockMutation = useMutation({
+    mutationFn: (locked) => api.patch(`/bookings/${booking.id}/lock`, { locked }),
+    onSuccess:  () => onUpdated(),
   })
 
   const refundMutation = useMutation({
@@ -553,6 +559,26 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                   : (booking.combination_name ?? booking.table_label ?? '—')
                 }
                 <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+              </button>
+
+              {/* Table lock toggle — prevents cascade displacement by /relocate */}
+              <button
+                onClick={() => lockMutation.mutate(!booking.table_locked)}
+                disabled={lockMutation.isPending}
+                title={booking.table_locked
+                  ? 'Table is locked — click to allow the system to move this booking'
+                  : 'Table is unlocked — click to prevent the system from moving this booking'}
+                className={cn(
+                  'w-9 h-9 rounded-full border flex items-center justify-center transition-colors touch-manipulation shrink-0',
+                  booking.table_locked
+                    ? 'border-amber-400 bg-amber-50 text-amber-600 hover:bg-amber-100'
+                    : 'border-border text-muted-foreground hover:bg-muted/50',
+                )}
+              >
+                {booking.table_locked
+                  ? <Lock className="w-4 h-4" />
+                  : <Unlock className="w-4 h-4" />
+                }
               </button>
             </div>
 
