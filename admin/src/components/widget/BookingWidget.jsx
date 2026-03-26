@@ -90,7 +90,10 @@ function WidgetInner({ venueId, date: initialDate, initialCovers = 2, theme, acc
   const confirmMutation = useMutation({
     mutationFn: (guestData) => api.post('/bookings', {
       hold_id:     hold.id,
-      guest_notes: guestData.notes,
+      guest_name:  guestData.name,
+      guest_email: guestData.email,
+      guest_phone: guestData.phone  || null,
+      guest_notes: guestData.notes  || null,
     }),
     onSuccess: (b) => { setBooking(b); setStep(STEPS.CONFIRM) },
     onError:   (e) => setError(e.message ?? 'Could not confirm booking.'),
