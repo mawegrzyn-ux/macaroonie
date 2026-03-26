@@ -105,8 +105,11 @@ function WidgetInner({ venueId, date: initialDate, initialCovers = 2, theme, acc
     // Find a suitable table for this slot — in real widget this would be table-aware
     // For the test widget we POST hold and let the API pick the best available table
     holdMutation.mutate({
-      venue_id:    venueId,
-      table_id:    s.table_id,     // API should return this — see note below
+      venue_id:  venueId,
+      // Slot resolver returns either table_id (single table) or combination_id (multi-table).
+      // Only one will be non-null — send whichever is present; API requires at least one.
+      ...(s.table_id       ? { table_id: s.table_id }             : {}),
+      ...(s.combination_id ? { combination_id: s.combination_id } : {}),
       starts_at:   s.slot_time,
       covers,
       guest_name:  'Guest',        // placeholder — updated in details step
