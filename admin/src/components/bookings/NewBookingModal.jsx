@@ -142,6 +142,14 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     [slotsRes]
   )
 
+  // Refs for Walk-In-from-slot-step flow (avoids async state issues):
+  //   walkInModeRef   — when true, holdMutation.onSuccess auto-confirms as Walk In instead of advancing to guest step
+  //   walkInDisplaceRef — stores displacement alloc data synchronously so confirmDisplaceMutation reads it before React re-renders
+  //   holdDataRef     — sync mirror of holdData state so confirmMutation can read hold.id the same tick holdMutation.onSuccess fires
+  const walkInModeRef    = useRef(false)
+  const walkInDisplaceRef = useRef(null)
+  const holdDataRef      = useRef(null)
+
   // Auto-select the slot matching prefillTime when slots arrive (canvas click flow)
   const autoSelectedRef = useRef(false)
   useEffect(() => {
@@ -174,56 +182,80 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   // Create hold
   const holdMutation = useMutation({
     mutationFn: (data) => api.post('/bookings/holds', data),
-    onSuccess: (hold) => { setHoldData(hold); setStep('guest') },
+    onSuccess: (hold) => {
+      holdDataRef.current = hold
+      setHoldData(hold)
+      if (walkInModeRef.current) {
+        // Walk In clicked from slot step — confirm immediately without going to guest step
+        walkInModeRef.current = false
+        confirmMutation.mutate({
+          guest_name: 'Walk In', guest_email: 'walkin@walkin.com',
+          covers, guest_notes: '', guest_phone: null, status: 'seated',
+        })
+      } else {
+        setStep('guest')
+      }
+    },
   })
 
   // Confirm booking — send full guest details so the booking record is correct
   const confirmMutation = useMutation({
     mutationFn: (guestData) => api.post('/bookings', {
-      hold_id:     holdData.id,
+      hold_id:     (holdDataRef.current ?? holdData).id,
       guest_name:  guestData.guest_name,
       guest_email: guestData.guest_email,
       guest_phone: guestData.guest_phone ?? null,
       covers:      guestData.covers,
       guest_notes: guestData.guest_notes ?? null,
-      status:      bookingStatus,
+      status:      guestData.status ?? bookingStatus,
     }),
     // Hold consumed by confirm_hold() — clear so handleClose doesn't try to delete it again
-    onSuccess: () => { setHoldData(null); onCreated(bookingDate) },
+    onSuccess: () => { holdDataRef.current = null; setHoldData(null); onCreated(bookingDate) },
   })
 
   // Admin override — bypasses slot resolver, capacity, and booking window checks.
+  // starts_at: convert local time string → UTC ISO so the server (UTC) stores the correct time
+  // regardless of what timezone the browser is in (e.g. BST = UTC+1 in summer).
   const confirmOverrideMutation = useMutation({
     mutationFn: (guestData) => api.post('/bookings/admin-override', {
       venue_id:    venueId,
-      starts_at:   `${manualAlloc.date}T${manualAlloc.time}:00`,
+      starts_at:   new Date(`${manualAlloc.date}T${manualAlloc.time}:00`).toISOString(),
       covers:      guestData.covers,
       table_ids:   manualAlloc.tableIds,
+      unallocated: manualAlloc.unallocated ?? false,
       guest_name:  guestData.guest_name,
       guest_email: guestData.guest_email,
       guest_phone: guestData.guest_phone ?? null,
       guest_notes: guestData.guest_notes ?? null,
-      status:      bookingStatus,
+      status:      guestData.status ?? bookingStatus,
     }),
     onSuccess: () => onCreated(manualAlloc.date),
   })
 
   // Displacement booking — calls admin-override with displace_conflicts:true.
   // Atomically moves blocking bookings off the target combination, then inserts this one.
+  // walkInDisplaceRef is read synchronously (state not yet updated when called from slot step).
   const confirmDisplaceMutation = useMutation({
-    mutationFn: (guestData) => api.post('/bookings/admin-override', {
-      venue_id:           venueId,
-      starts_at:          `${displaceAlloc?.date}T${displaceAlloc?.time}:00`,
-      covers:             guestData.covers,
-      table_ids:          displaceAlloc?.tableIds ?? [],
-      displace_conflicts: true,
-      guest_name:         guestData.guest_name,
-      guest_email:        guestData.guest_email,
-      guest_phone:        guestData.guest_phone ?? null,
-      guest_notes:        guestData.guest_notes ?? null,
-      status:             bookingStatus,
-    }),
-    onSuccess: () => onCreated(displaceAlloc.date),
+    mutationFn: (guestData) => {
+      const dAlloc = walkInDisplaceRef.current ?? displaceAlloc
+      return api.post('/bookings/admin-override', {
+        venue_id:           venueId,
+        starts_at:          new Date(`${dAlloc.date}T${dAlloc.time}:00`).toISOString(),
+        covers:             guestData.covers,
+        table_ids:          dAlloc.tableIds ?? [],
+        displace_conflicts: true,
+        guest_name:         guestData.guest_name,
+        guest_email:        guestData.guest_email,
+        guest_phone:        guestData.guest_phone ?? null,
+        guest_notes:        guestData.guest_notes ?? null,
+        status:             guestData.status ?? bookingStatus,
+      })
+    },
+    onSuccess: () => {
+      const date = (walkInDisplaceRef.current ?? displaceAlloc)?.date ?? bookingDate
+      walkInDisplaceRef.current = null
+      onCreated(date)
+    },
   })
 
   function handleSlotConfirm() {
@@ -260,12 +292,34 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     else                  confirmMutation.mutate(data)
   }
 
-  // Walk-in: skip all guest details, book immediately as "Walk In"
+  // Walk-in: skip all guest details, book immediately as Walk In (status: seated)
+  // Works from both the slot step (no hold yet) and the guest step (hold / manual / displace already set).
   function handleWalkIn() {
-    const walkInData = { guest_name: 'Walk In', guest_email: 'walkin@walkin.com', covers, guest_notes: '' }
-    if (displaceAlloc)    confirmDisplaceMutation.mutate(walkInData)
-    else if (manualAlloc) confirmOverrideMutation.mutate(walkInData)
-    else                  confirmMutation.mutate(walkInData)
+    const walkInData = {
+      guest_name: 'Walk In', guest_email: 'walkin@walkin.com',
+      covers, guest_notes: '', guest_phone: null, status: 'seated',
+    }
+
+    if (displaceAlloc) {
+      confirmDisplaceMutation.mutate(walkInData)
+    } else if (manualAlloc) {
+      confirmOverrideMutation.mutate(walkInData)
+    } else if (holdData) {
+      // Guest step — hold already exists
+      confirmMutation.mutate(walkInData)
+    } else if (selectedSlot?.displace_candidate && !selectedSlot?.available) {
+      // Displacement slot chosen in slot step — derive alloc data and trigger directly.
+      // Use ref (not setState) so mutationFn reads fresh data the same render tick.
+      const dc   = selectedSlot.displace_candidate
+      const d    = new Date(selectedSlot.slot_time)
+      const time = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+      walkInDisplaceRef.current = { date: bookingDate, time, tableIds: dc.member_table_ids }
+      confirmDisplaceMutation.mutate(walkInData)
+    } else if (selectedSlot) {
+      // Regular slot in slot step — create hold first, then auto-confirm in holdMutation.onSuccess
+      walkInModeRef.current = true
+      handleSlotConfirm()
+    }
   }
 
   const showSuggestions = step === 'guest' && customerSuggestions.length > 0
@@ -561,21 +615,13 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
           {/* Footer */}
           <div className="flex items-center justify-end gap-3 px-5 py-4 border-t shrink-0">
             {step === 'guest' ? (
-              // Guest step: Back + Walk In + Confirm
+              // Guest step: Back + Confirm
               <>
                 <button
                   onClick={() => { releaseHold(); setStep('slot'); setManualAlloc(null); setDisplaceAlloc(null) }}
                   className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation"
                 >
                   Back
-                </button>
-                <button
-                  type="button"
-                  onClick={handleWalkIn}
-                  disabled={confirmMutation.isPending || confirmOverrideMutation.isPending || confirmDisplaceMutation.isPending}
-                  className="text-sm px-4 py-2 border border-green-500 text-green-700 bg-green-50 hover:bg-green-100 rounded-lg disabled:opacity-40 touch-manipulation"
-                >
-                  Walk In
                 </button>
                 <button
                   type="submit"
@@ -587,7 +633,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                 </button>
               </>
             ) : (
-              // Slot step: Cancel + Manual allocation + Continue
+              // Slot step: Cancel + Manual allocation + Walk In + Continue
               <>
                 <button onClick={handleClose} className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation">
                   Cancel
@@ -599,11 +645,19 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                   Manual allocation
                 </button>
                 <button
+                  type="button"
+                  onClick={handleWalkIn}
+                  disabled={!selectedSlot || holdMutation.isPending || confirmMutation.isPending || confirmDisplaceMutation.isPending}
+                  className="text-sm px-4 py-2 border border-green-500 text-green-700 bg-green-50 hover:bg-green-100 rounded-lg disabled:opacity-40 touch-manipulation"
+                >
+                  {(holdMutation.isPending && walkInModeRef.current) || confirmMutation.isPending || confirmDisplaceMutation.isPending ? 'Confirming…' : 'Walk In'}
+                </button>
+                <button
                   onClick={handleSlotConfirm}
                   disabled={!selectedSlot || holdMutation.isPending || (!selectedSlot?.table_id && !selectedSlot?.combination_id && !selectedSlot?.displace_candidate)}
                   className="text-sm px-4 py-2 bg-primary text-primary-foreground rounded-lg disabled:opacity-40 touch-manipulation"
                 >
-                  {holdMutation.isPending ? 'Holding…' : 'Continue'}
+                  {holdMutation.isPending && !walkInModeRef.current ? 'Holding…' : 'Continue'}
                 </button>
               </>
             )}
