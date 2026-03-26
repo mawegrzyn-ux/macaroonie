@@ -22,6 +22,7 @@ export default async function slotsRoutes(app) {
   app.get('/:venueId/slots', async (req) => {
     const { date, covers } = QuerySchema.parse(req.query)
     const { venueId } = req.params
+    const isAdminCall = !!req.user
 
     // Resolve tenant from venue slug or direct venueId.
     // Widget calls pass venue slug; admin calls use UUID directly.
@@ -157,7 +158,57 @@ export default async function slotsRoutes(app) {
                )
              ORDER BY c.max_covers  -- prefer smallest fitting combination
              LIMIT 1
-          ) AS combination_id
+          ) AS combination_id,
+          -- Combination blocked only by unlocked bookings — displacement candidate for admins
+          (
+            SELECT json_build_object(
+              'combination_id', c.id,
+              'member_table_ids', (
+                SELECT array_agg(m2.table_id ORDER BY m2.table_id)
+                  FROM table_combination_members m2
+                 WHERE m2.combination_id = c.id
+              ),
+              'conflicts', (
+                SELECT json_agg(json_build_object(
+                  'id', b.id,
+                  'guest_name', b.guest_name,
+                  'covers', b.covers
+                ))
+                  FROM table_combination_members m3
+                  JOIN bookings b ON b.table_id = m3.table_id
+                 WHERE m3.combination_id = c.id
+                   AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                   AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                   AND b.ends_at   > s.slot_time
+              )
+            )
+              FROM table_combinations c
+             WHERE c.venue_id  = ${venue.id}
+               AND c.is_active = true
+               AND c.max_covers >= ${covers}
+               AND c.min_covers <= ${covers}
+               -- Has at least one conflicting booking at this time
+               AND EXISTS (
+                     SELECT 1 FROM table_combination_members m
+                      JOIN bookings b ON b.table_id = m.table_id
+                     WHERE m.combination_id = c.id
+                       AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                       AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                       AND b.ends_at   > s.slot_time
+                   )
+               -- None of the conflicting bookings are locked
+               AND NOT EXISTS (
+                     SELECT 1 FROM table_combination_members m
+                      JOIN bookings b ON b.table_id = m.table_id
+                     WHERE m.combination_id = c.id
+                       AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                       AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
+                       AND b.ends_at   > s.slot_time
+                       AND b.table_locked = true
+                   )
+             ORDER BY c.max_covers
+             LIMIT 1
+          ) AS displace_candidate
         FROM get_available_slots(
           ${venue.id}::uuid,
           ${date}::date,
@@ -170,19 +221,22 @@ export default async function slotsRoutes(app) {
     const enriched = slots.map(s => ({
       ...s,
       // Prefer individual table; fall back to combination
-      table_id:       s.table_id ?? null,
-      combination_id: s.table_id ? null : (s.combination_id ?? null),
-      available:      s.available && (s.table_id !== null || s.combination_id !== null),
-      reason:         s.available && s.table_id === null && s.combination_id === null
-                        ? 'no_table'
-                        : s.reason,
+      table_id:           s.table_id ?? null,
+      combination_id:     s.table_id ? null : (s.combination_id ?? null),
+      available:          s.available && (s.table_id !== null || s.combination_id !== null),
+      // Only expose to admin calls — widget ignores displacement candidates
+      displace_candidate: isAdminCall && !s.table_id && !s.combination_id
+                            ? (s.displace_candidate ?? null)
+                            : null,
+      reason:             s.available && s.table_id === null && s.combination_id === null
+                            ? 'no_table'
+                            : s.reason,
     }))
 
     // ── Widget filtering: hide slots past per-sitting doors_close_time ─
     // Admin calls carry req.user (JWT validated). Widget calls are anonymous.
     // When allow_widget_bookings_after_doors_close = false, each slot is
     // matched to its sitting and filtered against that sitting's doors_close_time.
-    const isAdminCall = !!req.user
     let filtered = enriched
 
     if (!isAdminCall) {

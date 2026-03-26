@@ -14,7 +14,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { X, ChevronRight, Calendar, UserSearch, TriangleAlert } from 'lucide-react'
+import { X, ChevronRight, Calendar, UserSearch, TriangleAlert, Zap } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
@@ -45,6 +45,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   // Manual allocation state — set when admin bypasses the slot resolver
   const [manualAlloc,     setManualAlloc]     = useState(null)  // { date, time, tableIds, unallocated }
   const [showManualAlloc, setShowManualAlloc] = useState(openManual)
+  const [displaceAlloc,   setDisplaceAlloc]   = useState(null)   // { date, time, tableIds }
   const [bookingStatus,   setBookingStatus]   = useState('confirmed')
 
   // Customer search — debounced query driven by guest form fields
@@ -136,6 +137,10 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   const slotDuration = rulesRes?.slot_duration_mins ?? 90
 
   const availableSlots = slotsRes?.slots?.filter(s => s.available) ?? []
+  const displaceSlots  = useMemo(
+    () => slotsRes?.slots?.filter(s => !s.available && s.displace_candidate != null) ?? [],
+    [slotsRes]
+  )
 
   // Auto-select the slot matching prefillTime when slots arrive (canvas click flow)
   const autoSelectedRef = useRef(false)
@@ -189,16 +194,45 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
     onSuccess: () => onCreated(manualAlloc.date),
   })
 
+  // Displacement booking — calls admin-override with displace_conflicts:true.
+  // Atomically moves blocking bookings off the target combination, then inserts this one.
+  const confirmDisplaceMutation = useMutation({
+    mutationFn: (guestData) => api.post('/bookings/admin-override', {
+      venue_id:           venueId,
+      starts_at:          `${displaceAlloc?.date}T${displaceAlloc?.time}:00`,
+      covers:             guestData.covers,
+      table_ids:          displaceAlloc?.tableIds ?? [],
+      displace_conflicts: true,
+      guest_name:         guestData.guest_name,
+      guest_email:        guestData.guest_email,
+      guest_phone:        guestData.guest_phone ?? null,
+      guest_notes:        guestData.guest_notes ?? null,
+      status:             bookingStatus,
+    }),
+    onSuccess: () => onCreated(displaceAlloc.date),
+  })
+
   function handleSlotConfirm() {
     if (!selectedSlot) return
-    // Use the table/combination the slot resolver already assigned
+
+    // Displacement slot — skip hold creation, go straight to guest details
+    if (selectedSlot.displace_candidate && !selectedSlot.available) {
+      const dc   = selectedSlot.displace_candidate
+      const d    = new Date(selectedSlot.slot_time)
+      const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+      setDisplaceAlloc({ date: bookingDate, time, tableIds: dc.member_table_ids })
+      setStep('guest')
+      return
+    }
+
+    // Regular slot flow — create a hold first
     const assignedTableId = selectedSlot.table_id ?? null
     const assignedComboId = selectedSlot.combination_id ?? null
     if (!assignedTableId && !assignedComboId) return
     holdMutation.mutate({
       venue_id:       venueId,
-      ...(assignedTableId ? { table_id: assignedTableId }           : {}),
-      ...(assignedComboId ? { combination_id: assignedComboId }     : {}),
+      ...(assignedTableId ? { table_id: assignedTableId }       : {}),
+      ...(assignedComboId ? { combination_id: assignedComboId } : {}),
       starts_at:   selectedSlot.slot_time,
       covers,
       guest_name:  'TBC',
@@ -207,21 +241,17 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   }
 
   function onGuestSubmit(data) {
-    if (manualAlloc) {
-      confirmOverrideMutation.mutate(data)
-    } else {
-      confirmMutation.mutate(data)
-    }
+    if (displaceAlloc)    confirmDisplaceMutation.mutate(data)
+    else if (manualAlloc) confirmOverrideMutation.mutate(data)
+    else                  confirmMutation.mutate(data)
   }
 
   // Walk-in: skip all guest details, book immediately as "Walk In"
   function handleWalkIn() {
     const walkInData = { guest_name: 'Walk In', guest_email: 'walkin@walkin.com', covers, guest_notes: '' }
-    if (manualAlloc) {
-      confirmOverrideMutation.mutate(walkInData)
-    } else {
-      confirmMutation.mutate(walkInData)
-    }
+    if (displaceAlloc)    confirmDisplaceMutation.mutate(walkInData)
+    else if (manualAlloc) confirmOverrideMutation.mutate(walkInData)
+    else                  confirmMutation.mutate(walkInData)
   }
 
   const showSuggestions = step === 'guest' && customerSuggestions.length > 0
@@ -263,7 +293,7 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
           {/* Step indicator */}
           <div className="flex items-center gap-1 px-5 py-3 text-xs border-b shrink-0">
             <span className={cn('font-medium', step === 'slot' ? 'text-primary' : 'text-muted-foreground')}>
-              {manualAlloc ? 'Manual allocation' : 'Select slot'}
+              {manualAlloc ? 'Manual allocation' : displaceAlloc ? 'Reassign & book' : 'Select slot'}
             </span>
             <ChevronRight className="w-3 h-3 text-muted-foreground" />
             <span className={cn('font-medium', step === 'guest' ? 'text-primary' : 'text-muted-foreground')}>
@@ -346,6 +376,40 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
                       })}
                     </div>
                   )}
+                  {/* Displacement slots — combination is blocked but only by unlocked bookings */}
+                  {displaceSlots.length > 0 && (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        <span className="text-xs font-medium text-amber-700">Available with table reassignment</span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {displaceSlots.map(slot => {
+                          const dc = slot.displace_candidate
+                          const comboName = combinations.find(c => c.id === dc.combination_id)?.name
+                            ?? (dc.member_table_ids ?? []).map(id => tables.find(t => t.id === id)?.label ?? '').filter(Boolean).join('+')
+                          return (
+                            <button
+                              key={`d-${slot.slot_time}`}
+                              onClick={() => setSlot(slot)}
+                              title={`Moves: ${(dc.conflicts ?? []).map(c => c.guest_name || `${c.covers} cov`).join(', ')}`}
+                              className={cn(
+                                'text-sm py-2 px-1 rounded-lg border text-center transition-colors touch-manipulation',
+                                selectedSlot?.slot_time === slot.slot_time && selectedSlot?.displace_candidate
+                                  ? 'bg-amber-500 text-white border-amber-500'
+                                  : 'border-amber-300 bg-amber-50/60 text-amber-900 hover:bg-amber-100 active:bg-amber-200'
+                              )}
+                            >
+                              <p className="font-medium">{formatTime(slot.slot_time)}</p>
+                              {comboName && <p className="text-[10px] opacity-70 leading-tight">{comboName}</p>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      <p className="text-[11px] text-amber-600 mt-1">Existing bookings will be reassigned to free tables.</p>
+                    </div>
+                  )}
+
                   {selectedSlot && (() => {
                     const slotEndMs   = new Date(selectedSlot.slot_time).getTime() + slotDuration * 60_000
                     const slotEnd     = new Date(slotEndMs)
