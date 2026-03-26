@@ -9,10 +9,11 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
-import { ChevronLeft, ChevronRight, Download, Search, ChevronDown, Eye, EyeOff, TriangleAlert, UserSearch } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Search, ChevronDown, Eye, EyeOff, TriangleAlert, UserSearch, Lock, Plus } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
+import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 // All statuses the operator can manually set (pending_payment is Stripe-only)
@@ -46,6 +47,7 @@ export default function Bookings() {
   const [statusDropdownId, setStatusDropdownId] = useState(null) // booking.id with open dropdown
   const [panelWidth,       setPanelWidth]       = useState(420)  // px — draggable
   const [hideInactive,     setHideInactive]     = useState(true) // hide cancelled/no_show/checked_out by default
+  const [showNew,          setShowNew]          = useState(false)
   const [showCustSugg,     setShowCustSugg]     = useState(false)
   const isResizing        = useRef(false)
   const custDismissTimer  = useRef(null)
@@ -384,8 +386,9 @@ export default function Bookings() {
       {/* ── Main content ──────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Booking list */}
-        <div ref={listRef} className="flex-1 overflow-y-auto">
+        {/* Booking list + FAB wrapper — relative so FAB is pinned to visible area, not scroll content */}
+        <div className="flex-1 overflow-hidden relative">
+        <div ref={listRef} className="h-full overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
               Loading…
@@ -427,6 +430,17 @@ export default function Bookings() {
           )}
         </div>
 
+        {/* New booking FAB */}
+        <button
+          onClick={() => setShowNew(true)}
+          className="absolute bottom-6 right-6 z-30 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 active:scale-95 touch-manipulation transition-transform"
+          title="New booking"
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+
+        </div>{/* end list+FAB wrapper */}
+
         {/* Resize handle */}
         <div
           onMouseDown={onResizeStart}
@@ -457,6 +471,18 @@ export default function Bookings() {
           )}
         </div>
       </div>
+
+    {showNew && (
+      <NewBookingModal
+        venueId={venueId}
+        date={date}
+        onClose={() => setShowNew(false)}
+        onCreated={(createdDate) => {
+          setShowNew(false)
+          qc.invalidateQueries({ queryKey: ['bookings', venueId, createdDate] })
+        }}
+      />
+    )}
     </div>
   )
 }
@@ -501,7 +527,12 @@ function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStat
 
       {/* Table + section */}
       <div className="shrink-0 text-right hidden sm:block">
-        <p className="text-sm font-medium">{b.combination_name ?? b.table_label}</p>
+        <p className="text-sm font-medium flex items-center justify-end gap-1">
+          {b.table_locked && (
+            <Lock className="w-3 h-3 text-amber-500 shrink-0" title="Table locked" />
+          )}
+          {b.combination_name ?? b.table_label}
+        </p>
         {b.section_name && (
           <p className="text-xs text-muted-foreground">{b.section_name}</p>
         )}

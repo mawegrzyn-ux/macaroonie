@@ -15,7 +15,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
 import { restrictToWindowEdges } from '@dnd-kit/modifiers'
-import { ChevronLeft, ChevronRight, Plus, TriangleAlert, Phone, Info } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, TriangleAlert, Phone, Info, Lock } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -120,6 +120,12 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
           className="absolute top-0.5 right-0.5 text-[10px] leading-none pointer-events-none z-10"
           title="Double-booked — overlapping table assignment"
         >⛔</span>
+      )}
+      {booking.table_locked && (
+        <Lock
+          className="absolute bottom-0.5 right-0.5 w-2.5 h-2.5 text-amber-500 pointer-events-none z-10"
+          title="Table locked — cascade displacement will not move this booking"
+        />
       )}
       {tileMode === 'extensive' ? (
         /* ── Extensive layout: 3 info lines ─────────────────── */
