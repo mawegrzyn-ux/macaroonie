@@ -143,11 +143,13 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   )
 
   // Refs for Walk-In-from-slot-step flow (avoids async state issues):
-  //   walkInModeRef   — when true, holdMutation.onSuccess auto-confirms as Walk In instead of advancing to guest step
-  //   walkInDisplaceRef — stores displacement alloc data synchronously so confirmDisplaceMutation reads it before React re-renders
-  //   holdDataRef     — sync mirror of holdData state so confirmMutation can read hold.id the same tick holdMutation.onSuccess fires
+  //   walkInModeRef      — when true, holdMutation.onSuccess auto-confirms as Walk In instead of advancing to guest step
+  //   walkInDisplaceRef  — stores displacement alloc data synchronously so confirmDisplaceMutation reads it before React re-renders
+  //   walkInManualRef    — stores manual alloc data synchronously so confirmOverrideMutation reads it before React re-renders
+  //   holdDataRef        — sync mirror of holdData state so confirmMutation can read hold.id the same tick holdMutation.onSuccess fires
   const walkInModeRef    = useRef(false)
   const walkInDisplaceRef = useRef(null)
+  const walkInManualRef  = useRef(null)
   const holdDataRef      = useRef(null)
 
   // Auto-select the slot matching prefillTime when slots arrive (canvas click flow)
@@ -216,20 +218,29 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
   // Admin override — bypasses slot resolver, capacity, and booking window checks.
   // starts_at: convert local time string → UTC ISO so the server (UTC) stores the correct time
   // regardless of what timezone the browser is in (e.g. BST = UTC+1 in summer).
+  // walkInManualRef is read synchronously when Walk In is triggered from ManualAllocModal
+  // (state not yet updated when called directly from that modal's footer).
   const confirmOverrideMutation = useMutation({
-    mutationFn: (guestData) => api.post('/bookings/admin-override', {
-      venue_id:    venueId,
-      starts_at:   new Date(`${manualAlloc.date}T${manualAlloc.time}:00`).toISOString(),
-      covers:      guestData.covers,
-      table_ids:   manualAlloc.tableIds,
-      unallocated: manualAlloc.unallocated ?? false,
-      guest_name:  guestData.guest_name,
-      guest_email: guestData.guest_email,
-      guest_phone: guestData.guest_phone ?? null,
-      guest_notes: guestData.guest_notes ?? null,
-      status:      guestData.status ?? bookingStatus,
-    }),
-    onSuccess: () => onCreated(manualAlloc.date),
+    mutationFn: (guestData) => {
+      const alloc = walkInManualRef.current ?? manualAlloc
+      return api.post('/bookings/admin-override', {
+        venue_id:    venueId,
+        starts_at:   new Date(`${alloc.date}T${alloc.time}:00`).toISOString(),
+        covers:      guestData.covers,
+        table_ids:   alloc.tableIds,
+        unallocated: alloc.unallocated ?? false,
+        guest_name:  guestData.guest_name,
+        guest_email: guestData.guest_email,
+        guest_phone: guestData.guest_phone ?? null,
+        guest_notes: guestData.guest_notes ?? null,
+        status:      guestData.status ?? bookingStatus,
+      })
+    },
+    onSuccess: () => {
+      const date = (walkInManualRef.current ?? manualAlloc)?.date ?? bookingDate
+      walkInManualRef.current = null
+      onCreated(date)
+    },
   })
 
   // Displacement booking — calls admin-override with displace_conflicts:true.
@@ -710,6 +721,14 @@ export default function NewBookingModal({ venueId, date: initialDate, prefillTim
             setShowManualAlloc(false)
             setStep('guest')
           }}
+          onWalkIn={(alloc) => {
+            walkInManualRef.current = alloc
+            setShowManualAlloc(false)
+            confirmOverrideMutation.mutate({
+              guest_name: 'Walk In', guest_email: 'walkin@walkin.com',
+              covers, guest_notes: '', guest_phone: null, status: 'seated',
+            })
+          }}
         />
       )}
     </>
@@ -854,7 +873,7 @@ function Field({ label, error, children }) {
 // ── Manual allocation modal ─────────────────────────────────────
 // Lets admins pick any date, time, and tables (or unallocated) without
 // being constrained by schedule, capacity, or booking-window rules.
-function ManualAllocModal({ venueId, initialDate, initialTime, initialTableIds = [], covers, tables, api, onConfirm, onClose }) {
+function ManualAllocModal({ venueId, initialDate, initialTime, initialTableIds = [], covers, tables, api, onConfirm, onWalkIn, onClose }) {
   const [date,        setDate]        = useState(initialDate)
   const [time,        setTime]        = useState(initialTime || '12:00')
   const [selTableIds, setSelTableIds] = useState(new Set(initialTableIds))
@@ -1031,6 +1050,13 @@ function ManualAllocModal({ venueId, initialDate, initialTime, initialTableIds =
             className="text-sm px-4 py-2 border rounded-lg hover:bg-accent touch-manipulation"
           >
             Cancel
+          </button>
+          <button
+            onClick={() => canConfirm && onWalkIn({ date, time, tableIds: [...selTableIds], unallocated })}
+            disabled={!canConfirm}
+            className="text-sm px-4 py-2 border border-green-500 text-green-700 bg-green-50 hover:bg-green-100 rounded-lg disabled:opacity-40 touch-manipulation"
+          >
+            Walk In
           </button>
           <button
             onClick={() => canConfirm && onConfirm({ date, time, tableIds: [...selTableIds], unallocated })}
