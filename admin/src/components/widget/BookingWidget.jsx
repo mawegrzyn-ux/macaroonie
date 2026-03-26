@@ -382,6 +382,20 @@ function SlotGrid({ slots, selected, onSelect, loading, styles: w, accent, text,
   )
 }
 
+// ── Field wrapper — must be defined OUTSIDE GuestDetailsStep.
+// If defined inside, every re-render (e.g. on each keystroke) creates a new
+// function reference, React treats it as a different component, unmounts the
+// old one, and the focused input loses focus immediately.
+function F({ label, id, error: fieldError, children, labelStyle }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={labelStyle} htmlFor={id}>{label}</label>
+      {children}
+      {fieldError && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{fieldError}</div>}
+    </div>
+  )
+}
+
 // ── Guest details form ────────────────────────────────────────
 function GuestDetailsStep({ covers, date, slot, hold, styles: w, accent, text, textMuted, surface, border, onSubmit, onBack, isPending, error }) {
   const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '' })
@@ -404,13 +418,7 @@ function GuestDetailsStep({ covers, date, slot, hold, styles: w, accent, text, t
     if (validate()) onSubmit(form)
   }
 
-  const F = ({ label, id, error: fieldError, children }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={w.label} htmlFor={id}>{label}</label>
-      {children}
-      {fieldError && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>{fieldError}</div>}
-    </div>
-  )
+  // F is defined at module level (above GuestDetailsStep) to avoid remount on re-render
 
   return (
     <div>
@@ -433,25 +441,25 @@ function GuestDetailsStep({ covers, date, slot, hold, styles: w, accent, text, t
       <div style={{ fontSize: 16, fontWeight: 700, color: text, marginBottom: 16 }}>Your details</div>
 
       <form onSubmit={handleSubmit}>
-        <F label="Full name *" id="name" error={errors.name}>
+        <F label="Full name *" id="name" error={errors.name} labelStyle={w.label}>
           <input
             id="name" style={w.input} placeholder="Jane Smith"
             value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
           />
         </F>
-        <F label="Email address *" id="email" error={errors.email}>
+        <F label="Email address *" id="email" error={errors.email} labelStyle={w.label}>
           <input
             id="email" type="email" style={w.input} placeholder="jane@example.com"
             value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
           />
         </F>
-        <F label="Phone number" id="phone">
+        <F label="Phone number" id="phone" labelStyle={w.label}>
           <input
             id="phone" style={w.input} placeholder="+44 7700 900000"
             value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))}
           />
         </F>
-        <F label="Special requests" id="notes">
+        <F label="Special requests" id="notes" labelStyle={w.label}>
           <textarea
             id="notes" style={{ ...w.input, resize: 'none', height: 72 }}
             placeholder="Dietary requirements, celebrations, accessibility needs…"
