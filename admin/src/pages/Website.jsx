@@ -729,6 +729,416 @@ function ThemeSection({ config }) {
   )
 }
 
+// ── Generic "edit a batch of config fields" section ─────────
+// All the simple text/image sections (branding, hero, about, find us,
+// contact, SEO, analytics) follow the same pattern: pull a subset of
+// fields from config, let the user edit, PATCH them back.
+
+function useConfigFields(config, fields) {
+  const qc = useQueryClient()
+  const api = useApi()
+  const initial = useMemo(() => {
+    const out = {}
+    for (const f of fields) out[f] = config[f] ?? ''
+    return out
+  }, [config, fields.join(',')]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [values, setValues] = useState(initial)
+  useEffect(() => setValues(initial), [initial])
+  const dirty = JSON.stringify(values) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body = {}
+      for (const [k, v] of Object.entries(values)) {
+        body[k] = v === '' ? null : v
+      }
+      return api.patch('/website/config', body)
+    },
+    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+  })
+
+  const set = (k) => (v) =>
+    setValues(s => ({ ...s, [k]: typeof v === 'object' && v?.target ? v.target.value : v }))
+
+  return { values, set, dirty, save, reset: () => setValues(initial) }
+}
+
+// ── Branding section ────────────────────────────────────────
+
+function BrandingSection({ config }) {
+  const { values, set, dirty, save, reset } = useConfigFields(config,
+    ['site_name', 'tagline', 'logo_url', 'favicon_url'])
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Identity">
+        <FormRow label="Site name" hint="Shown in the header and browser tab.">
+          <TextInput value={values.site_name || ''} onChange={set('site_name')}
+            placeholder="Wingstop Covent Garden" />
+        </FormRow>
+        <FormRow label="Tagline" hint="One-line description shown in the footer.">
+          <TextInput value={values.tagline || ''} onChange={set('tagline')} />
+        </FormRow>
+      </SectionCard>
+
+      <SectionCard title="Logo & favicon">
+        <FormRow label="Logo" hint="Shown in the site header. PNG or SVG work best.">
+          <ImageField url={values.logo_url} onChange={set('logo_url')} />
+        </FormRow>
+        <FormRow label="Favicon" hint="Small icon shown in the browser tab.">
+          <ImageField url={values.favicon_url} onChange={set('favicon_url')} />
+        </FormRow>
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={reset} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Hero section ────────────────────────────────────────────
+
+function HeroSection({ config }) {
+  const { values, set, dirty, save, reset } = useConfigFields(config,
+    ['hero_image_url', 'hero_heading', 'hero_subheading', 'hero_cta_text', 'hero_cta_link'])
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Hero"
+        description="The big first screen guests see.">
+        <FormRow label="Hero image" hint="Shown full-bleed behind the heading.">
+          <ImageField url={values.hero_image_url} onChange={set('hero_image_url')} />
+        </FormRow>
+        <FormRow label="Heading">
+          <TextInput value={values.hero_heading || ''} onChange={set('hero_heading')}
+            placeholder="Seasonal food, every day" />
+        </FormRow>
+        <FormRow label="Subheading">
+          <TextArea value={values.hero_subheading || ''} onChange={set('hero_subheading')} />
+        </FormRow>
+        <FormRow label="Call-to-action label">
+          <TextInput value={values.hero_cta_text || ''} onChange={set('hero_cta_text')}
+            placeholder="Book a Table" />
+        </FormRow>
+        <FormRow label="Call-to-action link"
+          hint="Defaults to the booking widget anchor #booking. Use a full URL to open elsewhere.">
+          <TextInput value={values.hero_cta_link || ''} onChange={set('hero_cta_link')}
+            placeholder="#booking" />
+        </FormRow>
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={reset} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── About section ───────────────────────────────────────────
+
+function AboutSection({ config }) {
+  const { values, set, dirty, save, reset } = useConfigFields(config,
+    ['about_heading', 'about_text', 'about_image_url'])
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="About">
+        <FormRow label="Heading">
+          <TextInput value={values.about_heading || ''} onChange={set('about_heading')} />
+        </FormRow>
+        <FormRow label="Text" hint="Line breaks are preserved.">
+          <TextArea value={values.about_text || ''} onChange={set('about_text')}
+            className="min-h-[180px]" />
+        </FormRow>
+        <FormRow label="Image">
+          <ImageField url={values.about_image_url} onChange={set('about_image_url')} />
+        </FormRow>
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={reset} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Find us section ─────────────────────────────────────────
+
+function FindUsSection({ config }) {
+  const { values, set, dirty, save, reset } = useConfigFields(config, [
+    'address_line1', 'address_line2', 'city', 'postcode', 'country',
+    'latitude', 'longitude', 'google_maps_embed_url',
+    'show_find_us',
+  ])
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Show section on site">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Show "Find us"</p>
+          </div>
+          <Toggle value={!!values.show_find_us} onChange={set('show_find_us')} label="Show Find us" />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Address">
+        <FormRow label="Address line 1">
+          <TextInput value={values.address_line1 || ''} onChange={set('address_line1')} />
+        </FormRow>
+        <FormRow label="Address line 2">
+          <TextInput value={values.address_line2 || ''} onChange={set('address_line2')} />
+        </FormRow>
+        <div className="grid grid-cols-2 gap-3">
+          <FormRow label="City">
+            <TextInput value={values.city || ''} onChange={set('city')} />
+          </FormRow>
+          <FormRow label="Postcode">
+            <TextInput value={values.postcode || ''} onChange={set('postcode')} />
+          </FormRow>
+        </div>
+        <FormRow label="Country code" hint="Two-letter ISO code, e.g. GB.">
+          <TextInput value={values.country || ''} onChange={set('country')}
+            maxLength={2} className="uppercase w-24" />
+        </FormRow>
+      </SectionCard>
+
+      <SectionCard title="Map">
+        <div className="grid grid-cols-2 gap-3">
+          <FormRow label="Latitude">
+            <TextInput type="number" step="0.0000001"
+              value={values.latitude ?? ''}
+              onChange={(e) => set('latitude')(e.target.value === '' ? null : Number(e.target.value))} />
+          </FormRow>
+          <FormRow label="Longitude">
+            <TextInput type="number" step="0.0000001"
+              value={values.longitude ?? ''}
+              onChange={(e) => set('longitude')(e.target.value === '' ? null : Number(e.target.value))} />
+          </FormRow>
+        </div>
+        <FormRow label="Google Maps embed URL"
+          hint="Optional. Paste the src attribute from a Google Maps 'Share > Embed' iframe.">
+          <TextInput value={values.google_maps_embed_url || ''}
+            onChange={set('google_maps_embed_url')}
+            placeholder="https://www.google.com/maps/embed?pb=…" />
+        </FormRow>
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={reset} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Contact section ─────────────────────────────────────────
+
+const SOCIAL_PLATFORMS = [
+  { key: 'instagram', label: 'Instagram', placeholder: 'https://instagram.com/yourhandle' },
+  { key: 'facebook',  label: 'Facebook',  placeholder: 'https://facebook.com/yourpage' },
+  { key: 'x',         label: 'X / Twitter', placeholder: 'https://x.com/yourhandle' },
+  { key: 'tiktok',    label: 'TikTok',    placeholder: 'https://tiktok.com/@yourhandle' },
+  { key: 'youtube',   label: 'YouTube',   placeholder: 'https://youtube.com/@yourchannel' },
+]
+
+function ContactSection({ config }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const initial = useMemo(() => ({
+    phone:   config.phone ?? '',
+    email:   config.email ?? '',
+    socials: SOCIAL_PLATFORMS.reduce((acc, p) => {
+      acc[p.key] = (config.social_links?.[p.key]) ?? ''
+      return acc
+    }, {}),
+    show_contact: !!config.show_contact,
+  }), [config])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => {
+      const social_links = {}
+      for (const [k, v] of Object.entries(state.socials)) {
+        if (v) social_links[k] = v
+      }
+      return api.patch('/website/config', {
+        phone:        state.phone   || null,
+        email:        state.email   || null,
+        social_links,
+        show_contact: state.show_contact,
+      })
+    },
+    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Show section on site">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Show "Contact"</p>
+          </div>
+          <Toggle value={state.show_contact}
+            onChange={v => setState(s => ({ ...s, show_contact: v }))}
+            label="Show Contact" />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Contact details">
+        <FormRow label="Phone">
+          <TextInput type="tel" inputMode="tel"
+            value={state.phone}
+            onChange={e => setState(s => ({ ...s, phone: e.target.value }))} />
+        </FormRow>
+        <FormRow label="Email">
+          <TextInput type="email"
+            value={state.email}
+            onChange={e => setState(s => ({ ...s, email: e.target.value }))} />
+        </FormRow>
+      </SectionCard>
+
+      <SectionCard title="Social links">
+        {SOCIAL_PLATFORMS.map(p => (
+          <FormRow key={p.key} label={p.label}>
+            <TextInput type="url" placeholder={p.placeholder}
+              value={state.socials[p.key] || ''}
+              onChange={e => setState(s => ({
+                ...s,
+                socials: { ...s.socials, [p.key]: e.target.value },
+              }))} />
+          </FormRow>
+        ))}
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── SEO section ─────────────────────────────────────────────
+
+function SeoSection({ config }) {
+  const { values, set, dirty, save, reset } = useConfigFields(config,
+    ['meta_title', 'meta_description', 'og_image_url'])
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Search engine optimisation"
+        description="What search engines and social previews show.">
+        <FormRow label="Meta title"
+          hint="Shown in browser tabs and search results. Max ~60 chars.">
+          <TextInput value={values.meta_title || ''} onChange={set('meta_title')}
+            maxLength={200} />
+        </FormRow>
+        <FormRow label="Meta description"
+          hint="Shown beneath your page title in search results. Max ~160 chars.">
+          <TextArea value={values.meta_description || ''} onChange={set('meta_description')}
+            className="min-h-[80px]" maxLength={500} />
+        </FormRow>
+        <FormRow label="Social preview image"
+          hint="Shown when your URL is shared on Facebook, Twitter, iMessage, etc. 1200×630 works well.">
+          <ImageField url={values.og_image_url} onChange={set('og_image_url')} />
+        </FormRow>
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={reset} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Analytics section ───────────────────────────────────────
+
+function AnalyticsSection({ config }) {
+  const { values, set, dirty, save, reset } = useConfigFields(config,
+    ['ga4_measurement_id', 'fb_pixel_id'])
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Analytics"
+        description="Tracking is injected into every page. Comply with your cookie / consent rules.">
+        <FormRow label="Google Analytics 4 measurement ID"
+          hint="Found in GA4 Admin → Data Streams. Starts with G-.">
+          <TextInput value={values.ga4_measurement_id || ''} onChange={set('ga4_measurement_id')}
+            placeholder="G-XXXXXXXXXX" />
+        </FormRow>
+        <FormRow label="Meta (Facebook) Pixel ID"
+          hint="Found in Meta Events Manager. Numeric ID.">
+          <TextInput value={values.fb_pixel_id || ''} onChange={set('fb_pixel_id')}
+            placeholder="1234567890" />
+        </FormRow>
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={reset} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Booking widget section ──────────────────────────────────
+
+function BookingSection({ config }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: venues = [] } = useQuery({
+    queryKey: ['venues'],
+    queryFn:  () => api.get('/venues'),
+  })
+  const initial = useMemo(() => ({
+    widget_venue_id:     config.widget_venue_id ?? '',
+    widget_theme:        config.widget_theme || 'light',
+    show_booking_widget: !!config.show_booking_widget,
+  }), [config])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/website/config', {
+      widget_venue_id:     state.widget_venue_id || null,
+      widget_theme:        state.widget_theme,
+      show_booking_widget: state.show_booking_widget,
+    }),
+    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Booking widget"
+        description="Embeds the Macaroonie booking widget into your site.">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Show booking widget</p>
+          </div>
+          <Toggle value={state.show_booking_widget}
+            onChange={v => setState(s => ({ ...s, show_booking_widget: v }))}
+            label="Show booking widget" />
+        </div>
+
+        <FormRow label="Venue"
+          hint="Which venue's schedule to book against.">
+          <select
+            value={state.widget_venue_id}
+            onChange={e => setState(s => ({ ...s, widget_venue_id: e.target.value }))}
+            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
+            <option value="">— Select a venue —</option>
+            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        </FormRow>
+
+        <FormRow label="Widget theme">
+          <select
+            value={state.widget_theme}
+            onChange={e => setState(s => ({ ...s, widget_theme: e.target.value }))}
+            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </FormRow>
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
 // ── Page shell + section router ─────────────────────────────
 
 export default function Website() {
@@ -835,9 +1245,17 @@ export default function Website() {
 function ActiveSection({ active, config }) {
   // Lazy-map — keeps Website.jsx manageable as sections are added.
   switch (active) {
-    case 'setup':     return <SetupSection    config={config} />
-    case 'template':  return <TemplateSection config={config} />
-    case 'theme':     return <ThemeSection    config={config} />
+    case 'setup':     return <SetupSection     config={config} />
+    case 'template':  return <TemplateSection  config={config} />
+    case 'theme':     return <ThemeSection     config={config} />
+    case 'branding':  return <BrandingSection  config={config} />
+    case 'hero':      return <HeroSection      config={config} />
+    case 'about':     return <AboutSection     config={config} />
+    case 'find':      return <FindUsSection    config={config} />
+    case 'contact':   return <ContactSection   config={config} />
+    case 'booking':   return <BookingSection   config={config} />
+    case 'seo':       return <SeoSection       config={config} />
+    case 'analytics': return <AnalyticsSection config={config} />
     default:
       return (
         <div className="text-sm text-muted-foreground border rounded-xl p-8 text-center bg-background">
