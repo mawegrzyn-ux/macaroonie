@@ -20,6 +20,7 @@ import WidgetTest  from '@/pages/WidgetTest'
 import Docs        from '@/pages/Docs'
 import Help        from '@/pages/Help'
 import Settings    from '@/pages/Settings'
+import Website     from '@/pages/Website'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -76,6 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="tables"   element={<Tables />} />
                 <Route path="schedule" element={<Schedule />} />
                 <Route path="rules"       element={<Rules />} />
+                <Route path="website"     element={<Website />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="team"        element={<Placeholder title="Team management" />} />
                 <Route path="docs"        element={<Docs />} />
