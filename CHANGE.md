@@ -7,6 +7,88 @@ Migrations are listed where a database change is required.
 
 ## [Unreleased / Current]
 
+### Tenant Website Builder / CMS  *(migrations 025 + 026)*
+
+A multi-section website builder. Each tenant gets a public website
+hosted at `{slug}.macaroonie.com` (and optionally a custom domain like
+`book.wingstop.co.uk`). Fully configurable via a new admin page.
+
+**Database** *(migrations 025_website_cms.sql, 026_website_custom_domain_templates.sql)*
+- `website_config` — singleton per tenant; 60+ columns covering identity,
+  branding, hero, about, find-us, contact, social, ordering, delivery,
+  booking widget, SEO, analytics, feature toggles.
+- `website_opening_hours`, `website_gallery_images`, `website_pages`,
+  `website_menu_documents`, `website_allergen_info` — ordered
+  collections with their own RLS policies.
+- Migration 026 adds `custom_domain` (UNIQUE lower index),
+  `custom_domain_verified`, `template_key` (`classic` | `modern`),
+  and `theme` (JSONB) for per-tenant theming independent of template.
+
+**API** *(new routes)*
+- `POST/GET/PATCH /api/website/config` — singleton config
+- `POST /api/website/verify-domain` — DNS A + CNAME verification for
+  custom domains (checks resolv against PUBLIC_ROOT_DOMAIN / APP_PUBLIC_IPS)
+- `GET /api/website/slug-available` — global uniqueness check
+- Gallery, pages, menus, opening-hours, allergens CRUD
+- `POST /api/website/upload` — multipart image / PDF upload via
+  pluggable storage service
+- `GET /api/site/:slug` — public JSON bundle
+- `GET /api/site/:slug/sitemap.xml` + `robots.txt`
+
+**Pluggable storage** *(api/src/services/storageSvc.js)*
+- `STORAGE_DRIVER=local` → writes to `UPLOAD_DIR`, served by
+  `@fastify/static` at `/uploads/*`
+- `STORAGE_DRIVER=s3` → AWS S3, DO Spaces (`S3_ENDPOINT`), Cloudflare R2
+  via optional `@aws-sdk/client-s3` peer dep (lazy-loaded)
+
+**SSR renderer** *(api/src/routes/siteRenderer.js)*
+- Detects `{slug}.{PUBLIC_ROOT_DOMAIN}` OR verified `custom_domain` on
+  the Host header; reserved subdomains (api, www, …) bypass.
+- Templates live in `api/src/views/site/templates/{classic|modern}/`
+  — `index.eta`, `menu.eta`, `page.eta`, `partials/{header,footer}.eta`
+- Shared `views/site/shared/head.eta` converts the `theme` JSONB into
+  CSS custom properties (`--c-*`, `--f-*`, `--r-*`, etc.) and loads
+  Google Fonts automatically for known families.
+- Both templates consume the same CSS variables so a theme change
+  applies regardless of which template the tenant picks.
+- Emits Restaurant JSON-LD, OG/Twitter meta, GA4 + Meta Pixel snippets,
+  sitemap.xml, robots.txt.
+
+**Admin portal** *(admin/src/pages/Website.jsx, new route `/website`)*
+- Left-rail navigation with 18 sections:
+  Setup & domain · Template · Theme · Branding · Hero · About · Gallery ·
+  Menus · Allergens · Opening hours · Find us · Contact · Online ordering ·
+  Delivery · Booking widget · Custom pages · SEO · Analytics.
+- **Theme manager**: 7 colour pickers, heading + body font dropdowns
+  (Google Fonts), sliders for base size, heading scale, weights, line
+  height, container width, section padding, grid gap, 3 radius sliders,
+  logo height, 4 button sliders, hero overlay opacity + min-height.
+- **Gallery**: drag-to-reorder grid via `@dnd-kit/sortable` (new dep),
+  inline captions, bulk save.
+- **Allergens**: two-mode (PDF upload | dish-by-dish table) with
+  pill-selectable allergens (14 common UK/EU allergens).
+- **Opening hours**: 7-day grid with multiple sessions per day
+  (e.g. "Lunch" / "Dinner"), closed toggle, native time pickers.
+- **Custom pages**: in-place CRUD; URL slug live-sanitised; appears
+  at `/p/{slug}` on the public site.
+- All image/PDF uploads go through a shared `FileUpload` / `ImageField`
+  component calling `api.upload()` (new method on `useApi()`).
+- First-time visit shows an onboarding card that POSTs a subdomain slug
+  to create the `website_config` row.
+
+**Deployment follow-ups** *(not yet applied to the server)*
+- Nginx: wildcard server block for `*.macaroonie.com` proxying to the
+  Fastify API; wildcard SSL via Certbot DNS challenge.
+- DNS: wildcard A record for `*.macaroonie.com`.
+- Custom domains: per-domain SSL provisioning (e.g. Caddy on-demand TLS
+  or per-domain certbot); the app just resolves the Host header — it
+  doesn't provision certs.
+- Migrations to run on the server:
+    `psql $DATABASE_URL -f /home/ubuntu/app/migrations/025_website_cms.sql`
+    `psql $DATABASE_URL -f /home/ubuntu/app/migrations/026_website_custom_domain_templates.sql`
+
+---
+
 ### Slot availability — last-order-time start rule  *(migration 020)*
 - **Changed:** `get_available_slots()` now generates a slot as long as it **starts** at or before
   `closes_at` (last order time), even if the booking duration would run past that time.
