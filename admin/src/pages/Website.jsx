@@ -17,6 +17,13 @@ import {
   Search, BarChart3, Eye, EyeOff, Check, X, Upload, Trash2, GripVertical,
   Plus, ExternalLink, Loader2,
 } from 'lucide-react'
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext, arrayMove, useSortable, rectSortingStrategy,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -1139,6 +1146,823 @@ function BookingSection({ config }) {
   )
 }
 
+// ── Gallery section (with drag-to-reorder) ──────────────────
+
+function SortableGalleryCard({ image, onCaptionChange, onRemove, dirty }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: image.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  return (
+    <div ref={setNodeRef} style={style}
+      className="border rounded-lg overflow-hidden bg-background relative group">
+      <button type="button" {...attributes} {...listeners}
+        className="absolute top-2 left-2 z-10 bg-black/55 text-white p-1.5 rounded-md cursor-grab active:cursor-grabbing touch-manipulation"
+        aria-label="Drag to reorder">
+        <GripVertical className="w-3.5 h-3.5" />
+      </button>
+      <button type="button" onClick={onRemove}
+        className="absolute top-2 right-2 z-10 bg-black/55 text-white p-1.5 rounded-md hover:bg-destructive/90 touch-manipulation"
+        aria-label="Remove">
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+      <img src={image.image_url} alt={image.caption || ''} className="w-full h-40 object-cover" />
+      <div className="p-2.5">
+        <TextInput placeholder="Caption (optional)"
+          value={image.caption || ''}
+          onChange={e => onCaptionChange(e.target.value)}
+          className="text-xs min-h-[36px]" />
+      </div>
+      {dirty && (
+        <span className="absolute bottom-2 right-2 bg-amber-500 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">
+          unsaved
+        </span>
+      )}
+    </div>
+  )
+}
+
+function GallerySection({ config }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: fetched = [], isLoading } = useQuery({
+    queryKey: ['website-gallery'],
+    queryFn:  () => api.get('/website/gallery'),
+  })
+  const [items, setItems]           = useState(fetched)
+  const [captionEdits, setEdits]    = useState({})   // id → caption
+  useEffect(() => { setItems(fetched); setEdits({}) }, [fetched])
+  const dirtyOrder = items.map(i => i.id).join(',') !== fetched.map(i => i.id).join(',')
+  const dirty = dirtyOrder || Object.keys(captionEdits).length > 0
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 8 } }),
+  )
+
+  const add = useMutation({
+    mutationFn: (body) => api.post('/website/gallery', body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-gallery'] }),
+  })
+  const del = useMutation({
+    mutationFn: (id) => api.delete(`/website/gallery/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-gallery'] }),
+  })
+  const saveOrder = useMutation({
+    mutationFn: () => api.patch('/website/gallery/reorder', { ids: items.map(i => i.id) }),
+  })
+  const saveCaption = useMutation({
+    mutationFn: ({ id, caption }) => api.patch(`/website/gallery/${id}`, { caption }),
+  })
+
+  async function saveAll() {
+    if (dirtyOrder) await saveOrder.mutateAsync()
+    for (const [id, caption] of Object.entries(captionEdits)) {
+      await saveCaption.mutateAsync({ id, caption: caption || null })
+    }
+    qc.invalidateQueries({ queryKey: ['website-gallery'] })
+    setEdits({})
+  }
+
+  const saving = saveOrder.isPending || saveCaption.isPending
+
+  function handleDragEnd(e) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const oldIdx = items.findIndex(i => i.id === active.id)
+    const newIdx = items.findIndex(i => i.id === over.id)
+    setItems(arr => arrayMove(arr, oldIdx, newIdx))
+  }
+
+  return (
+    <div className="space-y-5">
+      <SectionCard
+        title="Show gallery"
+        description="Enable or disable the gallery band on the public site.">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Show "Gallery"</p>
+          </div>
+          <Toggle
+            value={!!config.show_gallery}
+            onChange={v => api.patch('/website/config', { show_gallery: v })
+              .then(cfg => qc.setQueryData(['website-config'], cfg))}
+            label="Show gallery"
+          />
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="Images"
+        description="Drag to reorder. Upload JPG / PNG / WebP up to 8 MB each."
+        action={
+          <FileUpload kind="images" accept="image/*"
+            onUploaded={r => add.mutate({ image_url: r.url, sort_order: items.length })}
+            label="Add image" />
+        }>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" />
+          </div>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            No images yet. Click "Add image" above to upload.
+          </p>
+        ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={items.map(i => i.id)} strategy={rectSortingStrategy}>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {items.map(img => (
+                  <SortableGalleryCard key={img.id} image={{
+                      ...img,
+                      caption: captionEdits[img.id] !== undefined ? captionEdits[img.id] : img.caption,
+                    }}
+                    onCaptionChange={(cap) => setEdits(s => ({ ...s, [img.id]: cap }))}
+                    onRemove={() => del.mutate(img.id)}
+                    dirty={captionEdits[img.id] !== undefined && captionEdits[img.id] !== img.caption}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        )}
+      </SectionCard>
+
+      {dirty && (
+        <div className="flex items-center justify-end gap-2 pt-2 border-t">
+          <button type="button"
+            onClick={() => { setItems(fetched); setEdits({}) }}
+            className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5">
+            Reset
+          </button>
+          <button type="button" onClick={saveAll} disabled={saving}
+            className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50">
+            {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            Save order & captions
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Menus section (PDF uploads) ─────────────────────────────
+
+function MenuSection({ config }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: menus = [], isLoading } = useQuery({
+    queryKey: ['website-menus'],
+    queryFn:  () => api.get('/website/menus'),
+  })
+  const [label, setLabel] = useState('')
+
+  const add = useMutation({
+    mutationFn: (body) => api.post('/website/menus', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['website-menus'] })
+      setLabel('')
+    },
+  })
+  const del = useMutation({
+    mutationFn: (id) => api.delete(`/website/menus/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-menus'] }),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Show menus"
+        description="Enable or hide the menus link in the site header.">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Show "Menus"</p>
+          </div>
+          <Toggle value={!!config.show_menu}
+            onChange={v => api.patch('/website/config', { show_menu: v })
+              .then(cfg => qc.setQueryData(['website-config'], cfg))}
+            label="Show menus" />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Add menu" description="PDF only, up to 25 MB.">
+        <FormRow label="Label" hint="e.g. Lunch, Dinner, Drinks">
+          <TextInput value={label} onChange={e => setLabel(e.target.value)}
+            placeholder="Lunch Menu" />
+        </FormRow>
+        <FileUpload kind="menus" accept="application/pdf"
+          onUploaded={(r) => {
+            if (!label.trim()) {
+              alert('Please set a label first.')
+              return
+            }
+            add.mutate({ label: label.trim(), file_url: r.url, sort_order: menus.length })
+          }}
+          label="Upload PDF" />
+      </SectionCard>
+
+      <SectionCard title="Menus on your site">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" />
+          </div>
+        ) : menus.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">
+            No menus uploaded yet.
+          </p>
+        ) : (
+          <div className="divide-y">
+            {menus.map(m => (
+              <div key={m.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0 gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <BookOpen className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{m.label}</p>
+                    <a href={m.file_url} target="_blank" rel="noopener"
+                       className="text-xs text-primary hover:underline truncate block">
+                      View PDF
+                    </a>
+                  </div>
+                </div>
+                <button type="button" onClick={() => del.mutate(m.id)}
+                  className="text-destructive hover:bg-destructive/10 p-2 rounded touch-manipulation">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  )
+}
+
+// ── Allergens section ───────────────────────────────────────
+
+const COMMON_ALLERGENS = [
+  'gluten', 'dairy', 'egg', 'soy', 'peanut', 'tree nut', 'fish',
+  'shellfish', 'sesame', 'mustard', 'celery', 'sulphites', 'lupin', 'molluscs',
+]
+
+function AllergenRow({ row, onChange, onRemove }) {
+  return (
+    <div className="border rounded-lg p-3 bg-background space-y-2">
+      <div className="flex items-start gap-2">
+        <TextInput placeholder="Dish name" value={row.dish}
+          onChange={e => onChange({ ...row, dish: e.target.value })}
+          className="flex-1" />
+        <button type="button" onClick={onRemove}
+          className="text-destructive hover:bg-destructive/10 p-2 rounded shrink-0">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {COMMON_ALLERGENS.map(a => {
+          const picked = (row.allergens || []).includes(a)
+          return (
+            <button key={a} type="button"
+              onClick={() => {
+                const next = picked
+                  ? (row.allergens || []).filter(x => x !== a)
+                  : [...(row.allergens || []), a]
+                onChange({ ...row, allergens: next })
+              }}
+              className={cn(
+                'text-xs px-2.5 py-1 rounded-full border transition-colors touch-manipulation',
+                picked
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-background text-muted-foreground hover:border-primary/50',
+              )}>
+              {a}
+            </button>
+          )
+        })}
+      </div>
+      <TextInput placeholder="Notes (optional)" value={row.notes || ''}
+        onChange={e => onChange({ ...row, notes: e.target.value })}
+        className="text-xs" />
+    </div>
+  )
+}
+
+function AllergensSection({ config }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data = {} } = useQuery({
+    queryKey: ['website-allergens'],
+    queryFn:  () => api.get('/website/allergens'),
+  })
+  const initial = useMemo(() => ({
+    info_type:       data.info_type || 'document',
+    document_url:    data.document_url || null,
+    structured_data: Array.isArray(data.structured_data) ? data.structured_data : [],
+  }), [data])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => api.post('/website/allergens', state),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-allergens'] }),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Show allergens">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Show "Allergen information"</p>
+          </div>
+          <Toggle value={!!config.show_allergens}
+            onChange={v => api.patch('/website/config', { show_allergens: v })
+              .then(cfg => qc.setQueryData(['website-config'], cfg))}
+            label="Show allergens" />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Format"
+        description="Upload a single PDF, or list dish-by-dish allergens below.">
+        <div className="flex gap-2 text-sm">
+          {[
+            { k: 'document',   label: 'Upload PDF' },
+            { k: 'structured', label: 'Dish-by-dish table' },
+          ].map(opt => (
+            <button key={opt.k} type="button"
+              onClick={() => setState(s => ({ ...s, info_type: opt.k }))}
+              className={cn(
+                'px-4 py-2 rounded-md border touch-manipulation',
+                state.info_type === opt.k
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-background text-foreground hover:border-primary/50',
+              )}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </SectionCard>
+
+      {state.info_type === 'document' ? (
+        <SectionCard title="Document">
+          {state.document_url ? (
+            <div className="flex items-center gap-3 border rounded p-3 bg-background">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              <a href={state.document_url} target="_blank" rel="noopener"
+                 className="text-sm text-primary hover:underline flex-1 truncate">
+                View current document
+              </a>
+              <button type="button"
+                onClick={() => setState(s => ({ ...s, document_url: null }))}
+                className="text-destructive text-xs hover:underline">
+                Remove
+              </button>
+            </div>
+          ) : (
+            <FileUpload kind="docs" accept="application/pdf"
+              onUploaded={r => setState(s => ({ ...s, document_url: r.url }))}
+              label="Upload allergen PDF" />
+          )}
+        </SectionCard>
+      ) : (
+        <SectionCard title="Dishes"
+          action={
+            <button type="button"
+              onClick={() => setState(s => ({
+                ...s,
+                structured_data: [...s.structured_data, { dish: '', allergens: [], notes: '' }],
+              }))}
+              className="text-xs inline-flex items-center gap-1 bg-primary/10 text-primary rounded-md px-2.5 py-1.5 font-medium">
+              <Plus className="w-3 h-3" /> Add dish
+            </button>
+          }>
+          {state.structured_data.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No dishes yet. Click "Add dish" above.
+            </p>
+          ) : (
+            <div className="space-y-2.5">
+              {state.structured_data.map((row, i) => (
+                <AllergenRow key={i} row={row}
+                  onChange={(updated) => setState(s => ({
+                    ...s,
+                    structured_data: s.structured_data.map((r, j) => j === i ? updated : r),
+                  }))}
+                  onRemove={() => setState(s => ({
+                    ...s,
+                    structured_data: s.structured_data.filter((_, j) => j !== i),
+                  }))} />
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Opening hours ───────────────────────────────────────────
+
+const WEEK = [
+  { i: 1, name: 'Monday' }, { i: 2, name: 'Tuesday' }, { i: 3, name: 'Wednesday' },
+  { i: 4, name: 'Thursday' }, { i: 5, name: 'Friday' },
+  { i: 6, name: 'Saturday' }, { i: 0, name: 'Sunday' },
+]
+
+function HoursSection() {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data = [], isLoading } = useQuery({
+    queryKey: ['website-hours'],
+    queryFn:  () => api.get('/website/opening-hours'),
+  })
+
+  // Group rows by day_of_week so UI is per-day with N sessions each.
+  const initial = useMemo(() => {
+    const by = {}
+    for (const d of WEEK) by[d.i] = []
+    for (const h of data) {
+      (by[h.day_of_week] ||= []).push({
+        opens_at:  (h.opens_at  || '').slice(0, 5),
+        closes_at: (h.closes_at || '').slice(0, 5),
+        is_closed: !!h.is_closed,
+        label:     h.label || '',
+        sort_order: h.sort_order ?? 0,
+      })
+    }
+    for (const k of Object.keys(by)) {
+      if (by[k].length === 0) by[k] = [{ opens_at: '', closes_at: '', is_closed: true, label: '', sort_order: 0 }]
+    }
+    return by
+  }, [data])
+
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => {
+      const rows = []
+      for (const d of WEEK) {
+        for (let si = 0; si < state[d.i].length; si++) {
+          const s = state[d.i][si]
+          rows.push({
+            day_of_week: d.i,
+            opens_at:  s.is_closed || !s.opens_at  ? null : s.opens_at,
+            closes_at: s.is_closed || !s.closes_at ? null : s.closes_at,
+            is_closed: s.is_closed,
+            label:     s.label || null,
+            sort_order: si,
+          })
+        }
+      }
+      return api.post('/website/opening-hours', rows)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-hours'] }),
+  })
+
+  function updateSession(dayI, sessionI, next) {
+    setState(s => ({
+      ...s,
+      [dayI]: s[dayI].map((x, j) => j === sessionI ? { ...x, ...next } : x),
+    }))
+  }
+  function addSession(dayI) {
+    setState(s => ({
+      ...s,
+      [dayI]: [...s[dayI], { opens_at: '12:00', closes_at: '22:00', is_closed: false, label: '', sort_order: s[dayI].length }],
+    }))
+  }
+  function removeSession(dayI, sessionI) {
+    setState(s => ({
+      ...s,
+      [dayI]: s[dayI].length > 1 ? s[dayI].filter((_, j) => j !== sessionI) : s[dayI],
+    }))
+  }
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-8 text-muted-foreground">
+      <Loader2 className="w-5 h-5 animate-spin" />
+    </div>
+  }
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Opening hours"
+        description="Displayed in the Find us section. Add multiple sessions per day (e.g. Lunch + Dinner).">
+        <div className="space-y-4">
+          {WEEK.map(d => (
+            <div key={d.i} className="grid grid-cols-[110px_1fr] gap-3 items-start">
+              <div className="pt-2.5 text-sm font-medium">{d.name}</div>
+              <div className="space-y-2">
+                {state[d.i].map((s, si) => (
+                  <div key={si} className="flex items-center gap-2 flex-wrap">
+                    <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                      <input type="checkbox"
+                        checked={s.is_closed}
+                        onChange={e => updateSession(d.i, si, { is_closed: e.target.checked })} />
+                      Closed
+                    </label>
+                    {!s.is_closed && (<>
+                      <input type="time" value={s.opens_at}
+                        onChange={e => updateSession(d.i, si, { opens_at: e.target.value })}
+                        className="border rounded px-2 py-1.5 text-sm min-h-[36px] touch-manipulation" />
+                      <span className="text-muted-foreground">–</span>
+                      <input type="time" value={s.closes_at}
+                        onChange={e => updateSession(d.i, si, { closes_at: e.target.value })}
+                        className="border rounded px-2 py-1.5 text-sm min-h-[36px] touch-manipulation" />
+                      <TextInput placeholder="Label (Lunch / Dinner)"
+                        value={s.label}
+                        onChange={e => updateSession(d.i, si, { label: e.target.value })}
+                        className="w-40 text-xs min-h-[36px]" />
+                    </>)}
+                    {state[d.i].length > 1 && (
+                      <button type="button" onClick={() => removeSession(d.i, si)}
+                        className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" onClick={() => addSession(d.i)}
+                  className="text-xs inline-flex items-center gap-1 text-primary hover:underline">
+                  <Plus className="w-3 h-3" /> Add session
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Online ordering + Delivery (repeatable list sections) ──
+
+function RepeatableLinkSection({ title, description, configKey, showKey, emptyHint, fields, config }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const initial = useMemo(() => ({
+    show:  !!config[showKey],
+    items: Array.isArray(config[configKey]) ? config[configKey] : [],
+  }), [config, configKey, showKey])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/website/config', {
+      [showKey]:   state.show,
+      [configKey]: state.items,
+    }),
+    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title={`Show ${title.toLowerCase()}`}>
+        <div className="flex items-start gap-4">
+          <div className="flex-1"><p className="text-sm font-medium">Show "{title}"</p></div>
+          <Toggle value={state.show}
+            onChange={v => setState(s => ({ ...s, show: v }))}
+            label={`Show ${title}`} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title={title} description={description}
+        action={
+          <button type="button"
+            onClick={() => setState(s => ({
+              ...s, items: [...s.items, Object.fromEntries(fields.map(f => [f.key, f.defaultValue ?? '']))],
+            }))}
+            className="text-xs inline-flex items-center gap-1 bg-primary/10 text-primary rounded-md px-2.5 py-1.5 font-medium">
+            <Plus className="w-3 h-3" /> Add
+          </button>
+        }>
+        {state.items.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">{emptyHint}</p>
+        ) : (
+          <div className="space-y-2.5">
+            {state.items.map((row, i) => (
+              <div key={i} className="grid gap-2 items-start border rounded-lg p-3 bg-background"
+                style={{ gridTemplateColumns: `${fields.map(f => f.width || '1fr').join(' ')} auto` }}>
+                {fields.map(f => (
+                  f.type === 'select' ? (
+                    <select key={f.key} value={row[f.key] ?? ''}
+                      onChange={e => setState(s => ({
+                        ...s,
+                        items: s.items.map((r, j) => j === i ? { ...r, [f.key]: e.target.value } : r),
+                      }))}
+                      className="border rounded px-2 py-2 text-sm min-h-[40px] bg-background">
+                      {f.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  ) : (
+                    <TextInput key={f.key}
+                      placeholder={f.placeholder}
+                      value={row[f.key] ?? ''}
+                      onChange={e => setState(s => ({
+                        ...s,
+                        items: s.items.map((r, j) => j === i ? { ...r, [f.key]: e.target.value } : r),
+                      }))} />
+                  )
+                ))}
+                <button type="button"
+                  onClick={() => setState(s => ({
+                    ...s, items: s.items.filter((_, j) => j !== i),
+                  }))}
+                  className="text-destructive hover:bg-destructive/10 p-2 rounded self-center">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+function OrderingSection({ config }) {
+  return <RepeatableLinkSection
+    title="Online ordering links"
+    description="Link to external takeaway / pre-order services (e.g. GloriaFood)."
+    configKey="online_ordering_links"
+    showKey="show_ordering"
+    emptyHint="No ordering services added yet."
+    config={config}
+    fields={[
+      { key: 'name', placeholder: 'Service name',  width: '1fr'   },
+      { key: 'url',  placeholder: 'https://...',   width: '1.4fr' },
+    ]}
+  />
+}
+
+function DeliverySection({ config }) {
+  return <RepeatableLinkSection
+    title="Delivery providers"
+    description="Show links to your delivery partners."
+    configKey="delivery_links"
+    showKey="show_delivery"
+    emptyHint="No delivery providers added yet."
+    config={config}
+    fields={[
+      { key: 'provider', type: 'select', width: '130px',
+        options: [
+          { value: 'deliveroo', label: 'Deliveroo' },
+          { value: 'justeat',   label: 'Just Eat'  },
+          { value: 'ubereats',  label: 'Uber Eats' },
+          { value: 'gogetters', label: 'Gogetters' },
+          { value: 'foodhub',   label: 'Foodhub'   },
+          { value: 'other',     label: 'Other'     },
+        ],
+        defaultValue: 'deliveroo' },
+      { key: 'url',   placeholder: 'https://…',        width: '1fr' },
+      { key: 'label', placeholder: 'Label (optional)', width: '140px' },
+    ]}
+  />
+}
+
+// ── Custom pages section ────────────────────────────────────
+
+function PagesSection() {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: pages = [], isLoading } = useQuery({
+    queryKey: ['website-pages'],
+    queryFn:  () => api.get('/website/pages'),
+  })
+  const [editing, setEditing] = useState(null)   // id | 'new' | null
+  const [form, setForm] = useState({ slug: '', title: '', content: '', is_published: true, sort_order: 0 })
+
+  const save = useMutation({
+    mutationFn: () => editing === 'new'
+      ? api.post('/website/pages', form)
+      : api.patch(`/website/pages/${editing}`, form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['website-pages'] })
+      setEditing(null)
+    },
+  })
+  const del = useMutation({
+    mutationFn: (id) => api.delete(`/website/pages/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-pages'] }),
+  })
+
+  function edit(p) {
+    setEditing(p.id)
+    setForm({
+      slug:        p.slug,
+      title:       p.title,
+      content:     p.content || '',
+      is_published: !!p.is_published,
+      sort_order:  p.sort_order ?? 0,
+    })
+  }
+
+  function newPage() {
+    setEditing('new')
+    setForm({ slug: '', title: '', content: '', is_published: true, sort_order: pages.length })
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-5">
+        <SectionCard title={editing === 'new' ? 'New page' : 'Edit page'}
+          action={
+            <button type="button" onClick={() => setEditing(null)}
+              className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+          }>
+          <FormRow label="Title">
+            <TextInput value={form.title} autoFocus
+              onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
+          </FormRow>
+          <FormRow label="URL slug"
+            hint={`Will appear at /p/${form.slug || 'your-slug'}`}>
+            <TextInput value={form.slug}
+              onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))} />
+          </FormRow>
+          <FormRow label="Content"
+            hint="HTML allowed. Line breaks are preserved.">
+            <TextArea value={form.content} className="min-h-[260px] font-mono text-xs"
+              onChange={e => setForm(f => ({ ...f, content: e.target.value }))} />
+          </FormRow>
+          <div className="flex items-center gap-3">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={form.is_published}
+                onChange={e => setForm(f => ({ ...f, is_published: e.target.checked }))} />
+              Published
+            </label>
+          </div>
+          <div className="flex items-center justify-end gap-2 pt-2 border-t">
+            <button type="button" onClick={() => setEditing(null)}
+              className="text-xs text-muted-foreground px-3 py-1.5">Cancel</button>
+            <button type="button" onClick={() => save.mutate()}
+              disabled={save.isPending || !form.title || !form.slug}
+              className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50">
+              {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Save page
+            </button>
+          </div>
+        </SectionCard>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Custom pages"
+        description="Standalone pages for things like Private Dining, Events, Contact forms."
+        action={
+          <button type="button" onClick={newPage}
+            className="text-xs inline-flex items-center gap-1 bg-primary/10 text-primary rounded-md px-2.5 py-1.5 font-medium">
+            <Plus className="w-3 h-3" /> New page
+          </button>
+        }>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" />
+          </div>
+        ) : pages.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-6">No custom pages yet.</p>
+        ) : (
+          <div className="divide-y">
+            {pages.map(p => (
+              <div key={p.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0 gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{p.title}</p>
+                  <p className="text-xs text-muted-foreground truncate">/p/{p.slug}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {p.is_published ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">LIVE</span>
+                  ) : (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">DRAFT</span>
+                  )}
+                  <button type="button" onClick={() => edit(p)}
+                    className="text-xs text-primary hover:underline px-2 py-1">
+                    Edit
+                  </button>
+                  <button type="button" onClick={() => del.mutate(p.id)}
+                    className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  )
+}
+
 // ── Page shell + section router ─────────────────────────────
 
 export default function Website() {
@@ -1251,9 +2075,16 @@ function ActiveSection({ active, config }) {
     case 'branding':  return <BrandingSection  config={config} />
     case 'hero':      return <HeroSection      config={config} />
     case 'about':     return <AboutSection     config={config} />
+    case 'gallery':   return <GallerySection   config={config} />
+    case 'menu':      return <MenuSection      config={config} />
+    case 'allergens': return <AllergensSection config={config} />
+    case 'hours':     return <HoursSection />
     case 'find':      return <FindUsSection    config={config} />
     case 'contact':   return <ContactSection   config={config} />
     case 'booking':   return <BookingSection   config={config} />
+    case 'ordering':  return <OrderingSection  config={config} />
+    case 'delivery':  return <DeliverySection  config={config} />
+    case 'pages':     return <PagesSection />
     case 'seo':       return <SeoSection       config={config} />
     case 'analytics': return <AnalyticsSection config={config} />
     default:
