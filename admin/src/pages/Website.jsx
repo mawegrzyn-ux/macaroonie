@@ -416,6 +416,319 @@ function SetupSection({ config }) {
   )
 }
 
+// ── Template picker ─────────────────────────────────────────
+
+const TEMPLATES = [
+  {
+    key: 'classic',
+    label: 'Classic',
+    description: 'Warm, traditional layout with hero banner, gallery grid and balanced sections. Great for established restaurants.',
+    accent: '#630812',
+  },
+  {
+    key: 'modern',
+    label: 'Modern',
+    description: 'Full-bleed hero, editorial typography, card-based gallery and a transparent floating header. More graphic and bold.',
+    accent: '#1a1a1a',
+  },
+]
+
+function TemplateSection({ config }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [key, setKey] = useState(config.template_key || 'classic')
+  const dirty = key !== (config.template_key || 'classic')
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/website/config', { template_key: key }),
+    onSuccess:  (cfg) => qc.setQueryData(['website-config'], cfg),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Template"
+        description="Pick a layout. Your theme (colours, fonts, spacing) applies to whichever template you choose.">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {TEMPLATES.map(t => (
+            <button key={t.key} type="button" onClick={() => setKey(t.key)}
+              className={cn(
+                'text-left border rounded-xl overflow-hidden transition-all',
+                'hover:border-primary/60 hover:shadow-sm',
+                key === t.key && 'border-primary ring-2 ring-primary/30',
+              )}
+            >
+              <div className="h-28 relative" style={{ background: t.accent }}>
+                {t.key === 'classic' ? (
+                  <div className="absolute inset-0 p-4 flex flex-col justify-end">
+                    <div className="bg-white/90 rounded px-2 py-1 text-[11px] font-semibold" style={{ color: t.accent, width: 'fit-content' }}>
+                      Sample Restaurant
+                    </div>
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+                    <div className="text-lg font-bold tracking-tight">Sample</div>
+                    <div className="text-[10px] opacity-70 uppercase tracking-wider">editorial style</div>
+                  </div>
+                )}
+              </div>
+              <div className="p-4 bg-background">
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-sm font-semibold">{t.label}</h3>
+                  {key === t.key && (
+                    <Check className="w-4 h-4 text-primary" />
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">{t.description}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setKey(config.template_key || 'classic')}
+        onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Theme manager ───────────────────────────────────────────
+
+const DEFAULT_THEME = {
+  colors: {
+    primary: '#630812', accent: '#f4a7b9', background: '#ffffff',
+    surface: '#f9f6f1', text: '#1a1a1a', muted: '#666666', border: '#e5e7eb',
+  },
+  typography: {
+    heading_font: 'Inter', body_font: 'Inter',
+    base_size_px: 16, heading_scale: 1.25, heading_weight: 700,
+    body_weight: 400, line_height: 1.5, letter_spacing: 'normal',
+  },
+  spacing: { container_max_px: 1100, section_y_px: 72, section_y_mobile_px: 48, gap_px: 24 },
+  radii:   { sm_px: 4, md_px: 8, lg_px: 16 },
+  logo:    { height_px: 36, show_name_beside: true },
+  buttons: { radius_px: 4, padding_y_px: 12, padding_x_px: 28, weight: 600 },
+  hero:    { overlay_opacity: 0.4, min_height_px: 520 },
+}
+
+const FONT_OPTIONS = [
+  'Inter', 'Playfair Display', 'Poppins', 'Lora', 'Montserrat',
+  'Roboto', 'Open Sans', 'Raleway', 'Merriweather', 'Work Sans',
+  'Karla', 'DM Sans', 'DM Serif Display', 'Space Grotesk', 'Manrope',
+  'Cormorant Garamond', 'Libre Baskerville', 'Nunito', 'Rubik',
+]
+
+function mergeTheme(existing) {
+  // Deep-merge on the two-level-ish schema so missing keys come from defaults.
+  const out = {}
+  for (const k of Object.keys(DEFAULT_THEME)) {
+    out[k] = { ...DEFAULT_THEME[k], ...(existing?.[k] || {}) }
+  }
+  return out
+}
+
+function ColourField({ label, value, onChange }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+      </div>
+      <input type="color" value={value}
+        onChange={e => onChange(e.target.value)}
+        className="w-12 h-10 border rounded cursor-pointer bg-transparent shrink-0" />
+      <TextInput value={value}
+        onChange={e => onChange(e.target.value)}
+        className="w-28 font-mono text-xs uppercase" />
+    </div>
+  )
+}
+
+function SliderField({ label, value, onChange, min, max, step = 1, unit = 'px', hint }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-sm font-medium">{label}</p>
+        <span className="text-xs text-muted-foreground font-mono">{value}{unit}</span>
+      </div>
+      <input type="range"
+        min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        className="w-full accent-primary" />
+      {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
+    </div>
+  )
+}
+
+function ThemeSection({ config }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [theme, setTheme] = useState(() => mergeTheme(config.theme))
+  const baseline = useMemo(() => mergeTheme(config.theme), [config.theme])
+  const dirty = JSON.stringify(theme) !== JSON.stringify(baseline)
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/website/config', { theme }),
+    onSuccess:  (cfg) => qc.setQueryData(['website-config'], cfg),
+  })
+
+  function setPath(section, key, value) {
+    setTheme(t => ({ ...t, [section]: { ...t[section], [key]: value } }))
+  }
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Colours"
+        description="Apply instantly to both templates once saved.">
+        <ColourField label="Primary (brand / CTA)"
+          value={theme.colors.primary}
+          onChange={v => setPath('colors', 'primary', v)} />
+        <ColourField label="Accent (highlights)"
+          value={theme.colors.accent}
+          onChange={v => setPath('colors', 'accent', v)} />
+        <ColourField label="Background"
+          value={theme.colors.background}
+          onChange={v => setPath('colors', 'background', v)} />
+        <ColourField label="Surface (alt band bg)"
+          value={theme.colors.surface}
+          onChange={v => setPath('colors', 'surface', v)} />
+        <ColourField label="Body text"
+          value={theme.colors.text}
+          onChange={v => setPath('colors', 'text', v)} />
+        <ColourField label="Muted text"
+          value={theme.colors.muted}
+          onChange={v => setPath('colors', 'muted', v)} />
+        <ColourField label="Borders & dividers"
+          value={theme.colors.border}
+          onChange={v => setPath('colors', 'border', v)} />
+      </SectionCard>
+
+      <SectionCard title="Typography"
+        description="Common Google Fonts load automatically.">
+        <FormRow label="Heading font">
+          <select value={theme.typography.heading_font}
+            onChange={e => setPath('typography', 'heading_font', e.target.value)}
+            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] touch-manipulation bg-background">
+            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </FormRow>
+        <FormRow label="Body font">
+          <select value={theme.typography.body_font}
+            onChange={e => setPath('typography', 'body_font', e.target.value)}
+            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] touch-manipulation bg-background">
+            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </FormRow>
+        <SliderField label="Base font size" unit="px"
+          min={12} max={22} value={theme.typography.base_size_px}
+          onChange={v => setPath('typography', 'base_size_px', v)} />
+        <SliderField label="Heading scale" unit="×"
+          min={1.0} max={1.8} step={0.05} value={theme.typography.heading_scale}
+          onChange={v => setPath('typography', 'heading_scale', v)}
+          hint="Multiplier applied per heading level (h1 = base × scale³)." />
+        <SliderField label="Heading weight" unit=""
+          min={300} max={900} step={100}
+          value={theme.typography.heading_weight}
+          onChange={v => setPath('typography', 'heading_weight', v)} />
+        <SliderField label="Body weight" unit=""
+          min={300} max={700} step={100}
+          value={theme.typography.body_weight}
+          onChange={v => setPath('typography', 'body_weight', v)} />
+        <SliderField label="Line height" unit=""
+          min={1.0} max={2.2} step={0.05}
+          value={theme.typography.line_height}
+          onChange={v => setPath('typography', 'line_height', v)} />
+      </SectionCard>
+
+      <SectionCard title="Spacing">
+        <SliderField label="Container max width"
+          min={640} max={1600} step={20}
+          value={theme.spacing.container_max_px}
+          onChange={v => setPath('spacing', 'container_max_px', v)} />
+        <SliderField label="Section vertical padding (desktop)"
+          min={16} max={160}
+          value={theme.spacing.section_y_px}
+          onChange={v => setPath('spacing', 'section_y_px', v)} />
+        <SliderField label="Section vertical padding (mobile)"
+          min={12} max={120}
+          value={theme.spacing.section_y_mobile_px}
+          onChange={v => setPath('spacing', 'section_y_mobile_px', v)} />
+        <SliderField label="Grid gap"
+          min={4} max={60}
+          value={theme.spacing.gap_px}
+          onChange={v => setPath('spacing', 'gap_px', v)} />
+      </SectionCard>
+
+      <SectionCard title="Corners">
+        <SliderField label="Small radius" min={0} max={24}
+          value={theme.radii.sm_px}
+          onChange={v => setPath('radii', 'sm_px', v)} />
+        <SliderField label="Medium radius" min={0} max={40}
+          value={theme.radii.md_px}
+          onChange={v => setPath('radii', 'md_px', v)} />
+        <SliderField label="Large radius" min={0} max={60}
+          value={theme.radii.lg_px}
+          onChange={v => setPath('radii', 'lg_px', v)} />
+      </SectionCard>
+
+      <SectionCard title="Logo">
+        <SliderField label="Logo height (header)" min={20} max={96}
+          value={theme.logo.height_px}
+          onChange={v => setPath('logo', 'height_px', v)} />
+      </SectionCard>
+
+      <SectionCard title="Buttons">
+        <SliderField label="Button radius" min={0} max={40}
+          value={theme.buttons.radius_px}
+          onChange={v => setPath('buttons', 'radius_px', v)} />
+        <SliderField label="Vertical padding" min={4} max={24}
+          value={theme.buttons.padding_y_px}
+          onChange={v => setPath('buttons', 'padding_y_px', v)} />
+        <SliderField label="Horizontal padding" min={8} max={48}
+          value={theme.buttons.padding_x_px}
+          onChange={v => setPath('buttons', 'padding_x_px', v)} />
+        <SliderField label="Font weight" min={300} max={900} step={100}
+          value={theme.buttons.weight}
+          onChange={v => setPath('buttons', 'weight', v)} />
+      </SectionCard>
+
+      <SectionCard title="Hero section">
+        <SliderField label="Overlay opacity" unit=""
+          min={0} max={0.9} step={0.05}
+          value={theme.hero.overlay_opacity}
+          onChange={v => setPath('hero', 'overlay_opacity', v)}
+          hint="Darkens the hero image so text stays readable." />
+        <SliderField label="Minimum height"
+          min={240} max={900} step={10}
+          value={theme.hero.min_height_px}
+          onChange={v => setPath('hero', 'min_height_px', v)} />
+      </SectionCard>
+
+      <div className="flex items-center justify-between pt-2 border-t">
+        <button type="button"
+          onClick={() => setTheme(structuredClone(DEFAULT_THEME))}
+          className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5"
+        >Reset to defaults</button>
+        <div className="flex items-center gap-2">
+          {dirty && (
+            <button type="button"
+              onClick={() => setTheme(baseline)}
+              className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5"
+            >Undo changes</button>
+          )}
+          <button type="button"
+            onClick={() => save.mutate()}
+            disabled={!dirty || save.isPending}
+            className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50"
+          >
+            {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            Save theme
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Page shell + section router ─────────────────────────────
 
 export default function Website() {
@@ -522,7 +835,9 @@ export default function Website() {
 function ActiveSection({ active, config }) {
   // Lazy-map — keeps Website.jsx manageable as sections are added.
   switch (active) {
-    case 'setup':     return <SetupSection config={config} />
+    case 'setup':     return <SetupSection    config={config} />
+    case 'template':  return <TemplateSection config={config} />
+    case 'theme':     return <ThemeSection    config={config} />
     default:
       return (
         <div className="text-sm text-muted-foreground border rounded-xl p-8 text-center bg-background">
