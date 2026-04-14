@@ -1,34 +1,60 @@
 // src/services/siteDataSvc.js
 //
-// Loads the complete public-site data bundle for a given subdomain slug.
+// Loads the complete public-site data bundle for a tenant website.
 // Used by both the JSON API (/api/site/:slug) and the SSR renderer.
 //
+// Two possible lookup keys:
+//   - subdomain slug   → {slug}.{PUBLIC_ROOT_DOMAIN}
+//   - custom domain    → any verified custom hostname
+//
 // Lookup flow:
-//   1. Resolve subdomain_slug → website_config + tenant_id (no RLS — global lookup)
-//   2. Return null if not found or is_published = false
-//   3. Fetch tenant-scoped data (gallery, pages, menus, hours, allergens, venue)
-//      inside withTenant(tenant_id, ...) so RLS fires correctly.
+//   1. Resolve host → website_config + tenant_id (no RLS — global lookup)
+//   2. Return null if not found or is_published = false (or custom domain
+//      is configured but not yet verified)
+//   3. Fetch tenant-scoped data (gallery, pages, menus, hours, allergens,
+//      venue) inside withTenant(tenant_id, ...) so RLS fires correctly.
 
 import { sql, withTenant } from '../config/db.js'
 
 /**
  * Load the full public site bundle.
- * @param {string} slug - subdomain slug
- * @param {object} opts
- * @param {boolean} opts.includeUnpublished - admin preview (defaults to false)
+ *
+ * @param {object} lookup
+ * @param {string} [lookup.slug]          - subdomain slug
+ * @param {string} [lookup.customDomain]  - full custom hostname
+ * @param {object} [opts]
+ * @param {boolean} [opts.includeUnpublished] - admin preview (default false)
  * @returns {Promise<object|null>}
  */
-export async function loadSiteBundle(slug, { includeUnpublished = false } = {}) {
-  if (!slug || typeof slug !== 'string') return null
+export async function loadSiteBundle(lookup, { includeUnpublished = false } = {}) {
+  // Back-compat: allow passing a bare slug string
+  if (typeof lookup === 'string') lookup = { slug: lookup }
+  const slug         = lookup?.slug
+  const customDomain = lookup?.customDomain?.toLowerCase?.()
 
-  // 1. Global lookup — no RLS
-  const [cfg] = await sql`
-    SELECT wc.*, t.name AS tenant_name, t.id AS t_tenant_id
-      FROM website_config wc
-      JOIN tenants t ON t.id = wc.tenant_id AND t.is_active = true
-     WHERE wc.subdomain_slug = ${slug}
-     LIMIT 1
-  `
+  if (!slug && !customDomain) return null
+
+  // 1. Global lookup — no RLS. Prefer custom_domain match when provided.
+  let cfg
+  if (customDomain) {
+    [cfg] = await sql`
+      SELECT wc.*, t.name AS tenant_name
+        FROM website_config wc
+        JOIN tenants t ON t.id = wc.tenant_id AND t.is_active = true
+       WHERE lower(wc.custom_domain) = ${customDomain}
+         AND (${includeUnpublished} OR wc.custom_domain_verified = true)
+       LIMIT 1
+    `
+  }
+  if (!cfg && slug) {
+    [cfg] = await sql`
+      SELECT wc.*, t.name AS tenant_name
+        FROM website_config wc
+        JOIN tenants t ON t.id = wc.tenant_id AND t.is_active = true
+       WHERE wc.subdomain_slug = ${slug}
+       LIMIT 1
+    `
+  }
   if (!cfg) return null
   if (!includeUnpublished && !cfg.is_published) return null
 

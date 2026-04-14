@@ -1,0 +1,233 @@
+<%
+/* ── Resolve theme values, layering `it.config.theme` over legacy columns ──
+ *
+ * `it.config.theme` is a JSONB blob that may contain any of:
+ *   { colors, typography, spacing, radii, logo, buttons, hero }
+ * Missing keys fall back to safe defaults. Legacy columns
+ * (`primary_colour`, `secondary_colour`, `font_family`) are kept
+ * as the source of truth for the top-level colours/fonts so the
+ * booking widget and old theme fields stay in sync.
+ */
+const t = (it.config && it.config.theme) || {}
+const colors     = t.colors     || {}
+const typography = t.typography || {}
+const spacing    = t.spacing    || {}
+const radii      = t.radii      || {}
+const logo       = t.logo       || {}
+const buttons    = t.buttons    || {}
+const hero       = t.hero       || {}
+
+const primary    = colors.primary    || it.config.primary_colour    || '#630812'
+const accent     = colors.accent     || it.config.secondary_colour  || '#f4a7b9'
+const background = colors.background || '#ffffff'
+const surface    = colors.surface    || '#f9f6f1'
+const textColor  = colors.text       || '#1a1a1a'
+const mutedColor = colors.muted      || '#666666'
+const border     = colors.border     || '#e5e7eb'
+
+const headingFont = typography.heading_font || it.config.font_family || 'Inter'
+const bodyFont    = typography.body_font    || it.config.font_family || 'Inter'
+const baseSize    = typography.base_size_px   || 16
+const hScale      = typography.heading_scale  || 1.25
+const hWeight     = typography.heading_weight || 700
+const bWeight     = typography.body_weight    || 400
+const lineHeight  = typography.line_height    || 1.5
+const letterSp    = typography.letter_spacing || 'normal'
+
+const containerMax = spacing.container_max_px    || 1100
+const sectionY     = spacing.section_y_px        || 72
+const sectionYMob  = spacing.section_y_mobile_px || 48
+const gap          = spacing.gap_px              || 24
+
+const rSm = (radii.sm_px != null ? radii.sm_px :  4)
+const rMd = (radii.md_px != null ? radii.md_px :  8)
+const rLg = (radii.lg_px != null ? radii.lg_px : 16)
+
+const logoH        = logo.height_px || 36
+
+const btnR  = (buttons.radius_px    != null ? buttons.radius_px    : 4)
+const btnPy = (buttons.padding_y_px != null ? buttons.padding_y_px : 12)
+const btnPx = (buttons.padding_x_px != null ? buttons.padding_x_px : 28)
+const btnW  = buttons.weight   || 600
+
+const heroOpacity = (hero.overlay_opacity != null ? hero.overlay_opacity : 0.4)
+const heroMinH    = hero.min_height_px || 520
+
+/* Google Fonts URL — only loaded if both fonts are common ones. */
+const GOOGLE_FONTS = new Set([
+  'Inter','Playfair Display','Poppins','Lora','Montserrat','Roboto','Open Sans',
+  'Source Sans Pro','Raleway','Merriweather','Work Sans','Karla','DM Sans','DM Serif Display',
+  'Space Grotesk','Manrope','Cormorant Garamond','Libre Baskerville','Nunito','Rubik',
+])
+const fontsToLoad = []
+if (GOOGLE_FONTS.has(headingFont)) fontsToLoad.push(headingFont)
+if (GOOGLE_FONTS.has(bodyFont) && bodyFont !== headingFont) fontsToLoad.push(bodyFont)
+const gfUrl = fontsToLoad.length
+  ? `https://fonts.googleapis.com/css2?${fontsToLoad.map(f => `family=${encodeURIComponent(f)}:wght@300;400;500;600;700;800`).join('&')}&display=swap`
+  : null
+%><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title><%= it.pageTitle || it.config.meta_title || it.config.site_name || it.tenant_name %></title>
+  <% if (it.config.meta_description) { %>
+    <meta name="description" content="<%= it.config.meta_description %>" />
+  <% } %>
+  <% if (it.config.favicon_url) { %>
+    <link rel="icon" href="<%= it.config.favicon_url %>" />
+  <% } %>
+
+  <% if (gfUrl) { %>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="<%= gfUrl %>" />
+  <% } %>
+
+  <meta property="og:title" content="<%= it.config.meta_title || it.config.site_name || it.tenant_name %>" />
+  <meta property="og:type"  content="website" />
+  <meta property="og:url"   content="<%= it.siteUrl %>" />
+  <% if (it.config.og_image_url) { %>
+    <meta property="og:image" content="<%= it.config.og_image_url %>" />
+  <% } %>
+  <% if (it.config.meta_description) { %>
+    <meta property="og:description" content="<%= it.config.meta_description %>" />
+  <% } %>
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <script type="application/ld+json">
+    <%~ JSON.stringify({
+      "@context": "https://schema.org",
+      "@type":    "Restaurant",
+      "name":     it.config.site_name || it.tenant_name,
+      "url":      it.siteUrl,
+      "telephone": it.config.phone || undefined,
+      "email":     it.config.email || undefined,
+      "address":   it.config.address_line1 ? {
+        "@type":           "PostalAddress",
+        "streetAddress":   [it.config.address_line1, it.config.address_line2].filter(Boolean).join(', '),
+        "addressLocality": it.config.city || undefined,
+        "postalCode":      it.config.postcode || undefined,
+        "addressCountry":  it.config.country || 'GB',
+      } : undefined,
+      "geo": (it.config.latitude && it.config.longitude) ? {
+        "@type":     "GeoCoordinates",
+        "latitude":  it.config.latitude,
+        "longitude": it.config.longitude,
+      } : undefined,
+      "image": it.config.hero_image_url || it.config.og_image_url || undefined,
+    }) %>
+  </script>
+
+  <style>
+    :root {
+      /* Colours */
+      --c-primary:    <%= primary %>;
+      --c-accent:     <%= accent %>;
+      --c-bg:         <%= background %>;
+      --c-surface:    <%= surface %>;
+      --c-text:       <%= textColor %>;
+      --c-muted:      <%= mutedColor %>;
+      --c-border:     <%= border %>;
+
+      /* Typography */
+      --f-heading: "<%= headingFont %>", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      --f-body:    "<%= bodyFont %>",    system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+      --fs-base:   <%= baseSize %>px;
+      --fs-h1:     calc(var(--fs-base) * <%= Math.pow(hScale, 3).toFixed(2) %>);
+      --fs-h2:     calc(var(--fs-base) * <%= Math.pow(hScale, 2).toFixed(2) %>);
+      --fs-h3:     calc(var(--fs-base) * <%= hScale.toFixed(2) %>);
+      --fw-heading: <%= hWeight %>;
+      --fw-body:    <%= bWeight %>;
+      --lh:         <%= lineHeight %>;
+      --ls:         <%= letterSp %>;
+
+      /* Spacing */
+      --cw:         <%= containerMax %>px;
+      --sy:         <%= sectionY %>px;
+      --sy-m:       <%= sectionYMob %>px;
+      --gap:        <%= gap %>px;
+
+      /* Radii */
+      --r-sm:       <%= rSm %>px;
+      --r-md:       <%= rMd %>px;
+      --r-lg:       <%= rLg %>px;
+
+      /* Logo */
+      --logo-h:     <%= logoH %>px;
+
+      /* Buttons */
+      --btn-r:      <%= btnR %>px;
+      --btn-py:     <%= btnPy %>px;
+      --btn-px:     <%= btnPx %>px;
+      --btn-w:      <%= btnW %>;
+
+      /* Hero */
+      --hero-overlay: <%= heroOpacity %>;
+      --hero-minh:    <%= heroMinH %>px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--c-bg);
+      color: var(--c-text);
+      font-family: var(--f-body);
+      font-size: var(--fs-base);
+      font-weight: var(--fw-body);
+      line-height: var(--lh);
+      letter-spacing: var(--ls);
+    }
+    h1, h2, h3, h4 { font-family: var(--f-heading); font-weight: var(--fw-heading); margin: 0; line-height: 1.15; }
+    h1 { font-size: var(--fs-h1); }
+    h2 { font-size: var(--fs-h2); }
+    h3 { font-size: var(--fs-h3); }
+    img { max-width: 100%; display: block; }
+    a { color: var(--c-primary); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container { max-width: var(--cw); margin: 0 auto; padding: 0 24px; }
+    .btn {
+      display: inline-block;
+      padding: var(--btn-py) var(--btn-px);
+      background: var(--c-primary); color: #fff;
+      border-radius: var(--btn-r);
+      font-weight: var(--btn-w);
+      font-size: 15px; text-decoration: none;
+      border: none; cursor: pointer; transition: opacity .2s;
+    }
+    .btn:hover { opacity: 0.9; text-decoration: none; }
+    .btn-outline {
+      background: transparent; color: var(--c-primary);
+      border: 2px solid var(--c-primary);
+    }
+    section.block { padding: var(--sy) 0; }
+    section.block h2 { color: var(--c-primary); margin-bottom: calc(var(--gap) * 0.75); }
+    @media (max-width: 700px) {
+      section.block { padding: var(--sy-m) 0; }
+    }
+  </style>
+
+  <% if (it.config.ga4_measurement_id) { %>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=<%= it.config.ga4_measurement_id %>"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '<%= it.config.ga4_measurement_id %>');
+    </script>
+  <% } %>
+
+  <% if (it.config.fb_pixel_id) { %>
+    <script>
+      !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+        n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+        n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+        t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
+        document,'script','https://connect.facebook.net/en_US/fbevents.js');
+      fbq('init', '<%= it.config.fb_pixel_id %>');
+      fbq('track', 'PageView');
+    </script>
+    <noscript><img height="1" width="1" style="display:none"
+      src="https://www.facebook.com/tr?id=<%= it.config.fb_pixel_id %>&ev=PageView&noscript=1" /></noscript>
+  <% } %>
+</head>
+<body>

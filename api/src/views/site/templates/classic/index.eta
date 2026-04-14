@@ -1,4 +1,4 @@
-<%~ include('./partials/head', it) %>
+<%~ include('../../shared/head', it) %>
 <%~ include('./partials/header', it) %>
 <main>
 
@@ -9,7 +9,7 @@
   min-height: 520px;
   background:
     linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.45)),
-    <%= it.config.hero_image_url ? `url('${it.config.hero_image_url}')` : 'var(--primary)' %>;
+    <%= it.config.hero_image_url ? `url('${it.config.hero_image_url}')` : 'var(--c-primary)' %>;
   background-size: cover;
   background-position: center;
   display: flex; align-items: center; justify-content: center;
@@ -28,7 +28,7 @@
     <% } %>
     <% if (it.config.show_booking_widget && it.config.hero_cta_text) { %>
       <a href="<%= it.config.hero_cta_link || '#booking' %>" class="btn"
-         style="background:#fff; color:var(--primary); font-size:16px; padding:14px 32px;">
+         style="background:#fff; color:var(--c-primary); font-size:16px; padding:14px 32px;">
         <%= it.config.hero_cta_text %>
       </a>
     <% } %>
@@ -57,7 +57,7 @@
 
 <!-- ─── Gallery ────────────────────────────────────── -->
 <% if (it.config.show_gallery && it.gallery.length) { %>
-<section class="block" id="gallery" style="background:var(--secondary);">
+<section class="block" id="gallery" style="background:var(--c-surface);">
   <div class="container">
     <h2>Gallery</h2>
     <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px;">
@@ -106,7 +106,7 @@
 
 <!-- ─── Menu teaser ────────────────────────────────── -->
 <% if (it.config.show_menu && it.menus.length) { %>
-<section class="block" id="menu-teaser" style="background:var(--secondary);">
+<section class="block" id="menu-teaser" style="background:var(--c-surface);">
   <div class="container" style="text-align:center;">
     <h2>Our Menus</h2>
     <p style="color:#555; margin-bottom: 28px;">Have a look at what we're serving.</p>
@@ -135,7 +135,7 @@
 
 <!-- ─── Delivery ──────────────────────────────────── -->
 <% if (it.config.show_delivery && it.config.delivery_links && it.config.delivery_links.length) { %>
-<section class="block" id="delivery" style="background:var(--secondary);">
+<section class="block" id="delivery" style="background:var(--c-surface);">
   <div class="container" style="text-align:center;">
     <h2>Get It Delivered</h2>
     <div style="display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:16px;">
@@ -163,7 +163,7 @@
     <% } else if (it.allergens.info_type === 'structured' && Array.isArray(it.allergens.structured_data) && it.allergens.structured_data.length) { %>
       <table style="width:100%; border-collapse:collapse; margin-top:12px;">
         <thead>
-          <tr style="background:var(--secondary);">
+          <tr style="background:var(--c-surface);">
             <th style="padding:10px 14px; text-align:left; border-bottom:1px solid #ddd;">Dish</th>
             <th style="padding:10px 14px; text-align:left; border-bottom:1px solid #ddd;">Allergens</th>
             <th style="padding:10px 14px; text-align:left; border-bottom:1px solid #ddd;">Notes</th>
@@ -188,7 +188,7 @@
 
 <!-- ─── Find us ───────────────────────────────────── -->
 <% if (it.config.show_find_us && (it.config.address_line1 || it.config.google_maps_embed_url || it.opening_hours.length)) { %>
-<section class="block" id="find-us" style="background:var(--secondary);">
+<section class="block" id="find-us" style="background:var(--c-surface);">
   <div class="container" style="display:grid; grid-template-columns:1fr 1fr; gap:32px;">
     <div>
       <h2>Find Us</h2>
@@ -201,7 +201,7 @@
       <% } %>
 
       <% if (it.opening_hours.length) { %>
-        <h3 style="margin-top:24px; font-size:18px; color:var(--primary);">Opening Hours</h3>
+        <h3 style="margin-top:24px; font-size:18px; color:var(--c-primary);">Opening Hours</h3>
         <table style="font-size:15px; margin-top:8px;">
           <% const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] %>
           <% const byDay = {} %>

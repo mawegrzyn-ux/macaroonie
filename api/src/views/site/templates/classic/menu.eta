@@ -1,4 +1,4 @@
-<%~ include('./partials/head', it) %>
+<%~ include('../../shared/head', it) %>
 <%~ include('./partials/header', it) %>
 <main>
 <section class="block" style="background:#fff; min-height: 70vh;">
@@ -19,7 +19,7 @@
     <% const active = it.activeMenu || it.menus[0] %>
     <% if (active) { %>
       <div style="border:1px solid #e5e7eb; border-radius:8px; overflow:hidden; background:#f9fafb;">
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:var(--secondary); border-bottom:1px solid #e5e7eb;">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 14px; background:var(--c-surface); border-bottom:1px solid #e5e7eb;">
           <span style="font-weight:600;"><%= active.label %></span>
           <a href="<%= active.file_url %>" target="_blank" rel="noopener" class="btn"
              style="padding:6px 14px; font-size:13px;">Download PDF</a>

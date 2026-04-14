@@ -7,12 +7,11 @@
 //
 // Public site rendering lives in ./siteRenderer.js — this file is admin-only.
 
-import { z }  from 'zod'
-import fs     from 'node:fs/promises'
-import path   from 'node:path'
-import crypto from 'node:crypto'
+import { z }     from 'zod'
+import dns        from 'node:dns/promises'
 import { withTenant, sql } from '../config/db.js'
-import { env }        from '../config/env.js'
+import { env }    from '../config/env.js'
+import { getStorage } from '../services/storageSvc.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 
@@ -37,6 +36,56 @@ const DeliveryLink = z.object({
   url:      z.string().url(),
   label:    z.string().optional(),
 })
+
+// Theme is intentionally permissive — the renderer knows which keys it looks
+// for and defaults missing ones.  Adding a new theme knob is just: (a) accept
+// it here, (b) read it in the renderer.
+const ThemeSchema = z.object({
+  colors: z.object({
+    primary:    z.string().regex(HEX_COLOUR).optional(),
+    accent:     z.string().regex(HEX_COLOUR).optional(),
+    background: z.string().regex(HEX_COLOUR).optional(),
+    surface:    z.string().regex(HEX_COLOUR).optional(),
+    text:       z.string().regex(HEX_COLOUR).optional(),
+    muted:      z.string().regex(HEX_COLOUR).optional(),
+    border:     z.string().regex(HEX_COLOUR).optional(),
+  }).partial().optional(),
+  typography: z.object({
+    heading_font:    z.string().max(100).optional(),
+    body_font:       z.string().max(100).optional(),
+    base_size_px:    z.number().int().min(12).max(22).optional(),
+    heading_scale:   z.number().min(1).max(2).optional(),
+    heading_weight:  z.number().int().min(300).max(900).optional(),
+    body_weight:     z.number().int().min(300).max(900).optional(),
+    line_height:     z.number().min(1).max(2.4).optional(),
+    letter_spacing:  z.string().max(20).optional(),
+  }).partial().optional(),
+  spacing: z.object({
+    container_max_px:     z.number().int().min(600).max(1600).optional(),
+    section_y_px:         z.number().int().min(16).max(200).optional(),
+    section_y_mobile_px:  z.number().int().min(12).max(160).optional(),
+    gap_px:               z.number().int().min(4).max(60).optional(),
+  }).partial().optional(),
+  radii: z.object({
+    sm_px: z.number().int().min(0).max(32).optional(),
+    md_px: z.number().int().min(0).max(48).optional(),
+    lg_px: z.number().int().min(0).max(80).optional(),
+  }).partial().optional(),
+  logo: z.object({
+    height_px:          z.number().int().min(16).max(120).optional(),
+    show_name_beside:   z.boolean().optional(),
+  }).partial().optional(),
+  buttons: z.object({
+    radius_px:     z.number().int().min(0).max(40).optional(),
+    padding_y_px:  z.number().int().min(4).max(32).optional(),
+    padding_x_px:  z.number().int().min(4).max(60).optional(),
+    weight:        z.number().int().min(300).max(900).optional(),
+  }).partial().optional(),
+  hero: z.object({
+    overlay_opacity:  z.number().min(0).max(1).optional(),
+    min_height_px:    z.number().int().min(200).max(900).optional(),
+  }).partial().optional(),
+}).strict()
 
 const WebsiteConfigBody = z.object({
   subdomain_slug:   SlugSchema.optional(),
@@ -93,6 +142,15 @@ const WebsiteConfigBody = z.object({
   show_contact:       z.boolean().optional(),
   show_ordering:      z.boolean().optional(),
   show_delivery:      z.boolean().optional(),
+
+  // Custom domain (e.g. book.wingstop.co.uk) — lowercased + shape-checked
+  // at the DB layer.  Setting `custom_domain` always clears the
+  // `custom_domain_verified` flag so the tenant re-proves DNS ownership.
+  custom_domain:      z.string().toLowerCase().max(253).nullable().optional(),
+
+  // Template + theme
+  template_key:       z.enum(['classic', 'modern']).optional(),
+  theme:              ThemeSchema.optional(),
 })
 
 const GalleryBody = z.object({
@@ -199,11 +257,16 @@ export default async function websiteRoutes(app) {
   // ── PATCH /website/config ───────────────────────────────
   app.patch('/config', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const body = WebsiteConfigBody.parse(req.body)
+
+    // Any mutation of custom_domain invalidates the verified flag so the
+    // tenant must re-run DNS verification before the domain goes live.
+    if ('custom_domain' in body) {
+      body.custom_domain_verified = false
+    }
+
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
-    // postgres.js tx() helper requires plain object; JSONB fields
-    // need to be passed as-is and it serialises them.
     const [cfg] = await withTenant(req.tenantId, async tx => {
       const existing = await ensureConfig(tx, req.tenantId)
       if (!existing) throw httpError(404, 'Website config not found — POST to create it first')
@@ -217,6 +280,53 @@ export default async function websiteRoutes(app) {
     })
     if (!cfg) throw httpError(404, 'Website config not found')
     return cfg
+  })
+
+  // ── POST /website/verify-domain ─────────────────────────
+  // Resolves the tenant's custom_domain via DNS. Marks verified=true when
+  // the domain's A records point to any of APP_PUBLIC_IPS (a CSV env var)
+  // OR its CNAME points at {PUBLIC_ROOT_DOMAIN}. Otherwise returns the
+  // records it saw so the tenant can see what went wrong.
+  app.post('/verify-domain', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const [cfg] = await withTenant(req.tenantId, tx => tx`
+      SELECT id, custom_domain FROM website_config
+       WHERE tenant_id = ${req.tenantId}
+    `)
+    if (!cfg?.custom_domain) throw httpError(422, 'No custom domain configured')
+
+    const domain = cfg.custom_domain
+    const expectedCnameSuffix = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
+    const expectedIps = (process.env.APP_PUBLIC_IPS || '')
+      .split(',').map(s => s.trim()).filter(Boolean)
+
+    let aRecords = []
+    let cnameRecords = []
+    try { aRecords = await dns.resolve4(domain) }     catch { /* no A records */ }
+    try { cnameRecords = await dns.resolveCname(domain) } catch { /* no CNAME */ }
+
+    const cnameMatch = cnameRecords.some(c => c.toLowerCase().endsWith(expectedCnameSuffix))
+    const aMatch     = expectedIps.length && aRecords.some(a => expectedIps.includes(a))
+    const verified   = cnameMatch || aMatch
+
+    await withTenant(req.tenantId, tx => tx`
+      UPDATE website_config
+         SET custom_domain_verified = ${verified}, updated_at = now()
+       WHERE tenant_id = ${req.tenantId}
+    `)
+
+    return {
+      verified,
+      domain,
+      a_records:     aRecords,
+      cname_records: cnameRecords,
+      expected: {
+        cname_suffix: expectedCnameSuffix,
+        ips:          expectedIps,
+      },
+      hint: verified
+        ? 'Domain verified. SSL provisioning still happens outside the app (Nginx + certbot).'
+        : `Point ${domain} via CNAME to ${expectedCnameSuffix}, or an A record to one of the app's public IPs.`,
+    }
   })
 
   // ── GET /website/slug-available?slug=foo ────────────────
@@ -464,6 +574,7 @@ export default async function websiteRoutes(app) {
   // Expects multipart/form-data with fields:
   //   file  — the binary
   //   kind  — 'images' | 'menus' | 'docs'
+  // Writes via the configured storage driver (local filesystem or S3).
   app.post('/upload', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
 
@@ -479,7 +590,6 @@ export default async function websiteRoutes(app) {
         if (!cfg.mimes.has(part.mimetype)) {
           throw httpError(422, `Unsupported file type: ${part.mimetype}`)
         }
-        // Buffer the file (simpler than streaming; size limit is enforced below)
         const chunks = []
         let total = 0
         for await (const chunk of part.file) {
@@ -500,19 +610,16 @@ export default async function websiteRoutes(app) {
     if (!fileData) throw httpError(400, 'No file provided')
     if (!KIND_CONFIG[kind]) throw httpError(422, 'Invalid kind')
 
-    const ext = extFromMime(fileData.mimetype)
-    const id  = crypto.randomUUID()
-    const dir = path.join(env.UPLOAD_DIR, req.tenantId, kind)
-    await fs.mkdir(dir, { recursive: true })
-    const filename = `${id}.${ext}`
-    await fs.writeFile(path.join(dir, filename), fileData.buffer)
+    const ext     = extFromMime(fileData.mimetype)
+    const storage = getStorage()
+    const result  = await storage.put(req.tenantId, kind, ext, fileData.mimetype, fileData.buffer)
 
-    const url = `/uploads/${req.tenantId}/${kind}/${filename}`
     return reply.code(201).send({
-      url,
+      url:       result.url,
       kind,
-      bytes: fileData.buffer.length,
-      mimetype: fileData.mimetype,
+      bytes:     result.bytes,
+      mimetype:  fileData.mimetype,
+      driver:    env.STORAGE_DRIVER,
     })
   })
 }
