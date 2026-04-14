@@ -54,6 +54,26 @@ export function useApi() {
     URL.revokeObjectURL(url)
   }, [getAccessTokenSilently])
 
+  // upload: posts multipart/form-data (file + optional fields) to the API.
+  //   api.upload('/website/upload', file, { kind: 'images' })
+  // Returns the parsed JSON response (e.g. { url, kind, bytes, mimetype }).
+  const upload = useCallback(async (path, file, extraFields = {}) => {
+    const token = await getAccessTokenSilently()
+    const fd    = new FormData()
+    fd.append('file', file)
+    for (const [k, v] of Object.entries(extraFields)) {
+      if (v != null) fd.append(k, String(v))
+    }
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },   // do NOT set Content-Type; fetch handles the boundary
+      body: fd,
+    })
+    const data = res.status !== 204 ? await res.json().catch(() => null) : null
+    if (!res.ok) throw new ApiError(res.status, data)
+    return data
+  }, [getAccessTokenSilently])
+
   return {
     get:      (path)        => call('GET',    path),
     post:     (path, body)  => call('POST',   path, body),
@@ -61,6 +81,7 @@ export function useApi() {
     put:      (path, body)  => call('PUT',    path, body),
     delete:   (path)        => call('DELETE', path),
     download,
+    upload,
   }
 }
 

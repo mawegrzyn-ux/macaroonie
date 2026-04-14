@@ -1,0 +1,267 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<main>
+
+<!-- ─── Hero ──────────────────────────────────────── -->
+<% if (it.config.hero_image_url || it.config.hero_heading) { %>
+<section class="hero" style="
+  position: relative;
+  min-height: 520px;
+  background:
+    linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.45)),
+    <%= it.config.hero_image_url ? `url('${it.config.hero_image_url}')` : 'var(--c-primary)' %>;
+  background-size: cover;
+  background-position: center;
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; text-align: center; padding: 48px 24px;
+">
+  <div style="max-width: 780px;">
+    <% if (it.config.hero_heading) { %>
+      <h1 style="font-size: clamp(32px, 5vw, 56px); margin: 0 0 16px; line-height: 1.1;">
+        <%= it.config.hero_heading %>
+      </h1>
+    <% } %>
+    <% if (it.config.hero_subheading) { %>
+      <p style="font-size: clamp(16px, 2.2vw, 20px); margin: 0 0 28px; opacity: 0.95;">
+        <%= it.config.hero_subheading %>
+      </p>
+    <% } %>
+    <% if (it.config.show_booking_widget && it.config.hero_cta_text) { %>
+      <a href="<%= it.config.hero_cta_link || '#booking' %>" class="btn"
+         style="background:#fff; color:var(--c-primary); font-size:16px; padding:14px 32px;">
+        <%= it.config.hero_cta_text %>
+      </a>
+    <% } %>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── About ──────────────────────────────────────── -->
+<% if (it.config.about_heading || it.config.about_text) { %>
+<section class="block" id="about" style="background:#fff;">
+  <div class="container" style="display:grid; grid-template-columns: <%= it.config.about_image_url ? '1fr 1fr' : '1fr' %>; gap: 48px; align-items:center;">
+    <div>
+      <% if (it.config.about_heading) { %>
+        <h2><%= it.config.about_heading %></h2>
+      <% } %>
+      <% if (it.config.about_text) { %>
+        <div style="font-size:17px; color:#444; white-space: pre-wrap;"><%= it.config.about_text %></div>
+      <% } %>
+    </div>
+    <% if (it.config.about_image_url) { %>
+      <div><img src="<%= it.config.about_image_url %>" alt="" style="border-radius:8px;" /></div>
+    <% } %>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── Gallery ────────────────────────────────────── -->
+<% if (it.config.show_gallery && it.gallery.length) { %>
+<section class="block" id="gallery" style="background:var(--c-surface);">
+  <div class="container">
+    <h2>Gallery</h2>
+    <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px;">
+      <% it.gallery.forEach(function(g){ %>
+        <a href="<%= g.image_url %>" target="_blank" rel="noopener" style="display:block; position:relative; border-radius:6px; overflow:hidden;">
+          <img src="<%= g.image_url %>" alt="<%= g.caption || '' %>"
+               style="width:100%; height:220px; object-fit:cover;" loading="lazy" />
+          <% if (g.caption) { %>
+            <div style="position:absolute; bottom:0; left:0; right:0; padding:8px 12px; background:linear-gradient(transparent, rgba(0,0,0,.7)); color:#fff; font-size:13px;">
+              <%= g.caption %>
+            </div>
+          <% } %>
+        </a>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── Booking widget ────────────────────────────── -->
+<% if (it.config.show_booking_widget && it.venue) { %>
+<section class="block" id="booking" style="background:#fff;">
+  <div class="container">
+    <h2 style="text-align:center;">Book a Table</h2>
+    <p style="text-align:center; color:#555; margin:-8px 0 28px; max-width:520px; margin-left:auto; margin-right:auto;">
+      Select your party size, date, and time to reserve online.
+    </p>
+    <div style="max-width:720px; margin:0 auto; border-radius:8px; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,.08);">
+      <iframe
+        src="https://<%= it.rootDomain %>/widget?venue=<%= it.venue.slug %>&theme=<%= it.config.widget_theme %>"
+        style="width:100%; height:720px; border:0;"
+        loading="lazy"
+        title="Book a table">
+      </iframe>
+    </div>
+  </div>
+</section>
+<% } else if (it.config.show_booking_widget) { %>
+<section class="block" id="booking" style="background:#fff; text-align:center;">
+  <div class="container">
+    <h2>Book a Table</h2>
+    <p style="color:#777;">Online booking is not configured yet. Please contact us to reserve.</p>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── Menu teaser ────────────────────────────────── -->
+<% if (it.config.show_menu && it.menus.length) { %>
+<section class="block" id="menu-teaser" style="background:var(--c-surface);">
+  <div class="container" style="text-align:center;">
+    <h2>Our Menus</h2>
+    <p style="color:#555; margin-bottom: 28px;">Have a look at what we're serving.</p>
+    <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+      <% it.menus.forEach(function(m){ %>
+        <a href="/menu/<%= m.id %>" class="btn btn-outline"><%= m.label %></a>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── Online ordering ────────────────────────────── -->
+<% if (it.config.show_ordering && it.config.online_ordering_links && it.config.online_ordering_links.length) { %>
+<section class="block" id="ordering" style="background:#fff;">
+  <div class="container" style="text-align:center;">
+    <h2>Takeaway &amp; Pre-Order</h2>
+    <div style="display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:16px;">
+      <% it.config.online_ordering_links.forEach(function(l){ %>
+        <a href="<%= l.url %>" target="_blank" rel="noopener" class="btn"><%= l.name %></a>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── Delivery ──────────────────────────────────── -->
+<% if (it.config.show_delivery && it.config.delivery_links && it.config.delivery_links.length) { %>
+<section class="block" id="delivery" style="background:var(--c-surface);">
+  <div class="container" style="text-align:center;">
+    <h2>Get It Delivered</h2>
+    <div style="display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:16px;">
+      <% it.config.delivery_links.forEach(function(l){ %>
+        <a href="<%= l.url %>" target="_blank" rel="noopener" class="btn btn-outline">
+          <%= l.label || l.provider.charAt(0).toUpperCase() + l.provider.slice(1) %>
+        </a>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── Allergens ─────────────────────────────────── -->
+<% if (it.config.show_allergens && it.allergens) { %>
+<section class="block" id="allergens" style="background:#fff;">
+  <div class="container">
+    <h2>Allergen Information</h2>
+    <% if (it.allergens.info_type === 'document' && it.allergens.document_url) { %>
+      <p>
+        <a href="<%= it.allergens.document_url %>" class="btn btn-outline" target="_blank" rel="noopener">
+          Download allergen guide (PDF)
+        </a>
+      </p>
+    <% } else if (it.allergens.info_type === 'structured' && Array.isArray(it.allergens.structured_data) && it.allergens.structured_data.length) { %>
+      <table style="width:100%; border-collapse:collapse; margin-top:12px;">
+        <thead>
+          <tr style="background:var(--c-surface);">
+            <th style="padding:10px 14px; text-align:left; border-bottom:1px solid #ddd;">Dish</th>
+            <th style="padding:10px 14px; text-align:left; border-bottom:1px solid #ddd;">Allergens</th>
+            <th style="padding:10px 14px; text-align:left; border-bottom:1px solid #ddd;">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% it.allergens.structured_data.forEach(function(row){ %>
+            <tr>
+              <td style="padding:10px 14px; border-bottom:1px solid #eee;"><%= row.dish %></td>
+              <td style="padding:10px 14px; border-bottom:1px solid #eee;"><%= (row.allergens || []).join(', ') %></td>
+              <td style="padding:10px 14px; border-bottom:1px solid #eee; color:#666;"><%= row.notes || '' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } else { %>
+      <p style="color:#777;">Allergen information available on request.</p>
+    <% } %>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── Find us ───────────────────────────────────── -->
+<% if (it.config.show_find_us && (it.config.address_line1 || it.config.google_maps_embed_url || it.opening_hours.length)) { %>
+<section class="block" id="find-us" style="background:var(--c-surface);">
+  <div class="container" style="display:grid; grid-template-columns:1fr 1fr; gap:32px;">
+    <div>
+      <h2>Find Us</h2>
+      <% if (it.config.address_line1) { %>
+        <address style="font-style:normal; font-size:16px; line-height:1.7;">
+          <%= it.config.address_line1 %><br />
+          <% if (it.config.address_line2) { %><%= it.config.address_line2 %><br /><% } %>
+          <%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %>
+        </address>
+      <% } %>
+
+      <% if (it.opening_hours.length) { %>
+        <h3 style="margin-top:24px; font-size:18px; color:var(--c-primary);">Opening Hours</h3>
+        <table style="font-size:15px; margin-top:8px;">
+          <% const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] %>
+          <% const byDay = {} %>
+          <% it.opening_hours.forEach(function(h){ if(!byDay[h.day_of_week])byDay[h.day_of_week]=[]; byDay[h.day_of_week].push(h) }) %>
+          <% for (let d = 1; d <= 7; d++) { const i = d % 7 %>
+            <tr>
+              <td style="padding:4px 20px 4px 0; font-weight:500;"><%= DAYS[i] %></td>
+              <td style="color:#555;">
+                <% if (!byDay[i] || byDay[i].length === 0 || byDay[i].every(function(h){return h.is_closed})) { %>
+                  Closed
+                <% } else { %>
+                  <% byDay[i].forEach(function(h, idx){ %>
+                    <% if (h.is_closed) { return } %>
+                    <% if (idx > 0) { %> · <% } %>
+                    <% if (h.label) { %><span style="opacity:.7;"><%= h.label %>: </span><% } %>
+                    <%= (h.opens_at || '').slice(0,5) %>–<%= (h.closes_at || '').slice(0,5) %>
+                  <% }) %>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
+        </table>
+      <% } %>
+    </div>
+
+    <div>
+      <% if (it.config.google_maps_embed_url) { %>
+        <iframe src="<%= it.config.google_maps_embed_url %>"
+                style="width:100%; height:340px; border:0; border-radius:6px;"
+                loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <% } else if (it.config.latitude && it.config.longitude) { %>
+        <iframe
+          src="https://maps.google.com/maps?q=<%= it.config.latitude %>,<%= it.config.longitude %>&z=15&output=embed"
+          style="width:100%; height:340px; border:0; border-radius:6px;" loading="lazy"></iframe>
+      <% } %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+<!-- ─── Contact ───────────────────────────────────── -->
+<% if (it.config.show_contact) { %>
+<section class="block" id="contact" style="background:#fff;">
+  <div class="container" style="text-align:center;">
+    <h2>Get In Touch</h2>
+    <div style="display:flex; gap:24px; justify-content:center; flex-wrap:wrap; margin-top:12px;">
+      <% if (it.config.phone) { %>
+        <a href="tel:<%= it.config.phone %>" class="btn btn-outline">
+          <%= it.config.phone %>
+        </a>
+      <% } %>
+      <% if (it.config.email) { %>
+        <a href="mailto:<%= it.config.email %>" class="btn btn-outline">
+          <%= it.config.email %>
+        </a>
+      <% } %>
+    </div>
+  </div>
+</section>
+<% } %>
+
+</main>
+<%~ include('./partials/footer', it) %>

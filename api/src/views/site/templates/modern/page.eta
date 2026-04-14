@@ -1,0 +1,26 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<main>
+
+<section style="padding: 140px 0 48px; background: var(--c-primary); color: #fff;">
+  <div class="container" style="max-width: 780px;">
+    <h1 style="color:#fff; font-size: clamp(36px, 5vw, 56px); letter-spacing:-0.01em;">
+      <%= it.page.title %>
+    </h1>
+  </div>
+</section>
+
+<section class="block">
+  <div class="container" style="max-width: 780px;">
+    <% if (it.page.content) { %>
+      <article style="font-size:18px; line-height:1.8; color:var(--c-text); white-space: pre-wrap;">
+        <%~ it.page.content %>
+      </article>
+    <% } else { %>
+      <p style="color:var(--c-muted);">This page has no content yet.</p>
+    <% } %>
+  </div>
+</section>
+
+</main>
+<%~ include('./partials/footer', it) %>

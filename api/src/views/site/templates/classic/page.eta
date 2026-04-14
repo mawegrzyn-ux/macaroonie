@@ -1,0 +1,17 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<main>
+<section class="block" style="background:#fff; min-height: 60vh;">
+  <div class="container" style="max-width: 780px;">
+    <h2><%= it.page.title %></h2>
+    <% if (it.page.content) { %>
+      <article style="font-size:17px; line-height:1.7; color:#333; white-space: pre-wrap;">
+        <%~ it.page.content %>
+      </article>
+    <% } else { %>
+      <p style="color:#777;">This page has no content yet.</p>
+    <% } %>
+  </div>
+</section>
+</main>
+<%~ include('./partials/footer', it) %>

@@ -1,0 +1,47 @@
+<style>
+  .site-header {
+    position: sticky; top: 0; background: var(--c-bg); z-index: 20;
+    border-bottom: 1px solid var(--c-border); padding: 14px 0;
+  }
+  .site-header .container { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+  .site-header .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 18px; color: var(--c-text); text-decoration: none; }
+  .site-header .brand img { height: var(--logo-h); width: auto; }
+  .site-header nav { display: flex; gap: 24px; align-items: center; }
+  .site-header nav a { color: var(--c-text); font-size: 14px; font-weight: 500; }
+  .site-header nav a.cta {
+    color: #fff; background: var(--c-primary); padding: 8px 18px;
+    border-radius: var(--btn-r);
+  }
+  .site-header nav a.cta:hover { text-decoration: none; opacity: 0.9; }
+  @media (max-width: 700px) {
+    .site-header nav { gap: 12px; }
+    .site-header nav a:not(.cta) { display: none; }
+  }
+</style>
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="brand">
+      <% if (it.config.logo_url) { %>
+        <img src="<%= it.config.logo_url %>" alt="<%= it.config.site_name || it.tenant_name %>" />
+      <% } %>
+      <span><%= it.config.site_name || it.tenant_name %></span>
+    </a>
+    <nav>
+      <% if (it.config.show_menu && it.menus.length) { %>
+        <a href="/menu">Menu</a>
+      <% } %>
+      <% if (it.config.show_find_us) { %>
+        <a href="/#find-us">Find us</a>
+      <% } %>
+      <% if (it.config.show_contact) { %>
+        <a href="/#contact">Contact</a>
+      <% } %>
+      <% it.pages.forEach(function(p) { %>
+        <a href="/p/<%= p.slug %>"><%= p.title %></a>
+      <% }) %>
+      <% if (it.config.show_booking_widget) { %>
+        <a href="/#booking" class="cta"><%= it.config.hero_cta_text || 'Book a Table' %></a>
+      <% } %>
+    </nav>
+  </div>
+</header>

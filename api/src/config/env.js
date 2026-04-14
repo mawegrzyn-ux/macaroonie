@@ -22,6 +22,22 @@ const schema = z.object({
   // Email (SendGrid)
   SENDGRID_API_KEY:      z.string().optional(),
   EMAIL_FROM:            z.string().email().default('noreply@macaroonie.com'),
+
+  // Website CMS — file uploads + subdomain serving
+  UPLOAD_DIR:            z.string().default('/home/ubuntu/app/uploads'),
+  PUBLIC_ROOT_DOMAIN:    z.string().default('macaroonie.com'),
+  PUBLIC_SITE_SCHEME:    z.enum(['http', 'https']).default('https'),
+
+  // Storage driver — 'local' writes to UPLOAD_DIR, 's3' writes to an
+  // S3-compatible bucket (AWS S3, DigitalOcean Spaces, Cloudflare R2, …).
+  STORAGE_DRIVER:        z.enum(['local', 's3']).default('local'),
+  S3_BUCKET:             z.string().optional(),
+  S3_REGION:             z.string().optional(),
+  S3_ENDPOINT:           z.string().optional(),        // e.g. https://fra1.digitaloceanspaces.com
+  S3_PUBLIC_URL_BASE:    z.string().optional(),        // e.g. https://cdn.macaroonie.com
+  S3_ACCESS_KEY_ID:      z.string().optional(),
+  S3_SECRET_ACCESS_KEY:  z.string().optional(),
+  S3_FORCE_PATH_STYLE:   z.coerce.boolean().default(false),
 })
 
 const parsed = schema.safeParse(process.env)

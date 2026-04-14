@@ -28,6 +28,18 @@ deploy_api() {
     cd '${APP_DIR}/api'
     npm install --production --silent
   "
+  # Run database migrations (idempotent — applies only new SQL files).
+  # Uses DATABASE_URL from api/.env. Skipped with SKIP_MIGRATIONS=1.
+  if [[ "${SKIP_MIGRATIONS:-0}" != "1" ]]; then
+    info "Running database migrations…"
+    sudo -u "${APP_USER}" bash -c "
+      cd '${APP_DIR}/api'
+      set -a; source .env; set +a
+      node scripts/migrate.js
+    " || die "Migrations failed — aborting deploy"
+  else
+    info "Skipping migrations (SKIP_MIGRATIONS=1)"
+  fi
   # PM2 runs as APP_USER, not root — use sudo -u to talk to the correct daemon
   sudo -u "${APP_USER}" pm2 reload macaroonie-api --update-env 2>/dev/null \
     || sudo -u "${APP_USER}" pm2 start "${APP_DIR}/ecosystem.config.cjs"

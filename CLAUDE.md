@@ -111,6 +111,13 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/routes/customers.js` — Customer profiles. GET /customers?q= (search), GET /customers/:id (detail + bookings), PATCH /customers/:id, POST /customers/:id/anonymise (GDPR erasure), GET /customers/:id/export (GDPR JSON download). Exports upsertCustomer() helper called by bookings.js on every confirm.
 - `src/routes/payments.js` — Payment intent creation + Stripe webhook. `handlePaymentSucceeded` copies `combination_id` and `guest_notes` from hold to booking INSERT.
 - `src/routes/schedules.js` — Full schedule CRUD (templates, sittings, slot caps, overrides).
+- `src/routes/website.js` — Website builder admin CRUD: config singleton, gallery (with reorder), custom pages, menu PDFs, opening hours, allergens, multipart upload, slug availability, DNS verify.
+- `src/routes/publicSite.js` — Public JSON: `GET /api/site/:slug` bundles config + gallery + pages + menus + hours + allergens + venue. Also serves `sitemap.xml` / `robots.txt`.
+- `src/routes/siteRenderer.js` — Subdomain + custom-domain SSR. `resolveSiteHost(host)` returns `{ slug, customDomain }` or null. Renders `views/site/templates/{template_key}/{view}.eta`. Reserved subdomains (api, www, mail, …) bypass.
+- `src/services/siteDataSvc.js` — `loadSiteBundle({ slug, customDomain })`. Global lookup → `withTenant(tenant_id, …)` for scoped rows. Checks `is_published` AND `custom_domain_verified` on the custom-domain path.
+- `src/services/storageSvc.js` — Pluggable uploads. `getStorage().put(tenantId, kind, ext, mimetype, buffer)`. Drivers: `LocalStorage` (writes to `UPLOAD_DIR`, served at `/uploads/*` by `@fastify/static`), `S3Storage` (lazy-imports `@aws-sdk/client-s3`, compatible with AWS S3, DO Spaces via `S3_ENDPOINT`, Cloudflare R2). Selected via `STORAGE_DRIVER` env.
+- `src/views/site/shared/head.eta` — Central theme renderer. Converts `website_config.theme` JSONB into CSS custom properties (`--c-*` for colours, `--f-*` for fonts, `--r-*` for radii, etc) and auto-loads Google Fonts. Every template includes it.
+- `src/views/site/templates/classic/`, `src/views/site/templates/modern/` — the two shipping public-site templates. Each has `index.eta`, `menu.eta`, `page.eta`, `partials/{header,footer}.eta`.
 - `src/routes/slots.js` — Calls `get_available_slots()` PG function. Thin wrapper.
 - `src/config/ws.js` — WebSocket server. Rooms keyed by venue_id. Auth via JWT query param.
 - `src/services/broadcastSvc.js` — Call `broadcastBooking(type, booking)` after any booking mutation.
@@ -125,6 +132,7 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/pages/Rules.jsx` — booking rules + smart allocation toggles (allow_cross_section_combo, allow_non_adjacent_combo). enable_reconfirmed_status toggle (re-confirmed status for operator phone-call workflow).
 - `src/pages/Bookings.jsx` — Guestplan-style time-grouped list. Stats bar (reservations/tables/guests — active only). Inline status dropdown. Phone visible. Permanent resizable right panel (280–700 px). BookingDrawer in inlineMode.
 - `src/pages/Customers.jsx` — Customer list + resizable detail panel. GDPR anonymise (double-confirm inline) + export (JSON download via api.download()).
+- `src/pages/Website.jsx` — Website builder admin page (`/website` route). Left-rail 18-section nav: Setup & domain, Template, Theme, Branding, Hero, About, Gallery, Menus, Allergens, Opening hours, Find us, Contact, Online ordering, Delivery, Booking widget, Custom pages, SEO, Analytics. Onboarding card for tenants with no `website_config` row yet. Shared primitives: `SectionCard`, `FormRow`, `Toggle`, `SaveBar`, `FileUpload`, `ImageField`, `useConfigFields()` helper. Theme section saves the full `theme` JSONB in one PATCH; each content section saves its own subset.
 - `src/pages/Docs.jsx` — in-app technical documentation (auto-synced with codebase).
 - `src/pages/Help.jsx` — operator user guide.
 - `src/pages/Settings.jsx` — theme colour picker (live CSS var update) + timeline view defaults.
@@ -259,6 +267,7 @@ Additionally implemented across development sessions:
 - ✅ **Zero cap greying fix** — `staleTime: 0` added to `slots-overlay` query; `if (slots.length > 1)` changed to `>= 1` with `intervalMs` defaulting to 15 min so single-slot venues now get cap=0 greying.
 - ✅ **Unallocated option in drawer** — `tables` query made non-lazy (always fetches); `unallocatedTable` derived from `tables.find(t => t.is_unallocated)`; "Unallocated" checkbox added at top of table picker (orange); currently-unallocated bookings show orange "Unallocated" badge in view mode; `handleTableSave` routes unallocated selection to `PATCH /tables` (not `/relocate`); `toggleTable` clears unallocated when a real table is picked.
 - ✅ **Table lock** — `table_locked boolean DEFAULT false` on `bookings` (migration 024); `PATCH /bookings/:id/lock` toggles the flag; `/relocate` conflict scan now selects `table_locked` and throws 422 before displacing if any conflicting booking is locked; `BookingDrawer` shows a lock/unlock icon button inline next to the table pill (amber ring when locked, muted when unlocked); `Lock`/`Unlock` icons from lucide-react.
+- ✅ **Tenant Website Builder / CMS** *(migrations 025 + 026)* — full code-side feature. New tables: `website_config` (singleton per tenant, 60+ columns), `website_opening_hours`, `website_gallery_images`, `website_pages`, `website_menu_documents`, `website_allergen_info` (migration 025). Migration 026 adds `custom_domain` (UNIQUE lower index), `custom_domain_verified`, `template_key` ('classic' | 'modern'), and `theme` JSONB for per-tenant theming. Pluggable storage service (`STORAGE_DRIVER=local|s3`). Subdomain + custom-domain SSR renderer with `@fastify/view` + Eta. Two shipping templates (classic, modern) sharing theme CSS variables. Admin page at `/website` with 18 sections covering identity, branding, full theme manager (colours / fonts / spacing / radii / hero), hero, about, gallery with @dnd-kit reorder (new `@dnd-kit/sortable` dep), PDF menus, allergens (document or dish-by-dish), opening hours (7 days × multiple sessions), find us, contact + socials, online ordering links, delivery providers, booking widget embed, custom pages CRUD, SEO, analytics (GA4 + Meta Pixel). Deployment pieces (wildcard Nginx, DNS, SSL) pending — see Outstanding items.
 
 ---
 
@@ -282,7 +291,17 @@ Customers page currently supports anonymise (GDPR erasure by overwrite) but not 
 A double-confirmation hard delete (for internal test/demo data cleanup) is still outstanding.
 Must cascade-delete linked bookings or reassign them. Requires `requireRole('owner')` guard.
 
-**4. Test suite**
+**4. Website builder — deployment pieces** *(feature shipped code-side, not yet deployed)*
+- Nginx: wildcard server block for `*.macaroonie.com` (proxy_pass → Fastify API).
+- DNS: wildcard A record for `*.macaroonie.com` → Lightsail IP.
+- SSL: wildcard cert via Certbot DNS-01 challenge (needs DNS at Cloudflare / Route53 / etc).
+- Custom domains: per-tenant SSL provisioning (Caddy on-demand TLS or Certbot per domain).
+  The app only resolves the Host header; cert provisioning is out of process.
+- Run migrations 025 + 026 on the server.
+- Optional: set `STORAGE_DRIVER=s3` + `S3_*` env vars to use S3 / DO Spaces / R2
+  instead of local disk for uploads.
+
+**5. Test suite**
 No tests exist yet. Recommended approach:
 - API: Vitest + supertest for route integration tests
 - DB: Use a test database with migrations applied, reset between test runs
@@ -346,6 +365,16 @@ Key vars to set before running:
 - **Overlap detection is frontend-only** — `overlappingIds` is computed from the in-memory `bookingsRes` array. It does not call the API. If a booking is created by another user and the timeline hasn't refreshed, an overlap may not be detected until the next WebSocket push or 60-second refetch.
 - **`startHour` must be threaded the same way as `hourWidth`** — `timeToX(iso, hw, sh)` and `sittingTimeToX(t, hw, sh)` both accept `sh` (startHour) as a third optional param defaulting to `START_HOUR`. In the Timeline component, `startHour` is derived from `timelineStart` (context). Pass `startHour` as a prop to `TableRow`, `BookingCard`, and `TimelineHeader` — exactly the same threading pattern as `hourWidth`. All useMemos calling these functions must include `startHour` in their dep arrays. Using the module constant `START_HOUR` directly anywhere in the component body bypasses the timeline hour range setting.
 - **`table_locked` is checked in `/relocate` only** — the lock prevents cascade displacement when an operator drags a booking onto tables occupied by a locked booking. It does NOT prevent the operator from directly reassigning via `PATCH /tables` (multi-table path) or `POST /bookings/admin-override`. The lock is a hint to the relocation engine, not a hard DB constraint.
+- **Website CMS: subdomain slug is a GLOBAL namespace** — `website_config.subdomain_slug UNIQUE` across all tenants. Separate from `tenants.slug` (Auth0 lookup). `GET /api/website/slug-available?slug=...` must be used before POSTing a new config; the endpoint is authenticated but does NOT use `withTenant()` because it needs to see other tenants' rows.
+- **Website CMS: custom_domain is the SSR lookup key, not the SSL provisioning key** — the app resolves the Host header against `website_config.custom_domain`. It does NOT issue certificates. SSL is terminated at Nginx (or Caddy on-demand TLS); the tenant-facing flow is: (a) tenant sets `custom_domain`, (b) tenant points DNS at our IP, (c) tenant clicks "Verify DNS" → `POST /api/website/verify-domain` (checks A + CNAME records), (d) an out-of-band process provisions a cert. Setting the domain clears `custom_domain_verified` so the site stays offline until verified.
+- **Website CMS: `theme` JSONB is column-overwrite, not deep-merge** — PATCHing `theme: {...}` replaces the whole column. The admin page's `ThemeSection` holds the FULL merged theme in local state and PATCHes the entire object. Don't try to PATCH a partial theme object — the missing keys become null, not defaults.
+- **Website CMS: pluggable storage via `STORAGE_DRIVER`** — `local` writes to `UPLOAD_DIR` and serves through `@fastify/static` at `/uploads/*`. `s3` lazy-imports `@aws-sdk/client-s3` (listed as `optionalDependencies` so local installs don't pay the download cost). Switching drivers mid-flight will ORPHAN existing upload URLs — run a migration script to copy files between backends before switching.
+- **Website CMS: templates share CSS variables via `views/site/shared/head.eta`** — the shared head computes every `--c-*`, `--f-*`, `--r-*` CSS variable from `config.theme` (merged over defaults). When adding a new template, consume those variables; don't add a per-template CSS variable schema. When adding a new theme knob, update `ThemeSchema` in `routes/website.js`, the default constant in `admin/src/pages/Website.jsx`, and the CSS-variable emit in `shared/head.eta` together.
+- **Website CMS: reserved subdomains** — `api, www, admin, app, mail, static, assets, cdn, ws, stripe, webhook, webhooks` never match as tenant sites, regardless of DB content. Extend `RESERVED_SUBDOMAINS` in `siteRenderer.js` before using any new infrastructure subdomain.
+- **Website CMS: `loadSiteBundle()` reloads on every request** — no caching. Cheap (~1 round trip for the config + a single parallel query for everything else) but not free. If traffic becomes a concern, add a short TTL cache keyed on `(tenant_id, updated_at)` inside the service, invalidated on any admin mutation. Don't cache by slug alone — would leak between tenants if slugs are ever reused.
+- **Website CMS: `GET /api/site/:slug` short-circuits on `is_published = false`** — returns 404 for the public JSON AND the SSR renderer. Admin preview must go through the admin portal's authenticated path (or pass `includeUnpublished: true` in a future preview endpoint). Never expose the `includeUnpublished` flag on the public route.
+- **Website CMS: `custom_domain_verified` is cleared on every mutation of `custom_domain`** — the PATCH handler explicitly sets `custom_domain_verified = false` whenever the body contains `custom_domain`. Refetch the config on the client after PATCHing so the UI shows the unverified state and the "Verify DNS" button.
+- **Website CMS: Eta includes are path-relative to the `views` root** — the templates use `include('../../shared/head', it)` because they live 3 levels deep (`views/site/templates/{key}/index.eta`). Don't change the directory layout without updating every include path. Tests catch this only by rendering each template.
 - **`timelineStart`/`timelineEnd` are integers, not strings** — stored in localStorage as numbers. When reading from `tlSettings`, do arithmetic directly: `const totalHours = endHour - startHour`. The `<select>` dropdowns in Settings use `Number(e.target.value)` on `onChange` to ensure the stored value is always a number, not a string.
 
 ---
@@ -357,8 +386,18 @@ deploy automatically when changes are pushed from the developer's laptop. **Neve
 `deploy.sh` manually** — it is not needed and should not be referenced at the end of responses.
 
 - **To deploy:** `git push` from the local laptop. The Actions workflow does the rest.
-- **Migrations** still require a manual step: connect to the server via SSH then
-  `psql` → `\i /home/ubuntu/app/migrations/NNN_name.sql`
+- **Migrations run automatically** via `api/scripts/migrate.js`, invoked from both the GitHub
+  Actions workflow and `deploy.sh`. The runner tracks applied migrations in a
+  `schema_migrations` table and only applies new files in order. Each migration runs in a
+  transaction — if it fails, the deploy aborts before the API restarts.
+- **First-time baseline** — on a server that already had migrations applied manually via
+  `psql`, SSH in once and run:
+  ```bash
+  cd /home/ubuntu/app/api && set -a; source .env; set +a
+  node scripts/migrate.js --baseline-up-to 024
+  ```
+  This records 001–024 as applied without running them. Subsequent deploys then apply
+  025, 026, and anything new.
 - **OS user is `ubuntu`** — app lives at `/home/ubuntu/app`.
 - **deploy.sh** exists on the server as a fallback but is not part of the normal workflow.
 

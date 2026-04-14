@@ -1,0 +1,59 @@
+<style>
+  .m-header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 20;
+    padding: 22px 0; background: transparent;
+  }
+  .m-header.scrolled { position: fixed; background: var(--c-bg); border-bottom: 1px solid var(--c-border); padding: 14px 0; }
+  .m-header .container { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+  .m-header .brand {
+    display: flex; align-items: center; gap: 12px;
+    font-family: var(--f-heading); font-weight: 800; font-size: 22px;
+    color: #fff; text-decoration: none; letter-spacing: -0.01em;
+  }
+  .m-header.scrolled .brand { color: var(--c-text); }
+  .m-header .brand img { height: var(--logo-h); width: auto; }
+  .m-header nav { display: flex; gap: 28px; align-items: center; }
+  .m-header nav a { color: #fff; font-size: 14px; font-weight: 500; letter-spacing: 0.02em; }
+  .m-header.scrolled nav a { color: var(--c-text); }
+  .m-header nav a.cta {
+    background: #fff; color: var(--c-primary);
+    padding: 10px 22px; border-radius: 999px;
+    font-weight: 700;
+  }
+  .m-header.scrolled nav a.cta { background: var(--c-primary); color: #fff; }
+  .m-header nav a.cta:hover { text-decoration: none; opacity: 0.92; }
+  @media (max-width: 800px) {
+    .m-header nav { gap: 14px; }
+    .m-header nav a:not(.cta) { display: none; }
+  }
+</style>
+<header class="m-header" id="m-header">
+  <div class="container">
+    <a href="/" class="brand">
+      <% if (it.config.logo_url) { %>
+        <img src="<%= it.config.logo_url %>" alt="<%= it.config.site_name || it.tenant_name %>" />
+      <% } %>
+      <span><%= it.config.site_name || it.tenant_name %></span>
+    </a>
+    <nav>
+      <% if (it.config.show_menu && it.menus.length) { %><a href="/menu">Menu</a><% } %>
+      <% if (it.config.show_find_us) { %><a href="/#find-us">Visit</a><% } %>
+      <% it.pages.forEach(function(p) { %><a href="/p/<%= p.slug %>"><%= p.title %></a><% }) %>
+      <% if (it.config.show_contact) { %><a href="/#contact">Contact</a><% } %>
+      <% if (it.config.show_booking_widget) { %>
+        <a href="/#booking" class="cta"><%= it.config.hero_cta_text || 'Reserve' %></a>
+      <% } %>
+    </nav>
+  </div>
+</header>
+<script>
+  (function() {
+    var h = document.getElementById('m-header');
+    var fn = function() {
+      if (window.scrollY > 80) h.classList.add('scrolled');
+      else h.classList.remove('scrolled');
+    };
+    window.addEventListener('scroll', fn, { passive: true });
+    fn();
+  })();
+</script>

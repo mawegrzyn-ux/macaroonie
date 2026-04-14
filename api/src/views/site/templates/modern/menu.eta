@@ -1,0 +1,46 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<main>
+
+<section style="padding: 140px 0 60px; background: var(--c-primary); color: #fff; text-align: center;">
+  <div class="container">
+    <div style="color:rgba(255,255,255,0.7); font-size:13px; letter-spacing:0.12em; text-transform:uppercase; margin-bottom:10px;">Menu</div>
+    <h1 style="color:#fff; font-size: clamp(36px, 5vw, 56px);">
+      <%= it.activeMenu ? it.activeMenu.label : 'Our Menus' %>
+    </h1>
+  </div>
+</section>
+
+<section class="block">
+  <div class="container">
+    <% if (it.menus.length > 1) { %>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:32px; justify-content:center;">
+        <% it.menus.forEach(function(m){ %>
+          <a href="/menu/<%= m.id %>"
+             class="btn <%= (it.activeMenu && it.activeMenu.id === m.id) ? '' : 'btn-outline' %>"
+             style="border-radius:999px;">
+            <%= m.label %>
+          </a>
+        <% }) %>
+      </div>
+    <% } %>
+
+    <% const active = it.activeMenu || it.menus[0] %>
+    <% if (active) { %>
+      <div style="border:1px solid var(--c-border); border-radius:var(--r-lg); overflow:hidden; background:var(--c-surface);">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; background:var(--c-surface); border-bottom:1px solid var(--c-border);">
+          <span style="font-weight:700;"><%= active.label %></span>
+          <a href="<%= active.file_url %>" target="_blank" rel="noopener" class="btn"
+             style="padding:8px 18px; font-size:13px; border-radius:999px;">Download PDF</a>
+        </div>
+        <iframe src="<%= active.file_url %>#view=FitH"
+                style="width:100%; height:82vh; border:0; background:#fff;" title="<%= active.label %>"></iframe>
+      </div>
+    <% } else { %>
+      <p style="color:var(--c-muted); text-align:center;">No menus uploaded yet.</p>
+    <% } %>
+  </div>
+</section>
+
+</main>
+<%~ include('./partials/footer', it) %>

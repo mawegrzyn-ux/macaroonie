@@ -7,7 +7,7 @@ import {
   LayoutDashboard, CalendarDays, BookOpen,
   Building2, Table2, Clock, Settings, Users, UserRound,
   LogOut, LayoutTemplate, Menu, X,
-  BookMarked, HelpCircle, SlidersHorizontal,
+  BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
 } from 'lucide-react'
 
@@ -47,6 +47,7 @@ const NAV = [
   { label: 'Tables',      to: '/tables',      icon: Table2 },
   { label: 'Schedule',    to: '/schedule',    icon: Clock },
   { label: 'Rules',       to: '/rules',       icon: Settings },
+  { label: 'Website',     to: '/website',     icon: Globe },
   { label: 'Settings',    to: '/settings',    icon: SlidersHorizontal },
   { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate },
   null,
