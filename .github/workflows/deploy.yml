@@ -27,6 +27,18 @@ jobs:
             echo "── api: install production deps ─────────"
             cd $APP/api && npm install --production --silent
 
+            echo "── database: run pending migrations ─────"
+            # Idempotent — only applies SQL files not yet in schema_migrations.
+            # Fails the deploy if any migration errors, before pm2 restart.
+            # One-off baseline for servers that already have the schema:
+            #   cd $APP/api && set -a; source .env; set +a
+            #   node scripts/migrate.js --baseline-up-to 024
+            (
+              cd $APP/api
+              set -a; source .env; set +a
+              node scripts/migrate.js
+            )
+
             echo "── admin: install + build ───────────────"
             cd $APP/admin && npm install --silent && npm run build
             chmod -R 755 $APP/admin/dist

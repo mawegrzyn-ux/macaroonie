@@ -83,9 +83,11 @@ hosted at `{slug}.macaroonie.com` (and optionally a custom domain like
 - Custom domains: per-domain SSL provisioning (e.g. Caddy on-demand TLS
   or per-domain certbot); the app just resolves the Host header — it
   doesn't provision certs.
-- Migrations to run on the server:
-    `psql $DATABASE_URL -f /home/ubuntu/app/migrations/025_website_cms.sql`
-    `psql $DATABASE_URL -f /home/ubuntu/app/migrations/026_website_custom_domain_templates.sql`
+- Migrations now run automatically via `api/scripts/migrate.js`, invoked
+  from both the GitHub Actions workflow and `deploy.sh`. On first deploy
+  after this change, SSH in and baseline the tracker once:
+  `cd /home/ubuntu/app/api && set -a; source .env; set +a; node scripts/migrate.js --baseline-up-to 024`
+  Subsequent pushes will auto-apply 025, 026, and future migrations.
 
 ---
 

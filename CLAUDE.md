@@ -386,8 +386,18 @@ deploy automatically when changes are pushed from the developer's laptop. **Neve
 `deploy.sh` manually** — it is not needed and should not be referenced at the end of responses.
 
 - **To deploy:** `git push` from the local laptop. The Actions workflow does the rest.
-- **Migrations** still require a manual step: connect to the server via SSH then
-  `psql` → `\i /home/ubuntu/app/migrations/NNN_name.sql`
+- **Migrations run automatically** via `api/scripts/migrate.js`, invoked from both the GitHub
+  Actions workflow and `deploy.sh`. The runner tracks applied migrations in a
+  `schema_migrations` table and only applies new files in order. Each migration runs in a
+  transaction — if it fails, the deploy aborts before the API restarts.
+- **First-time baseline** — on a server that already had migrations applied manually via
+  `psql`, SSH in once and run:
+  ```bash
+  cd /home/ubuntu/app/api && set -a; source .env; set +a
+  node scripts/migrate.js --baseline-up-to 024
+  ```
+  This records 001–024 as applied without running them. Subsequent deploys then apply
+  025, 026, and anything new.
 - **OS user is `ubuntu`** — app lives at `/home/ubuntu/app`.
 - **deploy.sh** exists on the server as a fallback but is not part of the normal workflow.
 
