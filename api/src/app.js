@@ -1,19 +1,31 @@
 // src/app.js
-import Fastify from 'fastify'
-import cors    from '@fastify/cors'
-import helmet  from '@fastify/helmet'
-import jwt     from '@fastify/jwt'
+import Fastify   from 'fastify'
+import cors      from '@fastify/cors'
+import helmet    from '@fastify/helmet'
+import jwt       from '@fastify/jwt'
 import rateLimit from '@fastify/rate-limit'
+import multipart from '@fastify/multipart'
+import fastifyStatic from '@fastify/static'
+import fastifyView  from '@fastify/view'
+import { Eta }   from 'eta'
+import path      from 'node:path'
+import fs        from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { env }          from './config/env.js'
 import { errorHandler } from './middleware/error.js'
 
-import venuesRoutes    from './routes/venues.js'
+import venuesRoutes     from './routes/venues.js'
 import schedulesRoutes  from './routes/schedules.js'
 import slotsRoutes      from './routes/slots.js'
 import bookingsRoutes   from './routes/bookings.js'
 import customersRoutes  from './routes/customers.js'
 import paymentsRoutes, { webhookRoutes } from './routes/payments.js'
+import websiteRoutes    from './routes/website.js'
+import publicSiteRoutes from './routes/publicSite.js'
+import siteRendererRoutes from './routes/siteRenderer.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export async function buildApp() {
   const app = Fastify({
@@ -23,13 +35,17 @@ export async function buildApp() {
         ? { target: 'pino-pretty', options: { colorize: true } }
         : undefined,
     },
+    trustProxy: true,   // respect X-Forwarded-* from Nginx
   })
 
   // ── Security ────────────────────────────────────────────
-  await app.register(helmet, { global: true })
+  // Helmet's CSP is incompatible with the inline styles/scripts we emit in SSR
+  // templates for per-tenant themes, GA, FB pixel. Disable CSP only.
+  await app.register(helmet, { global: true, contentSecurityPolicy: false })
+
   await app.register(cors, {
     origin:      env.NODE_ENV === 'production'
-      ? [/\.macaroonie\.com$/]   // restrict in production
+      ? [new RegExp(`\\.${env.PUBLIC_ROOT_DOMAIN.replace(/\./g, '\\.')}$`)]
       : true,
     credentials: true,
   })
@@ -38,26 +54,69 @@ export async function buildApp() {
     timeWindow: '1 minute',
   })
 
+  // ── Multipart uploads (website builder) ─────────────────
+  await app.register(multipart, {
+    limits: {
+      fileSize: 30 * 1024 * 1024,   // 30 MB hard ceiling; route enforces tighter limits
+      files:    1,
+      fields:   5,
+    },
+  })
+
   // ── JWT (used by auth middleware to verify Auth0 tokens) ─
-  // Auth0 JWT verification is handled in auth.js via jwks-rsa JWKS.
-  // @fastify/jwt is registered here only to attach req.jwtVerify() to the
-  // Fastify instance; the actual secret is never used for validation.
   await app.register(jwt, {
     secret: 'placeholder-not-used-auth0-middleware-handles-verification',
   })
 
+  // ── View engine for tenant SSR sites ────────────────────
+  // Ensure upload directory exists at boot so @fastify/static is happy.
+  try { fs.mkdirSync(env.UPLOAD_DIR, { recursive: true }) } catch { /* ignore */ }
+
+  const eta = new Eta({
+    views:      path.join(__dirname, 'views'),
+    cache:      env.NODE_ENV === 'production',
+    autoEscape: true,
+  })
+  await app.register(fastifyView, {
+    engine:   { eta },
+    root:     path.join(__dirname, 'views'),
+    viewExt:  'eta',
+    propertyName: 'view',
+  })
+
+  // ── Uploaded files (served on all hosts) ────────────────
+  await app.register(fastifyStatic, {
+    root:   env.UPLOAD_DIR,
+    prefix: '/uploads/',
+    decorateReply: false,
+    cacheControl: true,
+    maxAge: '30d',
+  })
+
   // ── Routes ───────────────────────────────────────────────
 
-  // Stripe webhook MUST be registered before any JSON body parser
-  // so it receives the raw Buffer for signature verification.
+  // Stripe webhook first — must bypass JSON body parser
   await app.register(webhookRoutes)
 
-  await app.register(venuesRoutes,    { prefix: '/api/venues' })
-  await app.register(schedulesRoutes, { prefix: '/api/venues' })
-  await app.register(slotsRoutes,     { prefix: '/api/venues' })
-  await app.register(bookingsRoutes,  { prefix: '/api/bookings' })
-  await app.register(customersRoutes, { prefix: '/api/customers' })
-  await app.register(paymentsRoutes,  { prefix: '/api/payments' })
+  // Tenant SSR site renderer.
+  // Only fires when the Host header matches `{slug}.{PUBLIC_ROOT_DOMAIN}` and
+  // the slug is not reserved (api, www, …). All handlers short-circuit with
+  // reply.callNotFound() when no subdomain is present, so requests from the
+  // bare root domain (e.g. macaroonie.com/api/health) fall through cleanly to
+  // the /api/* routes registered below. No path conflicts because the site
+  // routes only use '/', '/menu', '/menu/:id', '/p/:pageSlug', '/sitemap.xml',
+  // '/robots.txt' — none of which shadow '/api/*' or '/uploads/*'.
+  await app.register(siteRendererRoutes)
+
+  // API routes
+  await app.register(venuesRoutes,     { prefix: '/api/venues' })
+  await app.register(schedulesRoutes,  { prefix: '/api/venues' })
+  await app.register(slotsRoutes,      { prefix: '/api/venues' })
+  await app.register(bookingsRoutes,   { prefix: '/api/bookings' })
+  await app.register(customersRoutes,  { prefix: '/api/customers' })
+  await app.register(paymentsRoutes,   { prefix: '/api/payments' })
+  await app.register(websiteRoutes,    { prefix: '/api/website' })
+  await app.register(publicSiteRoutes, { prefix: '/api/site' })
 
   // ── Health check ─────────────────────────────────────────
   app.get('/api/health', async () => ({ ok: true, env: env.NODE_ENV }))

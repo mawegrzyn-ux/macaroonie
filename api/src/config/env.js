@@ -22,6 +22,11 @@ const schema = z.object({
   // Email (SendGrid)
   SENDGRID_API_KEY:      z.string().optional(),
   EMAIL_FROM:            z.string().email().default('noreply@macaroonie.com'),
+
+  // Website CMS — file uploads + subdomain serving
+  UPLOAD_DIR:            z.string().default('/home/ubuntu/app/uploads'),
+  PUBLIC_ROOT_DOMAIN:    z.string().default('macaroonie.com'),
+  PUBLIC_SITE_SCHEME:    z.enum(['http', 'https']).default('https'),
 })
 
 const parsed = schema.safeParse(process.env)

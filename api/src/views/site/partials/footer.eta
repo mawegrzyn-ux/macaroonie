@@ -1,0 +1,54 @@
+<footer class="site-footer">
+  <div class="container">
+    <div class="cols">
+      <div>
+        <div style="font-size:18px; color:white; font-weight:700; margin-bottom:12px;">
+          <%= it.config.site_name || it.tenant_name %>
+        </div>
+        <% if (it.config.tagline) { %>
+          <p style="margin:0 0 14px; max-width:360px; color:#a3a3a3;"><%= it.config.tagline %></p>
+        <% } %>
+        <% const sl = it.config.social_links || {} %>
+        <% const socials = Object.entries(sl).filter(function(e){return e[1]}) %>
+        <% if (socials.length) { %>
+          <div style="display:flex; gap:12px; margin-top:12px;">
+            <% socials.forEach(function(entry){ %>
+              <a href="<%= entry[1] %>" target="_blank" rel="noopener"
+                 style="color:#fff; text-transform:capitalize;"><%= entry[0] %></a>
+            <% }) %>
+          </div>
+        <% } %>
+      </div>
+
+      <div>
+        <% if (it.config.show_find_us) { %>
+          <div style="font-weight:600; color:white; margin-bottom:10px;">Find us</div>
+          <% if (it.config.address_line1) { %>
+            <div><%= it.config.address_line1 %></div>
+            <% if (it.config.address_line2) { %><div><%= it.config.address_line2 %></div><% } %>
+            <div><%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %></div>
+          <% } %>
+        <% } %>
+      </div>
+
+      <div>
+        <% if (it.config.show_contact) { %>
+          <div style="font-weight:600; color:white; margin-bottom:10px;">Contact</div>
+          <% if (it.config.phone) { %>
+            <div><a href="tel:<%= it.config.phone %>"><%= it.config.phone %></a></div>
+          <% } %>
+          <% if (it.config.email) { %>
+            <div><a href="mailto:<%= it.config.email %>"><%= it.config.email %></a></div>
+          <% } %>
+        <% } %>
+      </div>
+    </div>
+
+    <div style="margin-top:32px; padding-top:16px; border-top:1px solid #333; font-size:12px; color:#888;">
+      © <%= new Date().getFullYear() %> <%= it.config.site_name || it.tenant_name %>.
+      Powered by <a href="https://<%= it.rootDomain %>" target="_blank" rel="noopener">Macaroonie</a>.
+    </div>
+  </div>
+</footer>
+</body>
+</html>
