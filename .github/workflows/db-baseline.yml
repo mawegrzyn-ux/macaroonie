@@ -1,0 +1,54 @@
+name: DB — baseline migration tracker
+
+# Manual one-off workflow to mark existing migrations as applied in
+# `schema_migrations` WITHOUT running their SQL. Use this once on a
+# server whose schema was built up via hand-run psql before the
+# automated runner existed.
+#
+# Trigger from the GitHub UI:
+#   Actions → "DB — baseline migration tracker" → Run workflow
+#   (optionally set 'up_to' to an NNN version; defaults to 024)
+
+on:
+  workflow_dispatch:
+    inputs:
+      up_to:
+        description: 'Baseline migrations up to this NNN prefix (blank = all existing files)'
+        required: false
+        default: '024'
+
+jobs:
+  baseline:
+    name: SSH baseline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run baseline on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:        ${{ secrets.SERVER_HOST }}
+          username:    ${{ secrets.SERVER_USER }}
+          key:         ${{ secrets.SSH_PRIVATE_KEY }}
+          script_stop: true
+          envs: UP_TO
+          script: |
+            set -euo pipefail
+            APP=/home/ubuntu/app
+
+            echo "── baseline migration tracker ───────────"
+            cd $APP/api
+            set -a; source .env; set +a
+
+            if [[ -n "${UP_TO}" ]]; then
+              echo "Marking migrations up to ${UP_TO} as applied (no SQL runs)"
+              node scripts/migrate.js --baseline-up-to "${UP_TO}"
+            else
+              echo "Marking ALL existing migrations as applied (no SQL runs)"
+              node scripts/migrate.js --baseline
+            fi
+
+            echo ""
+            echo "── current tracker state ────────────────"
+            node scripts/migrate.js --list
+        env:
+          UP_TO: ${{ inputs.up_to }}
