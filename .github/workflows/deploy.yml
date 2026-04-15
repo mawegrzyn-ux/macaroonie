@@ -22,7 +22,15 @@ jobs:
             APP=/home/ubuntu/app
 
             echo "── pulling latest code ──────────────────"
-            git -C $APP pull origin main
+            # Hard-reset the working tree to origin/main.
+            # Any hand-edits to tracked files on the server are discarded —
+            # this repo is auto-deployed and origin/main is the source of
+            # truth. Untracked files (.env, uploads/, node_modules/, etc)
+            # are preserved. If you genuinely need to pin a local fix, commit
+            # it to the repo so it survives.
+            git -C $APP fetch --prune origin main
+            git -C $APP reset --hard origin/main
+            git -C $APP clean -fd --exclude=.env --exclude=node_modules --exclude=dist --exclude=uploads
 
             echo "── api: install production deps ─────────"
             cd $APP/api && npm install --production --silent
