@@ -38,13 +38,19 @@ jobs:
             echo "── database: run pending migrations ─────"
             # Idempotent — only applies SQL files not yet in schema_migrations.
             # Fails the deploy if any migration errors, before pm2 restart.
-            # One-off baseline for servers that already have the schema:
-            #   cd $APP/api && set -a; source .env; set +a
-            #   node scripts/migrate.js --baseline-up-to 024
+            #
+            # AUTO_BASELINE_UP_TO=024 is a self-healing fallback: on a
+            # server whose schema was built manually via psql before this
+            # runner existed, the FIRST run detects the empty tracker
+            # plus the pre-existing `tenants` table and marks 001–024 as
+            # applied without re-running them. On every subsequent run
+            # the tracker is non-empty so the auto-baseline is a no-op.
+            # Safe to leave in place permanently; remove once the tracker
+            # has ever been populated on all deployed servers.
             (
               cd $APP/api
               set -a; source .env; set +a
-              node scripts/migrate.js
+              AUTO_BASELINE_UP_TO=024 node scripts/migrate.js
             )
 
             echo "── admin: install + build ───────────────"

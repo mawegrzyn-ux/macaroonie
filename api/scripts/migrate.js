@@ -50,6 +50,14 @@ const BASELINE  = argv.includes('--baseline')
 const baselineUpToIdx = argv.indexOf('--baseline-up-to')
 const BASELINE_UP_TO = baselineUpToIdx !== -1 ? argv[baselineUpToIdx + 1] : null
 
+// Auto-baseline: if schema_migrations is EMPTY AND the tenants table
+// already exists (i.e. the DB was built manually via psql before this
+// script existed), mark everything up to AUTO_BASELINE_UP_TO as applied
+// on first run, then proceed to apply anything newer.
+// Set via env var so it can be configured once in the deploy pipeline
+// and remains a no-op on every subsequent run.
+const AUTO_BASELINE_UP_TO = process.env.AUTO_BASELINE_UP_TO || null
+
 const sql = postgres(DATABASE_URL, { max: 1, idle_timeout: 2 })
 
 function log(msg)  { console.log(msg) }
@@ -106,6 +114,35 @@ async function runOne({ version, filename, path: p }) {
   }
 }
 
+async function tenantsTableExists() {
+  const [row] = await sql`
+    SELECT 1 AS present
+      FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'tenants'
+     LIMIT 1
+  `
+  return !!row
+}
+
+async function autoBaselineIfNeeded(files) {
+  if (!AUTO_BASELINE_UP_TO) return
+  const done = await applied()
+  if (done.size > 0) return                    // tracker already populated — nothing to do
+  const hasSchema = await tenantsTableExists()
+  if (!hasSchema) return                       // fresh DB — let normal apply flow run 001+
+
+  const cutoff = AUTO_BASELINE_UP_TO
+  const toMark = files.filter(f => {
+    const vNum = f.version.split('_')[0]
+    return vNum.localeCompare(cutoff) <= 0
+  })
+  for (const f of toMark) {
+    await sql`INSERT INTO schema_migrations (version) VALUES (${f.version})
+              ON CONFLICT (version) DO NOTHING`
+  }
+  ok(`auto-baselined ${toMark.length} migration(s) up to ${cutoff} (schema already present)`)
+}
+
 async function main() {
   log(`migrations dir: ${MIG_DIR}`)
   await ensureTable()
@@ -115,6 +152,9 @@ async function main() {
     warn('No migration files found.')
     return
   }
+
+  // First-run catch-up for servers whose schema pre-dates this runner.
+  await autoBaselineIfNeeded(files)
 
   const done = await applied()
   const pending = files.filter(f => !done.has(f.version))
