@@ -215,12 +215,40 @@ function extFromMime(mime) {
   }
 }
 
-async function ensureConfig(tx, tenantId) {
+async function ensureConfig(tx, tenantId, venueId) {
+  if (venueId) {
+    const [cfg] = await tx`
+      SELECT * FROM website_config
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+    `
+    return cfg ?? null
+  }
   const [cfg] = await tx`
-    SELECT * FROM website_config WHERE tenant_id = ${tenantId}
+    SELECT * FROM website_config WHERE tenant_id = ${tenantId} LIMIT 1
   `
   return cfg ?? null
 }
+
+// Brand defaults schema
+const BrandDefaultsBody = z.object({
+  brand_name:        z.string().max(200).nullable().optional(),
+  logo_url:          z.string().nullable().optional(),
+  favicon_url:       z.string().nullable().optional(),
+  primary_colour:    z.string().regex(HEX_COLOUR).optional(),
+  secondary_colour:  z.string().regex(HEX_COLOUR).nullable().optional(),
+  font_family:       z.string().max(100).optional(),
+  template_key:      z.enum(['classic', 'modern']).optional(),
+  theme:             ThemeSchema.optional(),
+  social_links:      SocialLinksSchema.optional(),
+  og_image_url:      z.string().nullable().optional(),
+  ga4_measurement_id: z.string().max(50).nullable().optional(),
+  fb_pixel_id:        z.string().max(50).nullable().optional(),
+  banner_enabled:    z.boolean().optional(),
+  banner_text:       z.string().max(500).nullable().optional(),
+  banner_link_url:   z.string().max(500).nullable().optional(),
+  banner_link_text:  z.string().max(100).nullable().optional(),
+  banner_severity:   z.enum(['info', 'warn', 'alert']).optional(),
+})
 
 // ── Plugin ───────────────────────────────────────────────────
 
@@ -228,38 +256,62 @@ export default async function websiteRoutes(app) {
 
   app.addHook('preHandler', requireAuth)
 
-  // ── GET /website/config ─────────────────────────────────
+  // ── GET /website/config?venue_id=X ───────────────────────
+  // Returns the venue's website_config, or {} if none exists yet.
+  // Without venue_id returns the first config found (back-compat).
   app.get('/config', async (req) => {
+    const venueId = req.query.venue_id || null
     return withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId)
+      const cfg = await ensureConfig(tx, req.tenantId, venueId)
       return cfg ?? {}
     })
   })
 
-  // ── POST /website/config (create or upsert) ─────────────
+  // ── GET /website/configs ────────────────────────────────
+  // Returns ALL venue websites for this tenant (franchise overview).
+  app.get('/configs', async (req) => {
+    return withTenant(req.tenantId, tx => tx`
+      SELECT wc.*, v.name AS venue_name
+        FROM website_config wc
+        JOIN venues v ON v.id = wc.venue_id
+       WHERE wc.tenant_id = ${req.tenantId}
+       ORDER BY v.name
+    `)
+  })
+
+  // ── POST /website/config (create for a venue) ──────────
   app.post('/config', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = WebsiteConfigBody.parse(req.body)
     if (!body.subdomain_slug) throw httpError(422, 'subdomain_slug is required on create')
+    const venue_id = req.body.venue_id
+    if (!venue_id) throw httpError(422, 'venue_id is required — which venue is this site for?')
 
-    const [cfg] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO website_config (tenant_id, subdomain_slug, site_name, primary_colour)
-      VALUES (${req.tenantId}, ${body.subdomain_slug},
-              ${body.site_name ?? null},
-              ${body.primary_colour ?? '#630812'})
-      ON CONFLICT (tenant_id) DO UPDATE
-        SET subdomain_slug = EXCLUDED.subdomain_slug,
-            updated_at     = now()
-      RETURNING *
-    `)
+    const [cfg] = await withTenant(req.tenantId, async tx => {
+      const [venue] = await tx`
+        SELECT id FROM venues
+         WHERE id = ${venue_id} AND tenant_id = ${req.tenantId} AND is_active = true
+      `
+      if (!venue) throw httpError(404, 'Venue not found')
+
+      return tx`
+        INSERT INTO website_config (tenant_id, venue_id, subdomain_slug, site_name, primary_colour)
+        VALUES (${req.tenantId}, ${venue_id}, ${body.subdomain_slug},
+                ${body.site_name ?? null},
+                ${body.primary_colour ?? '#630812'})
+        ON CONFLICT (venue_id) DO UPDATE
+          SET subdomain_slug = EXCLUDED.subdomain_slug,
+              updated_at     = now()
+        RETURNING *
+      `
+    })
     return reply.code(201).send(cfg)
   })
 
-  // ── PATCH /website/config ───────────────────────────────
+  // ── PATCH /website/config?venue_id=X ─────────────────────
   app.patch('/config', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const venueId = req.query.venue_id || req.body?.venue_id
     const body = WebsiteConfigBody.parse(req.body)
 
-    // Any mutation of custom_domain invalidates the verified flag so the
-    // tenant must re-run DNS verification before the domain goes live.
     if ('custom_domain' in body) {
       body.custom_domain_verified = false
     }
@@ -268,7 +320,7 @@ export default async function websiteRoutes(app) {
     if (!fields.length) throw httpError(400, 'No fields to update')
 
     const [cfg] = await withTenant(req.tenantId, async tx => {
-      const existing = await ensureConfig(tx, req.tenantId)
+      const existing = await ensureConfig(tx, req.tenantId, venueId)
       if (!existing) throw httpError(404, 'Website config not found — POST to create it first')
 
       return tx`
@@ -345,7 +397,7 @@ export default async function websiteRoutes(app) {
   // ── Gallery ─────────────────────────────────────────────
 
   app.get('/gallery', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId)
+    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
       SELECT * FROM website_gallery_images
@@ -357,7 +409,7 @@ export default async function websiteRoutes(app) {
   app.post('/gallery', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = GalleryBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId)
+      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
       if (!cfg) throw httpError(404, 'Website config not found')
       return tx`
         INSERT INTO website_gallery_images
@@ -412,7 +464,7 @@ export default async function websiteRoutes(app) {
   // ── Custom pages ────────────────────────────────────────
 
   app.get('/pages', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId)
+    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
       SELECT * FROM website_pages
@@ -424,7 +476,7 @@ export default async function websiteRoutes(app) {
   app.post('/pages', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = PageBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId)
+      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
       if (!cfg) throw httpError(404, 'Website config not found')
       return tx`
         INSERT INTO website_pages
@@ -465,7 +517,7 @@ export default async function websiteRoutes(app) {
   // ── Menus (PDF documents) ───────────────────────────────
 
   app.get('/menus', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId)
+    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
       SELECT * FROM website_menu_documents
@@ -477,7 +529,7 @@ export default async function websiteRoutes(app) {
   app.post('/menus', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = MenuBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId)
+      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
       if (!cfg) throw httpError(404, 'Website config not found')
       return tx`
         INSERT INTO website_menu_documents
@@ -503,7 +555,7 @@ export default async function websiteRoutes(app) {
   // ── Opening hours (bulk upsert) ─────────────────────────
 
   app.get('/opening-hours', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId)
+    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
       SELECT * FROM website_opening_hours
@@ -515,7 +567,7 @@ export default async function websiteRoutes(app) {
   app.post('/opening-hours', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const rows = z.array(OpeningHourRow).parse(req.body)
     await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId)
+      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
       if (!cfg) throw httpError(404, 'Website config not found')
       await tx`DELETE FROM website_opening_hours WHERE website_config_id = ${cfg.id}`
       if (rows.length) {
@@ -539,7 +591,7 @@ export default async function websiteRoutes(app) {
   // ── Allergen info ───────────────────────────────────────
 
   app.get('/allergens', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId)
+    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return {}
     const [row] = await tx`
       SELECT * FROM website_allergen_info WHERE website_config_id = ${cfg.id}
@@ -550,7 +602,7 @@ export default async function websiteRoutes(app) {
   app.post('/allergens', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const body = AllergenBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId)
+      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
       if (!cfg) throw httpError(404, 'Website config not found')
       return tx`
         INSERT INTO website_allergen_info
@@ -567,6 +619,45 @@ export default async function websiteRoutes(app) {
         RETURNING *
       `
     })
+    return row
+  })
+
+  // ── Brand defaults (franchise-level) ─────────────────────
+
+  app.get('/brand-defaults', async (req) => {
+    return withTenant(req.tenantId, async tx => {
+      const [row] = await tx`
+        SELECT * FROM tenant_brand_defaults
+         WHERE tenant_id = ${req.tenantId}
+      `
+      return row ?? {}
+    })
+  })
+
+  app.post('/brand-defaults', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const body = BrandDefaultsBody.parse(req.body)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO tenant_brand_defaults (tenant_id, brand_name, primary_colour)
+      VALUES (${req.tenantId}, ${body.brand_name ?? null}, ${body.primary_colour ?? '#630812'})
+      ON CONFLICT (tenant_id) DO UPDATE
+        SET brand_name = COALESCE(EXCLUDED.brand_name, tenant_brand_defaults.brand_name),
+            updated_at = now()
+      RETURNING *
+    `)
+    return reply.code(201).send(row)
+  })
+
+  app.patch('/brand-defaults', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = BrandDefaultsBody.parse(req.body)
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE tenant_brand_defaults
+         SET ${tx(body, ...fields)}, updated_at = now()
+       WHERE tenant_id = ${req.tenantId}
+      RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Brand defaults not found — POST to create them first')
     return row
   })
 

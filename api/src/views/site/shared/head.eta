@@ -231,3 +231,32 @@ const gfUrl = fontsToLoad.length
   <% } %>
 </head>
 <body>
+<% /* Emergency banner — set at the franchise / tenant level, applies to
+      all venue sites.  brand.banner_enabled must be true. */ %>
+<% const _banner = it.brand || {} %>
+<% if (_banner.banner_enabled && _banner.banner_text) { %>
+  <%
+    const bgMap  = { info: '#eef6ff', warn: '#fff7ed', alert: '#fef2f2' }
+    const txtMap = { info: '#1e40af', warn: '#9a3412', alert: '#991b1b' }
+    const bdMap  = { info: '#bfdbfe', warn: '#fdba74', alert: '#fecaca' }
+    const sev = _banner.banner_severity || 'info'
+  %>
+  <div style="
+    background: <%= bgMap[sev] || bgMap.info %>;
+    color: <%= txtMap[sev] || txtMap.info %>;
+    border-bottom: 1px solid <%= bdMap[sev] || bdMap.info %>;
+    padding: 10px 24px;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: var(--f-body);
+  ">
+    <span><%= _banner.banner_text %></span>
+    <% if (_banner.banner_link_url) { %>
+      <a href="<%= _banner.banner_link_url %>"
+         style="margin-left: 12px; color: inherit; text-decoration: underline; font-weight: 700;">
+        <%= _banner.banner_link_text || 'Learn more' %>
+      </a>
+    <% } %>
+  </div>
+<% } %>
