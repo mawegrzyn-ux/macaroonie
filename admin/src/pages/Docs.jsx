@@ -13,6 +13,7 @@ const SECTIONS = [
   { id: 'database',     label: 'Database Schema' },
   { id: 'api',          label: 'API Reference' },
   { id: 'customers',    label: 'Customers & GDPR' },
+  { id: 'website-cms',  label: 'Website CMS' },
   { id: 'services',     label: 'Services & Jobs' },
   { id: 'data-flows',   label: 'Data Flows' },
   { id: 'deployment',   label: 'Deployment' },
@@ -582,6 +583,184 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             />
           </section>
 
+          {/* ── WEBSITE CMS ───────────────────────────────── */}
+          <section id="website-cms" data-doc="">
+            <H2>Website CMS</H2>
+            <P>
+              Multi-tenant website builder. Each tenant gets a branded public site served
+              server-side by the Fastify API at <Mono>{'{slug}.macaroonie.com'}</Mono> or a
+              verified custom domain. All content is tenant-scoped via the existing RLS model.
+            </P>
+
+            <H3>Database schema</H3>
+            <P>Six tables introduced across migrations 025 + 026. All RLS-enabled:</P>
+            <DataTable
+              head={['Table', 'Purpose']}
+              rows={[
+                ['website_config',         'Singleton per tenant (UNIQUE tenant_id). 60+ columns covering identity, branding, hero, about, find-us, contact, social, ordering, delivery, SEO, analytics, feature toggles, + custom_domain, custom_domain_verified, template_key, theme (JSONB).'],
+                ['website_opening_hours',  '7-day grid with multiple sessions per day (day_of_week, opens_at, closes_at, is_closed, label, sort_order).'],
+                ['website_gallery_images', 'Ordered gallery images (image_url, caption, sort_order).'],
+                ['website_pages',          'Custom CMS pages — UNIQUE (website_config_id, slug). Content is free HTML.'],
+                ['website_menu_documents', 'PDF menu uploads with labels.'],
+                ['website_allergen_info',  'Singleton per config; info_type = document | structured. Structured data is a JSONB array of {dish, allergens[], notes}.'],
+              ]}
+            />
+            <InfoBox type="info">
+              The subdomain slug is a <strong>global</strong> namespace (UNIQUE on
+              website_config.subdomain_slug). Separate from tenants.slug (Auth0 lookup).
+              Use <Mono>GET /api/website/slug-available?slug=...</Mono> before POSTing.
+            </InfoBox>
+
+            <H3>Theme JSONB shape</H3>
+            <P>
+              <Mono>website_config.theme</Mono> stores per-tenant styling. Any missing key
+              falls back to defaults hard-coded in <Mono>views/site/shared/head.eta</Mono>.
+            </P>
+            <Code>{`{
+  "colors":     { primary, accent, background, surface, text, muted, border },
+  "typography": { heading_font, body_font, base_size_px, heading_scale,
+                  heading_weight, body_weight, line_height, letter_spacing },
+  "spacing":    { container_max_px, section_y_px, section_y_mobile_px, gap_px },
+  "radii":      { sm_px, md_px, lg_px },
+  "logo":       { height_px, show_name_beside },
+  "buttons":    { radius_px, padding_y_px, padding_x_px, weight },
+  "hero":       { overlay_opacity, min_height_px }
+}`}</Code>
+            <InfoBox type="warn">
+              PATCH semantics are <strong>column overwrite</strong>, not deep-merge.
+              The admin's ThemeSection holds the FULL merged theme in local state and PATCHes
+              the whole object. Never PATCH a partial theme — missing keys become null.
+            </InfoBox>
+
+            <H3>API routes</H3>
+            <DataTable
+              head={['Method + Path', 'Auth', 'Purpose']}
+              rows={[
+                ['GET /api/website/config',             'auth',  'Fetch singleton config for the current tenant. Returns {} when no row exists yet.'],
+                ['POST /api/website/config',            'admin', 'Create config row (first-time setup). Requires subdomain_slug.'],
+                ['PATCH /api/website/config',           'admin', 'Partial update. Mutating custom_domain clears custom_domain_verified.'],
+                ['GET /api/website/slug-available',     'auth',  'Global uniqueness check across ALL tenants. Does NOT use withTenant().'],
+                ['POST /api/website/verify-domain',     'admin', 'DNS-resolves custom_domain, matches A records to APP_PUBLIC_IPS and/or CNAME suffix to PUBLIC_ROOT_DOMAIN. Updates the verified flag.'],
+                ['GET/POST/PATCH/DELETE /api/website/gallery',    'auth/admin', 'Gallery CRUD + /gallery/reorder.'],
+                ['GET/POST/PATCH/DELETE /api/website/pages',      'auth/admin', 'Custom pages CRUD.'],
+                ['GET/POST/DELETE /api/website/menus',            'auth/admin', 'PDF menu docs CRUD.'],
+                ['GET/POST /api/website/opening-hours',           'auth/admin', 'Bulk upsert (POST replaces the whole set).'],
+                ['GET/POST /api/website/allergens',                'auth/admin', 'Upsert allergen info (document or structured).'],
+                ['POST /api/website/upload',            'admin', 'multipart/form-data. Fields: file, kind (images | menus | docs). Delegates to storageSvc.'],
+                ['GET /api/site/:slug',                 'public', 'Full site bundle (JSON). 404 when not published. Short cache headers.'],
+                ['GET /api/site/:slug/sitemap.xml',     'public', 'Dynamic sitemap.'],
+                ['GET /api/site/:slug/robots.txt',      'public', 'robots.txt pointing at the sitemap.'],
+              ]}
+            />
+
+            <H3>SSR renderer &amp; templates</H3>
+            <P>
+              <Mono>src/routes/siteRenderer.js</Mono> activates on requests whose Host header
+              matches <em>either</em> <Mono>{'{slug}.{PUBLIC_ROOT_DOMAIN}'}</Mono> with a
+              non-reserved slug, <em>or</em> a verified <Mono>custom_domain</Mono>. Everything
+              else falls through to <Mono>/api/*</Mono>.
+            </P>
+            <Code>{`// host resolution
+resolveSiteHost(host) → { slug, customDomain } | null
+
+// reserved subdomains bypass the renderer entirely
+www, api, admin, app, mail, static, assets, cdn, ws,
+stripe, webhook, webhooks
+
+// routes (relative to the matched host)
+GET /                  → site/templates/{template_key}/index.eta
+GET /menu              → templates/{key}/menu.eta   (list)
+GET /menu/:id          → templates/{key}/menu.eta   (active PDF)
+GET /p/:pageSlug       → templates/{key}/page.eta
+GET /sitemap.xml
+GET /robots.txt`}</Code>
+
+            <H3>Template &amp; theme structure</H3>
+            <Code>{`api/src/views/site/
+├── shared/
+│   └── head.eta            ← converts theme JSONB → CSS vars
+├── not-found.eta            ← 404 for missing / unpublished sites
+└── templates/
+    ├── classic/             ← warm, traditional layout
+    │   ├── index.eta  menu.eta  page.eta
+    │   └── partials/{header,footer}.eta
+    └── modern/              ← full-bleed editorial layout
+        ├── index.eta  menu.eta  page.eta
+        └── partials/{header,footer}.eta`}</Code>
+            <P>
+              Both templates consume the same CSS custom properties
+              (<Mono>--c-*</Mono> colours, <Mono>--f-*</Mono> fonts, <Mono>--r-*</Mono> radii,
+              etc.) emitted by <Mono>shared/head.eta</Mono>. A theme change applies regardless
+              of which template the tenant picks.
+            </P>
+            <InfoBox type="tip">
+              To add a new theme knob: update <Mono>ThemeSchema</Mono> in
+              <Mono>routes/website.js</Mono>, the <Mono>DEFAULT_THEME</Mono> constant in
+              <Mono>admin/src/pages/Website.jsx</Mono>, and the CSS-variable block in
+              <Mono>shared/head.eta</Mono> together.
+            </InfoBox>
+
+            <H3>Pluggable storage</H3>
+            <P>
+              <Mono>src/services/storageSvc.js</Mono> exposes a single{' '}
+              <Mono>getStorage().put(tenantId, kind, ext, mimetype, buffer)</Mono> contract.
+              Driver is selected via <Mono>STORAGE_DRIVER</Mono> env var.
+            </P>
+            <DataTable
+              head={['Driver', 'Behaviour', 'Env vars']}
+              rows={[
+                ['local (default)', 'Writes to UPLOAD_DIR. Served at /uploads/* by @fastify/static.', 'UPLOAD_DIR'],
+                ['s3',              'Writes to any S3-compatible bucket. Lazy-imports @aws-sdk/client-s3 (optionalDependencies).', 'S3_BUCKET, S3_REGION, S3_ENDPOINT (opt., DO Spaces / R2), S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_PUBLIC_URL_BASE, S3_FORCE_PATH_STYLE'],
+              ]}
+            />
+            <InfoBox type="warn">
+              Switching driver mid-flight <strong>orphans existing upload URLs</strong>.
+              Migrate files between backends first if needed.
+            </InfoBox>
+
+            <H3>Admin page</H3>
+            <P>
+              <Mono>admin/src/pages/Website.jsx</Mono> at the <Mono>/website</Mono> route.
+              Left-rail nav with 18 sections. First-time tenants see an onboarding card that
+              POSTs a subdomain slug to create the config row.
+            </P>
+            <P>Shared primitives in the same file:</P>
+            <ul className="list-disc ml-5 space-y-1 text-sm text-muted-foreground mb-4">
+              <li><Mono>SectionCard</Mono>, <Mono>FormRow</Mono>, <Mono>Toggle</Mono>, <Mono>SaveBar</Mono> — layout</li>
+              <li><Mono>FileUpload</Mono>, <Mono>ImageField</Mono> — wrap <Mono>api.upload()</Mono></li>
+              <li><Mono>useConfigFields(config, fields)</Mono> — hook used by simple sections to stage edits and PATCH a subset of config fields on save</li>
+              <li>
+                Gallery uses <Mono>@dnd-kit/sortable</Mono> (new dep). Touch-drag requires a
+                200ms delay to avoid conflict with page scroll.
+              </li>
+            </ul>
+
+            <H3>Custom domain lifecycle</H3>
+            <Code>{`1. Tenant sets website_config.custom_domain via PATCH
+   → custom_domain_verified auto-set to false by the server.
+2. Tenant configures DNS:
+     CNAME @ → macaroonie.com     (preferred)
+     OR
+     A     @ → <APP_PUBLIC_IP>    (requires APP_PUBLIC_IPS env set)
+3. Tenant clicks "Verify DNS" in admin
+   → POST /api/website/verify-domain
+   → Node resolves A + CNAME records, compares to expected values.
+   → On match, sets custom_domain_verified = true.
+4. Out-of-band: SSL cert provisioned (Nginx + certbot,
+   Caddy on-demand TLS, etc). The app does NOT provision certs.
+5. Site is now reachable at the custom domain. siteRenderer
+   matches the Host header to website_config.custom_domain.`}</Code>
+
+            <H3>Deployment follow-ups</H3>
+            <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
+              <li>Nginx: wildcard server block for <Mono>*.macaroonie.com</Mono> proxying to the API.</li>
+              <li>DNS: wildcard A record for <Mono>*.macaroonie.com</Mono> → app IP.</li>
+              <li>SSL: wildcard cert via Certbot DNS-01 (requires DNS at Cloudflare/Route53/etc).</li>
+              <li>Migrations 025 + 026 are auto-applied by the deploy workflow — see the Deployment section below.</li>
+              <li>Set <Mono>APP_PUBLIC_IPS=1.2.3.4,5.6.7.8</Mono> env var for the verify-domain endpoint to accept A-record matches.</li>
+            </ul>
+          </section>
+
           {/* ── SERVICES ──────────────────────────────────── */}
           <section id="services" data-doc="">
             <H2>Services &amp; Jobs</H2>
@@ -868,18 +1047,53 @@ npm install && npm run dev        # :5173, proxies /api → :3000`}</Code>
               <Mono>git push</Mono> from the local laptop — the Actions workflow builds and restarts the
               API and admin portal automatically.
             </P>
-            <InfoBox type="warn">
-              Migrations are <strong>not</strong> run by the Actions workflow. Apply new migrations
-              manually via SSH:{' '}
-              <Mono>\i /home/ubuntu/app/migrations/NNN_name.sql</Mono> in psql.
+            <InfoBox type="tip">
+              Migrations are <strong>applied automatically</strong> by the deploy workflow
+              via <Mono>api/scripts/migrate.js</Mono>. The runner tracks applied files in a
+              <Mono>schema_migrations</Mono> table and only applies new ones — each in its
+              own transaction. A failing migration aborts the deploy before the API restarts.
             </InfoBox>
-            <Code>{`# First-time server setup only
-bash setup.sh    # provisions Ubuntu 24.04: Node, Redis, Postgres, Nginx, PM2
+            <H3>Migration runner</H3>
+            <P>
+              <Mono>api/scripts/migrate.js</Mono> is idempotent. Flags:
+            </P>
+            <DataTable
+              head={['Flag / env', 'Effect']}
+              rows={[
+                ['--list',                  'Print applied/pending status for every file. No writes.'],
+                ['--baseline',              'Mark ALL existing migration files as applied without running any SQL. Use once on a server whose schema was built manually.'],
+                ['--baseline-up-to NNN',    'Same, but only mark files up to and including NNN.'],
+                ['AUTO_BASELINE_UP_TO=NNN', 'Env var. On first run only (schema_migrations empty) AND with a pre-existing "tenants" table, auto-baseline up to NNN. No-op on every subsequent run. The deploy workflow sets this to 024 as a safety net for existing Lightsail deployments.'],
+              ]}
+            />
+            <H3>Typical deployment flow</H3>
+            <Code>{`# From the developer's laptop:
+git push origin main
+# The GitHub Actions workflow then:
+#   1. SSH to Lightsail
+#   2. git fetch + hard reset to origin/main
+#   3. npm install (api)
+#   4. node scripts/migrate.js   (auto-baselines then applies pending)
+#   5. npm install + build (admin)
+#   6. pm2 restart macaroonie-api
+#   7. health check on /api/health`}</Code>
+            <H3>First-time baselining</H3>
+            <P>
+              On a server whose schema was built with hand-run <Mono>psql</Mono> before the
+              runner existed, the auto-baseline env var handles this transparently — the first
+              deploy populates <Mono>schema_migrations</Mono> with 001–024 and then applies 025
+              onwards. You can also trigger this explicitly from the Actions UI:
+            </P>
+            <Code>{`# Option 1 — auto on next deploy (already wired in deploy.yml)
+#   AUTO_BASELINE_UP_TO=024 is set by the workflow; nothing to do.
 
-# Apply a new migration (SSH to server)
-psql $DATABASE_URL
-\\i /home/ubuntu/app/migrations/022_slot_inclusive_last_order.sql
-\\i /home/ubuntu/app/migrations/023_sitting_names.sql`}</Code>
+# Option 2 — manual (GitHub Actions UI)
+#   Actions → "DB — baseline migration tracker" → Run workflow
+#   up_to = 024 (default)
+
+# Option 3 — via SSH
+cd /home/ubuntu/app/api && set -a; source .env; set +a
+node scripts/migrate.js --baseline-up-to 024`}</Code>
           </section>
 
         </div>
