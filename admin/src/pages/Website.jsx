@@ -27,12 +27,19 @@ import { CSS } from '@dnd-kit/utilities'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-// ── Section list (drives the left rail) ─────────────────────
+// ── Section lists ────────────────────────────────────────────
 
-const SECTIONS = [
+const BRAND_SECTIONS = [
+  { key: 'brand-identity', label: 'Brand identity',    icon: Globe },
+  { key: 'brand-theme',    label: 'Brand theme',       icon: Palette },
+  { key: 'brand-analytics',label: 'Brand analytics',   icon: BarChart3 },
+  { key: 'brand-banner',   label: 'Emergency banner',  icon: AlertTriangle },
+]
+
+const VENUE_SECTIONS = [
   { key: 'setup',     label: 'Setup & domain', icon: Globe },
   { key: 'template',  label: 'Template',       icon: LayoutTemplate },
-  { key: 'theme',     label: 'Theme',          icon: Palette },
+  { key: 'theme',     label: 'Theme overrides',icon: Palette },
   { key: 'branding',  label: 'Branding',       icon: ImageIcon },
   { key: 'hero',      label: 'Hero',           icon: ImageIcon },
   { key: 'about',     label: 'About',          icon: FileText },
@@ -219,15 +226,19 @@ function ImageField({ url, kind = 'images', onChange, hint }) {
 
 // ── Onboarding (no website_config row yet) ──────────────────
 
-function OnboardingCard({ onCreated }) {
+function OnboardingCard({ venueId, venueName, onCreated }) {
   const api = useApi()
   const qc  = useQueryClient()
   const [slug, setSlug] = useState('')
   const [error, setError] = useState(null)
 
   const create = useMutation({
-    mutationFn: (subdomain_slug) => api.post('/website/config', { subdomain_slug }),
-    onSuccess: (cfg) => { qc.setQueryData(['website-config'], cfg); onCreated?.(cfg) },
+    mutationFn: (subdomain_slug) => api.post('/website/config', { subdomain_slug, venue_id: venueId }),
+    onSuccess: (cfg) => {
+      qc.invalidateQueries({ queryKey: ['website-config', venueId] })
+      qc.invalidateQueries({ queryKey: ['website-configs'] })
+      onCreated?.(cfg)
+    },
     onError: (e) => setError(e?.body?.error || e.message || 'Create failed'),
   })
 
@@ -243,9 +254,11 @@ function OnboardingCard({ onCreated }) {
   return (
     <div className="max-w-xl mx-auto mt-12">
       <div className="border rounded-xl bg-background p-8">
-        <h2 className="text-lg font-semibold mb-1">Set up your website</h2>
+        <h2 className="text-lg font-semibold mb-1">
+          Create website for {venueName || 'this venue'}
+        </h2>
         <p className="text-sm text-muted-foreground mb-6">
-          Pick a subdomain to host your site. You can connect a custom domain later.
+          Pick a subdomain to host this venue's site. You can connect a custom domain later.
         </p>
         <FormRow label="Subdomain" hint="Will be available at {slug}.macaroonie.com">
           <div className="flex items-stretch gap-2">
@@ -1963,111 +1976,449 @@ function PagesSection() {
   )
 }
 
+// ── Brand defaults sections ─────────────────────────────────
+
+function BrandIdentitySection() {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: brand = {} } = useQuery({
+    queryKey: ['brand-defaults'],
+    queryFn:  () => api.get('/website/brand-defaults'),
+  })
+  const hasBrand = !!brand?.id
+  const initial = useMemo(() => ({
+    brand_name:       brand.brand_name ?? '',
+    logo_url:         brand.logo_url ?? '',
+    favicon_url:      brand.favicon_url ?? '',
+    primary_colour:   brand.primary_colour ?? '#630812',
+    secondary_colour: brand.secondary_colour ?? '',
+    font_family:      brand.font_family ?? 'Inter',
+    template_key:     brand.template_key ?? 'classic',
+    og_image_url:     brand.og_image_url ?? '',
+  }), [brand])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body = {}
+      for (const [k, v] of Object.entries(state)) body[k] = v === '' ? null : v
+      return hasBrand ? api.patch('/website/brand-defaults', body)
+                      : api.post('/website/brand-defaults', body)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['brand-defaults'] }),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Brand identity"
+        description="These values cascade to every venue website. Venues can override per-location if needed.">
+        <FormRow label="Brand name" hint="Franchise name shown across all venue sites.">
+          <TextInput value={state.brand_name} onChange={e => setState(s => ({ ...s, brand_name: e.target.value }))} />
+        </FormRow>
+        <FormRow label="Logo"><ImageField url={state.logo_url} onChange={v => setState(s => ({ ...s, logo_url: v || '' }))} /></FormRow>
+        <FormRow label="Favicon"><ImageField url={state.favicon_url} onChange={v => setState(s => ({ ...s, favicon_url: v || '' }))} /></FormRow>
+        <FormRow label="Primary colour">
+          <div className="flex items-center gap-3">
+            <input type="color" value={state.primary_colour}
+              onChange={e => setState(s => ({ ...s, primary_colour: e.target.value }))}
+              className="w-12 h-10 border rounded cursor-pointer" />
+            <TextInput value={state.primary_colour} className="w-28 font-mono text-xs uppercase"
+              onChange={e => setState(s => ({ ...s, primary_colour: e.target.value }))} />
+          </div>
+        </FormRow>
+        <FormRow label="Default font">
+          <select value={state.font_family}
+            onChange={e => setState(s => ({ ...s, font_family: e.target.value }))}
+            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
+            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </FormRow>
+        <FormRow label="Default template">
+          <select value={state.template_key}
+            onChange={e => setState(s => ({ ...s, template_key: e.target.value }))}
+            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
+            <option value="classic">Classic</option>
+            <option value="modern">Modern</option>
+          </select>
+        </FormRow>
+        <FormRow label="Social preview image (OG)">
+          <ImageField url={state.og_image_url} onChange={v => setState(s => ({ ...s, og_image_url: v || '' }))} />
+        </FormRow>
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+function BrandThemeSection() {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: brand = {} } = useQuery({
+    queryKey: ['brand-defaults'],
+    queryFn:  () => api.get('/website/brand-defaults'),
+  })
+  const hasBrand = !!brand?.id
+  const [theme, setTheme] = useState(() => mergeTheme(brand.theme))
+  const baseline = useMemo(() => mergeTheme(brand.theme), [brand.theme])
+  useEffect(() => setTheme(mergeTheme(brand.theme)), [brand.theme])
+  const dirty = JSON.stringify(theme) !== JSON.stringify(baseline)
+
+  const save = useMutation({
+    mutationFn: () => {
+      return hasBrand ? api.patch('/website/brand-defaults', { theme })
+                      : api.post('/website/brand-defaults', { theme })
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['brand-defaults'] }),
+  })
+
+  function setPath(section, key, value) {
+    setTheme(t => ({ ...t, [section]: { ...t[section], [key]: value } }))
+  }
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Brand theme"
+        description="Default theme for all venue sites. Individual venues can override specific values in their Theme overrides section.">
+        <ColourField label="Primary" value={theme.colors.primary} onChange={v => setPath('colors', 'primary', v)} />
+        <ColourField label="Accent" value={theme.colors.accent} onChange={v => setPath('colors', 'accent', v)} />
+        <ColourField label="Background" value={theme.colors.background} onChange={v => setPath('colors', 'background', v)} />
+        <ColourField label="Surface" value={theme.colors.surface} onChange={v => setPath('colors', 'surface', v)} />
+        <ColourField label="Text" value={theme.colors.text} onChange={v => setPath('colors', 'text', v)} />
+        <ColourField label="Muted" value={theme.colors.muted} onChange={v => setPath('colors', 'muted', v)} />
+        <ColourField label="Border" value={theme.colors.border} onChange={v => setPath('colors', 'border', v)} />
+      </SectionCard>
+      <SectionCard title="Typography">
+        <FormRow label="Heading font">
+          <select value={theme.typography.heading_font}
+            onChange={e => setPath('typography', 'heading_font', e.target.value)}
+            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
+            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </FormRow>
+        <FormRow label="Body font">
+          <select value={theme.typography.body_font}
+            onChange={e => setPath('typography', 'body_font', e.target.value)}
+            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
+            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+        </FormRow>
+        <SliderField label="Base font size" unit="px" min={12} max={22} value={theme.typography.base_size_px} onChange={v => setPath('typography', 'base_size_px', v)} />
+        <SliderField label="Heading scale" unit="x" min={1.0} max={1.8} step={0.05} value={theme.typography.heading_scale} onChange={v => setPath('typography', 'heading_scale', v)} />
+      </SectionCard>
+      <div className="flex items-center justify-between pt-2 border-t">
+        <button type="button" onClick={() => setTheme(structuredClone(DEFAULT_THEME))}
+          className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5">Reset to defaults</button>
+        <button type="button" onClick={() => save.mutate()} disabled={!dirty || save.isPending}
+          className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50">
+          {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Save brand theme
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function BrandAnalyticsSection() {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: brand = {} } = useQuery({
+    queryKey: ['brand-defaults'],
+    queryFn:  () => api.get('/website/brand-defaults'),
+  })
+  const hasBrand = !!brand?.id
+  const initial = useMemo(() => ({
+    ga4_measurement_id: brand.ga4_measurement_id ?? '',
+    fb_pixel_id:        brand.fb_pixel_id ?? '',
+    social_links:       brand.social_links ?? {},
+  }), [brand])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+  const save = useMutation({
+    mutationFn: () => {
+      const body = { ...state }
+      if (!body.ga4_measurement_id) body.ga4_measurement_id = null
+      if (!body.fb_pixel_id)        body.fb_pixel_id = null
+      return hasBrand ? api.patch('/website/brand-defaults', body)
+                      : api.post('/website/brand-defaults', body)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['brand-defaults'] }),
+  })
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Brand-wide analytics"
+        description="Applied to every venue site by default. Venues can override with their own IDs.">
+        <FormRow label="GA4 measurement ID"><TextInput value={state.ga4_measurement_id} onChange={e => setState(s => ({ ...s, ga4_measurement_id: e.target.value }))} placeholder="G-XXXXXXXXXX" /></FormRow>
+        <FormRow label="Meta Pixel ID"><TextInput value={state.fb_pixel_id} onChange={e => setState(s => ({ ...s, fb_pixel_id: e.target.value }))} placeholder="1234567890" /></FormRow>
+      </SectionCard>
+      <SectionCard title="Brand social links"
+        description="Default socials. Venues override with their own if set.">
+        {SOCIAL_PLATFORMS.map(p => (
+          <FormRow key={p.key} label={p.label}>
+            <TextInput type="url" placeholder={p.placeholder}
+              value={(state.social_links || {})[p.key] || ''}
+              onChange={e => setState(s => ({
+                ...s,
+                social_links: { ...s.social_links, [p.key]: e.target.value },
+              }))} />
+          </FormRow>
+        ))}
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+function BrandBannerSection() {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: brand = {} } = useQuery({
+    queryKey: ['brand-defaults'],
+    queryFn:  () => api.get('/website/brand-defaults'),
+  })
+  const hasBrand = !!brand?.id
+  const initial = useMemo(() => ({
+    banner_enabled:   !!brand.banner_enabled,
+    banner_text:      brand.banner_text ?? '',
+    banner_link_url:  brand.banner_link_url ?? '',
+    banner_link_text: brand.banner_link_text ?? '',
+    banner_severity:  brand.banner_severity ?? 'info',
+  }), [brand])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+  const save = useMutation({
+    mutationFn: () => {
+      const body = { ...state }
+      if (!body.banner_text) body.banner_text = null
+      if (!body.banner_link_url) body.banner_link_url = null
+      if (!body.banner_link_text) body.banner_link_text = null
+      return hasBrand ? api.patch('/website/brand-defaults', body)
+                      : api.post('/website/brand-defaults', body)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['brand-defaults'] }),
+  })
+  const SEV_COLOURS = { info: 'bg-blue-100 text-blue-800', warn: 'bg-amber-100 text-amber-800', alert: 'bg-red-100 text-red-800' }
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Emergency banner"
+        description="A banner strip at the top of every venue website. Turns on/off instantly across all venues.">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Banner enabled</p>
+            <p className="text-xs text-muted-foreground">When on, all venue sites show this banner at the very top.</p>
+          </div>
+          <Toggle value={state.banner_enabled}
+            onChange={v => setState(s => ({ ...s, banner_enabled: v }))}
+            label="Banner" />
+        </div>
+        {state.banner_enabled && (<>
+          <FormRow label="Message"><TextInput value={state.banner_text} onChange={e => setState(s => ({ ...s, banner_text: e.target.value }))} placeholder="e.g. All locations closed Dec 25" /></FormRow>
+          <FormRow label="Severity">
+            <div className="flex gap-2">
+              {['info', 'warn', 'alert'].map(s => (
+                <button key={s} type="button"
+                  onClick={() => setState(st => ({ ...st, banner_severity: s }))}
+                  className={cn('px-3 py-1.5 rounded-md text-xs font-medium capitalize',
+                    state.banner_severity === s ? SEV_COLOURS[s] : 'bg-muted text-muted-foreground')}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </FormRow>
+          <FormRow label="Link URL (optional)"><TextInput value={state.banner_link_url} onChange={e => setState(s => ({ ...s, banner_link_url: e.target.value }))} placeholder="https://..." /></FormRow>
+          <FormRow label="Link text"><TextInput value={state.banner_link_text} onChange={e => setState(s => ({ ...s, banner_link_text: e.target.value }))} placeholder="Learn more" /></FormRow>
+        </>)}
+      </SectionCard>
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
 // ── Page shell + section router ─────────────────────────────
 
 export default function Website() {
   const api = useApi()
   const qc  = useQueryClient()
   const [active, setActive] = useState('setup')
+  const [mode, setMode] = useState('venue')    // 'venue' | 'brand'
+  const [venueId, setVenueId] = useState(null)
+
+  const { data: venues = [] } = useQuery({
+    queryKey: ['venues'],
+    queryFn:  () => api.get('/venues'),
+  })
+
+  const { data: allConfigs = [] } = useQuery({
+    queryKey: ['website-configs'],
+    queryFn:  () => api.get('/website/configs'),
+  })
+
+  // Pick the first venue with a site, or the first venue overall
+  useEffect(() => {
+    if (venueId) return
+    if (allConfigs.length) setVenueId(allConfigs[0].venue_id)
+    else if (venues.length) setVenueId(venues[0].id)
+  }, [venues, allConfigs, venueId])
 
   const { data: config, isLoading } = useQuery({
-    queryKey: ['website-config'],
-    queryFn:  () => api.get('/website/config'),
+    queryKey: ['website-config', venueId],
+    queryFn:  () => api.get(`/website/config?venue_id=${venueId}`),
+    enabled:  !!venueId && mode === 'venue',
   })
 
   const hasConfig = !!config?.id
 
-  if (isLoading) {
+  if (!venues.length) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+        No venues found. Create a venue first.
       </div>
     )
   }
 
-  if (!hasConfig) {
-    return (
-      <div className="h-full overflow-y-auto p-6">
-        <div className="mb-6">
-          <h1 className="text-xl font-semibold">Website</h1>
-          <p className="text-sm text-muted-foreground">
-            Build a public website for your restaurant — bookings, menus, contact and more.
-          </p>
-        </div>
-        <OnboardingCard onCreated={() => setActive('setup')} />
-      </div>
-    )
-  }
+  const currentVenue = venues.find(v => v.id === venueId)
+
+  // Left rail sections depend on mode
+  const sections = mode === 'brand' ? BRAND_SECTIONS : VENUE_SECTIONS
+  const sectionLabel = sections.find(s => s.key === active)?.label
 
   return (
     <div className="flex h-full overflow-hidden">
       {/* Left rail */}
       <aside className="w-56 shrink-0 border-r overflow-y-auto py-4 px-2">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-2">
-          Sections
-        </p>
-        <nav className="space-y-0.5">
-          {SECTIONS.map(s => {
-            const Icon = s.icon
-            return (
-              <button
-                key={s.key}
-                onClick={() => setActive(s.key)}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
-                  active === s.key
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                {s.label}
-              </button>
-            )
-          })}
-        </nav>
+        {/* Mode toggle: Brand vs Venue */}
+        <div className="px-2 mb-3 space-y-1">
+          <button onClick={() => { setMode('brand'); setActive('brand-identity') }}
+            className={cn('w-full text-left px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wide',
+              mode === 'brand' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent')}>
+            Brand defaults
+          </button>
+
+          <div className="pt-1">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
+              Venue site
+            </p>
+            <select
+              value={venueId ?? ''}
+              onChange={e => { setVenueId(e.target.value); setMode('venue'); setActive('setup') }}
+              className="w-full border rounded-md px-2 py-1.5 text-sm bg-background min-h-[36px]">
+              {venues.map(v => {
+                const hasWebsite = allConfigs.some(c => c.venue_id === v.id)
+                return <option key={v.id} value={v.id}>{v.name}{hasWebsite ? '' : ' (no site)'}</option>
+              })}
+            </select>
+          </div>
+        </div>
+
+        {mode === 'venue' && (
+          <nav className="space-y-0.5 px-1">
+            {sections.map(s => {
+              const Icon = s.icon
+              return (
+                <button key={s.key} onClick={() => setActive(s.key)}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
+                    active === s.key
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {s.label}
+                </button>
+              )
+            })}
+          </nav>
+        )}
+        {mode === 'brand' && (
+          <nav className="space-y-0.5 px-1">
+            {sections.map(s => {
+              const Icon = s.icon
+              return (
+                <button key={s.key} onClick={() => setActive(s.key)}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
+                    active === s.key
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {s.label}
+                </button>
+              )
+            })}
+          </nav>
+        )}
       </aside>
 
       {/* Main panel */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-6">
-          <div className="mb-6 flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-xl font-semibold">
-                {SECTIONS.find(s => s.key === active)?.label}
-              </h1>
-              {config.subdomain_slug && (
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  {config.is_published ? (
-                    <span className="inline-flex items-center gap-1 text-emerald-600">
-                      <Eye className="w-3.5 h-3.5"/> Live
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-muted-foreground">
-                      <EyeOff className="w-3.5 h-3.5"/> Unpublished
-                    </span>
-                  )}
-                  <span className="mx-2">·</span>
-                  <a href={`https://${config.subdomain_slug}.macaroonie.com`}
-                     target="_blank" rel="noopener"
-                     className="text-primary hover:underline inline-flex items-center gap-1">
-                    {config.subdomain_slug}.macaroonie.com
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </p>
-              )}
-            </div>
+          <div className="mb-6">
+            {mode === 'brand' ? (
+              <h1 className="text-xl font-semibold">{sectionLabel}</h1>
+            ) : (
+              <>
+                <h1 className="text-xl font-semibold">
+                  {currentVenue?.name} — {sectionLabel}
+                </h1>
+                {hasConfig && config.subdomain_slug && (
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    {config.is_published ? (
+                      <span className="inline-flex items-center gap-1 text-emerald-600">
+                        <Eye className="w-3.5 h-3.5"/> Live
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-muted-foreground">
+                        <EyeOff className="w-3.5 h-3.5"/> Unpublished
+                      </span>
+                    )}
+                    <span className="mx-2">·</span>
+                    <a href={`https://${config.subdomain_slug}.macaroonie.com`}
+                       target="_blank" rel="noopener"
+                       className="text-primary hover:underline inline-flex items-center gap-1">
+                      {config.subdomain_slug}.macaroonie.com
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </p>
+                )}
+              </>
+            )}
           </div>
 
-          <ActiveSection active={active} config={config} />
+          {mode === 'brand' ? (
+            <BrandActiveSection active={active} />
+          ) : !hasConfig ? (
+            <OnboardingCard venueId={venueId} venueName={currentVenue?.name}
+              onCreated={() => { qc.invalidateQueries({ queryKey: ['website-configs'] }); setActive('setup') }} />
+          ) : isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <VenueActiveSection active={active} config={config} venueId={venueId} />
+          )}
         </div>
       </main>
     </div>
   )
 }
 
-function ActiveSection({ active, config }) {
-  // Lazy-map — keeps Website.jsx manageable as sections are added.
+function BrandActiveSection({ active }) {
+  switch (active) {
+    case 'brand-identity':  return <BrandIdentitySection />
+    case 'brand-theme':     return <BrandThemeSection />
+    case 'brand-analytics': return <BrandAnalyticsSection />
+    case 'brand-banner':    return <BrandBannerSection />
+    default: return null
+  }
+}
+
+function VenueActiveSection({ active, config, venueId }) {
   switch (active) {
     case 'setup':     return <SetupSection     config={config} />
     case 'template':  return <TemplateSection  config={config} />
