@@ -17,6 +17,7 @@ const SECTIONS = [
   { id: 'customers',           label: 'Customers & GDPR' },
   { id: 'settings',            label: 'Settings' },
   { id: 'widget',              label: 'Booking Widget' },
+  { id: 'website',             label: 'Website Builder' },
   { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
 
@@ -1123,6 +1124,265 @@ export default function Help() {
   --booking-font: 'Your Font';   /* Font family */
 }`}
             </pre>
+          </section>
+
+          {/* ── WEBSITE BUILDER ──────────────────────────── */}
+          <section id="website" data-help="">
+            <H2>Website Builder</H2>
+            <P>
+              Build a public-facing website for your restaurant — hero image, menus, gallery,
+              opening hours, booking widget, links to delivery partners, SEO and analytics.
+              Your site is hosted at <Mono>{'{slug}.macaroonie.com'}</Mono> and you can later
+              point your own domain at it (e.g. <Mono>book.yourrestaurant.co.uk</Mono>).
+            </P>
+
+            <H3>Getting started</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Go to <strong>Website</strong> in the sidebar (globe icon).</li>
+              <li>
+                On first visit you'll see an onboarding card. Pick a <strong>subdomain</strong>
+                &nbsp;(lowercase letters, numbers, hyphens — e.g. <Mono>wingstop-covent-garden</Mono>)
+                and click <strong>Create website</strong>.
+              </li>
+              <li>
+                Your site is created but <strong>not yet published</strong> — it only goes live
+                when you flip the <em>Publish</em> toggle in Setup &amp; domain.
+              </li>
+              <li>
+                Fill in sections in any order. Each section has its own <strong>Save</strong>
+                button — changes only go live when you save.
+              </li>
+            </ol>
+
+            <H3>The 18 sections</H3>
+            <P>The left rail groups sections into logical steps:</P>
+
+            <DataTable
+              head={['Section', 'What it does']}
+              rows={[
+                ['Setup & domain',   'Subdomain slug, custom domain (with DNS verification), publish toggle.'],
+                ['Template',         'Visual layout. Pick Classic (warm, traditional) or Modern (editorial, full-bleed hero).'],
+                ['Theme',            'Your look & feel — independent of template. Colours, fonts, sizes, spacing, corners, buttons, hero overlay.'],
+                ['Branding',         'Site name, tagline, logo, favicon.'],
+                ['Hero',             'The first screen guests see: image, heading, subheading, call-to-action button.'],
+                ['About',            'Short story / description with an optional image.'],
+                ['Gallery',          'Photo grid. Drag to reorder, add captions, upload new images.'],
+                ['Menus',            'Upload PDF menus with labels (e.g. Lunch, Dinner, Drinks).'],
+                ['Allergens',        'Either a PDF document OR a structured dish-by-dish table with allergen pills.'],
+                ['Opening hours',    '7-day grid. Multiple sessions per day (Lunch/Dinner) supported.'],
+                ['Find us',          'Address, latitude/longitude, Google Maps embed URL.'],
+                ['Contact',          'Phone, email, Instagram, Facebook, X, TikTok, YouTube.'],
+                ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
+                ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
+                ['Booking widget',   'Embed your Macaroonie booking widget inline. Choose which venue and light/dark theme.'],
+                ['Custom pages',     'Standalone pages (e.g. Private Dining). Each appears at /p/{slug}.'],
+                ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
+                ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
+              ]}
+            />
+
+            <H3>Theme manager — how it works</H3>
+            <P>
+              The <strong>Theme</strong> section controls the look &amp; feel of your site
+              regardless of which template you chose. A theme change to Classic instantly
+              applies the same way if you switch to Modern.
+            </P>
+            <P>You can fine-tune seven areas:</P>
+            <DataTable
+              head={['Group', 'Controls']}
+              rows={[
+                ['Colours',    '7 colours: Primary (brand/CTA), Accent (highlights), Background, Surface (alt-band background), Body text, Muted text, Borders.'],
+                ['Typography', 'Heading + body font (Google Fonts auto-loaded), base size, heading scale, weights, line-height.'],
+                ['Spacing',    'Container max width, section padding (desktop + mobile), grid gap.'],
+                ['Corners',    'Small / medium / large border-radius.'],
+                ['Logo',       'Header logo height.'],
+                ['Buttons',    'Radius, padding, font weight.'],
+                ['Hero',       'Overlay darkness (so text stays readable over images) and minimum height.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              Start with colours + fonts. Everything else is fine-tuning. <strong>Reset to
+              defaults</strong> is always available if you mess something up.
+            </InfoBox>
+
+            <H3>Custom domain</H3>
+            <P>
+              You can point your own domain (e.g. <Mono>book.wingstop.co.uk</Mono>) at your
+              Macaroonie site. The flow is:
+            </P>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>In <strong>Setup &amp; domain</strong>, enter your full domain.</li>
+              <li>Save. Notice the <strong>DNS not verified</strong> warning that appears.</li>
+              <li>
+                At your DNS provider (Cloudflare, GoDaddy, Route53 etc.), add a
+                <strong> CNAME record</strong> pointing your domain to{' '}
+                <Mono>macaroonie.com</Mono>. Alternatively, add an <strong>A record</strong>
+                pointing to the platform's public IP (ask support if unsure).
+              </li>
+              <li>Wait a few minutes for DNS to propagate.</li>
+              <li>Click <strong>Verify DNS</strong> in the admin.</li>
+              <li>
+                Once verified, the platform will provision an SSL certificate (this can take
+                up to an hour). Your site then goes live at your domain.
+              </li>
+            </ol>
+            <InfoBox type="warn">
+              Changing the custom domain clears the verified flag. You'll need to re-verify
+              after any edit.
+            </InfoBox>
+
+            <H3>Uploading images and PDFs</H3>
+            <P>
+              Any section with an image uses a standard upload button. Images are compressed
+              on upload where sensible. Size limits:
+            </P>
+            <DataTable
+              head={['File type', 'Max size', 'Formats']}
+              rows={[
+                ['Images (logo, favicon, hero, about, gallery, OG image)', '8 MB each', 'JPG, PNG, WebP, SVG, GIF'],
+                ['PDF menus',    '25 MB each', 'PDF'],
+                ['Allergen PDF', '25 MB',      'PDF'],
+              ]}
+            />
+
+            <H3>Gallery — drag to reorder</H3>
+            <P>
+              The gallery section shows a grid of images. <strong>Drag any image</strong>
+              by the grip handle (top-left) to reorder. Captions are edited inline — changes
+              aren't saved until you click <strong>Save order &amp; captions</strong> at the
+              bottom of the section.
+            </P>
+            <InfoBox type="tip">
+              On touch devices, press-and-hold an image for a moment before dragging (so
+              you don't trigger a page scroll by accident).
+            </InfoBox>
+
+            <H3>Menus (PDF viewer)</H3>
+            <P>
+              Upload a PDF (e.g. <em>Lunch Menu</em>) and Macaroonie embeds a nice inline
+              viewer on your site at <Mono>{'{slug}.macaroonie.com/menu'}</Mono>. You can upload
+              multiple PDFs — each appears as a tab button so guests can switch between them.
+              A "Download PDF" link is always visible.
+            </P>
+
+            <H3>Allergen information</H3>
+            <P>Two ways to tell guests about allergens:</P>
+            <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
+              <li><strong>Upload PDF</strong> — simplest. Link to your existing allergen guide.</li>
+              <li>
+                <strong>Dish-by-dish table</strong> — add each dish and toggle which of the 14
+                common UK/EU allergens it contains (gluten, dairy, egg, peanut, etc). Free-text
+                notes per dish.
+              </li>
+            </ul>
+
+            <H3>Opening hours</H3>
+            <P>
+              A 7-day grid with one or more <strong>sessions</strong> per day. A session is a
+              continuous block (e.g. <em>Lunch 12:00–15:00</em>). Most restaurants will have two
+              sessions per day — click <strong>Add session</strong> to add a second one.
+              Tick <strong>Closed</strong> to mark a whole day (or a specific session) as closed.
+            </P>
+
+            <H3>Online ordering &amp; delivery</H3>
+            <P>
+              Both sections are lists. <strong>Add a row</strong>, paste the URL, click
+              Save. The entries appear as buttons in their respective bands on your site.
+              Delivery providers have a dropdown for a clean logo/label; Online ordering is free-text.
+            </P>
+            <InfoBox type="tip">
+              These sections are hidden by default. Flip the "Show section on site" toggle at
+              the top of each to make them visible.
+            </InfoBox>
+
+            <H3>Booking widget</H3>
+            <P>
+              Guests can book a table directly on your website — the Macaroonie booking widget
+              is embedded as a section on the home page. In <strong>Booking widget</strong>
+              pick which venue the bookings should go to, and choose a light or dark theme.
+              Make sure <em>Show booking widget</em> is on.
+            </P>
+
+            <H3>Custom pages</H3>
+            <P>
+              For content that doesn't fit elsewhere — <em>Private Dining</em>, <em>Careers</em>,
+              <em>Events</em>, <em>Terms &amp; Conditions</em>. Each page has:
+            </P>
+            <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
+              <li>A <strong>title</strong> (shown in the header nav).</li>
+              <li>A <strong>URL slug</strong> — the page appears at <Mono>/p/{'{slug}'}</Mono>.</li>
+              <li><strong>Content</strong> — HTML allowed; line breaks are preserved.</li>
+              <li><strong>Draft / Published</strong> toggle.</li>
+            </ul>
+
+            <H3>SEO &amp; Analytics</H3>
+            <P>
+              Set the meta title (what shows in browser tabs and search results) and meta
+              description (the preview snippet under the title). Upload a social preview image
+              (ideally 1200×630 — this is what appears when someone shares your URL on Facebook,
+              WhatsApp, iMessage, LinkedIn etc.).
+            </P>
+            <P>
+              Analytics: paste your <strong>Google Analytics 4 measurement ID</strong> (starts
+              with <Mono>G-</Mono>) and / or a <strong>Meta Pixel ID</strong>. Both are injected
+              on every page automatically. Make sure you comply with your cookie-consent rules.
+            </P>
+
+            <H3>Publishing &amp; going live</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Fill in at minimum: site name, logo, hero image + heading, opening hours, contact details.</li>
+              <li>Preview by visiting <Mono>{'https://{slug}.macaroonie.com'}</Mono> — works even while unpublished for admins.</li>
+              <li>
+                When you're ready, go to <strong>Setup &amp; domain</strong>, flip
+                <em>&nbsp;Site is live</em> on, and save.
+              </li>
+              <li>Your site is now public. Any future change you save applies within ~1 minute.</li>
+            </ol>
+            <InfoBox type="warn">
+              Publishing is a hard on/off switch. When off, visitors see a 404 page — regardless
+              of how much content you've filled in.
+            </InfoBox>
+
+            <H3>Common issues</H3>
+            <div className="space-y-2.5">
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">"Subdomain already taken"</p>
+                <p className="text-sm text-muted-foreground">
+                  Subdomains are global — one per Macaroonie customer. Try adding a city or brand
+                  qualifier: <Mono>wingstop-london</Mono> instead of <Mono>wingstop</Mono>.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">Changes don't appear on the site</p>
+                <p className="text-sm text-muted-foreground">
+                  Make sure you clicked <strong>Save</strong> at the bottom of the section
+                  (changes are never auto-saved). Then hard-refresh your browser (Ctrl-Shift-R or
+                  ⌘-Shift-R) — your site is cached for about a minute.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">"DNS not verified" after I added the CNAME</p>
+                <p className="text-sm text-muted-foreground">
+                  DNS can take up to 24 hours to propagate. Try again in 10 minutes. The verify
+                  button's error message shows what records we saw — use it to double-check your
+                  DNS provider.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">Gallery images don't reorder</p>
+                <p className="text-sm text-muted-foreground">
+                  Grab the image by the grip handle (top-left of each card), not by the image
+                  itself. On touch devices, press-and-hold briefly before dragging.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">Theme changes didn't apply to my custom pages</p>
+                <p className="text-sm text-muted-foreground">
+                  Custom pages inherit the theme automatically — no action needed. If you're
+                  still seeing the old style, hard-refresh your browser to bypass the cache.
+                </p>
+              </div>
+            </div>
           </section>
 
           {/* ── FAQ ───────────────────────────────────────── */}
