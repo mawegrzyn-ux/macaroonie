@@ -117,6 +117,19 @@ const ScSourcePatch = z.object({
   sort_order:          z.coerce.number().int().optional(),
 })
 
+const CategoryBody = z.object({
+  name:       z.string().min(1).max(100),
+  colour:     z.string().max(20).nullable().optional(),
+  sort_order: z.coerce.number().int().optional(),
+})
+
+const CategoryPatch = z.object({
+  name:       z.string().min(1).max(100).optional(),
+  colour:     z.string().max(20).nullable().optional(),
+  is_active:  z.coerce.boolean().optional(),
+  sort_order: z.coerce.number().int().optional(),
+})
+
 const StaffBody = z.object({
   name:         z.string().min(1).max(200),
   default_rate: z.coerce.number().min(0).nullable().optional(),
@@ -154,7 +167,8 @@ const ExpenseEntrySchema = z.object({
   id:          UUID.optional(),
   description: z.string().min(1).max(500),
   category:    z.string().max(100).nullable().optional(),
-  amount:      z.number().min(0).default(0),
+  category_id: UUID.nullable().optional(),
+  amount:      z.coerce.number().min(0).default(0),
   notes:       z.string().max(1000).nullable().optional(),
 })
 
@@ -171,7 +185,7 @@ const WageEntrySchema = z.object({
   id:          UUID.optional(),
   staff_id:    UUID.nullable().optional(),
   name:        z.string().min(1).max(200),
-  entry_type:  z.enum(['hourly', 'fixed']).default('hourly'),
+  entry_type:  z.enum(['hourly', 'fixed']).default('fixed'),
   hours:       z.coerce.number().min(0).nullable().optional(),
   rate:        z.coerce.number().min(0).nullable().optional(),
   total:       z.coerce.number().min(0).default(0),
@@ -323,7 +337,7 @@ export default async function cashReconRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
-      const [income_sources, payment_channels, sc_sources, staff] = await Promise.all([
+      const [income_sources, payment_channels, sc_sources, staff, expense_categories] = await Promise.all([
         tx`
           SELECT * FROM cash_income_sources
            WHERE venue_id  = ${venueId}
@@ -348,9 +362,15 @@ export default async function cashReconRoutes(app) {
              AND tenant_id = ${req.tenantId}
            ORDER BY sort_order, name
         `,
+        tx`
+          SELECT * FROM cash_expense_categories
+           WHERE venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+           ORDER BY sort_order, created_at
+        `,
       ])
 
-      return { income_sources, payment_channels, sc_sources, staff }
+      return { income_sources, payment_channels, sc_sources, staff, expense_categories }
     })
   })
 
@@ -818,6 +838,108 @@ export default async function cashReconRoutes(app) {
   })
 
   // ────────────────────────────────────────────────────────────
+  // EXPENSE CATEGORIES CRUD
+  // ────────────────────────────────────────────────────────────
+
+  // ── Expense Categories config ─────────────────────────────────────────────────
+
+  // POST /:venueId/cash-recon/config/expense-categories
+  app.post('/:venueId/cash-recon/config/expense-categories', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req, reply) => {
+    const { venueId } = req.params
+    const body = CategoryBody.parse(req.body)
+    const [row] = await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      return tx`
+        INSERT INTO cash_expense_categories (tenant_id, venue_id, name, colour)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.colour ?? null})
+        RETURNING *
+      `
+    })
+    return reply.code(201).send(row)
+  })
+
+  // PUT /:venueId/cash-recon/config/expense-categories/reorder — BEFORE /:id
+  app.put('/:venueId/cash-recon/config/expense-categories/reorder', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req) => {
+    const { venueId } = req.params
+    const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      for (let i = 0; i < ids.length; i++) {
+        await tx`
+          UPDATE cash_expense_categories
+             SET sort_order = ${i}
+           WHERE id        = ${ids[i]}
+             AND venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+        `
+      }
+    })
+    return { ok: true }
+  })
+
+  // PATCH/PUT /:venueId/cash-recon/config/expense-categories/:id
+  const catUpdateHandler = async (req) => {
+    const { venueId, id } = req.params
+    const body = CategoryPatch.parse(req.body)
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+    const [row] = await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      const result = await tx`
+        UPDATE cash_expense_categories
+           SET ${tx(body, ...fields)}
+         WHERE id        = ${id}
+           AND venue_id  = ${venueId}
+           AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+      if (!result.length) throw httpError(404, 'Category not found')
+      return result
+    })
+    return row
+  }
+  app.patch('/:venueId/cash-recon/config/expense-categories/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, catUpdateHandler)
+  app.put('/:venueId/cash-recon/config/expense-categories/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, catUpdateHandler)
+
+  // DELETE /:venueId/cash-recon/config/expense-categories/:id
+  app.delete('/:venueId/cash-recon/config/expense-categories/:id', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req, reply) => {
+    const { venueId, id } = req.params
+    await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      const [usage] = await tx`
+        SELECT 1 FROM cash_expenses WHERE category_id = ${id} AND tenant_id = ${req.tenantId} LIMIT 1
+      `
+      if (usage) {
+        const [upd] = await tx`
+          UPDATE cash_expense_categories
+             SET is_active = false
+           WHERE id        = ${id}
+             AND venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+          RETURNING id
+        `
+        if (!upd) throw httpError(404, 'Category not found')
+      } else {
+        const [del] = await tx`
+          DELETE FROM cash_expense_categories
+           WHERE id        = ${id}
+             AND venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+          RETURNING id
+        `
+        if (!del) throw httpError(404, 'Category not found')
+      }
+    })
+    return reply.code(204).send()
+  })
+
+  // ────────────────────────────────────────────────────────────
   // WEEK SUMMARY
   // ────────────────────────────────────────────────────────────
 
@@ -1042,6 +1164,7 @@ export default async function cashReconRoutes(app) {
             UPDATE cash_expenses
                SET description = ${e.description},
                    category    = ${e.category ?? null},
+                   category_id = ${e.category_id ?? null},
                    amount      = ${e.amount},
                    notes       = ${e.notes ?? null}
              WHERE id        = ${e.id}
@@ -1052,9 +1175,9 @@ export default async function cashReconRoutes(app) {
           // Insert new
           await tx`
             INSERT INTO cash_expenses
-                   (tenant_id, report_id, description, category, amount, notes)
+                   (tenant_id, report_id, description, category, category_id, amount, notes)
             VALUES (${req.tenantId}, ${reportId}, ${e.description},
-                    ${e.category ?? null}, ${e.amount}, ${e.notes ?? null})
+                    ${e.category ?? null}, ${e.category_id ?? null}, ${e.amount}, ${e.notes ?? null})
           `
         }
       }
@@ -1138,11 +1261,12 @@ export default async function cashReconRoutes(app) {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId } = req.params
-    const { report_id, description, category, amount, notes } = z.object({
+    const { report_id, description, category, category_id, amount, notes } = z.object({
       report_id:   z.string().uuid(),
       description: z.string().min(1).max(500),
       category:    z.string().max(100).nullable().optional(),
-      amount:      z.number().min(0).default(0),
+      category_id: UUID.nullable().optional(),
+      amount:      z.coerce.number().min(0).default(0),
       notes:       z.string().max(1000).nullable().optional(),
     }).parse(req.body)
 
@@ -1160,9 +1284,9 @@ export default async function cashReconRoutes(app) {
 
       return tx`
         INSERT INTO cash_expenses
-               (tenant_id, report_id, description, category, amount, notes)
+               (tenant_id, report_id, description, category, category_id, amount, notes)
         VALUES (${req.tenantId}, ${report_id}, ${description},
-                ${category ?? null}, ${amount}, ${notes ?? null})
+                ${category ?? null}, ${category_id ?? null}, ${amount}, ${notes ?? null})
         RETURNING *
       `
     })
@@ -1175,10 +1299,11 @@ export default async function cashReconRoutes(app) {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
     const { venueId, expenseId } = req.params
-    const { description, category, amount, notes } = z.object({
+    const { description, category, category_id, amount, notes } = z.object({
       description: z.string().min(1).max(500),
       category:    z.string().max(100).nullable().optional(),
-      amount:      z.number().min(0).default(0),
+      category_id: UUID.nullable().optional(),
+      amount:      z.coerce.number().min(0).default(0),
       notes:       z.string().max(1000).nullable().optional(),
     }).parse(req.body)
 
@@ -1189,6 +1314,7 @@ export default async function cashReconRoutes(app) {
         UPDATE cash_expenses
            SET description = ${description},
                category    = ${category ?? null},
+               category_id = ${category_id ?? null},
                amount      = ${amount},
                notes       = ${notes ?? null}
          WHERE id        = ${expenseId}
