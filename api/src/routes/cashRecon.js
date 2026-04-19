@@ -7,27 +7,40 @@
 //
 // Config (CRUD for lookup tables):
 //   GET    /:venueId/cash-recon/config
-//   POST   /:venueId/cash-recon/sources
-//   PATCH  /:venueId/cash-recon/sources/:id
-//   DELETE /:venueId/cash-recon/sources/:id
-//   POST   /:venueId/cash-recon/channels
-//   PATCH  /:venueId/cash-recon/channels/:id
-//   DELETE /:venueId/cash-recon/channels/:id
-//   POST   /:venueId/cash-recon/sc-sources
-//   PATCH  /:venueId/cash-recon/sc-sources/:id
-//   DELETE /:venueId/cash-recon/sc-sources/:id
-//   POST   /:venueId/cash-recon/staff
-//   PATCH  /:venueId/cash-recon/staff/:id
-//   DELETE /:venueId/cash-recon/staff/:id
+//   POST   /:venueId/cash-recon/config/income-sources
+//   PUT    /:venueId/cash-recon/config/income-sources/reorder
+//   PATCH  /:venueId/cash-recon/config/income-sources/:id
+//   PUT    /:venueId/cash-recon/config/income-sources/:id
+//   DELETE /:venueId/cash-recon/config/income-sources/:id
+//   POST   /:venueId/cash-recon/config/payment-channels
+//   PUT    /:venueId/cash-recon/config/payment-channels/reorder
+//   PATCH  /:venueId/cash-recon/config/payment-channels/:id
+//   PUT    /:venueId/cash-recon/config/payment-channels/:id
+//   DELETE /:venueId/cash-recon/config/payment-channels/:id
+//   POST   /:venueId/cash-recon/config/sc-sources
+//   PUT    /:venueId/cash-recon/config/sc-sources/reorder
+//   PATCH  /:venueId/cash-recon/config/sc-sources/:id
+//   PUT    /:venueId/cash-recon/config/sc-sources/:id
+//   DELETE /:venueId/cash-recon/config/sc-sources/:id
+//   POST   /:venueId/cash-recon/config/staff
+//   PUT    /:venueId/cash-recon/config/staff/reorder
+//   PATCH  /:venueId/cash-recon/config/staff/:id
+//   PUT    /:venueId/cash-recon/config/staff/:id
+//   DELETE /:venueId/cash-recon/config/staff/:id
 //
 // Week summary:
-//   GET    /:venueId/cash-recon/week?week_start=YYYY-MM-DD
+//   GET    /:venueId/cash-recon/week/:week_start
 //
 // Daily reports:
 //   GET    /:venueId/cash-recon/daily/:date
 //   PUT    /:venueId/cash-recon/daily/:date
 //   POST   /:venueId/cash-recon/daily/:date/submit
 //   POST   /:venueId/cash-recon/daily/:date/unsubmit
+//
+// Individual expenses:
+//   POST   /:venueId/cash-recon/expenses
+//   PUT    /:venueId/cash-recon/expenses/:expenseId
+//   DELETE /:venueId/cash-recon/expenses/:expenseId
 //
 // Expense receipts:
 //   POST   /:venueId/cash-recon/expenses/:expenseId/receipt
@@ -55,17 +68,17 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const IncomeSourceBody = z.object({
   name:          z.string().min(1).max(200),
   type:          z.enum(['pos', 'delivery', 'other']).default('other'),
-  vat_rate:      z.number().min(0).max(100).default(0),
-  vat_inclusive: z.boolean().default(true),
+  vat_rate:      z.coerce.number().min(0).max(100).default(0),
+  vat_inclusive: z.coerce.boolean().default(true),
 })
 
 const IncomeSourcePatch = z.object({
   name:          z.string().min(1).max(200).optional(),
   type:          z.enum(['pos', 'delivery', 'other']).optional(),
-  vat_rate:      z.number().min(0).max(100).optional(),
-  vat_inclusive: z.boolean().optional(),
-  is_active:     z.boolean().optional(),
-  sort_order:    z.number().int().optional(),
+  vat_rate:      z.coerce.number().min(0).max(100).optional(),
+  vat_inclusive: z.coerce.boolean().optional(),
+  is_active:     z.coerce.boolean().optional(),
+  sort_order:    z.coerce.number().int().optional(),
 })
 
 const ChannelBody = z.object({
@@ -333,8 +346,8 @@ export default async function cashReconRoutes(app) {
   // INCOME SOURCES CRUD
   // ────────────────────────────────────────────────────────────
 
-  // POST /:venueId/cash-recon/sources
-  app.post('/:venueId/cash-recon/sources', {
+  // POST /:venueId/cash-recon/config/income-sources
+  app.post('/:venueId/cash-recon/config/income-sources', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId } = req.params
@@ -354,10 +367,33 @@ export default async function cashReconRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  // PATCH /:venueId/cash-recon/sources/:id
-  app.patch('/:venueId/cash-recon/sources/:id', {
+  // PUT /:venueId/cash-recon/config/income-sources/reorder
+  // MUST be registered before /:id to prevent Fastify treating 'reorder' as an id param
+  app.put('/:venueId/cash-recon/config/income-sources/reorder', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
+    const { venueId } = req.params
+    const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
+
+    await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      for (let i = 0; i < ids.length; i++) {
+        await tx`
+          UPDATE cash_income_sources
+             SET sort_order = ${i}
+           WHERE id        = ${ids[i]}
+             AND venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+        `
+      }
+    })
+
+    return { ok: true }
+  })
+
+  // PATCH /:venueId/cash-recon/config/income-sources/:id
+  // PUT   /:venueId/cash-recon/config/income-sources/:id  (alias)
+  const incomeSourceUpdateHandler = async (req) => {
     const { venueId, id } = req.params
     const body = IncomeSourcePatch.parse(req.body)
     const fields = Object.keys(body)
@@ -378,10 +414,12 @@ export default async function cashReconRoutes(app) {
     })
 
     return row
-  })
+  }
+  app.patch('/:venueId/cash-recon/config/income-sources/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, incomeSourceUpdateHandler)
+  app.put('/:venueId/cash-recon/config/income-sources/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, incomeSourceUpdateHandler)
 
-  // DELETE /:venueId/cash-recon/sources/:id
-  app.delete('/:venueId/cash-recon/sources/:id', {
+  // DELETE /:venueId/cash-recon/config/income-sources/:id
+  app.delete('/:venueId/cash-recon/config/income-sources/:id', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId, id } = req.params
@@ -427,8 +465,8 @@ export default async function cashReconRoutes(app) {
   // PAYMENT CHANNELS CRUD
   // ────────────────────────────────────────────────────────────
 
-  // POST /:venueId/cash-recon/channels
-  app.post('/:venueId/cash-recon/channels', {
+  // POST /:venueId/cash-recon/config/payment-channels
+  app.post('/:venueId/cash-recon/config/payment-channels', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId } = req.params
@@ -446,10 +484,32 @@ export default async function cashReconRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  // PATCH /:venueId/cash-recon/channels/:id
-  app.patch('/:venueId/cash-recon/channels/:id', {
+  // PUT /:venueId/cash-recon/config/payment-channels/reorder
+  app.put('/:venueId/cash-recon/config/payment-channels/reorder', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
+    const { venueId } = req.params
+    const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
+
+    await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      for (let i = 0; i < ids.length; i++) {
+        await tx`
+          UPDATE cash_payment_channels
+             SET sort_order = ${i}
+           WHERE id        = ${ids[i]}
+             AND venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+        `
+      }
+    })
+
+    return { ok: true }
+  })
+
+  // PATCH /:venueId/cash-recon/config/payment-channels/:id
+  // PUT   /:venueId/cash-recon/config/payment-channels/:id  (alias)
+  const channelUpdateHandler = async (req) => {
     const { venueId, id } = req.params
     const body = ChannelPatch.parse(req.body)
     const fields = Object.keys(body)
@@ -470,10 +530,12 @@ export default async function cashReconRoutes(app) {
     })
 
     return row
-  })
+  }
+  app.patch('/:venueId/cash-recon/config/payment-channels/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, channelUpdateHandler)
+  app.put('/:venueId/cash-recon/config/payment-channels/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, channelUpdateHandler)
 
-  // DELETE /:venueId/cash-recon/channels/:id
-  app.delete('/:venueId/cash-recon/channels/:id', {
+  // DELETE /:venueId/cash-recon/config/payment-channels/:id
+  app.delete('/:venueId/cash-recon/config/payment-channels/:id', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId, id } = req.params
@@ -517,8 +579,8 @@ export default async function cashReconRoutes(app) {
   // SC SOURCES CRUD
   // ────────────────────────────────────────────────────────────
 
-  // POST /:venueId/cash-recon/sc-sources
-  app.post('/:venueId/cash-recon/sc-sources', {
+  // POST /:venueId/cash-recon/config/sc-sources
+  app.post('/:venueId/cash-recon/config/sc-sources', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId } = req.params
@@ -538,10 +600,32 @@ export default async function cashReconRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  // PATCH /:venueId/cash-recon/sc-sources/:id
-  app.patch('/:venueId/cash-recon/sc-sources/:id', {
+  // PUT /:venueId/cash-recon/config/sc-sources/reorder
+  app.put('/:venueId/cash-recon/config/sc-sources/reorder', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
+    const { venueId } = req.params
+    const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
+
+    await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      for (let i = 0; i < ids.length; i++) {
+        await tx`
+          UPDATE cash_sc_sources
+             SET sort_order = ${i}
+           WHERE id        = ${ids[i]}
+             AND venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+        `
+      }
+    })
+
+    return { ok: true }
+  })
+
+  // PATCH /:venueId/cash-recon/config/sc-sources/:id
+  // PUT   /:venueId/cash-recon/config/sc-sources/:id  (alias)
+  const scSourceUpdateHandler = async (req) => {
     const { venueId, id } = req.params
     const body = ScSourcePatch.parse(req.body)
     const fields = Object.keys(body)
@@ -562,10 +646,12 @@ export default async function cashReconRoutes(app) {
     })
 
     return row
-  })
+  }
+  app.patch('/:venueId/cash-recon/config/sc-sources/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, scSourceUpdateHandler)
+  app.put('/:venueId/cash-recon/config/sc-sources/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, scSourceUpdateHandler)
 
-  // DELETE /:venueId/cash-recon/sc-sources/:id
-  app.delete('/:venueId/cash-recon/sc-sources/:id', {
+  // DELETE /:venueId/cash-recon/config/sc-sources/:id
+  app.delete('/:venueId/cash-recon/config/sc-sources/:id', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId, id } = req.params
@@ -609,8 +695,8 @@ export default async function cashReconRoutes(app) {
   // STAFF CRUD
   // ────────────────────────────────────────────────────────────
 
-  // POST /:venueId/cash-recon/staff
-  app.post('/:venueId/cash-recon/staff', {
+  // POST /:venueId/cash-recon/config/staff
+  app.post('/:venueId/cash-recon/config/staff', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId } = req.params
@@ -628,10 +714,32 @@ export default async function cashReconRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  // PATCH /:venueId/cash-recon/staff/:id
-  app.patch('/:venueId/cash-recon/staff/:id', {
+  // PUT /:venueId/cash-recon/config/staff/reorder
+  app.put('/:venueId/cash-recon/config/staff/reorder', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
+    const { venueId } = req.params
+    const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
+
+    await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      for (let i = 0; i < ids.length; i++) {
+        await tx`
+          UPDATE cash_staff
+             SET sort_order = ${i}
+           WHERE id        = ${ids[i]}
+             AND venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+        `
+      }
+    })
+
+    return { ok: true }
+  })
+
+  // PATCH /:venueId/cash-recon/config/staff/:id
+  // PUT   /:venueId/cash-recon/config/staff/:id  (alias)
+  const staffUpdateHandler = async (req) => {
     const { venueId, id } = req.params
     const body = StaffPatch.parse(req.body)
     const fields = Object.keys(body)
@@ -652,10 +760,12 @@ export default async function cashReconRoutes(app) {
     })
 
     return row
-  })
+  }
+  app.patch('/:venueId/cash-recon/config/staff/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, staffUpdateHandler)
+  app.put('/:venueId/cash-recon/config/staff/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, staffUpdateHandler)
 
-  // DELETE /:venueId/cash-recon/staff/:id
-  app.delete('/:venueId/cash-recon/staff/:id', {
+  // DELETE /:venueId/cash-recon/config/staff/:id
+  app.delete('/:venueId/cash-recon/config/staff/:id', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId, id } = req.params
@@ -699,13 +809,11 @@ export default async function cashReconRoutes(app) {
   // WEEK SUMMARY
   // ────────────────────────────────────────────────────────────
 
-  // GET /:venueId/cash-recon/week?week_start=YYYY-MM-DD
-  app.get('/:venueId/cash-recon/week', {
+  // GET /:venueId/cash-recon/week/:week_start
+  app.get('/:venueId/cash-recon/week/:week_start', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
-    const { venueId } = req.params
-    const rawWeekStart = req.query.week_start
-    if (!rawWeekStart) throw httpError(400, 'week_start query param is required')
+    const { venueId, week_start: rawWeekStart } = req.params
 
     const mondayStr = toMondayStr(rawWeekStart)
 
@@ -1004,6 +1112,115 @@ export default async function cashReconRoutes(app) {
 
       return loadDailyReport(tx, req.tenantId, report.id)
     })
+  })
+
+  // ────────────────────────────────────────────────────────────
+  // INDIVIDUAL EXPENSE CRUD
+  // ────────────────────────────────────────────────────────────
+
+  // POST /:venueId/cash-recon/expenses
+  app.post('/:venueId/cash-recon/expenses', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req, reply) => {
+    const { venueId } = req.params
+    const { report_id, description, category, amount, notes } = z.object({
+      report_id:   z.string().uuid(),
+      description: z.string().min(1).max(500),
+      category:    z.string().max(100).nullable().optional(),
+      amount:      z.number().min(0).default(0),
+      notes:       z.string().max(1000).nullable().optional(),
+    }).parse(req.body)
+
+    const [row] = await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+
+      // Verify the report belongs to this tenant + venue
+      const [report] = await tx`
+        SELECT id FROM cash_daily_reports
+         WHERE id        = ${report_id}
+           AND venue_id  = ${venueId}
+           AND tenant_id = ${req.tenantId}
+      `
+      if (!report) throw httpError(404, 'Daily report not found')
+
+      return tx`
+        INSERT INTO cash_expenses
+               (tenant_id, report_id, description, category, amount, notes)
+        VALUES (${req.tenantId}, ${report_id}, ${description},
+                ${category ?? null}, ${amount}, ${notes ?? null})
+        RETURNING *
+      `
+    })
+
+    return reply.code(201).send(row)
+  })
+
+  // PUT /:venueId/cash-recon/expenses/:expenseId
+  app.put('/:venueId/cash-recon/expenses/:expenseId', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req) => {
+    const { venueId, expenseId } = req.params
+    const { description, category, amount, notes } = z.object({
+      description: z.string().min(1).max(500),
+      category:    z.string().max(100).nullable().optional(),
+      amount:      z.number().min(0).default(0),
+      notes:       z.string().max(1000).nullable().optional(),
+    }).parse(req.body)
+
+    const [row] = await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+
+      const result = await tx`
+        UPDATE cash_expenses
+           SET description = ${description},
+               category    = ${category ?? null},
+               amount      = ${amount},
+               notes       = ${notes ?? null}
+         WHERE id        = ${expenseId}
+           AND tenant_id = ${req.tenantId}
+           AND report_id IN (
+             SELECT id FROM cash_daily_reports
+              WHERE venue_id  = ${venueId}
+                AND tenant_id = ${req.tenantId}
+           )
+        RETURNING *
+      `
+      if (!result.length) throw httpError(404, 'Expense not found')
+      return result
+    })
+
+    return row
+  })
+
+  // DELETE /:venueId/cash-recon/expenses/:expenseId
+  // Only allowed when no receipt is attached.
+  app.delete('/:venueId/cash-recon/expenses/:expenseId', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req, reply) => {
+    const { venueId, expenseId } = req.params
+
+    await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+
+      const [expense] = await tx`
+        SELECT e.id, e.receipt_url
+          FROM cash_expenses e
+          JOIN cash_daily_reports r ON r.id = e.report_id
+         WHERE e.id        = ${expenseId}
+           AND e.tenant_id = ${req.tenantId}
+           AND r.venue_id  = ${venueId}
+      `
+      if (!expense) throw httpError(404, 'Expense not found')
+      if (expense.receipt_url) throw httpError(422, 'Cannot delete an expense with a receipt — delete the receipt first')
+
+      await tx`
+        DELETE FROM cash_expenses
+         WHERE id        = ${expenseId}
+           AND tenant_id = ${req.tenantId}
+      `
+    })
+
+    return reply.code(204).send()
   })
 
   // ────────────────────────────────────────────────────────────

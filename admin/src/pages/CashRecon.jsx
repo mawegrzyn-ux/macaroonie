@@ -76,20 +76,22 @@ function StatusBadge({ status }) {
 }
 
 function TypeBadge({ type }) {
-  const map = {
-    POS:            'bg-blue-100 text-blue-700',
-    Delivery:       'bg-purple-100 text-purple-700',
-    Other:          'bg-gray-100 text-gray-600',
-    Cash:           'bg-green-100 text-green-700',
-    Card:           'bg-indigo-100 text-indigo-700',
-    Voucher:        'bg-yellow-100 text-yellow-700',
-    Online:         'bg-cyan-100 text-cyan-700',
-    Tips:           'bg-pink-100 text-pink-700',
-    'Service Charge': 'bg-orange-100 text-orange-700',
+  // Keys are DB values (lowercase/underscore); labels come from TYPE_LABELS map
+  const colours = {
+    pos:             'bg-blue-100 text-blue-700',
+    delivery:        'bg-purple-100 text-purple-700',
+    cash:            'bg-green-100 text-green-700',
+    card:            'bg-indigo-100 text-indigo-700',
+    voucher:         'bg-yellow-100 text-yellow-700',
+    online:          'bg-cyan-100 text-cyan-700',
+    tips:            'bg-pink-100 text-pink-700',
+    service_charge:  'bg-orange-100 text-orange-700',
+    other:           'bg-gray-100 text-gray-600',
   }
+  const label = TYPE_LABELS[type] ?? type
   return (
-    <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', map[type] ?? 'bg-muted text-muted-foreground')}>
-      {type}
+    <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', colours[type] ?? 'bg-muted text-muted-foreground')}>
+      {label}
     </span>
   )
 }
@@ -1121,10 +1123,33 @@ function WagesView({ venueId, weekStart, onBack }) {
 
 // ── SETTINGS VIEW ─────────────────────────────────────────────────────────────
 
-const INCOME_TYPES   = ['POS', 'Delivery', 'Other']
-const CHANNEL_TYPES  = ['Cash', 'Card', 'Voucher', 'Online', 'Other']
-const SC_TYPES       = ['Tips', 'Service Charge']
-const SC_DIST        = ['Kept by House', 'Distributed to Staff', 'Split']
+// Option arrays: value = what the API/DB stores, label = what the UI shows
+const INCOME_TYPES  = [
+  { value: 'pos',      label: 'POS' },
+  { value: 'delivery', label: 'Delivery' },
+  { value: 'other',    label: 'Other' },
+]
+const CHANNEL_TYPES = [
+  { value: 'cash',    label: 'Cash' },
+  { value: 'card',    label: 'Card' },
+  { value: 'voucher', label: 'Voucher' },
+  { value: 'online',  label: 'Online' },
+  { value: 'other',   label: 'Other' },
+]
+const SC_TYPES = [
+  { value: 'tips',           label: 'Tips' },
+  { value: 'service_charge', label: 'Service Charge' },
+]
+const SC_DIST = [
+  { value: 'house', label: 'Kept by House' },
+  { value: 'staff', label: 'Distributed to Staff' },
+  { value: 'split', label: 'Split' },
+]
+
+// Maps from DB value → display label (used in TypeBadge)
+const TYPE_LABELS = Object.fromEntries([
+  ...INCOME_TYPES, ...CHANNEL_TYPES, ...SC_TYPES, ...SC_DIST,
+].map(o => [o.value, o.label]))
 
 function SettingsView({ venueId, onBack }) {
   const [tab, setTab] = useState('income')
@@ -1343,7 +1368,7 @@ function IncomeSourcesTab({ venueId, items, onRefetch, api }) {
         <select value={vals.type ?? ''} onChange={e => setVals(p => ({ ...p, type: e.target.value }))}
           className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
           <option value="">Select type…</option>
-          {INCOME_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          {INCOME_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <div>
           <label className="text-xs text-muted-foreground block mb-1">VAT Rate %</label>
@@ -1413,7 +1438,7 @@ function PaymentChannelsTab({ venueId, items, onRefetch, api }) {
         <select value={vals.type ?? ''} onChange={e => setVals(p => ({ ...p, type: e.target.value }))}
           className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
           <option value="">Select type…</option>
-          {CHANNEL_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          {CHANNEL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
@@ -1476,13 +1501,13 @@ function ScSourcesTab({ venueId, items, onRefetch, api }) {
         <select value={vals.type ?? ''} onChange={e => setVals(p => ({ ...p, type: e.target.value }))}
           className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
           <option value="">Select type…</option>
-          {SC_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          {SC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <Toggle checked={!!vals.included_in_takings} onChange={v => setVals(p => ({ ...p, included_in_takings: v }))} label="Included in Takings" />
         <select value={vals.distribution ?? ''} onChange={e => setVals(p => ({ ...p, distribution: e.target.value }))}
           className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
           <option value="">Distribution…</option>
-          {SC_DIST.map(t => <option key={t} value={t}>{t}</option>)}
+          {SC_DIST.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
