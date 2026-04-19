@@ -24,6 +24,7 @@ import paymentsRoutes, { webhookRoutes } from './routes/payments.js'
 import websiteRoutes    from './routes/website.js'
 import publicSiteRoutes from './routes/publicSite.js'
 import siteRendererRoutes from './routes/siteRenderer.js'
+import cashReconRoutes  from './routes/cashRecon.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -116,6 +117,7 @@ export async function buildApp() {
   await app.register(customersRoutes,  { prefix: '/api/customers' })
   await app.register(paymentsRoutes,   { prefix: '/api/payments' })
   await app.register(websiteRoutes,    { prefix: '/api/website' })
+  await app.register(cashReconRoutes,  { prefix: '/api/venues' })
   await app.register(publicSiteRoutes, { prefix: '/api/site' })
 
   // ── Health check ─────────────────────────────────────────
