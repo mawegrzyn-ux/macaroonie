@@ -16,7 +16,7 @@ import {
 import {
   ArrowLeft, Settings, ChevronLeft, ChevronRight,
   Plus, Trash2, Pencil, Check, Camera, X, Loader2,
-  ChevronUp, ChevronDown, Lock,
+  ChevronUp, ChevronDown, Lock, MessageSquare,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -178,6 +178,77 @@ function IconBtn({ onClick, disabled, title, className, children }) {
     >
       {children}
     </button>
+  )
+}
+
+// ── Notes modal ─────────────────────────────────────────────────────────────
+
+function NoteModal({ label, value, onSave, onClose }) {
+  const [draft, setDraft] = useState(value ?? '')
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-background rounded-2xl shadow-xl w-full max-w-md p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <span className="font-semibold text-base">Note{label ? ` — ${label}` : ''}</span>
+          <IconBtn onClick={onClose}><X className="w-5 h-5" /></IconBtn>
+        </div>
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          placeholder="Add a note for this entry…"
+          rows={4}
+          className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm resize-none touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
+        />
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-10 px-4 rounded-xl border text-sm font-medium touch-manipulation hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => { onSave(draft); onClose() }}
+            className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation hover:bg-primary/90"
+          >
+            Save Note
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NoteButton({ label, value, onSave }) {
+  const [open, setOpen] = useState(false)
+  const hasNote = !!(value && value.trim())
+  return (
+    <>
+      <button
+        type="button"
+        title={hasNote ? value : 'Add note'}
+        onClick={() => setOpen(true)}
+        className={cn(
+          'mt-1 h-9 w-9 shrink-0 rounded-lg border flex items-center justify-center touch-manipulation transition-colors',
+          hasNote
+            ? 'bg-amber-50 border-amber-300 text-amber-600 hover:bg-amber-100'
+            : 'bg-background text-muted-foreground hover:bg-muted'
+        )}
+      >
+        <MessageSquare className="w-4 h-4" />
+      </button>
+      {open && (
+        <NoteModal
+          label={label}
+          value={value}
+          onClose={() => setOpen(false)}
+          onSave={onSave}
+        />
+      )}
+    </>
   )
 }
 
@@ -443,7 +514,10 @@ function DayView({ venueId, date, onBack }) {
     }, 800)
   }
 
-  function buildPayload() {
+  function buildPayload({ iNotesOvr, sNotesOvr, tNotesOvr } = {}) {
+    const iNotes = iNotesOvr ?? incomeNotes
+    const sNotes = sNotesOvr ?? scNotes
+    const tNotes = tNotesOvr ?? takingsNotes
     const sourceById = Object.fromEntries(
       (config?.income_sources ?? []).map(s => [s.id, s])
     )
@@ -467,18 +541,18 @@ function DayView({ venueId, date, onBack }) {
           gross_amount: gross,
           vat_amount:   Math.round(vat * 100) / 100,
           net_amount:   Math.round(net * 100) / 100,
-          notes:        incomeNotes[s.id] ?? '',
+          notes:        iNotes[s.id] ?? '',
         }
       }),
       sc: activeSc.map(s => ({
         source_id: s.id,
         amount:    parseNum(scValues[s.id] ?? 0),
-        notes:     scNotes[s.id] ?? '',
+        notes:     sNotes[s.id] ?? '',
       })),
       takings: activeChannels.map(c => ({
         channel_id: c.id,
         amount:     parseNum(takingsValues[c.id] ?? 0),
-        notes:      takingsNotes[c.id] ?? '',
+        notes:      tNotes[c.id] ?? '',
       })),
       expenses: expenses,
     }
@@ -488,7 +562,10 @@ function DayView({ venueId, date, onBack }) {
   const submitMutation = useMutation({
     mutationFn: async (action) => {
       clearTimeout(saveTimerRef.current) // cancel any pending debounce
-      await api.put(`/venues/${venueId}/cash-recon/daily/${date}`, buildPayload())
+      // Only flush a save when submitting — unsubmit must NOT save first (report is locked)
+      if (action === 'submit') {
+        await api.put(`/venues/${venueId}/cash-recon/daily/${date}`, buildPayload())
+      }
       return api.post(`/venues/${venueId}/cash-recon/daily/${date}/${action}`)
     },
     onSuccess: () => {
@@ -557,9 +634,9 @@ function DayView({ venueId, date, onBack }) {
               const hasVat = source.vat_rate > 0
               const excluded = !!source.exclude_from_recon
               return (
-                <div key={source.id} className={cn('grid grid-cols-[1fr_auto] gap-3 items-start', excluded && 'opacity-70')}>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <div key={source.id} className={cn('flex items-start gap-2', excluded && 'opacity-70')}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium">{source.name}</span>
                       <TypeBadge type={source.type} />
                       {excluded && (
@@ -568,22 +645,28 @@ function DayView({ venueId, date, onBack }) {
                         </span>
                       )}
                     </div>
+                    {source.tooltip && (
+                      <div className="text-xs text-muted-foreground mt-0.5">{source.tooltip}</div>
+                    )}
                     {hasVat && parseNum(incomeValues[source.id]) > 0 && (
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-xs text-muted-foreground mt-0.5">
                         incl. VAT @{source.vat_rate}%
                         {source.vat_inclusive ? ` — Net: ${fmt(net)}, VAT: ${fmt(vat)}` : ` — VAT: ${fmt(vat)}, Total: ${fmt(net + vat)}`}
                       </div>
                     )}
-                    <input
-                      type="text"
-                      placeholder="Notes (optional)"
-                      value={incomeNotes[source.id] ?? ''}
-                      onChange={e => setIncomeNotes(prev => ({ ...prev, [source.id]: e.target.value }))}
-                      onBlur={() => triggerSave(buildPayload())}
-                      className="mt-1.5 h-9 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary/40 text-muted-foreground placeholder:text-muted-foreground/60"
-                    />
                   </div>
-                  <div className="w-32">
+                  <NoteButton
+                    label={source.name}
+                    value={incomeNotes[source.id] ?? ''}
+                    onSave={draft => {
+                      setIncomeNotes(prev => {
+                        const next = { ...prev, [source.id]: draft }
+                        triggerSave(buildPayload({ iNotesOvr: next }))
+                        return next
+                      })
+                    }}
+                  />
+                  <div className="w-28 shrink-0">
                     <AmountInput
                       value={incomeValues[source.id] ?? ''}
                       onChange={v => setIncomeValues(p => ({ ...p, [source.id]: v }))}
@@ -612,8 +695,8 @@ function DayView({ venueId, date, onBack }) {
               <p className="text-sm text-muted-foreground">No service charge sources configured.</p>
             )}
             {activeSc.map(source => (
-              <div key={source.id} className="grid grid-cols-[1fr_auto] gap-3 items-start">
-                <div>
+              <div key={source.id} className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">{source.name}</span>
                     <TypeBadge type={source.type} />
@@ -621,16 +704,22 @@ function DayView({ venueId, date, onBack }) {
                       <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">Included in takings</span>
                     )}
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Notes (optional)"
-                    value={scNotes[source.id] ?? ''}
-                    onChange={e => setScNotes(prev => ({ ...prev, [source.id]: e.target.value }))}
-                    onBlur={() => triggerSave(buildPayload())}
-                    className="mt-1.5 h-9 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary/40 text-muted-foreground placeholder:text-muted-foreground/60"
-                  />
+                  {source.tooltip && (
+                    <div className="text-xs text-muted-foreground mt-0.5">{source.tooltip}</div>
+                  )}
                 </div>
-                <div className="w-32">
+                <NoteButton
+                  label={source.name}
+                  value={scNotes[source.id] ?? ''}
+                  onSave={draft => {
+                    setScNotes(prev => {
+                      const next = { ...prev, [source.id]: draft }
+                      triggerSave(buildPayload({ sNotesOvr: next }))
+                      return next
+                    })
+                  }}
+                />
+                <div className="w-28 shrink-0">
                   <AmountInput
                     value={scValues[source.id] ?? ''}
                     onChange={v => setScValues(p => ({ ...p, [source.id]: v }))}
@@ -653,22 +742,28 @@ function DayView({ venueId, date, onBack }) {
               <p className="text-sm text-muted-foreground">No payment channels configured.</p>
             )}
             {activeChannels.map(channel => (
-              <div key={channel.id} className="grid grid-cols-[1fr_auto] gap-3 items-start">
-                <div>
+              <div key={channel.id} className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">{channel.name}</span>
                     <TypeBadge type={channel.type} />
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Notes (optional)"
-                    value={takingsNotes[channel.id] ?? ''}
-                    onChange={e => setTakingsNotes(prev => ({ ...prev, [channel.id]: e.target.value }))}
-                    onBlur={() => triggerSave(buildPayload())}
-                    className="mt-1.5 h-9 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary/40 text-muted-foreground placeholder:text-muted-foreground/60"
-                  />
+                  {channel.tooltip && (
+                    <div className="text-xs text-muted-foreground mt-0.5">{channel.tooltip}</div>
+                  )}
                 </div>
-                <div className="w-32">
+                <NoteButton
+                  label={channel.name}
+                  value={takingsNotes[channel.id] ?? ''}
+                  onSave={draft => {
+                    setTakingsNotes(prev => {
+                      const next = { ...prev, [channel.id]: draft }
+                      triggerSave(buildPayload({ tNotesOvr: next }))
+                      return next
+                    })
+                  }}
+                />
+                <div className="w-28 shrink-0">
                   <AmountInput
                     value={takingsValues[channel.id] ?? ''}
                     onChange={v => setTakingsValues(p => ({ ...p, [channel.id]: v }))}
@@ -1465,6 +1560,10 @@ function IncomeSourcesTab({ venueId, items, onRefetch, api }) {
           <Toggle checked={!!vals.vat_inclusive} onChange={v => setVals(p => ({ ...p, vat_inclusive: v }))} label="VAT Inclusive (tax already in price)" />
         )}
         <Toggle checked={!!vals.exclude_from_recon} onChange={v => setVals(p => ({ ...p, exclude_from_recon: v }))} label="Exclude from reconciliation totals" />
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Description / tooltip shown in daily view</label>
+          <TextInput placeholder="e.g. Net sales from POS terminal" value={vals.tooltip ?? ''} onChange={v => setVals(p => ({ ...p, tooltip: v || null }))} />
+        </div>
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
     )
@@ -1528,6 +1627,10 @@ function PaymentChannelsTab({ venueId, items, onRefetch, api }) {
           <option value="">Select type…</option>
           {CHANNEL_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Description / tooltip shown in daily view</label>
+          <TextInput placeholder="e.g. Till 1 card machine" value={vals.tooltip ?? ''} onChange={v => setVals(p => ({ ...p, tooltip: v || null }))} />
+        </div>
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
     )
@@ -1597,6 +1700,10 @@ function ScSourcesTab({ venueId, items, onRefetch, api }) {
           <option value="">Distribution…</option>
           {SC_DIST.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Description / tooltip shown in daily view</label>
+          <TextInput placeholder="e.g. 12.5% added to all covers" value={vals.tooltip ?? ''} onChange={v => setVals(p => ({ ...p, tooltip: v || null }))} />
+        </div>
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
     )
