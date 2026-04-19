@@ -288,14 +288,18 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   })
 
   // Per-cell local overrides (uncommitted edits)
-  const [overrides, setOverrides] = useState({})
-  const [editCell,  setEditCell]  = useState(null)   // { date, cat, id }
-  const [editVal,   setEditVal]   = useState('')
-  const [saving,    setSaving]    = useState({})      // { date: bool }
+  const [overrides,     setOverrides]     = useState({})
+  const [editCell,      setEditCell]      = useState(null)   // { date, cat, id }
+  const [editVal,       setEditVal]       = useState('')
+  const [saving,        setSaving]        = useState({})      // { date: bool }
+  const [submittingAll, setSubmittingAll] = useState(false)
+
+  const allowBulkSubmit = config?.venue_settings?.allow_bulk_submit ?? false
 
   useEffect(() => { setOverrides({}); setEditCell(null) }, [weekStart])
 
-  const dates = detail?.dates ?? isoWeekDates(weekStart)
+  const dates        = detail?.dates     ?? isoWeekDates(weekStart)
+  const visibleDates = detail?.open_dates ?? dates   // only days the venue is open
 
   const activeSources  = useMemo(() => (config?.income_sources   ?? []).filter(s => s.is_active), [config])
   const activeSc       = useMemo(() => (config?.sc_sources       ?? []).filter(s => s.is_active), [config])
@@ -334,10 +338,10 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
 
   // Week totals
   function weekTotal(cat, id) {
-    return dates.reduce((s, d) => s + cellNum(d, cat, id), 0)
+    return visibleDates.reduce((s, d) => s + cellNum(d, cat, id), 0)
   }
-  function weekDayTotal(cat) { return dates.reduce((s, d) => s + dayTotal(d, cat), 0) }
-  function weekExpenses()    { return dates.reduce((s, d) => s + dayExpenses(d), 0) }
+  function weekDayTotal(cat) { return visibleDates.reduce((s, d) => s + dayTotal(d, cat), 0) }
+  function weekExpenses()    { return visibleDates.reduce((s, d) => s + dayExpenses(d), 0) }
   function weekNetCash()     { return weekDayTotal('takings') - weekExpenses() }
   function weekNetPosition() {
     const wages = parseNum(detail?.wages_total ?? 0)
@@ -400,7 +404,60 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
     setSaving(p => ({ ...p, [date]: false }))
   }
 
-  const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  // Submit all open days in one shot
+  async function handleSubmitAll() {
+    if (submittingAll) return
+    setSubmittingAll(true)
+    try {
+      for (const date of visibleDates) {
+        const day = detail?.days?.[date]
+        if (day?.status === 'submitted') continue          // already done
+        if (!day && !allowBulkSubmit) continue             // no data + bulk not enabled
+
+        // Build full payload (same logic as saveDay, no intermediate invalidation)
+        const getV = (cat, id) => parseNum(overrides[date]?.[cat]?.[id] ?? getCellVal(date, cat, id))
+
+        const income = activeSources.map(s => {
+          const gross = getV('income', s.id)
+          const vr    = parseNum(s.vat_rate ?? 0) / 100
+          let vat = 0, net = gross
+          if (vr > 0) {
+            if (s.vat_inclusive) { vat = gross - gross / (1 + vr); net = gross / (1 + vr) }
+            else                 { vat = gross * vr }
+          }
+          return { source_id: s.id, gross_amount: gross, vat_amount: +(vat.toFixed(2)), net_amount: +(net.toFixed(2)), notes: day?.income.find(r => r.source_id === s.id)?.notes ?? '' }
+        })
+        const sc = activeSc.map(s => ({
+          source_id: s.id, amount: getV('sc', s.id),
+          notes: day?.sc.find(r => r.source_id === s.id)?.notes ?? '',
+        }))
+        const takings = activeChannels.map(c => ({
+          channel_id: c.id, amount: getV('takings', c.id),
+          notes: day?.takings.find(r => r.channel_id === c.id)?.notes ?? '',
+        }))
+        const expenses = (day?.expenses ?? []).map(e => ({
+          id: e.id, description: e.description, category: e.category ?? null,
+          category_id: e.category_id ?? null, amount: parseFloat(e.amount ?? 0), notes: e.notes ?? null,
+        }))
+
+        // PUT creates the report if it doesn't exist yet; also flushes any overrides
+        if (overrides[date] || !day) {
+          await api.put(`/venues/${venueId}/cash-recon/daily/${date}`, { income, sc, takings, expenses })
+        }
+        await api.post(`/venues/${venueId}/cash-recon/daily/${date}/submit`)
+      }
+      setOverrides({})
+      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
+    } catch { /* individual day failures are silently skipped */ }
+    setSubmittingAll(false)
+  }
+
+  // Days still needing submission (used to disable the button when done)
+  const pendingCount = visibleDates.filter(date => {
+    const day = detail?.days?.[date]
+    if (day?.status === 'submitted') return false
+    return allowBulkSubmit ? true : !!day
+  }).length
 
   // ── Cell renderers ────────────────────────────────────────────────────────
 
@@ -463,10 +520,10 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   function SectionRow({ label }) {
     return (
       <tr className="bg-muted/70 border-y border-border">
-        <td className="sticky left-0 bg-muted/70 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground z-10 min-w-[150px]">
+        <td className="sticky left-0 bg-muted px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground z-10 min-w-[150px]">
           {label}
         </td>
-        {dates.map(d => <td key={d} className="border-r border-border/60 w-[86px] min-w-[86px]" />)}
+        {visibleDates.map(d => <td key={d} className="border-r border-border/60 w-[86px] min-w-[86px]" />)}
         <td className="w-[86px] min-w-[86px]" />
       </tr>
     )
@@ -496,7 +553,20 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
           <button type="button" onClick={() => setWeekStart(getMonday(addWeeks(parseISO(weekStart), 1)))}
             className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronRight className="w-4 h-4" /></button>
         </div>
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex items-center gap-1.5">
+          {pendingCount > 0 && (
+            <button
+              type="button"
+              onClick={handleSubmitAll}
+              disabled={submittingAll}
+              className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold touch-manipulation hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+            >
+              {submittingAll
+                ? <><Loader2 className="w-3 h-3 animate-spin" /> Submitting…</>
+                : <><Check className="w-3 h-3" /> Submit Week</>
+              }
+            </button>
+          )}
           <button type="button" onClick={onToggleMode} title="Card view"
             className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
             <ChevronDown className="w-4 h-4 rotate-0" />
@@ -515,18 +585,23 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
           <thead className="sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border))]">
             <tr>
               <th className="sticky left-0 bg-background px-3 py-2 text-left text-xs font-medium text-muted-foreground border-r border-b border-border min-w-[150px] z-20" />
-              {dates.map((date, i) => {
+              {visibleDates.map((date) => {
                 const day = detail?.days?.[date]
                 const isToday = date === todayStr()
                 return (
                   <th key={date}
                     onClick={() => onSelectDay(date)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => e.key === 'Enter' && onSelectDay(date)}
                     className={cn(
-                      'px-2 py-2 text-center border-r border-b border-border w-[86px] min-w-[86px] cursor-pointer hover:bg-muted/60 transition-colors',
+                      'px-2 py-2.5 text-center border-r border-b border-border w-[86px] min-w-[86px]',
+                      'cursor-pointer select-none touch-manipulation transition-colors',
+                      'hover:bg-primary/10 active:bg-primary/20',
                       isToday && 'bg-primary/5'
                     )}
                   >
-                    <div className="text-xs font-semibold">{DAY_NAMES[i]}</div>
+                    <div className="text-xs font-semibold">{format(parseISO(date), 'EEE')}</div>
                     <div className="text-[10px] text-muted-foreground">{format(parseISO(date), 'd MMM')}</div>
                     <div className="mt-0.5">
                       {saving[date]
@@ -556,15 +631,15 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
                   <span className="font-medium">{s.name}</span>
                   {s.exclude_from_recon && <span className="ml-1 text-[10px] text-muted-foreground">(excl.)</span>}
                 </td>
-                {dates.map(date => <EditableCell key={date} date={date} cat="income" id={s.id} />)}
+                {visibleDates.map(date => <EditableCell key={date} date={date} cat="income" id={s.id} />)}
                 <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
                   {weekTotal('income', s.id) !== 0 ? fmt(weekTotal('income', s.id)) : '—'}
                 </td>
               </tr>
             ))}
             <tr className="border-b border-border bg-muted/10">
-              <td className="sticky left-0 bg-muted/10 px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total Income</td>
-              {dates.map(d => <TotalCell key={d} value={dayTotal(d, 'income')} />)}
+              <td className="sticky left-0 bg-background px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total Income</td>
+              {visibleDates.map(d => <TotalCell key={d} value={dayTotal(d, 'income')} />)}
               <td className="px-2 py-1.5 text-xs text-right font-bold bg-muted/30 tabular-nums">{fmt(weekDayTotal('income'))}</td>
             </tr>
 
@@ -577,16 +652,16 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
                     <span className="font-medium">{s.name}</span>
                     {s.included_in_takings && <span className="ml-1 text-[10px] text-amber-600">↳ takings</span>}
                   </td>
-                  {dates.map(date => <EditableCell key={date} date={date} cat="sc" id={s.id} />)}
+                  {visibleDates.map(date => <EditableCell key={date} date={date} cat="sc" id={s.id} />)}
                   <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
                     {weekTotal('sc', s.id) !== 0 ? fmt(weekTotal('sc', s.id)) : '—'}
                   </td>
                 </tr>
               ))}
               <tr className="border-b border-border bg-muted/10">
-                <td className="sticky left-0 bg-muted/10 px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total SC</td>
-                {dates.map(d => <TotalCell key={d} value={activeSc.reduce((s, r) => s + cellNum(d, 'sc', r.id), 0)} />)}
-                <td className="px-2 py-1.5 text-xs text-right font-bold bg-muted/30 tabular-nums">{fmt(dates.reduce((s, d) => s + activeSc.reduce((s2, r) => s2 + cellNum(d, 'sc', r.id), 0), 0))}</td>
+                <td className="sticky left-0 bg-background px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total SC</td>
+                {visibleDates.map(d => <TotalCell key={d} value={activeSc.reduce((s, r) => s + cellNum(d, 'sc', r.id), 0)} />)}
+                <td className="px-2 py-1.5 text-xs text-right font-bold bg-muted/30 tabular-nums">{fmt(visibleDates.reduce((s, d) => s + activeSc.reduce((s2, r) => s2 + cellNum(d, 'sc', r.id), 0), 0))}</td>
               </tr>
             </>}
 
@@ -597,15 +672,15 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
                 <td className="sticky left-0 bg-background px-3 py-1 text-xs border-r border-border/60 min-w-[150px] z-10 whitespace-nowrap">
                   <span className="font-medium">{c.name}</span>
                 </td>
-                {dates.map(date => <EditableCell key={date} date={date} cat="takings" id={c.id} />)}
+                {visibleDates.map(date => <EditableCell key={date} date={date} cat="takings" id={c.id} />)}
                 <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
                   {weekTotal('takings', c.id) !== 0 ? fmt(weekTotal('takings', c.id)) : '—'}
                 </td>
               </tr>
             ))}
             <tr className="border-b border-border bg-muted/10">
-              <td className="sticky left-0 bg-muted/10 px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total Takings</td>
-              {dates.map(d => <TotalCell key={d} value={dayTotal(d, 'takings')} />)}
+              <td className="sticky left-0 bg-background px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total Takings</td>
+              {visibleDates.map(d => <TotalCell key={d} value={dayTotal(d, 'takings')} />)}
               <td className="px-2 py-1.5 text-xs text-right font-bold bg-muted/30 tabular-nums">{fmt(weekDayTotal('takings'))}</td>
             </tr>
 
@@ -615,7 +690,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
               <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">
                 Total Expenses
               </td>
-              {dates.map(d => (
+              {visibleDates.map(d => (
                 <td key={d}
                   onClick={() => onSelectDay(d)}
                   className="px-2 py-1 text-xs text-right border-r border-border/60 w-[86px] min-w-[86px] tabular-nums cursor-pointer hover:bg-muted/60">
@@ -629,16 +704,16 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
             <SectionRow label="Summary" />
             <tr className="border-b border-border/40">
               <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">Variance</td>
-              {dates.map(d => <TotalCell key={d} value={variance(d)} highlight="var" />)}
+              {visibleDates.map(d => <TotalCell key={d} value={variance(d)} highlight="var" />)}
               <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums">
-                <span className={cn(dates.reduce((s, d) => s + variance(d), 0) > 0 ? 'text-amber-600' : dates.reduce((s, d) => s + variance(d), 0) < 0 ? 'text-red-600' : 'text-green-700')}>
-                  {fmt(dates.reduce((s, d) => s + variance(d), 0))}
+                <span className={cn(visibleDates.reduce((s, d) => s + variance(d), 0) > 0 ? 'text-amber-600' : visibleDates.reduce((s, d) => s + variance(d), 0) < 0 ? 'text-red-600' : 'text-green-700')}>
+                  {fmt(visibleDates.reduce((s, d) => s + variance(d), 0))}
                 </span>
               </td>
             </tr>
             <tr className="border-b border-border/40">
               <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">Net Cash</td>
-              {dates.map(d => <TotalCell key={d} value={netCash(d)} />)}
+              {visibleDates.map(d => <TotalCell key={d} value={netCash(d)} />)}
               <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums">{fmt(weekNetCash())}</td>
             </tr>
             <tr className="border-b border-border/40">
@@ -652,7 +727,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
                   )}
                 </span>
               </td>
-              {dates.map(d => <td key={d} className="px-2 py-1 text-xs text-right text-muted-foreground/40 border-r border-border/60 w-[86px] min-w-[86px]">—</td>)}
+              {visibleDates.map(d => <td key={d} className="px-2 py-1 text-xs text-right text-muted-foreground/40 border-r border-border/60 w-[86px] min-w-[86px]">—</td>)}
               <td
                 onClick={onSelectWages}
                 className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums cursor-pointer hover:bg-muted/40">
@@ -661,7 +736,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
             </tr>
             <tr className="border-b-2 border-border">
               <td className="sticky left-0 bg-background px-3 py-2 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Net Position</td>
-              {dates.map(d => <td key={d} className="border-r border-border/60 w-[86px] min-w-[86px]" />)}
+              {visibleDates.map(d => <td key={d} className="border-r border-border/60 w-[86px] min-w-[86px]" />)}
               <td className="px-2 py-2 text-xs text-right font-bold bg-muted/20 tabular-nums">{fmt(weekNetPosition())}</td>
             </tr>
           </tbody>
@@ -1921,7 +1996,7 @@ const TYPE_LABELS = Object.fromEntries([
 ].map(o => [o.value, o.label]))
 
 function SettingsView({ venueId, onBack }) {
-  const [tab, setTab] = useState('income')
+  const [tab, setTab] = useState('general')
   const api = useApi()
   const qc  = useQueryClient()
 
@@ -1944,11 +2019,12 @@ function SettingsView({ venueId, onBack }) {
   }
 
   const TABS = [
-    { key: 'income',    label: 'Income Sources' },
-    { key: 'channels',  label: 'Payment Channels' },
-    { key: 'sc',        label: 'Service Charges' },
-    { key: 'staff',     label: 'Staff' },
-    { key: 'expenses',  label: 'Categories' },
+    { key: 'general',  label: 'General' },
+    { key: 'income',   label: 'Income Sources' },
+    { key: 'channels', label: 'Payment Channels' },
+    { key: 'sc',       label: 'Service Charges' },
+    { key: 'staff',    label: 'Staff' },
+    { key: 'expenses', label: 'Categories' },
   ]
 
   return (
@@ -1979,12 +2055,52 @@ function SettingsView({ venueId, onBack }) {
       </div>
 
       <div className="p-4">
-        {tab === 'income'   && <IncomeSourcesTab      venueId={venueId} items={config?.income_sources      ?? []} onRefetch={refetchConfig} api={api} />}
+        {tab === 'general'  && <GeneralTab           venueId={venueId} venueSettings={config?.venue_settings} onRefetch={refetchConfig} api={api} />}
+        {tab === 'income'   && <IncomeSourcesTab     venueId={venueId} items={config?.income_sources      ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'channels' && <PaymentChannelsTab   venueId={venueId} items={config?.payment_channels  ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'sc'       && <ScSourcesTab         venueId={venueId} items={config?.sc_sources        ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'staff'    && <StaffTab             venueId={venueId} items={config?.staff             ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'expenses' && <ExpenseCategoriesTab venueId={venueId} items={config?.expense_categories ?? []} onRefetch={refetchConfig} api={api} />}
       </div>
+    </div>
+  )
+}
+
+// ── General settings tab ──────────────────────────────────────────────────────
+
+function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
+  const [saving, setSaving] = useState(false)
+  const allowBulk = venueSettings?.allow_bulk_submit ?? false
+
+  async function toggle(val) {
+    setSaving(true)
+    try {
+      await api.patch(`/venues/${venueId}/cash-recon/settings`, { allow_bulk_submit: val })
+      onRefetch()
+    } catch {}
+    setSaving(false)
+  }
+
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Week Submission">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Allow bulk week submission</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              When <strong>on</strong>, the "Submit Week" button submits every open day — including days
+              with no data yet (creates an empty report and marks it submitted).
+              When <strong>off</strong>, only days that already have draft data are submitted.
+            </p>
+          </div>
+          <div className="shrink-0 mt-0.5">
+            {saving
+              ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              : <Toggle checked={allowBulk} onChange={toggle} />
+            }
+          </div>
+        </div>
+      </SectionCard>
     </div>
   )
 }
