@@ -16,7 +16,7 @@ import {
 import {
   ArrowLeft, Settings, ChevronLeft, ChevronRight,
   Plus, Trash2, Pencil, Check, Camera, X, Loader2,
-  ChevronUp, ChevronDown, Lock, MessageSquare,
+  ChevronUp, ChevronDown, Lock, MessageSquare, Table2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -268,9 +268,412 @@ function VenueSelector({ venues, venueId, setVenueId }) {
   )
 }
 
+// ── SPREADSHEET VIEW ──────────────────────────────────────────────────────────
+
+function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSelectDay, onSelectWages, onSettings, onToggleMode }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+
+  const { data: config } = useQuery({
+    queryKey: ['cash-recon-config', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/config`),
+    enabled:  !!venueId,
+  })
+
+  const { data: detail, isLoading } = useQuery({
+    queryKey: ['cash-recon-week-detail', venueId, weekStart],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/week-detail/${weekStart}`),
+    enabled:  !!venueId && !!weekStart,
+    staleTime: 0,
+  })
+
+  // Per-cell local overrides (uncommitted edits)
+  const [overrides, setOverrides] = useState({})
+  const [editCell,  setEditCell]  = useState(null)   // { date, cat, id }
+  const [editVal,   setEditVal]   = useState('')
+  const [saving,    setSaving]    = useState({})      // { date: bool }
+
+  useEffect(() => { setOverrides({}); setEditCell(null) }, [weekStart])
+
+  const dates = detail?.dates ?? isoWeekDates(weekStart)
+
+  const activeSources  = useMemo(() => (config?.income_sources   ?? []).filter(s => s.is_active), [config])
+  const activeSc       = useMemo(() => (config?.sc_sources       ?? []).filter(s => s.is_active), [config])
+  const activeChannels = useMemo(() => (config?.payment_channels ?? []).filter(s => s.is_active), [config])
+
+  // Get cell value: local override → loaded data → ''
+  function getCellVal(date, cat, id) {
+    const ov = overrides[date]?.[cat]?.[id]
+    if (ov != null) return ov
+    const day = detail?.days?.[date]
+    if (!day) return ''
+    if (cat === 'income')  return String(day.income.find(r => r.source_id  === id)?.gross_amount ?? '')
+    if (cat === 'sc')      return String(day.sc.find(r => r.source_id      === id)?.amount       ?? '')
+    if (cat === 'takings') return String(day.takings.find(r => r.channel_id === id)?.amount      ?? '')
+    return ''
+  }
+
+  function cellNum(date, cat, id) { return parseNum(getCellVal(date, cat, id)) }
+
+  // Day totals
+  function dayTotal(date, cat) {
+    if (cat === 'income')  return activeSources.filter(s => !s.exclude_from_recon).reduce((s, r) => s + cellNum(date, 'income', r.id), 0)
+    if (cat === 'sc')      return activeSc.reduce((s, r) => s + cellNum(date, 'sc', r.id), 0)
+    if (cat === 'takings') return activeChannels.reduce((s, r) => s + cellNum(date, 'takings', r.id), 0)
+    return 0
+  }
+
+  function dayExpenses(date) { return parseNum(detail?.days?.[date]?.total_expenses ?? 0) }
+
+  function variance(date) {
+    const scInc = activeSc.filter(s => s.included_in_takings).reduce((s, r) => s + cellNum(date, 'sc', r.id), 0)
+    return dayTotal(date, 'income') + scInc - dayTotal(date, 'takings')
+  }
+
+  function netCash(date) { return dayTotal(date, 'takings') - dayExpenses(date) }
+
+  // Week totals
+  function weekTotal(cat, id) {
+    return dates.reduce((s, d) => s + cellNum(d, cat, id), 0)
+  }
+  function weekDayTotal(cat) { return dates.reduce((s, d) => s + dayTotal(d, cat), 0) }
+  function weekExpenses()    { return dates.reduce((s, d) => s + dayExpenses(d), 0) }
+  function weekNetCash()     { return weekDayTotal('takings') - weekExpenses() }
+  function weekNetPosition() {
+    const wages = parseNum(detail?.wages_total ?? 0)
+    return weekNetCash() - wages
+  }
+
+  function startEdit(date, cat, id) {
+    if (detail?.days?.[date]?.status === 'submitted') return
+    setEditCell({ date, cat, id })
+    setEditVal(getCellVal(date, cat, id))
+  }
+
+  async function commitEdit(date, cat, id, val) {
+    const next = { ...overrides, [date]: { ...(overrides[date] ?? {}), [cat]: { ...(overrides[date]?.[cat] ?? {}), [id]: val } } }
+    setOverrides(next)
+    setEditCell(null)
+    await saveDay(date, next)
+  }
+
+  async function saveDay(date, ovr = overrides) {
+    setSaving(p => ({ ...p, [date]: true }))
+    try {
+      const day = detail?.days?.[date]
+
+      const getV = (cat, id) => parseNum(ovr[date]?.[cat]?.[id] ?? getCellVal(date, cat, id))
+
+      const income = activeSources.map(s => {
+        const gross = getV('income', s.id)
+        const vr    = parseNum(s.vat_rate ?? 0) / 100
+        let vat = 0, net = gross
+        if (vr > 0) {
+          if (s.vat_inclusive) { vat = gross - gross / (1 + vr); net = gross / (1 + vr) }
+          else                 { vat = gross * vr }
+        }
+        const iNotes = day?.income.find(r => r.source_id === s.id)?.notes ?? ''
+        return { source_id: s.id, gross_amount: gross, vat_amount: +(vat.toFixed(2)), net_amount: +(net.toFixed(2)), notes: iNotes }
+      })
+
+      const sc = activeSc.map(s => ({
+        source_id: s.id,
+        amount: getV('sc', s.id),
+        notes: day?.sc.find(r => r.source_id === s.id)?.notes ?? '',
+      }))
+
+      const takings = activeChannels.map(c => ({
+        channel_id: c.id,
+        amount: getV('takings', c.id),
+        notes: day?.takings.find(r => r.channel_id === c.id)?.notes ?? '',
+      }))
+
+      const expenses = (day?.expenses ?? []).map(e => ({
+        id: e.id, description: e.description, category: e.category ?? null,
+        category_id: e.category_id ?? null, amount: parseFloat(e.amount ?? 0), notes: e.notes ?? null,
+      }))
+
+      await api.put(`/venues/${venueId}/cash-recon/daily/${date}`, { income, sc, takings, expenses })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] })
+    } catch {}
+    setSaving(p => ({ ...p, [date]: false }))
+  }
+
+  const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+  // ── Cell renderers ────────────────────────────────────────────────────────
+
+  function EditableCell({ date, cat, id }) {
+    const isEdit = editCell?.date === date && editCell?.cat === cat && editCell?.id === id
+    const submitted = detail?.days?.[date]?.status === 'submitted'
+    const val = getCellVal(date, cat, id)
+    const num = parseNum(val)
+
+    if (isEdit) {
+      return (
+        <td className="px-1.5 py-0 border-r border-border/60 w-[86px] min-w-[86px]">
+          <input
+            autoFocus
+            type="number"
+            step="0.01"
+            value={editVal}
+            onChange={e => setEditVal(e.target.value)}
+            onBlur={() => commitEdit(date, cat, id, editVal)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.currentTarget.blur() }
+              if (e.key === 'Escape') { setEditCell(null) }
+            }}
+            className="w-full h-7 bg-primary/10 border border-primary rounded px-1.5 text-xs text-right focus:outline-none"
+          />
+        </td>
+      )
+    }
+
+    return (
+      <td
+        onClick={() => !submitted && startEdit(date, cat, id)}
+        className={cn(
+          'px-2 py-1 text-xs text-right border-r border-border/60 w-[86px] min-w-[86px] tabular-nums',
+          !submitted && 'cursor-pointer hover:bg-muted/60',
+          submitted && 'text-muted-foreground',
+          num === 0 && 'text-muted-foreground/40'
+        )}
+      >
+        {num !== 0 ? fmt(num) : '—'}
+      </td>
+    )
+  }
+
+  function TotalCell({ value, highlight }) {
+    const n = parseNum(value)
+    return (
+      <td className={cn(
+        'px-2 py-1 text-xs text-right font-semibold border-r border-border/60 w-[86px] min-w-[86px] tabular-nums',
+        highlight === 'pos' && n > 0 && 'text-green-700',
+        highlight === 'neg' && n < 0 && 'text-red-600',
+        highlight === 'var' && (n > 0 ? 'text-amber-600' : n < 0 ? 'text-red-600' : 'text-green-700'),
+        n === 0 && 'text-muted-foreground/40'
+      )}>
+        {n !== 0 ? fmt(n) : '—'}
+      </td>
+    )
+  }
+
+  function SectionRow({ label }) {
+    return (
+      <tr className="bg-muted/70 border-y border-border">
+        <td className="sticky left-0 bg-muted/70 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground z-10 min-w-[150px]">
+          {label}
+        </td>
+        {dates.map(d => <td key={d} className="border-r border-border/60 w-[86px] min-w-[86px]" />)}
+        <td className="w-[86px] min-w-[86px]" />
+      </tr>
+    )
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  if (isLoading && !detail) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
+      <div className="sticky top-0 z-20 bg-background border-b px-4 py-2 flex items-center gap-2 shrink-0">
+        <VenueSelector venues={venues} venueId={venueId} setVenueId={setVenueId} />
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => setWeekStart(getMonday(subWeeks(parseISO(weekStart), 1)))}
+            className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronLeft className="w-4 h-4" /></button>
+          <span className="text-sm font-medium px-1 whitespace-nowrap">
+            {format(parseISO(weekStart), 'd MMM')}–{format(addDays(parseISO(weekStart), 6), 'd MMM yyyy')}
+          </span>
+          <button type="button" onClick={() => setWeekStart(getMonday(addWeeks(parseISO(weekStart), 1)))}
+            className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronRight className="w-4 h-4" /></button>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <button type="button" onClick={onToggleMode} title="Card view"
+            className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
+            <ChevronDown className="w-4 h-4 rotate-0" />
+          </button>
+          <button type="button" onClick={onSettings}
+            className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="flex-1 overflow-auto">
+        <table className="w-max border-collapse text-sm">
+          {/* Column headers */}
+          <thead className="sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border))]">
+            <tr>
+              <th className="sticky left-0 bg-background px-3 py-2 text-left text-xs font-medium text-muted-foreground border-r border-b border-border min-w-[150px] z-20" />
+              {dates.map((date, i) => {
+                const day = detail?.days?.[date]
+                const isToday = date === todayStr()
+                return (
+                  <th key={date}
+                    onClick={() => onSelectDay(date)}
+                    className={cn(
+                      'px-2 py-2 text-center border-r border-b border-border w-[86px] min-w-[86px] cursor-pointer hover:bg-muted/60 transition-colors',
+                      isToday && 'bg-primary/5'
+                    )}
+                  >
+                    <div className="text-xs font-semibold">{DAY_NAMES[i]}</div>
+                    <div className="text-[10px] text-muted-foreground">{format(parseISO(date), 'd MMM')}</div>
+                    <div className="mt-0.5">
+                      {saving[date]
+                        ? <span className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground"><Loader2 className="w-2.5 h-2.5 animate-spin" /></span>
+                        : day?.status === 'submitted'
+                          ? <span className="inline-block rounded-full px-1.5 py-px text-[9px] font-medium bg-green-100 text-green-700">Subm</span>
+                          : day?.status === 'draft'
+                            ? <span className="inline-block rounded-full px-1.5 py-px text-[9px] font-medium bg-amber-100 text-amber-700">Draft</span>
+                            : <span className="text-[9px] text-muted-foreground/40">—</span>
+                      }
+                    </div>
+                  </th>
+                )
+              })}
+              <th className="px-2 py-2 text-center border-b border-border w-[86px] min-w-[86px] bg-muted/30">
+                <div className="text-xs font-bold text-muted-foreground">WEEK</div>
+              </th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {/* ── INCOME ── */}
+            <SectionRow label="Income" />
+            {activeSources.map(s => (
+              <tr key={s.id} className="border-b border-border/40 hover:bg-muted/20">
+                <td className="sticky left-0 bg-background px-3 py-1 text-xs border-r border-border/60 min-w-[150px] z-10 whitespace-nowrap">
+                  <span className="font-medium">{s.name}</span>
+                  {s.exclude_from_recon && <span className="ml-1 text-[10px] text-muted-foreground">(excl.)</span>}
+                </td>
+                {dates.map(date => <EditableCell key={date} date={date} cat="income" id={s.id} />)}
+                <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
+                  {weekTotal('income', s.id) !== 0 ? fmt(weekTotal('income', s.id)) : '—'}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-b border-border bg-muted/10">
+              <td className="sticky left-0 bg-muted/10 px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total Income</td>
+              {dates.map(d => <TotalCell key={d} value={dayTotal(d, 'income')} />)}
+              <td className="px-2 py-1.5 text-xs text-right font-bold bg-muted/30 tabular-nums">{fmt(weekDayTotal('income'))}</td>
+            </tr>
+
+            {/* ── SERVICE CHARGES ── */}
+            {activeSc.length > 0 && <>
+              <SectionRow label="Service Charges" />
+              {activeSc.map(s => (
+                <tr key={s.id} className="border-b border-border/40 hover:bg-muted/20">
+                  <td className="sticky left-0 bg-background px-3 py-1 text-xs border-r border-border/60 min-w-[150px] z-10 whitespace-nowrap">
+                    <span className="font-medium">{s.name}</span>
+                    {s.included_in_takings && <span className="ml-1 text-[10px] text-amber-600">↳ takings</span>}
+                  </td>
+                  {dates.map(date => <EditableCell key={date} date={date} cat="sc" id={s.id} />)}
+                  <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
+                    {weekTotal('sc', s.id) !== 0 ? fmt(weekTotal('sc', s.id)) : '—'}
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-b border-border bg-muted/10">
+                <td className="sticky left-0 bg-muted/10 px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total SC</td>
+                {dates.map(d => <TotalCell key={d} value={activeSc.reduce((s, r) => s + cellNum(d, 'sc', r.id), 0)} />)}
+                <td className="px-2 py-1.5 text-xs text-right font-bold bg-muted/30 tabular-nums">{fmt(dates.reduce((s, d) => s + activeSc.reduce((s2, r) => s2 + cellNum(d, 'sc', r.id), 0), 0))}</td>
+              </tr>
+            </>}
+
+            {/* ── TAKINGS ── */}
+            <SectionRow label="Takings" />
+            {activeChannels.map(c => (
+              <tr key={c.id} className="border-b border-border/40 hover:bg-muted/20">
+                <td className="sticky left-0 bg-background px-3 py-1 text-xs border-r border-border/60 min-w-[150px] z-10 whitespace-nowrap">
+                  <span className="font-medium">{c.name}</span>
+                </td>
+                {dates.map(date => <EditableCell key={date} date={date} cat="takings" id={c.id} />)}
+                <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
+                  {weekTotal('takings', c.id) !== 0 ? fmt(weekTotal('takings', c.id)) : '—'}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-b border-border bg-muted/10">
+              <td className="sticky left-0 bg-muted/10 px-3 py-1.5 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Total Takings</td>
+              {dates.map(d => <TotalCell key={d} value={dayTotal(d, 'takings')} />)}
+              <td className="px-2 py-1.5 text-xs text-right font-bold bg-muted/30 tabular-nums">{fmt(weekDayTotal('takings'))}</td>
+            </tr>
+
+            {/* ── EXPENSES ── */}
+            <SectionRow label="Expenses" />
+            <tr className="border-b border-border/40">
+              <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">
+                Total Expenses
+              </td>
+              {dates.map(d => (
+                <td key={d}
+                  onClick={() => onSelectDay(d)}
+                  className="px-2 py-1 text-xs text-right border-r border-border/60 w-[86px] min-w-[86px] tabular-nums cursor-pointer hover:bg-muted/60">
+                  {dayExpenses(d) !== 0 ? fmt(dayExpenses(d)) : '—'}
+                </td>
+              ))}
+              <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums">{fmt(weekExpenses())}</td>
+            </tr>
+
+            {/* ── SUMMARY ── */}
+            <SectionRow label="Summary" />
+            <tr className="border-b border-border/40">
+              <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">Variance</td>
+              {dates.map(d => <TotalCell key={d} value={variance(d)} highlight="var" />)}
+              <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums">
+                <span className={cn(dates.reduce((s, d) => s + variance(d), 0) > 0 ? 'text-amber-600' : dates.reduce((s, d) => s + variance(d), 0) < 0 ? 'text-red-600' : 'text-green-700')}>
+                  {fmt(dates.reduce((s, d) => s + variance(d), 0))}
+                </span>
+              </td>
+            </tr>
+            <tr className="border-b border-border/40">
+              <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">Net Cash</td>
+              {dates.map(d => <TotalCell key={d} value={netCash(d)} />)}
+              <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums">{fmt(weekNetCash())}</td>
+            </tr>
+            <tr className="border-b border-border/40">
+              <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">
+                <span className="flex items-center gap-1">
+                  Wages
+                  {detail?.wages_status && (
+                    <span className={cn('text-[10px] rounded-full px-1.5 py-px', detail.wages_status === 'submitted' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
+                      {detail.wages_status === 'submitted' ? 'Subm' : 'Draft'}
+                    </span>
+                  )}
+                </span>
+              </td>
+              {dates.map(d => <td key={d} className="px-2 py-1 text-xs text-right text-muted-foreground/40 border-r border-border/60 w-[86px] min-w-[86px]">—</td>)}
+              <td
+                onClick={onSelectWages}
+                className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums cursor-pointer hover:bg-muted/40">
+                {detail?.wages_total ? fmt(detail.wages_total) : '—'}
+              </td>
+            </tr>
+            <tr className="border-b-2 border-border">
+              <td className="sticky left-0 bg-background px-3 py-2 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Net Position</td>
+              {dates.map(d => <td key={d} className="border-r border-border/60 w-[86px] min-w-[86px]" />)}
+              <td className="px-2 py-2 text-xs text-right font-bold bg-muted/20 tabular-nums">{fmt(weekNetPosition())}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ── WEEK VIEW ────────────────────────────────────────────────────────────────
 
-function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSelectDay, onSelectWages, onSettings }) {
+function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSelectDay, onSelectWages, onSettings, onToggleMode }) {
   const api = useApi()
 
   const { data: weekData } = useQuery({
@@ -321,6 +724,10 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
             This week
           </button>
         )}
+        <button type="button" onClick={onToggleMode} title="Spreadsheet view"
+          className="flex items-center justify-center w-10 h-10 rounded-xl touch-manipulation hover:bg-muted transition-colors">
+          <Table2 className="w-5 h-5" />
+        </button>
         <IconBtn onClick={onSettings} title="Settings">
           <Settings className="w-4 h-4" />
         </IconBtn>
@@ -431,18 +838,19 @@ function DayView({ venueId, date, onBack }) {
   const [editExpId,     setEditExpId]     = useState(null)
 
   // Populate from server data
+  // NOTE: loadDailyReport returns income_entries / sc_entries / takings_entries (not income/sc/takings)
   useEffect(() => {
     if (!daily) return
     const inc = {}; const incN = {}
-    ;(daily.income ?? []).forEach(r => { inc[r.source_id] = r.gross_amount ?? ''; incN[r.source_id] = r.notes ?? '' })
+    ;(daily.income_entries ?? []).forEach(r => { inc[r.source_id] = r.gross_amount ?? ''; incN[r.source_id] = r.notes ?? '' })
     setIncomeValues(inc); setIncomeNotes(incN)
 
     const sc = {}; const scN = {}
-    ;(daily.sc ?? []).forEach(r => { sc[r.source_id] = r.amount ?? ''; scN[r.source_id] = r.notes ?? '' })
+    ;(daily.sc_entries ?? []).forEach(r => { sc[r.source_id] = r.amount ?? ''; scN[r.source_id] = r.notes ?? '' })
     setScValues(sc); setScNotes(scN)
 
     const tak = {}; const takN = {}
-    ;(daily.takings ?? []).forEach(r => { tak[r.channel_id] = r.amount ?? ''; takN[r.channel_id] = r.notes ?? '' })
+    ;(daily.takings_entries ?? []).forEach(r => { tak[r.channel_id] = r.amount ?? ''; takN[r.channel_id] = r.notes ?? '' })
     setTakingsValues(tak); setTakingsNotes(takN)
 
     setExpenses(daily.expenses ?? [])
@@ -2057,10 +2465,11 @@ export default function CashRecon() {
   const api = useApi()
   const { venueId: tlVenueId, setVenueId: setTlVenueId } = useTimelineSettings()
 
-  const [view,      setView]      = useState('week')
-  const [weekStart, setWeekStart] = useState(getMonday(new Date()))
-  const [dayDate,   setDayDate]   = useState(null)
-  const [venueId,   setVenueIdL]  = useState(tlVenueId ?? null)
+  const [view,       setView]      = useState('week')
+  const [weekStart,  setWeekStart] = useState(getMonday(new Date()))
+  const [dayDate,    setDayDate]   = useState(null)
+  const [venueId,    setVenueIdL]  = useState(tlVenueId ?? null)
+  const [spreadMode, setSpreadMode] = useState(true)
 
   // Keep local venueId in sync with TimelineSettings context
   function setVenueId(id) {
@@ -2108,16 +2517,29 @@ export default function CashRecon() {
   return (
     <div className="h-full flex flex-col">
       {view === 'week' && (
-        <WeekView
-          venueId={venueId}
-          venues={venues}
-          setVenueId={setVenueId}
-          weekStart={weekStart}
-          setWeekStart={setWeekStart}
-          onSelectDay={goDay}
-          onSelectWages={goWages}
-          onSettings={goSettings}
-        />
+        spreadMode
+          ? <SpreadsheetView
+              venueId={venueId}
+              venues={venues}
+              setVenueId={setVenueId}
+              weekStart={weekStart}
+              setWeekStart={setWeekStart}
+              onSelectDay={goDay}
+              onSelectWages={goWages}
+              onSettings={goSettings}
+              onToggleMode={() => setSpreadMode(false)}
+            />
+          : <WeekView
+              venueId={venueId}
+              venues={venues}
+              setVenueId={setVenueId}
+              weekStart={weekStart}
+              setWeekStart={setWeekStart}
+              onSelectDay={goDay}
+              onSelectWages={goWages}
+              onSettings={goSettings}
+              onToggleMode={() => setSpreadMode(true)}
+            />
       )}
       {view === 'day' && dayDate && (
         <DayView

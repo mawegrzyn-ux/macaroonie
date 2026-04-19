@@ -1013,6 +1013,102 @@ export default async function cashReconRoutes(app) {
     })
   })
 
+  // GET /:venueId/cash-recon/week-detail/:week_start
+  // Returns full per-source/channel breakdown for all 7 days of the week in one call.
+  app.get('/:venueId/cash-recon/week-detail/:week_start', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req) => {
+    const { venueId, week_start } = req.params
+    const weekStart = toMondayStr(week_start)
+
+    const weekBase = parseDate(weekStart)
+    const dates = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekBase)
+      d.setUTCDate(weekBase.getUTCDate() + i)
+      return d.toISOString().slice(0, 10)
+    })
+    const weekEnd = dates[6]
+
+    return withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+
+      const headers = await tx`
+        SELECT id, report_date::text AS date, status
+          FROM cash_daily_reports
+         WHERE venue_id    = ${venueId}
+           AND tenant_id   = ${req.tenantId}
+           AND report_date BETWEEN ${weekStart}::date AND ${weekEnd}::date
+      `
+
+      const reportByDate = Object.fromEntries(headers.map(r => [r.date, r]))
+      const reportIds    = headers.map(r => r.id)
+
+      const [incomeRows, takingsRows, scRows, expenseRows] = reportIds.length > 0
+        ? await Promise.all([
+            tx`SELECT report_id, source_id, gross_amount, vat_amount, net_amount, notes
+                 FROM cash_income_entries
+                WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}`,
+            tx`SELECT report_id, channel_id, amount, notes
+                 FROM cash_takings_entries
+                WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}`,
+            tx`SELECT report_id, source_id, amount, notes
+                 FROM cash_sc_entries
+                WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}`,
+            tx`SELECT report_id, id, description, category, category_id, amount, notes
+                 FROM cash_expenses
+                WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}
+                ORDER BY created_at`,
+          ])
+        : [[], [], [], []]
+
+      const groupByReport = rows => rows.reduce((acc, r) => {
+        ;(acc[r.report_id] ??= []).push(r)
+        return acc
+      }, {})
+
+      const incomeByRpt  = groupByReport(incomeRows)
+      const takingsByRpt = groupByReport(takingsRows)
+      const scByRpt      = groupByReport(scRows)
+      const expenseByRpt = groupByReport(expenseRows)
+
+      const [wages] = await tx`
+        SELECT wr.status,
+               COALESCE(SUM(we.total), 0) AS total_wages
+          FROM cash_wage_reports wr
+          LEFT JOIN cash_wage_entries we
+                 ON we.wage_report_id = wr.id AND we.tenant_id = ${req.tenantId}
+         WHERE wr.venue_id   = ${venueId}
+           AND wr.tenant_id  = ${req.tenantId}
+           AND wr.week_start = ${weekStart}::date
+         GROUP BY wr.id, wr.status
+      `
+
+      const days = {}
+      for (const date of dates) {
+        const hdr = reportByDate[date]
+        if (!hdr) { days[date] = null; continue }
+        const exps   = expenseByRpt[hdr.id] ?? []
+        const totExp = exps.reduce((s, e) => s + parseFloat(e.amount ?? 0), 0)
+        days[date] = {
+          status:         hdr.status,
+          report_id:      hdr.id,
+          income:         incomeByRpt[hdr.id]  ?? [],
+          sc:             scByRpt[hdr.id]      ?? [],
+          takings:        takingsByRpt[hdr.id] ?? [],
+          expenses:       exps,
+          total_expenses: totExp.toFixed(2),
+        }
+      }
+
+      return {
+        dates,
+        days,
+        wages_total:  wages ? String(wages.total_wages) : null,
+        wages_status: wages?.status ?? null,
+      }
+    })
+  })
+
   // ────────────────────────────────────────────────────────────
   // DAILY REPORT
   // ────────────────────────────────────────────────────────────
