@@ -1581,12 +1581,10 @@ export default function CashRecon() {
     setTlVenueId(id)
   }
 
-  const { data: venuesData } = useQuery({
+  const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
   })
-
-  const venues = venuesData?.venues ?? []
 
   // Auto-select first venue when list loads
   useEffect(() => {
