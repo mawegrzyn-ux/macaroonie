@@ -66,19 +66,21 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 // Config schemas
 const IncomeSourceBody = z.object({
-  name:          z.string().min(1).max(200),
-  type:          z.enum(['pos', 'delivery', 'other']).default('other'),
-  vat_rate:      z.coerce.number().min(0).max(100).default(0),
-  vat_inclusive: z.coerce.boolean().default(true),
+  name:                z.string().min(1).max(200),
+  type:                z.enum(['pos', 'delivery', 'other']).default('other'),
+  vat_rate:            z.coerce.number().min(0).max(100).default(0),
+  vat_inclusive:       z.coerce.boolean().default(true),
+  exclude_from_recon:  z.coerce.boolean().default(false),
 })
 
 const IncomeSourcePatch = z.object({
-  name:          z.string().min(1).max(200).optional(),
-  type:          z.enum(['pos', 'delivery', 'other']).optional(),
-  vat_rate:      z.coerce.number().min(0).max(100).optional(),
-  vat_inclusive: z.coerce.boolean().optional(),
-  is_active:     z.coerce.boolean().optional(),
-  sort_order:    z.coerce.number().int().optional(),
+  name:                z.string().min(1).max(200).optional(),
+  type:                z.enum(['pos', 'delivery', 'other']).optional(),
+  vat_rate:            z.coerce.number().min(0).max(100).optional(),
+  vat_inclusive:       z.coerce.boolean().optional(),
+  exclude_from_recon:  z.coerce.boolean().optional(),
+  is_active:           z.coerce.boolean().optional(),
+  sort_order:          z.coerce.number().int().optional(),
 })
 
 const ChannelBody = z.object({
@@ -111,32 +113,35 @@ const ScSourcePatch = z.object({
 
 const StaffBody = z.object({
   name:         z.string().min(1).max(200),
-  default_rate: z.number().min(0).nullable().optional(),
+  default_rate: z.coerce.number().min(0).nullable().optional(),
 })
 
 const StaffPatch = z.object({
   name:         z.string().min(1).max(200).optional(),
-  default_rate: z.number().min(0).nullable().optional(),
-  is_active:    z.boolean().optional(),
-  sort_order:   z.number().int().optional(),
+  default_rate: z.coerce.number().min(0).nullable().optional(),
+  is_active:    z.coerce.boolean().optional(),
+  sort_order:   z.coerce.number().int().optional(),
 })
 
 // Daily report schemas
 const IncomeEntrySchema = z.object({
   source_id:    UUID,
-  gross_amount: z.number().min(0).default(0),
-  vat_amount:   z.number().min(0).default(0),
-  net_amount:   z.number().min(0).default(0),
+  gross_amount: z.coerce.number().min(0).default(0),
+  vat_amount:   z.coerce.number().min(0).default(0),
+  net_amount:   z.coerce.number().min(0).default(0),
+  notes:        z.string().max(500).nullable().optional(),
 })
 
 const TakingsEntrySchema = z.object({
   channel_id: UUID,
-  amount:     z.number().min(0).default(0),
+  amount:     z.coerce.number().min(0).default(0),
+  notes:      z.string().max(500).nullable().optional(),
 })
 
 const ScEntrySchema = z.object({
   source_id: UUID,
-  amount:    z.number().min(0).default(0),
+  amount:    z.coerce.number().min(0).default(0),
+  notes:     z.string().max(500).nullable().optional(),
 })
 
 const ExpenseEntrySchema = z.object({
@@ -160,10 +165,11 @@ const WageEntrySchema = z.object({
   id:          UUID.optional(),
   staff_id:    UUID.nullable().optional(),
   name:        z.string().min(1).max(200),
-  hours:       z.number().min(0).nullable().optional(),
-  rate:        z.number().min(0).nullable().optional(),
-  total:       z.number().min(0).default(0),
-  cash_amount: z.number().min(0).default(0),
+  entry_type:  z.enum(['hourly', 'fixed']).default('hourly'),
+  hours:       z.coerce.number().min(0).nullable().optional(),
+  rate:        z.coerce.number().min(0).nullable().optional(),
+  total:       z.coerce.number().min(0).default(0),
+  cash_amount: z.coerce.number().min(0).default(0),
   notes:       z.string().max(1000).nullable().optional(),
 })
 
@@ -357,9 +363,9 @@ export default async function cashReconRoutes(app) {
       await assertVenueOwnership(tx, req.tenantId, venueId)
       return tx`
         INSERT INTO cash_income_sources
-               (tenant_id, venue_id, name, type, vat_rate, vat_inclusive)
+               (tenant_id, venue_id, name, type, vat_rate, vat_inclusive, exclude_from_recon)
         VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type},
-                ${body.vat_rate}, ${body.vat_inclusive})
+                ${body.vat_rate}, ${body.vat_inclusive}, ${body.exclude_from_recon})
         RETURNING *
       `
     })
@@ -949,6 +955,7 @@ export default async function cashReconRoutes(app) {
             gross_amount: e.gross_amount,
             vat_amount:   e.vat_amount,
             net_amount:   e.net_amount,
+            notes:        e.notes ?? null,
           })))}
         `
       }
@@ -966,6 +973,7 @@ export default async function cashReconRoutes(app) {
             report_id:  reportId,
             channel_id: e.channel_id,
             amount:     e.amount,
+            notes:      e.notes ?? null,
           })))}
         `
       }
@@ -983,6 +991,7 @@ export default async function cashReconRoutes(app) {
             report_id: reportId,
             source_id: e.source_id,
             amount:    e.amount,
+            notes:     e.notes ?? null,
           })))}
         `
       }
@@ -1377,6 +1386,7 @@ export default async function cashReconRoutes(app) {
             wage_report_id: report.id,
             staff_id:       e.staff_id ?? null,
             name:           e.name,
+            entry_type:     e.entry_type,
             hours:          e.hours ?? null,
             rate:           e.rate ?? null,
             total:          e.total,
