@@ -350,8 +350,11 @@ function DayView({ venueId, date, onBack }) {
 
   // Local form state
   const [incomeValues,  setIncomeValues]  = useState({})
+  const [incomeNotes,   setIncomeNotes]   = useState({})
   const [scValues,      setScValues]      = useState({})
+  const [scNotes,       setScNotes]       = useState({})
   const [takingsValues, setTakingsValues] = useState({})
+  const [takingsNotes,  setTakingsNotes]  = useState({})
   const [expenses,      setExpenses]      = useState([])
   const [addExpOpen,    setAddExpOpen]    = useState(false)
   const [editExpId,     setEditExpId]     = useState(null)
@@ -359,17 +362,17 @@ function DayView({ venueId, date, onBack }) {
   // Populate from server data
   useEffect(() => {
     if (!daily) return
-    const inc = {}
-    ;(daily.income ?? []).forEach(r => { inc[r.source_id] = r.amount ?? '' })
-    setIncomeValues(inc)
+    const inc = {}; const incN = {}
+    ;(daily.income ?? []).forEach(r => { inc[r.source_id] = r.gross_amount ?? ''; incN[r.source_id] = r.notes ?? '' })
+    setIncomeValues(inc); setIncomeNotes(incN)
 
-    const sc = {}
-    ;(daily.service_charges ?? []).forEach(r => { sc[r.source_id] = r.amount ?? '' })
-    setScValues(sc)
+    const sc = {}; const scN = {}
+    ;(daily.sc ?? []).forEach(r => { sc[r.source_id] = r.amount ?? ''; scN[r.source_id] = r.notes ?? '' })
+    setScValues(sc); setScNotes(scN)
 
-    const tak = {}
-    ;(daily.takings ?? []).forEach(r => { tak[r.channel_id] = r.amount ?? '' })
-    setTakingsValues(tak)
+    const tak = {}; const takN = {}
+    ;(daily.takings ?? []).forEach(r => { tak[r.channel_id] = r.amount ?? ''; takN[r.channel_id] = r.notes ?? '' })
+    setTakingsValues(tak); setTakingsNotes(takN)
 
     setExpenses(daily.expenses ?? [])
   }, [daily])
@@ -391,9 +394,11 @@ function DayView({ venueId, date, onBack }) {
     }
   }
 
-  // Totals
+  // Totals — excluded sources don't count toward reconciliation
   const totalIncome = useMemo(() =>
-    activeSources.reduce((sum, s) => sum + parseNum(incomeValues[s.id] ?? 0), 0),
+    activeSources
+      .filter(s => !s.exclude_from_recon)
+      .reduce((sum, s) => sum + parseNum(incomeValues[s.id] ?? 0), 0),
     [activeSources, incomeValues]
   )
 
@@ -438,37 +443,58 @@ function DayView({ venueId, date, onBack }) {
     }, 800)
   }
 
-  function buildPayload(overrides = {}) {
+  function buildPayload() {
+    const sourceById = Object.fromEntries(
+      (config?.income_sources ?? []).map(s => [s.id, s])
+    )
     return {
-      income: activeSources.map(s => ({ source_id: s.id, amount: parseNum(incomeValues[s.id] ?? 0) })),
-      service_charges: activeSc.map(s => ({ source_id: s.id, amount: parseNum(scValues[s.id] ?? 0) })),
-      takings: activeChannels.map(c => ({ channel_id: c.id, amount: parseNum(takingsValues[c.id] ?? 0) })),
-      ...overrides,
+      income: activeSources.map(s => {
+        const gross   = parseNum(incomeValues[s.id] ?? 0)
+        const src     = sourceById[s.id] ?? {}
+        const vatRate = parseNum(src.vat_rate ?? 0) / 100
+        let vat = 0, net = gross
+        if (vatRate > 0) {
+          if (src.vat_inclusive) {
+            vat = gross - gross / (1 + vatRate)
+            net = gross / (1 + vatRate)
+          } else {
+            vat = gross * vatRate
+            net = gross
+          }
+        }
+        return {
+          source_id:    s.id,
+          gross_amount: gross,
+          vat_amount:   Math.round(vat * 100) / 100,
+          net_amount:   Math.round(net * 100) / 100,
+          notes:        incomeNotes[s.id] ?? '',
+        }
+      }),
+      sc: activeSc.map(s => ({
+        source_id: s.id,
+        amount:    parseNum(scValues[s.id] ?? 0),
+        notes:     scNotes[s.id] ?? '',
+      })),
+      takings: activeChannels.map(c => ({
+        channel_id: c.id,
+        amount:     parseNum(takingsValues[c.id] ?? 0),
+        notes:      takingsNotes[c.id] ?? '',
+      })),
+      expenses: expenses,
     }
-  }
-
-  function handleIncomeBlur(sourceId, value) {
-    const next = { ...incomeValues, [sourceId]: value }
-    setIncomeValues(next)
-    triggerSave({ income: activeSources.map(s => ({ source_id: s.id, amount: parseNum(next[s.id] ?? 0) })) })
-  }
-
-  function handleScBlur(sourceId, value) {
-    const next = { ...scValues, [sourceId]: value }
-    setScValues(next)
-    triggerSave({ service_charges: activeSc.map(s => ({ source_id: s.id, amount: parseNum(next[s.id] ?? 0) })) })
-  }
-
-  function handleTakingsBlur(channelId, value) {
-    const next = { ...takingsValues, [channelId]: value }
-    setTakingsValues(next)
-    triggerSave({ takings: activeChannels.map(c => ({ channel_id: c.id, amount: parseNum(next[c.id] ?? 0) })) })
   }
 
   // Submit / unsubmit
   const submitMutation = useMutation({
-    mutationFn: (action) => api.post(`/venues/${venueId}/cash-recon/daily/${date}/${action}`, buildPayload()),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] }); qc.invalidateQueries({ queryKey: ['cash-recon-week'] }) },
+    mutationFn: async (action) => {
+      clearTimeout(saveTimerRef.current) // cancel any pending debounce
+      await api.put(`/venues/${venueId}/cash-recon/daily/${date}`, buildPayload())
+      return api.post(`/venues/${venueId}/cash-recon/daily/${date}/${action}`)
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+    },
   })
 
   const currentStatus = daily?.status ?? 'none'
@@ -529,12 +555,18 @@ function DayView({ venueId, date, onBack }) {
             {activeSources.map(source => {
               const { net, vat } = computeVat(source, incomeValues[source.id] ?? '')
               const hasVat = source.vat_rate > 0
+              const excluded = !!source.exclude_from_recon
               return (
-                <div key={source.id} className="grid grid-cols-[1fr_auto] gap-3 items-start">
+                <div key={source.id} className={cn('grid grid-cols-[1fr_auto] gap-3 items-start', excluded && 'opacity-70')}>
                   <div>
-                    <div className="flex items-center gap-2 mb-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-sm font-medium">{source.name}</span>
                       <TypeBadge type={source.type} />
+                      {excluded && (
+                        <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200">
+                          Excluded from recon
+                        </span>
+                      )}
                     </div>
                     {hasVat && parseNum(incomeValues[source.id]) > 0 && (
                       <div className="text-xs text-muted-foreground">
@@ -542,19 +574,32 @@ function DayView({ venueId, date, onBack }) {
                         {source.vat_inclusive ? ` — Net: ${fmt(net)}, VAT: ${fmt(vat)}` : ` — VAT: ${fmt(vat)}, Total: ${fmt(net + vat)}`}
                       </div>
                     )}
+                    <input
+                      type="text"
+                      placeholder="Notes (optional)"
+                      value={incomeNotes[source.id] ?? ''}
+                      onChange={e => setIncomeNotes(prev => ({ ...prev, [source.id]: e.target.value }))}
+                      onBlur={() => triggerSave(buildPayload())}
+                      className="mt-1.5 h-9 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary/40 text-muted-foreground placeholder:text-muted-foreground/60"
+                    />
                   </div>
                   <div className="w-32">
                     <AmountInput
                       value={incomeValues[source.id] ?? ''}
                       onChange={v => setIncomeValues(p => ({ ...p, [source.id]: v }))}
-                      onBlur={() => handleIncomeBlur(source.id, incomeValues[source.id] ?? '')}
+                      onBlur={() => triggerSave(buildPayload())}
                     />
                   </div>
                 </div>
               )
             })}
             <div className="flex justify-between items-center pt-2 border-t text-sm font-semibold">
-              <span>Total Income</span>
+              <span className="flex items-center gap-1.5">
+                Total Income
+                {activeSources.some(s => s.exclude_from_recon) && (
+                  <span className="text-xs font-normal text-muted-foreground">(excl. excluded sources)</span>
+                )}
+              </span>
               <span>{fmt(totalIncome)}</span>
             </div>
           </div>
@@ -567,19 +612,29 @@ function DayView({ venueId, date, onBack }) {
               <p className="text-sm text-muted-foreground">No service charge sources configured.</p>
             )}
             {activeSc.map(source => (
-              <div key={source.id} className="grid grid-cols-[1fr_auto] gap-3 items-center">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium">{source.name}</span>
-                  <TypeBadge type={source.type} />
-                  {source.included_in_takings && (
-                    <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">Included in takings</span>
-                  )}
+              <div key={source.id} className="grid grid-cols-[1fr_auto] gap-3 items-start">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium">{source.name}</span>
+                    <TypeBadge type={source.type} />
+                    {source.included_in_takings && (
+                      <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">Included in takings</span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Notes (optional)"
+                    value={scNotes[source.id] ?? ''}
+                    onChange={e => setScNotes(prev => ({ ...prev, [source.id]: e.target.value }))}
+                    onBlur={() => triggerSave(buildPayload())}
+                    className="mt-1.5 h-9 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary/40 text-muted-foreground placeholder:text-muted-foreground/60"
+                  />
                 </div>
                 <div className="w-32">
                   <AmountInput
                     value={scValues[source.id] ?? ''}
                     onChange={v => setScValues(p => ({ ...p, [source.id]: v }))}
-                    onBlur={() => handleScBlur(source.id, scValues[source.id] ?? '')}
+                    onBlur={() => triggerSave(buildPayload())}
                   />
                 </div>
               </div>
@@ -598,16 +653,26 @@ function DayView({ venueId, date, onBack }) {
               <p className="text-sm text-muted-foreground">No payment channels configured.</p>
             )}
             {activeChannels.map(channel => (
-              <div key={channel.id} className="grid grid-cols-[1fr_auto] gap-3 items-center">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium">{channel.name}</span>
-                  <TypeBadge type={channel.type} />
+              <div key={channel.id} className="grid grid-cols-[1fr_auto] gap-3 items-start">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium">{channel.name}</span>
+                    <TypeBadge type={channel.type} />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Notes (optional)"
+                    value={takingsNotes[channel.id] ?? ''}
+                    onChange={e => setTakingsNotes(prev => ({ ...prev, [channel.id]: e.target.value }))}
+                    onBlur={() => triggerSave(buildPayload())}
+                    className="mt-1.5 h-9 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary/40 text-muted-foreground placeholder:text-muted-foreground/60"
+                  />
                 </div>
                 <div className="w-32">
                   <AmountInput
                     value={takingsValues[channel.id] ?? ''}
                     onChange={v => setTakingsValues(p => ({ ...p, [channel.id]: v }))}
-                    onBlur={() => handleTakingsBlur(channel.id, takingsValues[channel.id] ?? '')}
+                    onBlur={() => triggerSave(buildPayload())}
                   />
                 </div>
               </div>
@@ -885,9 +950,10 @@ function WagesView({ venueId, weekStart, onBack }) {
     return { entries: entries.map(e => ({
       staff_id:    e.staff_id ?? null,
       name:        e.name,
-      hours:       parseNum(e.hours),
-      rate:        parseNum(e.rate),
-      total:       parseNum(e.total || (parseNum(e.hours) * parseNum(e.rate))),
+      entry_type:  e.entry_type ?? 'hourly',
+      hours:       e.entry_type === 'fixed' ? null : parseNum(e.hours),
+      rate:        e.entry_type === 'fixed' ? null : parseNum(e.rate),
+      total:       parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))),
       cash_amount: parseNum(e.cash_amount ?? 0),
       notes:       e.notes ?? '',
     })), notes }
@@ -914,23 +980,23 @@ function WagesView({ venueId, weekStart, onBack }) {
     const member = activeStaff.find(s => s.id === addStaff)
     if (!member) return
     setEntries(p => [...p, {
-      staff_id: member.id, name: member.name,
+      staff_id: member.id, name: member.name, entry_type: 'hourly',
       hours: '', rate: member.default_rate ?? '', total: '', cash_amount: '', notes: '',
     }])
     setAddStaff('')
     setAddOpen(false)
-    triggerSave({ entries: [...entries, { staff_id: member.id, name: member.name, hours: 0, rate: parseNum(member.default_rate), total: 0, cash_amount: 0, notes: '' }], notes })
+    triggerSave({ entries: [...entries, { staff_id: member.id, name: member.name, entry_type: 'hourly', hours: 0, rate: parseNum(member.default_rate), total: 0, cash_amount: 0, notes: '' }], notes })
   }
 
   function addAdhocEntry() {
     if (!addAdhoc.trim()) return
     setEntries(p => [...p, {
-      staff_id: null, name: addAdhoc.trim(),
+      staff_id: null, name: addAdhoc.trim(), entry_type: 'hourly',
       hours: '', rate: '', total: '', cash_amount: '', notes: '',
     }])
     setAddAdhoc('')
     setAddOpen(false)
-    triggerSave({ entries: [...entries, { staff_id: null, name: addAdhoc.trim(), hours: 0, rate: 0, total: 0, cash_amount: 0, notes: '' }], notes })
+    triggerSave({ entries: [...entries, { staff_id: null, name: addAdhoc.trim(), entry_type: 'hourly', hours: 0, rate: 0, total: 0, cash_amount: 0, notes: '' }], notes })
   }
 
   function removeEntry(idx) {
@@ -998,25 +1064,46 @@ function WagesView({ venueId, weekStart, onBack }) {
                     <Trash2 className="w-4 h-4" />
                   </IconBtn>
                 </div>
+                <div className="flex gap-1 mb-2">
+                  {['hourly', 'fixed'].map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => updateEntry(idx, 'entry_type', mode)}
+                      className={cn(
+                        'px-3 h-8 rounded-lg text-xs font-medium touch-manipulation transition-colors',
+                        (entry.entry_type ?? 'hourly') === mode
+                          ? 'bg-primary text-primary-foreground'
+                          : 'border text-muted-foreground hover:bg-muted'
+                      )}
+                    >
+                      {mode === 'hourly' ? '⏱ Hourly' : '£ Fixed'}
+                    </button>
+                  ))}
+                </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">Hours</label>
-                    <AmountInput
-                      value={entry.hours}
-                      onChange={v => updateEntry(idx, 'hours', v)}
-                      onBlur={handleEntryBlur}
-                      placeholder="0"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">Rate (£/hr)</label>
-                    <AmountInput
-                      value={entry.rate}
-                      onChange={v => updateEntry(idx, 'rate', v)}
-                      onBlur={handleEntryBlur}
-                      placeholder="0.00"
-                    />
-                  </div>
+                  {(entry.entry_type ?? 'hourly') === 'hourly' && (
+                    <>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Hours</label>
+                        <AmountInput
+                          value={entry.hours}
+                          onChange={v => updateEntry(idx, 'hours', v)}
+                          onBlur={handleEntryBlur}
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Rate (£/hr)</label>
+                        <AmountInput
+                          value={entry.rate}
+                          onChange={v => updateEntry(idx, 'rate', v)}
+                          onBlur={handleEntryBlur}
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </>
+                  )}
                   <div>
                     <label className="text-xs text-muted-foreground mb-1 block">Total (£)</label>
                     <AmountInput
@@ -1377,6 +1464,7 @@ function IncomeSourcesTab({ venueId, items, onRefetch, api }) {
         {parseNum(vals.vat_rate) > 0 && (
           <Toggle checked={!!vals.vat_inclusive} onChange={v => setVals(p => ({ ...p, vat_inclusive: v }))} label="VAT Inclusive (tax already in price)" />
         )}
+        <Toggle checked={!!vals.exclude_from_recon} onChange={v => setVals(p => ({ ...p, exclude_from_recon: v }))} label="Exclude from reconciliation totals" />
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
     )
