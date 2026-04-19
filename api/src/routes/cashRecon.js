@@ -7,6 +7,7 @@
 //
 // Config (CRUD for lookup tables):
 //   GET    /:venueId/cash-recon/config
+//   PATCH  /:venueId/cash-recon/settings
 //   POST   /:venueId/cash-recon/config/income-sources
 //   PUT    /:venueId/cash-recon/config/income-sources/reorder
 //   PATCH  /:venueId/cash-recon/config/income-sources/:id
@@ -321,6 +322,94 @@ const ALLOWED_RECEIPT_MIME = new Set([
   'application/pdf',
 ])
 
+/**
+ * Determine which dates in `dates` the venue is actually open, applying the
+ * same priority resolution as /schedule/sittings-for-date:
+ *   1. Named schedule exceptions  2. Single-date overrides  3. Weekly templates
+ * Returns the subset of `dates` (in original order) where the venue has sittings.
+ * Must be called from inside a withTenant callback.
+ */
+async function resolveOpenDaysForWeek(tx, tenantId, venueId, dates) {
+  const weekStart = dates[0]
+  const weekEnd   = dates[dates.length - 1]
+
+  // Bulk-load all three schedule layers for the week in parallel
+  const [exceptions, overrides, templates] = await Promise.all([
+    tx`
+      SELECT id, is_closed, date_from::text, date_to::text
+        FROM schedule_exceptions
+       WHERE venue_id   = ${venueId}
+         AND tenant_id  = ${tenantId}
+         AND date_from <= ${weekEnd}::date
+         AND date_to   >= ${weekStart}::date
+       ORDER BY priority DESC, (date_to - date_from) ASC
+    `,
+    tx`
+      SELECT override_date::text AS date, is_open
+        FROM schedule_date_overrides
+       WHERE venue_id      = ${venueId}
+         AND tenant_id     = ${tenantId}
+         AND override_date BETWEEN ${weekStart}::date AND ${weekEnd}::date
+    `,
+    tx`
+      SELECT day_of_week, is_open
+        FROM venue_schedule_templates
+       WHERE venue_id  = ${venueId}
+         AND tenant_id = ${tenantId}
+    `,
+  ])
+
+  const overrideByDate = Object.fromEntries(overrides.map(o => [o.date, o.is_open]))
+  const templateByDow  = Object.fromEntries(templates.map(t => [t.day_of_week, t.is_open]))
+
+  // Bulk-load exception day-of-week templates for any relevant exceptions
+  const excIds = exceptions.map(e => e.id)
+  const excDayTemplates = excIds.length > 0
+    ? await tx`
+        SELECT exception_id, day_of_week, is_open
+          FROM exception_day_templates
+         WHERE exception_id = ANY(${excIds}::uuid[])
+      `
+    : []
+  // excDowMap[excId][dow] = is_open (boolean)
+  const excDowMap = {}
+  for (const edt of excDayTemplates) {
+    ;(excDowMap[edt.exception_id] ??= {})[edt.day_of_week] = edt.is_open
+  }
+
+  const openDates = []
+  for (const date of dates) {
+    // JS getUTCDay(): 0=Sun … 6=Sat — same convention as PostgreSQL EXTRACT(DOW)
+    const dow = new Date(date + 'T12:00:00Z').getUTCDay()
+
+    // Priority 1: named exception (array is already sorted highest-priority first)
+    const exc = exceptions.find(e => e.date_from <= date && date <= e.date_to)
+    if (exc) {
+      if (exc.is_closed) continue           // whole period explicitly closed
+      const dowMap = excDowMap[exc.id]
+      if (dowMap) {
+        const isOpen = dowMap[dow]
+        if (isOpen !== undefined) {
+          if (isOpen) openDates.push(date)
+          continue
+        }
+      }
+      // Exception exists but no DOW template — fall through to priority 2
+    }
+
+    // Priority 2: single-date override
+    if (date in overrideByDate) {
+      if (overrideByDate[date]) openDates.push(date)
+      continue
+    }
+
+    // Priority 3: weekly template
+    if (templateByDow[dow]) openDates.push(date)
+  }
+
+  return openDates
+}
+
 // ── Plugin ────────────────────────────────────────────────────
 
 export default async function cashReconRoutes(app) {
@@ -337,7 +426,7 @@ export default async function cashReconRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
-      const [income_sources, payment_channels, sc_sources, staff, expense_categories] = await Promise.all([
+      const [income_sources, payment_channels, sc_sources, staff, expense_categories, venueSettingsRows] = await Promise.all([
         tx`
           SELECT * FROM cash_income_sources
            WHERE venue_id  = ${venueId}
@@ -368,10 +457,41 @@ export default async function cashReconRoutes(app) {
              AND tenant_id = ${req.tenantId}
            ORDER BY sort_order, created_at
         `,
+        tx`
+          SELECT allow_bulk_submit
+            FROM cash_venue_settings
+           WHERE venue_id  = ${venueId}
+             AND tenant_id = ${req.tenantId}
+        `,
       ])
 
-      return { income_sources, payment_channels, sc_sources, staff, expense_categories }
+      const venue_settings = venueSettingsRows[0] ?? { allow_bulk_submit: false }
+      return { income_sources, payment_channels, sc_sources, staff, expense_categories, venue_settings }
     })
+  })
+
+  // ── PATCH /:venueId/cash-recon/settings ───────────────────────────────────
+  // Upserts per-venue cash recon settings (allow_bulk_submit, etc.)
+  app.patch('/:venueId/cash-recon/settings', {
+    preHandler: requireRole('admin', 'owner'),
+  }, async (req) => {
+    const { venueId } = req.params
+    const body = z.object({
+      allow_bulk_submit: z.coerce.boolean().optional(),
+    }).parse(req.body)
+
+    const [row] = await withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      return tx`
+        INSERT INTO cash_venue_settings (venue_id, tenant_id, allow_bulk_submit)
+        VALUES (${venueId}, ${req.tenantId}, ${body.allow_bulk_submit ?? false})
+        ON CONFLICT (venue_id) DO UPDATE
+           SET allow_bulk_submit = EXCLUDED.allow_bulk_submit,
+               updated_at        = now()
+        RETURNING *
+      `
+    })
+    return row
   })
 
   // ────────────────────────────────────────────────────────────
@@ -1100,8 +1220,12 @@ export default async function cashReconRoutes(app) {
         }
       }
 
+      // Resolve which days the venue is actually open (schedule-aware)
+      const openDates = await resolveOpenDaysForWeek(tx, req.tenantId, venueId, dates)
+
       return {
         dates,
+        open_dates:   openDates,
         days,
         wages_total:  wages ? String(wages.total_wages) : null,
         wages_status: wages?.status ?? null,
