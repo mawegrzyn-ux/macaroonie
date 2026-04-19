@@ -16,13 +16,14 @@ class ApiError extends Error {
 }
 
 async function request(token, method, path, body) {
+  const hasBody = body != null
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
-      'Content-Type':  'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       'Authorization': `Bearer ${token}`,
     },
-    ...(body != null ? { body: JSON.stringify(body) } : {}),
+    ...(hasBody ? { body: JSON.stringify(body) } : {}),
   })
 
   const data = res.status !== 204 ? await res.json().catch(() => null) : null

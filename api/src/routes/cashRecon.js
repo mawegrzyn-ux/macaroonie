@@ -71,6 +71,7 @@ const IncomeSourceBody = z.object({
   vat_rate:            z.coerce.number().min(0).max(100).default(0),
   vat_inclusive:       z.coerce.boolean().default(true),
   exclude_from_recon:  z.coerce.boolean().default(false),
+  tooltip:             z.string().max(500).nullable().optional(),
 })
 
 const IncomeSourcePatch = z.object({
@@ -79,36 +80,41 @@ const IncomeSourcePatch = z.object({
   vat_rate:            z.coerce.number().min(0).max(100).optional(),
   vat_inclusive:       z.coerce.boolean().optional(),
   exclude_from_recon:  z.coerce.boolean().optional(),
+  tooltip:             z.string().max(500).nullable().optional(),
   is_active:           z.coerce.boolean().optional(),
   sort_order:          z.coerce.number().int().optional(),
 })
 
 const ChannelBody = z.object({
-  name: z.string().min(1).max(200),
-  type: z.enum(['cash', 'card', 'voucher', 'online', 'other']).default('cash'),
+  name:    z.string().min(1).max(200),
+  type:    z.enum(['cash', 'card', 'voucher', 'online', 'other']).default('cash'),
+  tooltip: z.string().max(500).nullable().optional(),
 })
 
 const ChannelPatch = z.object({
   name:       z.string().min(1).max(200).optional(),
   type:       z.enum(['cash', 'card', 'voucher', 'online', 'other']).optional(),
-  is_active:  z.boolean().optional(),
-  sort_order: z.number().int().optional(),
+  tooltip:    z.string().max(500).nullable().optional(),
+  is_active:  z.coerce.boolean().optional(),
+  sort_order: z.coerce.number().int().optional(),
 })
 
 const ScSourceBody = z.object({
   name:                z.string().min(1).max(200),
   type:                z.enum(['tips', 'service_charge']).default('tips'),
-  included_in_takings: z.boolean().default(false),
+  included_in_takings: z.coerce.boolean().default(false),
   distribution:        z.enum(['house', 'staff', 'split']).default('house'),
+  tooltip:             z.string().max(500).nullable().optional(),
 })
 
 const ScSourcePatch = z.object({
   name:                z.string().min(1).max(200).optional(),
   type:                z.enum(['tips', 'service_charge']).optional(),
-  included_in_takings: z.boolean().optional(),
+  included_in_takings: z.coerce.boolean().optional(),
   distribution:        z.enum(['house', 'staff', 'split']).optional(),
-  is_active:           z.boolean().optional(),
-  sort_order:          z.number().int().optional(),
+  tooltip:             z.string().max(500).nullable().optional(),
+  is_active:           z.coerce.boolean().optional(),
+  sort_order:          z.coerce.number().int().optional(),
 })
 
 const StaffBody = z.object({
@@ -363,9 +369,9 @@ export default async function cashReconRoutes(app) {
       await assertVenueOwnership(tx, req.tenantId, venueId)
       return tx`
         INSERT INTO cash_income_sources
-               (tenant_id, venue_id, name, type, vat_rate, vat_inclusive, exclude_from_recon)
+               (tenant_id, venue_id, name, type, vat_rate, vat_inclusive, exclude_from_recon, tooltip)
         VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type},
-                ${body.vat_rate}, ${body.vat_inclusive}, ${body.exclude_from_recon})
+                ${body.vat_rate}, ${body.vat_inclusive}, ${body.exclude_from_recon}, ${body.tooltip ?? null})
         RETURNING *
       `
     })
@@ -481,8 +487,8 @@ export default async function cashReconRoutes(app) {
     const [row] = await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
       return tx`
-        INSERT INTO cash_payment_channels (tenant_id, venue_id, name, type)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type})
+        INSERT INTO cash_payment_channels (tenant_id, venue_id, name, type, tooltip)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type}, ${body.tooltip ?? null})
         RETURNING *
       `
     })
@@ -596,9 +602,9 @@ export default async function cashReconRoutes(app) {
       await assertVenueOwnership(tx, req.tenantId, venueId)
       return tx`
         INSERT INTO cash_sc_sources
-               (tenant_id, venue_id, name, type, included_in_takings, distribution)
+               (tenant_id, venue_id, name, type, included_in_takings, distribution, tooltip)
         VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type},
-                ${body.included_in_takings}, ${body.distribution})
+                ${body.included_in_takings}, ${body.distribution}, ${body.tooltip ?? null})
         RETURNING *
       `
     })
