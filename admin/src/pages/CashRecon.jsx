@@ -786,10 +786,8 @@ function DayView({ venueId, date, onBack }) {
           date={date}
           expenses={expenses}
           setExpenses={setExpenses}
-          onSaved={() => {
-            qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] })
-            qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
-          }}
+          onSaved={() => qc.invalidateQueries({ queryKey: ['cash-recon-week'] })}
+          config={config}
         />
 
         {/* Summary */}
@@ -820,21 +818,47 @@ function DayView({ venueId, date, onBack }) {
 
 // ── Expenses section (extracted for clarity) ─────────────────────────────────
 
-function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved }) {
+function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config }) {
   const api = useApi()
   const [addOpen,   setAddOpen]   = useState(false)
   const [editId,    setEditId]    = useState(null)
-  const [newForm,   setNewForm]   = useState({ description: '', category: '', amount: '', notes: '' })
+  const [newForm,   setNewForm]   = useState({ description: '', category_id: null, amount: '', notes: '' })
+  const [newPhoto,  setNewPhoto]  = useState(null)   // { file, preview }
   const [editForm,  setEditForm]  = useState({})
+  const [editPhoto, setEditPhoto] = useState(null)   // { file, preview }
   const [uploading, setUploading] = useState({})
+  const newFileRef  = useRef(null)
+  const editFileRef = useRef(null)
   const fileInputRefs = useRef({})
+
+  const categories = useMemo(
+    () => (config?.expense_categories ?? []).filter(c => c.is_active),
+    [config]
+  )
+
+  function pickPhoto(file, setSetter) {
+    if (!file) return
+    const preview = URL.createObjectURL(file)
+    setSetter({ file, preview })
+  }
 
   async function handleAdd() {
     if (!newForm.description || !newForm.amount) return
     try {
       const created = await api.post(`/venues/${venueId}/cash-recon/expenses`, { ...newForm, date })
+      // upload photo if selected
+      if (newPhoto?.file) {
+        setUploading(p => ({ ...p, [created.id]: true }))
+        try {
+          const result = await api.upload(`/venues/${venueId}/cash-recon/expenses/${created.id}/receipt`, newPhoto.file)
+          created.receipt_url = result.url
+        } catch {}
+        setUploading(p => ({ ...p, [created.id]: false }))
+      }
       setExpenses(p => [...p, created])
-      setNewForm({ description: '', category: '', amount: '', notes: '' })
+      setNewForm({ description: '', category_id: null, amount: '', notes: '' })
+      if (newPhoto?.preview) URL.revokeObjectURL(newPhoto.preview)
+      setNewPhoto(null)
       setAddOpen(false)
       onSaved?.()
     } catch {}
@@ -843,7 +867,18 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved }) {
   async function handleEditSave(expId) {
     try {
       const updated = await api.put(`/venues/${venueId}/cash-recon/expenses/${expId}`, editForm)
-      setExpenses(p => p.map(e => e.id === expId ? updated : e))
+      let final = updated
+      if (editPhoto?.file) {
+        setUploading(p => ({ ...p, [expId]: true }))
+        try {
+          const result = await api.upload(`/venues/${venueId}/cash-recon/expenses/${expId}/receipt`, editPhoto.file)
+          final = { ...final, receipt_url: result.url }
+        } catch {}
+        setUploading(p => ({ ...p, [expId]: false }))
+      }
+      setExpenses(p => p.map(e => e.id === expId ? final : e))
+      if (editPhoto?.preview) URL.revokeObjectURL(editPhoto.preview)
+      setEditPhoto(null)
       setEditId(null)
       onSaved?.()
     } catch {}
@@ -880,6 +915,70 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved }) {
     setUploading(p => ({ ...p, [expId]: false }))
   }
 
+  function CategoryChips({ selected, onSelect }) {
+    if (categories.length === 0) return null
+    return (
+      <div className="flex flex-wrap gap-2">
+        {categories.map(cat => {
+          const active = selected === cat.id
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => onSelect(active ? null : cat.id)}
+              style={active && cat.colour ? { backgroundColor: cat.colour + '33', borderColor: cat.colour, color: cat.colour } : {}}
+              className={cn(
+                'h-8 px-3 rounded-full text-xs font-medium border touch-manipulation transition-colors',
+                active
+                  ? 'bg-primary/10 border-primary text-primary'
+                  : 'bg-background text-muted-foreground hover:bg-muted'
+              )}
+            >
+              {cat.name}
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  function PhotoInput({ photo, setPhoto, fileRef, label = 'Add photo' }) {
+    return (
+      <div>
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          ref={fileRef}
+          className="hidden"
+          onChange={e => pickPhoto(e.target.files[0], setPhoto)}
+        />
+        {photo?.preview ? (
+          <div className="relative inline-block">
+            <img src={photo.preview} alt="Preview" className="h-20 w-20 object-cover rounded-xl border" />
+            <button
+              type="button"
+              onClick={() => { URL.revokeObjectURL(photo.preview); setPhoto(null) }}
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-destructive text-white flex items-center justify-center touch-manipulation"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="flex items-center gap-2 h-10 px-3 rounded-xl border text-sm text-muted-foreground touch-manipulation hover:bg-muted"
+          >
+            <Camera className="w-4 h-4" /> {label}
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  const catById = useMemo(() => Object.fromEntries((config?.expense_categories ?? []).map(c => [c.id, c])), [config])
+
   return (
     <SectionCard title="Petty Cash Expenses">
       <div className="space-y-3">
@@ -888,45 +987,60 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved }) {
         )}
 
         {expenses.map(exp => {
+          const cat = catById[exp.category_id]
           if (editId === exp.id) {
             return (
               <div key={exp.id} className="rounded-xl border p-3 bg-muted/20 space-y-2">
                 <TextInput placeholder="Description *" value={editForm.description ?? ''} onChange={v => setEditForm(p => ({ ...p, description: v }))} />
-                <TextInput placeholder="Category" value={editForm.category ?? ''} onChange={v => setEditForm(p => ({ ...p, category: v }))} />
+                <CategoryChips selected={editForm.category_id ?? null} onSelect={id => setEditForm(p => ({ ...p, category_id: id }))} />
                 <AmountInput placeholder="Amount" value={editForm.amount ?? ''} onChange={v => setEditForm(p => ({ ...p, amount: v }))} />
                 <TextInput placeholder="Notes" value={editForm.notes ?? ''} onChange={v => setEditForm(p => ({ ...p, notes: v }))} />
+                <PhotoInput photo={editPhoto} setPhoto={setEditPhoto} fileRef={editFileRef} label={exp.receipt_url ? 'Replace photo' : 'Add photo'} />
                 <div className="flex gap-2">
-                  <button type="button" onClick={() => handleEditSave(exp.id)} className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation">Save</button>
-                  <button type="button" onClick={() => setEditId(null)} className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
+                  <button type="button" onClick={() => handleEditSave(exp.id)}
+                    disabled={uploading[exp.id]}
+                    className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-2">
+                    {uploading[exp.id] ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+                  </button>
+                  <button type="button" onClick={() => { setEditId(null); setEditPhoto(null) }}
+                    className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
                 </div>
               </div>
             )
           }
 
           return (
-            <div key={exp.id} className="rounded-xl border p-3 space-y-1">
+            <div key={exp.id} className="rounded-xl border p-3 space-y-1.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium">{exp.description}</div>
-                  {exp.category && <div className="text-xs text-muted-foreground">{exp.category}</div>}
-                  {exp.notes    && <div className="text-xs text-muted-foreground">{exp.notes}</div>}
+                  {cat && (
+                    <span
+                      style={cat.colour ? { backgroundColor: cat.colour + '22', borderColor: cat.colour + '88', color: cat.colour } : {}}
+                      className="inline-block rounded-full px-2 py-0.5 text-xs font-medium border bg-muted/40 text-muted-foreground mt-0.5"
+                    >
+                      {cat.name}
+                    </span>
+                  )}
+                  {!cat && exp.category && <div className="text-xs text-muted-foreground">{exp.category}</div>}
+                  {exp.notes && <div className="text-xs text-muted-foreground mt-0.5">{exp.notes}</div>}
                 </div>
                 <div className="text-sm font-semibold shrink-0">{fmt(exp.amount)}</div>
               </div>
 
-              {/* Receipt area */}
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                {exp.receipt_url ? (
-                  <>
-                    <a href={exp.receipt_url} target="_blank" rel="noopener noreferrer" className="text-xs text-primary underline">View receipt</a>
-                    <button type="button" onClick={() => handleDeleteReceipt(exp.id)}
-                      className="text-xs text-destructive touch-manipulation hover:underline">Delete receipt</button>
-                  </>
-                ) : (
+              {/* Receipt thumbnail */}
+              {exp.receipt_url && (
+                <a href={exp.receipt_url} target="_blank" rel="noopener noreferrer" className="block">
+                  <img src={exp.receipt_url} alt="Receipt" className="h-16 w-16 object-cover rounded-lg border" />
+                </a>
+              )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {!exp.receipt_url && (
                   <>
                     <input
                       type="file"
-                      accept="image/*,application/pdf"
+                      accept="image/*"
                       capture="environment"
                       ref={el => { fileInputRefs.current[exp.id] = el }}
                       className="hidden"
@@ -943,9 +1057,18 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved }) {
                     </button>
                   </>
                 )}
-
+                {exp.receipt_url && (
+                  <button type="button" onClick={() => handleDeleteReceipt(exp.id)}
+                    className="text-xs text-destructive touch-manipulation hover:underline">
+                    Remove receipt
+                  </button>
+                )}
                 <div className="ml-auto flex items-center gap-1">
-                  <IconBtn onClick={() => { setEditId(exp.id); setEditForm({ description: exp.description, category: exp.category ?? '', amount: exp.amount ?? '', notes: exp.notes ?? '' }) }} title="Edit">
+                  <IconBtn onClick={() => {
+                    setEditId(exp.id)
+                    setEditPhoto(null)
+                    setEditForm({ description: exp.description, category_id: exp.category_id ?? null, amount: exp.amount ?? '', notes: exp.notes ?? '' })
+                  }} title="Edit">
                     <Pencil className="w-4 h-4" />
                   </IconBtn>
                   <IconBtn onClick={() => handleDelete(exp.id)} title="Delete" className="text-destructive hover:bg-destructive/10">
@@ -961,12 +1084,19 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved }) {
         {addOpen ? (
           <div className="rounded-xl border p-3 bg-muted/20 space-y-2">
             <TextInput placeholder="Description *" value={newForm.description} onChange={v => setNewForm(p => ({ ...p, description: v }))} />
-            <TextInput placeholder="Category" value={newForm.category} onChange={v => setNewForm(p => ({ ...p, category: v }))} />
+            <CategoryChips selected={newForm.category_id} onSelect={id => setNewForm(p => ({ ...p, category_id: id }))} />
             <AmountInput placeholder="Amount *" value={newForm.amount} onChange={v => setNewForm(p => ({ ...p, amount: v }))} />
             <TextInput placeholder="Notes" value={newForm.notes} onChange={v => setNewForm(p => ({ ...p, notes: v }))} />
+            <PhotoInput photo={newPhoto} setPhoto={setNewPhoto} fileRef={newFileRef} />
             <div className="flex gap-2">
-              <button type="button" onClick={handleAdd} className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation">Save</button>
-              <button type="button" onClick={() => { setAddOpen(false); setNewForm({ description: '', category: '', amount: '', notes: '' }) }} className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
+              <button type="button" onClick={handleAdd}
+                className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation">Save</button>
+              <button type="button" onClick={() => {
+                setAddOpen(false)
+                setNewForm({ description: '', category_id: null, amount: '', notes: '' })
+                if (newPhoto?.preview) URL.revokeObjectURL(newPhoto.preview)
+                setNewPhoto(null)
+              }} className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
             </div>
           </div>
         ) : (
@@ -1015,11 +1145,36 @@ function WagesView({ venueId, weekStart, onBack }) {
 
   const activeStaff = useMemo(() => (config?.staff ?? []).filter(s => s.is_active), [config])
 
+  // Track which week we've already initialised so refetching config doesn't wipe entered data
+  const initializedWeek = useRef(null)
+
   useEffect(() => {
-    if (!wagesData) return
-    setEntries(wagesData.entries ?? [])
-    setNotes(wagesData.notes ?? '')
-  }, [wagesData])
+    if (!wagesData || !config) return
+    // Reset initialised flag when week changes
+    if (initializedWeek.current !== weekStart) {
+      initializedWeek.current = weekStart
+      setNotes(wagesData.notes ?? '')
+      const serverEntries = wagesData.entries ?? []
+      if (serverEntries.length > 0) {
+        // Week has saved entries — load them
+        setEntries(serverEntries)
+      } else if (activeStaff.length > 0) {
+        // New week — auto-populate from staff template
+        setEntries(activeStaff.map(s => ({
+          staff_id:    s.id,
+          name:        s.name,
+          entry_type:  'fixed',
+          hours:       '',
+          rate:        '',
+          total:       s.default_rate != null ? String(s.default_rate) : '',
+          cash_amount: '',
+          notes:       '',
+        })))
+      } else {
+        setEntries([])
+      }
+    }
+  }, [wagesData, config, weekStart, activeStaff])
 
   const totalWages     = useMemo(() => entries.reduce((s, e) => s + parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))), 0), [entries])
   const totalCashWages = useMemo(() => entries.reduce((s, e) => s + parseNum(e.cash_amount ?? 0), 0), [entries])
@@ -1042,16 +1197,19 @@ function WagesView({ venueId, weekStart, onBack }) {
   }
 
   function buildPayload() {
-    return { entries: entries.map(e => ({
-      staff_id:    e.staff_id ?? null,
-      name:        e.name,
-      entry_type:  e.entry_type ?? 'hourly',
-      hours:       e.entry_type === 'fixed' ? null : parseNum(e.hours),
-      rate:        e.entry_type === 'fixed' ? null : parseNum(e.rate),
-      total:       parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))),
-      cash_amount: parseNum(e.cash_amount ?? 0),
-      notes:       e.notes ?? '',
-    })), notes }
+    return { entries: entries.map(e => {
+      const et = e.entry_type ?? 'fixed'
+      return {
+        staff_id:    e.staff_id ?? null,
+        name:        e.name,
+        entry_type:  et,
+        hours:       et === 'fixed' ? null : parseNum(e.hours),
+        rate:        et === 'fixed' ? null : parseNum(e.rate),
+        total:       parseNum(e.total ?? (et === 'hourly' ? parseNum(e.hours) * parseNum(e.rate) : 0)),
+        cash_amount: parseNum(e.cash_amount ?? 0),
+        notes:       e.notes ?? '',
+      }
+    }), notes }
   }
 
   function handleEntryBlur() {
@@ -1074,24 +1232,23 @@ function WagesView({ venueId, weekStart, onBack }) {
   function addFromTemplate() {
     const member = activeStaff.find(s => s.id === addStaff)
     if (!member) return
-    setEntries(p => [...p, {
-      staff_id: member.id, name: member.name, entry_type: 'hourly',
-      hours: '', rate: member.default_rate ?? '', total: '', cash_amount: '', notes: '',
-    }])
+    const newEntry = {
+      staff_id: member.id, name: member.name, entry_type: 'fixed',
+      hours: '', rate: '', total: member.default_rate != null ? String(member.default_rate) : '', cash_amount: '', notes: '',
+    }
+    setEntries(p => [...p, newEntry])
     setAddStaff('')
     setAddOpen(false)
-    triggerSave({ entries: [...entries, { staff_id: member.id, name: member.name, entry_type: 'hourly', hours: 0, rate: parseNum(member.default_rate), total: 0, cash_amount: 0, notes: '' }], notes })
+    triggerSave({ entries: [...entries, { staff_id: member.id, name: member.name, entry_type: 'fixed', hours: null, rate: null, total: parseNum(member.default_rate), cash_amount: 0, notes: '' }], notes })
   }
 
   function addAdhocEntry() {
     if (!addAdhoc.trim()) return
-    setEntries(p => [...p, {
-      staff_id: null, name: addAdhoc.trim(), entry_type: 'hourly',
-      hours: '', rate: '', total: '', cash_amount: '', notes: '',
-    }])
+    const newEntry = { staff_id: null, name: addAdhoc.trim(), entry_type: 'fixed', hours: '', rate: '', total: '', cash_amount: '', notes: '' }
+    setEntries(p => [...p, newEntry])
     setAddAdhoc('')
     setAddOpen(false)
-    triggerSave({ entries: [...entries, { staff_id: null, name: addAdhoc.trim(), entry_type: 'hourly', hours: 0, rate: 0, total: 0, cash_amount: 0, notes: '' }], notes })
+    triggerSave({ entries: [...entries, { staff_id: null, name: addAdhoc.trim(), entry_type: 'fixed', hours: null, rate: null, total: 0, cash_amount: 0, notes: '' }], notes })
   }
 
   function removeEntry(idx) {
@@ -1145,10 +1302,32 @@ function WagesView({ venueId, weekStart, onBack }) {
       </div>
 
       <div className="p-4 space-y-0 pb-32">
-        <SectionCard title="Staff Wages">
+        <SectionCard
+          title="Staff Wages"
+          action={
+            activeStaff.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (entries.length > 0 && !window.confirm('This will replace existing entries with staff template. Continue?')) return
+                  initializedWeek.current = null  // allow re-init
+                  setEntries(activeStaff.map(s => ({
+                    staff_id: s.id, name: s.name, entry_type: 'fixed',
+                    hours: '', rate: '',
+                    total: s.default_rate != null ? String(s.default_rate) : '',
+                    cash_amount: '', notes: '',
+                  })))
+                }}
+                className="text-xs text-primary touch-manipulation hover:underline"
+              >
+                Load template
+              </button>
+            )
+          }
+        >
           <div className="space-y-3">
             {entries.length === 0 && !addOpen && (
-              <p className="text-sm text-muted-foreground">No staff entries yet.</p>
+              <p className="text-sm text-muted-foreground">No staff entries yet. {activeStaff.length > 0 ? 'Click "Load template" to pre-fill from your staff list.' : 'Add staff in Settings first.'}</p>
             )}
 
             {entries.map((entry, idx) => (
@@ -1160,14 +1339,14 @@ function WagesView({ venueId, weekStart, onBack }) {
                   </IconBtn>
                 </div>
                 <div className="flex gap-1 mb-2">
-                  {['hourly', 'fixed'].map(mode => (
+                  {['fixed', 'hourly'].map(mode => (
                     <button
                       key={mode}
                       type="button"
                       onClick={() => updateEntry(idx, 'entry_type', mode)}
                       className={cn(
                         'px-3 h-8 rounded-lg text-xs font-medium touch-manipulation transition-colors',
-                        (entry.entry_type ?? 'hourly') === mode
+                        (entry.entry_type ?? 'fixed') === mode
                           ? 'bg-primary text-primary-foreground'
                           : 'border text-muted-foreground hover:bg-muted'
                       )}
@@ -1177,7 +1356,7 @@ function WagesView({ venueId, weekStart, onBack }) {
                   ))}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  {(entry.entry_type ?? 'hourly') === 'hourly' && (
+                  {(entry.entry_type ?? 'fixed') === 'hourly' && (
                     <>
                       <div>
                         <label className="text-xs text-muted-foreground mb-1 block">Hours</label>
@@ -1361,6 +1540,7 @@ function SettingsView({ venueId, onBack }) {
     { key: 'channels',  label: 'Payment Channels' },
     { key: 'sc',        label: 'Service Charges' },
     { key: 'staff',     label: 'Staff' },
+    { key: 'expenses',  label: 'Categories' },
   ]
 
   return (
@@ -1391,10 +1571,11 @@ function SettingsView({ venueId, onBack }) {
       </div>
 
       <div className="p-4">
-        {tab === 'income'   && <IncomeSourcesTab   venueId={venueId} items={config?.income_sources   ?? []} onRefetch={refetchConfig} api={api} />}
-        {tab === 'channels' && <PaymentChannelsTab venueId={venueId} items={config?.payment_channels ?? []} onRefetch={refetchConfig} api={api} />}
-        {tab === 'sc'       && <ScSourcesTab       venueId={venueId} items={config?.sc_sources       ?? []} onRefetch={refetchConfig} api={api} />}
-        {tab === 'staff'    && <StaffTab           venueId={venueId} items={config?.staff            ?? []} onRefetch={refetchConfig} api={api} />}
+        {tab === 'income'   && <IncomeSourcesTab      venueId={venueId} items={config?.income_sources      ?? []} onRefetch={refetchConfig} api={api} />}
+        {tab === 'channels' && <PaymentChannelsTab   venueId={venueId} items={config?.payment_channels  ?? []} onRefetch={refetchConfig} api={api} />}
+        {tab === 'sc'       && <ScSourcesTab         venueId={venueId} items={config?.sc_sources        ?? []} onRefetch={refetchConfig} api={api} />}
+        {tab === 'staff'    && <StaffTab             venueId={venueId} items={config?.staff             ?? []} onRefetch={refetchConfig} api={api} />}
+        {tab === 'expenses' && <ExpenseCategoriesTab venueId={venueId} items={config?.expense_categories ?? []} onRefetch={refetchConfig} api={api} />}
       </div>
     </div>
   )
@@ -1780,6 +1961,92 @@ function StaffTab({ venueId, items, onRefetch, api }) {
       renderForm={renderForm}
       emptyLabel="No staff templates yet."
       addLabel="Add staff member"
+    />
+  )
+}
+
+// ── Expense Categories tab ────────────────────────────────────────────────────
+
+function ExpenseCategoriesTab({ venueId, items, onRefetch, api }) {
+  const [localItems, setLocalItems] = useState(items)
+  useEffect(() => setLocalItems(items), [items])
+
+  async function handleSave(id, vals) {
+    if (id) {
+      await api.put(`/venues/${venueId}/cash-recon/config/expense-categories/${id}`, vals)
+    } else {
+      await api.post(`/venues/${venueId}/cash-recon/config/expense-categories`, { ...vals, sort_order: localItems.length })
+    }
+    onRefetch()
+  }
+
+  async function handleDelete(id) {
+    await api.delete(`/venues/${venueId}/cash-recon/config/expense-categories/${id}`)
+    onRefetch()
+  }
+
+  async function handleToggleActive(id, val) {
+    await api.patch(`/venues/${venueId}/cash-recon/config/expense-categories/${id}`, { is_active: val })
+    onRefetch()
+  }
+
+  async function handleMove(idx, dir) {
+    const next = [...localItems]
+    const swapIdx = idx + dir
+    if (swapIdx < 0 || swapIdx >= next.length) return;
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
+    setLocalItems(next)
+    await api.put(`/venues/${venueId}/cash-recon/config/expense-categories/reorder`, { ids: next.map(i => i.id) })
+    onRefetch()
+  }
+
+  function renderForm({ vals, setVals }) {
+    const PRESET_COLOURS = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#6b7280']
+    return (
+      <>
+        <TextInput placeholder="Category name *" value={vals.name ?? ''} onChange={v => setVals(p => ({ ...p, name: v }))} />
+        <div>
+          <label className="text-xs text-muted-foreground block mb-2">Colour</label>
+          <div className="flex flex-wrap gap-2 items-center">
+            {PRESET_COLOURS.map(c => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setVals(p => ({ ...p, colour: p.colour === c ? null : c }))}
+                style={{ backgroundColor: c }}
+                className={cn(
+                  'w-8 h-8 rounded-full border-2 touch-manipulation transition-transform',
+                  vals.colour === c ? 'border-foreground scale-110' : 'border-transparent'
+                )}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={() => setVals(p => ({ ...p, colour: null }))}
+              className={cn(
+                'h-8 px-2 rounded-full border text-xs touch-manipulation',
+                !vals.colour ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-muted'
+              )}
+            >
+              None
+            </button>
+          </div>
+        </div>
+        <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
+      </>
+    )
+  }
+
+  return (
+    <SettingsListManager
+      items={localItems}
+      onMove={handleMove}
+      onToggleActive={handleToggleActive}
+      onDelete={handleDelete}
+      onSave={handleSave}
+      renderForm={renderForm}
+      emptyLabel="No expense categories yet."
+      addLabel="Add category"
     />
   )
 }
