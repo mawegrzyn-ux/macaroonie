@@ -104,7 +104,7 @@ const ScSourceBody = z.object({
   name:                z.string().min(1).max(200),
   type:                z.enum(['tips', 'service_charge']).default('tips'),
   included_in_takings: z.coerce.boolean().default(false),
-  included_in_sales:   z.coerce.boolean().default(false),
+  included_in_income:  z.coerce.boolean().default(false),
   distribution:        z.enum(['house', 'staff', 'split']).default('house'),
   tooltip:             z.string().max(500).nullable().optional(),
 })
@@ -113,7 +113,7 @@ const ScSourcePatch = z.object({
   name:                z.string().min(1).max(200).optional(),
   type:                z.enum(['tips', 'service_charge']).optional(),
   included_in_takings: z.coerce.boolean().optional(),
-  included_in_sales:   z.coerce.boolean().optional(),
+  included_in_income:  z.coerce.boolean().optional(),
   distribution:        z.enum(['house', 'staff', 'split']).optional(),
   tooltip:             z.string().max(500).nullable().optional(),
   is_active:           z.coerce.boolean().optional(),
@@ -275,7 +275,7 @@ async function loadDailyReport(tx, tenantId, reportId) {
     `,
     tx`
       SELECT e.*, s.name AS source_name, s.type AS source_type,
-             s.included_in_takings, s.included_in_sales, s.distribution
+             s.included_in_takings, s.included_in_income, s.distribution
         FROM cash_sc_entries e
         JOIN cash_sc_sources s ON s.id = e.source_id
        WHERE e.report_id  = ${reportId}
@@ -745,10 +745,10 @@ export default async function cashReconRoutes(app) {
       return tx`
         INSERT INTO cash_sc_sources
                (tenant_id, venue_id, name, type,
-                included_in_takings, included_in_sales,
+                included_in_takings, included_in_income,
                 distribution, tooltip)
         VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type},
-                ${body.included_in_takings}, ${body.included_in_sales},
+                ${body.included_in_takings}, ${body.included_in_income},
                 ${body.distribution}, ${body.tooltip ?? null})
         RETURNING *
       `
