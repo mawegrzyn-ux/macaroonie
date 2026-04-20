@@ -651,6 +651,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
                   <td className="sticky left-0 bg-background px-3 py-1 text-xs border-r border-border/60 min-w-[150px] z-10 whitespace-nowrap">
                     <span className="font-medium">{s.name}</span>
                     {s.included_in_takings && <span className="ml-1 text-[10px] text-amber-600">↳ takings</span>}
+                    {s.included_in_sales    && <span className="ml-1 text-[10px] text-emerald-600">↳ sales</span>}
                   </td>
                   {visibleDates.map(date => <EditableCell key={date} date={date} cat="sc" id={s.id} />)}
                   <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
@@ -948,13 +949,22 @@ function DayView({ venueId, date, onBack }) {
     }
   }
 
-  // Totals — excluded sources don't count toward reconciliation
-  const totalIncome = useMemo(() =>
-    activeSources
-      .filter(s => !s.exclude_from_recon)
-      .reduce((sum, s) => sum + parseNum(incomeValues[s.id] ?? 0), 0),
-    [activeSources, incomeValues]
+  // Totals — excluded sources don't count toward reconciliation.
+  // SC sources with included_in_sales=true are ALSO added to the
+  // "Total Income / Sales" figure so the same money shows as revenue
+  // (sales KPI) AND — if included_in_takings=true — as expected
+  // reconciliation cash.  The two flags are independent.
+  const totalScInSales = useMemo(() =>
+    activeSc.filter(s => s.included_in_sales).reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
+    [activeSc, scValues]
   )
+
+  const totalIncome = useMemo(() => {
+    const base = activeSources
+      .filter(s => !s.exclude_from_recon)
+      .reduce((sum, s) => sum + parseNum(incomeValues[s.id] ?? 0), 0)
+    return base + totalScInSales
+  }, [activeSources, incomeValues, totalScInSales])
 
   const totalScIncluded = useMemo(() =>
     activeSc.filter(s => s.included_in_takings).reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
@@ -976,7 +986,13 @@ function DayView({ venueId, date, onBack }) {
     [expenses]
   )
 
-  const variance = (totalIncome + totalScIncluded) - totalTakings
+  // Variance math must NOT double-count SC that's flagged for BOTH
+  // sales and takings — include_in_sales inflates totalIncome for
+  // the KPI display, but for the reconciliation side we use the raw
+  // income (no SC) plus totalScIncluded so each SC amount only
+  // affects the expected-till figure once.
+  const varianceIncomeBase = totalIncome - totalScInSales
+  const variance = (varianceIncomeBase + totalScIncluded) - totalTakings
   const netCash  = totalTakings - totalExpenses
 
   // Auto-save on blur (debounced 800ms)
@@ -1186,6 +1202,9 @@ function DayView({ venueId, date, onBack }) {
                     {source.included_in_takings && (
                       <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">Included in takings</span>
                     )}
+                    {source.included_in_sales && (
+                      <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700">Included in sales</span>
+                    )}
                   </div>
                   {source.tooltip && (
                     <div className="text-xs text-muted-foreground mt-0.5">{source.tooltip}</div>
@@ -1277,6 +1296,9 @@ function DayView({ venueId, date, onBack }) {
         <div className="rounded-2xl border bg-card shadow-sm p-4 space-y-2">
           <h3 className="text-sm font-semibold mb-3">Summary</h3>
           <div className="flex justify-between text-sm"><span>Total Income</span><span className="font-medium">{fmt(totalIncome)}</span></div>
+          {totalScInSales > 0 && (
+            <div className="flex justify-between text-xs text-emerald-700"><span className="pl-3">incl. SC in sales</span><span>{fmt(totalScInSales)}</span></div>
+          )}
           {totalScIncluded > 0 && (
             <div className="flex justify-between text-sm text-muted-foreground"><span>SC included in takings</span><span>{fmt(totalScIncluded)}</span></div>
           )}
@@ -2400,6 +2422,7 @@ function ScSourcesTab({ venueId, items, onRefetch, api }) {
           {SC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <Toggle checked={!!vals.included_in_takings} onChange={v => setVals(p => ({ ...p, included_in_takings: v }))} label="Included in Takings" />
+        <Toggle checked={!!vals.included_in_sales}   onChange={v => setVals(p => ({ ...p, included_in_sales:   v }))} label="Included in Sales" />
         <select value={vals.distribution ?? ''} onChange={e => setVals(p => ({ ...p, distribution: e.target.value }))}
           className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
           <option value="">Distribution…</option>
