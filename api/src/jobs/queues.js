@@ -8,15 +8,20 @@ export const notificationQueue = new Queue('notifications', { connection })
 export const holdSweepQueue    = new Queue('hold-sweep',    { connection })
 
 // ── Notification worker ───────────────────────────────────────
-// Processes: confirmation, reminder_24h, reminder_2h, cancellation
+// Routes booking emails through the new pluggable email system
+// (emailWorker.processEmailJob) which supports per-venue provider
+// selection, template overrides, and merge-field rendering.
 
 export function startNotificationWorker(log) {
   const worker = new Worker('notifications', async job => {
-    const { bookingId, tenantId, type } = job.data
+    const { bookingId, tenantId, venueId, type, manageBaseUrl } = job.data
     log.info({ bookingId, type }, 'Processing notification')
 
-    const { sendNotification } = await import('../services/notificationSvc.js')
-    await sendNotification({ bookingId, tenantId, type })
+    const { processEmailJob } = await import('./emailWorker.js')
+    await processEmailJob({
+      data: { bookingId, tenantId, venueId, type, manageBaseUrl },
+      log:  (msg) => log.info(msg),
+    })
 
   }, { connection, concurrency: 5 })
 

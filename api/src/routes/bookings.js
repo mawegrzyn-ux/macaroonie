@@ -16,6 +16,35 @@ import { notificationQueue } from '../jobs/queues.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
 import { upsertCustomer } from './customers.js'
 
+// Schedule a reminder email as a delayed BullMQ job.
+// Fires `reminder_hours_before` hours before `starts_at`.
+// If the venue hasn't configured email settings, defaults to 24h.
+async function scheduleReminder(req, booking) {
+  const { withTenant: wt } = await import('../config/db.js')
+  const [settings] = await wt(req.tenantId, tx => tx`
+    SELECT reminder_enabled, reminder_hours_before
+      FROM venue_email_settings
+     WHERE venue_id = ${booking.venue_id}
+  `)
+  if (settings && !settings.reminder_enabled) return
+
+  const hoursBefore = settings?.reminder_hours_before ?? 24
+  const startsAt    = new Date(booking.starts_at).getTime()
+  const reminderAt  = startsAt - hoursBefore * 3600_000
+  const delay       = Math.max(reminderAt - Date.now(), 5000) // min 5s
+
+  await notificationQueue.add('booking_email', {
+    bookingId: booking.id,
+    tenantId:  req.tenantId,
+    venueId:   booking.venue_id,
+    type:      'reminder',
+  }, {
+    delay,
+    jobId:           `reminder-${booking.id}`,
+    removeOnComplete: true,
+  })
+}
+
 // ── Schemas ──────────────────────────────────────────────────
 
 const HoldBody = z.object({
@@ -228,8 +257,14 @@ export default async function bookingsRoutes(app) {
     }).catch(e => req.log.warn({ err: e }, 'customer upsert failed — booking created without customer link'))
 
     // Enqueue confirmation email (fire-and-forget — never block the response)
-    notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: req.tenantId, type: 'confirmation' })
-      .catch(e => req.log.warn({ err: e }, 'notification queue unavailable — confirmation email skipped'))
+    notificationQueue.add('booking_email', {
+      bookingId: booking.id, tenantId: req.tenantId,
+      venueId: booking.venue_id, type: 'confirmation',
+    }).catch(e => req.log.warn({ err: e }, 'notification queue unavailable — confirmation email skipped'))
+
+    // Schedule reminder email (delayed job)
+    scheduleReminder(req, booking).catch(() => {})
+
     broadcastBooking('booking.created', booking)
 
     return reply.code(201).send(booking)
@@ -495,8 +530,11 @@ export default async function bookingsRoutes(app) {
     }).catch(e => req.log.warn({ err: e }, 'customer upsert failed — booking created without customer link'))
 
     // Fire-and-forget — never block the response
-    notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: req.tenantId, type: 'confirmation' })
-      .catch(e => req.log.warn({ err: e }, 'notification queue unavailable — booking created but confirmation email skipped'))
+    notificationQueue.add('booking_email', {
+      bookingId: booking.id, tenantId: req.tenantId,
+      venueId: booking.venue_id, type: 'confirmation',
+    }).catch(e => req.log.warn({ err: e }, 'notification queue unavailable — booking created but confirmation email skipped'))
+    scheduleReminder(req, booking).catch(() => {})
     broadcastBooking('booking.created', booking)
     for (const d of displacedBookings) broadcastBooking('booking.updated', d)
     return reply.code(201).send(booking)
@@ -574,10 +612,11 @@ export default async function bookingsRoutes(app) {
     `)
     if (!booking) throw httpError(404, 'Booking not found')
 
-    // Enqueue notifications for certain transitions (fire-and-forget — never block the response)
     if (status === 'cancelled') {
-      notificationQueue.add('cancellation', { bookingId: booking.id, tenantId: req.tenantId, type: 'cancellation' })
-        .catch(e => req.log.warn({ err: e }, 'notification queue unavailable — cancellation email skipped'))
+      notificationQueue.add('booking_email', {
+        bookingId: booking.id, tenantId: req.tenantId,
+        venueId: booking.venue_id, type: 'cancellation',
+      }).catch(e => req.log.warn({ err: e }, 'notification queue unavailable — cancellation email skipped'))
     }
     broadcastBooking('booking.updated', booking)
 
