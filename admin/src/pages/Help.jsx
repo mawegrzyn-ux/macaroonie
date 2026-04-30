@@ -1608,6 +1608,9 @@ function H3({ children, className }) {
 function P({ children }) {
   return <p className="text-sm text-muted-foreground leading-relaxed mb-3">{children}</p>
 }
+function Mono({ children }) {
+  return <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+}
 function InfoBox({ type = 'info', children }) {
   const s = {
     info: 'bg-blue-50 border-blue-200 text-blue-900',
