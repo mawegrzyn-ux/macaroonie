@@ -5,6 +5,53 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-04-30 session]
+
+### Booking email system  *(migration 035)*
+- **Pluggable email service** (`emailSvc.js`): 4 providers (SendGrid, Mailgun, AWS SES, SMTP)
+  selectable per venue. SendGrid is the default, falls back to `SENDGRID_API_KEY` env var.
+  Per-venue credentials supported for all providers.
+- **Default HTML templates**: confirmation, reminder, modification, cancellation. Clean,
+  mobile-responsive, professional. 16 merge fields (`{{guest_name}}`, `{{booking_date}}`,
+  `{{manage_link}}`, etc). Work out of the box with no admin setup.
+- **Guest manage page** at `/manage/{token}` (SSR via Eta): view booking details, modify
+  (date/time/covers), cancel (double-confirm). Themed per-venue. No login — UUID token
+  IS the auth. `manage_token` column added to bookings (backfilled).
+- **Email worker** (BullMQ): loads booking+venue+template, renders fields, sends, logs to
+  `email_log` table. Reminder scheduling via delayed jobs (configurable hours-before).
+- **Triggers**: confirmation on booking create, cancellation on status change, reminder
+  auto-scheduled on confirm.
+- **Admin page** at `/email-templates` with 3 tabs:
+    * Templates: per-type editor, merge field pills, live preview iframe, reset-to-default
+    * Settings: provider picker, credentials, sender identity, reminder toggle + hours,
+      guest self-service permissions (allow modify/cancel, cancel cutoff hours)
+    * Sent emails: audit log with status badges
+- **Migration 035**: `email_templates`, `email_log`, `venue_email_settings` tables +
+  `manage_token`/`reminder_sent_at` on bookings.
+
+### Cash recon — SC included in income  *(migrations 033 + 034)*
+- Renamed `included_in_sales` to `included_in_income` (migration 034, idempotent rename).
+- XOR variance adjustment: the two SC flags work independently so operators can model
+  4 scenarios (SC retained as revenue + in till, SC in income but not till, SC in till
+  but not income, SC tracked only).
+- Admin: "Included in Income" toggle + emerald badges + signed "SC adjustment" line
+  in the daily summary.
+
+### Auto-deploy migrations
+- New `api/scripts/migrate.js` runner with `schema_migrations` tracking table.
+- GitHub Actions workflow runs migrations between `npm install` and `pm2 restart`.
+- Auto-baseline: `AUTO_BASELINE_UP_TO=024` env detects servers built by hand and
+  baselines on first run. Manual baseline workflow available in Actions UI.
+- `deploy.sh` updated with same hook. `deploy.yml` switched from `git pull` to
+  `git fetch + reset --hard` to handle dirty server working trees.
+
+### CLAUDE.md session protocols
+- SOS Checklist, EOS Protocol, Standard Design Rules (11 rules), Doc maintenance
+  section adopted from the COGS template.
+- Table of Contents added. Gotchas section marked append-only.
+
+---
+
 ## [Unreleased / Current]
 
 ### Tenant Website Builder / CMS  *(migrations 025 + 026)*
