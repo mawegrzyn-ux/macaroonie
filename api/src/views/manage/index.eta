@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Your booking at <%= it.booking.venue_name || it.booking.site_name || 'Restaurant' %></title>
+  <meta name="robots" content="noindex, nofollow"/>
+  <style>
+    :root {
+      --primary: <%= it.booking.primary_colour || '#630812' %>;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5; color: #1a1a1a; line-height: 1.5;
+    }
+    .page { max-width: 520px; margin: 0 auto; padding: 24px 16px; }
+    .header {
+      text-align: center; padding: 28px 0 20px;
+    }
+    .header img { height: 40px; margin: 0 auto 10px; display: block; }
+    .header h1 { font-size: 18px; margin: 0; }
+    .header .venue { color: #666; font-size: 14px; margin: 4px 0 0; }
+    .card {
+      background: #fff; border-radius: 12px; padding: 24px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.06); margin-bottom: 16px;
+    }
+    .card h2 { font-size: 16px; margin: 0 0 16px; color: var(--primary); }
+    .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; font-size: 15px; }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-row .label { color: #888; }
+    .detail-row .value { font-weight: 600; text-align: right; }
+    .status-badge {
+      display: inline-block; padding: 4px 12px; border-radius: 99px;
+      font-size: 13px; font-weight: 600; text-transform: capitalize;
+    }
+    .status-confirmed { background: #dbeafe; color: #1e40af; }
+    .status-arrived   { background: #cffafe; color: #0e7490; }
+    .status-seated    { background: #d1fae5; color: #065f46; }
+    .status-cancelled { background: #fee2e2; color: #991b1b; }
+    .status-no_show   { background: #fef3c7; color: #92400e; }
+    .flash {
+      padding: 12px 16px; border-radius: 8px; margin-bottom: 16px;
+      font-size: 14px; font-weight: 500; text-align: center;
+    }
+    .flash-modified  { background: #dbeafe; color: #1e40af; }
+    .flash-cancelled { background: #fee2e2; color: #991b1b; }
+    .actions { display: flex; gap: 12px; margin-top: 8px; }
+    .btn {
+      flex: 1; display: block; padding: 14px; border: none; border-radius: 8px;
+      font-size: 15px; font-weight: 600; text-align: center; cursor: pointer;
+      text-decoration: none; transition: opacity 0.2s;
+      -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-danger  { background: #fee2e2; color: #991b1b; }
+    .btn-danger:hover { background: #fecaca; }
+    .btn[disabled] { opacity: 0.4; pointer-events: none; }
+
+    .modify-form { display: none; margin-top: 16px; }
+    .modify-form.open { display: block; }
+    .modify-form label { display: block; font-size: 13px; color: #666; margin: 12px 0 4px; }
+    .modify-form input, .modify-form select {
+      width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px;
+      font-size: 15px; background: #fff; min-height: 48px;
+      touch-action: manipulation; -webkit-appearance: none;
+    }
+
+    .cancel-confirm { display: none; margin-top: 12px; text-align: center; }
+    .cancel-confirm.open { display: block; }
+    .cancel-confirm p { font-size: 14px; color: #991b1b; margin: 0 0 12px; }
+
+    .footer { text-align: center; font-size: 12px; color: #999; padding: 16px 0; }
+    .footer a { color: #888; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <% if (it.booking.logo_url) { %>
+      <img src="<%= it.booking.logo_url %>" alt=""/>
+    <% } %>
+    <h1><%= it.booking.site_name || it.booking.venue_name %></h1>
+    <p class="venue"><%= it.booking.venue_name %></p>
+  </div>
+
+  <% if (it.flash === 'modified') { %>
+    <div class="flash flash-modified">Your booking has been updated.</div>
+  <% } else if (it.flash === 'cancelled') { %>
+    <div class="flash flash-cancelled">Your booking has been cancelled.</div>
+  <% } %>
+
+  <div class="card">
+    <h2>Your booking</h2>
+
+    <div class="detail-row">
+      <span class="label">Status</span>
+      <span class="value">
+        <span class="status-badge status-<%= it.booking.status %>"><%= it.booking.status.replace('_', ' ') %></span>
+      </span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Date</span>
+      <span class="value"><%= it.startDate.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long', year:'numeric' }) %></span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Time</span>
+      <span class="value">
+        <%= it.startDate.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }) %><% if (it.endDate) { %> &ndash; <%= it.endDate.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }) %><% } %>
+      </span>
+    </div>
+    <div class="detail-row">
+      <span class="label">Guests</span>
+      <span class="value"><%= it.booking.covers %></span>
+    </div>
+    <% if (it.booking.table_label) { %>
+      <div class="detail-row">
+        <span class="label">Table</span>
+        <span class="value"><%= it.booking.table_label %></span>
+      </div>
+    <% } %>
+    <% if (it.booking.guest_notes) { %>
+      <div class="detail-row">
+        <span class="label">Notes</span>
+        <span class="value" style="max-width:60%; text-align:right;"><%= it.booking.guest_notes %></span>
+      </div>
+    <% } %>
+  </div>
+
+  <% if (it.canModify || it.canCancel) { %>
+    <div class="card">
+      <h2>Manage</h2>
+      <div class="actions">
+        <% if (it.canModify) { %>
+          <button class="btn btn-primary" onclick="toggleModify()">Modify</button>
+        <% } %>
+        <% if (it.canCancel) { %>
+          <button class="btn btn-danger" onclick="toggleCancel()">Cancel booking</button>
+        <% } %>
+      </div>
+
+      <% if (it.canModify) { %>
+        <div class="modify-form" id="modify-form">
+          <form method="POST" action="/manage/<%= it.token %>/modify">
+            <label>Date</label>
+            <input type="date" name="date"
+              value="<%= it.startDate.toISOString().slice(0,10) %>"
+              min="<%= new Date().toISOString().slice(0,10) %>"/>
+            <label>Time</label>
+            <input type="time" name="time"
+              value="<%= it.startDate.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }) %>"/>
+            <label>Guests</label>
+            <input type="number" name="covers" min="1" max="50"
+              value="<%= it.booking.covers %>" inputmode="numeric"/>
+            <div style="margin-top:16px;">
+              <button type="submit" class="btn btn-primary" style="width:100%;">Save changes</button>
+            </div>
+          </form>
+        </div>
+      <% } %>
+
+      <% if (it.canCancel) { %>
+        <div class="cancel-confirm" id="cancel-confirm">
+          <p>Are you sure you want to cancel this booking?</p>
+          <form method="POST" action="/manage/<%= it.token %>/cancel">
+            <button type="submit" class="btn btn-danger" style="width:100%;">Yes, cancel my booking</button>
+          </form>
+        </div>
+      <% } %>
+    </div>
+  <% } %>
+
+  <div class="footer">
+    <p><%= it.booking.venue_name %></p>
+    <p>Powered by <a href="https://<%= it.rootDomain %>">Macaroonie</a></p>
+  </div>
+</div>
+<script>
+  function toggleModify() {
+    var el = document.getElementById('modify-form');
+    if (el) el.classList.toggle('open');
+    var c = document.getElementById('cancel-confirm');
+    if (c) c.classList.remove('open');
+  }
+  function toggleCancel() {
+    var el = document.getElementById('cancel-confirm');
+    if (el) el.classList.toggle('open');
+    var m = document.getElementById('modify-form');
+    if (m) m.classList.remove('open');
+  }
+</script>
+</body>
+</html>
