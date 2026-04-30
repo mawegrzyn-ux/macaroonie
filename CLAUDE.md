@@ -1,12 +1,102 @@
 # Macaroonie — Claude Code Context
 
-## What this is
-A multitenant restaurant table Macaroonie built for the F&B / QSR franchise sector.
-Operators register their restaurant as a tenant. Each tenant configures venues, tables,
-opening schedules, booking rules, and deposit requirements via an admin portal.
-Guests book tables through an embeddable booking widget (iframe / Ember.js).
+> ⚠️ DEVELOPER ONLY — contains infra details, env var names, auth config.
+
+**Multitenant restaurant table booking + website CMS for the F&B / QSR franchise sector.**
+
+Each master-franchisee registers as a tenant (Auth0 org). They configure venues, tables,
+schedules, booking rules, deposits, and per-venue websites via an admin portal.
+Guests book through an embeddable widget (iframe / Ember.js) and browse venue sites
+at `{slug}.macaroonie.com`.
 
 Owner: Obscure Kitty. Stack chosen for familiarity with existing plugin work (Node.js, PostgreSQL, React).
+
+---
+
+## Table of Contents
+
+1. [SOS Checklist](#sos-checklist)
+2. [EOS Protocol](#eos-protocol)
+3. [Standard Design Rules](#standard-design-rules)
+4. [Repo structure](#repo-structure)
+5. [Tech stack](#tech-stack)
+6. [Admin portal design principles](#admin-portal-design-principles)
+7. [Multitenancy](#multitenancy--the-most-important-thing-to-understand)
+8. [Auth flow](#auth-flow)
+9. [Key files](#key-files)
+10. [Database — critical patterns](#database--critical-patterns)
+11. [Completed items](#completed-items-implemented)
+12. [Outstanding items](#outstanding-items)
+13. [Environment variables](#environment-variables)
+14. [Common mistakes to avoid](#common-mistakes-to-avoid)
+15. [Deployment — CI/CD](#deployment--cicd-via-github-actions)
+16. [Running locally](#running-locally)
+17. [Doc maintenance](#doc-maintenance)
+
+---
+
+## SOS Checklist
+
+When a new session begins:
+
+**1. Orient:**
+- Read CLAUDE.md (loaded automatically).
+- If the conversation has a compacted summary, verify claims against the actual codebase before referencing past items as "pending".
+
+**2. Verify codebase state:**
+- `git log --oneline -5` — what changed since last session?
+- `git status` — pick up uncommitted WIP.
+- `git branch -a` — confirm you're on the right branch.
+- If the user mentions earlier work, grep to confirm it exists before assuming it's still pending.
+
+**3. Establish session context:**
+- Ask the user what they want to work on; don't assume.
+- For a multi-step task, create a TodoWrite immediately.
+- Note today's date for changelog entries.
+
+**Critical rule:** Never reference backlog items, bugs, or features from a session summary as "pending" without verifying. Session summaries go stale. Always grep / check live code.
+
+---
+
+## EOS Protocol
+
+When the user signals end of session ("wrap up", "eos", "that's all", or naturally winds down):
+
+**1. Update all docs** affected by this session:
+- CLAUDE.md — new completed items, new gotchas, key-file references.
+- In-app Help.jsx — if user-facing behaviour changed.
+- In-app Docs.jsx — if architecture / API / schema changed.
+- CHANGE.md — prepend a changelog entry for shipped features.
+
+**2. Impact analysis:**
+- Files modified / created this session.
+- Existing features that may be affected by changes.
+- Cross-cutting concerns flagged (e.g. RLS implications, template include paths, CSS variable additions).
+
+**3. Risk + gap assessment:**
+- Untested edge cases.
+- Incomplete bits left behind (mark them clearly in Outstanding items).
+- Recommended next actions for the user.
+
+**4. Commit + push** all pending changes on the working branch. Never leave uncommitted work at end of session.
+
+---
+
+## Standard Design Rules
+
+App-wide defaults — assume these on every new screen unless documented otherwise.
+
+1. **Touch-first.** Admin portal targets tablet-sized touch screens at host stands. Minimum 48×48 px touch targets. `touch-manipulation` on every interactive element.
+2. **No hover-only affordances.** Every interactive element must be discoverable and usable by tap alone.
+3. **Drag-drop is the default for any orderable list.** If it has a `sort_order` column, the UI must support drag-reorder. Always-visible grip handles; `@dnd-kit` with both PointerSensor and TouchSensor.
+4. **No native browser popups** (`window.confirm` / `prompt` / `alert`). Use inline confirmation patterns (double-confirm, typed-confirmation for destructive ops).
+5. **Every save is explicit.** Each section has its own Save button — no auto-save, no global form state. Changes are only persisted when the user clicks Save.
+6. **Destructive operations require double confirmation.** Delete, anonymise, and data-clearing actions show an inline "Are you sure?" before executing.
+7. **No emojis in committed code or files** unless explicitly requested by the user.
+8. **Mobile-responsive from 1015 px wide.** Sidebar + main content must remain usable at that width without horizontal scroll.
+9. **All modals scrollable.** Use `max-h-[85vh] overflow-y-auto` on modal content areas so content does not clip on smaller tablet screens.
+10. **Date as a styled button with invisible `<input type="date">` overlay.** Tapping opens the OS date picker on mobile. No custom calendar components.
+11. **`type="tel"` / `inputMode="tel"` on phone inputs.** Triggers numeric keypad on tablets without custom code.
 
 ---
 
@@ -325,6 +415,8 @@ Key vars to set before running:
 
 ## Common mistakes to avoid
 
+> **This section is append-only.** Never delete an entry — only correct one if it turns out to be wrong. This is the most-read section of the doc; every "subtle why didn't that work" bug gets a new entry.
+
 - **Never query tenant tables without `withTenant()`** — RLS silently returns empty rows, not an error.
 - **Never trust client for payment confirmation** — booking only becomes permanent via Stripe webhook, not client-side resolve.
 - **Never store slots** — they are always computed. Do not add a `slots` table.
@@ -376,6 +468,10 @@ Key vars to set before running:
 - **Website CMS: `custom_domain_verified` is cleared on every mutation of `custom_domain`** — the PATCH handler explicitly sets `custom_domain_verified = false` whenever the body contains `custom_domain`. Refetch the config on the client after PATCHing so the UI shows the unverified state and the "Verify DNS" button.
 - **Website CMS: Eta includes are path-relative to the `views` root** — the templates use `include('../../shared/head', it)` because they live 3 levels deep (`views/site/templates/{key}/index.eta`). Don't change the directory layout without updating every include path. Tests catch this only by rendering each template.
 - **`timelineStart`/`timelineEnd` are integers, not strings** — stored in localStorage as numbers. When reading from `tlSettings`, do arithmetic directly: `const totalHours = endHour - startHour`. The `<select>` dropdowns in Settings use `Number(e.target.value)` on `onChange` to ensure the stored value is always a number, not a string.
+- **React hook stability** — always return stable references from custom hooks. Any object/function used in a `useEffect` deps array must be wrapped in `useMemo` / `useCallback` or you get an infinite render loop. This applies to every `useContext`-returned value, every query result object, and every callback passed as a prop.
+- **Migration idempotency** — wrap migrations in `BEGIN`/`COMMIT` (our runner does this automatically via `sql.begin()`). All seeds should use `ON CONFLICT DO NOTHING` / `WHERE NOT EXISTS`. Re-running `scripts/migrate.js` must be safe.
+- **Trust but verify (session summaries)** — never reference session-summary items as "still open" without checking the actual code. Session summaries go stale between runs. Always grep / check live code before claiming something is pending.
+- **File ownership on server** — if git throws "dubious ownership" on the Lightsail server, fix once with `git config --global --add safe.directory /home/ubuntu/app` rather than chowning files. The deploy workflow uses `git reset --hard` which needs this.
 
 ---
 
@@ -438,3 +534,25 @@ npm run dev            # starts on :5173, proxies /api to :3000
 
 Visit `http://localhost:5173`. Auth0 login redirects to the admin portal.
 Use `/widget-test` to test the full booking flow without deploying anything.
+
+---
+
+## Doc maintenance
+
+- **Update CLAUDE.md as part of EOS, every session.** If you skip a session, the doc rots.
+- **"Common mistakes to avoid" is append-only.** Never delete an entry — only correct one if it turns out to be wrong. This section beats every other section in long-term value.
+- **Keep the TOC synced.** When adding or renaming a section, update the Table of Contents.
+- **Don't let the doc grow past ~3,000 lines.** Once a module section exceeds ~200 lines, move it to `docs/<MODULE>.md` and link from CLAUDE.md.
+- **Don't duplicate what's already in code** (table schemas exposed via API, route lists). Reference instead.
+- **Don't include credentials, tokens, or secret values** — only their names and where they live.
+- **Don't include time-sensitive status** ("in progress this sprint") — that's what Outstanding items is for.
+- **Don't write planning / decision documents inline.** Decisions go in commit messages or PR descriptions.
+- **Cross-link with docs/.** CLAUDE.md is the index; deep-dives live elsewhere.
+- **Companion files worth setting up:**
+
+| File | Purpose |
+|------|---------|
+| `MEMORY.md` (in `~/.claude/projects/<repo>/memory/`) | Persistent AI memory — short notes that survive across sessions |
+| `docs/<MODULE>.md` | Deep dives that don't belong in CLAUDE.md |
+| `CHANGE.md` | Living changelog — prepend on every deploy |
+
