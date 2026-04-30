@@ -3,12 +3,23 @@
 // Admin page for customising booking email templates + venue email settings.
 // Route: /email-templates
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Mail, Eye, Save, RotateCcw, Plus, Trash2, Loader2, Check,
   Settings, Send, Clock, Shield, ChevronDown,
+  Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
+  AlignLeft, AlignCenter, AlignRight, Link2, Image as ImageIcon,
+  Type, Heading1, Heading2, Minus, Code,
 } from 'lucide-react'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import Underline from '@tiptap/extension-underline'
+import Link from '@tiptap/extension-link'
+import Image from '@tiptap/extension-image'
+import TextAlign from '@tiptap/extension-text-align'
+import TextStyle from '@tiptap/extension-text-style'
+import Color from '@tiptap/extension-color'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -103,13 +114,36 @@ function TemplateEditor({ venueId }) {
   const [bodyHtml, setBodyHtml] = useState('')
   const [active,   setActive]   = useState(true)
   const [preview,  setPreview]  = useState(null)
+  const [editMode, setEditMode] = useState('visual') // 'visual' | 'html'
+
+  const initialContent = tpl?.body_html ?? fallback?.body_html ?? ''
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+      Underline,
+      Link.configure({ openOnClick: false }),
+      Image,
+      TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      TextStyle,
+      Color,
+    ],
+    content: initialContent,
+    onUpdate: ({ editor: e }) => {
+      setBodyHtml(e.getHTML())
+    },
+  })
 
   useEffect(() => {
+    const html = tpl?.body_html ?? fallback?.body_html ?? ''
     setSubject(tpl?.subject   ?? fallback?.subject   ?? '')
-    setBodyHtml(tpl?.body_html ?? fallback?.body_html ?? '')
+    setBodyHtml(html)
     setActive(tpl?.is_active  ?? true)
     setPreview(null)
-  }, [activeType, tpl, fallback])
+    if (editor && editor.getHTML() !== html) {
+      editor.commands.setContent(html, false)
+    }
+  }, [activeType, tpl, fallback, editor])
 
   const save = useMutation({
     mutationFn: () => tpl?.id
@@ -139,13 +173,23 @@ function TemplateEditor({ venueId }) {
              || (active !== (tpl?.is_active ?? true))
 
   function insertField(key) {
-    setBodyHtml(b => b + `{{${key}}}`)
+    if (editMode === 'visual' && editor) {
+      editor.chain().focus().insertContent(`{{${key}}}`).run()
+    } else {
+      setBodyHtml(b => b + `{{${key}}}`)
+    }
   }
 
   function resetToDefault() {
     if (!fallback) return
     setSubject(fallback.subject)
     setBodyHtml(fallback.body_html)
+    if (editor) editor.commands.setContent(fallback.body_html, false)
+  }
+
+  function handleHtmlEdit(html) {
+    setBodyHtml(html)
+    if (editor) editor.commands.setContent(html, false)
   }
 
   return (
@@ -194,14 +238,24 @@ function TemplateEditor({ venueId }) {
         </div>
       </SectionCard>
 
-      {/* Body HTML */}
-      <SectionCard title="Email body (HTML)"
-        description="HTML with {{merge_fields}}. The manage_link field is the most important — it's the guest's link to view/modify/cancel."
+      {/* Body editor */}
+      <SectionCard title="Email body"
+        description="Design your email visually or switch to HTML mode. The manage_link field is the most important — it's the guest's link to view/modify/cancel."
         action={
           <div className="flex gap-2">
+            <div className="flex bg-muted rounded-md p-0.5 text-xs">
+              <button onClick={() => setEditMode('visual')}
+                className={cn('px-2.5 py-1 rounded transition-colors', editMode === 'visual' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground')}>
+                Visual
+              </button>
+              <button onClick={() => setEditMode('html')}
+                className={cn('px-2.5 py-1 rounded transition-colors', editMode === 'html' ? 'bg-background shadow-sm font-medium' : 'text-muted-foreground')}>
+                HTML
+              </button>
+            </div>
             <button onClick={resetToDefault}
               className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 px-2 py-1">
-              <RotateCcw className="w-3 h-3"/> Reset to default
+              <RotateCcw className="w-3 h-3"/> Reset
             </button>
             <button onClick={() => previewMut.mutate()}
               disabled={previewMut.isPending}
@@ -211,9 +265,97 @@ function TemplateEditor({ venueId }) {
             </button>
           </div>
         }>
-        <textarea value={bodyHtml} onChange={e => setBodyHtml(e.target.value)}
-          className="w-full border rounded-md px-3 py-2 text-xs font-mono bg-background min-h-[320px] resize-y focus:outline-none focus:ring-1 focus:ring-primary"
-          spellCheck={false} />
+
+        {editMode === 'visual' ? (
+          <div className="border rounded-lg overflow-hidden bg-background">
+            {/* Toolbar */}
+            {editor && (
+              <div className="flex flex-wrap items-center gap-0.5 px-2 py-1.5 border-b bg-muted/40">
+                <ToolbarBtn onClick={() => editor.chain().focus().toggleBold().run()}
+                  active={editor.isActive('bold')} title="Bold">
+                  <Bold className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => editor.chain().focus().toggleItalic().run()}
+                  active={editor.isActive('italic')} title="Italic">
+                  <Italic className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => editor.chain().focus().toggleUnderline().run()}
+                  active={editor.isActive('underline')} title="Underline">
+                  <UnderlineIcon className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarSep />
+                <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                  active={editor.isActive('heading', { level: 1 })} title="Heading 1">
+                  <Heading1 className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                  active={editor.isActive('heading', { level: 2 })} title="Heading 2">
+                  <Heading2 className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => editor.chain().focus().setParagraph().run()}
+                  active={editor.isActive('paragraph')} title="Paragraph">
+                  <Type className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarSep />
+                <ToolbarBtn onClick={() => editor.chain().focus().toggleBulletList().run()}
+                  active={editor.isActive('bulletList')} title="Bullet list">
+                  <List className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                  active={editor.isActive('orderedList')} title="Numbered list">
+                  <ListOrdered className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarSep />
+                <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('left').run()}
+                  active={editor.isActive({ textAlign: 'left' })} title="Align left">
+                  <AlignLeft className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('center').run()}
+                  active={editor.isActive({ textAlign: 'center' })} title="Align center">
+                  <AlignCenter className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => editor.chain().focus().setTextAlign('right').run()}
+                  active={editor.isActive({ textAlign: 'right' })} title="Align right">
+                  <AlignRight className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarSep />
+                <ToolbarBtn onClick={() => {
+                  const url = window.prompt('Enter URL:')
+                  if (url) editor.chain().focus().setLink({ href: url }).run()
+                }} active={editor.isActive('link')} title="Insert link">
+                  <Link2 className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => {
+                  const url = window.prompt('Image URL:')
+                  if (url) editor.chain().focus().setImage({ src: url }).run()
+                }} title="Insert image">
+                  <ImageIcon className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Divider">
+                  <Minus className="w-4 h-4" />
+                </ToolbarBtn>
+                <ToolbarSep />
+                <input type="color"
+                  onChange={e => editor.chain().focus().setColor(e.target.value).run()}
+                  className="w-7 h-7 border rounded cursor-pointer bg-transparent p-0.5"
+                  title="Text colour" />
+              </div>
+            )}
+
+            {/* Editor content */}
+            <EditorContent editor={editor}
+              className="prose prose-sm max-w-none px-4 py-3 min-h-[320px] focus:outline-none
+                         [&_.ProseMirror]:min-h-[300px] [&_.ProseMirror]:outline-none
+                         [&_.ProseMirror_p]:my-2 [&_.ProseMirror_h1]:text-2xl [&_.ProseMirror_h2]:text-xl
+                         [&_.ProseMirror_img]:max-w-full [&_.ProseMirror_img]:rounded
+                         [&_.ProseMirror_a]:text-primary [&_.ProseMirror_a]:underline" />
+          </div>
+        ) : (
+          <textarea value={bodyHtml}
+            onChange={e => handleHtmlEdit(e.target.value)}
+            className="w-full border rounded-md px-3 py-2 text-xs font-mono bg-background min-h-[320px] resize-y focus:outline-none focus:ring-1 focus:ring-primary"
+            spellCheck={false} />
+        )}
       </SectionCard>
 
       {/* Preview */}
@@ -257,6 +399,24 @@ function TemplateEditor({ venueId }) {
       </div>
     </div>
   )
+}
+
+// ── Toolbar primitives ──────────────────────────────────────
+
+function ToolbarBtn({ onClick, active, title, children }) {
+  return (
+    <button type="button" onClick={onClick} title={title}
+      className={cn(
+        'p-1.5 rounded transition-colors touch-manipulation',
+        active ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+      )}>
+      {children}
+    </button>
+  )
+}
+
+function ToolbarSep() {
+  return <div className="w-px h-5 bg-border mx-1" />
 }
 
 // ── Email settings ──────────────────────────────────────────
