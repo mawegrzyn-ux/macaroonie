@@ -64,8 +64,8 @@ When the user signals end of session ("wrap up", "eos", "that's all", or natural
 
 **1. Update all docs** affected by this session:
 - CLAUDE.md — new completed items, new gotchas, key-file references.
-- In-app Help.jsx — if user-facing behaviour changed.
-- In-app Docs.jsx — if architecture / API / schema changed.
+- In-app Help.jsx — **always** add/update the operator-facing section for any new or changed feature. This is the most user-visible doc and must never lag behind shipped code.
+- In-app Docs.jsx — **always** add/update the technical section for any new API routes, DB tables, services, or architectural changes.
 - CHANGE.md — prepend a changelog entry for shipped features.
 
 **2. Impact analysis:**
