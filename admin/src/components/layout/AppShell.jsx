@@ -9,7 +9,7 @@ import {
   LogOut, LayoutTemplate, Menu, X,
   BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
-  Wallet,
+  Wallet, Mail,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -49,8 +49,9 @@ const NAV = [
   { label: 'Schedule',    to: '/schedule',    icon: Clock },
   { label: 'Rules',       to: '/rules',       icon: Settings },
   { label: 'Website',     to: '/website',     icon: Globe },
-  { label: 'Cash Recon',  to: '/cash-recon',  icon: Wallet },
-  { label: 'Settings',    to: '/settings',    icon: SlidersHorizontal },
+  { label: 'Cash Recon',  to: '/cash-recon',       icon: Wallet },
+  { label: 'Emails',      to: '/email-templates', icon: Mail },
+  { label: 'Settings',    to: '/settings',         icon: SlidersHorizontal },
   { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate },
   null,
   { label: 'Team',          to: '/team',   icon: Users },

@@ -22,6 +22,7 @@ import Help        from '@/pages/Help'
 import Settings    from '@/pages/Settings'
 import Website     from '@/pages/Website'
 import CashRecon   from '@/pages/CashRecon'
+import EmailTemplates from '@/pages/EmailTemplates'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -80,6 +81,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="rules"       element={<Rules />} />
                 <Route path="website"     element={<Website />} />
                 <Route path="cash-recon" element={<CashRecon />} />
+                <Route path="email-templates" element={<EmailTemplates />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="team"        element={<Placeholder title="Team management" />} />
                 <Route path="docs"        element={<Docs />} />
