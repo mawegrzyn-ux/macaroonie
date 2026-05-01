@@ -26,21 +26,24 @@ export default function Platform() {
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
 
-  if (!me?.is_platform_admin) {
+  const isPlatformAdmin = !!me?.is_platform_admin
+
+  const { data: tenants = [], isLoading } = useQuery({
+    queryKey: ['platform-tenants'],
+    queryFn:  () => api.get('/platform/tenants'),
+    enabled:  isPlatformAdmin,
+  })
+
+  const activeTenants   = tenants.filter(t => t.is_active)
+  const inactiveTenants = tenants.filter(t => !t.is_active)
+
+  if (!isPlatformAdmin) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
         Platform admin access required.
       </div>
     )
   }
-
-  const { data: tenants = [], isLoading } = useQuery({
-    queryKey: ['platform-tenants'],
-    queryFn:  () => api.get('/platform/tenants'),
-  })
-
-  const activeTenants   = tenants.filter(t => t.is_active)
-  const inactiveTenants = tenants.filter(t => !t.is_active)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
