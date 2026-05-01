@@ -504,15 +504,73 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>auth0MgmtSvc.isConfigured()</Mono> returns false and the team routes
               degrade to local-only operations with a warning banner in the UI.
             </P>
+
+            <H3>Auth0 dashboard setup (one-time, current Auth0 UI)</H3>
             <P>
-              The M2M application in Auth0 needs these scopes:
-              <Mono>read:users</Mono>, <Mono>update:users</Mono>,
-              <Mono>read:organization_invitations</Mono>, <Mono>create:organization_invitations</Mono>,
-              <Mono>read:organization_members</Mono>, <Mono>delete:organization_members</Mono>.
-              The Auth0 tenant must also have a Login Action that reads
-              <Mono>app_metadata.role</Mono> and injects it as a custom JWT claim — without
-              this Action, role-sync writes are silent no-ops on the JWT side.
+              The Auth0 dashboard layout has shifted over time. These are the exact paths and
+              labels that work as of May 2026 — official Auth0 docs sometimes describe older
+              flows. Each step blocks the next; if invitations 404 / loop / "user not in org",
+              the cause is always one of these.
             </P>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>
+                <strong>Create the M2M application.</strong> Applications → Applications →
+                <strong> Create Application</strong> → "Machine to Machine Applications" →
+                pick <strong>Auth0 Management API</strong> as the API.
+                Tick scopes for team management: <Mono>read:users</Mono>, <Mono>update:users</Mono>,
+                <Mono>read:organization_invitations</Mono>, <Mono>create:organization_invitations</Mono>,
+                <Mono>read:organization_members</Mono>, <Mono>delete:organization_members</Mono>.
+                Plus, for tenant auto-provisioning: <Mono>create:organizations</Mono>,
+                <Mono>read:organizations</Mono>, <Mono>update:organizations</Mono>,
+                <Mono>read:connections</Mono>, <Mono>create:organization_connections</Mono>,
+                <Mono>update:organization_connections</Mono>.
+                Copy the Client ID + Secret → <Mono>AUTH0_MGMT_CLIENT_ID</Mono> /
+                <Mono>AUTH0_MGMT_CLIENT_SECRET</Mono> on the API.
+              </li>
+              <li>
+                <strong>Set the SPA Client ID.</strong> The same value as
+                <Mono>VITE_AUTH0_CLIENT_ID</Mono> on the admin portal goes into
+                <Mono>AUTH0_INVITE_CLIENT_ID</Mono> on the API. Invitations issued by the M2M
+                client land users at this SPA.
+              </li>
+              <li>
+                <strong>Application Login URI on the SPA app.</strong>
+                Applications → Macaroonie Admin → Settings → Application URIs →
+                <strong> Application Login URI</strong> = <Mono>https://macaroonie.com</Mono>.
+                Without this, every <Mono>POST /api/v2/organizations/.../invitations</Mono> returns 400
+                "A default login route is required to generate the invitation url".
+              </li>
+              <li>
+                <strong>Allowed Callback / Logout / Web Origins on the SPA app.</strong>
+                Same Settings page → ensure all three include <Mono>https://macaroonie.com</Mono>.
+              </li>
+              <li>
+                <strong>Connections enabled at the application level.</strong>
+                Applications → Macaroonie Admin → <strong>Connections</strong> tab → toggle
+                <Mono>google-oauth2</Mono> and <Mono>Username-Password-Authentication</Mono> ON.
+              </li>
+              <li>
+                <strong>Connections added at the organization level.</strong>
+                Organizations → your org → <strong>Connections</strong> tab → Add Connections →
+                tick <Mono>google-oauth2</Mono> and <Mono>Username-Password-Authentication</Mono>.
+              </li>
+              <li>
+                <strong>Auto-Membership enabled per connection.</strong>
+                Click into each connection (still in Org → Connections) → scroll to
+                <strong> Authentication → Membership On Authentication</strong> → switch from
+                "Disable Auto-Membership" to <strong>"Enable Auto-Membership"</strong> → Save.
+                If left disabled, invited users authenticate but never become org members,
+                producing a Google-picker loop with no error visible to the operator.
+              </li>
+              <li>
+                <strong>Login Action for role claim.</strong> Auth0 → Actions → Library →
+                add a Login Action that reads <Mono>event.user.app_metadata.role</Mono> and
+                writes it as <Mono>accessToken['https://macaroonie.com/claims/role']</Mono>.
+                Required for role-sync writes via <Mono>updateUserAppMetadata</Mono> to surface
+                in JWTs (the API still works without it because local <Mono>users.role</Mono>
+                is authoritative — but the in-token role would lag).
+              </li>
+            </ol>
 
             <H3>First-login reconciliation</H3>
             <P>

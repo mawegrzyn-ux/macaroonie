@@ -165,11 +165,13 @@ function TenantRow({ tenant, onEdit, inactive }) {
 
 function CreateTenantCard({ onClose, onCreated }) {
   const api = useApi()
-  const [name, setName] = useState('')
-  const [slug, setSlug] = useState('')
-  const [plan, setPlan] = useState('starter')
-  const [orgId, setOrgId] = useState('')
-  const [error, setError] = useState(null)
+  const [name, setName]               = useState('')
+  const [slug, setSlug]               = useState('')
+  const [plan, setPlan]               = useState('starter')
+  const [orgId, setOrgId]             = useState('')
+  const [autoProvision, setAutoProvision] = useState(true)
+  const [error, setError]             = useState(null)
+  const [result, setResult]           = useState(null)
 
   const create = useMutation({
     mutationFn: () => api.post('/platform/tenants', {
@@ -177,8 +179,17 @@ function CreateTenantCard({ onClose, onCreated }) {
       slug: slug.trim().toLowerCase(),
       plan,
       auth0_org_id: orgId.trim() || undefined,
+      auto_provision: autoProvision && !orgId.trim(),
     }),
-    onSuccess: () => onCreated?.(),
+    onSuccess: (data) => {
+      // Stay open briefly to show provisioning result (or call onCreated immediately).
+      const prov = data?.auth0_provisioning
+      if (prov?.error) {
+        setResult(data)   // surface partial failure inline
+      } else {
+        onCreated?.()
+      }
+    },
     onError: (e) => setError(e?.body?.error || e.message),
   })
 
@@ -208,13 +219,47 @@ function CreateTenantCard({ onClose, onCreated }) {
             <option value="enterprise">Enterprise</option>
           </select>
         </div>
+        {!orgId.trim() && (
+          <label className="flex items-start gap-3 p-3 rounded-md border bg-muted/30 cursor-pointer">
+            <input type="checkbox" checked={autoProvision}
+              onChange={e => setAutoProvision(e.target.checked)}
+              className="mt-0.5 w-4 h-4" />
+            <div className="text-sm">
+              <p className="font-medium">Auto-provision Auth0 organisation</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Recommended. Creates the Auth0 org, enables Username/Password
+                + Google connections, and turns on auto-membership — no Auth0
+                dashboard work needed. Requires <code className="font-mono">create:organizations</code>
+                {' '}and <code className="font-mono">create:organization_connections</code> scopes
+                on the M2M app.
+              </p>
+            </div>
+          </label>
+        )}
         <div>
-          <label className="text-sm font-medium block mb-1">Auth0 Org ID (optional)</label>
-          <p className="text-xs text-muted-foreground mb-1">Create the org in Auth0 first, paste the ID here.</p>
+          <label className="text-sm font-medium block mb-1">
+            Auth0 Org ID {autoProvision && !orgId.trim() ? '(filled automatically)' : '(paste existing)'}
+          </label>
+          <p className="text-xs text-muted-foreground mb-1">
+            Leave empty to auto-create. Paste an existing <code className="font-mono">org_…</code> id
+            to link a tenant to an org you already created in Auth0.
+          </p>
           <input value={orgId} onChange={e => setOrgId(e.target.value)} placeholder="org_xxxxxxxxx"
             className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary font-mono" />
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
+        {result?.auth0_provisioning?.error && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            <p className="font-medium">Tenant created, but Auth0 provisioning failed:</p>
+            <p className="mt-1 font-mono">{result.auth0_provisioning.error}</p>
+            <p className="mt-2">
+              The tenant exists in the database. To finish setup: create the org manually
+              in Auth0, then click the tenant row and paste the org id.
+            </p>
+            <button onClick={() => { setResult(null); onCreated?.() }}
+              className="mt-2 text-xs text-primary underline">Continue</button>
+          </div>
+        )}
         <div className="flex justify-end gap-2 pt-2 border-t">
           <button onClick={onClose} className="text-xs text-muted-foreground px-3 py-1.5">Cancel</button>
           <button onClick={() => create.mutate()} disabled={!name || !slug || create.isPending}

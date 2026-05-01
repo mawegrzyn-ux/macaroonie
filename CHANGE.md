@@ -5,6 +5,29 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-01 — even later]
+
+### Auto-provision Auth0 organisations on tenant creation
+- **Platform → New Tenant** now creates the Auth0 organisation automatically. New
+  helpers in `auth0MgmtSvc.js`: `createOrganization`, `getConnectionByName`,
+  `enableOrgConnection`, `provisionTenantOrg` (a wrapper that creates the org and
+  attaches Username-Password + Google connections with `assign_membership_on_login: true`).
+- **`POST /api/platform/tenants`** accepts `auto_provision` (default true). When set
+  AND no `auth0_org_id` is supplied AND M2M creds are configured, the API creates the
+  org first, then inserts the tenant DB row with the resulting `org_…` id. The response
+  includes an `auth0_provisioning` summary so the UI can surface partial failures.
+- **Required new M2M scopes**: `create:organizations`, `read:connections`,
+  `create:organization_connections`. Existing tenants don't need re-authorisation
+  because the M2M app config carries over — but to use auto-provision you must add
+  these scopes in the Auth0 dashboard (Applications → APIs → Auth0 Management API →
+  Machine to Machine Applications → your M2M app → Edit Permissions).
+- **Auth middleware hardening**: user-row reconciliation now races against a 3-second
+  timeout, so a stuck DB query can never produce ERR_EMPTY_RESPONSE upstream. The
+  `last_login_at` bump is fire-and-forget. Added a fallback in `GET /api/platform/tenants`
+  that returns the tenant list without joins if the COUNT join query throws.
+
+---
+
 ## [2026-05-01 — later]
 
 ### Auth0 Management API for full in-app team lifecycle  *(migration 037 seeds initial platform admin)*

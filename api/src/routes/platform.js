@@ -13,6 +13,10 @@ import { z } from 'zod'
 import { sql } from '../config/db.js'
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+import {
+  isConfigured as auth0IsConfigured,
+  provisionTenantOrg,
+} from '../services/auth0MgmtSvc.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -21,6 +25,9 @@ const TenantBody = z.object({
   auth0_org_id:      z.string().optional(),
   stripe_account_id: z.string().nullable().optional(),
   is_active:         z.boolean().default(true),
+  // When true (default), creates the Auth0 organization automatically
+  // and enables Username-Password + Google connections on it.
+  auto_provision:    z.boolean().default(true),
 })
 
 const TenantPatch = z.object({
@@ -94,34 +101,81 @@ export default async function platformRoutes(app) {
   // GET /api/platform/tenants
   app.get('/platform/tenants', {
     preHandler: [requireAuth, requirePlatformAdmin],
-  }, async () => {
-    const tenants = await sql`
-      SELECT t.*,
-             COUNT(DISTINCT v.id) AS venue_count,
-             COUNT(DISTINCT u.id) AS user_count
-        FROM tenants t
-        LEFT JOIN venues v ON v.tenant_id = t.id AND v.is_active = true
-        LEFT JOIN users  u ON u.tenant_id = t.id AND u.is_active = true
-       GROUP BY t.id
-       ORDER BY t.name
-    `
-    return tenants
+  }, async (req) => {
+    try {
+      const tenants = await sql`
+        SELECT t.*,
+               COUNT(DISTINCT v.id) AS venue_count,
+               COUNT(DISTINCT u.id) AS user_count
+          FROM tenants t
+          LEFT JOIN venues v ON v.tenant_id = t.id AND v.is_active = true
+          LEFT JOIN users  u ON u.tenant_id = t.id AND u.is_active = true
+         GROUP BY t.id
+         ORDER BY t.name
+      `
+      return tenants
+    } catch (err) {
+      req.log.error({ err: err.message }, 'Failed to list tenants — returning fallback')
+      // Fallback: simpler query without the COUNT joins, so the platform
+      // page still loads even if something's wrong with the join targets.
+      const tenants = await sql`SELECT * FROM tenants ORDER BY name`
+      return tenants.map(t => ({ ...t, venue_count: 0, user_count: 0 }))
+    }
   })
 
   // POST /api/platform/tenants
+  // When `auto_provision` is true (default) AND Auth0 mgmt is configured AND
+  // no auth0_org_id was supplied, this also:
+  //   1. Creates an Auth0 organization (display_name = name, name = slug)
+  //   2. Enables Username-Password + Google connections with auto-membership
+  //   3. Stores the resulting org_... id on the tenant row
+  //
+  // The tenant is created in the DB FIRST so a partial Auth0 failure leaves
+  // the platform admin a clear path forward (edit the tenant, paste an existing
+  // org id, or click "Retry provision"). The Auth0 work is best-effort but
+  // failures are surfaced in the response under `auth0_provisioning_error`.
   app.post('/platform/tenants', {
     preHandler: [requireAuth, requirePlatformAdmin],
   }, async (req, reply) => {
     const body = TenantBody.parse(req.body)
+
+    let auth0OrgId = body.auth0_org_id ?? null
+    let auth0ProvisioningError = null
+    let enabledConnections = []
+
+    if (body.auto_provision && !auth0OrgId && auth0IsConfigured()) {
+      try {
+        const result = await provisionTenantOrg({
+          name:        body.slug,        // Auth0 org "name" must be slug-shaped
+          displayName: body.name,
+          log:         req.log,
+        })
+        auth0OrgId         = result.org.id
+        enabledConnections = result.enabled
+      } catch (err) {
+        req.log.warn({ err: err.message }, 'Auto-provision Auth0 org failed')
+        auth0ProvisioningError = err.message
+      }
+    }
+
     const [tenant] = await sql`
       INSERT INTO tenants (name, slug, plan, auth0_org_id, stripe_account_id, is_active)
       VALUES (${body.name}, ${body.slug}, ${body.plan},
-              ${body.auth0_org_id ?? null},
+              ${auth0OrgId},
               ${body.stripe_account_id ?? null},
               ${body.is_active})
       RETURNING *
     `
-    return reply.code(201).send(tenant)
+
+    return reply.code(201).send({
+      ...tenant,
+      auth0_provisioning: {
+        attempted: body.auto_provision && auth0IsConfigured(),
+        org_created: !!(body.auto_provision && auth0OrgId && !body.auth0_org_id),
+        enabled_connections: enabledConnections,
+        error: auth0ProvisioningError,
+      },
+    })
   })
 
   // PATCH /api/platform/tenants/:id

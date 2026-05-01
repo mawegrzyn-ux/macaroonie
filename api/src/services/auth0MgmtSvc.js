@@ -173,6 +173,131 @@ export async function updateUserAppMetadata({ auth0UserId, appMetadata }) {
 }
 
 /**
+ * Look up an Auth0 connection by its `name` field (e.g.
+ * `'Username-Password-Authentication'` or `'google-oauth2'`). Used to find
+ * the connection ID we then enable on a newly-created organization.
+ */
+export async function getConnectionByName(name) {
+  if (!isConfigured()) throw new Error('Auth0 Management API not configured')
+  const token = await getMgmtToken()
+  const res = await fetch(
+    `https://${env.AUTH0_DOMAIN}/api/v2/connections?name=${encodeURIComponent(name)}`,
+    { headers: { 'Authorization': `Bearer ${token}` } },
+  )
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Auth0 connection lookup failed (${res.status}): ${text}`)
+  }
+  const list = await res.json()
+  return list[0] ?? null
+}
+
+/**
+ * Create a new Auth0 organization. Returns `{ id, name, display_name, ... }`.
+ * The `id` is what we store as `tenants.auth0_org_id` and use for all
+ * org-scoped Mgmt API calls (invitations, member removal, etc.).
+ *
+ * Auth0 enforces:
+ *   - `name` must be lowercase, max 50 chars, [a-z0-9_-] only
+ *   - `display_name` is the human-readable label
+ */
+export async function createOrganization({ name, displayName, branding }) {
+  if (!isConfigured()) throw new Error('Auth0 Management API not configured')
+  if (!name) throw new Error('name is required')
+  const token = await getMgmtToken()
+  const res = await fetch(`https://${env.AUTH0_DOMAIN}/api/v2/organizations`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify({
+      name,
+      ...(displayName ? { display_name: displayName } : {}),
+      ...(branding ? { branding } : {}),
+    }),
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let parsed
+    try { parsed = JSON.parse(text) } catch { /* not json */ }
+    const msg = parsed?.message || text || `HTTP ${res.status}`
+    const err = new Error(`Auth0 org creation failed: ${msg}`)
+    err.status = res.status
+    throw err
+  }
+  return res.json()
+}
+
+/**
+ * Attach a connection to an organization with auto-membership enabled.
+ *
+ *   POST /api/v2/organizations/{orgId}/enabled_connections
+ *
+ * `assign_membership_on_login: true` is the setting we discovered the
+ * hard way — without it, invited users authenticate but never become
+ * org members and the login flow loops on the picker.
+ */
+export async function enableOrgConnection({ orgId, connectionId, assignMembershipOnLogin = true, showAsButton = true }) {
+  if (!isConfigured()) throw new Error('Auth0 Management API not configured')
+  if (!orgId || !connectionId) throw new Error('orgId and connectionId required')
+  const token = await getMgmtToken()
+  const res = await fetch(
+    `https://${env.AUTH0_DOMAIN}/api/v2/organizations/${encodeURIComponent(orgId)}/enabled_connections`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        connection_id:                connectionId,
+        assign_membership_on_login:   assignMembershipOnLogin,
+        show_as_button:               showAsButton,
+      }),
+    },
+  )
+  // 409 = already enabled — treat as success
+  if (!res.ok && res.status !== 409) {
+    const text = await res.text().catch(() => '')
+    throw new Error(`Auth0 enableOrgConnection failed (${res.status}): ${text}`)
+  }
+  return res.status === 409 ? { already_enabled: true } : res.json()
+}
+
+/**
+ * Convenience wrapper used by tenant creation: provisions a new Auth0
+ * organization AND attaches the standard connections (Username-Password
+ * + Google if available) with auto-membership turned on.
+ *
+ * Failure of an optional connection (e.g. Google not configured at the
+ * tenant level) is logged but does not abort. The org itself is the
+ * required deliverable.
+ *
+ * Returns `{ org, enabled: ['Username-Password-Authentication', 'google-oauth2'] }`.
+ */
+export async function provisionTenantOrg({ name, displayName, log }) {
+  const org = await createOrganization({ name, displayName })
+  const enabled = []
+
+  for (const connectionName of ['Username-Password-Authentication', 'google-oauth2']) {
+    try {
+      const conn = await getConnectionByName(connectionName)
+      if (!conn) {
+        log?.warn?.({ connectionName }, 'Auth0 connection not found in tenant — skipping')
+        continue
+      }
+      await enableOrgConnection({ orgId: org.id, connectionId: conn.id })
+      enabled.push(connectionName)
+    } catch (e) {
+      log?.warn?.({ err: e.message, connectionName }, 'Failed to enable connection on org')
+    }
+  }
+
+  return { org, enabled }
+}
+
+/**
  * Send a password change email to a user — used by /team/:userId/reset-password
  * so operators can trigger a reset without touching the Auth0 dashboard.
  *

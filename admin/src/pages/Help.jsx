@@ -1670,6 +1670,34 @@ export default function Help() {
               can create, edit, and deactivate tenants from the platform dashboard. Platform
               admins bypass all role restrictions within any tenant.
             </P>
+
+            <H3>Creating a new tenant (master franchisee)</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Open <strong>Tenants</strong> from the sidebar (platform admins only).</li>
+              <li>Click <strong>+ New tenant</strong>.</li>
+              <li>
+                Enter the franchise name (e.g. "Wingstop UK"), a slug
+                (lowercase, hyphenated — e.g. <code>wingstop-uk</code>), and pick a plan.
+              </li>
+              <li>
+                Leave <strong>Auto-provision Auth0 organisation</strong> ticked (recommended).
+                The API will create the Auth0 org, enable Username/Password + Google login,
+                and turn on auto-membership — all the Auth0 dashboard work happens
+                automatically.
+              </li>
+              <li>Click <strong>Create tenant</strong>. The tenant appears in the list immediately.</li>
+              <li>
+                Use the <strong>tenant switcher</strong> dropdown in the top-left of the
+                sidebar to enter the new tenant. Then go to <strong>Team</strong> and invite
+                the franchise owner.
+              </li>
+            </ol>
+            <InfoBox type="info">
+              If auto-provisioning isn't available (the platform's Auth0 management
+              credentials don't include the org-creation scopes) the form shows a warning
+              and the Auth0 Org ID field becomes required — paste an org id you've
+              created manually in the Auth0 dashboard.
+            </InfoBox>
           </section>
 
           {/* ── FAQ ───────────────────────────────────────── */}

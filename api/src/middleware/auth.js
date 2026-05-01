@@ -97,52 +97,51 @@ export async function requireAuth(req, reply) {
 
     // Reconcile local user row with Auth0 identity.
     //
-    // Three cases on every authenticated request:
-    //   1. Already linked (auth0_user_id matches sub) → bump last_login_at,
-    //      use the local role as the source of truth.
-    //   2. First login after invite (auth0_user_id is NULL, email matches) →
-    //      link sub to the local row and bump last_login_at. This is what
-    //      lets a user who accepted an Auth0 invitation actually use the
-    //      app under the role we assigned in /team/invite.
-    //   3. is_active=false locally → deny. Even if Auth0 still trusts the
-    //      user, an operator can revoke access in the team page without
-    //      touching Auth0.
+    // Three cases:
+    //   1. Already linked → use the local role as source of truth, deactivation enforced.
+    //   2. First login after invite (auth0_user_id NULL, email matches) → link sub.
+    //   3. is_active=false locally → deny.
+    //
+    // The lookup itself is awaited (we need the role + is_active before the route
+    // runs), but is wrapped in try/catch + Promise.race timeout so a stuck DB
+    // connection can never produce ERR_EMPTY_RESPONSE upstream.
     let dbRole = null
     if (tenantId && auth0Sub) {
       try {
-        let [localUser] = await sql`
-          SELECT id, role, is_active FROM users
-           WHERE auth0_user_id = ${auth0Sub} AND tenant_id = ${tenantId}
-           LIMIT 1
-        `
+        const reconcilePromise = (async () => {
+          let [localUser] = await sql`
+            SELECT id, role, is_active FROM users
+             WHERE auth0_user_id = ${auth0Sub} AND tenant_id = ${tenantId}
+             LIMIT 1
+          `
+          if (!localUser && payload.email) {
+            // First login after invite — link by email.
+            const [linked] = await sql`
+              UPDATE users
+                 SET auth0_user_id = ${auth0Sub}, last_login_at = now()
+               WHERE tenant_id = ${tenantId}
+                 AND lower(email) = lower(${payload.email})
+                 AND auth0_user_id IS NULL
+              RETURNING id, role, is_active
+            `
+            if (linked) localUser = linked
+          }
+          return localUser
+        })()
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('reconcile timeout')), 3000))
+        const localUser = await Promise.race([reconcilePromise, timeout])
+
         if (localUser) {
           if (!localUser.is_active && !isPlatformAdmin) {
             return reply.code(403).send({ error: 'Your account has been deactivated' })
           }
           dbRole = localUser.role
-          await sql`
-            UPDATE users SET last_login_at = now()
-             WHERE id = ${localUser.id}
-          `
-        } else if (payload.email) {
-          // First login after invite — link by email.
-          const [linked] = await sql`
-            UPDATE users
-               SET auth0_user_id = ${auth0Sub}, last_login_at = now()
-             WHERE tenant_id = ${tenantId}
-               AND lower(email) = lower(${payload.email})
-               AND auth0_user_id IS NULL
-            RETURNING id, role, is_active
-          `
-          if (linked) {
-            if (!linked.is_active && !isPlatformAdmin) {
-              return reply.code(403).send({ error: 'Your account has been deactivated' })
-            }
-            dbRole = linked.role
-          }
+          // Fire-and-forget last_login_at bump — don't block the request on it.
+          sql`UPDATE users SET last_login_at = now() WHERE id = ${localUser.id}`
+            .catch(e => req.log.warn({ err: e }, 'last_login_at update failed'))
         }
       } catch (e) {
-        req.log.warn({ err: e }, 'User reconcile failed')
+        req.log.warn({ err: e?.message || e }, 'User reconcile failed (non-fatal)')
       }
     }
 
