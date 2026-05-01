@@ -78,7 +78,7 @@ When the user signals end of session ("wrap up", "eos", "that's all", or natural
 - Incomplete bits left behind (mark them clearly in Outstanding items).
 - Recommended next actions for the user.
 
-**4. Commit + push** all pending changes on the working branch. Never leave uncommitted work at end of session.
+**4. Hand off for commit.** The **user commits and pushes** all local code changes themselves — Claude does not run `git commit` / `git push` from this environment (no local shell available; `SHELL` points to GitHub Desktop). At EOS, summarise the pending changes (file list + suggested commit message) so the user can stage and commit cleanly. Never leave the user without a clear summary of what's uncommitted.
 
 ---
 
@@ -387,27 +387,54 @@ Port the 5-step flow (covers → date → slot → details → confirm) to Ember
 Style via CSS custom properties (accent colour, theme) so it's white-labelable.
 Deploy as an iframe embed with a `<script>` loader snippet.
 
-**2. Team management page**
-Route: `/team`. Uses Auth0 Management API to invite users to an organisation.
-Pattern: POST to Auth0 `/api/v2/jobs/invitations` → user receives email → joins org.
-Store role in `app_metadata.role` on the Auth0 user.
+**2. Auth0 Management API for team invites**
+`POST /api/team` currently creates a local `users` row only — no Auth0 invitation is sent.
+Operators must also invite the user via the Auth0 dashboard. To close this gap:
+add `AUTH0_MGMT_CLIENT_ID` / `AUTH0_MGMT_CLIENT_SECRET` env vars, fetch a Mgmt API
+token, then `POST /api/v2/organizations/{org_id}/invitations` after the local insert.
+Roll back the local row if Auth0 returns non-2xx.
 
-**3. Customer hard delete**
+**3. GloriaFood sales integration**
+*(paused — needs API access details from the user)* Pull order data from GloriaFood
+for sales reporting and reconciliation. Architecture decisions pending: Partner API vs
+Restaurant API, polling vs webhook, per-venue vs tenant-level credentials, where it
+displays in the admin UI.
+
+**4. Customer hard delete**
 Customers page currently supports anonymise (GDPR erasure by overwrite) but not hard delete.
 A double-confirmation hard delete (for internal test/demo data cleanup) is still outstanding.
 Must cascade-delete linked bookings or reassign them. Requires `requireRole('owner')` guard.
 
-**4. Website builder — deployment pieces** *(feature shipped code-side, not yet deployed)*
+**5. Website builder — deployment pieces** *(feature shipped code-side, not yet deployed)*
 - Nginx: wildcard server block for `*.macaroonie.com` (proxy_pass → Fastify API).
 - DNS: wildcard A record for `*.macaroonie.com` → Lightsail IP.
 - SSL: wildcard cert via Certbot DNS-01 challenge (needs DNS at Cloudflare / Route53 / etc).
 - Custom domains: per-tenant SSL provisioning (Caddy on-demand TLS or Certbot per domain).
   The app only resolves the Host header; cert provisioning is out of process.
-- Run migrations 025 + 026 on the server.
+- Migrations 025 + 026 + 027 + 035 + 036 are applied automatically by the migrate runner
+  (or auto-baselined on first run via `AUTO_BASELINE_UP_TO=024`).
 - Optional: set `STORAGE_DRIVER=s3` + `S3_*` env vars to use S3 / DO Spaces / R2
   instead of local disk for uploads.
 
-**5. Test suite**
+**6. Email system loose ends**
+- `nodemailer` is not in `api/package.json` — the SMTP email provider will crash on first use.
+  Add `"nodemailer": "^6.9.0"` if any tenant selects SMTP.
+- Guest manage page `POST /modify` directly UPDATEs `starts_at` without checking
+  `get_available_slots()` — a guest could move into a slot that's already full or outside
+  any sitting. Add slot validation before applying.
+- Stripe webhook confirmation path (`payments.js handlePaymentSucceeded`) does not
+  schedule reminder emails; only the free-booking path does. Wire `scheduleReminder()`
+  into the webhook path too.
+- After deploy, clear stale BullMQ jobs in Redis — the `notificationQueue` job name
+  changed to `'booking_email'` (with required `venueId` field), so old-format jobs
+  enqueued before the change will fail forever.
+- Legacy `src/services/notificationSvc.js` is dead code — safe to delete.
+
+**7. Docs.jsx update for platform/team**
+Help.jsx has a Team Management section; Docs.jsx does not yet have a corresponding
+technical section for the platform-admin routes, RBAC matrix, or `platform_admins` table.
+
+**8. Test suite**
 No tests exist yet. Recommended approach:
 - API: Vitest + supertest for route integration tests
 - DB: Use a test database with migrations applied, reset between test runs
