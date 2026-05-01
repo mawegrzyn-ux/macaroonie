@@ -38,13 +38,17 @@ const verify = createVerifier({
   },
 })
 
+// Role hierarchy — higher index = more privilege
+const ROLE_HIERARCHY = ['viewer', 'operator', 'admin', 'owner']
+
 /**
  * Fastify preHandler — validates JWT, resolves tenant, attaches to request.
  *
  * Attaches:
- *   req.user        = { sub, email, role }
- *   req.tenantId    = uuid from our tenants table
- *   req.auth0OrgId  = Auth0 org ID (used to resolve tenant)
+ *   req.user            = { sub, email, role, isPlatformAdmin }
+ *   req.tenantId        = uuid from our tenants table (null for platform admin without org)
+ *   req.auth0OrgId      = Auth0 org ID (used to resolve tenant)
+ *   req.isPlatformAdmin = true if the user is in platform_admins
  */
 export async function requireAuth(req, reply) {
   try {
@@ -60,26 +64,52 @@ export async function requireAuth(req, reply) {
 
     const auth0OrgId = payload[`${CLAIM_NS}tenant_id`]
     const role       = payload[`${CLAIM_NS}role`] ?? 'operator'
+    const auth0Sub   = payload.sub
 
-    if (!auth0OrgId) {
+    // Check platform admin status (global — not tenant-scoped)
+    const [platformAdmin] = await sql`
+      SELECT id FROM platform_admins
+       WHERE auth0_user_id = ${auth0Sub}
+         AND is_active = true
+       LIMIT 1
+    `
+    const isPlatformAdmin = !!platformAdmin
+
+    // Platform admins may operate without an org (for tenant management).
+    // Normal users must always have an org claim.
+    if (!auth0OrgId && !isPlatformAdmin) {
       return reply.code(401).send({ error: 'Token missing tenant claim — ensure user belongs to an organization' })
     }
 
-    // Resolve Auth0 org ID → internal tenant UUID
-    const [tenant] = await sql`
-      SELECT id FROM tenants
-       WHERE auth0_org_id = ${auth0OrgId}
-         AND is_active = true
-      LIMIT 1
-    `
-
-    if (!tenant) {
-      return reply.code(401).send({ error: 'Tenant not found or inactive' })
+    let tenantId = null
+    if (auth0OrgId) {
+      const [tenant] = await sql`
+        SELECT id FROM tenants
+         WHERE auth0_org_id = ${auth0OrgId}
+           AND is_active = true
+        LIMIT 1
+      `
+      if (!tenant && !isPlatformAdmin) {
+        return reply.code(401).send({ error: 'Tenant not found or inactive' })
+      }
+      tenantId = tenant?.id ?? null
     }
 
-    req.user       = { sub: payload.sub, email: payload.email, role }
-    req.tenantId   = tenant.id
-    req.auth0OrgId = auth0OrgId
+    req.user = {
+      sub:             auth0Sub,
+      email:           payload.email,
+      role:            isPlatformAdmin ? 'owner' : role,
+      isPlatformAdmin,
+    }
+    req.tenantId       = tenantId
+    req.auth0OrgId     = auth0OrgId
+    req.isPlatformAdmin = isPlatformAdmin
+
+    // Fire-and-forget: update last_login_at if the user has a local record
+    if (tenantId && auth0Sub) {
+      sql`UPDATE users SET last_login_at = now() WHERE auth0_user_id = ${auth0Sub} AND tenant_id = ${tenantId}`
+        .catch(() => {})
+    }
 
   } catch (err) {
     req.log.warn({ err }, 'Auth failed')
@@ -88,14 +118,27 @@ export async function requireAuth(req, reply) {
 }
 
 /**
- * Role guard factory.
+ * Role guard factory. Checks the RBAC hierarchy.
+ * Platform admins bypass all role checks.
+ *
  * @example
- *   preHandler: [requireAuth, requireRole('admin')]
+ *   preHandler: [requireAuth, requireRole('admin', 'owner')]
+ *   // allows admin, owner, and platform admins
  */
 export function requireRole(...roles) {
   return async function (req, reply) {
+    if (req.isPlatformAdmin) return  // platform admins pass all role gates
     if (!roles.includes(req.user?.role)) {
       return reply.code(403).send({ error: 'Insufficient permissions' })
     }
+  }
+}
+
+/**
+ * Platform admin guard — only platform admins pass.
+ */
+export function requirePlatformAdmin(req, reply) {
+  if (!req.isPlatformAdmin) {
+    return reply.code(403).send({ error: 'Platform admin access required' })
   }
 }
