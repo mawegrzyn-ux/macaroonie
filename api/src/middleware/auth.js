@@ -51,6 +51,7 @@ const ROLE_HIERARCHY = ['viewer', 'operator', 'admin', 'owner']
  *   req.isPlatformAdmin = true if the user is in platform_admins
  */
 export async function requireAuth(req, reply) {
+  const t0 = Date.now()
   try {
     const authHeader = req.headers.authorization
     if (!authHeader?.startsWith('Bearer ')) {
@@ -61,19 +62,24 @@ export async function requireAuth(req, reply) {
 
     // Verify signature + expiry via JWKS (RS256)
     const payload = await verify(token)
+    req.log.info({ ms: Date.now() - t0 }, 'auth: jwt verified')
 
     const auth0OrgId = payload[`${CLAIM_NS}tenant_id`]
     const role       = payload[`${CLAIM_NS}role`] ?? 'operator'
     const auth0Sub   = payload.sub
 
     // Check platform admin status (global — not tenant-scoped)
-    const [platformAdmin] = await sql`
-      SELECT id FROM platform_admins
-       WHERE auth0_user_id = ${auth0Sub}
-         AND is_active = true
-       LIMIT 1
-    `
+    const [platformAdmin] = await Promise.race([
+      sql`
+        SELECT id FROM platform_admins
+         WHERE auth0_user_id = ${auth0Sub}
+           AND is_active = true
+         LIMIT 1
+      `,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('platform_admins lookup timeout')), 3000)),
+    ])
     const isPlatformAdmin = !!platformAdmin
+    req.log.info({ ms: Date.now() - t0, isPlatformAdmin }, 'auth: platform admin check done')
 
     // Platform admins may operate without an org (for tenant management).
     // Normal users must always have an org claim.
@@ -83,17 +89,21 @@ export async function requireAuth(req, reply) {
 
     let tenantId = null
     if (auth0OrgId) {
-      const [tenant] = await sql`
-        SELECT id FROM tenants
-         WHERE auth0_org_id = ${auth0OrgId}
-           AND is_active = true
-        LIMIT 1
-      `
+      const [tenant] = await Promise.race([
+        sql`
+          SELECT id FROM tenants
+           WHERE auth0_org_id = ${auth0OrgId}
+             AND is_active = true
+          LIMIT 1
+        `,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('tenants lookup timeout')), 3000)),
+      ])
       if (!tenant && !isPlatformAdmin) {
         return reply.code(401).send({ error: 'Tenant not found or inactive' })
       }
       tenantId = tenant?.id ?? null
     }
+    req.log.info({ ms: Date.now() - t0, tenantId }, 'auth: tenant resolved')
 
     // Reconcile local user row with Auth0 identity.
     //
@@ -156,9 +166,10 @@ export async function requireAuth(req, reply) {
     req.tenantId       = tenantId
     req.auth0OrgId     = auth0OrgId
     req.isPlatformAdmin = isPlatformAdmin
+    req.log.info({ ms: Date.now() - t0, role: req.user.role }, 'auth: complete')
 
   } catch (err) {
-    req.log.warn({ err }, 'Auth failed')
+    req.log.warn({ err: err?.message || err, ms: Date.now() - t0 }, 'Auth failed')
     return reply.code(401).send({ error: 'Invalid or expired token' })
   }
 }
@@ -184,7 +195,9 @@ export function requireRole(...roles) {
  * Platform admin guard — only platform admins pass.
  */
 export function requirePlatformAdmin(req, reply) {
+  req.log.info({ isPlatformAdmin: req.isPlatformAdmin }, 'requirePlatformAdmin: enter')
   if (!req.isPlatformAdmin) {
     return reply.code(403).send({ error: 'Platform admin access required' })
   }
+  req.log.info('requirePlatformAdmin: pass')
 }
