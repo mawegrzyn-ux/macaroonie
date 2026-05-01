@@ -27,6 +27,8 @@ import siteRendererRoutes from './routes/siteRenderer.js'
 import cashReconRoutes  from './routes/cashRecon.js'
 import manageBookingRoutes  from './routes/manageBooking.js'
 import emailTemplateRoutes from './routes/emailTemplates.js'
+import platformRoutes      from './routes/platform.js'
+import teamRoutes          from './routes/team.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -122,6 +124,8 @@ export async function buildApp() {
   await app.register(cashReconRoutes,  { prefix: '/api/venues' })
   await app.register(publicSiteRoutes,     { prefix: '/api/site' })
   await app.register(emailTemplateRoutes, { prefix: '/api/email-templates' })
+  await app.register(platformRoutes,      { prefix: '/api' })
+  await app.register(teamRoutes,          { prefix: '/api/team' })
   await app.register(manageBookingRoutes, { prefix: '/manage' })
 
   // ── Health check ─────────────────────────────────────────
