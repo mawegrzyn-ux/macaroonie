@@ -37,6 +37,20 @@ const PROVIDERS = [
   { value: 'smtp',     label: 'SMTP (custom)',   desc: 'Any SMTP server (Outlook, Gmail, self-hosted).' },
 ]
 
+// Reject javascript: / data: / vbscript: URIs to prevent XSS in email links.
+// Allow merge fields ({{manage_link}}) which aren't real URLs but are safe.
+function isSafeUrl(url) {
+  if (!url) return false
+  if (url.startsWith('{{') && url.endsWith('}}')) return true
+  const lower = url.trim().toLowerCase()
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('vbscript:')) return false
+  return true
+}
+
+function escapeAttr(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 function SectionCard({ title, description, action, children }) {
   return (
     <div className="bg-background border rounded-xl overflow-hidden">
@@ -331,13 +345,13 @@ function TemplateEditor({ venueId }) {
                 <ToolbarSep />
                 <ToolbarBtn onClick={() => {
                   const url = window.prompt('Enter URL:')
-                  if (url) editor.chain().focus().setLink({ href: url }).run()
+                  if (url && isSafeUrl(url)) editor.chain().focus().setLink({ href: url }).run()
                 }} active={editor.isActive('link')} title="Insert link">
                   <Link2 className="w-4 h-4" />
                 </ToolbarBtn>
                 <ToolbarBtn onClick={() => {
                   const url = window.prompt('Image URL:')
-                  if (url) editor.chain().focus().setImage({ src: url }).run()
+                  if (url && isSafeUrl(url)) editor.chain().focus().setImage({ src: url }).run()
                 }} title="Insert image">
                   <ImageIcon className="w-4 h-4" />
                 </ToolbarBtn>
@@ -348,9 +362,9 @@ function TemplateEditor({ venueId }) {
                   const label = window.prompt('Button text:', 'Book a Table')
                   if (!label) return
                   const href = window.prompt('Button URL:', '{{manage_link}}')
-                  if (!href) return
+                  if (!href || !isSafeUrl(href)) return
                   editor.chain().focus()
-                    .insertContent(`<a href="${href}" class="btn">${label}</a>`)
+                    .insertContent(`<a href="${escapeAttr(href)}" class="btn">${escapeAttr(label)}</a>`)
                     .run()
                 }} title="Insert CTA button">
                   <span className="text-[10px] font-bold px-0.5">BTN</span>
