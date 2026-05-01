@@ -63,13 +63,13 @@ export default async function platformRoutes(app) {
     let availableTenants
     if (isPlatformAdmin) {
       availableTenants = await sql`
-        SELECT id, name, slug, plan, is_active FROM tenants
+        SELECT id, name, slug, plan, auth0_org_id, is_active FROM tenants
          WHERE is_active = true
          ORDER BY name
       `
     } else {
       availableTenants = await sql`
-        SELECT t.id, t.name, t.slug, t.plan, t.is_active, u.role
+        SELECT t.id, t.name, t.slug, t.plan, t.auth0_org_id, t.is_active, u.role
           FROM users u
           JOIN tenants t ON t.id = u.tenant_id AND t.is_active = true
          WHERE u.auth0_user_id = ${sub}

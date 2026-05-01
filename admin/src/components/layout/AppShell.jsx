@@ -9,7 +9,7 @@ import {
   LogOut, LayoutTemplate, Menu, X,
   BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
-  Wallet, Mail,
+  Wallet, Mail, Shield, ChevronDown,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -58,6 +58,10 @@ const NAV = [
   null,
   { label: 'Documentation', to: '/docs',   icon: BookMarked },
   { label: 'Help',          to: '/help',   icon: HelpCircle },
+]
+
+const PLATFORM_NAV = [
+  { label: 'Tenants',   to: '/platform', icon: Shield },
 ]
 
 function NavItem({ item, open }) {
@@ -119,6 +123,33 @@ export default function AppShell() {
   // Derived effective venueId (mirrors Timeline's own fallback logic)
   const effectiveVenueId = tlSettings.venueId ?? venues[0]?.id ?? ''
 
+  // /api/me — current user profile + available tenants for org switcher
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn:  () => api.get('/me'),
+    staleTime: 120_000,
+  })
+  const isPlatformAdmin   = me?.is_platform_admin
+  const availableTenants  = me?.available_tenants ?? []
+  const currentTenant     = me?.current_tenant
+  const hasMultipleTenants = availableTenants.length > 1
+
+  // Org switch: re-authenticate with a different organization
+  const { loginWithRedirect } = useAuth0()
+  function switchTenant(tenantId) {
+    const tenant = availableTenants.find(t => t.id === tenantId)
+    if (!tenant) return
+    // We need the Auth0 org_id, not our internal tenant_id.
+    // For now, redirect to login with the tenant slug hint.
+    // The Auth0 Action resolves the org from the login.
+    loginWithRedirect({
+      authorizationParams: {
+        organization: tenant.auth0_org_id || undefined,
+        prompt: 'login',
+      },
+    })
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
 
@@ -168,12 +199,49 @@ export default function AppShell() {
           )}
         </div>
 
+        {/* Org switcher — shown when user has multiple tenants */}
+        {open && hasMultipleTenants && (
+          <div className="shrink-0 px-3 py-2 border-b">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+              Tenant
+            </p>
+            <select
+              value={currentTenant?.id || ''}
+              onChange={e => switchTenant(e.target.value)}
+              className="w-full text-xs border rounded px-2 py-1.5 bg-background touch-manipulation min-h-[36px]"
+            >
+              {availableTenants.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {!open && hasMultipleTenants && (
+          <div className="shrink-0 border-b flex justify-center py-1.5">
+            <button
+              onClick={() => setOpen(true)}
+              title={`Switch tenant (${currentTenant?.name || ''})`}
+              className="p-2 rounded hover:bg-accent text-muted-foreground"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Nav links */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
           {NAV.map((item, i) =>
             item === null
               ? <div key={i} className={cn('border-t', open ? 'my-2' : 'my-1')} />
               : <NavItem key={item.to} item={item} open={open} />
+          )}
+          {isPlatformAdmin && (
+            <>
+              <div className={cn('border-t', open ? 'my-2' : 'my-1')} />
+              {PLATFORM_NAV.map(item => (
+                <NavItem key={item.to} item={item} open={open} />
+              ))}
+            </>
           )}
         </nav>
 
