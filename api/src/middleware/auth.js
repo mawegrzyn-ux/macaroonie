@@ -193,11 +193,13 @@ export function requireRole(...roles) {
 
 /**
  * Platform admin guard — only platform admins pass.
+ *
+ * MUST be async. A sync hook with no `done` parameter chains
+ * unreliably in Fastify v4 preHandler arrays — the next hook
+ * (route handler) sometimes never runs.
  */
-export function requirePlatformAdmin(req, reply) {
-  req.log.info({ isPlatformAdmin: req.isPlatformAdmin }, 'requirePlatformAdmin: enter')
+export async function requirePlatformAdmin(req, reply) {
   if (!req.isPlatformAdmin) {
     return reply.code(403).send({ error: 'Platform admin access required' })
   }
-  req.log.info('requirePlatformAdmin: pass')
 }
