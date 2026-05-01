@@ -19,6 +19,7 @@ const SECTIONS = [
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'website',             label: 'Website Builder' },
   { id: 'emails',              label: 'Booking Emails' },
+  { id: 'team',                label: 'Team Management' },
   { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
 
@@ -1590,6 +1591,72 @@ export default function Help() {
                 </p>
               </div>
             </div>
+          </section>
+
+          {/* ── TEAM MANAGEMENT ────────────────────────────── */}
+          <section id="team" data-help="">
+            <H2>Team Management</H2>
+            <P>
+              Manage who has access to your restaurant's admin portal. Invite team members,
+              assign roles, and control what each person can see and do.
+            </P>
+
+            <H3>Roles</H3>
+            <DataTable
+              head={['Role', 'What they can do']}
+              rows={[
+                ['Owner',    'Full access. Manage team, billing, brand defaults, all settings. Can invite other owners.'],
+                ['Admin',    'Manage venues, rules, website, emails, schedule. Cannot manage team or billing.'],
+                ['Operator', 'Front-of-house. Manage bookings, view timeline, handle walk-ins.'],
+                ['Viewer',   'Read-only access to bookings and timeline. Cannot make changes.'],
+              ]}
+            />
+
+            <H3>Inviting a team member</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Go to <strong>Team</strong> in the sidebar.</li>
+              <li>Click <strong>Invite</strong> (top right). Only owners see this button.</li>
+              <li>Enter the team member's email, optional full name, and choose a role.</li>
+              <li>Click <strong>Send invite</strong>.</li>
+              <li>
+                The team member also needs to be invited to your Auth0 organisation.
+                Do this from the <strong>Auth0 dashboard</strong> under
+                Organizations &gt; Members &gt; Add members.
+              </li>
+            </ol>
+            <InfoBox type="info">
+              The invite creates a local user record so the role is ready when the person first
+              logs in. The Auth0 invitation (which sends the email) is a separate step in the
+              Auth0 dashboard for now.
+            </InfoBox>
+
+            <H3>Changing a role</H3>
+            <P>
+              Owners can change any team member's role using the dropdown next to their name.
+              The change takes effect immediately. You cannot change your own role.
+            </P>
+
+            <H3>Deactivating a member</H3>
+            <P>
+              Click the <strong>X</strong> button next to a member to deactivate them. They won't be
+              able to log in, but their record is kept. You can reactivate them later from the
+              "Deactivated" section at the bottom.
+            </P>
+
+            <H3>Switching between tenants</H3>
+            <P>
+              If you have access to multiple restaurant brands (tenants), a <strong>tenant
+              switcher</strong> dropdown appears at the top of the sidebar. Selecting a different
+              tenant logs you out and back in under that tenant's context.
+            </P>
+
+            <H3>Platform admins</H3>
+            <P>
+              Platform admins are Macaroonie staff who can manage all tenants. They see a
+              <strong> Tenants</strong> link at the bottom of the sidebar (shield icon) and
+              can create, edit, and deactivate tenants from the platform dashboard. Platform
+              admins bypass all role restrictions within any tenant.
+            </P>
           </section>
 
           {/* ── FAQ ───────────────────────────────────────── */}

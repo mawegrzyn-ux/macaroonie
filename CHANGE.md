@@ -5,6 +5,36 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-01 session]
+
+### Platform admin + tenant/user management  *(migration 036)*
+- **Platform admins** (`platform_admins` table, no RLS): users who manage all tenants.
+  Auth middleware detects by `auth0_user_id`, bypasses all role gates.
+- **`GET /api/me`**: current user profile + list of available tenants with `auth0_org_id`.
+  Powers the org switcher and platform admin detection on the frontend.
+- **Platform admin routes**: `GET/POST/PATCH /api/platform/tenants` + `/stats` endpoint.
+  Create tenants, edit name/slug/plan/active status, view venue/user/booking counts.
+- **Team management routes**: `GET/POST/PATCH/DELETE /api/team`. Invite users, change roles,
+  deactivate. Owner-only mutations. Self-protection (can't demote/deactivate yourself).
+- **Org switcher**: dropdown in AppShell sidebar when user has multiple tenants. Triggers
+  `loginWithRedirect()` with the target Auth0 org_id for a full re-authentication.
+- **`VITE_AUTH0_ORG_ID` now optional**: omitting lets Auth0 prompt for org selection.
+- **Team page** (`/team`): invite card, role dropdown per member, deactivate/reactivate,
+  RBAC reference table. Owner-only mutations.
+- **Platform page** (`/platform`): stats overview (4 cards), tenant list with venue/user
+  counts, create/edit tenant cards. Platform admin only.
+
+### Visual email editor (TipTap)
+- Replaced raw HTML textarea with TipTap WYSIWYG editor.
+- Toolbar: bold, italic, underline, headings, lists, alignment, link, image, divider,
+  text colour picker, CTA button insertion.
+- Visual / HTML mode toggle — content syncs both ways.
+- `<a class="btn">` preserved via extended Link extension with `class` attribute round-trip.
+- URL sanitisation: `isSafeUrl()` rejects `javascript:`/`data:`/`vbscript:` URIs.
+- `escapeAttr()` prevents attribute breakout in button insertion.
+
+---
+
 ## [2026-04-30 session]
 
 ### Booking email system  *(migration 035)*
