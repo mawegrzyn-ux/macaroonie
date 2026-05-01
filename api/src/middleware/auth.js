@@ -95,21 +95,66 @@ export async function requireAuth(req, reply) {
       tenantId = tenant?.id ?? null
     }
 
+    // Reconcile local user row with Auth0 identity.
+    //
+    // Three cases on every authenticated request:
+    //   1. Already linked (auth0_user_id matches sub) → bump last_login_at,
+    //      use the local role as the source of truth.
+    //   2. First login after invite (auth0_user_id is NULL, email matches) →
+    //      link sub to the local row and bump last_login_at. This is what
+    //      lets a user who accepted an Auth0 invitation actually use the
+    //      app under the role we assigned in /team/invite.
+    //   3. is_active=false locally → deny. Even if Auth0 still trusts the
+    //      user, an operator can revoke access in the team page without
+    //      touching Auth0.
+    let dbRole = null
+    if (tenantId && auth0Sub) {
+      try {
+        let [localUser] = await sql`
+          SELECT id, role, is_active FROM users
+           WHERE auth0_user_id = ${auth0Sub} AND tenant_id = ${tenantId}
+           LIMIT 1
+        `
+        if (localUser) {
+          if (!localUser.is_active && !isPlatformAdmin) {
+            return reply.code(403).send({ error: 'Your account has been deactivated' })
+          }
+          dbRole = localUser.role
+          await sql`
+            UPDATE users SET last_login_at = now()
+             WHERE id = ${localUser.id}
+          `
+        } else if (payload.email) {
+          // First login after invite — link by email.
+          const [linked] = await sql`
+            UPDATE users
+               SET auth0_user_id = ${auth0Sub}, last_login_at = now()
+             WHERE tenant_id = ${tenantId}
+               AND lower(email) = lower(${payload.email})
+               AND auth0_user_id IS NULL
+            RETURNING id, role, is_active
+          `
+          if (linked) {
+            if (!linked.is_active && !isPlatformAdmin) {
+              return reply.code(403).send({ error: 'Your account has been deactivated' })
+            }
+            dbRole = linked.role
+          }
+        }
+      } catch (e) {
+        req.log.warn({ err: e }, 'User reconcile failed')
+      }
+    }
+
     req.user = {
       sub:             auth0Sub,
       email:           payload.email,
-      role:            isPlatformAdmin ? 'owner' : role,
+      role:            isPlatformAdmin ? 'owner' : (dbRole ?? role),
       isPlatformAdmin,
     }
     req.tenantId       = tenantId
     req.auth0OrgId     = auth0OrgId
     req.isPlatformAdmin = isPlatformAdmin
-
-    // Fire-and-forget: update last_login_at if the user has a local record
-    if (tenantId && auth0Sub) {
-      sql`UPDATE users SET last_login_at = now() WHERE auth0_user_id = ${auth0Sub} AND tenant_id = ${tenantId}`
-        .catch(() => {})
-    }
 
   } catch (err) {
     req.log.warn({ err }, 'Auth failed')

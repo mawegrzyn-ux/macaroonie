@@ -5,6 +5,42 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-01 — later]
+
+### Auth0 Management API for full in-app team lifecycle  *(migration 037 seeds initial platform admin)*
+- **No more Auth0 dashboard for tenant operators.** Inviting, role changes, deactivation, and
+  password resets all flow through the Team page; only platform admins ever touch Auth0.
+- **New service `api/src/services/auth0MgmtSvc.js`**: M2M client-credentials token fetch with
+  in-memory cache (5min refresh buffer), `inviteUserToOrg`, `removeUserFromOrg`,
+  `updateUserAppMetadata`, `sendPasswordResetEmail`. `isConfigured()` / `canInvite()` feature
+  checks let callers degrade gracefully when env vars are missing.
+- **`POST /api/team/invite`**: now sends an Auth0 organization invitation email. If Auth0
+  returns non-2xx the local users row is rolled back before responding 502. Falls back to
+  local-only insert with a warning when `AUTH0_MGMT_*` env vars are unset (dev mode).
+- **`PATCH /api/team/:userId`**: when the role changes and the user has an Auth0 link,
+  calls `updateUserAppMetadata({ role })` so the next JWT carries the new role. Best-effort
+  — Auth0 failure logs but doesn't roll back; the local DB is source of truth.
+- **`DELETE /api/team/:userId`**: soft-deactivates locally AND removes the user from the
+  Auth0 org (so they can no longer obtain a JWT for this tenant). The Auth0 user account
+  itself is preserved.
+- **`POST /api/team/:userId/reset-password`**: owner-only. Triggers the Auth0
+  `/dbconnections/change_password` endpoint so the user gets a one-time reset link by email.
+- **`GET /api/team/auth0-status`**: feature flags consumed by the Team page so the UI
+  shows an amber banner when Auth0 is unconfigured, and hides the password-reset button
+  when `AUTH0_INVITE_CLIENT_ID` is missing.
+- **Auth middleware reconciliation**: `requireAuth` now links `auth0_user_id` ↔ local user
+  on every request. Three cases — already linked / first login after invite (link by email)
+  / `is_active=false` (rejected with 403). The local DB is now the source of truth for
+  `req.user.role` (not the JWT) so role changes take effect without an Auth0 token refresh.
+- **Migration 037**: idempotent seed of the initial platform admin (Michal Wegrzyn) so
+  `/platform` is reachable on first deploy without manual DB access.
+- **New env vars** (all optional): `AUTH0_MGMT_CLIENT_ID`, `AUTH0_MGMT_CLIENT_SECRET`,
+  `AUTH0_INVITE_CLIENT_ID`. See `api/.env.example` for the M2M scopes required.
+- **Team page UI**: "Invite pending" badge for unlinked rows, password-reset key icon
+  (with loading + success states), warning banner when Auth0 mgmt is not configured.
+
+---
+
 ## [2026-05-01 session]
 
 ### Platform admin + tenant/user management  *(migration 036)*

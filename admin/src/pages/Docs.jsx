@@ -10,6 +10,7 @@ const SECTIONS = [
   { id: 'admin-portal', label: 'Admin Portal' },
   { id: 'multitenancy', label: 'Multitenancy & RLS' },
   { id: 'auth',         label: 'Authentication' },
+  { id: 'team-platform', label: 'Team & Platform Admin' },
   { id: 'database',     label: 'Database Schema' },
   { id: 'api',          label: 'API Reference' },
   { id: 'customers',    label: 'Customers & GDPR' },
@@ -429,6 +430,100 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Use <Mono>requireRole('admin', 'owner')</Mono> as a route <Mono>preHandler</Mono> for
               destructive or configuration operations.
+            </P>
+          </section>
+
+          {/* ── TEAM & PLATFORM ADMIN ───────────────────── */}
+          <section id="team-platform" data-doc="">
+            <H2>Team & Platform Admin</H2>
+            <P>
+              Tenant operators manage their team entirely from the admin portal — no Auth0
+              dashboard required. Platform admins (Macaroonie staff) sit above all tenants
+              and manage the global tenant list.
+            </P>
+
+            <H3>RBAC matrix</H3>
+            <DataTable
+              head={['Capability', 'platform_admin', 'owner', 'admin', 'operator', 'viewer']}
+              rows={[
+                ['Manage tenants',          '✓', '',  '',  '',  ''],
+                ['Switch tenant context',   '✓', '✓', '✓', '✓', '✓'],
+                ['Invite/remove users',     '✓', '✓', '',  '',  ''],
+                ['Change user roles',       '✓', '✓', '',  '',  ''],
+                ['Reset user passwords',    '✓', '✓', '',  '',  ''],
+                ['View team list',          '✓', '✓', '✓', '',  ''],
+                ['Edit brand/rules/site',   '✓', '✓', '✓', '',  ''],
+                ['Manage bookings',         '✓', '✓', '✓', '✓', ''],
+                ['View timeline',           '✓', '✓', '✓', '✓', '✓'],
+              ]}
+            />
+
+            <H3>Platform admin (<Mono>platform_admins</Mono>)</H3>
+            <P>
+              Global table, no RLS — access is gated in <Mono>auth.js</Mono> via
+              <Mono>requirePlatformAdmin</Mono>. Add a row with the user's Auth0 sub
+              (<Mono>auth0_user_id</Mono>) to grant access. Platform admins bypass every
+              <Mono>requireRole()</Mono> check by design — to restrict an action to
+              tenant-level owners only, write a custom guard checking
+              <Mono>req.user.role === 'owner' && !req.isPlatformAdmin</Mono>.
+            </P>
+
+            <H3>Team API</H3>
+            <DataTable
+              head={['Method', 'Path', 'Role', 'Purpose']}
+              rows={[
+                ['GET',    '/api/team',                          'admin',  'List members'],
+                ['GET',    '/api/team/roles',                    'any',    'Role catalogue with descriptions'],
+                ['GET',    '/api/team/auth0-status',             'any',    'Feature flags (mgmt configured / invitations ready)'],
+                ['POST',   '/api/team/invite',                   'owner',  'Create local row + send Auth0 invitation email'],
+                ['PATCH',  '/api/team/:userId',                  'owner',  'Change role/name/active. Role syncs to Auth0 app_metadata.'],
+                ['DELETE', '/api/team/:userId',                  'owner',  'Soft-deactivate locally + remove from Auth0 org membership'],
+                ['POST',   '/api/team/:userId/reset-password',   'owner',  'Trigger Auth0 password change email'],
+              ]}
+            />
+
+            <H3>Platform API</H3>
+            <DataTable
+              head={['Method', 'Path', 'Purpose']}
+              rows={[
+                ['GET',   '/api/me',                                'Current user + list of available tenants (drives org switcher)'],
+                ['GET',   '/api/platform/tenants',                  'List all tenants (active + inactive)'],
+                ['GET',   '/api/platform/tenants/stats',            'Aggregate counts (tenants, venues, users, plans)'],
+                ['POST',  '/api/platform/tenants',                  'Create a tenant'],
+                ['PATCH', '/api/platform/tenants/:id',              'Update name/slug/plan/auth0_org_id/is_active'],
+              ]}
+            />
+
+            <H3>Auth0 Management API integration</H3>
+            <P>
+              Wrapped by <Mono>src/services/auth0MgmtSvc.js</Mono>. Uses the client-credentials
+              grant against the Auth0 Management API; tokens are cached in-memory with a 5-minute
+              refresh buffer. Required env vars (all optional in dev):
+              <Mono>AUTH0_MGMT_CLIENT_ID</Mono>, <Mono>AUTH0_MGMT_CLIENT_SECRET</Mono>,
+              <Mono>AUTH0_INVITE_CLIENT_ID</Mono>. When unset,
+              <Mono>auth0MgmtSvc.isConfigured()</Mono> returns false and the team routes
+              degrade to local-only operations with a warning banner in the UI.
+            </P>
+            <P>
+              The M2M application in Auth0 needs these scopes:
+              <Mono>read:users</Mono>, <Mono>update:users</Mono>,
+              <Mono>read:organization_invitations</Mono>, <Mono>create:organization_invitations</Mono>,
+              <Mono>read:organization_members</Mono>, <Mono>delete:organization_members</Mono>.
+              The Auth0 tenant must also have a Login Action that reads
+              <Mono>app_metadata.role</Mono> and injects it as a custom JWT claim — without
+              this Action, role-sync writes are silent no-ops on the JWT side.
+            </P>
+
+            <H3>First-login reconciliation</H3>
+            <P>
+              <Mono>requireAuth</Mono> in <Mono>auth.js</Mono> reconciles the Auth0 sub
+              with the local <Mono>users</Mono> row on every request. Three cases:
+              (1) already linked → bump <Mono>last_login_at</Mono> and use
+              <Mono>users.role</Mono> as authoritative; (2) <Mono>auth0_user_id IS NULL</Mono>
+              but email matches an invited row → link sub, bump login; (3) local
+              <Mono>is_active=false</Mono> → reject with 403 even if Auth0 still trusts
+              the user. The local DB is the source of truth for <Mono>req.user.role</Mono>,
+              so role changes take effect immediately without waiting for an Auth0 token refresh.
             </P>
           </section>
 

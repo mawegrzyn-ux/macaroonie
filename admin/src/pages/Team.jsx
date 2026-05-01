@@ -6,7 +6,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  UserPlus, Shield, Loader2, X, Check, ChevronDown,
+  UserPlus, Shield, Loader2, X, Check, ChevronDown, KeyRound, AlertTriangle,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -34,6 +34,16 @@ export default function Team() {
   const { data: roles = [] } = useQuery({
     queryKey: ['team-roles'],
     queryFn:  () => api.get('/team/roles'),
+  })
+
+  const { data: auth0Status } = useQuery({
+    queryKey: ['team-auth0-status'],
+    queryFn:  () => api.get('/team/auth0-status'),
+    staleTime: 300_000,
+  })
+
+  const resetPassword = useMutation({
+    mutationFn: (id) => api.post(`/team/${id}/reset-password`, {}),
   })
 
   const updateRole = useMutation({
@@ -71,6 +81,16 @@ export default function Team() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-6 space-y-6">
+          {auth0Status && !auth0Status.invitations_ready && (
+            <div className="border border-amber-300 bg-amber-50 rounded-xl px-5 py-3 text-sm text-amber-900 flex gap-3">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-medium">Auth0 invitations not configured</p>
+                <p className="text-xs mt-1">Inviting a user will create a local row only — no email is sent. Set <code className="font-mono">AUTH0_MGMT_CLIENT_ID</code>, <code className="font-mono">AUTH0_MGMT_CLIENT_SECRET</code>, and <code className="font-mono">AUTH0_INVITE_CLIENT_ID</code> on the API to enable email invites and password resets.</p>
+              </div>
+            </div>
+          )}
+
           {inviting && (
             <InviteCard roles={roles} onClose={() => setInviting(false)}
               onInvited={() => { setInviting(false); qc.invalidateQueries({ queryKey: ['team'] }) }} />
@@ -90,8 +110,12 @@ export default function Team() {
                   {activeMembers.map(m => (
                     <MemberRow key={m.id} member={m} roles={roles} isOwner={isOwner}
                       currentSub={me?.auth0_sub}
+                      canResetPassword={!!auth0Status?.invitations_ready}
                       onRoleChange={(role) => updateRole.mutate({ id: m.id, role })}
                       onDeactivate={() => toggleActive.mutate({ id: m.id, is_active: false })}
+                      onResetPassword={() => resetPassword.mutate(m.id)}
+                      resetPending={resetPassword.isPending && resetPassword.variables === m.id}
+                      resetSuccess={resetPassword.isSuccess && resetPassword.variables === m.id}
                       onRemove={() => remove.mutate(m.id)} />
                   ))}
                   {activeMembers.length === 0 && (
@@ -160,11 +184,16 @@ export default function Team() {
   )
 }
 
-function MemberRow({ member, roles, isOwner, currentSub, onRoleChange, onDeactivate, onRemove }) {
+function MemberRow({
+  member, roles, isOwner, currentSub, canResetPassword,
+  onRoleChange, onDeactivate, onResetPassword, onRemove,
+  resetPending, resetSuccess,
+}) {
   const isSelf = member.auth0_user_id === currentSub
   const lastLogin = member.last_login_at
     ? new Date(member.last_login_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     : 'Never'
+  const pending = !member.auth0_user_id
 
   return (
     <div className="flex items-center gap-4 px-5 py-3">
@@ -172,6 +201,7 @@ function MemberRow({ member, roles, isOwner, currentSub, onRoleChange, onDeactiv
         <div className="flex items-center gap-2">
           <p className="text-sm font-medium truncate">{member.full_name || member.email}</p>
           {isSelf && <span className="text-[10px] text-muted-foreground">(you)</span>}
+          {pending && <span className="text-[10px] rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5">Invite pending</span>}
         </div>
         <p className="text-xs text-muted-foreground truncate">{member.email}</p>
         <p className="text-[11px] text-muted-foreground mt-0.5">Last login: {lastLogin}</p>
@@ -190,6 +220,19 @@ function MemberRow({ member, roles, isOwner, currentSub, onRoleChange, onDeactiv
         <span className={cn('rounded-full px-3 py-1 text-xs font-medium', ROLE_COLOURS[member.role])}>
           {member.role}
         </span>
+      )}
+
+      {isOwner && !isSelf && canResetPassword && (
+        <button onClick={onResetPassword} disabled={resetPending}
+          title={resetSuccess ? 'Password reset email sent' : 'Send password reset email'}
+          className={cn(
+            'p-2 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 touch-manipulation disabled:opacity-50',
+            resetSuccess && 'text-emerald-600',
+          )}>
+          {resetPending ? <Loader2 className="w-4 h-4 animate-spin" />
+           : resetSuccess ? <Check className="w-4 h-4" />
+           : <KeyRound className="w-4 h-4" />}
+        </button>
       )}
 
       {isOwner && !isSelf && (

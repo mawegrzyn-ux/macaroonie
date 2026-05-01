@@ -15,6 +15,13 @@ const schema = z.object({
   AUTH0_DOMAIN:          z.string(),           // e.g. macaroonie.eu.auth0.com
   AUTH0_AUDIENCE:        z.string(),           // API identifier in Auth0
 
+  // Auth0 Management API (for team invites). All optional —
+  // if unset, /team/invite creates a local row only and the operator
+  // must invite the user via the Auth0 dashboard.
+  AUTH0_MGMT_CLIENT_ID:     z.string().optional(),
+  AUTH0_MGMT_CLIENT_SECRET: z.string().optional(),
+  AUTH0_INVITE_CLIENT_ID:   z.string().optional(), // SPA client_id users land in after accepting
+
   // Stripe
   STRIPE_SECRET_KEY:     z.string(),
   STRIPE_WEBHOOK_SECRET: z.string(),

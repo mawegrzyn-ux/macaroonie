@@ -1619,28 +1619,41 @@ export default function Help() {
               <li>Enter the team member's email, optional full name, and choose a role.</li>
               <li>Click <strong>Send invite</strong>.</li>
               <li>
-                The team member also needs to be invited to your Auth0 organisation.
-                Do this from the <strong>Auth0 dashboard</strong> under
-                Organizations &gt; Members &gt; Add members.
+                The team member receives an email with a link to set their password and
+                join your restaurant. Once they accept, they can log in straight away with the
+                role you chose. Their row shows an "Invite pending" badge until they first log in.
               </li>
             </ol>
             <InfoBox type="info">
-              The invite creates a local user record so the role is ready when the person first
-              logs in. The Auth0 invitation (which sends the email) is a separate step in the
-              Auth0 dashboard for now.
+              You no longer need to touch the Auth0 dashboard — invitations, role changes,
+              deactivation, and password resets are all handled here. (If you see an amber
+              banner saying "Auth0 invitations not configured", ask your platform admin to
+              fill in the Auth0 management credentials on the API.)
             </InfoBox>
 
             <H3>Changing a role</H3>
             <P>
               Owners can change any team member's role using the dropdown next to their name.
-              The change takes effect immediately. You cannot change your own role.
+              The change takes effect immediately for in-app permissions. The next time the user
+              signs in, their session also reflects the new role at the Auth0 level. You cannot
+              change your own role.
+            </P>
+
+            <H3>Resetting a password</H3>
+            <P>
+              Click the <strong>key icon</strong> next to a member to send them a password reset
+              email. They get a one-time link to set a new password — you never see or handle
+              the password yourself. The icon turns green for a moment to confirm the email was
+              sent.
             </P>
 
             <H3>Deactivating a member</H3>
             <P>
-              Click the <strong>X</strong> button next to a member to deactivate them. They won't be
-              able to log in, but their record is kept. You can reactivate them later from the
-              "Deactivated" section at the bottom.
+              Click the <strong>X</strong> button next to a member to deactivate them. They are
+              immediately removed from your restaurant's Auth0 organisation, so even an existing
+              login session can no longer access the admin portal. Their record is kept, and you
+              can reactivate them later from the "Deactivated" section at the bottom — they
+              will need to be re-invited so they get a fresh login link.
             </P>
 
             <H3>Switching between tenants</H3>

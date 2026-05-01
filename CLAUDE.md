@@ -215,7 +215,8 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/services/emailTemplateDefaults.js` — Built-in default HTML email templates (confirmation/reminder/modification/cancellation). Mobile-responsive, professional layout. Used when a tenant hasn't customised their own.
 - `src/jobs/emailWorker.js` — BullMQ job processor for booking emails. Loads booking+venue+customer, resolves template (venue→tenant→built-in), resolves provider+credentials, renders, sends, logs to email_log, marks reminder_sent_at.
 - `src/routes/platform.js` — Platform admin routes (`/api/me`, `/api/platform/tenants` CRUD + stats). `requirePlatformAdmin` guard. `/api/me` returns user profile + available tenants for org switcher.
-- `src/routes/team.js` — In-app team management (`/api/team`). List members, invite, role change, deactivate. Owner-only for mutations; admin can view. Self-protection guards.
+- `src/routes/team.js` — In-app team management (`/api/team`). List members, invite (sends Auth0 invitation email), role change (syncs `app_metadata.role` to Auth0), deactivate (removes from Auth0 org), `POST /:userId/reset-password` (Auth0 change-password email). Owner-only for mutations; admin can view. Self-protection guards. Falls back to local-only invites with a warning if `AUTH0_MGMT_*` env vars are unset.
+- `src/services/auth0MgmtSvc.js` — Auth0 Management API wrapper. In-memory M2M token cache (refreshes ~5min before expiry), `inviteUserToOrg`, `removeUserFromOrg`, `updateUserAppMetadata` (role sync), `sendPasswordResetEmail`. `isConfigured()` / `canInvite()` feature checks let callers degrade gracefully when creds are missing.
 - `src/config/ws.js` — WebSocket server. Rooms keyed by venue_id. Auth via JWT query param.
 - `src/services/broadcastSvc.js` — Call `broadcastBooking(type, booking)` after any booking mutation.
 - `src/jobs/queues.js` — BullMQ queues. `notificationQueue` for emails, `holdSweepQueue` for hold cleanup.
@@ -374,6 +375,7 @@ Additionally implemented across development sessions:
 - ✅ **CLAUDE.md session protocols** — adopted SOS Checklist, EOS Protocol, Standard Design Rules, Doc maintenance section from the COGS template. TOC added. Gotchas section marked append-only.
 - ✅ **Visual email editor** — TipTap WYSIWYG with toolbar (bold/italic/underline, headings, lists, alignment, link, image, divider, colour picker, CTA button insert). Visual / HTML mode toggle. Merge field pills insert at cursor in visual mode. `<a class="btn">` preserved via extended Link extension with class attribute round-trip. URL sanitisation (`isSafeUrl`) prevents `javascript:`/`data:` injection.
 - ✅ **Platform admin + tenant/user management** *(migration 036)* — `platform_admins` table (global, no RLS). Auth middleware detects platform admins and bypasses all role gates. `GET /api/me` returns user profile + available tenants (for org switcher). Platform admin routes: `GET/POST/PATCH /api/platform/tenants` + stats. Team routes: `GET/POST/PATCH/DELETE /api/team` for invite, role change, deactivate (owner-only, self-protected). Org switcher in AppShell sidebar (re-authenticates with different Auth0 org). `VITE_AUTH0_ORG_ID` now optional. Team page at `/team`. Platform page at `/platform`.
+- ✅ **Auth0 Management API integration** — full team lifecycle in-app, no Auth0 dashboard required for tenant operators. New service `api/src/services/auth0MgmtSvc.js` (token caching via client-credentials grant, `inviteUserToOrg`, `removeUserFromOrg`, `updateUserAppMetadata`, `sendPasswordResetEmail`). `POST /api/team/invite` now sends an Auth0 organization invitation email and rolls back the local row if Auth0 fails. `PATCH /api/team/:userId` syncs role to Auth0 `app_metadata.role` whenever role changes. `DELETE /api/team/:userId` removes the user from the Auth0 org membership in addition to setting `is_active=false` locally. New endpoint `POST /api/team/:userId/reset-password` (owner-only) sends an Auth0 password change email — no need to touch the Auth0 dashboard. Auth middleware reconciles Auth0 sub ↔ local user on first login (links by email when invited row has `auth0_user_id IS NULL`), uses local `users.role` as source of truth for `req.user.role`, and rejects auth when local `is_active=false`. New env vars `AUTH0_MGMT_CLIENT_ID`, `AUTH0_MGMT_CLIENT_SECRET`, `AUTH0_INVITE_CLIENT_ID` (all optional — when missing, system degrades to local-only invites with a warning banner in the Team page). Migration 037 seeds the initial platform admin (Michal) so `/platform` works on first deploy.
 
 ---
 
@@ -387,36 +389,29 @@ Port the 5-step flow (covers → date → slot → details → confirm) to Ember
 Style via CSS custom properties (accent colour, theme) so it's white-labelable.
 Deploy as an iframe embed with a `<script>` loader snippet.
 
-**2. Auth0 Management API for team invites**
-`POST /api/team` currently creates a local `users` row only — no Auth0 invitation is sent.
-Operators must also invite the user via the Auth0 dashboard. To close this gap:
-add `AUTH0_MGMT_CLIENT_ID` / `AUTH0_MGMT_CLIENT_SECRET` env vars, fetch a Mgmt API
-token, then `POST /api/v2/organizations/{org_id}/invitations` after the local insert.
-Roll back the local row if Auth0 returns non-2xx.
-
-**3. GloriaFood sales integration**
+**2. GloriaFood sales integration**
 *(paused — needs API access details from the user)* Pull order data from GloriaFood
 for sales reporting and reconciliation. Architecture decisions pending: Partner API vs
 Restaurant API, polling vs webhook, per-venue vs tenant-level credentials, where it
 displays in the admin UI.
 
-**4. Customer hard delete**
+**3. Customer hard delete**
 Customers page currently supports anonymise (GDPR erasure by overwrite) but not hard delete.
 A double-confirmation hard delete (for internal test/demo data cleanup) is still outstanding.
 Must cascade-delete linked bookings or reassign them. Requires `requireRole('owner')` guard.
 
-**5. Website builder — deployment pieces** *(feature shipped code-side, not yet deployed)*
+**4. Website builder — deployment pieces** *(feature shipped code-side, not yet deployed)*
 - Nginx: wildcard server block for `*.macaroonie.com` (proxy_pass → Fastify API).
 - DNS: wildcard A record for `*.macaroonie.com` → Lightsail IP.
 - SSL: wildcard cert via Certbot DNS-01 challenge (needs DNS at Cloudflare / Route53 / etc).
 - Custom domains: per-tenant SSL provisioning (Caddy on-demand TLS or Certbot per domain).
   The app only resolves the Host header; cert provisioning is out of process.
-- Migrations 025 + 026 + 027 + 035 + 036 are applied automatically by the migrate runner
+- Migrations 025 + 026 + 027 + 035 + 036 + 037 are applied automatically by the migrate runner
   (or auto-baselined on first run via `AUTO_BASELINE_UP_TO=024`).
 - Optional: set `STORAGE_DRIVER=s3` + `S3_*` env vars to use S3 / DO Spaces / R2
   instead of local disk for uploads.
 
-**6. Email system loose ends**
+**5. Email system loose ends**
 - `nodemailer` is not in `api/package.json` — the SMTP email provider will crash on first use.
   Add `"nodemailer": "^6.9.0"` if any tenant selects SMTP.
 - Guest manage page `POST /modify` directly UPDATEs `starts_at` without checking
@@ -430,11 +425,11 @@ Must cascade-delete linked bookings or reassign them. Requires `requireRole('own
   enqueued before the change will fail forever.
 - Legacy `src/services/notificationSvc.js` is dead code — safe to delete.
 
-**7. Docs.jsx update for platform/team**
+**6. Docs.jsx update for platform/team**
 Help.jsx has a Team Management section; Docs.jsx does not yet have a corresponding
 technical section for the platform-admin routes, RBAC matrix, or `platform_admins` table.
 
-**8. Test suite**
+**7. Test suite**
 No tests exist yet. Recommended approach:
 - API: Vitest + supertest for route integration tests
 - DB: Use a test database with migrations applied, reset between test runs
@@ -525,8 +520,12 @@ Key vars to set before running:
 - **`requireRole()` lets platform admins through automatically** — platform admins bypass all role checks. If you need to restrict something to ONLY tenant-level owners (not platform admins), you need a custom guard that explicitly checks `req.user.role === 'owner' && !req.isPlatformAdmin`.
 - **`VITE_AUTH0_ORG_ID` is now optional** — when omitted, Auth0 prompts the user to select an org on login (for multi-tenant users). When set, it forces that org (existing single-tenant behaviour). Removing this env var from an existing deployment changes login UX.
 - **Org switcher triggers a full re-authentication** — `loginWithRedirect({ organization: auth0_org_id })` navigates away from the SPA. All local state is lost. This is by design — Auth0 issues a new JWT with the new org's claims. TanStack Query cache is rebuilt on return.
-- **Team invite creates a local `users` row only** — the Auth0 user/invitation is NOT created automatically. The operator must also invite the user via the Auth0 dashboard (or a future Auth0 Management API integration). The local row is pre-created so role/permissions are ready when the user first logs in.
 - **Self-protection in team management** — `PATCH /team/:userId` and `DELETE /team/:userId` reject operations where the target `auth0_user_id` matches `req.user.sub`. Cannot demote yourself, cannot deactivate yourself. Enforced API-side (not just UI).
+- **Auth0 Mgmt API is OPTIONAL** — when `AUTH0_MGMT_CLIENT_ID`/`AUTH0_MGMT_CLIENT_SECRET`/`AUTH0_INVITE_CLIENT_ID` are unset, `auth0MgmtSvc.isConfigured()` returns false and `/team/invite` falls back to creating a local row only (logged warning, Team UI shows an amber banner). This is intentional for local dev. In production all three MUST be set.
+- **Auth0 Mgmt API requires a Login Action that reads `app_metadata.role`** — role sync (`PATCH /team/:userId` calling `updateUserAppMetadata`) writes the role to `app_metadata.role` on the Auth0 user. The Auth0 Login Action then injects it as a JWT claim (`https://{AUTH0_DOMAIN}/claims/role`). Without that Action in place, the JWT keeps the old role until the user re-invites or you manually set it in the Auth0 dashboard. Verify the Action exists in Auth0 → Actions → Library before relying on role sync.
+- **Auth0 invitation roll-back on failure** — `POST /team/invite` inserts the local row first, then calls Auth0. If Auth0 returns non-2xx the local row is DELETEd before responding 502. Re-invites work cleanly because no orphan row remains. Do not change the order — calling Auth0 first leaves no audit trail when the local insert fails on a unique conflict.
+- **First-login user reconciliation** — `requireAuth` in `auth.js` reconciles Auth0 sub ↔ local user every request. Three cases: (1) already linked → bump `last_login_at`, use local `users.role` as authoritative; (2) `auth0_user_id` is NULL but email matches an invited row → link sub, bump login; (3) `is_active=false` locally → reject with 403 even if Auth0 still trusts the user. The local DB is the source of truth for `req.user.role`, not the JWT — so role changes take effect without waiting for the next Auth0 token refresh.
+- **`AUTH0_INVITE_CLIENT_ID` is the SPA client_id, not the M2M one** — the value is the same as the admin portal's `VITE_AUTH0_CLIENT_ID`. It's where users land after accepting their invitation. Confusing because the password reset endpoint also uses it, but the variable name is shared deliberately so there's only one SPA-client value to configure.
 
 ---
 
