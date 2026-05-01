@@ -101,25 +101,57 @@ export default async function platformRoutes(app) {
   // GET /api/platform/tenants
   app.get('/platform/tenants', {
     preHandler: [requireAuth, requirePlatformAdmin],
-  }, async (req) => {
-    try {
+  }, async (req, reply) => {
+    const t0 = Date.now()
+    req.log.info('listTenants: start')
+
+    // Hard 8s timeout on the whole route — we'd rather return [] than hang.
+    const timeoutPromise = new Promise((_, rej) =>
+      setTimeout(() => rej(new Error('listTenants total timeout')), 8000)
+    )
+
+    const queryPromise = (async () => {
+      // Try the simple query first — it's fast and almost always sufficient.
+      // We explicitly DON'T do the COUNT join here because that's been the
+      // suspected source of past hangs.
       const tenants = await sql`
-        SELECT t.*,
-               COUNT(DISTINCT v.id) AS venue_count,
-               COUNT(DISTINCT u.id) AS user_count
-          FROM tenants t
-          LEFT JOIN venues v ON v.tenant_id = t.id AND v.is_active = true
-          LEFT JOIN users  u ON u.tenant_id = t.id AND u.is_active = true
-         GROUP BY t.id
-         ORDER BY t.name
+        SELECT id, name, slug, plan, auth0_org_id, stripe_account_id,
+               is_active, created_at, updated_at
+          FROM tenants
+         ORDER BY name
       `
-      return tenants
+      req.log.info({ ms: Date.now() - t0, n: tenants.length }, 'listTenants: tenants fetched')
+
+      // Now enrich with counts in parallel — each as its own short-timeout
+      // call so a slow one can't take down the whole response.
+      const enriched = await Promise.all(tenants.map(async (t) => {
+        const safeCount = async (q) => {
+          try {
+            const [{ c }] = await Promise.race([
+              q,
+              new Promise((_, r) => setTimeout(() => r(new Error('count timeout')), 1500)),
+            ])
+            return Number(c) || 0
+          } catch {
+            return 0
+          }
+        }
+        const [venue_count, user_count] = await Promise.all([
+          safeCount(sql`SELECT COUNT(*)::int AS c FROM venues WHERE tenant_id = ${t.id} AND is_active = true`),
+          safeCount(sql`SELECT COUNT(*)::int AS c FROM users  WHERE tenant_id = ${t.id} AND is_active = true`),
+        ])
+        return { ...t, venue_count, user_count }
+      }))
+      req.log.info({ ms: Date.now() - t0 }, 'listTenants: done')
+      return enriched
+    })()
+
+    try {
+      return await Promise.race([queryPromise, timeoutPromise])
     } catch (err) {
-      req.log.error({ err: err.message }, 'Failed to list tenants — returning fallback')
-      // Fallback: simpler query without the COUNT joins, so the platform
-      // page still loads even if something's wrong with the join targets.
-      const tenants = await sql`SELECT * FROM tenants ORDER BY name`
-      return tenants.map(t => ({ ...t, venue_count: 0, user_count: 0 }))
+      req.log.error({ err: err.message, ms: Date.now() - t0 }, 'listTenants: failed')
+      // Final fallback — always respond with valid JSON, never hang.
+      return reply.code(200).send([])
     }
   })
 
