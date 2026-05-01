@@ -35,6 +35,18 @@ const queryClient = new QueryClient({
 
 function RequireAuth({ children }) {
   const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
+
+  // Detect Auth0 organization invitation params on the current URL.
+  // When a user clicks the invitation email link Auth0 redirects them
+  // here with `?invitation=...&organization=...`. We must forward those
+  // to /authorize so the invitation is accepted; otherwise Auth0 just
+  // sees a non-member trying to log into the org and rejects with
+  // "user X is not part of org_Y".
+  const params = new URLSearchParams(window.location.search)
+  const invitation   = params.get('invitation')
+  const organization = params.get('organization')
+  const hasInviteParams = !!(invitation && organization)
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -42,7 +54,18 @@ function RequireAuth({ children }) {
       </div>
     )
   }
-  if (!isAuthenticated) { loginWithRedirect(); return null }
+
+  // Handle invitation links even if a session already exists — the
+  // invitation acceptance must run regardless of current auth state.
+  if (hasInviteParams) {
+    loginWithRedirect({ authorizationParams: { invitation, organization } })
+    return null
+  }
+
+  if (!isAuthenticated) {
+    loginWithRedirect()
+    return null
+  }
   return children
 }
 

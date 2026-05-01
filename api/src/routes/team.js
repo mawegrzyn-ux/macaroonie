@@ -161,7 +161,9 @@ export default async function teamRoutes(app) {
           DELETE FROM users WHERE id = ${user.id}
         `).catch(() => {})
         req.log.warn({ err: err.message, auth0Detail: err.auth0Detail }, 'Auth0 invitation failed')
-        throw httpError(502, `Auth0 invitation failed: ${err.message}`)
+        // err.message already starts with "Auth0 invitation failed:" — pass through verbatim.
+        // 422 (not 502) so Nginx doesn't replace our JSON body with its default Bad Gateway page.
+        throw httpError(422, err.message)
       }
     } else {
       req.log.warn({ email }, 'Auth0 mgmt API not configured — local row created, no email sent')
@@ -289,7 +291,7 @@ export default async function teamRoutes(app) {
       await sendPasswordResetEmail({ email: target.email })
     } catch (err) {
       req.log.warn({ err: err.message }, 'Auth0 password reset email failed')
-      throw httpError(502, `Password reset failed: ${err.message}`)
+      throw httpError(422, `Password reset failed: ${err.message}`)
     }
 
     return { ok: true, sent_to: target.email }
