@@ -34,7 +34,7 @@ const TenantPatch = z.object({
   name:              z.string().min(1).max(200).optional(),
   slug:              z.string().min(1).max(100).regex(/^[a-z0-9-]+$/).optional(),
   plan:              z.enum(['starter', 'pro', 'enterprise']).optional(),
-  auth0_org_id:      z.string().optional(),
+  auth0_org_id:      z.string().nullable().optional(),
   stripe_account_id: z.string().nullable().optional(),
   is_active:         z.boolean().optional(),
 })
