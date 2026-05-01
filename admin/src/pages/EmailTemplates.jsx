@@ -118,11 +118,21 @@ function TemplateEditor({ venueId }) {
 
   const initialContent = tpl?.body_html ?? fallback?.body_html ?? ''
 
+  // Extend Link to preserve the `class` attribute so <a class="btn"> round-trips.
+  const EmailLink = Link.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        class: { default: null, parseHTML: el => el.getAttribute('class') || null },
+      }
+    },
+  })
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
       Underline,
-      Link.configure({ openOnClick: false }),
+      EmailLink.configure({ openOnClick: false }),
       Image,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TextStyle,
@@ -334,6 +344,17 @@ function TemplateEditor({ venueId }) {
                 <ToolbarBtn onClick={() => editor.chain().focus().setHorizontalRule().run()} title="Divider">
                   <Minus className="w-4 h-4" />
                 </ToolbarBtn>
+                <ToolbarBtn onClick={() => {
+                  const label = window.prompt('Button text:', 'Book a Table')
+                  if (!label) return
+                  const href = window.prompt('Button URL:', '{{manage_link}}')
+                  if (!href) return
+                  editor.chain().focus()
+                    .insertContent(`<a href="${href}" class="btn">${label}</a>`)
+                    .run()
+                }} title="Insert CTA button">
+                  <span className="text-[10px] font-bold px-0.5">BTN</span>
+                </ToolbarBtn>
                 <ToolbarSep />
                 <input type="color"
                   onChange={e => editor.chain().focus().setColor(e.target.value).run()}
@@ -349,6 +370,23 @@ function TemplateEditor({ venueId }) {
                          [&_.ProseMirror_p]:my-2 [&_.ProseMirror_h1]:text-2xl [&_.ProseMirror_h2]:text-xl
                          [&_.ProseMirror_img]:max-w-full [&_.ProseMirror_img]:rounded
                          [&_.ProseMirror_a]:text-primary [&_.ProseMirror_a]:underline" />
+            {/* Button styling for <a class="btn"> inside the editor */}
+            <style>{`
+              .ProseMirror a.btn {
+                display: inline-block !important;
+                padding: 12px 28px !important;
+                background: #630812 !important;
+                color: #ffffff !important;
+                text-decoration: none !important;
+                border-radius: 6px !important;
+                font-weight: 600 !important;
+                font-size: 15px !important;
+                cursor: pointer;
+              }
+              .ProseMirror a.btn:hover {
+                opacity: 0.9;
+              }
+            `}</style>
           </div>
         ) : (
           <textarea value={bodyHtml}
