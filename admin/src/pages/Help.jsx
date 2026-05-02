@@ -20,6 +20,8 @@ const SECTIONS = [
   { id: 'website',             label: 'Website Builder' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
+  { id: 'access',              label: 'Modules & Roles' },
+  { id: 'email-monitoring',    label: 'Email Monitoring' },
   { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
 
@@ -1486,8 +1488,9 @@ export default function Help() {
               head={['Provider', 'Setup']}
               rows={[
                 ['SendGrid (default)', 'Works out of the box with the platform API key. Optionally add a per-venue key for dedicated sending.'],
-                ['Mailgun',            'Requires an API key + Mailgun domain (e.g. mg.yourdomain.com) per venue.'],
-                ['AWS SES',            'Uses AWS credentials. Set the region (e.g. eu-west-1). Good for high volume.'],
+                ['Postmark',           'Recommended for transactional. Paste the Server API token from Postmark → Servers → your server → API Tokens. Strong deliverability, ~$15/10k emails, branded click tracking handled automatically (click.pstmrk.it with valid TLS).'],
+                ['Mailgun',            'Requires an API key + Mailgun domain (e.g. mg.yourdomain.com) per venue. PICK THE REGION (US or EU) — EU accounts silently 401 if you leave it on US.'],
+                ['AWS SES',            'Cheapest at scale. Uses AWS credentials + region. First-time use requires a one-off "production access" form to be approved by AWS (~24h).'],
                 ['SMTP',               'Any SMTP server — Gmail, Outlook, self-hosted. Enter host, port, username, password.'],
               ]}
             />
@@ -1697,6 +1700,103 @@ export default function Help() {
               credentials don't include the org-creation scopes) the form shows a warning
               and the Auth0 Org ID field becomes required — paste an org id you've
               created manually in the Auth0 dashboard.
+            </InfoBox>
+          </section>
+
+          {/* ── ACCESS (modules + roles) ───────────────────── */}
+          <section id="access" data-help="">
+            <H2>Modules &amp; Roles</H2>
+            <P>
+              The <strong>Access</strong> page (sidebar, owner-only) controls two layers of
+              access for your tenant: which features are turned on at all, and who can do
+              what within them.
+            </P>
+
+            <H3>Modules tab — turn product areas on or off</H3>
+            <P>
+              Each toggle controls a group of related features. Disabling a group hides every
+              nav entry it contains for everyone in your tenant — including owners — and the
+              API rejects mutations on those routes. Easy to turn back on.
+            </P>
+            <DataTable
+              head={['Group', 'Includes', 'When to disable']}
+              rows={[
+                ['Bookings', 'Timeline, Bookings, Customers, Venues, Tables, Schedule, Rules, Widget Test', 'Never (this is the core product). Available so non-restaurant deployments can repurpose the platform.'],
+                ['Booking emails', 'Email templates, sender settings, sent log', 'If you want to handle confirmation emails entirely outside Macaroonie.'],
+                ['Website CMS', 'Per-venue marketing sites, brand defaults', 'If your tenants don\'t need branded subsites.'],
+                ['Cash reconciliation', 'Daily close-out, weekly grid, SC sources', 'If you don\'t track end-of-day cash through Macaroonie.'],
+              ]}
+            />
+            <P>
+              Always-on (no toggle): Dashboard, Team, Settings, Documentation. These are core
+              to running the platform itself.
+            </P>
+
+            <H3>Roles tab — fine-grained per-user permissions</H3>
+            <P>
+              Four built-in roles ship per tenant: Owner, Admin, Operator, Viewer. Each has
+              a permissions matrix showing every module set to <strong>none</strong>,
+              <strong> view</strong>, or <strong>manage</strong>. Built-in roles can be edited
+              (e.g. take Email Templates away from Admin) but not deleted.
+            </P>
+            <P>
+              Click <strong>+ New role</strong> to define custom roles like &ldquo;Manager&rdquo;
+              or &ldquo;Host&rdquo; with their own matrix. Custom roles can be deleted as long
+              as no users are assigned. Assign custom roles in the Team page once they exist.
+            </P>
+            <InfoBox type="info">
+              Disabling a module at the tenant level wins over role permissions — even an
+              Owner can&apos;t access a disabled module. To grant access, turn the module on
+              first, then check the role permission.
+            </InfoBox>
+          </section>
+
+          {/* ── EMAIL MONITORING ───────────────────────────── */}
+          <section id="email-monitoring" data-help="">
+            <H2>Email Monitoring</H2>
+            <P>
+              The <strong>Email monitor</strong> page (sidebar, under the Emails section)
+              shows what your venue is sending and what&apos;s being blocked at the SendGrid
+              gateway. It&apos;s split into two sections.
+            </P>
+
+            <H3>What went out</H3>
+            <P>
+              Aggregate stats from SendGrid for the selected window (last 7 / 30 / 90 days):
+              requested, delivered, opens, clicks, bounces, spam reports, plus delivery /
+              open / bounce rates.
+            </P>
+            <P>
+              Below the cards is a daily breakdown table (one row per day) and the local send
+              log — every email Macaroonie tried to send, with status, recipient, subject, and
+              provider. Cross-reference the two: if a row in the local log shows
+              &ldquo;sent&rdquo; but the recipient claims they didn&apos;t receive it, look
+              at the SendGrid bounces column for that day.
+            </P>
+
+            <H3>What&apos;s in (suppressions)</H3>
+            <P>
+              Four lists showing addresses SendGrid is currently blocking:
+            </P>
+            <DataTable
+              head={['List', 'Meaning', 'When to remove']}
+              rows={[
+                ['Bounces',        'Recipient mailbox rejected the message (usually invalid address or full mailbox).', 'Once the recipient confirms the issue is fixed.'],
+                ['Blocks',         'ISP blocked our IP or content (looks like spam to them).', 'After contacting the ISP or modifying email content.'],
+                ['Spam reports',   'Recipient marked one of our emails as spam.', 'Only with the recipient\'s explicit re-opt-in.'],
+                ['Invalid emails', 'Address malformed at SendGrid validation (typo, missing @, etc.).', 'Never — fix the source data.'],
+              ]}
+            />
+            <P>
+              Hover an entry → trash icon appears (owner only) → click to remove and let
+              future emails to that address through. Useful when a guest&apos;s mailbox was
+              temporarily full and they&apos;re asking why they&apos;re not getting reminders.
+            </P>
+
+            <InfoBox type="info">
+              Monitoring currently shows SendGrid data only. If your venue uses Postmark,
+              Mailgun, or SES, this page shows a banner explaining that monitoring isn&apos;t
+              wired up for that provider yet — but the local send log still works.
             </InfoBox>
           </section>
 

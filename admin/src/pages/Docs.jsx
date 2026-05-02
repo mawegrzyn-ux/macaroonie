@@ -11,6 +11,8 @@ const SECTIONS = [
   { id: 'multitenancy', label: 'Multitenancy & RLS' },
   { id: 'auth',         label: 'Authentication' },
   { id: 'team-platform', label: 'Team & Platform Admin' },
+  { id: 'rbac',          label: 'RBAC: Modules & Roles' },
+  { id: 'email-system',  label: 'Email System' },
   { id: 'database',     label: 'Database Schema' },
   { id: 'api',          label: 'API Reference' },
   { id: 'customers',    label: 'Customers & GDPR' },
@@ -582,6 +584,135 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>is_active=false</Mono> → reject with 403 even if Auth0 still trusts
               the user. The local DB is the source of truth for <Mono>req.user.role</Mono>,
               so role changes take effect immediately without waiting for an Auth0 token refresh.
+            </P>
+          </section>
+
+          {/* ── RBAC: MODULES & ROLES ──────────────────── */}
+          <section id="rbac" data-doc="">
+            <H2>RBAC: Modules &amp; Roles</H2>
+            <P>
+              Two layers of access control, introduced by migration 038. The model in
+              <Mono>api/src/config/modules.js</Mono> is the single source of truth for
+              every module the platform knows about (14 modules currently).
+            </P>
+
+            <H3>Schema (migration 038)</H3>
+            <DataTable
+              head={['Table', 'Purpose', 'Key columns']}
+              rows={[
+                ['tenant_modules', 'Per-tenant on/off switch per module. Disabled modules are hidden from nav AND rejected at the API.', 'tenant_id, module_key, is_enabled, config jsonb. UNIQUE(tenant_id, module_key).'],
+                ['tenant_roles',   'Custom roles per tenant. permissions JSONB maps module_key → "manage" | "view" | "none".', 'tenant_id, key, label, is_builtin, is_active, permissions, sort_order. UNIQUE(tenant_id, key).'],
+                ['users.custom_role_id (added)', 'Optional FK to tenant_roles. When NULL, the legacy users.role enum is used + mapped to a built-in role with the same key.', 'nullable uuid, ON DELETE SET NULL'],
+              ]}
+            />
+
+            <H3>Module groups</H3>
+            <P>
+              <Mono>MODULE_GROUPS</Mono> in <Mono>modules.js</Mono> bundles tightly-coupled
+              modules under one master switch. The Modules tab in <Mono>/access</Mono> toggles
+              GROUPS, not individual modules — so disabling Bookings hides every booking-related
+              nav entry at once.
+            </P>
+            <DataTable
+              head={['Group', 'Modules in the group']}
+              rows={[
+                ['bookings',        'bookings, venues, tables, schedule, rules, customers, widget_test'],
+                ['email_templates', 'email_templates'],
+                ['website',         'website'],
+                ['cash_recon',      'cash_recon'],
+                ['(core, no group)', 'dashboard, team, settings, documentation — always-on'],
+              ]}
+            />
+
+            <H3>API</H3>
+            <DataTable
+              head={['Method', 'Path', 'Role', 'Purpose']}
+              rows={[
+                ['GET',    '/api/access/modules',           'any auth',     'List modules with per-tenant enabled state'],
+                ['GET',    '/api/access/module-groups',     'any auth',     'List groups with derived enabled state (AND of members)'],
+                ['PATCH',  '/api/access/module-groups/:key', 'owner',        'Toggle every member module in one transaction'],
+                ['PATCH',  '/api/access/modules/:key',      'owner',        'Toggle a single module (internal use)'],
+                ['GET',    '/api/access/roles',             'any auth',     'List tenant_roles with permissions'],
+                ['POST',   '/api/access/roles',             'owner',        'Create custom role'],
+                ['PATCH',  '/api/access/roles/:id',         'owner',        'Edit role label/description/active/permissions'],
+                ['DELETE', '/api/access/roles/:id',         'owner',        'Delete custom role (built-ins protected, refuses if users still reference)'],
+              ]}
+            />
+
+            <H3>Permission gating</H3>
+            <P>
+              Use <Mono>requirePermission(moduleKey, &apos;view&apos; | &apos;manage&apos;)</Mono> on routes
+              that should respect both the tenant module switch AND the user&apos;s role
+              permissions. Platform admins bypass automatically. The middleware checks tenant
+              module enablement first (rejects with 403 if disabled even for owner), then the
+              user&apos;s role permission level.
+            </P>
+            <P>
+              <Mono>/api/me</Mono> returns <Mono>enabled_modules: string[]</Mono> and
+              <Mono> permissions: {`{ [module]: level }`}</Mono>, computed from the union of
+              tenant_modules + role permissions. The frontend uses this to gate nav entries
+              in <Mono>AppShell.jsx</Mono>.
+            </P>
+          </section>
+
+          {/* ── EMAIL SYSTEM ──────────────────────────── */}
+          <section id="email-system" data-doc="">
+            <H2>Email System</H2>
+            <P>
+              Pluggable email delivery with five providers, per-venue settings, monitoring,
+              and a guest manage page. All bookings emails (confirmation, reminder,
+              modification, cancellation) flow through one BullMQ queue.
+            </P>
+
+            <H3>Providers</H3>
+            <DataTable
+              head={['Provider', 'When to use', 'Config fields used']}
+              rows={[
+                ['sendgrid', 'Default. Free 100/day for trial. Provides Email Activity API for monitoring.', 'provider_api_key (or SENDGRID_API_KEY env)'],
+                ['postmark', 'Recommended for transactional. Strong deliverability, $15/10k. Click tracking via shared click.pstmrk.it (no custom tracking domains supported by Postmark).', 'provider_api_key (Server Token), provider_domain (message stream, defaults to "outbound")'],
+                ['mailgun',  'High-volume option. EU/US regions are different endpoints — use the dropdown.', 'provider_api_key, provider_domain (sending domain), provider_region (us|eu)'],
+                ['ses',      'Cheapest at scale. AWS Lightsail account already in place. Production access required.', 'provider_api_key (access key id), provider_domain (secret access key — overloaded), provider_region'],
+                ['smtp',     'Fallback / self-hosted.', 'smtp_host, smtp_port, smtp_user, smtp_pass, smtp_secure'],
+              ]}
+            />
+            <P>
+              The <Mono>provider_domain</Mono> column is overloaded across providers (Mailgun
+              sending domain, Postmark message stream name, SES secret access key). The UI
+              gates input fields by provider so users never see the overloading.
+            </P>
+
+            <H3>Routes</H3>
+            <DataTable
+              head={['Method', 'Path', 'Purpose']}
+              rows={[
+                ['GET',    '/api/email-templates/settings/:venueId',         'Read venue email settings'],
+                ['POST',   '/api/email-templates/settings/:venueId',         'Upsert venue email settings (creates row if missing, updates all body fields)'],
+                ['PATCH',  '/api/email-templates/settings/:venueId',         'Same as POST — both go through the same upsert helper'],
+                ['POST',   '/api/email-templates/preview',                   'Render template with sample merge fields (no send)'],
+                ['POST',   '/api/email-templates/send-test',                 'Send real test email through venue provider, no booking. Logged in email_log with template_type suffix _test.'],
+                ['GET',    '/api/email-monitoring/summary?venue_id&days',    'One-shot: SendGrid stats + suppression lists + local log totals'],
+                ['GET',    '/api/email-monitoring/suppressions/:type',       'Bounces / blocks / spam_reports / invalid_emails'],
+                ['DELETE', '/api/email-monitoring/suppressions/:type/:email', 'Owner-only: clear a suppression so retries can flow'],
+              ]}
+            />
+
+            <H3>Monitoring (SendGrid only)</H3>
+            <P>
+              <Mono>src/services/sendgridSvc.js</Mono> wraps the SendGrid Web API:
+              <Mono> getStats</Mono> (daily breakdown), <Mono>getSuppressions</Mono>,
+              <Mono> removeSuppression</Mono>, <Mono>pingApiKey</Mono>. <Mono>/email-monitoring</Mono>
+              admin page combines the SendGrid data with the local <Mono>email_log</Mono> table
+              for a complete &ldquo;what went out / what&apos;s in&rdquo; view. Other providers
+              show a graceful banner; local log still works.
+            </P>
+
+            <H3>Guest manage page</H3>
+            <P>
+              SSR page at <Mono>/manage/{`{token}`}</Mono> via <Mono>src/routes/manageBooking.js</Mono>
+              + Eta template. Guest authenticates via the <Mono>manage_token</Mono> UUID
+              embedded in the email link. Allows modify date/time/covers OR cancel, gated by
+              the venue&apos;s <Mono>allow_guest_modify</Mono> /
+              <Mono> allow_guest_cancel</Mono> flags.
             </P>
           </section>
 

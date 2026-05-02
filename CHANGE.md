@@ -7,61 +7,37 @@ Migrations are listed where a database change is required.
 
 ## [2026-05-02]
 
-### Postmark email provider support
-- New 5th provider in `emailSvc.js`: `postmark`. Uses the Postmark transactional
-  API (`POST https://api.postmarkapp.com/email`) with a Server Token.
-- Postmark is the recommended choice for transactional booking emails — strong
-  deliverability, ~$15/10k pricing, branded click domain handled automatically
-  (CNAME with auto-provisioned cert, no Let's Encrypt dance).
-- Per-venue settings reuse `provider_domain` for the Postmark message stream
-  name (defaults to `outbound`). Set a different stream for marketing if you
-  ever need to separate sending pools.
-- Custom domains for the From address: configured in Postmark UI as Sender
-  Signatures. Verification = 3 DNS records (DKIM ×2 + Return-Path), DKIM is
-  auto-rotated. No manual cert management ever.
-- Schema migration not required — `email_provider` column is text, only Zod
-  enum (`EmailSettingsBody`) was extended.
-- UI: provider dropdown grew to 5 options; Postmark-specific fields
-  (Server Token + Message Stream) appear when selected.
+### Wildcard SSL cert via Lightsail DNS hooks
+- Wildcard `*.macaroonie.com` cert issued via Let's Encrypt DNS-01 with custom
+  AWS CLI hook scripts that talk directly to the Lightsail DNS API (no Cloudflare
+  / Route53 dependency).
+- IAM user with `lightsail:GetDomain/CreateDomainEntry/DeleteDomainEntry` permissions
+  + access keys configured in `/root/.aws/`.
+- Hook scripts at `/etc/letsencrypt/lightsail-{auth,cleanup}.sh` add/remove the
+  `_acme-challenge` TXT record automatically. Renewal via `certbot.timer` is fully
+  automated; deploy hook reloads Nginx after each successful renewal.
+- Nginx wildcard server block at `/etc/nginx/sites-available/macaroonie-wildcard.conf`
+  proxies all subdomains to Fastify on :3000.
+- Wildcard `* A <Lightsail-IP>` DNS record added — specific records take precedence
+  so existing subdomains (`cogs`, etc.) keep pointing where they were.
 
-### Mailgun region (US/EU) support
-- Mailgun has separate API endpoints for US (`api.mailgun.net`) and EU
-  (`api.eu.mailgun.net`). EU-region accounts silently 401 against the US
-  endpoint with no helpful error.
-- Per-venue setting now exposes a region picker (US/EU) reusing
-  `provider_region`. Defaults to US for backwards compatibility.
-- Threaded through `emailSvc.sendViaMailgun`, the worker, and the test-send
-  endpoint.
-
-### Email monitoring page — SendGrid integration
-- New admin page at `/email-monitoring` showing what went out (sends + delivery
-  stats) and what's "in" (suppressions: bounces, blocks, spam reports, invalid emails).
-- New service `api/src/services/sendgridSvc.js` wraps SendGrid Web API:
-  `getStats()` (daily breakdown — requested, delivered, bounces, opens, clicks,
-  spam reports), `getSuppressions(type)`, `removeSuppression(type, email)`,
-  `pingApiKey()`. Auth: `Bearer <api_key>`.
-- New routes at `/api/email-monitoring/*` (admin-view, owner-only mutations):
-  `GET /summary` (one-shot: stats + all suppression lists + local log totals),
-  `GET /stats`, `GET /suppressions/:type`, `DELETE /suppressions/:type/:email`,
-  `GET /log` (local email_log).
-- Uses the venue's per-venue SendGrid API key from `venue_email_settings.provider_api_key`,
-  falling back to `SENDGRID_API_KEY` env var. Venues using non-SendGrid providers
-  show a graceful banner instead of empty data.
-- Local email_log + SendGrid data shown side-by-side so a discrepancy (e.g. we
-  marked a send "sent" but SendGrid bounced it) is visible at a glance.
-
-### Widget test — stand-alone email sender
-- Bookings created through the widget test page already trigger confirmation +
-  reminder emails (they hit the same `/api/bookings` route as a real widget).
-  The new section makes that explicitly testable WITHOUT creating a booking.
-- New API: `POST /api/email-templates/send-test` (admin/owner). Body:
-  `{ venue_id, type: 'confirmation'|'reminder'|'modification'|'cancellation', to }`.
-  Resolves the active template (custom → built-in), renders sample merge fields,
-  and sends through the venue's configured provider. Subject is prefixed with
-  `[TEST]`. Logs to `email_log` with `booking_id NULL` and `template_type`
-  suffixed `_test` so test sends are filterable.
-- New section in the Widget Test page: pick type + recipient → real email
-  arrives in the inbox. Useful for verifying provider creds end-to-end.
+### Email infrastructure: Postmark + Mailgun region + monitoring + send-test
+- **Postmark** added as 5th email provider (`emailSvc.sendViaPostmark`). Uses
+  Server Token via `X-Postmark-Server-Token` header. Branded click tracking is
+  shared (`click.pstmrk.it`) — Postmark doesn't support per-customer custom
+  tracking domains, by design.
+- **Mailgun region picker (US/EU)** — EU accounts silently 401 against the US
+  endpoint. Region is now stored on `venue_email_settings.provider_region`.
+- **Email monitoring page** at `/email-monitoring` — combines SendGrid Stats +
+  Suppression APIs with local `email_log` for a "what went out / what's in"
+  view. New service `src/services/sendgridSvc.js`. New routes at
+  `/api/email-monitoring/*`.
+- **Stand-alone test email sender** in Widget Test page — `POST /api/email-templates/send-test`.
+- **Migration 039**: extends `venue_email_settings.email_provider` CHECK
+  constraint to include `'postmark'`.
+- **POST upsert fix**: `/api/email-templates/settings/:venueId` POST used to
+  drop every body field except `email_provider` on first save. Now both POST
+  and PATCH route through the same upsert helper that persists every supplied field.
 
 ### Configurable RBAC — tenant module switches + custom roles  *(migration 038)*
 - **Modules.** New `tenant_modules` table — per-tenant on/off switch per module.
