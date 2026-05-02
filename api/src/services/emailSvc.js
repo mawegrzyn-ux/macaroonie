@@ -2,9 +2,10 @@
 //
 // Pluggable email delivery service.
 //
-// Supports four providers, selectable per-venue via venue_email_settings.email_provider:
+// Supports five providers, selectable per-venue via venue_email_settings.email_provider:
 //   sendgrid  — SendGrid Web API v3 (default, uses SENDGRID_API_KEY env)
-//   mailgun   — Mailgun API
+//   postmark  — Postmark transactional API (recommended for low-volume + branded click domain)
+//   mailgun   — Mailgun API (US or EU region)
 //   ses       — AWS SES via @aws-sdk/client-ses (lazy-loaded, same as S3)
 //   smtp      — generic SMTP via nodemailer (lazy-loaded)
 //
@@ -58,11 +59,69 @@ async function sendViaSendGrid({ credentials, from, to, replyTo, subject, html }
   }
 }
 
+// ── Postmark ────────────────────────────────────────────────
+//
+// Postmark uses a single Server Token per "server" (in their UI). Each
+// server has one or more message streams — by default `outbound` for
+// transactional. We pass `MessageStream` so booking emails always go
+// through the transactional stream (better deliverability, separate IP
+// pool from broadcast/marketing).
+//
+// Custom domains: configured via Sender Signatures in the Postmark UI.
+// Once a Sender Signature is verified, any From address on that domain
+// works. Postmark auto-rotates DKIM and manages return-path.
+//
+// Branded click domain: configured per-server in Postmark UI as
+// "Custom Tracking Domain". Postmark provides a CNAME, you add it to
+// your DNS, Postmark provisions the cert. Unlike SendGrid this Just
+// Works — no manual cert dance.
+
+async function sendViaPostmark({ credentials, from, to, replyTo, subject, html }) {
+  const serverToken  = credentials?.apiKey
+  const messageStream = credentials?.stream || 'outbound'
+  if (!serverToken) throw new Error('Postmark server token required')
+
+  const body = {
+    From:          from.name ? `"${from.name}" <${from.email}>` : from.email,
+    To:            to,
+    Subject:       subject,
+    HtmlBody:      html,
+    MessageStream: messageStream,
+  }
+  if (replyTo) body.ReplyTo = replyTo
+
+  const res = await fetch('https://api.postmarkapp.com/email', {
+    method: 'POST',
+    headers: {
+      'Accept':                 'application/json',
+      'Content-Type':           'application/json',
+      'X-Postmark-Server-Token': serverToken,
+    },
+    body: JSON.stringify(body),
+  })
+
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    // Postmark error shape: { ErrorCode, Message }
+    throw new Error(`Postmark ${res.status} (${data.ErrorCode}): ${data.Message || 'unknown error'}`)
+  }
+
+  return {
+    provider:   'postmark',
+    providerId: data.MessageID || null,
+    status:     data.ErrorCode === 0 ? 'sent' : 'queued',
+  }
+}
+
 // ── Mailgun ─────────────────────────────────────────────────
 
 async function sendViaMailgun({ credentials, from, to, replyTo, subject, html }) {
   const apiKey = credentials?.apiKey
   const domain = credentials?.domain
+  const region = (credentials?.region || 'us').toLowerCase()
+  // EU customers MUST use api.eu.mailgun.net — the US endpoint will silently
+  // return 401 on EU keys with no helpful error.
+  const apiBase = region === 'eu' ? 'https://api.eu.mailgun.net/v3' : 'https://api.mailgun.net/v3'
   if (!apiKey || !domain) throw new Error('Mailgun API key and domain required')
 
   const form = new URLSearchParams()
@@ -72,7 +131,7 @@ async function sendViaMailgun({ credentials, from, to, replyTo, subject, html })
   form.append('html', html)
   if (replyTo) form.append('h:Reply-To', replyTo)
 
-  const res = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
+  const res = await fetch(`${apiBase}/${domain}/messages`, {
     method: 'POST',
     headers: {
       Authorization: `Basic ${Buffer.from(`api:${apiKey}`).toString('base64')}`,
@@ -156,6 +215,7 @@ async function sendViaSMTP({ credentials, from, to, replyTo, subject, html }) {
 
 const PROVIDERS = {
   sendgrid: sendViaSendGrid,
+  postmark: sendViaPostmark,
   mailgun:  sendViaMailgun,
   ses:      sendViaSES,
   smtp:     sendViaSMTP,

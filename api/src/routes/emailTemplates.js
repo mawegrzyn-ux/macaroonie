@@ -26,7 +26,7 @@ const TemplatePatch = z.object({
 })
 
 const EmailSettingsBody = z.object({
-  email_provider:        z.enum(['sendgrid', 'mailgun', 'ses', 'smtp']).optional(),
+  email_provider:        z.enum(['sendgrid', 'postmark', 'mailgun', 'ses', 'smtp']).optional(),
   from_name:             z.string().max(200).nullable().optional(),
   from_email:            z.string().email().nullable().optional(),
   reply_to:              z.string().email().nullable().optional(),
@@ -193,9 +193,14 @@ export default async function emailTemplateRoutes(app) {
     const credentials = {}
     if (provider === 'sendgrid') {
       credentials.apiKey = settings?.provider_api_key || env.SENDGRID_API_KEY
+    } else if (provider === 'postmark') {
+      credentials.apiKey = settings?.provider_api_key
+      // Postmark message stream stored in provider_domain (re-used field)
+      credentials.stream = settings?.provider_domain || 'outbound'
     } else if (provider === 'mailgun') {
       credentials.apiKey = settings?.provider_api_key
       credentials.domain = settings?.provider_domain
+      credentials.region = settings?.provider_region || 'us'
     } else if (provider === 'ses') {
       credentials.region          = settings?.provider_region
       credentials.accessKeyId     = settings?.provider_api_key

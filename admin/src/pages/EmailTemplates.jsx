@@ -32,8 +32,9 @@ const EMAIL_TYPES = [
 
 const PROVIDERS = [
   { value: 'sendgrid', label: 'SendGrid',       desc: 'Default. Uses SENDGRID_API_KEY from env if no per-venue key.' },
-  { value: 'mailgun',  label: 'Mailgun',         desc: 'Requires API key + domain per venue.' },
-  { value: 'ses',      label: 'AWS SES',         desc: 'Uses AWS credentials. Good for high volume.' },
+  { value: 'postmark', label: 'Postmark',       desc: 'Recommended for transactional. Strong deliverability; branded click domain handled automatically.' },
+  { value: 'mailgun',  label: 'Mailgun',         desc: 'Good high-volume option. Requires API key + domain per venue (US or EU region).' },
+  { value: 'ses',      label: 'AWS SES',         desc: 'Cheapest at scale. Requires production-access form on first use.' },
   { value: 'smtp',     label: 'SMTP (custom)',   desc: 'Any SMTP server (Outlook, Gmail, self-hosted).' },
 ]
 
@@ -544,17 +545,33 @@ function EmailSettings({ venueId }) {
       </SectionCard>
 
       {/* Provider credentials */}
-      {(provider === 'sendgrid' || provider === 'mailgun' || provider === 'ses') && (
+      {(provider === 'sendgrid' || provider === 'postmark' || provider === 'mailgun' || provider === 'ses') && (
         <SectionCard title="Provider credentials"
-          description={provider === 'sendgrid' ? 'Optional — falls back to the platform SENDGRID_API_KEY.' : 'Required for this provider.'}>
-          <FormRow label="API key">
+          description={provider === 'sendgrid' ? 'Optional — falls back to the platform SENDGRID_API_KEY.'
+                     : provider === 'postmark' ? 'Required. Use the Server Token from Postmark → Servers → your server → API Tokens.'
+                     : 'Required for this provider.'}>
+          <FormRow label={provider === 'postmark' ? 'Server token' : 'API key'}>
             <TextInput type="password" value={state.provider_api_key} onChange={set('provider_api_key')}
               placeholder={provider === 'sendgrid' ? 'Leave blank to use platform key' : 'Required'} />
           </FormRow>
-          {provider === 'mailgun' && (
-            <FormRow label="Mailgun domain" hint="e.g. mg.yourdomain.com">
-              <TextInput value={state.provider_domain} onChange={set('provider_domain')} />
+          {provider === 'postmark' && (
+            <FormRow label="Message stream" hint="Leave as 'outbound' for booking confirmations. Use a different stream for marketing if you set one up.">
+              <TextInput value={state.provider_domain} onChange={set('provider_domain')} placeholder="outbound" />
             </FormRow>
+          )}
+          {provider === 'mailgun' && (
+            <>
+              <FormRow label="Mailgun domain" hint="e.g. mg.yourdomain.com">
+                <TextInput value={state.provider_domain} onChange={set('provider_domain')} />
+              </FormRow>
+              <FormRow label="Mailgun region" hint="EU accounts MUST select EU — the US endpoint silently 401s on EU keys.">
+                <select value={state.provider_region || 'us'} onChange={set('provider_region')}
+                  className="text-sm border rounded-md px-3 py-2 bg-background min-h-[40px] touch-manipulation">
+                  <option value="us">US (api.mailgun.net)</option>
+                  <option value="eu">EU (api.eu.mailgun.net)</option>
+                </select>
+              </FormRow>
+            </>
           )}
           {provider === 'ses' && (
             <FormRow label="AWS region" hint="e.g. eu-west-1">

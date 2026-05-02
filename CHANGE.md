@@ -7,6 +7,32 @@ Migrations are listed where a database change is required.
 
 ## [2026-05-02]
 
+### Postmark email provider support
+- New 5th provider in `emailSvc.js`: `postmark`. Uses the Postmark transactional
+  API (`POST https://api.postmarkapp.com/email`) with a Server Token.
+- Postmark is the recommended choice for transactional booking emails — strong
+  deliverability, ~$15/10k pricing, branded click domain handled automatically
+  (CNAME with auto-provisioned cert, no Let's Encrypt dance).
+- Per-venue settings reuse `provider_domain` for the Postmark message stream
+  name (defaults to `outbound`). Set a different stream for marketing if you
+  ever need to separate sending pools.
+- Custom domains for the From address: configured in Postmark UI as Sender
+  Signatures. Verification = 3 DNS records (DKIM ×2 + Return-Path), DKIM is
+  auto-rotated. No manual cert management ever.
+- Schema migration not required — `email_provider` column is text, only Zod
+  enum (`EmailSettingsBody`) was extended.
+- UI: provider dropdown grew to 5 options; Postmark-specific fields
+  (Server Token + Message Stream) appear when selected.
+
+### Mailgun region (US/EU) support
+- Mailgun has separate API endpoints for US (`api.mailgun.net`) and EU
+  (`api.eu.mailgun.net`). EU-region accounts silently 401 against the US
+  endpoint with no helpful error.
+- Per-venue setting now exposes a region picker (US/EU) reusing
+  `provider_region`. Defaults to US for backwards compatibility.
+- Threaded through `emailSvc.sendViaMailgun`, the worker, and the test-send
+  endpoint.
+
 ### Email monitoring page — SendGrid integration
 - New admin page at `/email-monitoring` showing what went out (sends + delivery
   stats) and what's "in" (suppressions: bounces, blocks, spam reports, invalid emails).

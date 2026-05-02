@@ -116,9 +116,13 @@ export async function processEmailJob(job) {
   const credentials = {}
   if (provider === 'sendgrid') {
     credentials.apiKey = settings?.provider_api_key || env.SENDGRID_API_KEY
+  } else if (provider === 'postmark') {
+    credentials.apiKey = settings?.provider_api_key
+    credentials.stream = settings?.provider_domain || 'outbound'   // re-uses provider_domain for stream name
   } else if (provider === 'mailgun') {
     credentials.apiKey = settings?.provider_api_key
     credentials.domain = settings?.provider_domain
+    credentials.region = settings?.provider_region || 'us'
   } else if (provider === 'ses') {
     credentials.region          = settings?.provider_region || env.S3_REGION
     credentials.accessKeyId     = settings?.provider_api_key
