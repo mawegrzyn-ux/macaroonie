@@ -281,37 +281,51 @@ export default async function emailTemplateRoutes(app) {
     return row ?? {}
   })
 
-  app.post('/settings/:venueId', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  // POST + PATCH are aliases — both upsert the venue_email_settings row
+  // with whatever body fields are supplied. Originally POST ignored the
+  // body (only persisted email_provider) which silently dropped credentials
+  // on the first save. Now both go through the same upsert.
+  const upsertSettings = async (req, reply, statusCode) => {
     const body = EmailSettingsBody.parse(req.body)
+    const fields = Object.keys(body)
+
     const [row] = await withTenant(req.tenantId, async tx => {
       const [venue] = await tx`
         SELECT id FROM venues WHERE id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
       `
       if (!venue) throw httpError(404, 'Venue not found')
 
-      return tx`
+      // Ensure a row exists, then dynamically UPDATE the supplied fields.
+      // Two-step (rather than INSERT...ON CONFLICT DO UPDATE SET ...) so we
+      // don't have to enumerate every column twice.
+      await tx`
         INSERT INTO venue_email_settings (tenant_id, venue_id, email_provider)
         VALUES (${req.tenantId}, ${req.params.venueId}, ${body.email_provider || 'sendgrid'})
-        ON CONFLICT (venue_id) DO UPDATE
-          SET updated_at = now()
-        RETURNING *
+        ON CONFLICT (venue_id) DO NOTHING
       `
-    })
-    return reply.code(201).send(row)
-  })
 
-  app.patch('/settings/:venueId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const body   = EmailSettingsBody.parse(req.body)
-    const fields = Object.keys(body)
-    if (!fields.length) throw httpError(400, 'No fields to update')
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE venue_email_settings
-         SET ${tx(body, ...fields)}, updated_at = now()
-       WHERE venue_id = ${req.params.venueId}
-         AND tenant_id = ${req.tenantId}
-      RETURNING *
-    `)
-    if (!row) throw httpError(404, 'Email settings not found — POST to create first')
-    return row
-  })
+      if (fields.length) {
+        return tx`
+          UPDATE venue_email_settings
+             SET ${tx(body, ...fields)}, updated_at = now()
+           WHERE venue_id = ${req.params.venueId}
+             AND tenant_id = ${req.tenantId}
+          RETURNING *
+        `
+      } else {
+        return tx`
+          SELECT * FROM venue_email_settings
+           WHERE venue_id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
+        `
+      }
+    })
+
+    return reply.code(statusCode).send(row)
+  }
+
+  app.post('/settings/:venueId',  { preHandler: requireRole('admin', 'owner') },
+    (req, reply) => upsertSettings(req, reply, 201))
+
+  app.patch('/settings/:venueId', { preHandler: requireRole('admin', 'owner') },
+    (req, reply) => upsertSettings(req, reply, 200))
 }

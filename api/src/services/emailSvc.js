@@ -77,8 +77,10 @@ async function sendViaSendGrid({ credentials, from, to, replyTo, subject, html }
 // Works — no manual cert dance.
 
 async function sendViaPostmark({ credentials, from, to, replyTo, subject, html }) {
-  const serverToken  = credentials?.apiKey
-  const messageStream = credentials?.stream || 'outbound'
+  // Trim — Postmark's "Request does not contain a valid Server token" error
+  // is also produced when the token has leading/trailing whitespace from paste.
+  const serverToken  = credentials?.apiKey?.trim()
+  const messageStream = (credentials?.stream || 'outbound').trim()
   if (!serverToken) throw new Error('Postmark server token required')
 
   const body = {
