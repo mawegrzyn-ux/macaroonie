@@ -61,7 +61,10 @@ export default function Access() {
 }
 
 // ──────────────────────────────────────────────────────────
-// Modules tab — master on/off switch per module
+// Modules tab — master on/off switch per GROUP. Tightly-coupled
+// modules (bookings, venues, tables, schedule, rules, customers,
+// widget_test) all toggle together under one "Bookings" switch
+// because they're operationally one product.
 // ──────────────────────────────────────────────────────────
 
 function ModulesPanel() {
@@ -70,14 +73,20 @@ function ModulesPanel() {
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
   const isOwner = me?.role === 'owner' || me?.is_platform_admin
 
-  const { data: modules = [], isLoading } = useQuery({
+  const { data: groups = [], isLoading } = useQuery({
+    queryKey: ['access-module-groups'],
+    queryFn:  () => api.get('/access/module-groups'),
+  })
+
+  const { data: modules = [] } = useQuery({
     queryKey: ['access-modules'],
     queryFn:  () => api.get('/access/modules'),
   })
 
-  const toggle = useMutation({
-    mutationFn: ({ key, is_enabled }) => api.patch(`/access/modules/${key}`, { is_enabled }),
+  const toggleGroup = useMutation({
+    mutationFn: ({ key, is_enabled }) => api.patch(`/access/module-groups/${key}`, { is_enabled }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['access-module-groups'] })
       qc.invalidateQueries({ queryKey: ['access-modules'] })
       qc.invalidateQueries({ queryKey: ['me'] })  // refreshes nav gating
     },
@@ -85,35 +94,72 @@ function ModulesPanel() {
 
   if (isLoading) return <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
 
+  // Modules NOT in any group are core (always-on, no toggle).
+  const groupModuleKeys = new Set(groups.flatMap(g => g.moduleKeys))
+  const coreModules = modules.filter(m => !groupModuleKeys.has(m.key))
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Disable modules you don&apos;t use. The nav entry disappears for everyone in the tenant
-        (including owners) and the API rejects mutations on routes belonging to that module.
-        Easy to re-enable anytime.
+        Master on/off per product area. Disabling a group hides its nav entries for everyone
+        in the tenant (including owners) and the API rejects mutations on routes belonging
+        to that group. Granular per-role access is set on the <strong>Roles</strong> tab.
       </p>
 
       <div className="border rounded-xl overflow-hidden bg-background divide-y">
-        {modules.map(m => (
-          <div key={m.key} className="flex items-start gap-4 px-5 py-4">
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium">{m.label}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{m.description}</p>
+        {groups.map(g => (
+          <div key={g.key} className="px-5 py-4">
+            <div className="flex items-start gap-4">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">{g.label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{g.description}</p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Includes:&nbsp;
+                  {g.moduleKeys.map((k, i) => {
+                    const m = modules.find(mm => mm.key === k)
+                    return (
+                      <span key={k} className="inline-block">
+                        {i > 0 && ', '}
+                        <span className="font-mono">{m?.label ?? k}</span>
+                      </span>
+                    )
+                  })}
+                </p>
+              </div>
+              <label className="inline-flex items-center cursor-pointer shrink-0 mt-1">
+                <input type="checkbox"
+                  checked={g.is_enabled}
+                  disabled={!isOwner || toggleGroup.isPending}
+                  onChange={e => toggleGroup.mutate({ key: g.key, is_enabled: e.target.checked })}
+                  className="sr-only peer" />
+                <div className="w-11 h-6 bg-gray-200 peer-checked:bg-primary rounded-full
+                                relative after:content-[''] after:absolute after:top-0.5 after:left-0.5
+                                after:bg-white after:rounded-full after:w-5 after:h-5 after:transition-all
+                                peer-checked:after:translate-x-5" />
+              </label>
             </div>
-            <label className="inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox"
-                checked={m.is_enabled}
-                disabled={!isOwner || toggle.isPending}
-                onChange={e => toggle.mutate({ key: m.key, is_enabled: e.target.checked })}
-                className="sr-only peer" />
-              <div className="w-11 h-6 bg-gray-200 peer-checked:bg-primary rounded-full
-                              relative after:content-[''] after:absolute after:top-0.5 after:left-0.5
-                              after:bg-white after:rounded-full after:w-5 after:h-5 after:transition-all
-                              peer-checked:after:translate-x-5" />
-            </label>
           </div>
         ))}
       </div>
+
+      {coreModules.length > 0 && (
+        <div className="border rounded-xl overflow-hidden bg-muted/30">
+          <div className="px-5 py-3 border-b">
+            <p className="text-sm font-semibold">Always-on</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Core modules — no master switch. Per-role access is still configurable on the Roles tab.
+            </p>
+          </div>
+          <div className="divide-y">
+            {coreModules.map(m => (
+              <div key={m.key} className="px-5 py-3">
+                <p className="text-sm font-medium">{m.label}</p>
+                <p className="text-xs text-muted-foreground">{m.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {!isOwner && (
         <p className="text-xs text-muted-foreground italic">

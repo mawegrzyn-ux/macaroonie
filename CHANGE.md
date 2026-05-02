@@ -8,11 +8,15 @@ Migrations are listed where a database change is required.
 ## [2026-05-02]
 
 ### Configurable RBAC — tenant module switches + custom roles  *(migration 038)*
-- **Modules.** New `tenant_modules` table — per-tenant on/off switch per module
-  (`bookings`, `venues`, `tables`, `schedule`, `rules`, `customers`, `website`,
-  `email_templates`, `cash_recon`, `team`, `settings`, `dashboard`, `widget_test`,
-  `documentation`). Disabled modules are hidden from the sidebar nav AND rejected
-  at the API via the new `requirePermission()` guard. Owner-only toggles.
+- **Modules.** New `tenant_modules` table — per-tenant on/off switch per module.
+  Disabled modules are hidden from the sidebar nav AND rejected at the API via the new
+  `requirePermission()` guard. Owner-only toggles.
+- **Module groups.** Tightly-coupled modules toggle together under one master switch:
+  `bookings` group bundles bookings/venues/tables/schedule/rules/customers/widget_test;
+  `email_templates`, `website`, `cash_recon` are their own groups; core modules (dashboard,
+  team, settings, documentation) are always-on. The Modules tab in `/access` shows ONE
+  switch per group — `PATCH /access/module-groups/:key` upserts every member in a
+  transaction. The per-module endpoint stays as an internal-use API.
 - **Roles.** New `tenant_roles` table with a `permissions` JSONB mapping
   `module_key → 'manage' | 'view' | 'none'`. Four built-in roles seeded per tenant
   (owner/admin/operator/viewer) — built-in permissions can be edited but their key

@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { MODULES, MODULE_KEYS, PERMISSION_LEVELS } from '../config/modules.js'
+import { MODULES, MODULE_KEYS, MODULE_GROUPS, PERMISSION_LEVELS } from '../config/modules.js'
 
 const PermissionSchema = z.record(
   z.string(),
@@ -46,9 +46,10 @@ export default async function accessRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
   // ── GET /api/access/modules ────────────────────────────
-  // Returns the catalogue of all known modules (from MODULES
-  // constant) merged with each tenant's enabled state. Available
-  // to anyone authenticated — the frontend uses this to gate nav.
+  // Returns the catalogue of all known modules merged with each
+  // tenant's enabled state. Available to anyone authenticated —
+  // the frontend uses this to render the role permission matrix
+  // and to compute nav gating.
   app.get('/modules', async (req) => {
     if (!req.tenantId) return MODULES.map(m => ({ ...m, is_enabled: true, config: {} }))
     const rows = await withTenant(req.tenantId, tx => tx`
@@ -64,8 +65,54 @@ export default async function accessRoutes(app) {
     }))
   })
 
+  // ── GET /api/access/module-groups ──────────────────────
+  // Returns module groups merged with their enabled state. A group's
+  // is_enabled is the AND of all member modules — if ANY member is
+  // disabled in tenant_modules, the group reports disabled.
+  app.get('/module-groups', async (req) => {
+    if (!req.tenantId) return MODULE_GROUPS.map(g => ({ ...g, is_enabled: true }))
+    const rows = await withTenant(req.tenantId, tx => tx`
+      SELECT module_key, is_enabled
+        FROM tenant_modules
+       WHERE tenant_id = ${req.tenantId}
+    `)
+    const enabled = Object.fromEntries(rows.map(r => [r.module_key, r.is_enabled]))
+    return MODULE_GROUPS.map(g => ({
+      ...g,
+      is_enabled: g.moduleKeys.every(k => enabled[k] !== false),
+    }))
+  })
+
+  // ── PATCH /api/access/module-groups/:key ───────────────
+  // Toggle every module in a group on/off in one round-trip.
+  // Owner-only. Body: { is_enabled: boolean }.
+  app.patch('/module-groups/:key', {
+    preHandler: requireRole('owner'),
+  }, async (req) => {
+    if (!req.tenantId) throw httpError(400, 'No tenant context')
+    const group = MODULE_GROUPS.find(g => g.key === req.params.key)
+    if (!group) throw httpError(400, 'Unknown module group')
+    const body = ModuleToggleBody.parse(req.body)
+    if (typeof body.is_enabled !== 'boolean') throw httpError(400, 'is_enabled is required')
+
+    await withTenant(req.tenantId, async tx => {
+      for (const moduleKey of group.moduleKeys) {
+        await tx`
+          INSERT INTO tenant_modules (tenant_id, module_key, is_enabled)
+          VALUES (${req.tenantId}, ${moduleKey}, ${body.is_enabled})
+          ON CONFLICT (tenant_id, module_key) DO UPDATE
+             SET is_enabled = ${body.is_enabled}, updated_at = now()
+        `
+      }
+    })
+
+    return { key: group.key, is_enabled: body.is_enabled, modules: group.moduleKeys }
+  })
+
   // ── PATCH /api/access/modules/:key ─────────────────────
-  // Toggle a module on/off (owner only). Upserts the row.
+  // Toggle a single module on/off. Used internally for granular
+  // per-module overrides; the UI normally uses the group endpoint
+  // above. Owner only.
   app.patch('/modules/:key', {
     preHandler: requireRole('owner'),
   }, async (req) => {
