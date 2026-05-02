@@ -5,6 +5,40 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-02]
+
+### Configurable RBAC — tenant module switches + custom roles  *(migration 038)*
+- **Modules.** New `tenant_modules` table — per-tenant on/off switch per module
+  (`bookings`, `venues`, `tables`, `schedule`, `rules`, `customers`, `website`,
+  `email_templates`, `cash_recon`, `team`, `settings`, `dashboard`, `widget_test`,
+  `documentation`). Disabled modules are hidden from the sidebar nav AND rejected
+  at the API via the new `requirePermission()` guard. Owner-only toggles.
+- **Roles.** New `tenant_roles` table with a `permissions` JSONB mapping
+  `module_key → 'manage' | 'view' | 'none'`. Four built-in roles seeded per tenant
+  (owner/admin/operator/viewer) — built-in permissions can be edited but their key
+  and the row itself are protected. Custom roles fully editable; can't be deleted
+  while users reference them.
+- **`users.custom_role_id`** (nullable FK to `tenant_roles`) takes precedence over
+  the legacy `users.role` enum when set. The migration backfills it for existing
+  users so behavior is unchanged on day one.
+- **New module registry** at `api/src/config/modules.js` — single source of truth
+  for the 14 modules, descriptions, and per-built-in defaults. To add a new module
+  in future, just add it here and the migration/API/UI all pick it up.
+- **New API**: `GET /api/access/modules`, `PATCH /api/access/modules/:key`,
+  `GET /api/access/roles`, `POST/PATCH/DELETE /api/access/roles[/:id]`.
+- **New middleware**: `requirePermission('module', 'view'|'manage')` checks both
+  tenant module enablement AND the user's role permission level. Platform admins
+  always pass.
+- **`/api/me` extended** with `enabled_modules: string[]`, `permissions: { [module]: level }`,
+  and `effective_role` so the frontend can gate nav and per-page UI without extra calls.
+- **AppShell**: nav entries are now filtered by `me.permissions[module]`. Modules
+  whose level is `none` (because module is disabled at tenant level OR role doesn't
+  grant access) are hidden completely.
+- **New admin page `/access`** — two tabs (Modules + Roles). Permission matrix has
+  three-state toggle pills per module. Owner-only mutations.
+
+---
+
 ## [2026-05-01 — even later]
 
 ### Auto-provision Auth0 organisations on tenant creation

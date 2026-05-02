@@ -24,6 +24,7 @@ import Website     from '@/pages/Website'
 import CashRecon      from '@/pages/CashRecon'
 import EmailTemplates from '@/pages/EmailTemplates'
 import Team           from '@/pages/Team'
+import Access         from '@/pages/Access'
 import Platform       from '@/pages/Platform'
 import './index.css'
 
@@ -109,6 +110,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="email-templates" element={<EmailTemplates />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="team"        element={<Team />} />
+                <Route path="access"      element={<Access />} />
                 <Route path="platform"    element={<Platform />} />
                 <Route path="docs"        element={<Docs />} />
                 <Route path="help"        element={<Help />} />

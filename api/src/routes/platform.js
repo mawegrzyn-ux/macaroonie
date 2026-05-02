@@ -17,6 +17,7 @@ import {
   isConfigured as auth0IsConfigured,
   provisionTenantOrg,
 } from '../services/auth0MgmtSvc.js'
+import { MODULES, MODULE_KEYS } from '../config/modules.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -42,9 +43,8 @@ const TenantPatch = z.object({
 export default async function platformRoutes(app) {
 
   // ── GET /api/me ─────────────────────────────────────────
-  // Returns the current user's profile + available tenants.
-  // Used by the frontend org-switcher to know which tenants
-  // the user can access.
+  // Returns the current user's profile + available tenants +
+  // effective module permissions (for the frontend to gate nav).
   app.get('/me', { preHandler: requireAuth }, async (req) => {
     const { sub, email, role, isPlatformAdmin } = req.user
 
@@ -56,13 +56,57 @@ export default async function platformRoutes(app) {
       `
     }
 
-    // Local user record (if exists)
+    // Local user + custom_role (if any). Fall back to a built-in
+    // role keyed by users.role enum when custom_role_id is NULL.
     let localUser = null
+    let effectiveRole = null
     if (req.tenantId) {
       [localUser] = await sql`
-        SELECT id, full_name, role, is_active FROM users
-         WHERE auth0_user_id = ${sub} AND tenant_id = ${req.tenantId}
+        SELECT u.id, u.full_name, u.role, u.is_active, u.custom_role_id,
+               r_custom.id          AS r_id,
+               r_custom.key         AS r_key,
+               r_custom.label       AS r_label,
+               r_custom.permissions AS r_permissions,
+               r_builtin.id          AS rb_id,
+               r_builtin.key         AS rb_key,
+               r_builtin.label       AS rb_label,
+               r_builtin.permissions AS rb_permissions
+          FROM users u
+     LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
+     LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
+                                     AND r_builtin.key       = u.role::text
+                                     AND r_builtin.is_builtin = true
+         WHERE u.auth0_user_id = ${sub} AND u.tenant_id = ${req.tenantId}
       `
+      if (localUser) {
+        if (localUser.r_id) {
+          effectiveRole = { id: localUser.r_id, key: localUser.r_key, label: localUser.r_label, permissions: localUser.r_permissions }
+        } else if (localUser.rb_id) {
+          effectiveRole = { id: localUser.rb_id, key: localUser.rb_key, label: localUser.rb_label, permissions: localUser.rb_permissions }
+        }
+      }
+    }
+
+    // Tenant module enablement
+    let enabledModules = MODULE_KEYS
+    if (req.tenantId) {
+      const rows = await sql`
+        SELECT module_key, is_enabled FROM tenant_modules WHERE tenant_id = ${req.tenantId}
+      `
+      const map = Object.fromEntries(rows.map(r => [r.module_key, r.is_enabled]))
+      enabledModules = MODULE_KEYS.filter(k => map[k] !== false)
+    }
+
+    // Effective permissions = role permissions intersected with module enablement.
+    // Platform admins get full 'manage' on everything regardless.
+    const permissions = {}
+    for (const k of MODULE_KEYS) {
+      if (isPlatformAdmin) {
+        permissions[k] = 'manage'
+        continue
+      }
+      if (!enabledModules.includes(k)) { permissions[k] = 'none'; continue }
+      permissions[k] = effectiveRole?.permissions?.[k] ?? 'none'
     }
 
     // Available tenants — for platform admins, all active tenants.
@@ -93,6 +137,9 @@ export default async function platformRoutes(app) {
       full_name:         localUser?.full_name || null,
       current_tenant:    currentTenant,
       available_tenants: availableTenants,
+      effective_role:    effectiveRole,
+      enabled_modules:   enabledModules,
+      permissions,
     }
   })
 
@@ -103,24 +150,19 @@ export default async function platformRoutes(app) {
     preHandler: [requireAuth, requirePlatformAdmin],
   }, async (req, reply) => {
     const t0 = Date.now()
-    req.log.info('listTenants: start')
 
-    // Hard 8s timeout on the whole route — we'd rather return [] than hang.
+    // Hard 8s timeout on the whole route — return [] rather than hang.
     const timeoutPromise = new Promise((_, rej) =>
       setTimeout(() => rej(new Error('listTenants total timeout')), 8000)
     )
 
     const queryPromise = (async () => {
-      // Try the simple query first — it's fast and almost always sufficient.
-      // We explicitly DON'T do the COUNT join here because that's been the
-      // suspected source of past hangs.
       const tenants = await sql`
         SELECT id, name, slug, plan, auth0_org_id, stripe_account_id,
                is_active, created_at, updated_at
           FROM tenants
          ORDER BY name
       `
-      req.log.info({ ms: Date.now() - t0, n: tenants.length }, 'listTenants: tenants fetched')
 
       // Now enrich with counts in parallel — each as its own short-timeout
       // call so a slow one can't take down the whole response.
@@ -142,7 +184,6 @@ export default async function platformRoutes(app) {
         ])
         return { ...t, venue_count, user_count }
       }))
-      req.log.info({ ms: Date.now() - t0 }, 'listTenants: done')
       return enriched
     })()
 

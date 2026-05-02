@@ -38,26 +38,29 @@ import { useApi } from '@/lib/api'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings } from '@/contexts/SettingsContext'
 
+// `module` keys map onto tenant_modules + tenant_roles permissions
+// loaded by /api/me. Entries with no module are always shown.
 const NAV = [
-  { label: 'Dashboard',   to: '/',            icon: LayoutDashboard },
-  { label: 'Timeline',    to: '/timeline',    icon: CalendarDays },
-  { label: 'Bookings',    to: '/bookings',    icon: BookOpen },
-  { label: 'Customers',   to: '/customers',   icon: UserRound },
+  { label: 'Dashboard',   to: '/',            icon: LayoutDashboard,    module: 'dashboard' },
+  { label: 'Timeline',    to: '/timeline',    icon: CalendarDays,       module: 'bookings' },
+  { label: 'Bookings',    to: '/bookings',    icon: BookOpen,           module: 'bookings' },
+  { label: 'Customers',   to: '/customers',   icon: UserRound,          module: 'customers' },
   null,
-  { label: 'Venues',      to: '/venues',      icon: Building2 },
-  { label: 'Tables',      to: '/tables',      icon: Table2 },
-  { label: 'Schedule',    to: '/schedule',    icon: Clock },
-  { label: 'Rules',       to: '/rules',       icon: Settings },
-  { label: 'Website',     to: '/website',     icon: Globe },
-  { label: 'Cash Recon',  to: '/cash-recon',       icon: Wallet },
-  { label: 'Emails',      to: '/email-templates', icon: Mail },
-  { label: 'Settings',    to: '/settings',         icon: SlidersHorizontal },
-  { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate },
+  { label: 'Venues',      to: '/venues',      icon: Building2,          module: 'venues' },
+  { label: 'Tables',      to: '/tables',      icon: Table2,             module: 'tables' },
+  { label: 'Schedule',    to: '/schedule',    icon: Clock,              module: 'schedule' },
+  { label: 'Rules',       to: '/rules',       icon: Settings,           module: 'rules' },
+  { label: 'Website',     to: '/website',     icon: Globe,              module: 'website' },
+  { label: 'Cash Recon',  to: '/cash-recon',       icon: Wallet,        module: 'cash_recon' },
+  { label: 'Emails',      to: '/email-templates', icon: Mail,           module: 'email_templates' },
+  { label: 'Settings',    to: '/settings',         icon: SlidersHorizontal, module: 'settings' },
+  { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate,     module: 'widget_test' },
   null,
-  { label: 'Team',          to: '/team',   icon: Users },
+  { label: 'Team',          to: '/team',   icon: Users,                 module: 'team' },
+  { label: 'Access',        to: '/access', icon: Shield,                module: 'team' },
   null,
-  { label: 'Documentation', to: '/docs',   icon: BookMarked },
-  { label: 'Help',          to: '/help',   icon: HelpCircle },
+  { label: 'Documentation', to: '/docs',   icon: BookMarked,            module: 'documentation' },
+  { label: 'Help',          to: '/help',   icon: HelpCircle,            module: 'documentation' },
 ]
 
 const PLATFORM_NAV = [
@@ -228,13 +231,29 @@ export default function AppShell() {
           </div>
         )}
 
-        {/* Nav links */}
+        {/* Nav links — filter out modules where permission is 'none' (or
+             item module is unknown to /me, e.g. while loading). */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {NAV.map((item, i) =>
-            item === null
-              ? <div key={i} className={cn('border-t', open ? 'my-2' : 'my-1')} />
-              : <NavItem key={item.to} item={item} open={open} />
-          )}
+          {(() => {
+            const perms = me?.permissions ?? {}
+            const visible = NAV.map(item => {
+              if (item === null) return item
+              if (!item.module) return item   // always-on entries (none currently)
+              const lvl = perms[item.module] ?? 'manage'  // before /me loads, show all to avoid flash
+              return lvl === 'none' ? null : item
+            })
+            // collapse consecutive nulls so we don't render empty dividers
+            const cleaned = []
+            for (let i = 0; i < visible.length; i++) {
+              if (visible[i] === null && visible[i - 1] === null) continue
+              cleaned.push(visible[i])
+            }
+            return cleaned.map((item, i) =>
+              item === null
+                ? <div key={`sep-${i}`} className={cn('border-t', open ? 'my-2' : 'my-1')} />
+                : <NavItem key={item.to} item={item} open={open} />
+            )
+          })()}
           {isPlatformAdmin && (
             <>
               <div className={cn('border-t', open ? 'my-2' : 'my-1')} />

@@ -216,7 +216,9 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/jobs/emailWorker.js` — BullMQ job processor for booking emails. Loads booking+venue+customer, resolves template (venue→tenant→built-in), resolves provider+credentials, renders, sends, logs to email_log, marks reminder_sent_at.
 - `src/routes/platform.js` — Platform admin routes (`/api/me`, `/api/platform/tenants` CRUD + stats). `requirePlatformAdmin` guard. `/api/me` returns user profile + available tenants for org switcher.
 - `src/routes/team.js` — In-app team management (`/api/team`). List members, invite (sends Auth0 invitation email), role change (syncs `app_metadata.role` to Auth0), deactivate (removes from Auth0 org), `POST /:userId/reset-password` (Auth0 change-password email). Owner-only for mutations; admin can view. Self-protection guards. Falls back to local-only invites with a warning if `AUTH0_MGMT_*` env vars are unset.
-- `src/services/auth0MgmtSvc.js` — Auth0 Management API wrapper. In-memory M2M token cache (refreshes ~5min before expiry), `inviteUserToOrg`, `removeUserFromOrg`, `updateUserAppMetadata` (role sync), `sendPasswordResetEmail`. `isConfigured()` / `canInvite()` feature checks let callers degrade gracefully when creds are missing.
+- `src/services/auth0MgmtSvc.js` — Auth0 Management API wrapper. In-memory M2M token cache (refreshes ~5min before expiry), `inviteUserToOrg`, `removeUserFromOrg`, `updateUserAppMetadata` (role sync), `sendPasswordResetEmail`, `createOrganization`, `enableOrgConnection`, `provisionTenantOrg`, `getConnectionByName`. `isConfigured()` / `canInvite()` feature checks let callers degrade gracefully when creds are missing.
+- `src/routes/access.js` — Access management (`/api/access`). `GET /modules` lists all known modules merged with the tenant's `tenant_modules` rows. `PATCH /modules/:key` toggles a module on/off (owner only). `GET /roles` returns tenant_roles with permissions. `POST/PATCH/DELETE /roles[/:id]` for custom-role CRUD; built-in roles can be edited but not deleted; custom roles can't be deleted while users reference them.
+- `src/config/modules.js` — Single source of truth for the module registry (key, label, description, per-built-in default permissions). 14 modules currently: bookings, venues, tables, schedule, rules, customers, website, email_templates, cash_recon, team, settings, dashboard, widget_test, documentation. Export `MODULES`, `MODULE_KEYS`, `PERMISSION_LEVELS`, `permissionAtLeast()`.
 - `src/config/ws.js` — WebSocket server. Rooms keyed by venue_id. Auth via JWT query param.
 - `src/services/broadcastSvc.js` — Call `broadcastBooking(type, booking)` after any booking mutation.
 - `src/jobs/queues.js` — BullMQ queues. `notificationQueue` for emails, `holdSweepQueue` for hold cleanup.
@@ -242,6 +244,7 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/pages/EmailTemplates.jsx` — Email template admin page (`/email-templates` route). 3 tabs: Templates (per-type editor with merge field pills, preview iframe, reset-to-default), Settings (provider picker, credentials, sender identity, reminder toggle + hours slider, guest modify/cancel permissions), Sent emails (audit log). Venue selector in header. TipTap visual WYSIWYG editor with toolbar + HTML mode toggle.
 - `src/pages/Team.jsx` — Team management page (`/team` route). Invite users, set roles (inline dropdown), deactivate/reactivate. RBAC reference table. Owner-only mutations.
 - `src/pages/Platform.jsx` — Platform admin dashboard (`/platform` route). Tenant list with venue/user counts, create/edit tenant cards, active/inactive sections, stats overview. Platform admin only.
+- `src/pages/Access.jsx` — Access management (`/access` route). Two tabs: **Modules** (master on/off toggles per module, owner-only) and **Roles** (list of tenant_roles + inline permission matrix editor with `none/view/manage` toggle pills per module). Built-in roles show a "Lock" badge, can be edited but not deleted. Custom roles can be added/edited/deleted (only when no user references them). Available to anyone for viewing, mutations are owner-only (API-enforced).
 
 ---
 
@@ -377,6 +380,7 @@ Additionally implemented across development sessions:
 - ✅ **Platform admin + tenant/user management** *(migration 036)* — `platform_admins` table (global, no RLS). Auth middleware detects platform admins and bypasses all role gates. `GET /api/me` returns user profile + available tenants (for org switcher). Platform admin routes: `GET/POST/PATCH /api/platform/tenants` + stats. Team routes: `GET/POST/PATCH/DELETE /api/team` for invite, role change, deactivate (owner-only, self-protected). Org switcher in AppShell sidebar (re-authenticates with different Auth0 org). `VITE_AUTH0_ORG_ID` now optional. Team page at `/team`. Platform page at `/platform`.
 - ✅ **Auth0 Management API integration** — full team lifecycle in-app, no Auth0 dashboard required for tenant operators. New service `api/src/services/auth0MgmtSvc.js` (token caching via client-credentials grant, `inviteUserToOrg`, `removeUserFromOrg`, `updateUserAppMetadata`, `sendPasswordResetEmail`). `POST /api/team/invite` now sends an Auth0 organization invitation email and rolls back the local row if Auth0 fails. `PATCH /api/team/:userId` syncs role to Auth0 `app_metadata.role` whenever role changes. `DELETE /api/team/:userId` removes the user from the Auth0 org membership in addition to setting `is_active=false` locally. New endpoint `POST /api/team/:userId/reset-password` (owner-only) sends an Auth0 password change email — no need to touch the Auth0 dashboard. Auth middleware reconciles Auth0 sub ↔ local user on first login (links by email when invited row has `auth0_user_id IS NULL`), uses local `users.role` as source of truth for `req.user.role`, and rejects auth when local `is_active=false`. New env vars `AUTH0_MGMT_CLIENT_ID`, `AUTH0_MGMT_CLIENT_SECRET`, `AUTH0_INVITE_CLIENT_ID` (all optional — when missing, system degrades to local-only invites with a warning banner in the Team page). Migration 037 seeds the initial platform admin (Michal) so `/platform` works on first deploy.
 - ✅ **Auto-provision Auth0 organisations on tenant creation** — `POST /api/platform/tenants` with `auto_provision: true` (UI default) creates the Auth0 organisation via `provisionTenantOrg()` and enables Username-Password + Google connections with `assign_membership_on_login: true` baked in. New helpers in `auth0MgmtSvc.js`: `createOrganization`, `getConnectionByName`, `enableOrgConnection`, `provisionTenantOrg`. The tenant row is inserted in the DB FIRST (with the provisioned `auth0_org_id`), so a partial Auth0 failure leaves the platform admin a clear edit path. Response includes `auth0_provisioning: { attempted, org_created, enabled_connections, error }` so the UI can surface partial failures with an inline warning. Requires extra M2M scopes (`create:organizations`, `read:connections`, `create:organization_connections`) on top of the team-invite scopes — listed in `api/.env.example`.
+- ✅ **Configurable RBAC: tenant module switches + custom roles** *(migration 038)* — extends RBAC beyond the booking-focused enum. Two new tables: `tenant_modules` (per-tenant on/off switch per module — disabled modules are hidden from nav AND rejected at the API) and `tenant_roles` (custom roles per tenant with a `permissions` JSONB mapping `module_key → 'manage' | 'view' | 'none'`). 4 built-in roles seeded (owner/admin/operator/viewer); built-in roles can have permissions edited but not deleted. New `users.custom_role_id` (nullable) takes precedence over the legacy `users.role` enum when set. New module registry at `api/src/config/modules.js` lists all 14 modules + descriptions + per-built-in defaults — single source of truth for migrations, API, UI. New routes at `/api/access/modules`, `/api/access/roles`. New `requirePermission(moduleKey, level)` middleware for route gating. `/api/me` extended with `enabled_modules: string[]`, `permissions: { module: level }`, `effective_role`. AppShell filters nav by `me.permissions[item.module]`. New admin page at `/access` with Modules + Roles tabs (owner-only mutations, permission matrix with `none/view/manage` toggle pills).
 
 ---
 
@@ -396,23 +400,30 @@ for sales reporting and reconciliation. Architecture decisions pending: Partner 
 Restaurant API, polling vs webhook, per-venue vs tenant-level credentials, where it
 displays in the admin UI.
 
-**3. Customer hard delete**
+**3. RBAC rollout to existing routes**
+The foundation (migration 038, `requirePermission` middleware, `/api/access/*`, `/access` admin page) is in place. Still to do — incrementally:
+- Replace `requireRole('admin', 'owner')` with `requirePermission('<module>', 'manage')` on every existing route, module by module
+- Update `Team.jsx` to assign `custom_role_id` (currently still writes the legacy `users.role` enum)
+- Add per-page route guards in `main.jsx` so e.g. `/cash-recon` redirects to dashboard if `permissions.cash_recon === 'none'` (currently the page renders and just gets an empty list)
+- Surface a tooltip / disabled-button affordance on `view`-only access (currently hidden vs full-access; no middle-state UX yet)
+
+**4. Customer hard delete**
 Customers page currently supports anonymise (GDPR erasure by overwrite) but not hard delete.
 A double-confirmation hard delete (for internal test/demo data cleanup) is still outstanding.
 Must cascade-delete linked bookings or reassign them. Requires `requireRole('owner')` guard.
 
-**4. Website builder — deployment pieces** *(feature shipped code-side, not yet deployed)*
+**5. Website builder — deployment pieces** *(feature shipped code-side, not yet deployed)*
 - Nginx: wildcard server block for `*.macaroonie.com` (proxy_pass → Fastify API).
 - DNS: wildcard A record for `*.macaroonie.com` → Lightsail IP.
 - SSL: wildcard cert via Certbot DNS-01 challenge (needs DNS at Cloudflare / Route53 / etc).
 - Custom domains: per-tenant SSL provisioning (Caddy on-demand TLS or Certbot per domain).
   The app only resolves the Host header; cert provisioning is out of process.
-- Migrations 025 + 026 + 027 + 035 + 036 + 037 are applied automatically by the migrate runner
+- Migrations 025 + 026 + 027 + 035 + 036 + 037 + 038 are applied automatically by the migrate runner
   (or auto-baselined on first run via `AUTO_BASELINE_UP_TO=024`).
 - Optional: set `STORAGE_DRIVER=s3` + `S3_*` env vars to use S3 / DO Spaces / R2
   instead of local disk for uploads.
 
-**5. Email system loose ends**
+**6. Email system loose ends**
 - `nodemailer` is not in `api/package.json` — the SMTP email provider will crash on first use.
   Add `"nodemailer": "^6.9.0"` if any tenant selects SMTP.
 - Guest manage page `POST /modify` directly UPDATEs `starts_at` without checking
@@ -426,11 +437,11 @@ Must cascade-delete linked bookings or reassign them. Requires `requireRole('own
   enqueued before the change will fail forever.
 - Legacy `src/services/notificationSvc.js` is dead code — safe to delete.
 
-**6. Docs.jsx update for platform/team**
+**7. Docs.jsx update for platform/team**
 Help.jsx has a Team Management section; Docs.jsx does not yet have a corresponding
 technical section for the platform-admin routes, RBAC matrix, or `platform_admins` table.
 
-**7. Test suite**
+**8. Test suite**
 No tests exist yet. Recommended approach:
 - API: Vitest + supertest for route integration tests
 - DB: Use a test database with migrations applied, reset between test runs
@@ -535,6 +546,11 @@ Key vars to set before running:
 - **`provisionTenantOrg` skips steps 6 + 7 of the manual checklist** — when auto-provision is on, the API creates the org and enables Username-Password + Google connections with `assign_membership_on_login: true` in one call. Steps 1–5 + 8 (M2M scopes, env vars, SPA URIs, app-level connection toggles, role-claim Login Action) are still one-time tenant-wide setup that the platform admin does before the first auto-provisioned tenant. Auto-provision is enabled by default in the Platform → New Tenant card; uncheck if you want to manually paste an existing `org_…`.
 - **Auth middleware reconcile uses a 3s Promise.race timeout** — the user-row lookup in `requireAuth` races against `setTimeout(reject, 3000)`. If the DB hangs, the timeout rejects, the catch logs a warning, and the request continues with the JWT role — never produces ERR_EMPTY_RESPONSE for the upstream client. The `last_login_at` UPDATE is fire-and-forget (`.catch(...)` only), so the request never blocks on a write that nobody reads in this request.
 - **Fastify preHandlers in arrays must be async or use `done` callback** — a sync hook without a `done` parameter (e.g. `function requirePlatformAdmin(req, reply) { ... }`) chained inside a `preHandler: [requireAuth, requirePlatformAdmin]` array silently breaks the chain — the route handler never runs and the request hangs forever with no error. Always declare guards as `async function` (Fastify awaits the returned Promise). Symptom that took hours to find: logs show every preHandler running, the last one's "pass" log fires, then nothing — no route handler log, no `request completed`. Diagnostic was adding a log line at the very top of the route handler and seeing it never fire.
+- **Module registry is single source of truth** — `api/src/config/modules.js` lists every module the platform knows about. To add a new one: (1) add it to `MODULES` with a per-built-in `default` permission map, (2) write a migration to `INSERT INTO tenant_modules (tenant_id, module_key, is_enabled) SELECT t.id, '<new_key>', true FROM tenants t ON CONFLICT DO NOTHING`, (3) wire `requirePermission('<new_key>', 'manage')` on the relevant routes, (4) add a `module: '<new_key>'` field to the relevant `NAV` entries in `AppShell.jsx`. Don't hardcode module keys outside this file.
+- **Built-in roles are never deleted, but their permissions can be edited** — `tenant_roles.is_builtin = true` for the four seeded roles. The DELETE endpoint refuses to delete them (422). The PATCH endpoint allows full permission edits (so a tenant can take, say, `email_templates: manage` away from their admin role). The role's `key` is immutable in code (used to map legacy `users.role` enum) — the editor doesn't show a key field for built-ins.
+- **Permission gate ordering: tenant module switch wins, then role permission** — `requirePermission()` first checks `tenant_modules.is_enabled` for the tenant; if disabled, even an owner is rejected with 403. Only if the module IS enabled does it check the user's role permission level. Same logic in `/api/me` when computing the `permissions` map. So an owner CAN turn off their own access by disabling a module — that's intentional, gives a single switch to neutralise a feature platform-wide for the tenant.
+- **Custom roles bypass the legacy `users.role` enum** — when `users.custom_role_id` is set, the auth path resolves permissions from `tenant_roles.permissions`. When it's NULL (default), it maps `users.role` enum → `tenant_roles.key` (matching one of the 4 built-ins) and uses those. The legacy enum stays for backwards compat — don't remove the column.
+- **`/api/me` is the SPA's nav-gating contract** — frontend reads `me.permissions[module]` to decide whether to render a nav entry, route guard, or button. After ANY mutation that affects modules or roles (PATCH module toggle, role permission edit), invalidate `['me']` so the UI refreshes. The TanStack Query stale time is 60s by default — without manual invalidation, changes only show up after a minute.
 
 ---
 

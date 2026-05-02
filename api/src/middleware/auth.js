@@ -51,7 +51,6 @@ const ROLE_HIERARCHY = ['viewer', 'operator', 'admin', 'owner']
  *   req.isPlatformAdmin = true if the user is in platform_admins
  */
 export async function requireAuth(req, reply) {
-  const t0 = Date.now()
   try {
     const authHeader = req.headers.authorization
     if (!authHeader?.startsWith('Bearer ')) {
@@ -62,13 +61,13 @@ export async function requireAuth(req, reply) {
 
     // Verify signature + expiry via JWKS (RS256)
     const payload = await verify(token)
-    req.log.info({ ms: Date.now() - t0 }, 'auth: jwt verified')
 
     const auth0OrgId = payload[`${CLAIM_NS}tenant_id`]
     const role       = payload[`${CLAIM_NS}role`] ?? 'operator'
     const auth0Sub   = payload.sub
 
-    // Check platform admin status (global — not tenant-scoped)
+    // Check platform admin status (global — not tenant-scoped). 3s race timeout
+    // so a stuck DB query can never produce ERR_EMPTY_RESPONSE upstream.
     const [platformAdmin] = await Promise.race([
       sql`
         SELECT id FROM platform_admins
@@ -79,7 +78,6 @@ export async function requireAuth(req, reply) {
       new Promise((_, rej) => setTimeout(() => rej(new Error('platform_admins lookup timeout')), 3000)),
     ])
     const isPlatformAdmin = !!platformAdmin
-    req.log.info({ ms: Date.now() - t0, isPlatformAdmin }, 'auth: platform admin check done')
 
     // Platform admins may operate without an org (for tenant management).
     // Normal users must always have an org claim.
@@ -103,7 +101,6 @@ export async function requireAuth(req, reply) {
       }
       tenantId = tenant?.id ?? null
     }
-    req.log.info({ ms: Date.now() - t0, tenantId }, 'auth: tenant resolved')
 
     // Reconcile local user row with Auth0 identity.
     //
@@ -166,10 +163,9 @@ export async function requireAuth(req, reply) {
     req.tenantId       = tenantId
     req.auth0OrgId     = auth0OrgId
     req.isPlatformAdmin = isPlatformAdmin
-    req.log.info({ ms: Date.now() - t0, role: req.user.role }, 'auth: complete')
 
   } catch (err) {
-    req.log.warn({ err: err?.message || err, ms: Date.now() - t0 }, 'Auth failed')
+    req.log.warn({ err: err?.message || err }, 'Auth failed')
     return reply.code(401).send({ error: 'Invalid or expired token' })
   }
 }
@@ -201,5 +197,55 @@ export function requireRole(...roles) {
 export async function requirePlatformAdmin(req, reply) {
   if (!req.isPlatformAdmin) {
     return reply.code(403).send({ error: 'Platform admin access required' })
+  }
+}
+
+/**
+ * Module-level permission gate. Reads tenant_modules + the
+ * caller's tenant_roles permissions and rejects with 403 if:
+ *   - the module is disabled at the tenant level, OR
+ *   - the caller's role permission for that module is below the required level.
+ *
+ * Platform admins always pass.
+ *
+ * Required level: 'view' (default) or 'manage'.
+ *
+ * @example
+ *   preHandler: [requireAuth, requirePermission('cash_recon', 'manage')]
+ */
+const PERMISSION_RANK = { none: 0, view: 1, manage: 2 }
+
+export function requirePermission(moduleKey, requiredLevel = 'view') {
+  return async function (req, reply) {
+    if (req.isPlatformAdmin) return
+    if (!req.tenantId) return reply.code(400).send({ error: 'No tenant context' })
+
+    const [moduleRow] = await sql`
+      SELECT is_enabled FROM tenant_modules
+       WHERE tenant_id = ${req.tenantId} AND module_key = ${moduleKey}
+       LIMIT 1
+    `
+    // Default to enabled if no row exists yet (legacy tenants).
+    if (moduleRow && !moduleRow.is_enabled) {
+      return reply.code(403).send({ error: `Module "${moduleKey}" is disabled for this tenant` })
+    }
+
+    // Lookup permissions: prefer custom_role_id, fall back to built-in matching users.role.
+    const [permRow] = await sql`
+      SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions
+        FROM users u
+   LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
+   LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
+                                   AND r_builtin.key       = u.role::text
+                                   AND r_builtin.is_builtin = true
+       WHERE u.auth0_user_id = ${req.user.sub}
+         AND u.tenant_id     = ${req.tenantId}
+         AND u.is_active     = true
+       LIMIT 1
+    `
+    const actual = permRow?.permissions?.[moduleKey] ?? 'none'
+    if (PERMISSION_RANK[actual] < PERMISSION_RANK[requiredLevel]) {
+      return reply.code(403).send({ error: `Insufficient permission for ${moduleKey} (have: ${actual}, need: ${requiredLevel})` })
+    }
   }
 }
