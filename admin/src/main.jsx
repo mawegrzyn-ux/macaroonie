@@ -23,6 +23,7 @@ import Settings    from '@/pages/Settings'
 import Website     from '@/pages/Website'
 import CashRecon      from '@/pages/CashRecon'
 import EmailTemplates from '@/pages/EmailTemplates'
+import EmailMonitoring from '@/pages/EmailMonitoring'
 import Team           from '@/pages/Team'
 import Access         from '@/pages/Access'
 import Platform       from '@/pages/Platform'
@@ -108,6 +109,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="website"     element={<Website />} />
                 <Route path="cash-recon" element={<CashRecon />} />
                 <Route path="email-templates" element={<EmailTemplates />} />
+                <Route path="email-monitoring" element={<EmailMonitoring />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="team"        element={<Team />} />
                 <Route path="access"      element={<Access />} />

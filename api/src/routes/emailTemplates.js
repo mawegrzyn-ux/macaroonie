@@ -7,8 +7,9 @@ import { z }  from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { renderTemplate, MERGE_FIELDS, buildMergeFields } from '../services/emailSvc.js'
+import { sendEmail, renderTemplate, MERGE_FIELDS, buildMergeFields } from '../services/emailSvc.js'
 import { DEFAULT_TEMPLATES } from '../services/emailTemplateDefaults.js'
+import { env } from '../config/env.js'
 
 const TemplateBody = z.object({
   venue_id:  z.string().uuid().nullable().optional(),
@@ -126,6 +127,128 @@ export default async function emailTemplateRoutes(app) {
     return {
       subject: renderTemplate(subject,   sampleFields),
       html:    renderTemplate(body_html, sampleFields),
+    }
+  })
+
+  // ── POST /email-templates/send-test ─────────────────────
+  // Send a real test email through the venue's configured provider.
+  // Resolves the active template (custom → built-in default) and renders
+  // with sample merge fields. Logs to email_log with booking_id NULL so
+  // it's distinguishable from real bookings.
+  //
+  // Body: { venue_id, type: 'confirmation'|'reminder'|'modification'|'cancellation', to: string }
+  // Used by the Widget Test page and the Email Templates settings tab.
+  app.post('/send-test', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = z.object({
+      venue_id: z.string().uuid(),
+      type:     z.enum(['confirmation', 'reminder', 'modification', 'cancellation']),
+      to:       z.string().email(),
+    }).parse(req.body)
+
+    const data = await withTenant(req.tenantId, async tx => {
+      const [venue] = await tx`
+        SELECT v.*, wc.phone AS site_phone, wc.email AS site_email,
+               wc.address_line1, wc.city, wc.postcode
+          FROM venues v
+          LEFT JOIN website_config wc ON wc.venue_id = v.id
+         WHERE v.id = ${body.venue_id}
+      `
+      if (!venue) return null
+
+      const [tpl] = await tx`
+        SELECT * FROM email_templates
+         WHERE tenant_id = ${req.tenantId}
+           AND type = ${body.type}
+           AND is_active = true
+           AND (venue_id = ${body.venue_id} OR venue_id IS NULL)
+         ORDER BY venue_id NULLS LAST
+         LIMIT 1
+      `
+      const [settings] = await tx`
+        SELECT * FROM venue_email_settings
+         WHERE venue_id = ${body.venue_id}
+           AND tenant_id = ${req.tenantId}
+      `
+      return { venue, tpl, settings }
+    })
+
+    if (!data) throw httpError(404, 'Venue not found')
+    const { venue, tpl, settings } = data
+
+    // Sample merge fields (matches the preview endpoint shape)
+    const sampleFields = Object.fromEntries(MERGE_FIELDS.map(f => [f.key, f.example]))
+    sampleFields.guest_email = body.to
+    sampleFields.venue_name  = venue.name
+    sampleFields.manage_link = `${env.PUBLIC_SITE_SCHEME}://${env.PUBLIC_ROOT_DOMAIN}/manage/00000000-0000-0000-0000-000000000000`
+
+    const template = tpl
+      ? { subject: tpl.subject, body_html: tpl.body_html }
+      : DEFAULT_TEMPLATES[body.type]
+    if (!template) throw httpError(400, `No template for type '${body.type}'`)
+
+    const subject = '[TEST] ' + renderTemplate(template.subject, sampleFields)
+    const html    = renderTemplate(template.body_html, sampleFields)
+
+    const provider = settings?.email_provider || 'sendgrid'
+    const credentials = {}
+    if (provider === 'sendgrid') {
+      credentials.apiKey = settings?.provider_api_key || env.SENDGRID_API_KEY
+    } else if (provider === 'mailgun') {
+      credentials.apiKey = settings?.provider_api_key
+      credentials.domain = settings?.provider_domain
+    } else if (provider === 'ses') {
+      credentials.region          = settings?.provider_region
+      credentials.accessKeyId     = settings?.provider_api_key
+      credentials.secretAccessKey = settings?.provider_domain
+    } else if (provider === 'smtp') {
+      credentials.host   = settings?.smtp_host
+      credentials.port   = settings?.smtp_port
+      credentials.user   = settings?.smtp_user
+      credentials.pass   = settings?.smtp_pass
+      credentials.secure = settings?.smtp_secure
+    }
+
+    const fromName  = settings?.from_name  || venue.name || 'Macaroonie'
+    const fromEmail = settings?.from_email || env.EMAIL_FROM
+    const replyTo   = settings?.reply_to   || null
+
+    let result
+    try {
+      result = await sendEmail({
+        provider, credentials,
+        from: { name: fromName, email: fromEmail },
+        to:   body.to,
+        replyTo, subject, html,
+      })
+    } catch (err) {
+      // Log the failure
+      await withTenant(req.tenantId, tx => tx`
+        INSERT INTO email_log
+          (tenant_id, booking_id, template_type, recipient, subject,
+           provider, provider_id, status, error, sent_at)
+        VALUES
+          (${req.tenantId}, NULL, ${body.type + '_test'}, ${body.to}, ${subject},
+           ${provider}, NULL, 'failed', ${err.message}, NULL)
+      `).catch(() => {})
+      throw httpError(422, `Test email failed: ${err.message}`)
+    }
+
+    // Log success
+    await withTenant(req.tenantId, tx => tx`
+      INSERT INTO email_log
+        (tenant_id, booking_id, template_type, recipient, subject,
+         provider, provider_id, status, error, sent_at)
+      VALUES
+        (${req.tenantId}, NULL, ${body.type + '_test'}, ${body.to}, ${subject},
+         ${result.provider}, ${result.providerId}, 'sent', NULL, now())
+    `).catch(() => {})
+
+    return {
+      ok:        true,
+      provider:  result.provider,
+      messageId: result.providerId,
+      to:        body.to,
+      subject,
     }
   })
 

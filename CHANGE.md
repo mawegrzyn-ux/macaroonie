@@ -7,6 +7,36 @@ Migrations are listed where a database change is required.
 
 ## [2026-05-02]
 
+### Email monitoring page — SendGrid integration
+- New admin page at `/email-monitoring` showing what went out (sends + delivery
+  stats) and what's "in" (suppressions: bounces, blocks, spam reports, invalid emails).
+- New service `api/src/services/sendgridSvc.js` wraps SendGrid Web API:
+  `getStats()` (daily breakdown — requested, delivered, bounces, opens, clicks,
+  spam reports), `getSuppressions(type)`, `removeSuppression(type, email)`,
+  `pingApiKey()`. Auth: `Bearer <api_key>`.
+- New routes at `/api/email-monitoring/*` (admin-view, owner-only mutations):
+  `GET /summary` (one-shot: stats + all suppression lists + local log totals),
+  `GET /stats`, `GET /suppressions/:type`, `DELETE /suppressions/:type/:email`,
+  `GET /log` (local email_log).
+- Uses the venue's per-venue SendGrid API key from `venue_email_settings.provider_api_key`,
+  falling back to `SENDGRID_API_KEY` env var. Venues using non-SendGrid providers
+  show a graceful banner instead of empty data.
+- Local email_log + SendGrid data shown side-by-side so a discrepancy (e.g. we
+  marked a send "sent" but SendGrid bounced it) is visible at a glance.
+
+### Widget test — stand-alone email sender
+- Bookings created through the widget test page already trigger confirmation +
+  reminder emails (they hit the same `/api/bookings` route as a real widget).
+  The new section makes that explicitly testable WITHOUT creating a booking.
+- New API: `POST /api/email-templates/send-test` (admin/owner). Body:
+  `{ venue_id, type: 'confirmation'|'reminder'|'modification'|'cancellation', to }`.
+  Resolves the active template (custom → built-in), renders sample merge fields,
+  and sends through the venue's configured provider. Subject is prefixed with
+  `[TEST]`. Logs to `email_log` with `booking_id NULL` and `template_type`
+  suffixed `_test` so test sends are filterable.
+- New section in the Widget Test page: pick type + recipient → real email
+  arrives in the inbox. Useful for verifying provider creds end-to-end.
+
 ### Configurable RBAC — tenant module switches + custom roles  *(migration 038)*
 - **Modules.** New `tenant_modules` table — per-tenant on/off switch per module.
   Disabled modules are hidden from the sidebar nav AND rejected at the API via the new

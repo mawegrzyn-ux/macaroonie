@@ -5,8 +5,8 @@
 // Mirrors exactly what the Ember widget will do.
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { Settings2, ExternalLink, RefreshCw } from 'lucide-react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { Settings2, ExternalLink, RefreshCw, Mail, Loader2, Check } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import BookingWidget from '@/components/widget/BookingWidget'
 
@@ -126,6 +126,15 @@ export default function WidgetTest() {
             </pre>
           </Section>
 
+          <Section title="Test emails">
+            <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
+              Real bookings made via the widget on the right automatically trigger confirmation
+              + reminder emails. Use this to send a stand-alone test through the venue&apos;s
+              configured provider (no booking is created).
+            </p>
+            <EmailTester venueId={venueId} />
+          </Section>
+
           <div className="flex gap-2">
             <button
               onClick={reset}
@@ -187,6 +196,76 @@ function Section({ title, children }) {
     <div>
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">{title}</p>
       {children}
+    </div>
+  )
+}
+
+function EmailTester({ venueId }) {
+  const api = useApi()
+  const [type, setType]   = useState('confirmation')
+  const [to, setTo]       = useState('')
+  const [error, setError] = useState(null)
+  const [success, setSuccess] = useState(false)
+
+  const send = useMutation({
+    mutationFn: () => api.post('/email-templates/send-test', {
+      venue_id: venueId,
+      type,
+      to: to.trim().toLowerCase(),
+    }),
+    onSuccess: () => {
+      setSuccess(true)
+      setError(null)
+      setTimeout(() => setSuccess(false), 4000)
+    },
+    onError: (e) => {
+      setSuccess(false)
+      setError(e?.body?.error || e.message)
+    },
+  })
+
+  const disabled = !venueId || !to.trim() || send.isPending
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs text-muted-foreground">Type</label>
+      <select
+        value={type}
+        onChange={e => setType(e.target.value)}
+        className="w-full text-sm border rounded-lg px-3 py-2"
+      >
+        <option value="confirmation">Confirmation</option>
+        <option value="reminder">Reminder</option>
+        <option value="modification">Modification</option>
+        <option value="cancellation">Cancellation</option>
+      </select>
+
+      <label className="block text-xs text-muted-foreground mt-2">Recipient</label>
+      <input
+        type="email"
+        value={to}
+        onChange={e => setTo(e.target.value)}
+        placeholder="you@example.com"
+        className="w-full text-sm border rounded-lg px-3 py-2"
+      />
+
+      <button
+        onClick={() => send.mutate()}
+        disabled={disabled}
+        className="w-full mt-2 inline-flex items-center justify-center gap-1.5 text-sm py-2 rounded-lg bg-primary text-primary-foreground disabled:opacity-50"
+      >
+        {send.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+         : success     ? <Check className="w-3.5 h-3.5" />
+         : <Mail className="w-3.5 h-3.5" />}
+        {send.isPending ? 'Sending…' : success ? 'Sent — check inbox' : 'Send test email'}
+      </button>
+
+      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+      {success && (
+        <p className="text-xs text-emerald-700 mt-1">
+          Subject prefixed with [TEST]. Logged in Email Templates → Sent emails.
+        </p>
+      )}
     </div>
   )
 }

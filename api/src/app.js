@@ -30,6 +30,7 @@ import emailTemplateRoutes from './routes/emailTemplates.js'
 import platformRoutes      from './routes/platform.js'
 import teamRoutes          from './routes/team.js'
 import accessRoutes        from './routes/access.js'
+import emailMonitoringRoutes from './routes/emailMonitoring.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -128,6 +129,7 @@ export async function buildApp() {
   await app.register(platformRoutes,      { prefix: '/api' })
   await app.register(teamRoutes,          { prefix: '/api/team' })
   await app.register(accessRoutes,        { prefix: '/api/access' })
+  await app.register(emailMonitoringRoutes, { prefix: '/api/email-monitoring' })
   await app.register(manageBookingRoutes, { prefix: '/manage' })
 
   // ── Health check ─────────────────────────────────────────
