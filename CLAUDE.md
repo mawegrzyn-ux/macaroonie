@@ -430,7 +430,7 @@ Must cascade-delete linked bookings or reassign them. Requires `requireRole('own
   policy, hook scripts, and the renewal cron entry.
 - Custom domains: per-tenant SSL provisioning (Caddy on-demand TLS or Certbot per
   domain). The app only resolves the Host header; cert provisioning is out of process.
-- Migrations 025 + 026 + 027 + 035 + 036 + 037 + 038 are applied automatically by the migrate runner
+- Migrations 025 + 026 + 027 + 035 + 036 + 037 + 038 + 039 are applied automatically by the migrate runner
   (or auto-baselined on first run via `AUTO_BASELINE_UP_TO=024`).
 - Optional: set `STORAGE_DRIVER=s3` + `S3_*` env vars to use S3 / DO Spaces / R2
   instead of local disk for uploads.
