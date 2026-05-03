@@ -22,6 +22,7 @@ const SECTIONS = [
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
   { id: 'email-monitoring',    label: 'Email Monitoring' },
+  { id: 'media-library',       label: 'Media Library' },
   { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
 
@@ -1797,6 +1798,68 @@ export default function Help() {
               Monitoring currently shows SendGrid data only. If your venue uses Postmark,
               Mailgun, or SES, this page shows a banner explaining that monitoring isn&apos;t
               wired up for that provider yet — but the local send log still works.
+            </InfoBox>
+          </section>
+
+          {/* ── MEDIA LIBRARY ──────────────────────────────── */}
+          <section id="media-library" data-help="">
+            <H2>Media Library</H2>
+            <P>
+              The <strong>Media</strong> page (sidebar, under Website) is your tenant&apos;s
+              shared image library. Every image uploaded anywhere in the platform — hero
+              shots, brand logos, gallery photos, OG images — is stored here and can be
+              picked again from any image field via the new <strong>Choose from library</strong>
+              button.
+            </P>
+
+            <H3>Two ways to use it</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>
+                <strong>Picker</strong> — opens automatically when you click "Choose from library"
+                next to any image field on the website builder, brand defaults, etc.
+                Pick one image and click <strong>Insert selected</strong> — the field gets the URL.
+              </li>
+              <li>
+                <strong>Manager</strong> — open <strong>Media</strong> from the sidebar to browse,
+                rename, recategorise, or bulk-delete without being mid-task.
+              </li>
+            </ol>
+
+            <H3>Categories</H3>
+            <P>
+              User-defined flat tags. Create them from the sidebar (&ldquo;+ New category&rdquo;).
+              Hover a category to rename or delete. Deleting a category does NOT delete its
+              items — they just become uncategorised.
+            </P>
+
+            <H3>Scope (form filter)</H3>
+            <P>
+              Each image is tagged with a <strong>scope</strong> — either &ldquo;shared&rdquo;
+              (global library) or a specific form key like <code className="font-mono">website:hero</code>.
+              The Form filter dropdown lets you see only images for a particular form, or all.
+              Use <strong>Move to scope</strong> in the detail panel to promote an image from
+              form-specific to shared (so it can be reused anywhere).
+            </P>
+
+            <H3>Upload</H3>
+            <ul className="list-disc ml-5 space-y-1 text-sm text-muted-foreground mb-4">
+              <li>Click <strong>Upload</strong> in the sidebar to pick files.</li>
+              <li>Or drag image files anywhere onto the modal.</li>
+              <li>Multiple files at once is fine; each gets its own progress chip.</li>
+              <li>If a file with the same name (or identical contents) exists in the same scope, you&apos;ll be asked: <strong>Replace</strong> / <strong>Keep both</strong> / <strong>Cancel</strong>.</li>
+              <li>Set <strong>Upload to</strong> in the sidebar before uploading to auto-tag new files into a category.</li>
+            </ul>
+
+            <H3>Multi-select</H3>
+            <P>
+              Hover a thumbnail to reveal its checkbox; or hold ⌘/Ctrl/Shift while clicking to
+              add to selection. The right panel switches to bulk actions: move category, move
+              scope, delete all.
+            </P>
+
+            <InfoBox type="info">
+              Image editing (crop / adjust) is on the roadmap but not in this release —
+              the Edit button in the detail panel shows &ldquo;coming soon&rdquo; for now.
             </InfoBox>
           </section>
 

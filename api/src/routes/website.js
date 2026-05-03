@@ -323,10 +323,14 @@ export default async function websiteRoutes(app) {
       const existing = await ensureConfig(tx, req.tenantId, venueId)
       if (!existing) throw httpError(404, 'Website config not found — POST to create it first')
 
+      // Match the row by id directly. Filtering by tenant_id alone (the
+      // previous bug) updated every venue's website_config for the tenant,
+      // bleeding hero/logo/about edits across venue sites.
       return tx`
         UPDATE website_config
            SET ${tx(body, ...fields)}, updated_at = now()
-         WHERE tenant_id = ${req.tenantId}
+         WHERE id = ${existing.id}
+           AND tenant_id = ${req.tenantId}
         RETURNING *
       `
     })
@@ -340,9 +344,12 @@ export default async function websiteRoutes(app) {
   // OR its CNAME points at {PUBLIC_ROOT_DOMAIN}. Otherwise returns the
   // records it saw so the tenant can see what went wrong.
   app.post('/verify-domain', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const venueId = req.query.venue_id || req.body?.venue_id
+    if (!venueId) throw httpError(400, 'venue_id is required')
+
     const [cfg] = await withTenant(req.tenantId, tx => tx`
       SELECT id, custom_domain FROM website_config
-       WHERE tenant_id = ${req.tenantId}
+       WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}
     `)
     if (!cfg?.custom_domain) throw httpError(422, 'No custom domain configured')
 
@@ -363,7 +370,8 @@ export default async function websiteRoutes(app) {
     await withTenant(req.tenantId, tx => tx`
       UPDATE website_config
          SET custom_domain_verified = ${verified}, updated_at = now()
-       WHERE tenant_id = ${req.tenantId}
+       WHERE id = ${cfg.id}
+         AND tenant_id = ${req.tenantId}
     `)
 
     return {

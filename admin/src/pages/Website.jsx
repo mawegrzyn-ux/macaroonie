@@ -26,6 +26,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 
 // ── Section lists ────────────────────────────────────────────
 
@@ -198,7 +199,8 @@ function FileUpload({ kind = 'images', accept, onUploaded, label = 'Upload', chi
   )
 }
 
-function ImageField({ url, kind = 'images', onChange, hint }) {
+function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) {
+  const [pickerOpen, setPickerOpen] = useState(false)
   return (
     <div>
       {url ? (
@@ -208,6 +210,10 @@ function ImageField({ url, kind = 'images', onChange, hint }) {
             <FileUpload kind={kind} accept="image/*"
               onUploaded={r => onChange(r.url)}
               label="Replace" />
+            <button type="button" onClick={() => setPickerOpen(true)}
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline self-start">
+              <ImageIcon className="w-3 h-3" /> Choose from library
+            </button>
             <button
               type="button" onClick={() => onChange(null)}
               className="text-xs text-destructive hover:underline self-start"
@@ -215,11 +221,25 @@ function ImageField({ url, kind = 'images', onChange, hint }) {
           </div>
         </div>
       ) : (
-        <FileUpload kind={kind} accept="image/*"
-          onUploaded={r => onChange(r.url)}
-          label="Upload image" />
+        <div className="flex items-center gap-2">
+          <FileUpload kind={kind} accept="image/*"
+            onUploaded={r => onChange(r.url)}
+            label="Upload image" />
+          <span className="text-xs text-muted-foreground">or</span>
+          <button type="button" onClick={() => setPickerOpen(true)}
+            className="inline-flex items-center gap-1.5 border rounded-md px-3 py-2 text-sm hover:bg-accent min-h-[40px]">
+            <ImageIcon className="w-4 h-4" /> Choose from library
+          </button>
+        </div>
       )}
       {hint && <p className="text-xs text-muted-foreground mt-1.5">{hint}</p>}
+      <MediaLibraryModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        mode="picker"
+        scope={scope}
+        onPick={(pickedUrl) => onChange(pickedUrl)}
+      />
     </div>
   )
 }

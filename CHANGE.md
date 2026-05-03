@@ -5,6 +5,37 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-03]
+
+### Media library *(migration 040)*
+- Per-tenant image library with categories, scope filters, picker + manager
+  modes. Spec: see "Epic: Media Library" in project notes.
+- New tables: `media_categories` (flat tenant tags) and `media_items`
+  (uploaded images with category, scope, hash, dimensions). Both RLS-enforced.
+- API at `/api/media`: CRUD for categories and items, multipart upload,
+  duplicate pre-check (filename + SHA-256 hash within scope), bulk actions
+  (delete / move-category / move-scope), distinct scopes endpoint.
+- `sharp` added as **optionalDependency** for image dimension extraction —
+  lazy-loaded so a broken native build doesn't crash the API.
+- New reusable component `admin/src/components/media/MediaLibrary.jsx`.
+  Two modes: `picker` (callback returns URL, "Insert selected" footer)
+  and `manager` (organise without inserting).
+- Features delivered in v1: grid + list views, search, category sidebar
+  (create/rename/delete), scope filter dropdown, upload via button + drag-drop,
+  duplicate detection with replace/keep-both/cancel dialog, progress chips,
+  single + multi select, single detail panel with preview/rename/change
+  category/change scope/delete, bulk move + delete, resizable detail panel,
+  ESC + X close, fullscreen toggle.
+- Deferred to follow-up: image editor (crop/adjust), advanced selection
+  (shift-range), keyboard navigation between items.
+- New `/media` route (standalone manager) + sidebar nav entry under the
+  `website` module group.
+- `ImageField` in Website.jsx now offers a "Choose from library" button on
+  every image upload spot (logo, favicon, hero, about, OG, brand defaults,
+  etc.) — falls through to the existing inline upload as the alternative.
+
+---
+
 ## [2026-05-02]
 
 ### Wildcard SSL cert via Lightsail DNS hooks
