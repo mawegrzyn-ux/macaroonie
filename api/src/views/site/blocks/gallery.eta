@@ -1,0 +1,59 @@
+<%
+const d = it.block.data || {}
+const galStyle = it.config.gallery_style || 'grid'
+const galSize  = it.config.gallery_size  || 'medium'
+const thumbMin = galSize === 'small' ? 160 : galSize === 'large' ? 320 : 240
+const thumbHt  = galSize === 'small' ? 160 : galSize === 'large' ? 280 : 220
+%>
+<% if (it.gallery && it.gallery.length) { %>
+<section class="block" style="background:var(--c-surface); padding:64px 24px;">
+  <div class="container">
+    <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
+    <% if (galStyle === 'horizontal') { %>
+      <div style="display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory; padding-bottom:12px;">
+        <% it.gallery.forEach(function(g){ %>
+          <a href="<%= g.image_url %>" target="_blank" rel="noopener"
+             style="flex:0 0 <%= thumbMin * 1.4 %>px; scroll-snap-align:start; display:block; position:relative; border-radius:6px; overflow:hidden;">
+            <img src="<%= g.image_url %>" alt="<%= g.caption || '' %>"
+                 style="width:100%; height:<%= thumbHt %>px; object-fit:cover;" loading="lazy" />
+            <% if (g.caption) { %>
+              <div style="position:absolute; bottom:0; left:0; right:0; padding:6px 10px; background:linear-gradient(transparent, rgba(0,0,0,.7)); color:#fff; font-size:12px;">
+                <%= g.caption %>
+              </div>
+            <% } %>
+          </a>
+        <% }) %>
+      </div>
+    <% } else if (galStyle === 'pinterest') { %>
+      <div style="column-count:4; column-gap:12px;">
+        <% it.gallery.forEach(function(g){ %>
+          <a href="<%= g.image_url %>" target="_blank" rel="noopener"
+             style="display:inline-block; width:100%; margin-bottom:12px; break-inside:avoid; position:relative; border-radius:6px; overflow:hidden;">
+            <img src="<%= g.image_url %>" alt="<%= g.caption || '' %>"
+                 style="width:100%; display:block;" loading="lazy" />
+            <% if (g.caption) { %>
+              <div style="position:absolute; bottom:0; left:0; right:0; padding:6px 10px; background:linear-gradient(transparent, rgba(0,0,0,.7)); color:#fff; font-size:12px;">
+                <%= g.caption %>
+              </div>
+            <% } %>
+          </a>
+        <% }) %>
+      </div>
+    <% } else { %>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(<%= thumbMin %>px, 1fr)); gap:12px;">
+        <% it.gallery.forEach(function(g){ %>
+          <a href="<%= g.image_url %>" target="_blank" rel="noopener" style="display:block; position:relative; border-radius:6px; overflow:hidden;">
+            <img src="<%= g.image_url %>" alt="<%= g.caption || '' %>"
+                 style="width:100%; height:<%= thumbHt %>px; object-fit:cover;" loading="lazy" />
+            <% if (g.caption) { %>
+              <div style="position:absolute; bottom:0; left:0; right:0; padding:8px 12px; background:linear-gradient(transparent, rgba(0,0,0,.7)); color:#fff; font-size:13px;">
+                <%= g.caption %>
+              </div>
+            <% } %>
+          </a>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+</section>
+<% } %>

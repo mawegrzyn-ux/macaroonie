@@ -1,0 +1,37 @@
+<%
+const d = it.block.data || {}
+const gapMap = { tight: '24px', normal: '48px', wide: '72px' }
+const gap = gapMap[d.gap || 'normal']
+const cols = d.image_url ? '1fr 1fr' : '1fr'
+const order = d.image_side === 'right' ? 2 : 1
+const bg = d.background === 'surface' ? 'background:var(--c-surface);' : ''
+%>
+<section class="block" style="<%= bg %> padding:64px 24px;">
+  <div class="container" style="display:grid; grid-template-columns:<%= cols %>; gap:<%= gap %>; align-items:center;">
+    <% if (d.image_url) { %>
+      <div style="order:<%= order %>;">
+        <img src="<%= d.image_url %>" alt="<%= d.image_alt || '' %>"
+             style="width:100%; height:auto; border-radius:var(--r-lg, 16px); display:block;" loading="lazy" />
+      </div>
+    <% } %>
+    <div style="order:<%= order === 1 ? 2 : 1 %>;">
+      <% if (d.heading) { %>
+        <h2 style="font-family:var(--f-heading); font-size:clamp(24px,3vw,40px); margin:0 0 16px;">
+          <%= d.heading %>
+        </h2>
+      <% } %>
+      <% if (d.body_html) { %>
+        <div class="prose" style="color:var(--c-muted); line-height:1.7;"><%~ d.body_html %></div>
+      <% } %>
+      <% if (d.cta_text) { %>
+        <a href="<%= d.cta_link || '#' %>"
+           style="display:inline-block; margin-top:20px;
+                  background:var(--c-primary); color:#fff;
+                  padding:12px 24px; border-radius:var(--btn-radius, 4px);
+                  font-weight:600; text-decoration:none;">
+          <%= d.cta_text %>
+        </a>
+      <% } %>
+    </div>
+  </div>
+</section>

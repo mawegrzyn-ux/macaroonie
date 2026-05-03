@@ -13,6 +13,28 @@ Owner: Obscure Kitty. Stack chosen for familiarity with existing plugin work (No
 
 ---
 
+## ⚠️ Project status — pre-production
+
+**Macaroonie is in active pre-prod development and testing.** No real customers, no real
+booking traffic depend on it yet. Treat the codebase accordingly:
+
+- **Backwards compatibility is NOT a concern.** Don't add fallback paths for legacy
+  data shapes, deprecated field names, or schema-version-N rendering. Drop columns,
+  rename without migrations, replace whole subsystems if cleaner. Simpler code beats
+  defensive code at this stage.
+- **Don't preserve "legacy fallback" rendering for old layouts** when shipping new
+  ones — pick the new path and let it be the only path.
+- **No need for feature flags or staged rollouts** for new features. Ship them on,
+  iterate on the live deploy.
+- **Migrations don't need data-preservation routines** beyond what naturally falls
+  out of the SQL. Drop tables, drop columns, drop legacy enums when they stop being
+  the source of truth.
+
+This stops applying once we onboard the first real franchise. At that point flip
+this note and revisit any places it's been quoted as justification.
+
+---
+
 ## Table of Contents
 
 1. [SOS Checklist](#sos-checklist)
@@ -434,7 +456,7 @@ Must cascade-delete linked bookings or reassign them. Requires `requireRole('own
   policy, hook scripts, and the renewal cron entry.
 - Custom domains: per-tenant SSL provisioning (Caddy on-demand TLS or Certbot per
   domain). The app only resolves the Host header; cert provisioning is out of process.
-- Migrations 025 + 026 + 027 + 035 + 036 + 037 + 038 + 039 + 040 + 041 are applied automatically by the migrate runner
+- Migrations 025 + 026 + 027 + 035 + 036 + 037 + 038 + 039 + 040 + 041 + 042 are applied automatically by the migrate runner
   (or auto-baselined on first run via `AUTO_BASELINE_UP_TO=024`).
 - Optional: set `STORAGE_DRIVER=s3` + `S3_*` env vars to use S3 / DO Spaces / R2
   instead of local disk for uploads.
@@ -552,6 +574,9 @@ Key vars to set before running:
 - **Auth0 Mgmt API is OPTIONAL** — when `AUTH0_MGMT_CLIENT_ID`/`AUTH0_MGMT_CLIENT_SECRET`/`AUTH0_INVITE_CLIENT_ID` are unset, `auth0MgmtSvc.isConfigured()` returns false and `/team/invite` falls back to creating a local row only (logged warning, Team UI shows an amber banner). This is intentional for local dev. In production all three MUST be set.
 - **When the user pastes a string and errors follow, RECHECK THE STRING first** — don't dive into schema, validation, or framework debugging until the pasted value has been verified end-to-end. Bit us hard with Postmark (2026-05-02): an invisible character from the original clipboard paste produced a 401 "invalid token" response, and I spent multiple turns chasing schema bugs, CHECK constraints, and POST upsert behaviour — while the actual fix was the user re-copying the token to the clipboard. **The fastest sanity check** is to call the external API directly (e.g. `curl -H 'X-Postmark-Server-Token: <pasted-value>' ...`) with the same string and see if the third party rejects it. If THEY reject the raw value, it's the string. If they accept it, it's the app. Don't reflexively add `.trim()` calls to mask possible whitespace — that hides the real issue and tomorrow's bug looks identical.
 - **`systemctl reload nginx` doesn't always pick up new `location` modifiers** — adding `^~`, `~*`, or other matching modifiers to existing locations sometimes leaves the running workers using the old matching table even after a clean reload (config tested OK, no error). Symptom: the new behaviour is in `nginx -T` output but requests still hit the old block. `systemctl restart nginx` (full process restart, ~50ms downtime) clears it. For routing-modifier changes, prefer restart over reload.
+- **Block-based page composition lives in `home_blocks` JSONB** — `website_config.home_blocks` is the only source of truth for the home-page layout. Both SSR templates (classic + modern) iterate `home_blocks` via `views/site/blocks/renderer.eta`. An empty array renders an empty page — there is no legacy flat-layout fallback (removed 2026-05-03 since we're pre-prod). Legacy admin nav entries (Hero, About) were also removed; their content lives inside the page-builder blocks. Legacy columns (`hero_*`, `about_text`, `about_html`) remain in the schema for now but are not read by any template — drop in a future migration when convenient.
+- **Block dispatch is a single `<%~ include('./renderer', { ...it, block }) %>`** — the renderer.eta switches on `it.block.type` and includes the right per-block partial. Adding a new block type means: (1) entry in `blockRegistry.js` with editor component + default data, (2) new partial under `views/site/blocks/<type>.eta`, (3) line in `renderer.eta` for the dispatch. The frontend block list is the contract — server treats `data` as opaque JSONB.
+- **Data blocks (gallery, hours, contact, etc.) don't store content on the block** — they just store display options like `heading`. Content comes from the existing per-section data (website_config fields, website_gallery_images rows, etc.). This is intentional — a single content source feeds both the legacy flat layout and any block instance, so users editing one place see the change everywhere.
 - **All website-CMS image uploads mirror into `media_items`** — `/website/upload` does the storage put AND inserts a media_items row when `kind === 'images'` so the asset is visible in the Media library. PDF kinds (`menus`, `docs`) DON'T mirror because they're tracked via `website_menu_documents`. The `media_item_id` is returned in the response for callers that want to link.
 - **`about_html` is the new rich-text source of truth** — templates check `it.config.about_html` first (rendered raw via `<%~ %>`) and fall back to `it.config.about_text` (escaped, with `white-space: pre-wrap`). The admin section uses TipTap and writes to `about_html`. The legacy column stays so existing data keeps rendering. Both Eta `about` blocks (classic + modern) need updating in lockstep when the about layout changes.
 - **Theme presets are partial themes — deep-merged onto the current theme** — so a preset that only specifies colors leaves the user's typography tweaks intact. To curate a new preset, add to `THEME_PRESETS` in `Website.jsx`. Don't make presets mutable — they're keyed by `key` and rendered as fixed buttons.

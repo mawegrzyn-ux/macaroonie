@@ -1,0 +1,22 @@
+<%
+const d = it.block.data || {}
+const c = it.config
+const social = c.social_links || {}
+const SOCIAL_LABELS = { instagram: 'Instagram', facebook: 'Facebook', x: 'X / Twitter', tiktok: 'TikTok', youtube: 'YouTube' }
+%>
+<section class="block" style="padding:48px 24px;">
+  <div class="container" style="max-width:640px; text-align:center;">
+    <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 16px;"><%= d.heading %></h2><% } %>
+    <% if (c.phone) { %><p style="font-size:17px;"><a href="tel:<%= c.phone %>" style="color:var(--c-primary);"><%= c.phone %></a></p><% } %>
+    <% if (c.email) { %><p style="font-size:17px;"><a href="mailto:<%= c.email %>" style="color:var(--c-primary);"><%= c.email %></a></p><% } %>
+    <div style="display:flex; gap:18px; justify-content:center; margin-top:18px; flex-wrap:wrap;">
+      <% Object.keys(SOCIAL_LABELS).forEach(function(k){ %>
+        <% if (social[k]) { %>
+          <a href="<%= social[k] %>" target="_blank" rel="noopener" style="color:var(--c-primary); text-decoration:none; font-weight:600;">
+            <%= SOCIAL_LABELS[k] %>
+          </a>
+        <% } %>
+      <% }) %>
+    </div>
+  </div>
+</section>

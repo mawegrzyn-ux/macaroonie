@@ -7,6 +7,31 @@ Migrations are listed where a database change is required.
 
 ## [2026-05-03]
 
+### Block-based page builder (Gutenberg-style)  *(migration 042)*
+- New `home_blocks` JSONB column on `website_config` (and matching `blocks`
+  on `website_pages` for a future round). Stores an ordered array of
+  `{ id, type, data }` block records. When set, the SSR renderer iterates
+  blocks via a dispatch partial; when null/empty, falls back to the legacy
+  flat layout for backwards compat.
+- **14 block types** registered: `hero`, `text`, `image`, `two_column`,
+  `cta_strip`, `gallery`, `opening_hours`, `find_us`, `contact`,
+  `booking_widget`, `menu_pdfs`, `allergens`, `faq`, `divider`. Content
+  blocks store their data on the block itself; data blocks (gallery, hours,
+  contact, etc.) read from the existing config + related tables at render
+  time and just expose a heading + display options.
+- **Page builder UI** at `/website` → "Page builder" tab (top of the venue
+  sidebar). Block list with drag-to-reorder, expand-to-edit-inline,
+  duplicate, remove, "add block below". Bottom add-block button. Block
+  picker modal grouped by category (Hero / Content / Layout / Live data).
+  Save/Reset buttons with dirty indicator.
+- **3 starting templates**: Restaurant Classic, Modern Bistro, Minimal Café —
+  plus "From scratch" empty option. Each template is an array of blocks
+  that gets cloned on apply.
+- **New per-block Eta partials** under `views/site/blocks/` — one per type
+  plus a dispatcher (`renderer.eta`) that switches on block.type.
+- **Templates wire up via single `home_blocks` check** at the top of
+  `index.eta` — both `classic` and `modern` use the same block partials.
+
 ### Website CMS round-2 improvements *(migration 041)*
 - **All image uploads land in the Media library.** `/website/upload` now mirrors
   every `kind=images` upload as a `media_items` row (filename + scope + hash) so

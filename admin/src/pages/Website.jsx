@@ -28,6 +28,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { RichTextEditor } from '@/components/RichTextEditor'
+import { PageBuilder } from '@/components/website-builder/PageBuilder'
 
 // ── Section lists ────────────────────────────────────────────
 
@@ -38,13 +39,16 @@ const BRAND_SECTIONS = [
   { key: 'brand-banner',   label: 'Emergency banner',  icon: AlertTriangle },
 ]
 
+// Hero + About are gone from the nav — their content now lives inside blocks
+// added via the Page builder. The remaining sections either edit data that
+// data-blocks pull from (gallery, hours, find us, contact, etc.) or set
+// site-wide settings (setup, template, theme, branding, SEO, analytics).
 const VENUE_SECTIONS = [
+  { key: 'page',      label: 'Page builder',   icon: LayoutTemplate },
   { key: 'setup',     label: 'Setup & domain', icon: Globe },
   { key: 'template',  label: 'Template',       icon: LayoutTemplate },
   { key: 'theme',     label: 'Theme overrides',icon: Palette },
   { key: 'branding',  label: 'Branding',       icon: ImageIcon },
-  { key: 'hero',      label: 'Hero',           icon: ImageIcon },
-  { key: 'about',     label: 'About',          icon: FileText },
   { key: 'gallery',   label: 'Gallery',        icon: ImageIcon },
   { key: 'menu',      label: 'Menus (PDF)',    icon: BookOpen },
   { key: 'allergens', label: 'Allergens',      icon: AlertTriangle },
@@ -998,68 +1002,9 @@ function BrandingSection({ config }) {
   )
 }
 
-// ── Hero section ────────────────────────────────────────────
-
-function HeroSection({ config }) {
-  const { values, set, dirty, save, reset } = useConfigFields(config,
-    ['hero_image_url', 'hero_heading', 'hero_subheading', 'hero_cta_text', 'hero_cta_link'])
-
-  return (
-    <div className="space-y-5">
-      <SectionCard title="Hero"
-        description="The big first screen guests see.">
-        <FormRow label="Hero image" hint="Shown full-bleed behind the heading.">
-          <ImageField url={values.hero_image_url} onChange={set('hero_image_url')} />
-        </FormRow>
-        <FormRow label="Heading">
-          <TextInput value={values.hero_heading || ''} onChange={set('hero_heading')}
-            placeholder="Seasonal food, every day" />
-        </FormRow>
-        <FormRow label="Subheading">
-          <TextArea value={values.hero_subheading || ''} onChange={set('hero_subheading')} />
-        </FormRow>
-        <FormRow label="Call-to-action label">
-          <TextInput value={values.hero_cta_text || ''} onChange={set('hero_cta_text')}
-            placeholder="Book a Table" />
-        </FormRow>
-        <FormRow label="Call-to-action link"
-          hint="Defaults to the booking widget anchor #booking. Use a full URL to open elsewhere.">
-          <TextInput value={values.hero_cta_link || ''} onChange={set('hero_cta_link')}
-            placeholder="#booking" />
-        </FormRow>
-      </SectionCard>
-      <SaveBar dirty={dirty} saving={save.isPending}
-        onReset={reset} onSave={() => save.mutate()} />
-    </div>
-  )
-}
-
-// ── About section ───────────────────────────────────────────
-
-function AboutSection({ config }) {
-  const { values, set, dirty, save, reset } = useConfigFields(config,
-    ['about_heading', 'about_text', 'about_html', 'about_image_url'])
-
-  return (
-    <div className="space-y-5">
-      <SectionCard title="About">
-        <FormRow label="Heading">
-          <TextInput value={values.about_heading || ''} onChange={set('about_heading')} />
-        </FormRow>
-        <FormRow label="Body" hint="Rich text — headings, lists, images, links. Pick images from the media library.">
-          <RichTextEditor value={values.about_html || ''} onChange={set('about_html')}
-            scope="website:about"
-            placeholder="Write your story…" />
-        </FormRow>
-        <FormRow label="Hero image (next to body)">
-          <ImageField url={values.about_image_url} onChange={set('about_image_url')} scope="website:about" />
-        </FormRow>
-      </SectionCard>
-      <SaveBar dirty={dirty} saving={save.isPending}
-        onReset={reset} onSave={() => save.mutate()} />
-    </div>
-  )
-}
+// Hero + About are now block-only — see PageBuilder. Their flat-field
+// admin sections were removed (2026-05-03) along with the legacy template
+// fallback. Hero / About content lives entirely on the block instance.
 
 // ── Find us section ─────────────────────────────────────────
 
@@ -2701,12 +2646,11 @@ function BrandActiveSection({ active }) {
 
 function VenueActiveSection({ active, config, venueId }) {
   switch (active) {
+    case 'page':      return <PageBuilder      config={config} />
     case 'setup':     return <SetupSection     config={config} />
     case 'template':  return <TemplateSection  config={config} />
     case 'theme':     return <ThemeSection     config={config} />
     case 'branding':  return <BrandingSection  config={config} />
-    case 'hero':      return <HeroSection      config={config} />
-    case 'about':     return <AboutSection     config={config} />
     case 'gallery':   return <GallerySection   config={config} />
     case 'menu':      return <MenuSection      config={config} />
     case 'allergens': return <AllergensSection config={config} />

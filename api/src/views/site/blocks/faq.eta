@@ -1,0 +1,19 @@
+<%
+const d = it.block.data || {}
+const items = Array.isArray(d.items) ? d.items : []
+%>
+<% if (items.length) { %>
+<section class="block" style="padding:48px 24px;">
+  <div class="container" style="max-width:780px;">
+    <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px; text-align:center;"><%= d.heading %></h2><% } %>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <% items.forEach(function(it){ %>
+        <details style="border:1px solid var(--c-border); border-radius:var(--r-md, 8px); padding:14px 18px;">
+          <summary style="cursor:pointer; font-weight:600; list-style:none;"><%= it.q %></summary>
+          <div style="margin-top:10px; color:var(--c-muted); line-height:1.6;"><%= it.a %></div>
+        </details>
+      <% }) %>
+    </div>
+  </div>
+</section>
+<% } %>

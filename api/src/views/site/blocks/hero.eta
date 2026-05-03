@@ -1,0 +1,44 @@
+<%
+const d = it.block.data || {}
+const heightMap = { small: '320px', medium: '520px', large: '680px', full: '100vh' }
+const minH = heightMap[d.height || 'medium']
+const align = d.align === 'left' ? 'flex-start' : 'center'
+const textAlign = d.align === 'left' ? 'left' : 'center'
+const overlay = (d.overlay_opacity ?? 0.4)
+%>
+<section class="block hero" style="
+  position:relative;
+  min-height:<%= minH %>;
+  display:flex; align-items:center; justify-content:<%= align %>;
+  color:#fff;
+  <% if (d.image_url) { %>
+    background:url('<%= d.image_url %>') center/cover no-repeat;
+  <% } else { %>
+    background:linear-gradient(135deg, var(--c-primary), var(--c-accent));
+  <% } %>
+">
+  <% if (d.image_url && overlay > 0) { %>
+    <div style="position:absolute; inset:0; background:rgba(0,0,0,<%= overlay %>);"></div>
+  <% } %>
+  <div class="container" style="position:relative; text-align:<%= textAlign %>; padding:64px 24px;">
+    <% if (d.heading) { %>
+      <h1 style="font-family:var(--f-heading); font-size:clamp(32px,5vw,64px); margin:0 0 16px; letter-spacing:-0.01em;">
+        <%= d.heading %>
+      </h1>
+    <% } %>
+    <% if (d.subheading) { %>
+      <p style="font-size:clamp(16px,1.6vw,22px); max-width:600px; <%= d.align === 'left' ? '' : 'margin:0 auto;' %> opacity:0.95; line-height:1.5;">
+        <%= d.subheading %>
+      </p>
+    <% } %>
+    <% if (d.cta_text) { %>
+      <a href="<%= d.cta_link || '#booking' %>"
+         style="display:inline-block; margin-top:24px;
+                background:#fff; color:var(--c-primary);
+                padding:14px 32px; border-radius:var(--btn-radius, 4px);
+                font-weight:600; text-decoration:none;">
+        <%= d.cta_text %>
+      </a>
+    <% } %>
+  </div>
+</section>

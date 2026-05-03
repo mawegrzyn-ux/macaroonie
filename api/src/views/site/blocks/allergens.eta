@@ -1,0 +1,36 @@
+<%
+const d = it.block.data || {}
+const a = it.allergens
+%>
+<% if (a) { %>
+<section class="block" style="padding:48px 24px;">
+  <div class="container" style="max-width:780px;">
+    <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 16px;"><%= d.heading %></h2><% } %>
+    <% if (a.info_type === 'document' && a.document_url) { %>
+      <a href="<%= a.document_url %>" target="_blank" rel="noopener"
+         style="display:inline-block; background:var(--c-primary); color:#fff; padding:12px 24px; border-radius:var(--btn-radius, 4px); text-decoration:none; font-weight:600;">
+        Download allergen info (PDF)
+      </a>
+    <% } else if (Array.isArray(a.structured_data) && a.structured_data.length) { %>
+      <table style="width:100%; border-collapse:collapse; font-size:14px;">
+        <thead>
+          <tr style="text-align:left; border-bottom:2px solid var(--c-border);">
+            <th style="padding:10px 8px;">Dish</th>
+            <th style="padding:10px 8px;">Allergens</th>
+            <th style="padding:10px 8px;">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% a.structured_data.forEach(function(row){ %>
+            <tr style="border-bottom:1px solid var(--c-border);">
+              <td style="padding:8px;"><%= row.dish %></td>
+              <td style="padding:8px;"><%= (row.allergens || []).join(', ') %></td>
+              <td style="padding:8px; color:var(--c-muted);"><%= row.notes || '' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
+</section>
+<% } %>

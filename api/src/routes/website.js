@@ -143,6 +143,15 @@ const WebsiteConfigBody = z.object({
   gallery_style:      z.enum(['grid', 'pinterest', 'horizontal']).optional(),
   gallery_size:       z.enum(['small', 'medium', 'large']).optional(),
   opening_hours_source: z.enum(['manual', 'venue']).optional(),
+
+  // Block-based page composition. Each block: { id, type, data }.
+  // Server keeps `data` opaque — validation done client-side via the
+  // block registry. Setting to [] (or null) falls back to flat layout.
+  home_blocks: z.array(z.object({
+    id:   z.string(),
+    type: z.string(),
+    data: z.record(z.string(), z.any()).default({}),
+  })).nullable().optional(),
   show_find_us:       z.boolean().optional(),
   show_contact:       z.boolean().optional(),
   show_ordering:      z.boolean().optional(),

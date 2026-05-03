@@ -1,0 +1,37 @@
+<%
+const d = it.block.data || {}
+const DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+const byDow = {}
+for (const h of (it.opening_hours || [])) {
+  if (!byDow[h.day_of_week]) byDow[h.day_of_week] = []
+  byDow[h.day_of_week].push(h)
+}
+%>
+<section class="block" style="padding:48px 24px;">
+  <div class="container" style="max-width:640px;">
+    <% if (d.heading) { %>
+      <h2 style="font-family:var(--f-heading); margin:0 0 16px; text-align:center;"><%= d.heading %></h2>
+    <% } %>
+    <table style="width:100%; border-collapse:collapse;">
+      <% [1,2,3,4,5,6,0].forEach(function(dow){
+           var rows = byDow[dow] || []
+           var openRow = rows.find(function(r){ return !r.is_closed })
+      %>
+        <tr style="border-bottom:1px solid var(--c-border);">
+          <td style="padding:10px 0; font-weight:600;"><%= DAYS[dow] %></td>
+          <td style="padding:10px 0; text-align:right; color:var(--c-muted);">
+            <% if (openRow) { %>
+              <% rows.filter(function(r){ return !r.is_closed }).forEach(function(r, i){ %>
+                <% if (i > 0) { %><br><% } %>
+                <%= (r.opens_at || '').slice(0,5) %> – <%= (r.closes_at || '').slice(0,5) %>
+                <% if (r.label) { %> <span style="font-size:12px; opacity:.7;">(<%= r.label %>)</span><% } %>
+              <% }) %>
+            <% } else { %>
+              Closed
+            <% } %>
+          </td>
+        </tr>
+      <% }) %>
+    </table>
+  </div>
+</section>

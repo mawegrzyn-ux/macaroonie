@@ -1,0 +1,26 @@
+<%
+const d = it.block.data || {}
+const c = it.config
+const addressLines = [c.address_line1, c.address_line2, [c.city, c.postcode].filter(Boolean).join(' ')].filter(Boolean)
+%>
+<section class="block" style="padding:48px 24px; background:var(--c-surface);">
+  <div class="container">
+    <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:stretch;">
+      <div>
+        <% addressLines.forEach(function(line){ %>
+          <p style="margin:0; font-size:17px; line-height:1.6;"><%= line %></p>
+        <% }) %>
+        <% if (c.phone) { %><p style="margin-top:12px;"><strong>Phone:</strong> <a href="tel:<%= c.phone %>" style="color:var(--c-primary);"><%= c.phone %></a></p><% } %>
+        <% if (c.email) { %><p><strong>Email:</strong> <a href="mailto:<%= c.email %>" style="color:var(--c-primary);"><%= c.email %></a></p><% } %>
+      </div>
+      <% if (c.google_maps_embed_url) { %>
+        <div style="border-radius:var(--r-md, 8px); overflow:hidden; min-height:280px;">
+          <iframe src="<%= c.google_maps_embed_url %>"
+                  style="width:100%; height:100%; border:0; min-height:280px;"
+                  loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </div>
+      <% } %>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,15 @@
+<%
+const d = it.block.data || {}
+const sizeMap = { small: '32px', medium: '64px', large: '120px' }
+const v = sizeMap[d.size || 'medium']
+const colour = d.color === 'accent' ? 'var(--c-accent)'
+            : d.color === 'muted'  ? 'var(--c-muted)'
+            :                         'var(--c-border)'
+%>
+<% if (d.style === 'space') { %>
+  <div aria-hidden="true" style="height:<%= v %>;"></div>
+<% } else { %>
+  <div aria-hidden="true" style="padding:<%= v %> 24px;">
+    <hr style="margin:0 auto; max-width:600px; border:0; border-top:<%= d.style === 'thick' ? '3px' : '1px' %> solid <%= colour %>;" />
+  </div>
+<% } %>

@@ -1,0 +1,34 @@
+<%
+// Block renderer dispatch — switches on block.type and includes the right partial.
+// Receives `it.block`, `it.config`, `it.venue`, `it.gallery`, `it.menus`, `it.opening_hours`, `it.allergens`.
+const t = it.block.type
+%>
+<% if (t === 'hero') { %>
+  <%~ include('./hero', it) %>
+<% } else if (t === 'text') { %>
+  <%~ include('./text', it) %>
+<% } else if (t === 'image') { %>
+  <%~ include('./image', it) %>
+<% } else if (t === 'two_column') { %>
+  <%~ include('./two_column', it) %>
+<% } else if (t === 'cta_strip') { %>
+  <%~ include('./cta_strip', it) %>
+<% } else if (t === 'gallery') { %>
+  <%~ include('./gallery', it) %>
+<% } else if (t === 'opening_hours') { %>
+  <%~ include('./opening_hours', it) %>
+<% } else if (t === 'find_us') { %>
+  <%~ include('./find_us', it) %>
+<% } else if (t === 'contact') { %>
+  <%~ include('./contact', it) %>
+<% } else if (t === 'booking_widget') { %>
+  <%~ include('./booking_widget', it) %>
+<% } else if (t === 'menu_pdfs') { %>
+  <%~ include('./menu_pdfs', it) %>
+<% } else if (t === 'allergens') { %>
+  <%~ include('./allergens', it) %>
+<% } else if (t === 'faq') { %>
+  <%~ include('./faq', it) %>
+<% } else if (t === 'divider') { %>
+  <%~ include('./divider', it) %>
+<% } %>
