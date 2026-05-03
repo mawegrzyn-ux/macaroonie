@@ -8,6 +8,7 @@
 // Public site rendering lives in ./siteRenderer.js — this file is admin-only.
 
 import { z }     from 'zod'
+import crypto    from 'node:crypto'
 import dns        from 'node:dns/promises'
 import { withTenant, sql } from '../config/db.js'
 import { env }    from '../config/env.js'
@@ -105,6 +106,7 @@ const WebsiteConfigBody = z.object({
 
   about_heading:    z.string().max(200).nullable().optional(),
   about_text:       z.string().nullable().optional(),
+  about_html:       z.string().nullable().optional(),
   about_image_url:  z.string().nullable().optional(),
 
   address_line1:    z.string().nullable().optional(),
@@ -138,6 +140,9 @@ const WebsiteConfigBody = z.object({
   show_menu:          z.boolean().optional(),
   show_allergens:     z.boolean().optional(),
   show_gallery:       z.boolean().optional(),
+  gallery_style:      z.enum(['grid', 'pinterest', 'horizontal']).optional(),
+  gallery_size:       z.enum(['small', 'medium', 'large']).optional(),
+  opening_hours_source: z.enum(['manual', 'venue']).optional(),
   show_find_us:       z.boolean().optional(),
   show_contact:       z.boolean().optional(),
   show_ordering:      z.boolean().optional(),
@@ -671,20 +676,26 @@ export default async function websiteRoutes(app) {
 
   // ── File upload ─────────────────────────────────────────
   // Expects multipart/form-data with fields:
-  //   file  — the binary
-  //   kind  — 'images' | 'menus' | 'docs'
-  // Writes via the configured storage driver (local filesystem or S3).
+  //   file   — the binary
+  //   kind   — 'images' | 'menus' | 'docs'
+  //   scope  — optional, e.g. 'website:hero', 'brand:logo'. Default 'shared'.
+  //
+  // Writes via the configured storage driver AND (for image kinds) creates a
+  // media_items row so every CMS upload is browseable in the media library.
+  // PDF kinds (`menus`, `docs`) skip the media library — they're tracked
+  // elsewhere via website_menu_documents.
   app.post('/upload', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
 
     const parts = req.parts()
     let kind = 'images'
+    let scope = 'shared'
     let fileData = null
 
     for await (const part of parts) {
-      if (part.type === 'field' && part.fieldname === 'kind') {
-        kind = String(part.value || 'images')
-      } else if (part.type === 'file' && part.fieldname === 'file') {
+      if (part.type === 'field' && part.fieldname === 'kind')  kind  = String(part.value || 'images')
+      else if (part.type === 'field' && part.fieldname === 'scope') scope = String(part.value || 'shared').slice(0, 100)
+      else if (part.type === 'file'  && part.fieldname === 'file') {
         const cfg = KIND_CONFIG[kind] ?? KIND_CONFIG.images
         if (!cfg.mimes.has(part.mimetype)) {
           throw httpError(422, `Unsupported file type: ${part.mimetype}`)
@@ -713,12 +724,33 @@ export default async function websiteRoutes(app) {
     const storage = getStorage()
     const result  = await storage.put(req.tenantId, kind, ext, fileData.mimetype, fileData.buffer)
 
+    // Mirror image uploads into media_items so the media library has visibility.
+    let mediaItemId = null
+    if (kind === 'images') {
+      const hash = crypto.createHash('sha256').update(fileData.buffer).digest('hex')
+      try {
+        const [row] = await withTenant(req.tenantId, tx => tx`
+          INSERT INTO media_items
+            (tenant_id, scope, filename, url, storage_key, mimetype, bytes, hash)
+          VALUES
+            (${req.tenantId}, ${scope}, ${fileData.filename || `image.${ext}`},
+             ${result.url}, ${result.key}, ${fileData.mimetype}, ${fileData.buffer.length}, ${hash})
+          RETURNING id
+        `)
+        mediaItemId = row?.id ?? null
+      } catch (e) {
+        // Don't fail the upload if the media row insert errors — file is on disk
+        req.log.warn({ err: e?.message }, 'media_items mirror failed')
+      }
+    }
+
     return reply.code(201).send({
-      url:       result.url,
+      url:           result.url,
       kind,
-      bytes:     result.bytes,
-      mimetype:  fileData.mimetype,
-      driver:    env.STORAGE_DRIVER,
+      bytes:         result.bytes,
+      mimetype:      fileData.mimetype,
+      driver:        env.STORAGE_DRIVER,
+      media_item_id: mediaItemId,
     })
   })
 }

@@ -48,7 +48,7 @@
 </section>
 
 <!-- ─── About (two-column) ────────────────────────── -->
-<% if (it.config.about_heading || it.config.about_text) { %>
+<% if (it.config.about_heading || it.config.about_html || it.config.about_text) { %>
 <section class="block" id="about">
   <div class="container" style="display:grid; grid-template-columns: <%= it.config.about_image_url ? '1fr 1.1fr' : '1fr' %>; gap: 64px; align-items:center;">
     <% if (it.config.about_image_url) { %>
@@ -66,7 +66,9 @@
           <%= it.config.about_heading %>
         </h2>
       <% } %>
-      <% if (it.config.about_text) { %>
+      <% if (it.config.about_html) { %>
+        <div class="prose" style="font-size:18px; color:var(--c-muted); line-height:1.75;"><%~ it.config.about_html %></div>
+      <% } else if (it.config.about_text) { %>
         <div style="font-size:18px; color:var(--c-muted); line-height:1.75; white-space:pre-wrap;"><%= it.config.about_text %></div>
       <% } %>
     </div>

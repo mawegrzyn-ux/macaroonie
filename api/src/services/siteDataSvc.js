@@ -140,7 +140,9 @@ export async function loadSiteBundle(lookup, { includeUnpublished = false } = {}
          ORDER BY sort_order, created_at
       ` : Promise.resolve([]),
 
-      cfg.show_find_us ? tx`
+      // Manual opening hours come from website_opening_hours.
+      // Venue-derived hours are computed below from venue_schedule_templates + venue_sittings.
+      (cfg.show_find_us && cfg.opening_hours_source !== 'venue') ? tx`
         SELECT day_of_week, opens_at, closes_at, is_closed, label, sort_order
           FROM website_opening_hours
          WHERE website_config_id = ${cfg.id}
@@ -158,13 +160,37 @@ export async function loadSiteBundle(lookup, { includeUnpublished = false } = {}
     const brandDefaults = brandRows[0] ?? null
     const mergedConfig  = mergeConfig(cfg, brandDefaults)
 
+    // When source = 'venue', derive weekly opening hours from venue's
+    // schedule template: earliest opens_at + latest closes_at per day.
+    let derivedHours = openingHours
+    if (cfg.show_find_us && cfg.opening_hours_source === 'venue') {
+      const sittingRows = await tx`
+        SELECT t.day_of_week, t.is_open,
+               MIN(s.opens_at)  AS opens_at,
+               MAX(s.closes_at) AS closes_at
+          FROM venue_schedule_templates t
+          LEFT JOIN venue_sittings s ON s.template_id = t.id
+         WHERE t.venue_id = ${cfg.venue_id}
+         GROUP BY t.day_of_week, t.is_open
+         ORDER BY t.day_of_week
+      `
+      derivedHours = sittingRows.map(r => ({
+        day_of_week: r.day_of_week,
+        opens_at:    r.opens_at  ? r.opens_at.slice(0, 5)  : null,
+        closes_at:   r.closes_at ? r.closes_at.slice(0, 5) : null,
+        is_closed:   !r.is_open || !r.opens_at || !r.closes_at,
+        label:       null,
+        sort_order:  0,
+      }))
+    }
+
     return {
       config:         mergedConfig,
       brand:          brandDefaults,
       gallery,
       pages,
       menus,
-      opening_hours:  openingHours,
+      opening_hours:  derivedHours,
       allergens:      allergensRow[0] ?? null,
       venue:          { id: cfg.venue_id, name: cfg.venue_name, slug: cfg.venue_slug },
     }

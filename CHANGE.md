@@ -7,6 +7,32 @@ Migrations are listed where a database change is required.
 
 ## [2026-05-03]
 
+### Website CMS round-2 improvements *(migration 041)*
+- **All image uploads land in the Media library.** `/website/upload` now mirrors
+  every `kind=images` upload as a `media_items` row (filename + scope + hash) so
+  the asset is browseable + reusable elsewhere. PDFs (kind=`menus|docs`) are
+  unaffected — they're tracked via `website_menu_documents`.
+- **About → rich text editor.** New `RichTextEditor` component (TipTap with
+  Bold/Italic/Underline, H1/H2, lists, alignment, links, images via media library
+  picker). Stored in new column `about_html`. Legacy `about_text` stays for
+  backwards compat — templates render `about_html` when set, fall back otherwise.
+- **Theme presets + live preview.** New `ThemePreview` block at the top of the
+  Theme section showing a sample hero + body card with current theme variables
+  applied as inline CSS — updates instantly. Six built-in presets (Classic
+  burgundy, Modern mono, Warm terracotta, Fresh greens, Midnight bistro,
+  Coastal blue) — one click loads + deep-merges onto the working theme.
+- **Gallery layouts.** New columns `gallery_style` (grid | pinterest | horizontal)
+  and `gallery_size` (small | medium | large). Templates render the gallery
+  band based on these values: pinterest = CSS column-based masonry, horizontal =
+  scroll-snap strip, grid = responsive auto-fill. Thumbnail size adjusts the
+  `minmax()` width and fixed height per item.
+- **Opening hours from venue schedule.** New column `opening_hours_source`
+  (manual | venue). When `venue`, `siteDataSvc.loadSiteBundle` derives weekly
+  hours from `venue_schedule_templates` + `venue_sittings` (earliest opens_at,
+  latest closes_at per day-of-week, `is_closed` when template not open or no
+  sittings). Hours admin shows a source toggle + read-only preview when in
+  venue mode, falls through to the existing manual editor otherwise.
+
 ### Media library *(migration 040)*
 - Per-tenant image library with categories, scope filters, picker + manager
   modes. Spec: see "Epic: Media Library" in project notes.

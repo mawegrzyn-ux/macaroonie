@@ -27,6 +27,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
+import { RichTextEditor } from '@/components/RichTextEditor'
 
 // ── Section lists ────────────────────────────────────────────
 
@@ -154,7 +155,7 @@ function SaveBar({ dirty, onSave, onReset, saving }) {
 
 // ── File upload helper ──────────────────────────────────────
 
-function FileUpload({ kind = 'images', accept, onUploaded, label = 'Upload', children }) {
+function FileUpload({ kind = 'images', scope = 'shared', accept, onUploaded, label = 'Upload', children }) {
   const api = useApi()
   const inputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
@@ -164,7 +165,9 @@ function FileUpload({ kind = 'images', accept, onUploaded, label = 'Upload', chi
     if (!files?.[0]) return
     setUploading(true); setError(null)
     try {
-      const res = await api.upload('/website/upload', files[0], { kind })
+      // /website/upload also creates a media_items row when kind=images,
+      // so every image upload appears in the Media library automatically.
+      const res = await api.upload('/website/upload', files[0], { kind, scope })
       onUploaded?.(res)
     } catch (e) {
       setError(e?.body?.error || e.message || 'Upload failed')
@@ -207,7 +210,7 @@ function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) 
         <div className="flex items-center gap-3">
           <img src={url} alt="" className="w-20 h-20 object-cover rounded border" />
           <div className="flex flex-col gap-1.5">
-            <FileUpload kind={kind} accept="image/*"
+            <FileUpload kind={kind} scope={scope} accept="image/*"
               onUploaded={r => onChange(r.url)}
               label="Replace" />
             <button type="button" onClick={() => setPickerOpen(true)}
@@ -222,7 +225,7 @@ function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) 
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          <FileUpload kind={kind} accept="image/*"
+          <FileUpload kind={kind} scope={scope} accept="image/*"
             onUploaded={r => onChange(r.url)}
             label="Upload image" />
           <span className="text-xs text-muted-foreground">or</span>
@@ -567,6 +570,140 @@ function mergeTheme(existing) {
   return out
 }
 
+// ── Theme presets ────────────────────────────────────────────
+//
+// Each preset is a partial theme that gets deep-merged onto the current one
+// when the user clicks "Apply". Easy to extend — add another entry here.
+
+const THEME_PRESETS = [
+  {
+    key: 'classic-burgundy',
+    label: 'Classic burgundy',
+    description: 'Warm, traditional, restaurant-y.',
+    theme: {
+      colors:     { primary: '#630812', accent: '#f4a7b9', background: '#ffffff', surface: '#f9f6f1', text: '#1a1a1a', muted: '#666666', border: '#e5e7eb' },
+      typography: { heading_font: 'Playfair Display', body_font: 'Inter' },
+    },
+  },
+  {
+    key: 'modern-mono',
+    label: 'Modern mono',
+    description: 'Editorial, minimal, type-driven.',
+    theme: {
+      colors:     { primary: '#0a0a0a', accent: '#2563eb', background: '#ffffff', surface: '#f5f5f5', text: '#0a0a0a', muted: '#525252', border: '#e5e5e5' },
+      typography: { heading_font: 'DM Serif Display', body_font: 'Inter' },
+    },
+  },
+  {
+    key: 'warm-terracotta',
+    label: 'Warm terracotta',
+    description: 'Sunny, casual, hospitality-friendly.',
+    theme: {
+      colors:     { primary: '#b85c38', accent: '#e8a87c', background: '#fefaf6', surface: '#f5e6d3', text: '#2d1810', muted: '#7a5a4a', border: '#e8d5b7' },
+      typography: { heading_font: 'Cormorant Garamond', body_font: 'Karla' },
+    },
+  },
+  {
+    key: 'fresh-greens',
+    label: 'Fresh greens',
+    description: 'Light, modern, market-style.',
+    theme: {
+      colors:     { primary: '#2d5a3d', accent: '#88b366', background: '#ffffff', surface: '#f4f9f4', text: '#1a2e22', muted: '#5e7568', border: '#dde8de' },
+      typography: { heading_font: 'Lora', body_font: 'Open Sans' },
+    },
+  },
+  {
+    key: 'midnight-bistro',
+    label: 'Midnight bistro',
+    description: 'Dark, moody, fine-dining.',
+    theme: {
+      colors:     { primary: '#d4af37', accent: '#e8c258', background: '#1a1a1a', surface: '#2a2a2a', text: '#f5f5f5', muted: '#a0a0a0', border: '#3a3a3a' },
+      typography: { heading_font: 'Playfair Display', body_font: 'Manrope' },
+    },
+  },
+  {
+    key: 'coastal-blue',
+    label: 'Coastal blue',
+    description: 'Crisp, airy, seaside vibe.',
+    theme: {
+      colors:     { primary: '#1e6091', accent: '#7fc1de', background: '#fbfdff', surface: '#eef6fb', text: '#0d2940', muted: '#5a7a92', border: '#d4e3ed' },
+      typography: { heading_font: 'Libre Baskerville', body_font: 'Work Sans' },
+    },
+  },
+]
+
+// ── Theme preview ────────────────────────────────────────────
+// Renders a sample card using the current theme as inline CSS variables —
+// no iframe, just a styled <div>. Updates instantly as the user tweaks.
+
+function ThemePreview({ theme, siteName }) {
+  const t = mergeTheme(theme)
+  const style = {
+    '--c-primary':    t.colors.primary,
+    '--c-accent':     t.colors.accent,
+    '--c-bg':         t.colors.background,
+    '--c-surface':    t.colors.surface,
+    '--c-text':       t.colors.text,
+    '--c-muted':      t.colors.muted,
+    '--c-border':     t.colors.border,
+    '--f-heading':    t.typography.heading_font,
+    '--f-body':       t.typography.body_font,
+    '--r-md':         `${t.radii.md_px}px`,
+    '--r-lg':         `${t.radii.lg_px}px`,
+    '--btn-radius':   `${t.buttons.radius_px}px`,
+    background:       'var(--c-bg)',
+    color:            'var(--c-text)',
+    fontFamily:       'var(--f-body), system-ui, sans-serif',
+    border:           '1px solid var(--c-border)',
+    borderRadius:     'var(--r-lg)',
+  }
+  return (
+    <SectionCard title="Live preview" description="A snapshot of the current theme. Updates as you tweak below.">
+      <div style={style} className="overflow-hidden">
+        {/* Mini hero */}
+        <div style={{
+          background: `linear-gradient(135deg, ${t.colors.primary}, ${t.colors.accent})`,
+          padding: '40px 32px', color: '#fff',
+        }}>
+          <p style={{ fontSize: 11, letterSpacing: '0.15em', textTransform: 'uppercase', opacity: 0.85, marginBottom: 8 }}>Preview</p>
+          <h1 style={{ fontFamily: 'var(--f-heading)', fontWeight: t.typography.heading_weight, fontSize: 32, lineHeight: 1.1, margin: 0 }}>
+            {siteName}
+          </h1>
+          <p style={{ marginTop: 8, opacity: 0.9, maxWidth: 380 }}>
+            Seasonal food, served all day in the heart of the neighbourhood.
+          </p>
+          <button type="button" style={{
+            marginTop: 16,
+            background: '#fff',
+            color: t.colors.primary,
+            padding: `${t.buttons.padding_y_px}px ${t.buttons.padding_x_px}px`,
+            borderRadius: 'var(--btn-radius)',
+            fontWeight: t.buttons.weight,
+            border: 'none', cursor: 'default',
+          }}>
+            Book a table
+          </button>
+        </div>
+        {/* Body band */}
+        <div style={{ padding: '24px 32px', background: 'var(--c-surface)' }}>
+          <h2 style={{ fontFamily: 'var(--f-heading)', fontWeight: t.typography.heading_weight, fontSize: 22, margin: '0 0 8px 0' }}>
+            About us
+          </h2>
+          <p style={{ color: 'var(--c-muted)', margin: '0 0 8px 0', lineHeight: t.typography.line_height }}>
+            A short paragraph showing how the body font and muted colour read on the surface band.
+            <a href="#" style={{ color: t.colors.primary, marginLeft: 4 }}>Read more →</a>
+          </p>
+        </div>
+        {/* Footer band */}
+        <div style={{ padding: '14px 32px', borderTop: '1px solid var(--c-border)', fontSize: 12, color: 'var(--c-muted)' }}>
+          Buttons use weight {t.buttons.weight} · radius {t.buttons.radius_px}px ·
+          headings {t.typography.heading_font} · body {t.typography.body_font}
+        </div>
+      </div>
+    </SectionCard>
+  )
+}
+
 function ColourField({ label, value, onChange }) {
   return (
     <div className="flex items-center gap-3">
@@ -617,6 +754,30 @@ function ThemeSection({ config }) {
 
   return (
     <div className="space-y-5">
+      {/* Live preview always visible at the top */}
+      <ThemePreview theme={theme} siteName={config.site_name || 'Your Restaurant'} />
+
+      {/* Preset library — one click to load a curated theme */}
+      <SectionCard title="Presets"
+        description="Quick starting points. Click to load — your custom tweaks below override preset values.">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {THEME_PRESETS.map(p => (
+            <button key={p.key} type="button"
+              onClick={() => setTheme(t => mergeTheme({ ...t, ...p.theme }))}
+              className="border rounded-lg p-3 text-left hover:border-primary hover:shadow-sm transition-all">
+              <div className="flex gap-1 mb-2">
+                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.primary }} />
+                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.accent }} />
+                <div className="w-6 h-6 rounded border" style={{ background: p.theme.colors.background }} />
+                <div className="w-6 h-6 rounded" style={{ background: p.theme.colors.text }} />
+              </div>
+              <p className="text-sm font-medium">{p.label}</p>
+              <p className="text-xs text-muted-foreground">{p.description}</p>
+            </button>
+          ))}
+        </div>
+      </SectionCard>
+
       <SectionCard title="Colours"
         description="Apply instantly to both templates once saved.">
         <ColourField label="Primary (brand / CTA)"
@@ -877,7 +1038,7 @@ function HeroSection({ config }) {
 
 function AboutSection({ config }) {
   const { values, set, dirty, save, reset } = useConfigFields(config,
-    ['about_heading', 'about_text', 'about_image_url'])
+    ['about_heading', 'about_text', 'about_html', 'about_image_url'])
 
   return (
     <div className="space-y-5">
@@ -885,12 +1046,13 @@ function AboutSection({ config }) {
         <FormRow label="Heading">
           <TextInput value={values.about_heading || ''} onChange={set('about_heading')} />
         </FormRow>
-        <FormRow label="Text" hint="Line breaks are preserved.">
-          <TextArea value={values.about_text || ''} onChange={set('about_text')}
-            className="min-h-[180px]" />
+        <FormRow label="Body" hint="Rich text — headings, lists, images, links. Pick images from the media library.">
+          <RichTextEditor value={values.about_html || ''} onChange={set('about_html')}
+            scope="website:about"
+            placeholder="Write your story…" />
         </FormRow>
-        <FormRow label="Image">
-          <ImageField url={values.about_image_url} onChange={set('about_image_url')} />
+        <FormRow label="Hero image (next to body)">
+          <ImageField url={values.about_image_url} onChange={set('about_image_url')} scope="website:about" />
         </FormRow>
       </SectionCard>
       <SaveBar dirty={dirty} saving={save.isPending}
@@ -1287,11 +1449,54 @@ function GallerySection({ config }) {
         </div>
       </SectionCard>
 
+      <SectionCard title="Layout" description="How the gallery displays on the public site.">
+        <FormRow label="Style">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { v: 'grid',       label: 'Grid',       desc: 'Even square thumbnails' },
+              { v: 'pinterest',  label: 'Masonry',    desc: 'Pinterest-style, ragged' },
+              { v: 'horizontal', label: 'Horizontal', desc: 'Scrollable strip' },
+            ].map(opt => (
+              <button key={opt.v} type="button"
+                onClick={() => api.patch('/website/config', { gallery_style: opt.v })
+                  .then(cfg => qc.setQueryData(['website-config'], cfg))}
+                className={cn(
+                  'border rounded-lg p-3 text-left text-sm hover:border-primary',
+                  (config.gallery_style || 'grid') === opt.v ? 'border-primary bg-primary/5' : ''
+                )}>
+                <p className="font-medium">{opt.label}</p>
+                <p className="text-xs text-muted-foreground">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </FormRow>
+        <FormRow label="Thumbnail size">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { v: 'small',  label: 'Small',  px: '160px' },
+              { v: 'medium', label: 'Medium', px: '240px' },
+              { v: 'large',  label: 'Large',  px: '320px' },
+            ].map(opt => (
+              <button key={opt.v} type="button"
+                onClick={() => api.patch('/website/config', { gallery_size: opt.v })
+                  .then(cfg => qc.setQueryData(['website-config'], cfg))}
+                className={cn(
+                  'border rounded-lg px-3 py-2 text-sm',
+                  (config.gallery_size || 'medium') === opt.v ? 'border-primary bg-primary/5' : 'hover:border-muted-foreground/50'
+                )}>
+                <p className="font-medium">{opt.label}</p>
+                <p className="text-xs text-muted-foreground">≈{opt.px}</p>
+              </button>
+            ))}
+          </div>
+        </FormRow>
+      </SectionCard>
+
       <SectionCard
         title="Images"
         description="Drag to reorder. Upload JPG / PNG / WebP up to 8 MB each."
         action={
-          <FileUpload kind="images" accept="image/*"
+          <FileUpload kind="images" scope="website:gallery" accept="image/*"
             onUploaded={r => add.mutate({ image_url: r.url, sort_order: items.length })}
             label="Add image" />
         }>
@@ -1604,12 +1809,19 @@ const WEEK = [
   { i: 6, name: 'Saturday' }, { i: 0, name: 'Sunday' },
 ]
 
-function HoursSection() {
+function HoursSection({ config }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const source = config?.opening_hours_source || 'manual'
   const { data = [], isLoading } = useQuery({
     queryKey: ['website-hours'],
     queryFn:  () => api.get('/website/opening-hours'),
+    enabled:  source === 'manual',
+  })
+
+  const setSource = useMutation({
+    mutationFn: (next) => api.patch('/website/config', { opening_hours_source: next }),
+    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
   })
 
   // Group rows by day_of_week so UI is per-day with N sessions each.
@@ -1675,7 +1887,7 @@ function HoursSection() {
     }))
   }
 
-  if (isLoading) {
+  if (isLoading && source === 'manual') {
     return <div className="flex items-center justify-center py-8 text-muted-foreground">
       <Loader2 className="w-5 h-5 animate-spin" />
     </div>
@@ -1683,6 +1895,54 @@ function HoursSection() {
 
   return (
     <div className="space-y-5">
+      <SectionCard title="Source"
+        description="Where the opening hours on your public site come from.">
+        <div className="grid grid-cols-2 gap-3">
+          <button type="button"
+            onClick={() => setSource.mutate('venue')}
+            className={cn(
+              'border rounded-lg p-3 text-left text-sm hover:border-primary',
+              source === 'venue' ? 'border-primary bg-primary/5' : ''
+            )}>
+            <p className="font-medium">From venue schedule</p>
+            <p className="text-xs text-muted-foreground">Pulled automatically from the venue's weekly sittings template. No editing needed; updates when you change the schedule.</p>
+          </button>
+          <button type="button"
+            onClick={() => setSource.mutate('manual')}
+            className={cn(
+              'border rounded-lg p-3 text-left text-sm hover:border-primary',
+              source === 'manual' ? 'border-primary bg-primary/5' : ''
+            )}>
+            <p className="font-medium">Manual</p>
+            <p className="text-xs text-muted-foreground">Edit hours independently here. Useful when the website should advertise different hours from the booking schedule.</p>
+          </button>
+        </div>
+      </SectionCard>
+
+      {source === 'venue' && (
+        <SectionCard title="Live preview"
+          description="Computed from the venue's schedule template — earliest opens / latest closes per day.">
+          <p className="text-xs text-muted-foreground mb-2">
+            To change these hours, edit the venue's <strong>Schedule</strong> page.
+          </p>
+          <div className="border rounded-md divide-y bg-background">
+            {WEEK.map(d => {
+              const sessions = state[d.i] || []
+              const open  = sessions.find(s => !s.is_closed)
+              return (
+                <div key={d.i} className="flex justify-between items-center px-4 py-2 text-sm">
+                  <span className="font-medium">{d.name}</span>
+                  <span className="text-muted-foreground">
+                    {open ? `${open.opens_at} – ${open.closes_at}` : 'Closed'}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </SectionCard>
+      )}
+
+      {source === 'manual' && <>
       <SectionCard title="Opening hours"
         description="Displayed in the Find us section. Add multiple sessions per day (e.g. Lunch + Dinner).">
         <div className="space-y-4">
@@ -1730,6 +1990,7 @@ function HoursSection() {
       </SectionCard>
       <SaveBar dirty={dirty} saving={save.isPending}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
+      </>}
     </div>
   )
 }
@@ -2449,7 +2710,7 @@ function VenueActiveSection({ active, config, venueId }) {
     case 'gallery':   return <GallerySection   config={config} />
     case 'menu':      return <MenuSection      config={config} />
     case 'allergens': return <AllergensSection config={config} />
-    case 'hours':     return <HoursSection />
+    case 'hours':     return <HoursSection config={config} />
     case 'find':      return <FindUsSection    config={config} />
     case 'contact':   return <ContactSection   config={config} />
     case 'booking':   return <BookingSection   config={config} />
