@@ -1,10 +1,11 @@
 <%~ include('../../shared/head', it) %>
 <%~ include('./partials/header', it) %>
 <main>
-
-<% (it.config.home_blocks || []).forEach(function(block){ %>
+<%
+const blocks = Array.isArray(it.config.home_blocks) ? it.config.home_blocks : []
+%>
+<% for (const block of blocks) { %>
   <%~ include('../../blocks/renderer', { ...it, block }) %>
-<% }) %>
-
+<% } %>
 </main>
 <%~ include('./partials/footer', it) %>
