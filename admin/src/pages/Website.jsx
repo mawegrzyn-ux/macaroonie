@@ -1280,9 +1280,61 @@ function BookingSection({ config }) {
           </select>
         </FormRow>
       </SectionCard>
+
+      {state.widget_venue_id && (
+        <EmbedSnippet venueId={state.widget_venue_id}
+          theme={state.widget_theme}
+          accent={(config.primary_colour || '').replace('#', '')} />
+      )}
+
       <SaveBar dirty={dirty} saving={save.isPending}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
+  )
+}
+
+function EmbedSnippet({ venueId, theme, accent }) {
+  const base = window.location.origin   // tenant pastes this into their own site
+  const url  = `${base}/widget/${venueId}?theme=${theme}${accent ? `&accent=${accent}` : ''}`
+  const iframe = `<iframe src="${url}" style="width:100%; min-height:640px; border:0;" loading="lazy" title="Book a table"></iframe>`
+  const [copied, setCopied] = useState(null)
+
+  function copy(text, kind) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(kind)
+      setTimeout(() => setCopied(null), 2000)
+    }).catch(() => {})
+  }
+
+  return (
+    <SectionCard title="Embed snippet"
+      description="Copy this into any site (including your own custom domain) to show the booking widget.">
+      <div className="space-y-3">
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] uppercase font-semibold text-muted-foreground tracking-wide">Direct URL</span>
+            <button type="button" onClick={() => copy(url, 'url')}
+              className="text-xs text-primary hover:underline">
+              {copied === 'url' ? 'Copied ✓' : 'Copy'}
+            </button>
+          </div>
+          <pre className="bg-muted/40 rounded-md px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all">{url}</pre>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] uppercase font-semibold text-muted-foreground tracking-wide">iframe HTML</span>
+            <button type="button" onClick={() => copy(iframe, 'iframe')}
+              className="text-xs text-primary hover:underline">
+              {copied === 'iframe' ? 'Copied ✓' : 'Copy'}
+            </button>
+          </div>
+          <pre className="bg-muted/40 rounded-md px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all">{iframe}</pre>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Test it on its own page first: <a href={url} target="_blank" rel="noopener" className="text-primary hover:underline">open the widget →</a>
+        </p>
+      </div>
+    </SectionCard>
   )
 }
 

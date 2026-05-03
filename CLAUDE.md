@@ -232,6 +232,8 @@ Use `requireRole('admin', 'owner')` for destructive/config operations.
 - `src/views/site/templates/classic/`, `src/views/site/templates/modern/` — the two shipping public-site templates. Each has `index.eta`, `menu.eta`, `page.eta`, `partials/{header,footer}.eta`.
 - `src/routes/slots.js` — Calls `get_available_slots()` PG function. Thin wrapper.
 - `src/routes/emailTemplates.js` — Email template CRUD + venue email settings + merge-fields endpoint + preview renderer + delivery log query + `POST /send-test` (sends a real email through the venue's configured provider against sample merge fields, used by the Widget Test page to verify setup without creating a booking). Mounted at `/api/email-templates`.
+- `src/routes/widgetApi.js` — Public booking-widget API (`/widget-api/*`). No auth, CORS-allow-all, scoped per `venueId`. Mirrors `/api/bookings` but resolves tenant from venue lookup (`resolveTenant(venueId)` returns `{ id, tenant_id, ... }`). Free-booking only for v1 — deposit-required venues throw 422 on confirm. Rate limit shared with the global `@fastify/rate-limit` config.
+- `src/views/site/widget.eta` — Standalone iframe-friendly booking widget page. Vanilla JS, ~400 lines, 5-step flow (covers/date/slot/details/confirmed). Reads `?theme=light|dark&accent=hex` URL params. Posts `macaroonie:booking-confirmed` message to parent on success. Uses `X-Frame-Options: ALLOWALL` + CSP `frame-ancestors *` so any tenant site can embed.
 - `src/routes/media.js` — Per-tenant media library API. Mounted at `/api/media`. Routes: `/categories` CRUD; `/items` (list with `category_id`/`scope`/`search` filters), `/items/scopes` (DISTINCT scope values for dropdown), `/items/check-duplicate` (filename + hash within scope), `/items/upload` (multipart, validates MIME, hashes content, optionally extracts dimensions via `sharp`), `/items/:id/replace` (multipart, **swaps file behind an existing item** — used by the image editor's "Replace original" path; keeps row id, updates url/storage_key/bytes/dimensions/hash, deletes old file best-effort), `/items/:id` PATCH/DELETE, `/items/bulk` (delete / move-category / move-scope). Storage goes through existing `storageSvc` with kind `'media'`. `sharp` is lazy-loaded — listed as `optionalDependencies` so a broken native build doesn't crash the API; missing it just means no width/height capture.
 - `src/routes/emailMonitoring.js` — SendGrid monitoring API. `GET /summary` returns stats + suppression lists + local email_log totals in one round-trip. `GET /stats` daily breakdown. `GET /suppressions/:type` (bounces / blocks / spam_reports / invalid_emails). `DELETE /suppressions/:type/:email` (owner-only — clears a specific entry so retries can flow). `GET /log` paginates local email_log. Uses `loadSendgridKey(tenantId, venueId)` to resolve the per-venue key with env fallback. Mounted at `/api/email-monitoring`.
 - `src/services/sendgridSvc.js` — SendGrid Web API wrapper. `getStats({ apiKey, startDate, endDate })`, `getSuppressions({ apiKey, type, limit })`, `removeSuppression({ apiKey, type, email })`, `pingApiKey({ apiKey })`. All raise `Error.status` from the HTTP response so callers can distinguish auth failures from rate limits.
@@ -421,11 +423,12 @@ Additionally implemented across development sessions:
 
 ### Build next (larger features)
 
-**1. Ember.js booking widget**
-`src/components/widget/BookingWidget.jsx` is the reference implementation.
-Port the 5-step flow (covers → date → slot → details → confirm) to Ember.js.
-Style via CSS custom properties (accent colour, theme) so it's white-labelable.
-Deploy as an iframe embed with a `<script>` loader snippet.
+**1. Booking widget — Stripe deposit flow**
+The free-booking widget is shipped (`/widget/:venueId` + `/widget-api/*`).
+Deposit-required venues currently throw 422 on `confirm`. Wire the existing
+`/payments/intent` Stripe flow into the public widget: Payment Intent created
+on hold, public Stripe.js form, webhook → confirm_hold. Same UX, just an
+extra step before Confirmed.
 
 **2. GloriaFood sales integration**
 *(paused — needs API access details from the user)* Pull order data from GloriaFood

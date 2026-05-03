@@ -1,14 +1,19 @@
 <%
 const d = it.block.data || {}
 const c = it.config
+const widgetBase = `${it.rootDomain ? (it.siteUrl || '') : ''}`
+const accent = (c.primary_colour || '').replace('#','')
+const theme  = c.widget_theme || 'light'
+const venueId = c.widget_venue_id
 %>
 <section class="block" id="booking" style="padding:48px 24px; background:var(--c-surface);">
   <div class="container" style="max-width:640px; text-align:center;">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
-    <% if (c.widget_venue_id) { %>
-      <iframe src="<%= it.rootDomain ? (it.siteUrl || '') : '' %>/widget/<%= c.widget_venue_id %>?theme=<%= c.widget_theme || 'light' %>"
-              style="width:100%; min-height:580px; border:0; border-radius:var(--r-md, 8px); background:#fff;"
-              loading="lazy"></iframe>
+    <% if (venueId) { %>
+      <iframe src="<%= widgetBase %>/widget/<%= venueId %>?theme=<%= theme %>&accent=<%= accent %>"
+              style="width:100%; min-height:640px; border:0; border-radius:var(--r-md, 8px); background:#fff;"
+              loading="lazy"
+              title="Book a table"></iframe>
     <% } else { %>
       <p style="color:var(--c-muted);">Booking widget not configured yet.</p>
     <% } %>

@@ -18,6 +18,7 @@
 //   GET /robots.txt       — dynamic robots.txt
 
 import { loadSiteBundle } from '../services/siteDataSvc.js'
+import { sql }            from '../config/db.js'
 import { env }            from '../config/env.js'
 
 const RESERVED_SUBDOMAINS = new Set([
@@ -192,5 +193,58 @@ export default async function siteRendererRoutes(app) {
     const host = (req.hostname || req.headers.host || '').split(':')[0]
     const base = `${env.PUBLIC_SITE_SCHEME}://${host}`
     reply.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`)
+  })
+
+  // ── Booking widget (standalone iframe-embeddable page) ──
+  // Works on apex AND any tenant subdomain — no siteHost gate.
+  // GET /widget/:venueId?theme=light|dark&accent=#hex
+  app.get('/widget/:venueId', async (req, reply) => {
+    const venueId = req.params.venueId
+    const theme   = req.query.theme === 'dark' ? 'dark' : 'light'
+    const accentRaw = String(req.query.accent || '')
+    const accent  = /^#?[0-9a-fA-F]{6}$/.test(accentRaw)
+      ? (accentRaw.startsWith('#') ? accentRaw : '#' + accentRaw)
+      : null
+
+    // Look up venue via the public widget-api shape
+    const [venue] = await sql`
+      SELECT v.id, v.name, v.timezone,
+             br.slot_duration_mins, br.min_covers, br.max_covers,
+             br.booking_window_days, br.hold_ttl_secs,
+             wc.primary_colour, wc.font_family, wc.site_name
+        FROM venues v
+        LEFT JOIN booking_rules  br ON br.venue_id = v.id
+        LEFT JOIN website_config wc ON wc.venue_id = v.id
+       WHERE v.id = ${venueId} AND v.is_active = true
+       LIMIT 1
+    `
+    if (!venue) {
+      reply.code(404)
+      return reply.view('site/not-found.eta', { message: 'Venue not found', rootDomain: env.PUBLIC_ROOT_DOMAIN })
+    }
+
+    // iframe-friendly headers
+    reply.header('X-Frame-Options', 'ALLOWALL')           // legacy; ignored by modern browsers
+    reply.header('Content-Security-Policy', "frame-ancestors *")
+    reply.header('Cache-Control', 'public, max-age=300')
+
+    const venueData = {
+      id:                  venue.id,
+      name:                venue.name,
+      site_name:           venue.site_name || venue.name,
+      slot_duration_mins:  venue.slot_duration_mins ?? 90,
+      min_covers:          venue.min_covers ?? 1,
+      max_covers:          venue.max_covers ?? 8,
+      booking_window_days: venue.booking_window_days ?? 30,
+      hold_ttl_secs:       venue.hold_ttl_secs ?? 300,
+    }
+
+    return reply.view('site/widget.eta', {
+      venue:       venueData,
+      apiBase:     `${env.PUBLIC_SITE_SCHEME}://${env.PUBLIC_ROOT_DOMAIN}/widget-api`,
+      accent:      accent || venue.primary_colour || '#2563eb',
+      theme,
+      font_family: venue.font_family || 'system-ui',
+    })
   })
 }

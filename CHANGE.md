@@ -7,6 +7,26 @@ Migrations are listed where a database change is required.
 
 ## [2026-05-03]
 
+### Embeddable booking widget
+- New public booking API at `/widget-api/*` — no auth, CORS-allow-all,
+  scoped per `venueId`. Routes: `GET /venues/:id` (venue + booking rules +
+  theme), `GET /venues/:id/slots`, `POST/DELETE /venues/:id/holds[/:holdId]`,
+  `POST /venues/:id/holds/:holdId/confirm`. Mirrors the auth'd `/api/bookings`
+  flow but resolves `tenant_id` from the venue lookup.
+- New iframe-friendly page at `/widget/:venueId` rendered via a single
+  `views/site/widget.eta` template — vanilla JS + CSS variables, ~400 lines.
+  5-step flow: Covers → Date → Slot → Details → Confirmed. Theme via URL
+  params (`?theme=light|dark&accent=hex`). Posts a `macaroonie:booking-confirmed`
+  message to the parent window so embedders can run analytics / redirects.
+- `X-Frame-Options: ALLOWALL` + CSP `frame-ancestors *` headers so any
+  tenant site can embed it from any origin.
+- New `<EmbedSnippet>` panel in the Website builder's Booking widget
+  section: copy-paste the direct URL or the iframe HTML for use on third-party
+  sites. The booking_widget block in the page builder also auto-embeds the
+  iframe at the chosen scope/accent.
+- Free booking flow only for v1 — Stripe deposit flow is a follow-up
+  (deposit-required venues are rejected with a 422).
+
 ### Block-based page builder (Gutenberg-style)  *(migration 042)*
 - New `home_blocks` JSONB column on `website_config` (and matching `blocks`
   on `website_pages` for a future round). Stores an ordered array of
