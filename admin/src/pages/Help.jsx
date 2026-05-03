@@ -1302,11 +1302,31 @@ export default function Help() {
 
             <H3>Booking widget</H3>
             <P>
-              Guests can book a table directly on your website — the Macaroonie booking widget
-              is embedded as a section on the home page. In <strong>Booking widget</strong>
-              pick which venue the bookings should go to, and choose a light or dark theme.
-              Make sure <em>Show booking widget</em> is on.
+              Guests book directly via an embeddable widget. In <strong>Booking widget</strong>
+              pick which venue the bookings go to, choose a light or dark theme, and save —
+              the colour automatically inherits your brand primary.
             </P>
+            <P>
+              Two ways to use it:
+            </P>
+            <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
+              <li>
+                <strong>On your Macaroonie site</strong> — add a <em>Booking widget</em> block
+                from the Page builder. The widget renders inline at the chosen position.
+              </li>
+              <li>
+                <strong>On any other site</strong> — copy the iframe HTML from the
+                <em> Embed snippet</em> panel and paste it into your existing website. Works
+                from any domain — no code review needed on your side, the widget runs in a
+                sandboxed iframe.
+              </li>
+            </ul>
+            <InfoBox type="info">
+              The widget posts a <Mono>macaroonie:booking-confirmed</Mono> message to the
+              parent window when a booking succeeds — your dev can hook this for analytics,
+              redirects, or thank-you popups. The 5-minute hold (slot reservation) runs
+              client-side; abandoning the form releases the slot automatically.
+            </InfoBox>
 
             <H3>Custom pages</H3>
             <P>
