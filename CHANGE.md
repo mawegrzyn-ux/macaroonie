@@ -26,7 +26,13 @@ Migrations are listed where a database change is required.
   single + multi select, single detail panel with preview/rename/change
   category/change scope/delete, bulk move + delete, resizable detail panel,
   ESC + X close, fullscreen toggle.
-- Deferred to follow-up: image editor (crop/adjust), advanced selection
+- **Image editor** (crop / rotate / flip) shipped via `react-easy-crop` +
+  canvas-based rotate/flip on export. Aspect-ratio presets: Free, 1:1, 4:3,
+  3:2, 16:9, 9:16. Save modes: **Save as new** creates a fresh media item;
+  **Replace original** swaps the file behind the existing item via new
+  `POST /api/media/items/:id/replace` (id preserved so any references stay
+  valid; old file deleted best-effort).
+- Deferred to follow-up: brightness/contrast filters, advanced selection
   (shift-range), keyboard navigation between items.
 - New `/media` route (standalone manager) + sidebar nav entry under the
   `website` module group.

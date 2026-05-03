@@ -20,6 +20,7 @@ import {
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { ImageEditor } from './ImageEditor'
 
 const ALL_FORMS = '__all__'
 const NO_CATEGORY = '__none__'
@@ -45,6 +46,7 @@ export function MediaLibraryModal({
   const [duplicateConflict, setDuplicateConflict] = useState(null) // { file, existing[], onResolve }
   const [dragActive, setDragActive]   = useState(false)
   const [detailWidth, setDetailWidth] = useState(360)
+  const [editorItem, setEditorItem]   = useState(null)             // item being edited, or null
   const dragCounter = useRef(0)
   const fileInputRef = useRef(null)
 
@@ -453,6 +455,7 @@ export function MediaLibraryModal({
                   categories={categories}
                   scopes={scopes}
                   onPatch={(body) => patchItem.mutate({ id: singleSelected.id, body })}
+                  onEdit={() => setEditorItem(singleSelected)}
                   onDelete={() => {
                     if (window.confirm(`Delete "${singleSelected.filename}"? This cannot be undone.`)) {
                       deleteItem.mutate(singleSelected.id, { onSuccess: clearSelection })
@@ -504,6 +507,19 @@ export function MediaLibraryModal({
           <DuplicateDialog conflict={duplicateConflict} />
         )}
       </div>
+
+      {/* Image editor — overlays the whole library modal when active */}
+      {editorItem && (
+        <ImageEditor item={editorItem}
+          onClose={() => setEditorItem(null)}
+          onSaved={(saved, mode) => {
+            // After save, point selection at the resulting item so the
+            // detail panel updates immediately.
+            setSelectedIds(new Set([saved.id]))
+            setEditorItem(null)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -615,7 +631,7 @@ function DetailEmpty() {
   )
 }
 
-function DetailSingle({ item, categories, scopes, onPatch, onDelete }) {
+function DetailSingle({ item, categories, scopes, onPatch, onEdit, onDelete }) {
   const [filename, setFilename] = useState(item.filename)
   useEffect(() => setFilename(item.filename), [item.id, item.filename])
 
@@ -665,9 +681,9 @@ function DetailSingle({ item, categories, scopes, onPatch, onDelete }) {
       </dl>
 
       <div className="border-t pt-3 flex flex-col gap-2">
-        <button disabled title="Image editing coming soon"
-          className="inline-flex items-center justify-center gap-1.5 w-full text-sm border rounded-md px-3 py-2 min-h-[36px] opacity-50 cursor-not-allowed">
-          <Edit3 className="w-3.5 h-3.5" /> Edit image (coming soon)
+        <button onClick={onEdit}
+          className="inline-flex items-center justify-center gap-1.5 w-full text-sm border rounded-md px-3 py-2 min-h-[36px] hover:bg-accent">
+          <Edit3 className="w-3.5 h-3.5" /> Edit image
         </button>
         <button onClick={onDelete}
           className="inline-flex items-center justify-center gap-1.5 w-full text-sm border border-destructive text-destructive rounded-md px-3 py-2 min-h-[36px] hover:bg-destructive/10">

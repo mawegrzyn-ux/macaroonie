@@ -1857,9 +1857,23 @@ export default function Help() {
               scope, delete all.
             </P>
 
+            <H3>Image editor</H3>
+            <P>
+              Click <strong>Edit image</strong> in the detail panel to open the editor.
+              You can crop (with aspect ratio presets — Free / 1:1 / 4:3 / 3:2 / 16:9 / 9:16),
+              rotate in 90° increments, and flip horizontally or vertically.
+            </P>
+            <P>
+              Two ways to save:
+            </P>
+            <ul className="list-disc ml-5 space-y-1 text-sm text-muted-foreground mb-4">
+              <li><strong>Save as new</strong> — creates a fresh image (with a "-edited" suffix on the filename) so the original stays untouched.</li>
+              <li><strong>Replace original</strong> — overwrites the file behind the item. References to it elsewhere (hero images, brand defaults) instantly use the edited version.</li>
+            </ul>
             <InfoBox type="info">
-              Image editing (crop / adjust) is on the roadmap but not in this release —
-              the Edit button in the detail panel shows &ldquo;coming soon&rdquo; for now.
+              Brightness, contrast, and other adjustments aren&apos;t in this release —
+              just crop / rotate / flip for now. If you need colour adjustments,
+              edit the file in your image tool of choice and re-upload.
             </InfoBox>
           </section>
 

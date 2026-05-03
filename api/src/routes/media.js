@@ -259,6 +259,76 @@ export default async function mediaRoutes(app) {
     return reply.code(201).send(row)
   })
 
+  // ── Items: replace file content (used by image editor) ──
+  // Multipart upload that REPLACES the file behind an existing item.
+  // The DB row keeps its id (so anywhere referencing the item by id
+  // continues to work). url + storage_key + bytes + dimensions + hash
+  // are updated. The OLD file is deleted from storage best-effort.
+  // Form fields: file (required)
+  app.post('/items/:id/replace', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    if (!req.tenantId) throw httpError(400, 'No tenant context')
+    if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
+
+    const [existing] = await withTenant(req.tenantId, tx => tx`
+      SELECT * FROM media_items WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+    `)
+    if (!existing) throw httpError(404, 'Item not found')
+
+    let fileData = null
+    for await (const part of req.parts()) {
+      if (part.type === 'file' && part.fieldname === 'file') {
+        if (!ALLOWED_MIMES.has(part.mimetype)) {
+          throw httpError(422, `Unsupported file type: ${part.mimetype}`)
+        }
+        const chunks = []
+        let total = 0
+        for await (const chunk of part.file) {
+          total += chunk.length
+          if (total > MAX_BYTES) throw httpError(413, `File exceeds ${Math.round(MAX_BYTES / 1024 / 1024)}MB limit`)
+          chunks.push(chunk)
+        }
+        fileData = { buffer: Buffer.concat(chunks), mimetype: part.mimetype, filename: part.filename || existing.filename }
+      }
+    }
+    if (!fileData) throw httpError(400, 'No file provided')
+
+    const hash = crypto.createHash('sha256').update(fileData.buffer).digest('hex')
+    let width = null, height = null
+    const sharp = await loadSharp()
+    if (sharp) {
+      try {
+        const meta = await sharp(fileData.buffer).metadata()
+        width  = meta.width  || null
+        height = meta.height || null
+      } catch { /* non-fatal */ }
+    }
+
+    const ext = extFromMime(fileData.mimetype)
+    const storage = getStorage()
+    const result  = await storage.put(req.tenantId, 'media', ext, fileData.mimetype, fileData.buffer)
+
+    const [updated] = await withTenant(req.tenantId, tx => tx`
+      UPDATE media_items
+         SET url = ${result.url},
+             storage_key = ${result.key},
+             mimetype = ${fileData.mimetype},
+             bytes = ${fileData.buffer.length},
+             width = ${width},
+             height = ${height},
+             hash  = ${hash},
+             updated_at = now()
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      RETURNING *
+    `)
+
+    // Delete old file (best-effort — the DB row already points at the new file)
+    if (existing.url) {
+      try { await storage.delete(existing.url) } catch (e) { req.log.warn({ err: e?.message }, 'Old file delete failed') }
+    }
+
+    return reply.code(200).send(updated)
+  })
+
   // ── Items: patch (rename, recategorize, rescope) ──────────
   app.patch('/items/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
