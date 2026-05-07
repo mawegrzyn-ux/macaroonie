@@ -1,9 +1,12 @@
 // src/routes/website.js
 //
 // Tenant Website Builder — authenticated admin CRUD.
-//   website_config (singleton per tenant)
-//   gallery images, custom pages, PDF menus, opening hours, allergen info
-//   file uploads (images + PDFs) to UPLOAD_DIR/{tenant_id}/{kind}/{uuid}.{ext}
+//
+// Architecture (post-migration 043): one site per TENANT.
+//   tenant_site (singleton per tenant) — site identity (subdomain,
+//     custom domain, home_blocks, SEO, brand defaults, emergency banner)
+//   website_config (one per venue)     — per-location page content
+//     (hero, gallery, hours, address, menus, allergens, contact)
 //
 // Public site rendering lives in ./siteRenderer.js — this file is admin-only.
 
@@ -38,9 +41,6 @@ const DeliveryLink = z.object({
   label:    z.string().optional(),
 })
 
-// Theme is intentionally permissive — the renderer knows which keys it looks
-// for and defaults missing ones.  Adding a new theme knob is just: (a) accept
-// it here, (b) read it in the renderer.
 const ThemeSchema = z.object({
   colors: z.object({
     primary:    z.string().regex(HEX_COLOUR).optional(),
@@ -88,9 +88,17 @@ const ThemeSchema = z.object({
   }).partial().optional(),
 }).strict()
 
-const WebsiteConfigBody = z.object({
-  subdomain_slug:   SlugSchema.optional(),
+const BlockSchema = z.object({
+  id:   z.string(),
+  type: z.string(),
+  data: z.record(z.string(), z.any()).default({}),
+})
+
+// Tenant-level site config (the "one site" table).
+const TenantSiteBody = z.object({
+  // Identity
   site_name:        z.string().max(200).nullable().optional(),
+  brand_name:       z.string().max(200).nullable().optional(),
   tagline:          z.string().max(300).nullable().optional(),
   logo_url:         z.string().nullable().optional(),
   favicon_url:      z.string().nullable().optional(),
@@ -98,6 +106,50 @@ const WebsiteConfigBody = z.object({
   secondary_colour: z.string().regex(HEX_COLOUR).nullable().optional(),
   font_family:      z.string().max(100).optional(),
 
+  // Domain
+  subdomain_slug:   SlugSchema.optional(),
+  custom_domain:    z.string().toLowerCase().max(253).nullable().optional(),
+
+  // Template + theme
+  template_key:     z.enum(['classic', 'modern']).optional(),
+  theme:            ThemeSchema.optional(),
+
+  // Home page
+  home_blocks:      z.array(BlockSchema).nullable().optional(),
+
+  // Locations index
+  hide_locations_index: z.boolean().optional(),
+  locations_heading:    z.string().max(200).nullable().optional(),
+  locations_intro:      z.string().nullable().optional(),
+
+  // Default widget venue (skips location picker on home embed)
+  default_widget_venue_id: z.string().uuid().nullable().optional(),
+
+  // SEO
+  meta_title:       z.string().max(200).nullable().optional(),
+  meta_description: z.string().max(500).nullable().optional(),
+  og_image_url:     z.string().nullable().optional(),
+
+  // Analytics
+  ga4_measurement_id: z.string().max(50).nullable().optional(),
+  fb_pixel_id:        z.string().max(50).nullable().optional(),
+
+  // Brand-level socials cascade to every location
+  social_links:     SocialLinksSchema.optional(),
+
+  // Emergency banner (cascades to every location)
+  banner_enabled:   z.boolean().optional(),
+  banner_text:      z.string().max(500).nullable().optional(),
+  banner_link_url:  z.string().max(500).nullable().optional(),
+  banner_link_text: z.string().max(100).nullable().optional(),
+  banner_severity:  z.enum(['info', 'warn', 'alert']).optional(),
+
+  // Publishing
+  is_published:     z.boolean().optional(),
+})
+
+// Per-venue location-page config (location-specific content only).
+const VenueConfigBody = z.object({
   hero_image_url:   z.string().nullable().optional(),
   hero_heading:     z.string().max(200).nullable().optional(),
   hero_subheading:  z.string().max(500).nullable().optional(),
@@ -121,6 +173,7 @@ const WebsiteConfigBody = z.object({
   phone:            z.string().max(50).nullable().optional(),
   email:            z.string().email().nullable().optional(),
 
+  // Per-location social handles override the tenant ones for this venue
   social_links:          SocialLinksSchema.optional(),
   online_ordering_links: z.array(OrderingLink).optional(),
   delivery_links:        z.array(DeliveryLink).optional(),
@@ -128,14 +181,16 @@ const WebsiteConfigBody = z.object({
   widget_venue_id:  z.string().uuid().nullable().optional(),
   widget_theme:     z.enum(['light', 'dark']).optional(),
 
-  meta_title:       z.string().max(200).nullable().optional(),
-  meta_description: z.string().max(500).nullable().optional(),
   og_image_url:     z.string().nullable().optional(),
+  tagline:          z.string().max(300).nullable().optional(),
+  site_name:        z.string().max(200).nullable().optional(),
 
-  ga4_measurement_id: z.string().max(50).nullable().optional(),
-  fb_pixel_id:        z.string().max(50).nullable().optional(),
+  primary_colour:   z.string().regex(HEX_COLOUR).optional(),
+  secondary_colour: z.string().regex(HEX_COLOUR).nullable().optional(),
+  font_family:      z.string().max(100).optional(),
+  template_key:     z.enum(['classic', 'modern']).optional(),
+  theme:            ThemeSchema.optional(),
 
-  is_published:       z.boolean().optional(),
   show_booking_widget: z.boolean().optional(),
   show_menu:          z.boolean().optional(),
   show_allergens:     z.boolean().optional(),
@@ -144,27 +199,12 @@ const WebsiteConfigBody = z.object({
   gallery_size:       z.enum(['small', 'medium', 'large']).optional(),
   opening_hours_source: z.enum(['manual', 'venue']).optional(),
 
-  // Block-based page composition. Each block: { id, type, data }.
-  // Server keeps `data` opaque — validation done client-side via the
-  // block registry. Setting to [] (or null) falls back to flat layout.
-  home_blocks: z.array(z.object({
-    id:   z.string(),
-    type: z.string(),
-    data: z.record(z.string(), z.any()).default({}),
-  })).nullable().optional(),
   show_find_us:       z.boolean().optional(),
   show_contact:       z.boolean().optional(),
   show_ordering:      z.boolean().optional(),
   show_delivery:      z.boolean().optional(),
 
-  // Custom domain (e.g. book.wingstop.co.uk) — lowercased + shape-checked
-  // at the DB layer.  Setting `custom_domain` always clears the
-  // `custom_domain_verified` flag so the tenant re-proves DNS ownership.
-  custom_domain:      z.string().toLowerCase().max(253).nullable().optional(),
-
-  // Template + theme
-  template_key:       z.enum(['classic', 'modern']).optional(),
-  theme:              ThemeSchema.optional(),
+  page_blocks: z.array(BlockSchema).nullable().optional(),
 })
 
 const GalleryBody = z.object({
@@ -177,8 +217,10 @@ const PageBody = z.object({
   slug:         z.string().regex(/^[a-z0-9][a-z0-9-]*$/).max(100),
   title:        z.string().min(1).max(200),
   content:      z.string().nullable().optional(),
+  blocks:       z.array(BlockSchema).nullable().optional(),
   is_published: z.boolean().default(true),
   sort_order:   z.number().int().default(0),
+  // venue_id provided as query param, not in body
 })
 
 const MenuBody = z.object({
@@ -229,40 +271,27 @@ function extFromMime(mime) {
   }
 }
 
-async function ensureConfig(tx, tenantId, venueId) {
-  if (venueId) {
-    const [cfg] = await tx`
-      SELECT * FROM website_config
-       WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
-    `
-    return cfg ?? null
-  }
+async function ensureVenueConfig(tx, tenantId, venueId) {
+  if (!venueId) return null
   const [cfg] = await tx`
-    SELECT * FROM website_config WHERE tenant_id = ${tenantId} LIMIT 1
+    SELECT * FROM website_config
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
   `
   return cfg ?? null
 }
 
-// Brand defaults schema
-const BrandDefaultsBody = z.object({
-  brand_name:        z.string().max(200).nullable().optional(),
-  logo_url:          z.string().nullable().optional(),
-  favicon_url:       z.string().nullable().optional(),
-  primary_colour:    z.string().regex(HEX_COLOUR).optional(),
-  secondary_colour:  z.string().regex(HEX_COLOUR).nullable().optional(),
-  font_family:       z.string().max(100).optional(),
-  template_key:      z.enum(['classic', 'modern']).optional(),
-  theme:             ThemeSchema.optional(),
-  social_links:      SocialLinksSchema.optional(),
-  og_image_url:      z.string().nullable().optional(),
-  ga4_measurement_id: z.string().max(50).nullable().optional(),
-  fb_pixel_id:        z.string().max(50).nullable().optional(),
-  banner_enabled:    z.boolean().optional(),
-  banner_text:       z.string().max(500).nullable().optional(),
-  banner_link_url:   z.string().max(500).nullable().optional(),
-  banner_link_text:  z.string().max(100).nullable().optional(),
-  banner_severity:   z.enum(['info', 'warn', 'alert']).optional(),
-})
+async function ensureTenantSite(tx, tenantId) {
+  const [row] = await tx`
+    SELECT * FROM tenant_site WHERE tenant_id = ${tenantId} LIMIT 1
+  `
+  if (row) return row
+  const [created] = await tx`
+    INSERT INTO tenant_site (tenant_id) VALUES (${tenantId})
+    ON CONFLICT (tenant_id) DO UPDATE SET updated_at = now()
+    RETURNING *
+  `
+  return created
+}
 
 // ── Plugin ───────────────────────────────────────────────────
 
@@ -270,104 +299,70 @@ export default async function websiteRoutes(app) {
 
   app.addHook('preHandler', requireAuth)
 
-  // ── GET /website/config?venue_id=X ───────────────────────
-  // Returns the venue's website_config, or {} if none exists yet.
-  // Without venue_id returns the first config found (back-compat).
-  app.get('/config', async (req) => {
-    const venueId = req.query.venue_id || null
-    return withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId, venueId)
-      return cfg ?? {}
-    })
+  // ════════════════════════════════════════════════════════════
+  //   TENANT-LEVEL SITE
+  // ════════════════════════════════════════════════════════════
+
+  // ── GET /website/tenant-site ────────────────────────────
+  // Returns the tenant_site row, creating a stub if none exists.
+  app.get('/tenant-site', async (req) => {
+    return withTenant(req.tenantId, async tx => ensureTenantSite(tx, req.tenantId))
   })
 
-  // ── GET /website/configs ────────────────────────────────
-  // Returns ALL venue websites for this tenant (franchise overview).
-  app.get('/configs', async (req) => {
-    return withTenant(req.tenantId, tx => tx`
-      SELECT wc.*, v.name AS venue_name
-        FROM website_config wc
-        JOIN venues v ON v.id = wc.venue_id
-       WHERE wc.tenant_id = ${req.tenantId}
-       ORDER BY v.name
-    `)
-  })
-
-  // ── POST /website/config (create for a venue) ──────────
-  app.post('/config', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
-    const body = WebsiteConfigBody.parse(req.body)
-    if (!body.subdomain_slug) throw httpError(422, 'subdomain_slug is required on create')
-    const venue_id = req.body.venue_id
-    if (!venue_id) throw httpError(422, 'venue_id is required — which venue is this site for?')
-
-    const [cfg] = await withTenant(req.tenantId, async tx => {
-      const [venue] = await tx`
-        SELECT id FROM venues
-         WHERE id = ${venue_id} AND tenant_id = ${req.tenantId} AND is_active = true
-      `
-      if (!venue) throw httpError(404, 'Venue not found')
-
-      return tx`
-        INSERT INTO website_config (tenant_id, venue_id, subdomain_slug, site_name, primary_colour)
-        VALUES (${req.tenantId}, ${venue_id}, ${body.subdomain_slug},
-                ${body.site_name ?? null},
-                ${body.primary_colour ?? '#630812'})
-        ON CONFLICT (venue_id) DO UPDATE
-          SET subdomain_slug = EXCLUDED.subdomain_slug,
-              updated_at     = now()
-        RETURNING *
-      `
-    })
-    return reply.code(201).send(cfg)
-  })
-
-  // ── PATCH /website/config?venue_id=X ─────────────────────
-  app.patch('/config', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const venueId = req.query.venue_id || req.body?.venue_id
-    const body = WebsiteConfigBody.parse(req.body)
-
-    if ('custom_domain' in body) {
-      body.custom_domain_verified = false
-    }
+  // ── PATCH /website/tenant-site ──────────────────────────
+  app.patch('/tenant-site', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = TenantSiteBody.parse(req.body)
+    if ('custom_domain' in body) body.custom_domain_verified = false
 
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
 
-    const [cfg] = await withTenant(req.tenantId, async tx => {
-      const existing = await ensureConfig(tx, req.tenantId, venueId)
-      if (!existing) throw httpError(404, 'Website config not found — POST to create it first')
+    return withTenant(req.tenantId, async tx => {
+      await ensureTenantSite(tx, req.tenantId)
 
-      // Match the row by id directly. Filtering by tenant_id alone (the
-      // previous bug) updated every venue's website_config for the tenant,
-      // bleeding hero/logo/about edits across venue sites.
-      return tx`
-        UPDATE website_config
+      // Subdomain uniqueness check across tenants (table-level).
+      if (body.subdomain_slug) {
+        const [hit] = await tx`
+          SELECT 1 FROM tenant_site
+           WHERE subdomain_slug = ${body.subdomain_slug}
+             AND tenant_id     <> ${req.tenantId}
+           LIMIT 1
+        `
+        if (hit) throw httpError(409, 'Subdomain already taken')
+      }
+
+      const [row] = await tx`
+        UPDATE tenant_site
            SET ${tx(body, ...fields)}, updated_at = now()
-         WHERE id = ${existing.id}
-           AND tenant_id = ${req.tenantId}
+         WHERE tenant_id = ${req.tenantId}
         RETURNING *
       `
+      return row
     })
-    if (!cfg) throw httpError(404, 'Website config not found')
-    return cfg
   })
 
-  // ── POST /website/verify-domain ─────────────────────────
-  // Resolves the tenant's custom_domain via DNS. Marks verified=true when
-  // the domain's A records point to any of APP_PUBLIC_IPS (a CSV env var)
-  // OR its CNAME points at {PUBLIC_ROOT_DOMAIN}. Otherwise returns the
-  // records it saw so the tenant can see what went wrong.
-  app.post('/verify-domain', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const venueId = req.query.venue_id || req.body?.venue_id
-    if (!venueId) throw httpError(400, 'venue_id is required')
+  // ── GET /website/tenant-site/slug-available?slug=foo ────
+  // Global uniqueness check.
+  app.get('/tenant-site/slug-available', async (req) => {
+    const slug = SlugSchema.parse(req.query.slug)
+    const [hit] = await sql`
+      SELECT 1 FROM tenant_site
+       WHERE subdomain_slug = ${slug}
+         AND tenant_id     <> ${req.tenantId}
+       LIMIT 1
+    `
+    return { available: !hit }
+  })
 
-    const [cfg] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, custom_domain FROM website_config
-       WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}
+  // ── POST /website/tenant-site/verify-domain ─────────────
+  app.post('/tenant-site/verify-domain', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const [ts] = await withTenant(req.tenantId, tx => tx`
+      SELECT custom_domain FROM tenant_site
+       WHERE tenant_id = ${req.tenantId}
     `)
-    if (!cfg?.custom_domain) throw httpError(422, 'No custom domain configured')
+    if (!ts?.custom_domain) throw httpError(422, 'No custom domain configured')
 
-    const domain = cfg.custom_domain
+    const domain = ts.custom_domain
     const expectedCnameSuffix = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
     const expectedIps = (process.env.APP_PUBLIC_IPS || '')
       .split(',').map(s => s.trim()).filter(Boolean)
@@ -382,44 +377,130 @@ export default async function websiteRoutes(app) {
     const verified   = cnameMatch || aMatch
 
     await withTenant(req.tenantId, tx => tx`
-      UPDATE website_config
+      UPDATE tenant_site
          SET custom_domain_verified = ${verified}, updated_at = now()
-       WHERE id = ${cfg.id}
-         AND tenant_id = ${req.tenantId}
+       WHERE tenant_id = ${req.tenantId}
     `)
 
     return {
-      verified,
-      domain,
+      verified, domain,
       a_records:     aRecords,
       cname_records: cnameRecords,
-      expected: {
-        cname_suffix: expectedCnameSuffix,
-        ips:          expectedIps,
-      },
+      expected: { cname_suffix: expectedCnameSuffix, ips: expectedIps },
       hint: verified
         ? 'Domain verified. SSL provisioning still happens outside the app (Nginx + certbot).'
         : `Point ${domain} via CNAME to ${expectedCnameSuffix}, or an A record to one of the app's public IPs.`,
     }
   })
 
-  // ── GET /website/slug-available?slug=foo ────────────────
-  // Global uniqueness check — does NOT use withTenant (slug namespace is global).
-  app.get('/slug-available', async (req) => {
-    const slug = SlugSchema.parse(req.query.slug)
-    const [hit] = await sql`
-      SELECT 1 FROM website_config
-       WHERE subdomain_slug = ${slug}
-         AND tenant_id     <> ${req.tenantId}
-      LIMIT 1
-    `
-    return { available: !hit }
+  // ── Back-compat: brand-defaults endpoints alias tenant-site ─
+  // (Keeps old admin-portal builds working during the deploy window.)
+  app.get('/brand-defaults', async (req) => {
+    return withTenant(req.tenantId, async tx => ensureTenantSite(tx, req.tenantId))
+  })
+
+  app.patch('/brand-defaults', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = TenantSiteBody.parse(req.body)
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+    return withTenant(req.tenantId, async tx => {
+      await ensureTenantSite(tx, req.tenantId)
+      const [row] = await tx`
+        UPDATE tenant_site
+           SET ${tx(body, ...fields)}, updated_at = now()
+         WHERE tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+      return row
+    })
+  })
+
+  // ════════════════════════════════════════════════════════════
+  //   PER-VENUE LOCATION PAGE
+  // ════════════════════════════════════════════════════════════
+
+  // ── GET /website/configs ────────────────────────────────
+  // Every venue's location-page config — used by the admin to show a
+  // venue switcher with "configured / not configured" badges.
+  app.get('/configs', async (req) => {
+    return withTenant(req.tenantId, tx => tx`
+      SELECT v.id AS venue_id, v.name AS venue_name, v.slug AS venue_slug,
+             wc.id AS config_id,
+             wc.hero_image_url, wc.address_line1, wc.city,
+             wc.show_booking_widget, wc.updated_at
+        FROM venues v
+        LEFT JOIN website_config wc ON wc.venue_id = v.id
+       WHERE v.tenant_id = ${req.tenantId}
+         AND v.is_active = true
+       ORDER BY v.name
+    `)
+  })
+
+  // ── GET /website/config?venue_id=X ──────────────────────
+  app.get('/config', async (req) => {
+    const venueId = req.query.venue_id
+    if (!venueId) throw httpError(400, 'venue_id is required')
+    return withTenant(req.tenantId, async tx => {
+      const cfg = await ensureVenueConfig(tx, req.tenantId, venueId)
+      return cfg ?? {}
+    })
+  })
+
+  // ── POST /website/config (create venue config row) ──────
+  app.post('/config', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const venue_id = req.body?.venue_id || req.query.venue_id
+    if (!venue_id) throw httpError(422, 'venue_id is required')
+
+    const [cfg] = await withTenant(req.tenantId, async tx => {
+      const [venue] = await tx`
+        SELECT id FROM venues
+         WHERE id = ${venue_id} AND tenant_id = ${req.tenantId} AND is_active = true
+      `
+      if (!venue) throw httpError(404, 'Venue not found')
+
+      return tx`
+        INSERT INTO website_config (tenant_id, venue_id)
+        VALUES (${req.tenantId}, ${venue_id})
+        ON CONFLICT (venue_id) DO UPDATE
+          SET updated_at = now()
+        RETURNING *
+      `
+    })
+    return reply.code(201).send(cfg)
+  })
+
+  // ── PATCH /website/config?venue_id=X ────────────────────
+  app.patch('/config', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const venueId = req.query.venue_id || req.body?.venue_id
+    if (!venueId) throw httpError(400, 'venue_id is required')
+
+    // Strip venue_id from the body so it isn't passed to the dynamic UPDATE.
+    const { venue_id: _vid, ...rest } = req.body ?? {}
+    const body = VenueConfigBody.parse(rest)
+
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [cfg] = await withTenant(req.tenantId, async tx => {
+      const existing = await ensureVenueConfig(tx, req.tenantId, venueId)
+      if (!existing) throw httpError(404, 'Venue config not found — POST to create it first')
+
+      return tx`
+        UPDATE website_config
+           SET ${tx(body, ...fields)}, updated_at = now()
+         WHERE id = ${existing.id}
+           AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+    })
+    if (!cfg) throw httpError(404, 'Venue config not found')
+    return cfg
   })
 
   // ── Gallery ─────────────────────────────────────────────
 
   app.get('/gallery', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
+    const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
       SELECT * FROM website_gallery_images
@@ -431,8 +512,8 @@ export default async function websiteRoutes(app) {
   app.post('/gallery', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = GalleryBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
-      if (!cfg) throw httpError(404, 'Website config not found')
+      const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
+      if (!cfg) throw httpError(404, 'Venue config not found')
       return tx`
         INSERT INTO website_gallery_images
           (tenant_id, website_config_id, image_url, caption, sort_order)
@@ -484,31 +565,45 @@ export default async function websiteRoutes(app) {
   })
 
   // ── Custom pages ────────────────────────────────────────
+  // Pages can be tenant-level (venue_id IS NULL) or venue-level
+  // (venue_id = X). Pass `venue_id=tenant` for tenant-level, otherwise
+  // a UUID for a specific venue.
+
+  function pageVenueFilter(req) {
+    const v = req.query.venue_id
+    if (!v || v === 'tenant') return null
+    return v
+  }
 
   app.get('/pages', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
-    if (!cfg) return []
+    const venueId = pageVenueFilter(req)
+    if (venueId) {
+      return tx`
+        SELECT * FROM website_pages
+         WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}
+         ORDER BY sort_order, title
+      `
+    }
     return tx`
       SELECT * FROM website_pages
-       WHERE website_config_id = ${cfg.id}
+       WHERE tenant_id = ${req.tenantId} AND venue_id IS NULL
        ORDER BY sort_order, title
     `
   }))
 
   app.post('/pages', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = PageBody.parse(req.body)
-    const [row] = await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
-      if (!cfg) throw httpError(404, 'Website config not found')
-      return tx`
-        INSERT INTO website_pages
-          (tenant_id, website_config_id, slug, title, content, is_published, sort_order)
-        VALUES
-          (${req.tenantId}, ${cfg.id}, ${body.slug}, ${body.title},
-           ${body.content ?? null}, ${body.is_published}, ${body.sort_order})
-        RETURNING *
-      `
-    })
+    const venueId = pageVenueFilter(req)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO website_pages
+        (tenant_id, venue_id, slug, title, content, blocks, is_published, sort_order)
+      VALUES
+        (${req.tenantId}, ${venueId}, ${body.slug}, ${body.title},
+         ${body.content ?? null},
+         ${body.blocks ? tx.json(body.blocks) : null},
+         ${body.is_published}, ${body.sort_order})
+      RETURNING *
+    `)
     return reply.code(201).send(row)
   })
 
@@ -539,7 +634,7 @@ export default async function websiteRoutes(app) {
   // ── Menus (PDF documents) ───────────────────────────────
 
   app.get('/menus', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
+    const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
       SELECT * FROM website_menu_documents
@@ -551,8 +646,8 @@ export default async function websiteRoutes(app) {
   app.post('/menus', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = MenuBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
-      if (!cfg) throw httpError(404, 'Website config not found')
+      const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
+      if (!cfg) throw httpError(404, 'Venue config not found')
       return tx`
         INSERT INTO website_menu_documents
           (tenant_id, website_config_id, label, file_url, sort_order)
@@ -577,7 +672,7 @@ export default async function websiteRoutes(app) {
   // ── Opening hours (bulk upsert) ─────────────────────────
 
   app.get('/opening-hours', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
+    const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
       SELECT * FROM website_opening_hours
@@ -589,8 +684,8 @@ export default async function websiteRoutes(app) {
   app.post('/opening-hours', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const rows = z.array(OpeningHourRow).parse(req.body)
     await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
-      if (!cfg) throw httpError(404, 'Website config not found')
+      const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
+      if (!cfg) throw httpError(404, 'Venue config not found')
       await tx`DELETE FROM website_opening_hours WHERE website_config_id = ${cfg.id}`
       if (rows.length) {
         await tx`
@@ -613,7 +708,7 @@ export default async function websiteRoutes(app) {
   // ── Allergen info ───────────────────────────────────────
 
   app.get('/allergens', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
+    const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return {}
     const [row] = await tx`
       SELECT * FROM website_allergen_info WHERE website_config_id = ${cfg.id}
@@ -624,8 +719,8 @@ export default async function websiteRoutes(app) {
   app.post('/allergens', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const body = AllergenBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
-      const cfg = await ensureConfig(tx, req.tenantId, req.query.venue_id)
-      if (!cfg) throw httpError(404, 'Website config not found')
+      const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
+      if (!cfg) throw httpError(404, 'Venue config not found')
       return tx`
         INSERT INTO website_allergen_info
           (tenant_id, website_config_id, info_type, document_url, structured_data)
@@ -644,55 +739,7 @@ export default async function websiteRoutes(app) {
     return row
   })
 
-  // ── Brand defaults (franchise-level) ─────────────────────
-
-  app.get('/brand-defaults', async (req) => {
-    return withTenant(req.tenantId, async tx => {
-      const [row] = await tx`
-        SELECT * FROM tenant_brand_defaults
-         WHERE tenant_id = ${req.tenantId}
-      `
-      return row ?? {}
-    })
-  })
-
-  app.post('/brand-defaults', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
-    const body = BrandDefaultsBody.parse(req.body)
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO tenant_brand_defaults (tenant_id, brand_name, primary_colour)
-      VALUES (${req.tenantId}, ${body.brand_name ?? null}, ${body.primary_colour ?? '#630812'})
-      ON CONFLICT (tenant_id) DO UPDATE
-        SET brand_name = COALESCE(EXCLUDED.brand_name, tenant_brand_defaults.brand_name),
-            updated_at = now()
-      RETURNING *
-    `)
-    return reply.code(201).send(row)
-  })
-
-  app.patch('/brand-defaults', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const body = BrandDefaultsBody.parse(req.body)
-    const fields = Object.keys(body)
-    if (!fields.length) throw httpError(400, 'No fields to update')
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE tenant_brand_defaults
-         SET ${tx(body, ...fields)}, updated_at = now()
-       WHERE tenant_id = ${req.tenantId}
-      RETURNING *
-    `)
-    if (!row) throw httpError(404, 'Brand defaults not found — POST to create them first')
-    return row
-  })
-
   // ── File upload ─────────────────────────────────────────
-  // Expects multipart/form-data with fields:
-  //   file   — the binary
-  //   kind   — 'images' | 'menus' | 'docs'
-  //   scope  — optional, e.g. 'website:hero', 'brand:logo'. Default 'shared'.
-  //
-  // Writes via the configured storage driver AND (for image kinds) creates a
-  // media_items row so every CMS upload is browseable in the media library.
-  // PDF kinds (`menus`, `docs`) skip the media library — they're tracked
-  // elsewhere via website_menu_documents.
   app.post('/upload', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
 
@@ -733,7 +780,6 @@ export default async function websiteRoutes(app) {
     const storage = getStorage()
     const result  = await storage.put(req.tenantId, kind, ext, fileData.mimetype, fileData.buffer)
 
-    // Mirror image uploads into media_items so the media library has visibility.
     let mediaItemId = null
     if (kind === 'images') {
       const hash = crypto.createHash('sha256').update(fileData.buffer).digest('hex')
@@ -748,7 +794,6 @@ export default async function websiteRoutes(app) {
         `)
         mediaItemId = row?.id ?? null
       } catch (e) {
-        // Don't fail the upload if the media row insert errors — file is on disk
         req.log.warn({ err: e?.message }, 'media_items mirror failed')
       }
     }

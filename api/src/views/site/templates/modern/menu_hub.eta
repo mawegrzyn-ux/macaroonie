@@ -1,0 +1,37 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<%
+const venues = it.venues || []
+%>
+<main>
+<section style="padding: 140px 0 60px; background: var(--c-primary); color: #fff; text-align: center;">
+  <div class="container">
+    <div style="color:rgba(255,255,255,0.7); font-size:13px; letter-spacing:0.12em; text-transform:uppercase; margin-bottom:10px;">Menus</div>
+    <h1 style="color:#fff; font-size: clamp(36px, 5vw, 56px);">Pick a location</h1>
+  </div>
+</section>
+
+<section class="block">
+  <div class="container">
+    <% if (venues.length === 0) { %>
+      <p style="text-align: center; color: var(--c-muted);">No locations yet.</p>
+    <% } else { %>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;">
+        <% venues.forEach(function(v) { %>
+          <a href="/locations/<%= v.slug %>/menu"
+             style="display: block; text-decoration: none; padding: 24px; border: 1px solid var(--c-border); border-radius: var(--r-lg); background: var(--c-bg); color: var(--c-text);">
+            <div style="font-size: 20px; font-weight: 700;"><%= v.name %></div>
+            <% if (v.address_line1 || v.city) { %>
+              <div style="color: var(--c-muted); font-size: 14px; margin-top: 6px;">
+                <%= [v.address_line1, v.city].filter(Boolean).join(' · ') %>
+              </div>
+            <% } %>
+            <div style="margin-top: 16px; color: var(--c-primary); font-weight: 700;">View menus &rsaquo;</div>
+          </a>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+</section>
+</main>
+<%~ include('./partials/footer', it) %>

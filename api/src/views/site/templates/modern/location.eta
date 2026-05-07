@@ -2,10 +2,10 @@
 <%~ include('./partials/header', it) %>
 <main>
 <%
-const blocks = Array.isArray(it.config.home_blocks) ? it.config.home_blocks : []
+const blocks = Array.isArray(it.config.page_blocks) ? it.config.page_blocks : []
 %>
 <% if (blocks.length === 0) { %>
-  <%~ include('./fallback_home', it) %>
+  <%~ include('./fallback_location', it) %>
 <% } else { %>
   <% for (const block of blocks) { %>
     <%~ include('../../blocks/renderer', { ...it, block }) %>

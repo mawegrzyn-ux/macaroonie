@@ -8,7 +8,8 @@
       "Bash(echo \"Exit code: $?\")",
       "Bash(git -C \"C:/GitHubReps/Macaroonie\" add api/src/middleware/auth.js)",
       "WebFetch(domain:auth0.com)",
-      "Bash(git update-index:*)"
+      "Bash(git update-index:*)",
+      "PowerShell(\\(Get-Content \"C:\\\\GitHubReps\\\\macaroonie\\\\admin\\\\src\\\\pages\\\\Website.jsx\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }

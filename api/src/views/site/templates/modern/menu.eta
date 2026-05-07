@@ -16,7 +16,7 @@
     <% if (it.menus.length > 1) { %>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:32px; justify-content:center;">
         <% it.menus.forEach(function(m){ %>
-          <a href="/menu/<%= m.id %>"
+          <a href="/locations/<%= it.venue.slug %>/menu/<%= m.id %>"
              class="btn <%= (it.activeMenu && it.activeMenu.id === m.id) ? '' : 'btn-outline' %>"
              style="border-radius:999px;">
             <%= m.label %>

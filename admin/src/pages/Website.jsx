@@ -32,23 +32,25 @@ import { PageBuilder } from '@/components/website-builder/PageBuilder'
 
 // ── Section lists ────────────────────────────────────────────
 
-const BRAND_SECTIONS = [
-  { key: 'brand-identity', label: 'Brand identity',    icon: Globe },
-  { key: 'brand-theme',    label: 'Brand theme',       icon: Palette },
-  { key: 'brand-analytics',label: 'Brand analytics',   icon: BarChart3 },
-  { key: 'brand-banner',   label: 'Emergency banner',  icon: AlertTriangle },
+// One site per TENANT. The TENANT_SECTIONS edit the franchise-wide site
+// (subdomain, brand, home page, SEO, analytics, banner). Each VENUE under
+// the tenant gets a /locations/{slug} page driven by VENUE_SECTIONS —
+// venue-specific content only (hero, gallery, hours, address, menus).
+
+const TENANT_SECTIONS = [
+  { key: 'tenant-page',     label: 'Home page',         icon: LayoutTemplate },
+  { key: 'tenant-domain',   label: 'Domain & publish',  icon: Globe },
+  { key: 'tenant-identity', label: 'Brand identity',    icon: ImageIcon },
+  { key: 'tenant-theme',    label: 'Brand theme',       icon: Palette },
+  { key: 'tenant-locations',label: 'Locations index',   icon: MapPin },
+  { key: 'tenant-seo',      label: 'SEO',               icon: Search },
+  { key: 'tenant-analytics',label: 'Analytics',         icon: BarChart3 },
+  { key: 'tenant-banner',   label: 'Emergency banner',  icon: AlertTriangle },
 ]
 
-// Hero + About are gone from the nav — their content now lives inside blocks
-// added via the Page builder. The remaining sections either edit data that
-// data-blocks pull from (gallery, hours, find us, contact, etc.) or set
-// site-wide settings (setup, template, theme, branding, SEO, analytics).
 const VENUE_SECTIONS = [
   { key: 'page',      label: 'Page builder',   icon: LayoutTemplate },
-  { key: 'setup',     label: 'Setup & domain', icon: Globe },
-  { key: 'template',  label: 'Template',       icon: LayoutTemplate },
-  { key: 'theme',     label: 'Theme overrides',icon: Palette },
-  { key: 'branding',  label: 'Branding',       icon: ImageIcon },
+  { key: 'branding',  label: 'Hero',           icon: ImageIcon },
   { key: 'gallery',   label: 'Gallery',        icon: ImageIcon },
   { key: 'menu',      label: 'Menus (PDF)',    icon: BookOpen },
   { key: 'allergens', label: 'Allergens',      icon: AlertTriangle },
@@ -59,8 +61,6 @@ const VENUE_SECTIONS = [
   { key: 'delivery',  label: 'Delivery',       icon: Truck },
   { key: 'booking',   label: 'Booking widget', icon: Calendar },
   { key: 'pages',     label: 'Custom pages',   icon: FileText },
-  { key: 'seo',       label: 'SEO',            icon: Search },
-  { key: 'analytics', label: 'Analytics',      icon: BarChart3 },
 ]
 
 // ── Shared layout primitives (matches Settings.jsx style) ───
@@ -251,16 +251,15 @@ function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) 
   )
 }
 
-// ── Onboarding (no website_config row yet) ──────────────────
+// ── Onboarding: create the venue's location-page row ─────────
 
 function OnboardingCard({ venueId, venueName, onCreated }) {
   const api = useApi()
   const qc  = useQueryClient()
-  const [slug, setSlug] = useState('')
   const [error, setError] = useState(null)
 
   const create = useMutation({
-    mutationFn: (subdomain_slug) => api.post('/website/config', { subdomain_slug, venue_id: venueId }),
+    mutationFn: () => api.post('/website/config', { venue_id: venueId }),
     onSuccess: (cfg) => {
       qc.invalidateQueries({ queryKey: ['website-config', venueId] })
       qc.invalidateQueries({ queryKey: ['website-configs'] })
@@ -269,120 +268,99 @@ function OnboardingCard({ venueId, venueName, onCreated }) {
     onError: (e) => setError(e?.body?.error || e.message || 'Create failed'),
   })
 
-  function onCreate() {
-    setError(null)
-    if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug)) {
-      setError('Use lowercase letters, digits and hyphens (max 63 chars).')
-      return
-    }
-    create.mutate(slug)
-  }
-
   return (
     <div className="max-w-xl mx-auto mt-12">
       <div className="border rounded-xl bg-background p-8">
         <h2 className="text-lg font-semibold mb-1">
-          Create website for {venueName || 'this venue'}
+          Create location page for {venueName || 'this venue'}
         </h2>
         <p className="text-sm text-muted-foreground mb-6">
-          Pick a subdomain to host this venue's site. You can connect a custom domain later.
+          The site lives at one tenant URL — this venue gets a page at
+          <code className="mx-1 px-1.5 py-0.5 rounded bg-muted text-xs">/locations/{venueName?.toLowerCase().replace(/[^a-z0-9]+/g,'-') || 'this-venue'}</code>.
+          You can then customise the hero, gallery, hours, address and more.
         </p>
-        <FormRow label="Subdomain" hint="Will be available at {slug}.macaroonie.com">
-          <div className="flex items-stretch gap-2">
-            <TextInput
-              autoFocus value={slug}
-              onChange={e => setSlug(e.target.value.toLowerCase())}
-              placeholder="wingstop"
-              className="flex-1"
-            />
-            <span className="inline-flex items-center px-3 text-sm text-muted-foreground bg-muted rounded-md">
-              .macaroonie.com
-            </span>
-          </div>
-        </FormRow>
-        {error && <p className="text-xs text-destructive mt-2">{error}</p>}
+        {error && <p className="text-xs text-destructive mb-3">{error}</p>}
         <button
-          onClick={onCreate} disabled={create.isPending || !slug}
-          className="mt-6 bg-primary text-primary-foreground text-sm font-medium rounded-md px-5 py-2.5 min-h-[44px] inline-flex items-center gap-2 disabled:opacity-50"
+          onClick={() => create.mutate()} disabled={create.isPending}
+          className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-5 py-2.5 min-h-[44px] inline-flex items-center gap-2 disabled:opacity-50"
         >
           {create.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-          Create website
+          Create location page
         </button>
       </div>
     </div>
   )
 }
 
-// ── Setup & domain section ──────────────────────────────────
+// ── Tenant-level: domain + publish ───────────────────────────
 
-function SetupSection({ config }) {
+function TenantDomainSection({ tenantSite }) {
   const api = useApi()
   const qc  = useQueryClient()
-  const [slug,    setSlug]    = useState(config.subdomain_slug || '')
-  const [domain,  setDomain]  = useState(config.custom_domain  || '')
-  const [pubd,    setPubd]    = useState(!!config.is_published)
+  const [slug,   setSlug]   = useState(tenantSite.subdomain_slug || '')
+  const [domain, setDomain] = useState(tenantSite.custom_domain  || '')
+  const [pubd,   setPubd]   = useState(!!tenantSite.is_published)
   const [slugCheck, setSlugCheck] = useState(null)
   const [verifying,  setVerifying]  = useState(false)
   const [verifyResult, setVerifyResult] = useState(null)
 
-  const dirty = slug !== (config.subdomain_slug || '') ||
-                domain !== (config.custom_domain || '') ||
-                pubd !== !!config.is_published
+  const dirty = slug !== (tenantSite.subdomain_slug || '') ||
+                domain !== (tenantSite.custom_domain || '') ||
+                pubd !== !!tenantSite.is_published
 
-  // Debounced slug availability check
   useEffect(() => {
-    if (!slug || slug === config.subdomain_slug) { setSlugCheck(null); return }
+    if (!slug || slug === tenantSite.subdomain_slug) { setSlugCheck(null); return }
     if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug)) {
       setSlugCheck({ ok: false, msg: 'Invalid format' }); return
     }
     const id = setTimeout(async () => {
       try {
-        const r = await api.get(`/website/slug-available?slug=${encodeURIComponent(slug)}`)
+        const r = await api.get(`/website/tenant-site/slug-available?slug=${encodeURIComponent(slug)}`)
         setSlugCheck(r.available
           ? { ok: true, msg: 'Available' }
           : { ok: false, msg: 'Already taken' })
       } catch { setSlugCheck(null) }
     }, 400)
     return () => clearTimeout(id)
-  }, [slug, config.subdomain_slug, api])
+  }, [slug, tenantSite.subdomain_slug, api])
 
   const save = useMutation({
-    mutationFn: () => api.patch('/website/config', {
+    mutationFn: () => api.patch('/website/tenant-site', {
       subdomain_slug: slug,
       custom_domain:  domain || null,
       is_published:   pubd,
     }),
-    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
   })
 
   const verify = useMutation({
-    mutationFn: () => api.post('/website/verify-domain', {}),
+    mutationFn: () => api.post('/website/tenant-site/verify-domain', {}),
     onMutate:   () => setVerifying(true),
     onSettled:  () => setVerifying(false),
     onSuccess:  (r) => {
       setVerifyResult(r)
-      qc.invalidateQueries({ queryKey: ['website-config'] })
+      qc.invalidateQueries({ queryKey: ['tenant-site'] })
     },
     onError:    (e) => setVerifyResult({ verified: false, error: e?.body?.error || e.message }),
   })
 
   function onReset() {
-    setSlug(config.subdomain_slug || '')
-    setDomain(config.custom_domain || '')
-    setPubd(!!config.is_published)
+    setSlug(tenantSite.subdomain_slug || '')
+    setDomain(tenantSite.custom_domain || '')
+    setPubd(!!tenantSite.is_published)
   }
 
-  const liveUrl = config.subdomain_slug
-    ? `https://${config.subdomain_slug}.macaroonie.com`
+  const liveUrl = tenantSite.subdomain_slug
+    ? `https://${tenantSite.subdomain_slug}.macaroonie.com`
     : null
-  const customLiveUrl = config.custom_domain && config.custom_domain_verified
-    ? `https://${config.custom_domain}` : null
+  const customLiveUrl = tenantSite.custom_domain && tenantSite.custom_domain_verified
+    ? `https://${tenantSite.custom_domain}` : null
 
   return (
     <div className="space-y-5">
       <SectionCard
         title="Domain"
-        description="Where guests find your site"
+        description="One URL for the whole tenant — venues live at /locations/{slug}."
         action={liveUrl && (
           <a href={liveUrl} target="_blank" rel="noopener"
              className="text-xs text-primary hover:underline inline-flex items-center gap-1">
@@ -390,7 +368,7 @@ function SetupSection({ config }) {
           </a>
         )}
       >
-        <FormRow label="Subdomain" hint="Always available at {subdomain}.macaroonie.com">
+        <FormRow label="Subdomain" hint="Site lives at {subdomain}.macaroonie.com">
           <div className="flex items-stretch gap-2">
             <TextInput value={slug}
               onChange={e => setSlug(e.target.value.toLowerCase())} className="flex-1" />
@@ -406,17 +384,17 @@ function SetupSection({ config }) {
         </FormRow>
 
         <FormRow label="Custom domain (optional)"
-          hint="e.g. book.wingstop.co.uk. SSL provisioning happens outside this app.">
+          hint="e.g. wingstop.co.uk. SSL provisioning happens outside this app.">
           <TextInput value={domain}
             onChange={e => setDomain(e.target.value.toLowerCase().trim())}
-            placeholder="book.example.com" />
-          {config.custom_domain && (
+            placeholder="example.com" />
+          {tenantSite.custom_domain && (
             <div className="flex items-center justify-between mt-2 text-xs">
               <span className={cn(
                 'inline-flex items-center gap-1 font-medium',
-                config.custom_domain_verified ? 'text-emerald-600' : 'text-amber-600',
+                tenantSite.custom_domain_verified ? 'text-emerald-600' : 'text-amber-600',
               )}>
-                {config.custom_domain_verified
+                {tenantSite.custom_domain_verified
                   ? <><Check className="w-3.5 h-3.5"/> DNS verified</>
                   : <><AlertTriangle className="w-3.5 h-3.5"/> DNS not verified</>}
               </span>
@@ -459,6 +437,133 @@ function SetupSection({ config }) {
 
       <SaveBar dirty={dirty} saving={save.isPending}
         onReset={onReset} onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Tenant-level: locations index settings ───────────────────
+
+function TenantLocationsSection({ tenantSite }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: venues = [] } = useQuery({
+    queryKey: ['venues'],
+    queryFn:  () => api.get('/venues'),
+  })
+  const [heading, setHeading] = useState(tenantSite.locations_heading || 'Our locations')
+  const [intro,   setIntro]   = useState(tenantSite.locations_intro   || '')
+  const [hide,    setHide]    = useState(!!tenantSite.hide_locations_index)
+  const [defaultVenueId, setDefaultVenueId] = useState(tenantSite.default_widget_venue_id || '')
+
+  const dirty = heading !== (tenantSite.locations_heading || 'Our locations') ||
+                intro   !== (tenantSite.locations_intro   || '') ||
+                hide    !== !!tenantSite.hide_locations_index ||
+                defaultVenueId !== (tenantSite.default_widget_venue_id || '')
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/website/tenant-site', {
+      locations_heading:       heading || null,
+      locations_intro:         intro || null,
+      hide_locations_index:    hide,
+      default_widget_venue_id: defaultVenueId || null,
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Locations index"
+        description="The /locations page lists every venue. Hide it for single-location tenants.">
+        <FormRow label="Heading">
+          <TextInput value={heading} onChange={e => setHeading(e.target.value)}
+            placeholder="Our locations" />
+        </FormRow>
+        <FormRow label="Intro paragraph (optional)">
+          <TextArea value={intro} onChange={e => setIntro(e.target.value)}
+            placeholder="A line or two introducing your locations." />
+        </FormRow>
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Hide /locations index</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Useful for single-venue tenants. Visitors going to /locations get a 404.
+            </p>
+          </div>
+          <Toggle value={hide} onChange={setHide} label="Hide locations index" />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Default booking venue"
+        description="When a Booking widget block lives on the tenant home page, this venue is pre-selected so guests skip the location picker.">
+        <FormRow label="Default venue"
+          hint="Leave blank to show the location picker.">
+          <select className="w-full border rounded-md px-3 py-2 text-sm bg-background min-h-[44px]"
+            value={defaultVenueId}
+            onChange={e => setDefaultVenueId(e.target.value)}>
+            <option value="">Show location picker</option>
+            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+        </FormRow>
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => {
+          setHeading(tenantSite.locations_heading || 'Our locations')
+          setIntro(tenantSite.locations_intro || '')
+          setHide(!!tenantSite.hide_locations_index)
+          setDefaultVenueId(tenantSite.default_widget_venue_id || '')
+        }}
+        onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Tenant-level: SEO ────────────────────────────────────────
+
+function TenantSeoSection({ tenantSite }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [title,  setTitle]  = useState(tenantSite.meta_title       || '')
+  const [desc,   setDesc]   = useState(tenantSite.meta_description || '')
+  const [ogUrl,  setOgUrl]  = useState(tenantSite.og_image_url     || '')
+
+  const dirty = title !== (tenantSite.meta_title || '') ||
+                desc  !== (tenantSite.meta_description || '') ||
+                ogUrl !== (tenantSite.og_image_url || '')
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/website/tenant-site', {
+      meta_title:       title || null,
+      meta_description: desc  || null,
+      og_image_url:     ogUrl || null,
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+  })
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Search engines"
+        description="What Google, Bing and social previews show for your site.">
+        <FormRow label="Meta title" hint="Shown in browser tabs and search results.">
+          <TextInput value={title} onChange={e => setTitle(e.target.value)} maxLength={200} />
+        </FormRow>
+        <FormRow label="Meta description" hint="One or two sentences.">
+          <TextArea value={desc} onChange={e => setDesc(e.target.value)} maxLength={500} />
+        </FormRow>
+        <FormRow label="Social share image (Open Graph)"
+          hint="Shown when the site is shared on Facebook, Twitter, etc.">
+          <ImageField url={ogUrl} kind="images" scope="brand:og"
+            onChange={setOgUrl} />
+        </FormRow>
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => {
+          setTitle(tenantSite.meta_title || '')
+          setDesc(tenantSite.meta_description || '')
+          setOgUrl(tenantSite.og_image_url || '')
+        }}
+        onSave={() => save.mutate()} />
     </div>
   )
 }
@@ -2141,28 +2246,31 @@ function DeliverySection({ config }) {
 
 // ── Custom pages section ────────────────────────────────────
 
-function PagesSection() {
+function PagesSection({ venueId }) {
   const api = useApi()
   const qc  = useQueryClient()
+  // venueId === undefined → tenant-level pages. Otherwise venue-level.
+  const scope = venueId || 'tenant'
+  const queryParam = `venue_id=${scope}`
   const { data: pages = [], isLoading } = useQuery({
-    queryKey: ['website-pages'],
-    queryFn:  () => api.get('/website/pages'),
+    queryKey: ['website-pages', scope],
+    queryFn:  () => api.get(`/website/pages?${queryParam}`),
   })
-  const [editing, setEditing] = useState(null)   // id | 'new' | null
+  const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ slug: '', title: '', content: '', is_published: true, sort_order: 0 })
 
   const save = useMutation({
     mutationFn: () => editing === 'new'
-      ? api.post('/website/pages', form)
+      ? api.post(`/website/pages?${queryParam}`, form)
       : api.patch(`/website/pages/${editing}`, form),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['website-pages'] })
+      qc.invalidateQueries({ queryKey: ['website-pages', scope] })
       setEditing(null)
     },
   })
   const del = useMutation({
     mutationFn: (id) => api.delete(`/website/pages/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-pages'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-pages', scope] }),
   })
 
   function edit(p) {
@@ -2541,8 +2649,9 @@ function BrandBannerSection() {
 export default function Website() {
   const api = useApi()
   const qc  = useQueryClient()
-  const [active, setActive] = useState('setup')
-  const [mode, setMode] = useState('venue')    // 'venue' | 'brand'
+  // 'tenant' edits the tenant_site row; 'venue' edits a venue's website_config.
+  const [mode, setMode] = useState('tenant')
+  const [active, setActive] = useState('tenant-page')
   const [venueId, setVenueId] = useState(null)
 
   const { data: venues = [] } = useQuery({
@@ -2550,17 +2659,20 @@ export default function Website() {
     queryFn:  () => api.get('/venues'),
   })
 
+  const { data: tenantSite } = useQuery({
+    queryKey: ['tenant-site'],
+    queryFn:  () => api.get('/website/tenant-site'),
+  })
+
   const { data: allConfigs = [] } = useQuery({
     queryKey: ['website-configs'],
     queryFn:  () => api.get('/website/configs'),
   })
 
-  // Pick the first venue with a site, or the first venue overall
   useEffect(() => {
     if (venueId) return
-    if (allConfigs.length) setVenueId(allConfigs[0].venue_id)
-    else if (venues.length) setVenueId(venues[0].id)
-  }, [venues, allConfigs, venueId])
+    if (venues.length) setVenueId(venues[0].id)
+  }, [venues, venueId])
 
   const { data: config, isLoading } = useQuery({
     queryKey: ['website-config', venueId],
@@ -2579,93 +2691,66 @@ export default function Website() {
   }
 
   const currentVenue = venues.find(v => v.id === venueId)
-
-  // Left rail sections depend on mode
-  const sections = mode === 'brand' ? BRAND_SECTIONS : VENUE_SECTIONS
+  const sections     = mode === 'tenant' ? TENANT_SECTIONS : VENUE_SECTIONS
   const sectionLabel = sections.find(s => s.key === active)?.label
+
+  const liveHost = tenantSite?.subdomain_slug ? `${tenantSite.subdomain_slug}.macaroonie.com` : null
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Left rail */}
       <aside className="w-56 shrink-0 border-r overflow-y-auto py-4 px-2">
-        {/* Mode toggle: Brand vs Venue */}
+        {/* Mode tabs */}
         <div className="px-2 mb-3 space-y-1">
-          <button onClick={() => { setMode('brand'); setActive('brand-identity') }}
+          <button onClick={() => { setMode('tenant'); setActive('tenant-page') }}
             className={cn('w-full text-left px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wide',
-              mode === 'brand' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent')}>
-            Brand defaults
+              mode === 'tenant' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent')}>
+            Tenant site
           </button>
 
           <div className="pt-1">
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
-              Venue site
+              Location pages
             </p>
             <select
               value={venueId ?? ''}
-              onChange={e => { setVenueId(e.target.value); setMode('venue'); setActive('setup') }}
+              onChange={e => { setVenueId(e.target.value); setMode('venue'); setActive('page') }}
               className="w-full border rounded-md px-2 py-1.5 text-sm bg-background min-h-[36px]">
               {venues.map(v => {
-                const hasWebsite = allConfigs.some(c => c.venue_id === v.id)
-                return <option key={v.id} value={v.id}>{v.name}{hasWebsite ? '' : ' (no site)'}</option>
+                const hasPage = allConfigs.some(c => c.venue_id === v.id && c.config_id)
+                return <option key={v.id} value={v.id}>{v.name}{hasPage ? '' : ' (not set up)'}</option>
               })}
             </select>
           </div>
         </div>
 
-        {mode === 'venue' && (
-          <nav className="space-y-0.5 px-1">
-            {sections.map(s => {
-              const Icon = s.icon
-              return (
-                <button key={s.key} onClick={() => setActive(s.key)}
-                  className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
-                    active === s.key
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )}>
-                  <Icon className="w-4 h-4 shrink-0" />
-                  {s.label}
-                </button>
-              )
-            })}
-          </nav>
-        )}
-        {mode === 'brand' && (
-          <nav className="space-y-0.5 px-1">
-            {sections.map(s => {
-              const Icon = s.icon
-              return (
-                <button key={s.key} onClick={() => setActive(s.key)}
-                  className={cn(
-                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
-                    active === s.key
-                      ? 'bg-primary/10 text-primary font-medium'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )}>
-                  <Icon className="w-4 h-4 shrink-0" />
-                  {s.label}
-                </button>
-              )
-            })}
-          </nav>
-        )}
+        <nav className="space-y-0.5 px-1">
+          {sections.map(s => {
+            const Icon = s.icon
+            return (
+              <button key={s.key} onClick={() => setActive(s.key)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
+                  active === s.key
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}>
+                <Icon className="w-4 h-4 shrink-0" />
+                {s.label}
+              </button>
+            )
+          })}
+        </nav>
       </aside>
 
-      {/* Main panel */}
       <main className="flex-1 overflow-y-auto">
-        <div className={cn('p-6', active !== 'page' && 'max-w-3xl mx-auto')}>
+        <div className={cn('p-6', active !== 'page' && active !== 'tenant-page' && 'max-w-3xl mx-auto')}>
           <div className="mb-6">
-            {mode === 'brand' ? (
-              <h1 className="text-xl font-semibold">{sectionLabel}</h1>
-            ) : (
+            {mode === 'tenant' ? (
               <>
-                <h1 className="text-xl font-semibold">
-                  {currentVenue?.name} — {sectionLabel}
-                </h1>
-                {hasConfig && config.subdomain_slug && (
+                <h1 className="text-xl font-semibold">{sectionLabel}</h1>
+                {liveHost && (
                   <p className="text-sm text-muted-foreground mt-0.5">
-                    {config.is_published ? (
+                    {tenantSite.is_published ? (
                       <span className="inline-flex items-center gap-1 text-emerald-600">
                         <Eye className="w-3.5 h-3.5"/> Live
                       </span>
@@ -2675,10 +2760,24 @@ export default function Website() {
                       </span>
                     )}
                     <span className="mx-2">·</span>
-                    <a href={`https://${config.subdomain_slug}.macaroonie.com`}
+                    <a href={`https://${liveHost}`} target="_blank" rel="noopener"
+                       className="text-primary hover:underline inline-flex items-center gap-1">
+                      {liveHost} <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <h1 className="text-xl font-semibold">
+                  {currentVenue?.name} — {sectionLabel}
+                </h1>
+                {liveHost && currentVenue && (
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    <a href={`https://${liveHost}/locations/${currentVenue.slug}`}
                        target="_blank" rel="noopener"
                        className="text-primary hover:underline inline-flex items-center gap-1">
-                      {config.subdomain_slug}.macaroonie.com
+                      {liveHost}/locations/{currentVenue.slug}
                       <ExternalLink className="w-3 h-3" />
                     </a>
                   </p>
@@ -2687,11 +2786,19 @@ export default function Website() {
             )}
           </div>
 
-          {mode === 'brand' ? (
-            <BrandActiveSection active={active} />
+          {mode === 'tenant' ? (
+            tenantSite
+              ? <TenantActiveSection active={active} tenantSite={tenantSite} />
+              : <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                </div>
           ) : !hasConfig ? (
             <OnboardingCard venueId={venueId} venueName={currentVenue?.name}
-              onCreated={() => { qc.invalidateQueries({ queryKey: ['website-configs'] }); setActive('setup') }} />
+              onCreated={() => {
+                qc.invalidateQueries({ queryKey: ['website-configs'] })
+                qc.invalidateQueries({ queryKey: ['website-config', venueId] })
+                setActive('page')
+              }} />
           ) : isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -2705,35 +2812,52 @@ export default function Website() {
   )
 }
 
-function BrandActiveSection({ active }) {
+function TenantActiveSection({ active, tenantSite }) {
   switch (active) {
-    case 'brand-identity':  return <BrandIdentitySection />
-    case 'brand-theme':     return <BrandThemeSection />
-    case 'brand-analytics': return <BrandAnalyticsSection />
-    case 'brand-banner':    return <BrandBannerSection />
+    case 'tenant-page':
+      return (
+        <PageBuilder
+          config={tenantSite}
+          blocksField="home_blocks"
+          saveEndpoint="/website/tenant-site"
+          invalidateKey={['tenant-site']}
+        />
+      )
+    case 'tenant-domain':    return <TenantDomainSection    tenantSite={tenantSite} />
+    case 'tenant-identity':  return <BrandIdentitySection />
+    case 'tenant-theme':     return <BrandThemeSection />
+    case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />
+    case 'tenant-seo':       return <TenantSeoSection       tenantSite={tenantSite} />
+    case 'tenant-analytics': return <BrandAnalyticsSection />
+    case 'tenant-banner':    return <BrandBannerSection />
     default: return null
   }
 }
 
 function VenueActiveSection({ active, config, venueId }) {
+  const saveEndpoint = `/website/config?venue_id=${venueId}`
+  const invalidateKey = ['website-config', venueId]
   switch (active) {
-    case 'page':      return <PageBuilder      config={config} />
-    case 'setup':     return <SetupSection     config={config} />
-    case 'template':  return <TemplateSection  config={config} />
-    case 'theme':     return <ThemeSection     config={config} />
+    case 'page':
+      return (
+        <PageBuilder
+          config={config}
+          blocksField="page_blocks"
+          saveEndpoint={saveEndpoint}
+          invalidateKey={invalidateKey}
+        />
+      )
     case 'branding':  return <BrandingSection  config={config} />
     case 'gallery':   return <GallerySection   config={config} />
     case 'menu':      return <MenuSection      config={config} />
     case 'allergens': return <AllergensSection config={config} />
-    case 'hours':     return <HoursSection config={config} />
+    case 'hours':     return <HoursSection     config={config} />
     case 'find':      return <FindUsSection    config={config} />
     case 'contact':   return <ContactSection   config={config} />
     case 'booking':   return <BookingSection   config={config} />
     case 'ordering':  return <OrderingSection  config={config} />
     case 'delivery':  return <DeliverySection  config={config} />
-    case 'pages':     return <PagesSection />
-    case 'seo':       return <SeoSection       config={config} />
-    case 'analytics': return <AnalyticsSection config={config} />
+    case 'pages':     return <PagesSection venueId={venueId} />
     default:
       return (
         <div className="text-sm text-muted-foreground border rounded-xl p-8 text-center bg-background">

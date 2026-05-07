@@ -1,10 +1,27 @@
 <%
 const d = it.block.data || {}
 const c = it.config
+const ts = it.tenant_site || {}
 const widgetBase = `${it.rootDomain ? (it.siteUrl || '') : ''}`
 const accent = (c.primary_colour || '').replace('#','')
 const theme  = c.widget_theme || 'light'
-const venueId = c.widget_venue_id
+
+// Resolution order:
+//   1. block-level override (data.venue_id)
+//   2. on a location page, the current venue
+//   3. tenant's default_widget_venue_id
+//   4. tenant mode with location picker (multi-venue tenant home)
+let widgetUrl = null
+if (d.venue_id) {
+  widgetUrl = `${widgetBase}/widget/${d.venue_id}?theme=${theme}&accent=${accent}`
+} else if (it.venue?.id) {
+  widgetUrl = `${widgetBase}/widget/${it.venue.id}?theme=${theme}&accent=${accent}`
+} else if (ts.default_widget_venue_id) {
+  widgetUrl = `${widgetBase}/widget/${ts.default_widget_venue_id}?theme=${theme}&accent=${accent}`
+} else if (ts.tenant_id) {
+  widgetUrl = `${widgetBase}/widget/tenant/${ts.tenant_id}?theme=${theme}&accent=${accent}`
+}
+
 const innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '900px' : '640px'
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
@@ -13,8 +30,8 @@ const containerStyle = d.container === 'full'
 <section class="block" id="booking" style="padding:48px 0; background:var(--c-surface);">
   <div style="<%= containerStyle %> text-align:center;">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
-    <% if (venueId) { %>
-      <iframe src="<%= widgetBase %>/widget/<%= venueId %>?theme=<%= theme %>&accent=<%= accent %>"
+    <% if (widgetUrl) { %>
+      <iframe src="<%= widgetUrl %>"
               style="width:100%; min-height:640px; border:0; border-radius:var(--r-md, 8px); background:#fff;"
               loading="lazy"
               title="Book a table"></iframe>

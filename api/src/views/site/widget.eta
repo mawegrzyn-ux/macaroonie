@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>Book a table — <%= it.venue.name %></title>
+  <title>Book a table — <%= it.tenantName %></title>
   <style>
     :root {
       --w-accent: <%= it.accent %>;
@@ -75,12 +75,23 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .center { text-align: center; }
     .check { display: inline-block; width: 48px; height: 48px; line-height: 48px; border-radius: 50%; background: #16a34a; color: #fff; font-size: 28px; margin-bottom: 12px; }
+    .venue-list { display: flex; flex-direction: column; gap: 8px; }
+    .venue-card {
+      width: 100%; text-align: left;
+      padding: 14px 16px; border: 1px solid var(--w-border); border-radius: var(--w-radius);
+      background: var(--w-bg); color: var(--w-fg); cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .venue-card:hover { border-color: var(--w-accent); }
+    .venue-card .vname { font-weight: 600; font-size: 15px; }
+    .venue-card .vaddr { color: var(--w-muted); font-size: 13px; margin-top: 2px; }
+    .venue-card .arrow { color: var(--w-muted); font-size: 18px; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
-      <h1><%= it.venue.site_name || it.venue.name %></h1>
+      <h1 id="venue-title"><%= it.tenantName %></h1>
       <p class="sub">Book a table</p>
       <div class="progress" id="progress"></div>
       <div id="root"></div>
@@ -89,18 +100,30 @@
 
   <script>
     (function() {
-      const VENUE_ID = <%~ JSON.stringify(it.venue.id) %>;
-      const API     = <%~ JSON.stringify(it.apiBase) %>;
-      const VENUE   = <%~ JSON.stringify(it.venue) %>;
+      const MODE     = <%~ JSON.stringify(it.mode) %>;            // 'tenant' | 'venue'
+      const VENUES   = <%~ JSON.stringify(it.venues) %>;
+      const API      = <%~ JSON.stringify(it.apiBase) %>;
+      const TENANT_NAME = <%~ JSON.stringify(it.tenantName) %>;
+      // When set, skip the location picker (deep-link).
+      const INITIAL_VENUE_ID = <%~ JSON.stringify(it.initialVenueId || null) %>;
+
+      const venuesById = Object.fromEntries(VENUES.map(v => [v.id, v]));
+
+      // The picker is step 0; covers/date/time/details/confirmed are 1..5.
+      // In venue mode (or tenant mode with deep-link) we start at step 1.
+      const initialVenue = INITIAL_VENUE_ID && venuesById[INITIAL_VENUE_ID]
+        ? venuesById[INITIAL_VENUE_ID]
+        : (VENUES.length === 1 ? VENUES[0] : null);
 
       const state = {
-        step: 1,                 // 1..5
+        step: initialVenue ? 1 : 0,
+        venue: initialVenue,
         covers: 2,
         date: today(),
-        slot: null,              // { slot_time, table_id, combination_id }
+        slot: null,
         details: { name: '', email: '', phone: '', notes: '' },
-        hold: null,              // { id, expires_at }
-        booking: null,           // confirmed result
+        hold: null,
+        booking: null,
         error: null,
         loading: false,
       };
@@ -110,9 +133,9 @@
         return d.toISOString().slice(0, 10);
       }
 
-      function maxDate() {
+      function maxDate(v) {
         const d = new Date();
-        d.setDate(d.getDate() + (VENUE.booking_window_days || 30));
+        d.setDate(d.getDate() + ((v || state.venue || {}).booking_window_days || 30));
         return d.toISOString().slice(0, 10);
       }
 
@@ -142,22 +165,29 @@
       }
 
       // ── Step actions ──────────────────────────────────
+      function pickVenue(venueId) {
+        const v = venuesById[venueId];
+        if (!v) return;
+        state.venue = v;
+        state.slot = null;
+        state.hold = null;
+        goto(1);
+      }
       function pickCovers(n) { state.covers = n; goto(2); }
       function pickDate(d) { state.date = d; loadSlots(); }
       function pickSlot(slot) { state.slot = slot; goto(4); }
 
       async function loadSlots() {
         await withLoading(async () => {
-          state.slots = await apiFetch('/venues/' + VENUE_ID + '/slots?date=' + state.date + '&covers=' + state.covers);
+          state.slots = await apiFetch('/venues/' + state.venue.id + '/slots?date=' + state.date + '&covers=' + state.covers);
           state.step = 3;
         });
       }
 
       async function createHold() {
         await withLoading(async () => {
-          // The slot's `slot_time` is HH:MM; build full ISO with venue date.
           const startsAt = new Date(state.date + 'T' + state.slot.slot_time + ':00').toISOString();
-          state.hold = await apiFetch('/venues/' + VENUE_ID + '/holds', {
+          state.hold = await apiFetch('/venues/' + state.venue.id + '/holds', {
             method: 'POST',
             body: JSON.stringify({
               starts_at:      startsAt,
@@ -175,7 +205,7 @@
 
       async function confirmBooking() {
         await withLoading(async () => {
-          state.booking = await apiFetch('/venues/' + VENUE_ID + '/holds/' + state.hold.id + '/confirm', {
+          state.booking = await apiFetch('/venues/' + state.venue.id + '/holds/' + state.hold.id + '/confirm', {
             method: 'POST',
             body: JSON.stringify({
               guest_name:  state.details.name,
@@ -185,19 +215,16 @@
             }),
           });
           state.step = 5;
-          // Notify parent for analytics / redirect
           try { window.parent.postMessage({ type: 'macaroonie:booking-confirmed', booking: state.booking }, '*'); } catch (e) {}
         });
       }
 
       function cancelHold() {
         if (state.hold) {
-          fetch(API + '/venues/' + VENUE_ID + '/holds/' + state.hold.id, { method: 'DELETE' }).catch(() => {});
+          fetch(API + '/venues/' + state.venue.id + '/holds/' + state.hold.id, { method: 'DELETE' }).catch(() => {});
         }
         state.hold = null;
       }
-
-      // Cancel hold on unload
       window.addEventListener('beforeunload', cancelHold);
 
       // ── Rendering ────────────────────────────────────
@@ -219,16 +246,31 @@
       function progress() {
         const bar = document.getElementById('progress');
         bar.innerHTML = '';
-        for (let i = 1; i <= 5; i++) {
+        // step 0 = picker (only shown in tenant mode); steps 1–5 always.
+        const total = 5;
+        const cur = Math.max(1, state.step);
+        for (let i = 1; i <= total; i++) {
           const d = document.createElement('div');
-          if (i < state.step) d.className = 'done';
-          if (i === state.step) d.className = 'done';
+          if (i <= cur) d.className = 'done';
           bar.appendChild(d);
+        }
+      }
+
+      function updateTitle() {
+        const t = document.getElementById('venue-title');
+        if (!t) return;
+        if (state.venue && MODE === 'tenant' && state.step > 0) {
+          t.textContent = state.venue.name + ' — ' + TENANT_NAME;
+        } else if (state.venue) {
+          t.textContent = state.venue.site_name || state.venue.name;
+        } else {
+          t.textContent = TENANT_NAME;
         }
       }
 
       function render() {
         progress();
+        updateTitle();
         const root = document.getElementById('root');
         root.innerHTML = '';
 
@@ -237,7 +279,8 @@
           return;
         }
 
-        if (state.step === 1) renderCovers(root);
+        if (state.step === 0) renderPicker(root);
+        else if (state.step === 1) renderCovers(root);
         else if (state.step === 2) renderDate(root);
         else if (state.step === 3) renderSlots(root);
         else if (state.step === 4) renderDetails(root);
@@ -248,10 +291,27 @@
         }
       }
 
+      function renderPicker(root) {
+        root.appendChild(el('p', { class: 'step-label' }, 'Choose a location'));
+        const list = el('div', { class: 'venue-list' });
+        VENUES.forEach(v => {
+          const addr = [v.address_line1, v.city, v.postcode].filter(Boolean).join(' · ');
+          list.appendChild(el('button', { class: 'venue-card', onclick: () => pickVenue(v.id) },
+            el('div', {},
+              el('div', { class: 'vname' }, v.name),
+              addr ? el('div', { class: 'vaddr' }, addr) : null,
+            ),
+            el('span', { class: 'arrow' }, '›'),
+          ));
+        });
+        root.appendChild(list);
+      }
+
       function renderCovers(root) {
         root.appendChild(el('p', { class: 'step-label' }, 'How many guests?'));
-        const max = Math.min(VENUE.max_covers || 8, 12);
-        const min = VENUE.min_covers || 1;
+        const v = state.venue;
+        const max = Math.min(v.max_covers || 8, 12);
+        const min = v.min_covers || 1;
         const pills = el('div', { class: 'row' });
         for (let n = min; n <= max; n++) {
           const p = el('button', {
@@ -261,6 +321,13 @@
           pills.appendChild(p);
         }
         root.appendChild(pills);
+        // Allow returning to the location picker only when there are multiple
+        // venues AND we did NOT enter via deep-link.
+        if (MODE === 'tenant' && VENUES.length > 1 && !INITIAL_VENUE_ID) {
+          root.appendChild(el('div', { class: 'nav' },
+            el('button', { class: 'btn secondary', onclick: () => goto(0) }, '← Change location'),
+          ));
+        }
         root.appendChild(el('p', { class: 'sub', style: 'margin-top:14px' },
           'Larger party? Call us — we\'ll arrange combined tables.'));
       }
@@ -310,6 +377,7 @@
 
       function renderDetails(root) {
         root.appendChild(el('div', { class: 'summary' },
+          MODE === 'tenant' ? el('div', { class: 'row-line' }, el('span', { class: 'lbl' }, 'Location'), el('span', {}, state.venue.name)) : null,
           el('div', { class: 'row-line' }, el('span', { class: 'lbl' }, 'Date'), el('span', {}, formatDate(state.date))),
           el('div', { class: 'row-line' }, el('span', { class: 'lbl' }, 'Time'), el('span', {}, state.slot.slot_time)),
           el('div', { class: 'row-line' }, el('span', { class: 'lbl' }, 'Guests'), el('span', {}, String(state.covers))),
@@ -360,6 +428,7 @@
           'Reference: ' + (b.reference || '—'),
         ));
         root.appendChild(el('div', { class: 'summary', style: 'margin-top:16px' },
+          MODE === 'tenant' ? el('div', { class: 'row-line' }, el('span', { class: 'lbl' }, 'Location'), el('span', {}, state.venue.name)) : null,
           el('div', { class: 'row-line' }, el('span', { class: 'lbl' }, 'Name'),  el('span', {}, b.guest_name || '—')),
           el('div', { class: 'row-line' }, el('span', { class: 'lbl' }, 'When'),  el('span', {}, formatDate(state.date) + ' at ' + state.slot.slot_time)),
           el('div', { class: 'row-line' }, el('span', { class: 'lbl' }, 'Guests'), el('span', {}, String(state.covers))),
@@ -376,7 +445,6 @@
         } catch (e) { return iso; }
       }
 
-      // Initial render
       render();
     })();
   </script>

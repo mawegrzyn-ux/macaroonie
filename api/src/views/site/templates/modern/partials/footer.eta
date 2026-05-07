@@ -1,3 +1,9 @@
+<%
+const onLocation = !!it.venue
+const venues     = it.venues || []
+const sl = it.config.social_links || {}
+const socials = Object.entries(sl).filter(function(e){return e[1]})
+%>
 <style>
   .m-footer {
     background: var(--c-text); color: #c9c9c9; padding: 64px 0 28px;
@@ -9,6 +15,9 @@
     font-family: var(--f-heading); font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 12px;
   }
   .m-footer .title { font-weight: 600; color: #fff; margin-bottom: 10px; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .m-footer .loc-list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 24px; }
+  .m-footer .loc-list a { color: #c9c9c9; }
+  .m-footer .loc-list a:hover { color: #fff; }
   .m-footer .bottom { margin-top: 40px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.12); font-size: 12px; color: #777; display: flex; justify-content: space-between; }
   @media (max-width: 800px) {
     .m-footer .cols { grid-template-columns: 1fr 1fr; }
@@ -25,30 +34,40 @@
         <% } %>
       </div>
 
-      <div>
-        <% if (it.config.show_find_us && it.config.address_line1) { %>
-          <div class="title">Visit</div>
-          <div><%= it.config.address_line1 %></div>
-          <% if (it.config.address_line2) { %><div><%= it.config.address_line2 %></div><% } %>
-          <div><%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %></div>
-        <% } %>
-      </div>
+      <% if (onLocation) { %>
+        <div>
+          <% if (it.config.show_find_us && it.config.address_line1) { %>
+            <div class="title">Visit</div>
+            <div><%= it.config.address_line1 %></div>
+            <% if (it.config.address_line2) { %><div><%= it.config.address_line2 %></div><% } %>
+            <div><%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %></div>
+          <% } %>
+        </div>
+        <div>
+          <% if (it.config.show_contact) { %>
+            <div class="title">Contact</div>
+            <% if (it.config.phone) { %>
+              <div><a href="tel:<%= it.config.phone %>"><%= it.config.phone %></a></div>
+            <% } %>
+            <% if (it.config.email) { %>
+              <div><a href="mailto:<%= it.config.email %>"><%= it.config.email %></a></div>
+            <% } %>
+          <% } %>
+        </div>
+      <% } else { %>
+        <div style="grid-column: span 2;">
+          <% if (!it.tenant_site?.hide_locations_index && venues.length) { %>
+            <div class="title">Locations</div>
+            <div class="loc-list">
+              <% venues.forEach(function(v){ %>
+                <a href="/locations/<%= v.slug %>"><%= v.name %></a>
+              <% }) %>
+            </div>
+          <% } %>
+        </div>
+      <% } %>
 
       <div>
-        <% if (it.config.show_contact) { %>
-          <div class="title">Contact</div>
-          <% if (it.config.phone) { %>
-            <div><a href="tel:<%= it.config.phone %>"><%= it.config.phone %></a></div>
-          <% } %>
-          <% if (it.config.email) { %>
-            <div><a href="mailto:<%= it.config.email %>"><%= it.config.email %></a></div>
-          <% } %>
-        <% } %>
-      </div>
-
-      <div>
-        <% const sl = it.config.social_links || {} %>
-        <% const socials = Object.entries(sl).filter(function(e){return e[1]}) %>
         <% if (socials.length) { %>
           <div class="title">Social</div>
           <% socials.forEach(function(entry){ %>

@@ -71,16 +71,18 @@ export default async function widgetApiRoutes(app) {
     const venue = await resolveTenant(req.params.venueId)
     if (!venue) throw httpError(404, 'Venue not found')
 
+    // Theme + branding now come from tenant_site (one site per tenant);
+    // per-venue website_config holds only location-page content.
     const [extras] = await withTenant(venue.tenant_id, tx => tx`
       SELECT br.slot_duration_mins, br.min_covers, br.max_covers,
              br.booking_window_days, br.cutoff_before_mins, br.hold_ttl_secs,
              dr.requires_deposit, dr.amount_pence, dr.currency,
-             wc.primary_colour, wc.secondary_colour, wc.font_family,
-             wc.theme, wc.site_name
+             ts.primary_colour, ts.secondary_colour, ts.font_family,
+             ts.theme, ts.site_name
         FROM venues v
-        LEFT JOIN booking_rules  br ON br.venue_id  = v.id
-        LEFT JOIN deposit_rules  dr ON dr.venue_id  = v.id
-        LEFT JOIN website_config wc ON wc.venue_id  = v.id
+        LEFT JOIN booking_rules br ON br.venue_id  = v.id
+        LEFT JOIN deposit_rules dr ON dr.venue_id  = v.id
+        LEFT JOIN tenant_site   ts ON ts.tenant_id = v.tenant_id
        WHERE v.id = ${req.params.venueId}
     `)
 

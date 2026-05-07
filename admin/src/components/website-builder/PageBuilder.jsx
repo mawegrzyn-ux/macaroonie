@@ -31,11 +31,21 @@ import {
   moveAcrossParents, parentKey, parseParentKey,
 } from './blockTree'
 
-export function PageBuilder({ config }) {
+// PageBuilder targets either:
+//   - tenant home_blocks  (config = tenant_site, blocksField = 'home_blocks',
+//                          endpoint = '/website/tenant-site')
+//   - venue page_blocks   (config = website_config row, blocksField = 'page_blocks',
+//                          endpoint = '/website/config?venue_id=X')
+export function PageBuilder({
+  config,
+  blocksField     = 'home_blocks',
+  saveEndpoint    = '/website/tenant-site',
+  invalidateKey   = ['tenant-site'],
+}) {
   const api = useApi()
   const qc  = useQueryClient()
 
-  const initial = useMemo(() => Array.isArray(config?.home_blocks) ? config.home_blocks : [], [config])
+  const initial = useMemo(() => Array.isArray(config?.[blocksField]) ? config[blocksField] : [], [config, blocksField])
   const [blocks, setBlocks] = useState(initial)
   const [selectedId, setSelectedId] = useState(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
@@ -57,8 +67,8 @@ export function PageBuilder({ config }) {
   )
 
   const save = useMutation({
-    mutationFn: () => api.patch('/website/config', { home_blocks: blocks }),
-    onSuccess:  (cfg) => qc.setQueryData(['website-config'], cfg),
+    mutationFn: () => api.patch(saveEndpoint, { [blocksField]: blocks }),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: invalidateKey }),
   })
 
   // ── Drag-end: handles every move (top-level, within-column,

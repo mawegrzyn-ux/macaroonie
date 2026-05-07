@@ -5,6 +5,68 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-08]
+
+### CMS architecture flip: one site per TENANT *(migration 043)*
+
+The website CMS now serves **one site per tenant** (master franchisee)
+instead of one site per venue. Each venue becomes a `/locations/{slug}`
+page under the single tenant URL.
+
+**Schema (migration 043):**
+- `tenant_brand_defaults` renamed to `tenant_site` and absorbed: `subdomain_slug`,
+  `custom_domain`, `custom_domain_verified`, `site_name`, `tagline`,
+  `meta_title`, `meta_description`, `home_blocks` (jsonb), `is_published`,
+  `default_widget_venue_id`, plus locations-index settings
+  (`hide_locations_index`, `locations_heading`, `locations_intro`).
+- `website_config` (per-venue) lost `subdomain_slug`, `custom_domain[_verified]`,
+  `is_published`, `meta_title`, `meta_description`. Its `home_blocks`
+  column was renamed to `page_blocks` (drives the location page layout).
+- `website_pages.website_config_id` was replaced with a nullable
+  `venue_id` (NULL = tenant-level page, non-NULL = venue-level page).
+  Two partial unique indexes enforce slug uniqueness per scope.
+
+**Routes (siteRenderer.js):**
+- `/` → tenant home (renders `tenant_site.home_blocks`, falls back to
+  `fallback_home.eta` with hero + locations grid).
+- `/locations` → venues index (404 when `hide_locations_index = true`).
+- `/locations/:venueSlug` → location page (renders
+  `website_config.page_blocks`, falls back to `fallback_location.eta`).
+- `/locations/:venueSlug/menu[/{id}]` → location menus.
+- `/menu` → tenant menu hub (lists every venue with menus).
+- `/p/:slug` → tenant-level custom page;
+  `/locations/:venueSlug/p/:slug` → venue-level custom page.
+
+**Booking widget:**
+- `/widget/:venueId` (existing) — venue-direct deep link.
+- `/widget/tenant/:tenantId[?venue=<id>]` (new) — tenant mode, step 0 is
+  a location picker which is skipped when `?venue=` is provided.
+- `booking_widget` block now resolves through 4 levels:
+  block-level `venue_id` → current `it.venue.id` → tenant
+  `default_widget_venue_id` → tenant widget URL with picker.
+
+**Admin (`/website` page):**
+- Top-level Tenant site mode (subdomain, brand, home page, locations
+  index, SEO, analytics, banner) and a Location switcher for the
+  per-venue page editor.
+- `PageBuilder` now accepts `blocksField` / `saveEndpoint` /
+  `invalidateKey` props so it can target either tenant `home_blocks`
+  via `/website/tenant-site` or venue `page_blocks` via
+  `/website/config?venue_id=X`.
+- New endpoints: `/website/tenant-site` (GET/PATCH),
+  `/website/tenant-site/slug-available`,
+  `/website/tenant-site/verify-domain`. The legacy `/brand-defaults`
+  endpoints remain as aliases for the tenant-site row during the cutover.
+
+**Templates (classic + modern):**
+- `index.eta` is the tenant home; new `locations.eta`, `location.eta`,
+  `menu_hub.eta`, `fallback_home.eta`, `fallback_location.eta` cover
+  the new routes. Header + footer partials are now context-aware:
+  same template renders for tenant pages (Locations link, locations
+  list in footer) and location pages (venue crumb, address + contact).
+
+---
+
 ## [2026-05-03]
 
 ### Embeddable booking widget

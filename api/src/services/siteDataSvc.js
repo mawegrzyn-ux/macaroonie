@@ -1,25 +1,25 @@
 // src/services/siteDataSvc.js
 //
-// Loads the complete public-site data bundle for a venue's website.
-// Used by both the JSON API (/api/site/:slug) and the SSR renderer.
+// Public-site data loaders.
 //
-// Two possible lookup keys:
-//   - subdomain slug   → {slug}.{PUBLIC_ROOT_DOMAIN}
-//   - custom domain    → any verified custom hostname
+// The site is keyed at TENANT level — one site per master franchisee at
+// {tenant_site.subdomain_slug}.{PUBLIC_ROOT_DOMAIN} or a verified custom
+// domain. Each venue under the tenant becomes a /locations/{venue.slug}
+// page driven by website_config + the venue row.
 //
-// Field inheritance (resolved here, transparent to templates):
-//   1. Hard-coded DEFAULTS (see shared/head.eta)
-//   2. tenant_brand_defaults  (franchise brand identity)
-//   3. website_config          (per-venue overrides)
+// Two loader entry points:
+//   loadTenantBundle({ slug, customDomain }) → tenant home, locations
+//     index, custom pages, sitemap. Includes a `venues` summary array.
+//   loadLocationBundle(tenantBundle, venueSlug) → per-venue location
+//     page (gallery, menus, hours, allergens, address, contact, etc.)
 //
-// The merge happens for: logo, favicon, primary_colour,
-// secondary_colour, font_family, template_key, theme, social_links,
-// og_image_url, ga4_measurement_id, fb_pixel_id.  The SSR templates
-// only see the merged config — they have no concept of "brand vs venue".
+// Field inheritance (transparent to templates):
+//   1. Hard-coded DEFAULTS                        (in shared/head.eta)
+//   2. tenant_site                                (franchise identity)
+//   3. website_config (when rendering a location) (per-venue overrides)
 
 import { sql, withTenant } from '../config/db.js'
 
-// Fields that inherit from tenant_brand_defaults → venue override.
 const BRAND_INHERITABLE = [
   'logo_url', 'favicon_url', 'primary_colour', 'secondary_colour',
   'font_family', 'template_key', 'og_image_url',
@@ -39,138 +39,214 @@ function deepMerge(base, layer) {
   return out
 }
 
-function mergeConfig(venueConfig, brandDefaults) {
-  if (!brandDefaults) return venueConfig
+// Merge a per-venue website_config OVER a tenant_site so renderers can read
+// a single flat config object regardless of which view they're producing.
+function mergeLocationConfig(tenantSite, venueConfig) {
+  if (!venueConfig) return tenantSite
+  const merged = { ...tenantSite }
 
-  const merged = { ...venueConfig }
-
-  // Scalar fields: venue wins if set, otherwise brand default
   for (const key of BRAND_INHERITABLE) {
-    if (!merged[key] && brandDefaults[key]) {
-      merged[key] = brandDefaults[key]
-    }
+    if (venueConfig[key]) merged[key] = venueConfig[key]
   }
 
-  // social_links: deep-merge (venue-specific socials overlay brand socials)
   merged.social_links = {
-    ...(brandDefaults.social_links || {}),
+    ...(tenantSite.social_links || {}),
     ...(venueConfig.social_links || {}),
   }
 
-  // theme JSONB: deep-merge brand → venue overrides
-  const brandTheme = brandDefaults.theme || {}
-  const venueTheme = venueConfig.theme   || {}
-  merged.theme = deepMerge(brandTheme, venueTheme)
+  merged.theme = deepMerge(tenantSite.theme || {}, venueConfig.theme || {})
 
-  // site_name: auto-combine brand_name + venue name if not explicitly set
-  if (!merged.site_name && brandDefaults.brand_name) {
-    merged.site_name = brandDefaults.brand_name
+  // Per-location fields — these have no tenant-level fallback because they
+  // are fundamentally per-location (address, hero photo of THIS venue, etc.)
+  const PER_LOCATION = [
+    'hero_image_url', 'hero_heading', 'hero_subheading', 'hero_cta_text', 'hero_cta_link',
+    'about_heading', 'about_text', 'about_html', 'about_image_url',
+    'address_line1', 'address_line2', 'city', 'postcode', 'country',
+    'latitude', 'longitude', 'google_maps_embed_url',
+    'phone', 'email',
+    'online_ordering_links', 'delivery_links',
+    'widget_venue_id', 'widget_theme',
+    'show_booking_widget', 'show_menu', 'show_allergens', 'show_gallery',
+    'gallery_style', 'gallery_size',
+    'show_find_us', 'show_contact', 'show_ordering', 'show_delivery',
+    'opening_hours_source',
+    'page_blocks',
+  ]
+  for (const key of PER_LOCATION) {
+    if (venueConfig[key] !== undefined && venueConfig[key] !== null) {
+      merged[key] = venueConfig[key]
+    }
   }
 
   return merged
 }
 
 /**
- * Load the full public site bundle.
+ * Resolve a tenant_site row by subdomain slug or custom domain.
  *
  * @param {object} lookup
- * @param {string} [lookup.slug]          - subdomain slug
- * @param {string} [lookup.customDomain]  - full custom hostname
+ * @param {string} [lookup.slug]
+ * @param {string} [lookup.customDomain]
  * @param {object} [opts]
- * @param {boolean} [opts.includeUnpublished] - admin preview (default false)
- * @returns {Promise<object|null>}
+ * @param {boolean} [opts.includeUnpublished]
  */
-export async function loadSiteBundle(lookup, { includeUnpublished = false } = {}) {
-  if (typeof lookup === 'string') lookup = { slug: lookup }
+async function resolveTenantSite(lookup, { includeUnpublished = false } = {}) {
   const slug         = lookup?.slug
   const customDomain = lookup?.customDomain?.toLowerCase?.()
-
   if (!slug && !customDomain) return null
 
-  // 1. Global lookup — no RLS
-  let cfg
+  let row
   if (customDomain) {
-    [cfg] = await sql`
-      SELECT wc.*, t.name AS tenant_name, v.name AS venue_name, v.slug AS venue_slug
-        FROM website_config wc
-        JOIN tenants t ON t.id = wc.tenant_id AND t.is_active = true
-        JOIN venues  v ON v.id = wc.venue_id  AND v.is_active = true
-       WHERE lower(wc.custom_domain) = ${customDomain}
-         AND (${includeUnpublished} OR wc.custom_domain_verified = true)
+    [row] = await sql`
+      SELECT ts.*, t.name AS tenant_name, t.slug AS tenant_slug
+        FROM tenant_site ts
+        JOIN tenants t ON t.id = ts.tenant_id AND t.is_active = true
+       WHERE lower(ts.custom_domain) = ${customDomain}
+         AND (${includeUnpublished} OR ts.custom_domain_verified = true)
        LIMIT 1
     `
   }
-  if (!cfg && slug) {
-    [cfg] = await sql`
-      SELECT wc.*, t.name AS tenant_name, v.name AS venue_name, v.slug AS venue_slug
-        FROM website_config wc
-        JOIN tenants t ON t.id = wc.tenant_id AND t.is_active = true
-        JOIN venues  v ON v.id = wc.venue_id  AND v.is_active = true
-       WHERE wc.subdomain_slug = ${slug}
+  if (!row && slug) {
+    [row] = await sql`
+      SELECT ts.*, t.name AS tenant_name, t.slug AS tenant_slug
+        FROM tenant_site ts
+        JOIN tenants t ON t.id = ts.tenant_id AND t.is_active = true
+       WHERE ts.subdomain_slug = ${slug}
        LIMIT 1
     `
   }
-  if (!cfg) return null
-  if (!includeUnpublished && !cfg.is_published) return null
+  if (!row) return null
+  if (!includeUnpublished && !row.is_published) return null
+  return row
+}
 
-  // 2. Load brand defaults + tenant-scoped data
-  const bundle = await withTenant(cfg.tenant_id, async tx => {
-    const [brandRows, gallery, pages, menus, openingHours, allergensRow] = await Promise.all([
-      tx`SELECT * FROM tenant_brand_defaults WHERE tenant_id = ${cfg.tenant_id} LIMIT 1`,
+/**
+ * Load the tenant-level public bundle: brand identity, home page blocks,
+ * the locations summary, custom pages, and any tenant-wide menus pulled
+ * up from venues. Does NOT include per-venue location-page details
+ * (gallery, opening hours etc.) — those are loaded on-demand by
+ * loadLocationBundle when rendering /locations/:slug.
+ */
+export async function loadTenantBundle(lookup, { includeUnpublished = false } = {}) {
+  if (typeof lookup === 'string') lookup = { slug: lookup }
+  const ts = await resolveTenantSite(lookup, { includeUnpublished })
+  if (!ts) return null
 
-      cfg.show_gallery ? tx`
-        SELECT id, image_url, caption, sort_order
-          FROM website_gallery_images
-         WHERE website_config_id = ${cfg.id}
-         ORDER BY sort_order, created_at
-      ` : Promise.resolve([]),
-
+  const bundle = await withTenant(ts.tenant_id, async tx => {
+    const [venues, pages] = await Promise.all([
       tx`
-        SELECT id, slug, title, content, is_published, sort_order
+        SELECT v.id, v.slug, v.name, v.timezone, v.currency,
+               wc.address_line1, wc.address_line2, wc.city, wc.postcode,
+               wc.phone, wc.email,
+               wc.hero_image_url, wc.tagline AS venue_tagline
+          FROM venues v
+          LEFT JOIN website_config wc ON wc.venue_id = v.id
+         WHERE v.tenant_id = ${ts.tenant_id} AND v.is_active = true
+         ORDER BY v.name
+      `,
+      tx`
+        SELECT id, slug, title, content, blocks, is_published, sort_order
           FROM website_pages
-         WHERE website_config_id = ${cfg.id}
+         WHERE tenant_id = ${ts.tenant_id}
+           AND venue_id IS NULL
            AND (${includeUnpublished} OR is_published = true)
          ORDER BY sort_order, title
       `,
+    ])
 
-      cfg.show_menu ? tx`
-        SELECT id, label, file_url, sort_order
-          FROM website_menu_documents
-         WHERE website_config_id = ${cfg.id}
+    return { venues, pages }
+  })
+
+  return {
+    tenant_site: ts,
+    config:      ts,            // alias: templates read `it.config`
+    brand:       ts,            // alias: emergency banner reads `it.brand`
+    tenant_name: ts.tenant_name,
+    tenant_slug: ts.tenant_slug,
+    venues:      bundle.venues,
+    pages:       bundle.pages,
+  }
+}
+
+/**
+ * Load the per-venue location-page bundle: gallery, menus, opening
+ * hours, allergens, plus the merged config object. Caller supplies the
+ * already-resolved tenant bundle so we do not re-query tenant_site.
+ *
+ * @returns {Promise<object|null>} null when the venue does not exist,
+ *   is inactive, or has no website_config row yet.
+ */
+export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpublished = false } = {}) {
+  if (!tenantBundle || !venueSlug) return null
+  const ts        = tenantBundle.tenant_site
+  const tenantId  = ts.tenant_id
+
+  const [venue] = await sql`
+    SELECT id, slug, name, timezone, currency
+      FROM venues
+     WHERE tenant_id = ${tenantId}
+       AND slug      = ${venueSlug}
+       AND is_active = true
+     LIMIT 1
+  `
+  if (!venue) return null
+
+  const result = await withTenant(tenantId, async tx => {
+    const [cfgRow] = await tx`
+      SELECT * FROM website_config
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id}
+       LIMIT 1
+    `
+    const venueConfig = cfgRow ?? {}
+
+    const [gallery, menus, openingHours, allergensRow, pages] = await Promise.all([
+      venueConfig.show_gallery !== false ? tx`
+        SELECT id, image_url, caption, sort_order
+          FROM website_gallery_images
+         WHERE website_config_id = ${venueConfig.id ?? null}
          ORDER BY sort_order, created_at
       ` : Promise.resolve([]),
 
-      // Manual opening hours come from website_opening_hours.
-      // Venue-derived hours are computed below from venue_schedule_templates + venue_sittings.
-      (cfg.show_find_us && cfg.opening_hours_source !== 'venue') ? tx`
+      venueConfig.show_menu !== false ? tx`
+        SELECT id, label, file_url, sort_order
+          FROM website_menu_documents
+         WHERE website_config_id = ${venueConfig.id ?? null}
+         ORDER BY sort_order, created_at
+      ` : Promise.resolve([]),
+
+      (venueConfig.show_find_us !== false && venueConfig.opening_hours_source !== 'venue') ? tx`
         SELECT day_of_week, opens_at, closes_at, is_closed, label, sort_order
           FROM website_opening_hours
-         WHERE website_config_id = ${cfg.id}
+         WHERE website_config_id = ${venueConfig.id ?? null}
          ORDER BY day_of_week, sort_order
       ` : Promise.resolve([]),
 
-      cfg.show_allergens ? tx`
+      venueConfig.show_allergens !== false ? tx`
         SELECT info_type, document_url, structured_data
           FROM website_allergen_info
-         WHERE website_config_id = ${cfg.id}
+         WHERE website_config_id = ${venueConfig.id ?? null}
          LIMIT 1
       ` : Promise.resolve([]),
+
+      tx`
+        SELECT id, slug, title, content, blocks, is_published, sort_order
+          FROM website_pages
+         WHERE tenant_id = ${tenantId}
+           AND venue_id  = ${venue.id}
+           AND (${includeUnpublished} OR is_published = true)
+         ORDER BY sort_order, title
+      `,
     ])
 
-    const brandDefaults = brandRows[0] ?? null
-    const mergedConfig  = mergeConfig(cfg, brandDefaults)
-
-    // When source = 'venue', derive weekly opening hours from venue's
-    // schedule template: earliest opens_at + latest closes_at per day.
     let derivedHours = openingHours
-    if (cfg.show_find_us && cfg.opening_hours_source === 'venue') {
+    if (venueConfig.show_find_us !== false && venueConfig.opening_hours_source === 'venue') {
       const sittingRows = await tx`
         SELECT t.day_of_week, t.is_open,
                MIN(s.opens_at)  AS opens_at,
                MAX(s.closes_at) AS closes_at
           FROM venue_schedule_templates t
           LEFT JOIN venue_sittings s ON s.template_id = t.id
-         WHERE t.venue_id = ${cfg.venue_id}
+         WHERE t.venue_id = ${venue.id}
          GROUP BY t.day_of_week, t.is_open
          ORDER BY t.day_of_week
       `
@@ -185,16 +261,29 @@ export async function loadSiteBundle(lookup, { includeUnpublished = false } = {}
     }
 
     return {
-      config:         mergedConfig,
-      brand:          brandDefaults,
+      mergedConfig:  mergeLocationConfig(ts, venueConfig),
       gallery,
-      pages,
       menus,
-      opening_hours:  derivedHours,
-      allergens:      allergensRow[0] ?? null,
-      venue:          { id: cfg.venue_id, name: cfg.venue_name, slug: cfg.venue_slug },
+      openingHours:  derivedHours,
+      allergens:     allergensRow[0] ?? null,
+      pages,
     }
   })
 
-  return bundle
+  return {
+    ...tenantBundle,
+    config:        result.mergedConfig,
+    venue:         { id: venue.id, slug: venue.slug, name: venue.name, timezone: venue.timezone, currency: venue.currency },
+    gallery:       result.gallery,
+    menus:         result.menus,
+    opening_hours: result.openingHours,
+    allergens:     result.allergens,
+    location_pages: result.pages,
+  }
 }
+
+// Back-compat alias: a few callers still import `loadSiteBundle`.
+// The new architecture has no equivalent of "the site for this slug" since
+// /locations/:slug is what actually corresponds to a venue. We keep the
+// export as the tenant bundle so old imports don't 500.
+export const loadSiteBundle = loadTenantBundle

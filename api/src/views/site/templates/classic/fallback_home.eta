@@ -1,0 +1,61 @@
+<%
+// Default home page used when home_blocks is empty — gives new tenants
+// a usable site immediately. Hero + locations grid + book CTA.
+const venues = it.venues || []
+const showLocations = !it.tenant_site?.hide_locations_index && venues.length > 0
+const heading = it.tenant_site?.locations_heading || 'Our locations'
+%>
+<section class="block" style="background: var(--c-surface); text-align: center; padding: 80px 0;">
+  <div class="container" style="max-width: 720px;">
+    <h1 style="font-size: clamp(32px, 6vw, 56px); margin-bottom: 16px; color: var(--c-text);">
+      <%= it.config.site_name || it.tenant_name %>
+    </h1>
+    <% if (it.config.tagline) { %>
+      <p style="font-size: 18px; color: var(--c-muted); margin-bottom: 32px;">
+        <%= it.config.tagline %>
+      </p>
+    <% } %>
+    <% if (venues.length === 1) { %>
+      <a href="/locations/<%= venues[0].slug %>" class="btn">
+        <%= it.config.hero_cta_text || 'Visit our restaurant' %>
+      </a>
+    <% } else if (venues.length > 1) { %>
+      <a href="/locations" class="btn">
+        <%= it.config.hero_cta_text || 'Find a location' %>
+      </a>
+    <% } %>
+  </div>
+</section>
+
+<% if (showLocations) { %>
+  <section class="block">
+    <div class="container">
+      <h2 style="text-align: center; margin-bottom: 32px;"><%= heading %></h2>
+      <% if (it.tenant_site?.locations_intro) { %>
+        <p style="text-align: center; color: var(--c-muted); max-width: 640px; margin: -16px auto 32px;">
+          <%= it.tenant_site.locations_intro %>
+        </p>
+      <% } %>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 24px;">
+        <% venues.forEach(function(v) { %>
+          <a href="/locations/<%= v.slug %>"
+             style="display: block; text-decoration: none; border: 1px solid var(--c-border); border-radius: var(--r-md); overflow: hidden; background: var(--c-bg); color: var(--c-text);">
+            <% if (v.hero_image_url) { %>
+              <div style="aspect-ratio: 16/9; background-image: url('<%= v.hero_image_url %>'); background-size: cover; background-position: center;"></div>
+            <% } else { %>
+              <div style="aspect-ratio: 16/9; background: var(--c-surface);"></div>
+            <% } %>
+            <div style="padding: 16px;">
+              <h3 style="font-size: 18px; margin-bottom: 6px;"><%= v.name %></h3>
+              <% if (v.address_line1 || v.city) { %>
+                <p style="color: var(--c-muted); font-size: 14px; margin: 0;">
+                  <%= [v.address_line1, v.city, v.postcode].filter(Boolean).join(' · ') %>
+                </p>
+              <% } %>
+            </div>
+          </a>
+        <% }) %>
+      </div>
+    </div>
+  </section>
+<% } %>

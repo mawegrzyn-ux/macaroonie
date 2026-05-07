@@ -27,10 +27,10 @@ async function loadBookingByToken(token) {
            v.slug      AS venue_slug,
            v.timezone  AS venue_timezone,
            tbl.label   AS table_label,
-           wc.primary_colour,
-           wc.site_name,
-           wc.logo_url,
-           wc.subdomain_slug,
+           ts.primary_colour,
+           ts.site_name,
+           ts.logo_url,
+           ts.subdomain_slug,
            ves.allow_guest_modify,
            ves.allow_guest_cancel,
            ves.cancel_cutoff_hours
@@ -38,7 +38,7 @@ async function loadBookingByToken(token) {
       JOIN tenants t ON t.id = b.tenant_id AND t.is_active = true
       JOIN venues  v ON v.id = b.venue_id  AND v.is_active = true
       LEFT JOIN tables tbl ON tbl.id = b.table_id
-      LEFT JOIN website_config wc ON wc.venue_id = v.id
+      LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
       LEFT JOIN venue_email_settings ves ON ves.venue_id = v.id AND ves.tenant_id = t.id
      WHERE b.manage_token = ${token}
      LIMIT 1

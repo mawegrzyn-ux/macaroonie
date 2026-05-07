@@ -1,0 +1,152 @@
+<%
+const c = it.config
+const venue = it.venue
+const heroImg = c.hero_image_url
+const heroHeading = c.hero_heading || venue.name
+const heroSub = c.hero_subheading
+const ctaText = c.hero_cta_text || 'Reserve a table'
+const aboutHtml = c.about_html
+const aboutText = c.about_text
+const aboutImg  = c.about_image_url
+const aboutHeading = c.about_heading || `About ${venue.name}`
+const gallery = it.gallery || []
+const hours   = it.opening_hours || []
+const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+%>
+
+<section style="
+  position: relative; min-height: var(--hero-minh);
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; color: #fff;
+  <% if (heroImg) { %>
+    background-image: url('<%= heroImg %>');
+    background-size: cover; background-position: center;
+  <% } else { %>
+    background: linear-gradient(135deg, var(--c-primary), <%= c.secondary_colour || '#000' %>);
+  <% } %>
+">
+  <% if (heroImg) { %>
+    <div style="position: absolute; inset: 0; background: rgba(0,0,0, var(--hero-overlay));"></div>
+  <% } %>
+  <div class="container" style="position: relative; z-index: 1; max-width: 760px;">
+    <div style="color:rgba(255,255,255,0.75); font-size:12px; letter-spacing:0.16em; text-transform:uppercase; margin-bottom:14px;">
+      <%= venue.name %>
+    </div>
+    <h1 style="color: #fff; font-size: clamp(40px, 8vw, 80px); margin-bottom: 18px; line-height: 1;">
+      <%= heroHeading %>
+    </h1>
+    <% if (heroSub) { %>
+      <p style="font-size: 19px; max-width: 560px; margin: 0 auto 28px; color: rgba(255,255,255,0.92);">
+        <%= heroSub %>
+      </p>
+    <% } %>
+    <a href="#booking" class="btn" style="background:#fff;color:var(--c-primary);border-radius:999px;"><%= ctaText %></a>
+  </div>
+</section>
+
+<% if (aboutHtml || aboutText) { %>
+  <section class="block">
+    <div class="container">
+      <div style="display: grid; grid-template-columns: <%= aboutImg ? '1fr 1fr' : '1fr' %>; gap: 56px; align-items: center;">
+        <div>
+          <h2><%= aboutHeading %></h2>
+          <% if (aboutHtml) { %>
+            <div style="font-size: 17px; line-height: 1.75; color: var(--c-text);"><%~ aboutHtml %></div>
+          <% } else { %>
+            <p style="font-size: 17px; line-height: 1.75; color: var(--c-text); white-space: pre-wrap;"><%= aboutText %></p>
+          <% } %>
+        </div>
+        <% if (aboutImg) { %>
+          <img src="<%= aboutImg %>" alt="<%= aboutHeading %>" style="border-radius: var(--r-lg);" />
+        <% } %>
+      </div>
+    </div>
+  </section>
+<% } %>
+
+<% if (c.show_gallery !== false && gallery.length) { %>
+  <section class="block" style="background: var(--c-surface);">
+    <div class="container">
+      <h2 style="text-align: center; margin-bottom: 32px;">Gallery</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--gap);">
+        <% gallery.forEach(function(g){ %>
+          <img src="<%= g.image_url %>" alt="<%= g.caption || '' %>"
+               style="width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--r-md);" />
+        <% }) %>
+      </div>
+    </div>
+  </section>
+<% } %>
+
+<% if (c.show_find_us !== false && (c.address_line1 || hours.length)) { %>
+  <section class="block" id="find-us">
+    <div class="container">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 56px;">
+        <div>
+          <h2>Visit</h2>
+          <% if (c.address_line1) { %>
+            <p style="font-size: 16px; line-height: 1.7;">
+              <%= c.address_line1 %><br />
+              <% if (c.address_line2) { %><%= c.address_line2 %><br /><% } %>
+              <%= [c.city, c.postcode].filter(Boolean).join(' ') %>
+            </p>
+          <% } %>
+          <% if (c.google_maps_embed_url) { %>
+            <div style="aspect-ratio: 16/10; margin-top: 16px;">
+              <iframe src="<%= c.google_maps_embed_url %>" style="width: 100%; height: 100%; border: 0;" loading="lazy"></iframe>
+            </div>
+          <% } %>
+        </div>
+        <% if (hours.length) { %>
+          <div>
+            <h2>Hours</h2>
+            <table style="width: 100%; font-size: 15px;">
+              <% [1,2,3,4,5,6,0].forEach(function(d){ %>
+                <% const rows = hours.filter(h => h.day_of_week === d) %>
+                <tr style="border-bottom: 1px solid var(--c-border);">
+                  <td style="padding: 8px 0; color: var(--c-muted);"><%= days[d] %></td>
+                  <td style="padding: 8px 0; text-align: right;">
+                    <% if (rows.length === 0 || rows.every(r => r.is_closed)) { %>
+                      Closed
+                    <% } else { %>
+                      <% rows.filter(r => !r.is_closed).map(function(r){ return `${r.opens_at}–${r.closes_at}` }).forEach(function(s, i, arr){ %>
+                        <%= s %><% if (i < arr.length - 1) { %>, <% } %>
+                      <% }) %>
+                    <% } %>
+                  </td>
+                </tr>
+              <% }) %>
+            </table>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </section>
+<% } %>
+
+<% if (c.show_contact !== false && (c.phone || c.email)) { %>
+  <section class="block" id="contact" style="background: var(--c-surface); text-align: center;">
+    <div class="container">
+      <h2>Get in touch</h2>
+      <% if (c.phone) { %>
+        <p style="font-size: 18px; margin-bottom: 8px;"><a href="tel:<%= c.phone %>"><%= c.phone %></a></p>
+      <% } %>
+      <% if (c.email) { %>
+        <p style="font-size: 18px;"><a href="mailto:<%= c.email %>"><%= c.email %></a></p>
+      <% } %>
+    </div>
+  </section>
+<% } %>
+
+<% if (c.show_booking_widget !== false) { %>
+  <section class="block" id="booking">
+    <div class="container" style="max-width: 600px;">
+      <h2 style="text-align: center; margin-bottom: 24px;">Book a table</h2>
+      <div style="border: 1px solid var(--c-border); border-radius: var(--r-lg); overflow: hidden;">
+        <iframe src="/widget/<%= venue.id %>?theme=light"
+                style="width: 100%; height: 720px; border: 0;"
+                title="Book a table"></iframe>
+      </div>
+    </div>
+  </section>
+<% } %>

@@ -1,47 +1,81 @@
+<%
+// On the tenant home/index pages, `it.venue` is undefined and we render
+// a multi-location footer (links to each venue). On a location page we
+// render that venue's contact details.
+const onLocation = !!it.venue
+const venues     = it.venues || []
+const sl = (it.config.social_links || {})
+const socials = Object.entries(sl).filter(function(e){return e[1]})
+%>
+<style>
+  .site-footer {
+    background: #1f1f1f; color: #ccc; padding: 56px 0 24px; margin-top: 48px;
+    font-size: 14px;
+  }
+  .site-footer a { color: #fff; }
+  .site-footer .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
+  .site-footer .col h4 { color: #fff; margin: 0 0 12px; font-size: 14px; font-weight: 600; }
+  .site-footer .loc-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; }
+  .site-footer .loc-list a { color: #ccc; }
+  .site-footer .loc-list a:hover { color: #fff; }
+  @media (max-width: 700px) {
+    .site-footer .cols { grid-template-columns: 1fr; gap: 24px; }
+  }
+</style>
 <footer class="site-footer">
   <div class="container">
     <div class="cols">
-      <div>
+      <div class="col">
         <div style="font-size:18px; color:white; font-weight:700; margin-bottom:12px;">
           <%= it.config.site_name || it.tenant_name %>
         </div>
         <% if (it.config.tagline) { %>
           <p style="margin:0 0 14px; max-width:360px; color:#a3a3a3;"><%= it.config.tagline %></p>
         <% } %>
-        <% const sl = it.config.social_links || {} %>
-        <% const socials = Object.entries(sl).filter(function(e){return e[1]}) %>
         <% if (socials.length) { %>
           <div style="display:flex; gap:12px; margin-top:12px;">
             <% socials.forEach(function(entry){ %>
               <a href="<%= entry[1] %>" target="_blank" rel="noopener"
-                 style="color:#fff; text-transform:capitalize;"><%= entry[0] %></a>
+                 style="text-transform:capitalize;"><%= entry[0] %></a>
             <% }) %>
           </div>
         <% } %>
       </div>
 
-      <div>
-        <% if (it.config.show_find_us) { %>
-          <div style="font-weight:600; color:white; margin-bottom:10px;">Find us</div>
-          <% if (it.config.address_line1) { %>
-            <div><%= it.config.address_line1 %></div>
-            <% if (it.config.address_line2) { %><div><%= it.config.address_line2 %></div><% } %>
-            <div><%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %></div>
+      <% if (onLocation) { %>
+        <div class="col">
+          <% if (it.config.show_find_us) { %>
+            <h4>Find us</h4>
+            <% if (it.config.address_line1) { %>
+              <div><%= it.config.address_line1 %></div>
+              <% if (it.config.address_line2) { %><div><%= it.config.address_line2 %></div><% } %>
+              <div><%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %></div>
+            <% } %>
           <% } %>
-        <% } %>
-      </div>
-
-      <div>
-        <% if (it.config.show_contact) { %>
-          <div style="font-weight:600; color:white; margin-bottom:10px;">Contact</div>
-          <% if (it.config.phone) { %>
-            <div><a href="tel:<%= it.config.phone %>"><%= it.config.phone %></a></div>
+        </div>
+        <div class="col">
+          <% if (it.config.show_contact) { %>
+            <h4>Contact</h4>
+            <% if (it.config.phone) { %>
+              <div><a href="tel:<%= it.config.phone %>"><%= it.config.phone %></a></div>
+            <% } %>
+            <% if (it.config.email) { %>
+              <div><a href="mailto:<%= it.config.email %>"><%= it.config.email %></a></div>
+            <% } %>
           <% } %>
-          <% if (it.config.email) { %>
-            <div><a href="mailto:<%= it.config.email %>"><%= it.config.email %></a></div>
+        </div>
+      <% } else { %>
+        <div class="col" style="grid-column: span 2;">
+          <% if (!it.tenant_site?.hide_locations_index && venues.length) { %>
+            <h4>Our locations</h4>
+            <div class="loc-list">
+              <% venues.forEach(function(v){ %>
+                <a href="/locations/<%= v.slug %>"><%= v.name %></a>
+              <% }) %>
+            </div>
           <% } %>
-        <% } %>
-      </div>
+        </div>
+      <% } %>
     </div>
 
     <div style="margin-top:32px; padding-top:16px; border-top:1px solid #333; font-size:12px; color:#888;">

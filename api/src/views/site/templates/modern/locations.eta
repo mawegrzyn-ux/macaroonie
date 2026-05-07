@@ -1,0 +1,53 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<%
+const venues = it.venues || []
+const heading = it.tenant_site?.locations_heading || 'Our locations'
+%>
+<main>
+<section style="padding: 140px 0 60px; background: var(--c-primary); color: #fff; text-align: center;">
+  <div class="container">
+    <div style="color:rgba(255,255,255,0.7); font-size:13px; letter-spacing:0.12em; text-transform:uppercase; margin-bottom:10px;">Locations</div>
+    <h1 style="color:#fff; font-size: clamp(36px, 5vw, 56px);"><%= heading %></h1>
+    <% if (it.tenant_site?.locations_intro) { %>
+      <p style="margin: 16px auto 0; max-width: 600px; color: rgba(255,255,255,0.85);">
+        <%= it.tenant_site.locations_intro %>
+      </p>
+    <% } %>
+  </div>
+</section>
+
+<section class="block">
+  <div class="container">
+    <% if (venues.length === 0) { %>
+      <p style="text-align: center; color: var(--c-muted);">No locations yet.</p>
+    <% } else { %>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 28px;">
+        <% venues.forEach(function(v) { %>
+          <a href="/locations/<%= v.slug %>"
+             style="display:flex; flex-direction: column; text-decoration: none; border-radius: var(--r-lg); overflow: hidden; background: var(--c-bg); color: var(--c-text); border: 1px solid var(--c-border);">
+            <% if (v.hero_image_url) { %>
+              <div style="aspect-ratio: 4/3; background-image: url('<%= v.hero_image_url %>'); background-size: cover; background-position: center;"></div>
+            <% } else { %>
+              <div style="aspect-ratio: 4/3; background: var(--c-surface);"></div>
+            <% } %>
+            <div style="padding: 22px; flex: 1; display: flex; flex-direction: column;">
+              <h3 style="font-size: 22px; margin-bottom: 8px;"><%= v.name %></h3>
+              <% if (v.address_line1 || v.city) { %>
+                <p style="color: var(--c-muted); font-size: 14px; margin: 0 0 6px;">
+                  <%= [v.address_line1, v.city, v.postcode].filter(Boolean).join(' · ') %>
+                </p>
+              <% } %>
+              <% if (v.phone) { %>
+                <p style="color: var(--c-muted); font-size: 14px; margin: 0 0 12px;"><%= v.phone %></p>
+              <% } %>
+              <span style="margin-top: auto; color: var(--c-primary); font-weight: 600;">View &rsaquo;</span>
+            </div>
+          </a>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+</section>
+</main>
+<%~ include('./partials/footer', it) %>
