@@ -1,0 +1,1758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Menu — One Thai Cafe, Ware</title>
+<meta name="description" content="The full menu at One Thai Cafe in Ware, Hertfordshire. Starters, soups, curries, stir-fries, noodles, rice, sides and Thai favourites." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --plum: #630812;
+    --plum-deep: #4a060e;
+    --plum-soft: #7a1a26;
+    --chilli: #c9302c;
+    --herb: #6b8e4e;
+    --cream: #f5efe6;
+    --paper: #faf6ef;
+    --paper-warm: #f3ead8;
+    --highlight: #fff4cc;
+    --ink: #2a1c1a;
+    --muted: #7a6b62;
+    --line: rgba(99, 8, 18, 0.18);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: "";
+    position: fixed; inset: 0; pointer-events: none; z-index: 1;
+    opacity: 0.4;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+    mix-blend-mode: multiply;
+  }
+
+  .mono-cap { font-family: 'Inter', sans-serif; text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.72rem; font-weight: 500; }
+  .container { max-width: 1240px; margin: 0 auto; padding: 0 32px; position: relative; z-index: 2; }
+
+  /* NAV — same as index */
+  nav {
+    position: sticky; top: 0; background: rgba(250, 246, 239, 0.92);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line); z-index: 100;
+  }
+  .nav-inner {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 32px; max-width: 1240px; margin: 0 auto;
+  }
+  .logo-link { display: flex; align-items: center; gap: 14px; text-decoration: none; }
+  .logo-link img { width: 56px; height: 56px; object-fit: contain; }
+  .nav-tagline {
+    font-family: 'Inter', sans-serif; text-transform: uppercase;
+    letter-spacing: 0.25em; font-size: 0.65rem; color: var(--plum-soft);
+    border-left: 1px solid var(--line); padding-left: 14px;
+  }
+  @media (max-width: 600px) { .nav-tagline { display: none; } }
+  .nav-links { display: flex; gap: 32px; align-items: center; }
+  .nav-links a { color: var(--ink); text-decoration: none; font-size: 0.92rem; transition: color 0.2s; }
+  .nav-links a:hover, .nav-links a.active { color: var(--plum); }
+  .nav-links a.active { font-weight: 500; }
+  .nav-cta {
+    background: var(--plum); color: var(--cream) !important;
+    padding: 10px 22px; border-radius: 999px; font-weight: 500;
+  }
+  .nav-cta:hover { background: var(--plum-deep); }
+  .menu-btn { display: none; background: none; border: none; cursor: pointer; color: var(--plum); }
+  @media (max-width: 768px) { .nav-links { display: none; } .menu-btn { display: block; } }
+
+  /* MENU HEADER */
+  .menu-header {
+    padding: 60px 0 50px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .menu-header .label {
+    color: var(--plum);
+    margin-bottom: 16px;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .menu-header .label::before, .menu-header .label::after {
+    content: "";
+    width: 30px;
+    height: 1px;
+    background: var(--plum);
+    opacity: 0.5;
+  }
+  .menu-header h1 {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(2.5rem, 6vw, 4.5rem);
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    line-height: 1.0;
+    margin-bottom: 20px;
+  }
+  .menu-header h1 em {
+    font-family: 'Caveat', cursive;
+    font-style: normal;
+    color: var(--plum);
+    font-weight: 600;
+    font-size: 1.15em;
+  }
+  .menu-header .intro {
+    max-width: 620px;
+    margin: 0 auto;
+    color: var(--muted);
+    font-size: 1.05rem;
+  }
+  .menu-header .icons {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 22px;
+    margin-top: 36px;
+    opacity: 0.5;
+  }
+  .menu-header .icons img { width: 30px; height: 30px; object-fit: contain; }
+
+  /* JUMP NAV */
+  .jump-nav {
+    position: sticky;
+    top: 84px;
+    background: rgba(250, 246, 239, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 0;
+    z-index: 50;
+  }
+  .jump-inner {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 32px;
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+  }
+  .jump-inner a {
+    color: var(--muted);
+    text-decoration: none;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    transition: color 0.2s;
+    padding: 4px 0;
+    border-bottom: 1px solid transparent;
+  }
+  .jump-inner a:hover {
+    color: var(--plum);
+    border-bottom-color: var(--plum);
+  }
+  @media (max-width: 768px) {
+    .jump-nav { padding: 10px 0; }
+    .jump-inner { gap: 16px; }
+    .jump-inner a { font-size: 0.75rem; letter-spacing: 0.08em; }
+  }
+
+  /* KEY / LEGEND */
+  .key {
+    background: var(--paper-warm);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 24px 0;
+  }
+  .key-inner {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 32px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    justify-content: center;
+    align-items: center;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .key-item { display: inline-flex; align-items: center; gap: 8px; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--plum);
+    color: var(--cream);
+    font-size: 0.65rem;
+    font-weight: 600;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    letter-spacing: 0.02em;
+  }
+  .badge.veg { background: var(--herb); }
+  .heat {
+    color: var(--chilli);
+    letter-spacing: 0.05em;
+    font-size: 0.85rem;
+  }
+
+  /* MENU TABS — Lunch / Dinner switcher */
+  .menu-tabs-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 30px 0 10px;
+    background: var(--paper);
+  }
+  .menu-tabs {
+    display: inline-flex;
+    background: var(--paper-warm);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 5px;
+    gap: 4px;
+    box-shadow: 0 1px 0 rgba(99, 8, 18, 0.04);
+  }
+  .menu-tab {
+    background: transparent;
+    border: none;
+    padding: 11px 26px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    transition: all 0.25s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .menu-tab .tab-time {
+    font-family: 'Caveat', cursive;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 0.95rem;
+    opacity: 0.7;
+  }
+  .menu-tab.active {
+    background: var(--plum);
+    color: var(--cream);
+    box-shadow: 0 2px 8px rgba(99, 8, 18, 0.18);
+  }
+  .menu-tab.active .tab-time { opacity: 0.9; }
+  .menu-tab:not(.active):hover { color: var(--plum); }
+
+  /* Pane visibility */
+  .menu-pane { display: block; }
+  .menu-pane.hidden { display: none; }
+
+  /* Note above lunch/dinner — shown only when on respective menu */
+  .menu-note {
+    text-align: center;
+    padding: 20px 32px;
+    background: var(--paper);
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-style: italic;
+    font-family: 'Fraunces', serif;
+  }
+  .menu-note strong {
+    color: var(--plum);
+    font-style: normal;
+    font-family: 'Inter', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.8rem;
+    font-weight: 600;
+    margin-right: 8px;
+  }
+  .menu-note .print-link {
+    margin-left: 14px;
+    font-style: normal;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+    color: var(--plum);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .menu-note .print-link:hover {
+    border-bottom-color: var(--plum);
+  }
+  .menu-note .print-link::before {
+    content: "↗ ";
+    font-size: 0.85rem;
+  }
+
+  /* MENU SECTIONS */
+  .menu-section {
+    padding: 80px 0 40px;
+    position: relative;
+  }
+  .menu-section:nth-child(even of .menu-section) {
+    background: var(--paper-warm);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* Vine divider between sections */
+  .vine-divider {
+    display: flex;
+    justify-content: center;
+    padding: 30px 0;
+    opacity: 0.55;
+  }
+  .vine-divider img {
+    max-width: 480px;
+    width: 100%;
+    height: auto;
+  }
+  @media (max-width: 600px) {
+    .vine-divider img { max-width: 320px; }
+  }
+
+  .section-head {
+    text-align: center;
+    margin-bottom: 50px;
+  }
+  .section-head .icon {
+    width: 50px;
+    height: 50px;
+    margin: 0 auto 14px;
+    opacity: 0.85;
+    display: block;
+  }
+  .section-head h2 {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(2rem, 4vw, 2.8rem);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+  .section-head .subtitle {
+    font-family: 'Caveat', cursive;
+    font-size: 1.3rem;
+    color: var(--plum);
+    font-weight: 500;
+  }
+  .section-head .note {
+    max-width: 540px;
+    margin: 12px auto 0;
+    color: var(--muted);
+    font-size: 0.95rem;
+    font-style: italic;
+  }
+
+  /* DISH GRID — single column for clarity, two columns wide-screen */
+  .dishes {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 60px;
+  }
+  .dishes.single {
+    grid-template-columns: 1fr;
+    max-width: 760px;
+  }
+  @media (max-width: 900px) {
+    .dishes { grid-template-columns: 1fr; gap: 0; }
+  }
+
+  .dish {
+    padding: 22px 0;
+    border-bottom: 1px dotted var(--line);
+  }
+  .dish.featured {
+    background: var(--highlight);
+    margin: 8px -16px;
+    padding: 22px 16px;
+    border-radius: 4px;
+    border-bottom: 1px dotted rgba(99, 8, 18, 0.25);
+  }
+  .dish.featured .dish-head .name {
+    color: var(--plum);
+  }
+  .dish-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 6px;
+    flex-wrap: wrap;
+  }
+  .dish-head .name-block {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .dish-head .name {
+    font-family: 'Fraunces', serif;
+    font-size: 1.15rem;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .dish-head .badges {
+    display: inline-flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .dish-desc {
+    font-size: 0.92rem;
+    color: var(--muted);
+    line-height: 1.55;
+    margin-top: 4px;
+  }
+
+  /* dish has a price block on right - simple flat price */
+  .dish-price {
+    color: var(--plum);
+    font-weight: 500;
+    font-family: 'Fraunces', serif;
+    font-variant-numeric: tabular-nums;
+    font-size: 1.05rem;
+    white-space: nowrap;
+  }
+
+  /* dish has multiple proteins with prices */
+  .dish-options {
+    margin-top: 12px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 6px 18px;
+  }
+  .dish-option {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px dotted rgba(99, 8, 18, 0.12);
+    padding: 4px 0;
+    font-size: 0.9rem;
+  }
+  .dish-option .protein {
+    color: var(--ink);
+  }
+  .dish-option .price {
+    color: var(--plum);
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* CALLOUTS */
+  .callouts {
+    background: var(--ink);
+    color: var(--cream);
+    padding: 70px 0;
+    margin-top: 40px;
+  }
+  .callouts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 40px;
+    max-width: 980px;
+    margin: 0 auto;
+  }
+  .callout h3 {
+    font-family: 'Fraunces', serif;
+    font-size: 1.5rem;
+    font-weight: 400;
+    margin-bottom: 8px;
+  }
+  .callout h3 em {
+    font-family: 'Caveat', cursive;
+    font-style: normal;
+    color: #f5b8c0;
+    font-weight: 600;
+    font-size: 1.2em;
+  }
+  .callout p {
+    color: rgba(245, 239, 230, 0.7);
+    font-size: 0.95rem;
+  }
+  @media (max-width: 768px) {
+    .callouts-grid { grid-template-columns: 1fr; gap: 28px; }
+  }
+
+  /* ALLERGEN NOTE */
+  .allergen {
+    background: var(--paper-warm);
+    border-top: 1px solid var(--line);
+    padding: 50px 0;
+    text-align: center;
+  }
+  .allergen h3 {
+    font-family: 'Fraunces', serif;
+    font-size: 1.6rem;
+    font-weight: 400;
+    margin-bottom: 16px;
+    color: var(--plum);
+  }
+  .allergen p {
+    max-width: 560px;
+    margin: 0 auto;
+    color: var(--muted);
+  }
+  .allergen ul {
+    list-style: none;
+    margin-top: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    justify-content: center;
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .allergen li {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .allergen li::before {
+    content: "·";
+    color: var(--plum);
+    font-weight: 700;
+    font-size: 1.4rem;
+  }
+
+  /* CTA STRIP */
+  .cta-strip {
+    background: var(--plum);
+    color: var(--cream);
+    padding: 70px 0;
+    text-align: center;
+  }
+  .cta-strip h2 {
+    font-family: 'Fraunces', serif;
+    font-size: clamp(1.8rem, 3.5vw, 2.5rem);
+    font-weight: 400;
+    margin-bottom: 12px;
+  }
+  .cta-strip h2 em {
+    font-family: 'Caveat', cursive;
+    font-style: normal;
+    color: #f5b8c0;
+    font-weight: 600;
+    font-size: 1.2em;
+  }
+  .cta-strip p {
+    color: rgba(245, 239, 230, 0.8);
+    margin-bottom: 28px;
+  }
+  .cta-strip .actions {
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 28px;
+    border-radius: 999px;
+    text-decoration: none;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: all 0.25s ease;
+    border: 1px solid transparent;
+  }
+  .btn-light { background: var(--cream); color: var(--plum); }
+  .btn-light:hover { background: white; transform: translateY(-1px); }
+  .btn-outline-light { border-color: var(--cream); color: var(--cream); }
+  .btn-outline-light:hover { background: var(--cream); color: var(--plum); }
+  .btn .arrow { transition: transform 0.25s; }
+  .btn:hover .arrow { transform: translateX(3px); }
+
+  /* FOOTER */
+  footer { background: var(--paper); padding: 80px 0 30px; border-top: 1px solid var(--line); }
+  .footer-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 60px; margin-bottom: 30px; }
+  .footer-brand { display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
+  .footer-brand img { width: 110px; height: 110px; object-fit: contain; }
+  .footer-tagline { color: var(--muted); max-width: 320px; font-style: italic; font-family: 'Fraunces', serif; }
+  .footer-col h5 { color: var(--plum); margin-bottom: 18px; }
+  .footer-col a, .footer-col p { display: block; color: var(--ink); text-decoration: none; margin-bottom: 10px; font-size: 0.92rem; }
+  .footer-col a:hover { color: var(--plum); }
+  .footer-icons {
+    display: flex; justify-content: center; align-items: center; gap: 28px;
+    padding: 24px 0; margin-bottom: 30px;
+    border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+    opacity: 0.55;
+  }
+  .footer-icons img { width: 28px; height: 28px; object-fit: contain; }
+  @media (max-width: 600px) {
+    .footer-icons { gap: 16px; }
+    .footer-icons img:nth-child(odd) { display: none; }
+  }
+  .footer-bottom {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.82rem; color: var(--muted); flex-wrap: wrap; gap: 12px;
+  }
+  .footer-bottom .hand { font-family: 'Caveat', cursive; font-size: 1.1rem; color: var(--plum); }
+  @media (max-width: 768px) { .footer-grid { grid-template-columns: 1fr; gap: 40px; } }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="logo-link" aria-label="One Thai Cafe home">
+      <img src="assets/logo.png" alt="One Thai Cafe">
+      <span class="nav-tagline">Ware · Est. 2016</span>
+    </a>
+    <div class="nav-links">
+      <a href="index.html#story">Our Story</a>
+      <a href="menu.html" class="active">Menu</a>
+      <a href="index.html#visit">Visit</a>
+      <a href="index.html#order">Order</a>
+      <a href="https://guestplan.io/?i=2a5c03b9db21ba872c0d9e5ec53ec55c5735eb69" class="nav-cta">Book a Table</a>
+    </div>
+    <button class="menu-btn" aria-label="Menu">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- HEADER -->
+<header class="menu-header">
+  <div class="container">
+    <div class="label mono-cap">Our Full Menu</div>
+    <h1>Classics, curries<br>&amp; <em>everything in between.</em></h1>
+    <p class="intro">Freshly prepared every day in our small kitchen on West Street. Most dishes can be adjusted for spice or made vegan on request — just ask.</p>
+    <div class="icons" aria-hidden="true">
+      <img src="assets/icons/icon-thai-basil.png" alt="">
+      <img src="assets/icons/icon-chilli.png" alt="">
+      <img src="assets/icons/icon-star-anise.png" alt="">
+      <img src="assets/icons/icon-coriander.png" alt="">
+      <img src="assets/icons/icon-lemongrass-bunch.png" alt="">
+    </div>
+  </div>
+</header>
+
+<!-- TABS -->
+<div class="menu-tabs-wrap">
+  <div class="menu-tabs" role="tablist" aria-label="Menu time">
+    <button class="menu-tab active" data-pane="dinner-pane" role="tab" aria-selected="true">
+      Dinner <span class="tab-time">6pm – 10pm</span>
+    </button>
+    <button class="menu-tab" data-pane="lunch-pane" role="tab" aria-selected="false">
+      Lunch <span class="tab-time">11:30am – 2pm</span>
+    </button>
+  </div>
+</div>
+
+<!-- KEY -->
+<div class="key">
+  <div class="key-inner">
+    <span class="key-item"><span class="badge veg">V</span>Vegetarian / can be made vegan</span>
+    <span class="key-item"><span class="badge">GF</span>Gluten-free</span>
+    <span class="key-item"><span class="badge">N</span>Contains nuts</span>
+    <span class="key-item"><span class="heat">🌶</span>Spicy</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════
+     DINNER MENU PANE
+     ════════════════════════════════════════════════════════════════ -->
+<div id="dinner-pane" class="menu-pane">
+
+<div class="jump-nav">
+  <div class="jump-inner">
+    <a href="#starters">Starters</a>
+    <a href="#soups">Soups</a>
+    <a href="#stir-fries">Stir-Fries</a>
+    <a href="#specials">Thai Specials</a>
+    <a href="#noodles">Noodles</a>
+    <a href="#curries">Curries</a>
+    <a href="#rice">Rice</a>
+    <a href="#sides">Sides</a>
+    <a href="#drinks">Drinks</a>
+  </div>
+</div>
+
+<p class="menu-note"><strong>Dinner</strong>Our full menu, available all day.<a class="print-link" href="print-dinner.html">Print version</a></p>
+
+<!-- ─── STARTERS ─── -->
+<section class="menu-section" id="starters">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-spoon.png" alt="" class="icon">
+      <h2>Starters</h2>
+      <p class="subtitle">to begin with</p>
+    </div>
+
+    <div class="dishes">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Mixed Platter to Share</span></div>
+          <div class="dish-price">£8.90 <span style="font-size: 0.7rem; color: var(--muted); font-family: 'Inter', sans-serif;">/ pp · min 2</span></div>
+        </div>
+        <p class="dish-desc">A platter to share with all the favourite starters — Spring Rolls, Prawn on Toast, Corn Cake, Song Sa-Hai and Chicken Satay.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Chicken Satay</span><span class="badges"><span class="badge">GF</span><span class="badge">N</span></span></div>
+          <div class="dish-price">£7.50</div>
+        </div>
+        <p class="dish-desc">Marinated chicken breast with Thai herbs on skewers. Served with peanut sauce.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Por Pia (Spring Rolls)</span><span class="badges"><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£6.50</div>
+        </div>
+        <p class="dish-desc">Golden fried rice pastry rolls with vermicelli noodles and crunchy vegetables. Served with sweet chilli sauce.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Song Sa-Hai Rolls</span></div>
+          <div class="dish-price">£7.20</div>
+        </div>
+        <p class="dish-desc">Prawn and chicken marinated in Thai herbs and wrapped in pastry, deep fried until golden brown.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Goong Tempura (Prawn)</span></div>
+          <div class="dish-price">£7.70</div>
+        </div>
+        <p class="dish-desc">Deep fried king prawns in a light batter with panko breadcrumbs. Served with sweet chilli sauce.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Prawn on Toast</span></div>
+          <div class="dish-price">£7.70</div>
+        </div>
+        <p class="dish-desc">Deep fried marinated minced prawns with garlic, pepper and coriander on a toast.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Tod Man Pla (Fish Cakes)</span><span class="badges"><span class="badge">GF</span><span class="badge">N</span></span></div>
+          <div class="dish-price">£7.70</div>
+        </div>
+        <p class="dish-desc">Fried marinated white fish with red curry paste, egg, lime leaves and fine beans. Served with sweet chilli sauce and optional peanuts.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Eagle Wings</span></div>
+          <div class="dish-price">£6.90</div>
+        </div>
+        <p class="dish-desc">Deep-fried chicken wings flavoured with garlic in a pepper &amp; coriander sauce.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Spare Ribs</span></div>
+          <div class="dish-price">£7.80</div>
+        </div>
+        <p class="dish-desc">Marinated pork spare ribs with honey, cinnamon bark, anistar seed and aromatic Thai herbs.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Sweetcorn Cakes</span><span class="badges"><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£6.90</div>
+        </div>
+        <p class="dish-desc">Fried marinated sweet corn with Thai herbs, flour and a hint of curry paste. Served with sweet chilli sauce.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Crispy Tofu</span><span class="badges"><span class="badge">GF</span><span class="badge">N</span><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£6.50</div>
+        </div>
+        <p class="dish-desc">Fried tofu, crispy outside and soft inside, served with sweet chilli sauce topped with peanuts.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Thai Prawn Crackers</span><span class="badges"><span class="badge">GF</span></span></div>
+          <div class="dish-price">£3.90</div>
+        </div>
+        <p class="dish-desc">Perfect nibble while waiting for your starters. Slightly spicy, served with sweet chilli sauce.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── SOUPS ─── -->
+<section class="menu-section" id="soups">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-lemongrass-bunch.png" alt="" class="icon">
+      <h2>Soups</h2>
+      <p class="subtitle">bright, fragrant, restorative</p>
+    </div>
+
+    <div class="dishes">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Tom Yum</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">Ideal as starter or a side dish. Hot and sour soup with galangal, lemongrass, lime leaves, chillies, mushrooms, tomatoes and coriander.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£7.00</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£7.70</span></div>
+          <div class="dish-option"><span class="protein">Mushrooms</span><span class="price">£6.20</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Tom Kha</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">Ideal as starter or a side dish. Take Tom Yum soup, add coconut milk and a few herbs, and you have a delightful Tom Kha soup.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£7.00</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£7.70</span></div>
+          <div class="dish-option"><span class="protein">Mushrooms</span><span class="price">£6.20</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Poh Taek (Fisherman's Soup)</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+          <div class="dish-price">£10.50</div>
+        </div>
+        <p class="dish-desc">For the seafood fans. Large portion of spicy and sour soup with mussels, squid and prawns. Full of fresh flavours like lemongrass, galangal and lime leaves. Great as a lunch dish, starter, or a side dish to share.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── STIR-FRIES ─── -->
+<section class="menu-section" id="stir-fries">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-chilli.png" alt="" class="icon">
+      <h2>Stir-Fries</h2>
+      <p class="subtitle">wok-tossed &amp; fragrant</p>
+      <p class="note">Don't forget to order rice or plain noodles with your stir-fry.</p>
+    </div>
+
+    <div class="dishes single">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Tod Kratiem</span></div>
+        </div>
+        <p class="dish-desc">Aromatic combination of garlic and coriander, stir fried with protein of your choice and home-made coriander sauce, served on a bed of lettuce. Seasoned with pepper.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£13.00</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Med Ma Muang</span><span class="badges"><span class="badge veg">V</span></span></div>
+        </div>
+        <p class="dish-desc">Easy going stir-fry, with a touch of spiciness from dried chillies. Carrots, spring onions and cashew nuts stir-fried with light soya sauce and your choice of protein.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£12.90</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£12.90</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£13.40</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£13.40</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£12.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Nam Mun Hoi</span><span class="badges"><span class="badge veg">V</span></span></div>
+        </div>
+        <p class="dish-desc">Mild stir fry with a strong and distinctive flavour. Your choice of protein stir fried with oyster sauce, onions, carrots, mushrooms and spring onions. Optional ginger, highly recommended.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£12.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Priew Whan</span><span class="badges"><span class="badge">GF</span><span class="badge veg">V</span></span></div>
+        </div>
+        <p class="dish-desc">Healthy Thai style Sweet and Sour stir fry. Pineapples and tomatoes give this stir fry a tangy flavour. Add to it your preferred protein, onions, cucumbers, carrots and spring onions and you have a well balanced dish.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£12.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Kraprow</span><span class="badges"><span class="badge veg">V</span></span> <span class="heat">🌶🌶</span></div>
+        </div>
+        <p class="dish-desc">Chilli and basil is the staple of Thai cuisine. Stir-fried with your choice of protein, fine beans, mixed peppers, onions and our home-made 'Top Secret' sauce. Please note this dish cannot be made mild.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£12.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Kraprow Talay</span> <span class="heat">🌶🌶</span></div>
+          <div class="dish-price">£17.50</div>
+        </div>
+        <p class="dish-desc">If you love spicy seafood, you have to try this dish. Green mussels, king prawns and squid rings stir fried with our 'Top Secret' garlic &amp; herb mix, onions, peppers and fresh chillies. Finished with basil giving it a distinctive Thai flavour.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Pak (Stir-fried Vegetables)</span><span class="badges"><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£12.50</div>
+        </div>
+        <p class="dish-desc">Great side dish or a meal in its own right. Flash stir-fried broccoli, cabbage, carrot strips, beansprouts, baby corn with light soya sauce. Tofu optional.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── THAI SPECIALS ─── -->
+<section class="menu-section" id="specials">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-star-anise.png" alt="" class="icon">
+      <h2>Thai Specials</h2>
+      <p class="subtitle">house favourites &amp; quiet experiments</p>
+    </div>
+
+    <div class="dishes single">
+      <div class="dish featured">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pla Rard Prix</span> <span class="heat">🌶</span></div>
+          <div class="dish-price">£15.50</div>
+        </div>
+        <p class="dish-desc">Fried fillet fish topped with aromatic herbs, garlic, peppers, onions and chilli sauce, served on lettuce. <em style="color: var(--plum);">— White Fish</em></p>
+      </div>
+
+      <div class="dish featured">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Ma Kham</span><span class="badges"><span class="badge">GF</span></span></div>
+        </div>
+        <p class="dish-desc">Freshly made sweet &amp; tangy tamarind sauce poured over duck breast or fish fillet, served on a bed of lettuce. Topped with crispy shallots and coriander.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Duck</span><span class="price">£16.50</span></div>
+          <div class="dish-option"><span class="protein">White Fish</span><span class="price">£15.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish featured">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Cha</span> <span class="heat">🌶🌶</span></div>
+        </div>
+        <p class="dish-desc">Wild ginger, lemon grass, Thai basil and baby peppercorns. Truly unique and Thai herbs, stir fried with your choice of protein, red chillies and finger chillies.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Seafood</span><span class="price">£17.50</span></div>
+          <div class="dish-option"><span class="protein">Duck</span><span class="price">£16.50</span></div>
+          <div class="dish-option"><span class="protein">White Fish</span><span class="price">£15.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish featured">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Ped Pad Prix</span> <span class="heat">🌶🌶</span></div>
+          <div class="dish-price">£16.50</div>
+        </div>
+        <p class="dish-desc">Spicy, sweet and tangy duck dish. Sliced skinless duck breast stir fried with tamarind sauce, garlic, peppers, onions and chillies. Served on a bed of lettuce.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── NOODLES ─── -->
+<section class="menu-section" id="noodles">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-chopsticks.png" alt="" class="icon">
+      <h2>Stir-Fried Noodle Dishes</h2>
+      <p class="subtitle">a side to share or a meal by itself</p>
+    </div>
+
+    <div class="dishes">
+      <div class="dish featured">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Thai</span><span class="badges"><span class="badge">GF</span><span class="badge">N</span></span></div>
+        </div>
+        <p class="dish-desc">The one and only, famous traditional Thai rice noodles stir-fried with home-made sweet and tangy tamarind sauce, chopped pickled sweet raddish, bean sprouts, spring onions, finely cut carrots strips and grated peanuts on the side.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£12.50</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£12.90</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£12.90</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£12.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Mee</span></div>
+        </div>
+        <p class="dish-desc">Quick egg noodle stir-fry with soya sauce, beansprouts, finely chopped cabbage, carrots strips and spring onions. We can make it spicy on request.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£11.90</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£11.90</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£12.90</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£12.90</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£11.90</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Just Egg Noodles</span></div>
+          <div class="dish-price">£5.50</div>
+        </div>
+        <p class="dish-desc">Simple stir-fried egg noodles with beansprouts, thinly cut carrot strips and spring onions. Great as a side to stir fries.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── CURRIES ─── -->
+<section class="menu-section" id="curries">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-coriander.png" alt="" class="icon">
+      <h2>Curries</h2>
+      <p class="subtitle">spicy, mild, creamy or light</p>
+      <p class="note">Don't forget to order rice or noodles with your curry.</p>
+    </div>
+
+    <div class="dishes single">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Green Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">Sharp-in-flavour with a touch of sweetness. Medium-spicy thin curry cooked with coconut milk, courgettes, bamboo shoots, red peppers and lime leaves.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£13.50</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£13.50</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£13.90</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£13.90</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£13.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Red Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">Boldish and smooth in flavour, medium-spicy thin curry cooked with coconut milk, courgettes, bamboo shoots, red peppers and lime leaves.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£13.50</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£13.50</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£13.90</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£13.90</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£13.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Panang Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">Creamy curry with distinctive lime leaves flavour, cooked with coconut milk, red peppers and finished with chopped fresh lime leaves. Considered by most as medium spicy.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£13.00</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£13.60</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£13.60</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£13.00</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Massaman Curry</span><span class="badges"><span class="badge">GF</span><span class="badge">N</span></span></div>
+        </div>
+        <p class="dish-desc">Famous mild and creamy Thai curry with nutty overtones. Slowly cooked with star anise amongst other herbs, topped with few potatoes and cashews. Best served with beef.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£13.90</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£13.90</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£14.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£14.50</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£13.90</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Kaeng Pa — Jungle Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶🌶</span></div>
+        </div>
+        <p class="dish-desc">One of a few Thai curries without coconut milk, a great choice if you enjoy spicy food. A quick dish made with a mix of intense Thai herbs — wild ginger, lime leaves and lemongrass. Cooked with mixed vegetables.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£13.90</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£13.90</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£14.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£14.50</span></div>
+          <div class="dish-option"><span class="protein">Veg &amp; Tofu</span><span class="price">£13.90</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Duck Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+          <div class="dish-price">£15.50</div>
+        </div>
+        <p class="dish-desc">A bit sweet, slightly tangy, and rather spicy. Skinless roasted duck breast cooked in coconut milk with red curry paste, red peppers, cherry tomatoes, pineapple pieces and Thai basil.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Chu Chi Pla</span></div>
+          <div class="dish-price">£15.50</div>
+        </div>
+        <p class="dish-desc">Fried white fish topped with thick cream Panang curry dressing and lime leaves, on a bed of lettuce.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── RICE ─── -->
+<section class="menu-section" id="rice">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-lemon.png" alt="" class="icon">
+      <h2>Rice</h2>
+      <p class="subtitle">to go with your stir-fries, curries and specials</p>
+    </div>
+
+    <div class="dishes">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Thai Fragrant Rice</span><span class="badges"><span class="badge">GF</span><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£3.50</div>
+        </div>
+        <p class="dish-desc">Perfect with any stir-fry or curry.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Egg Fried Rice</span><span class="badges"><span class="badge">GF</span></span></div>
+          <div class="dish-price">£4.20</div>
+        </div>
+        <p class="dish-desc">Fragrant rice stir fried with an egg on a wok. Great with curries.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Sticky Rice</span><span class="badges"><span class="badge">GF</span><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£4.50</div>
+        </div>
+        <p class="dish-desc">Famous gloutinous rice, very sticky. Served in a plastic pouch to stop it from drying out and to make it easier to eat. Often eaten with fingers. Works well with most of dishes, but best with our signature Seabass and River King prawns dishes.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Riceberry Rice</span><span class="badges"><span class="badge">GF</span><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£4.50</div>
+        </div>
+        <p class="dish-desc">Healthy unprocessed rice deep purple in colour, slightly sweet. Rich in anthocyanin. Great with mild dishes, especially Massaman Curry.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── SIDES ─── -->
+<section class="menu-section" id="sides">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-thai-basil.png" alt="" class="icon">
+      <h2>Sides</h2>
+      <p class="subtitle">to accompany your main meal</p>
+    </div>
+
+    <div class="dishes">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Side Pad Pak (Stir-fried Vegetables)</span><span class="badges"><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£7.50</div>
+        </div>
+        <p class="dish-desc">Perfect with any stir-fry or curry.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Stir-fried Broccoli</span><span class="badges"><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£7.50</div>
+        </div>
+        <p class="dish-desc">Broccoli stir fried with garlic and light soya sauce.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Beansprouts with Tofu</span><span class="badges"><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£7.50</div>
+        </div>
+        <p class="dish-desc">Fried tofu with blanched beansprouts and spring onions in light soya sauce.</p>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Stir-fried Courgettes</span><span class="badges"><span class="badge veg">V</span></span> <span class="heat">🌶</span></div>
+          <div class="dish-price">£7.50</div>
+        </div>
+        <p class="dish-desc">Courgettes stir fried with garlic, chilli and basil.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── DRINKS ─── -->
+<section class="menu-section" id="drinks">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-lemon.png" alt="" class="icon">
+      <h2>Drinks</h2>
+      <p class="subtitle">tea, coffee &amp; soft drinks</p>
+    </div>
+
+    <div class="dishes">
+      <div class="menu-col" style="border-bottom: none;">
+        <h3 style="font-family: 'Caveat', cursive; font-weight: 600; color: var(--plum); font-size: 1.7rem; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line);">Tea</h3>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">English Breakfast</span></div><div class="dish-price">£2.50</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Earl Grey</span></div><div class="dish-price">£2.50</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Sencha &amp; Matcha</span></div><div class="dish-price">£3.00</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Jasmine Pearls</span></div><div class="dish-price">£3.00</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Organic Green Tea</span></div><div class="dish-price">£3.00</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Ginger &amp; Lemongrass</span></div><div class="dish-price">£3.00</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Chamomile</span></div><div class="dish-price">£3.00</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Organic Mint</span></div><div class="dish-price">£3.00</div></div>
+        </div>
+      </div>
+
+      <div class="menu-col" style="border-bottom: none;">
+        <h3 style="font-family: 'Caveat', cursive; font-weight: 600; color: var(--plum); font-size: 1.7rem; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line);">Coffee</h3>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Espresso</span></div><div class="dish-price">£2.50</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Double Espresso</span></div><div class="dish-price">£2.90</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Americano</span></div><div class="dish-price">£2.90</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">White Americano</span></div><div class="dish-price">£2.90</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Cappuccino</span></div><div class="dish-price">£2.90</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Latte</span></div><div class="dish-price">£2.90</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Flat White</span></div><div class="dish-price">£2.90</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Other Coffees</span></div><div class="dish-price">£2.90</div></div>
+        </div>
+        <div class="dish" style="padding: 12px 0;">
+          <div class="dish-head"><div class="name-block"><span class="name">Hot Chocolate</span></div><div class="dish-price">£3.90</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dishes single" style="margin-top: 50px;">
+      <div class="menu-col" style="border-bottom: none;">
+        <h3 style="font-family: 'Caveat', cursive; font-weight: 600; color: var(--plum); font-size: 1.7rem; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line);">Soft Drinks &amp; Other</h3>
+        <div class="dish">
+          <div class="dish-head"><div class="name-block"><span class="name">Fizzy Drinks 330ml</span></div><div class="dish-price">£2.50</div></div>
+          <p class="dish-desc">Coke, Diet Coke, Coke Zero, 7up.</p>
+        </div>
+        <div class="dish">
+          <div class="dish-head"><div class="name-block"><span class="name">Water 330ml</span></div><div class="dish-price">£2.50</div></div>
+          <p class="dish-desc">Still or sparkling.</p>
+        </div>
+        <div class="dish">
+          <div class="dish-head"><div class="name-block"><span class="name">Orange Juice</span></div><div class="dish-price">£2.50</div></div>
+        </div>
+        <div class="dish">
+          <div class="dish-head"><div class="name-block"><span class="name">Corkage</span></div><div class="dish-price">£2.00 <span style="font-size: 0.7rem; color: var(--muted); font-family: 'Inter', sans-serif;">/ pp</span></div></div>
+          <p class="dish-desc">Bring your own — we'll happily uncork it for you.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /#dinner-pane -->
+
+
+<!-- ════════════════════════════════════════════════════════════════
+     LUNCH MENU PANE
+     ════════════════════════════════════════════════════════════════ -->
+<div id="lunch-pane" class="menu-pane hidden">
+
+<div class="jump-nav">
+  <div class="jump-inner">
+    <a href="#l-curry-rice">Curry &amp; Rice</a>
+    <a href="#l-stir-fry-rice">Stir-Fry &amp; Rice</a>
+    <a href="#l-stir-fried-rice">Stir-Fried Rice</a>
+    <a href="#l-noodles">Noodles</a>
+  </div>
+</div>
+
+<p class="menu-note"><strong>Lunch</strong>Available 11:30am – 2pm. Looking for starters? Our dinner menu is available all day — just ask.<a class="print-link" href="print-lunch.html">Print version</a></p>
+
+<!-- ─── L: CURRY & RICE ─── -->
+<section class="menu-section" id="l-curry-rice">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-coriander.png" alt="" class="icon">
+      <h2>Curry &amp; Rice</h2>
+      <p class="subtitle">served with jasmine rice on the side</p>
+    </div>
+
+    <div class="dishes single">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Green Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">Sharp-in-flavour with a touch of sweetness. Medium-spicy thin curry cooked with coconut milk, courgettes, bamboo shoots, red peppers and lime leaves.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Red Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">Boldish and smooth in flavour, medium-spicy thin curry cooked with coconut milk, courgettes, bamboo shoots, red peppers and lime leaves.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Panang Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">Creamy curry with distinctive lime leaves flavour, cooked with coconut milk, red peppers and finished with chopped fresh lime leaves. Considered by most as medium spicy.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£10.60</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£10.60</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£11.30</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£11.30</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£10.60</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Massaman Curry</span><span class="badges"><span class="badge">GF</span><span class="badge">N</span></span></div>
+        </div>
+        <p class="dish-desc">Famous mild and creamy Thai curry with nutty overtones. Slowly cooked with star anise amongst other herbs, topped with few potatoes and cashews. Best served with beef.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£10.60</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£11.30</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£11.30</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£10.60</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Duck Curry</span><span class="badges"><span class="badge">GF</span></span> <span class="heat">🌶</span></div>
+          <div class="dish-price">£10.60</div>
+        </div>
+        <p class="dish-desc">A bit sweet, slightly tangy, and rather spicy. Skinless roasted duck breast cooked in coconut milk with red curry paste, red peppers, cherry tomatoes, pineapple pieces and Thai basil.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── L: STIR-FRY & RICE ─── -->
+<section class="menu-section" id="l-stir-fry-rice">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-chilli.png" alt="" class="icon">
+      <h2>Stir-Fry &amp; Rice</h2>
+      <p class="subtitle">served with jasmine rice on the side</p>
+    </div>
+
+    <div class="dishes single">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Med Ma Muang</span><span class="badges"><span class="badge veg">V</span></span></div>
+        </div>
+        <p class="dish-desc">Easy going stir-fry, with a touch of spiciness from dried chillies. Carrots, spring onions and cashew nuts stir-fried with light soya sauce and your choice of protein.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£11.30</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£11.30</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£10.50</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Nam Mun Hoi</span><span class="badges"><span class="badge veg">V</span></span></div>
+        </div>
+        <p class="dish-desc">Mild stir fry with strong and distinctive flavour. Your choice of protein stir fried with oyster sauce, onions, carrots, mushrooms and spring onions. Optional ginger, highly recommended.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Kraprow</span><span class="badges"><span class="badge veg">V</span></span> <span class="heat">🌶🌶</span></div>
+        </div>
+        <p class="dish-desc">Chilli and basil is the staple of Thai cuisine, and you can find both of these herbs in this dish. Stir-fried with your choice of protein, fine beans, mixed peppers, onions and our home-made 'Top Secret' sauce. Please note this dish cannot be made mild.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Pak (Stir-fried Vegetables)</span><span class="badges"><span class="badge veg">V</span></span></div>
+          <div class="dish-price">£9.80</div>
+        </div>
+        <p class="dish-desc">Great side dish or a meal in its own right. Flash stir-fried broccoli, sliced cabbage, carrot strips, beansprouts, baby corn with light soya sauce. Tofu optional.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── L: STIR-FRIED RICE ─── -->
+<section class="menu-section" id="l-stir-fried-rice">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-lemon.png" alt="" class="icon">
+      <h2>Stir-Fried Rice</h2>
+      <p class="subtitle">a meal in a bowl</p>
+    </div>
+
+    <div class="dishes single">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Kau Pad Supparod</span><span class="badges"><span class="badge">N</span></span></div>
+        </div>
+        <p class="dish-desc">Special fried rice with pineapple, your choice of protein, egg, onions, thin carrot strips, cabbage, tomatoes, few cashew nuts and a touch of turmeric.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Kau Pad</span></div>
+        </div>
+        <p class="dish-desc">Simple and easy going dish. Rice stir fried with an egg, onions, carrots, cabbage, tomatoes, spring onions and your choice of protein.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Kau Pad Nam Prik Pao</span> <span class="heat">🌶</span></div>
+        </div>
+        <p class="dish-desc">'A bit' spicy rice stir fry with Thai herbs, chilli oil, onions, carrots, cabbage and spring onions. Optional egg.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── L: STIR-FRIED NOODLES ─── -->
+<section class="menu-section" id="l-noodles">
+  <div class="container">
+    <div class="section-head">
+      <img src="assets/icons/icon-chopsticks.png" alt="" class="icon">
+      <h2>Stir-Fried Noodles</h2>
+      <p class="subtitle">comforting &amp; quick</p>
+    </div>
+
+    <div class="dishes single">
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Thai</span><span class="badges"><span class="badge">GF</span><span class="badge">N</span></span></div>
+        </div>
+        <p class="dish-desc">Famous traditional Thai stir-fried noodles with our home-made tamarind sauce, chopped sweet raddish, beansprouts, carrots, spring onions and grated peanuts on the side.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Mee</span></div>
+        </div>
+        <p class="dish-desc">Quick and mild egg noodle stir fry with soya sauce, beansprouts, cabbage, thin carrot strips and spring onions.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Duck</span><span class="price">£10.60</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad Kee Mao</span> <span class="heat">🌶🌶</span></div>
+        </div>
+        <p class="dish-desc">Spicy rice noodle dish with fine beans, bamboo shoots, chillies &amp; garlic, cabbage, peppers, onions and Thai basil.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Duck</span><span class="price">£10.60</span></div>
+        </div>
+      </div>
+
+      <div class="dish">
+        <div class="dish-head">
+          <div class="name-block"><span class="name">Pad See Eew</span></div>
+        </div>
+        <p class="dish-desc">Stir fried rice noodles with dark soya sauce, cabbage, thin carrot strips and spring onions.</p>
+        <div class="dish-options">
+          <div class="dish-option"><span class="protein">Chicken</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Pork</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Prawns</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Beef</span><span class="price">£10.50</span></div>
+          <div class="dish-option"><span class="protein">Veg</span><span class="price">£9.80</span></div>
+          <div class="dish-option"><span class="protein">Duck</span><span class="price">£10.60</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div><!-- /#lunch-pane -->
+
+
+<!-- vine divider -->
+<div class="vine-divider" aria-hidden="true">
+  <img src="assets/divider-vine.png" alt="">
+</div>
+
+<!-- CALLOUTS -->
+<section class="callouts">
+  <div class="container">
+    <div class="callouts-grid">
+      <div class="callout">
+        <h3>Go <em>large</em></h3>
+        <p>We can make most dishes a larger size — £2.50 at dinner, £2.00 at lunch.</p>
+      </div>
+      <div class="callout">
+        <h3>Make it <em>'Thai Hot'</em></h3>
+        <p>Let us know if you like your food extra hot. Our skilled chefs can adapt most of the dishes to your requirements.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ALLERGEN -->
+<section class="allergen">
+  <div class="container">
+    <h3>Food Allergies &amp; Preferences</h3>
+    <p>Please let our staff know if you have any food allergies or dietary requirements. We're happy to adapt where we can.</p>
+    <ul>
+      <li>Most dishes can be made vegetarian or vegan on request</li>
+      <li>Contains nuts — we can remove them in some dishes</li>
+      <li>For gluten-free dishes, please mention to staff</li>
+      <li>All dishes are dairy free</li>
+    </ul>
+  </div>
+</section>
+
+<!-- CTA STRIP -->
+<section class="cta-strip">
+  <div class="container">
+    <h2>Hungry? <em>Let's go.</em></h2>
+    <p>Book a table, or order in for tonight.</p>
+    <div class="actions">
+      <a href="https://guestplan.io/?i=2a5c03b9db21ba872c0d9e5ec53ec55c5735eb69" class="btn btn-light">Book a table <span class="arrow">→</span></a>
+      <a href="index.html#order" class="btn btn-outline-light">Order takeaway <span class="arrow">→</span></a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <img src="assets/logo.png" alt="One Thai Cafe">
+        <p class="footer-tagline">A small Thai cafe in Ware. Cooking honestly since 2016.</p>
+      </div>
+      <div class="footer-col">
+        <h5 class="mono-cap">Visit</h5>
+        <p>1 West Street<br>Ware, SG12 9EE</p>
+        <a href="tel:01920485978">01920 485 978</a>
+        <a href="mailto:ware@onethai.com">ware@onethai.com</a>
+      </div>
+      <div class="footer-col">
+        <h5 class="mono-cap">Quick Links</h5>
+        <a href="index.html">Home</a>
+        <a href="menu.html">Menu</a>
+        <a href="https://guestplan.io/?i=2a5c03b9db21ba872c0d9e5ec53ec55c5735eb69">Book a Table</a>
+        <a href="index.html#order">Order Online</a>
+      </div>
+    </div>
+
+    <div class="footer-icons" aria-hidden="true">
+      <img src="assets/icons/icon-thai-basil.png" alt="">
+      <img src="assets/icons/icon-chilli.png" alt="">
+      <img src="assets/icons/icon-star-anise.png" alt="">
+      <img src="assets/icons/icon-lemongrass-bunch.png" alt="">
+      <img src="assets/icons/icon-kaffir-leaf.png" alt="">
+      <img src="assets/icons/icon-lime-wedge.png" alt="">
+      <img src="assets/icons/icon-coriander.png" alt="">
+    </div>
+
+    <div class="footer-bottom">
+      <span>© 2026 One Thai Cafe · Ware</span>
+      <span class="hand">Made with care in Hertfordshire</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Menu tabs (Lunch / Dinner)
+  (function() {
+    const tabs = document.querySelectorAll('.menu-tab');
+    const panes = {
+      'dinner-pane': document.getElementById('dinner-pane'),
+      'lunch-pane': document.getElementById('lunch-pane')
+    };
+
+    function activate(targetPane) {
+      tabs.forEach(t => {
+        const active = t.dataset.pane === targetPane;
+        t.classList.toggle('active', active);
+        t.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+      Object.entries(panes).forEach(([id, el]) => {
+        el.classList.toggle('hidden', id !== targetPane);
+      });
+      // Update URL hash so refreshes / sharing work
+      try {
+        history.replaceState(null, '', '#' + (targetPane === 'lunch-pane' ? 'lunch' : 'dinner'));
+      } catch (e) {}
+      // Scroll to top of menu area
+      const top = document.querySelector('.menu-tabs-wrap');
+      if (top) {
+        const y = top.getBoundingClientRect().top + window.pageYOffset - 80;
+        window.scrollTo({ top: y, behavior: 'smooth' });
+      }
+    }
+
+    tabs.forEach(t => {
+      t.addEventListener('click', () => activate(t.dataset.pane));
+    });
+
+    // Auto-activate based on URL hash (e.g., menu.html#lunch)
+    const hash = window.location.hash.replace('#', '');
+    if (hash === 'lunch') activate('lunch-pane');
+    else if (hash === 'dinner') activate('dinner-pane');
+    // Also: if visiting a section anchor that belongs to lunch (l-*), open lunch
+    else if (hash.startsWith('l-')) {
+      panes['dinner-pane'].classList.add('hidden');
+      panes['lunch-pane'].classList.remove('hidden');
+      tabs.forEach(t => {
+        const active = t.dataset.pane === 'lunch-pane';
+        t.classList.toggle('active', active);
+        t.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+    }
+  })();
+</script>
+
+</body>
+</html>
