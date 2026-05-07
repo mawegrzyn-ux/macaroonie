@@ -1,0 +1,49 @@
+// canvas/BlockInspector.jsx
+//
+// Right-side panel that shows per-block options when a block is selected.
+// Reuses the existing per-type editors from `../editors/` so we don't
+// duplicate form code. Content fields (heading, body) appear both here
+// AND inline on the canvas — they share state via onChange.
+//
+// Closes on ESC or by clicking the X.
+
+import { useEffect } from 'react'
+import { X } from 'lucide-react'
+import { BLOCK_BY_KEY } from '../blockRegistry'
+
+export function BlockInspector({ block, onChange, onClose }) {
+  useEffect(() => {
+    function onKey(e) { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  if (!block) return null
+  const def = BLOCK_BY_KEY[block.type]
+  const Editor = def?.editor
+  const Icon = def?.icon
+
+  return (
+    <aside className="border-l bg-background flex flex-col w-[340px] shrink-0 max-h-[calc(100vh-180px)] sticky top-0">
+      <div className="flex items-center gap-2 px-4 py-3 border-b">
+        {Icon && <Icon className="w-4 h-4 text-primary" />}
+        <p className="text-sm font-semibold flex-1 truncate">{def?.label || block.type}</p>
+        <button type="button" onClick={onClose}
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+        {Editor ? (
+          <Editor
+            data={block.data}
+            onChange={(data) => onChange({ ...block, data })}
+            blockType={block.type}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">No options for this block.</p>
+        )}
+      </div>
+    </aside>
+  )
+}
