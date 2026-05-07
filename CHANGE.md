@@ -5,6 +5,66 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-07]
+
+### Visual page builder canvas (inline editing)
+- Page builder rewritten as a Gutenberg / Editor.js style visual canvas.
+  Operators see the page rendered with the same fonts, colours, and
+  spacing as the public site, and edit it directly. Click any block to
+  select; edit headings, button labels, captions, FAQ Q&A inline; rich
+  body content uses TipTap with a floating format bar.
+- New chrome layer: `BlockShell` adds a left-edge drag handle, hover/
+  selected outline, and a floating toolbar above the active block (move
+  up, move down, Settings, Duplicate, Delete). `BlockNode` recurses for
+  container blocks via a `renderChild` callback.
+- New `+` inserter between blocks (and an empty-state CTA on a fresh
+  page). Picker is grouped by category — Hero / Content / Layout /
+  Live data — with a search box.
+- Right-side `BlockInspector` reuses existing per-type editors from
+  `editors/` for layout/style options only. Content fields stay
+  inline-only — both share the same `onChange`.
+- New 15th block type **`columns`** (2–4 lanes; each lane is a drop
+  zone that accepts any other block type, except a nested `columns`).
+  Cross-column and column ↔ top-level drags work under a single
+  page-level `DndContext` via `blockTree.moveAcrossParents()` plus
+  per-empty-column `useDroppable` zones. Server template
+  `views/site/blocks/columns.eta` re-includes `./renderer` per child
+  for nested rendering. Admin editor `editors/ColumnsEditor.jsx` (lane
+  count, gap, alignment, stack-on, background). Shrinking the lane
+  count merges dropped lanes' contents into the last surviving column
+  so nothing is lost.
+- Every sectional block gained a **`data.container`** field
+  (boxed | wide | full) — read by both `innerContainerStyle()` in the
+  admin canvas AND every server `views/site/blocks/<type>.eta`. The
+  picker is hidden only for `divider` (`NO_CONTAINER_BLOCKS`).
+- New `ThemeFrame` injects the same CSS variables as
+  `views/site/shared/head.eta`, scoped to a per-instance class so the
+  admin chrome's font/colours don't leak in. New mirror module
+  `canvas/themeResolver.js` keeps the admin canvas in sync with the
+  server-side theme resolver.
+- New folder `admin/src/components/website-builder/canvas/`
+  (BlockShell, BlockNode, BlockInserter, BlockInspector, ThemeFrame,
+  InlineText, InlineRichText, blockCanvas, canvasRegistry,
+  themeResolver). New helper module
+  `admin/src/components/website-builder/blockTree.js` treats top-level
+  + nested blocks uniformly.
+
+### Page builder section runs full-width
+- `Website.jsx` drops the `max-w-3xl mx-auto` constraint when the
+  active section is `page` so the canvas can stretch. Other venue
+  sections still wrap at the constrained width.
+- Hero and About are removed from the venue sidebar — their content
+  lives inside blocks added via the canvas. The flat-layout fallback
+  was removed in the prior round, so this is a UX cleanup. Venue
+  sidebar is now 17 sections (Page builder is first).
+
+### Gallery section — "From library" picker
+- New button next to the upload control opens `MediaLibraryModal` in
+  picker mode (existing media library, no fresh upload). On pick,
+  mutates `POST /website/gallery` exactly like an upload would.
+
+---
+
 ## [2026-05-03]
 
 ### Embeddable booking widget

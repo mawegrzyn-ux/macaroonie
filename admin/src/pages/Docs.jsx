@@ -881,7 +881,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'Purpose']}
               rows={[
-                ['website_config',         'Singleton per tenant (UNIQUE tenant_id). 60+ columns covering identity, branding, hero, about, find-us, contact, social, ordering, delivery, SEO, analytics, feature toggles, + custom_domain, custom_domain_verified, template_key, theme (JSONB).'],
+                ['website_config',         'Per-venue (UNIQUE venue_id since migration 027). 60+ columns covering identity, branding, hero, about, find-us, contact, social, ordering, delivery, SEO, analytics, feature toggles, + custom_domain, custom_domain_verified, template_key, theme (JSONB), home_blocks (JSONB block tree).'],
                 ['website_opening_hours',  '7-day grid with multiple sessions per day (day_of_week, opens_at, closes_at, is_closed, label, sort_order).'],
                 ['website_gallery_images', 'Ordered gallery images (image_url, caption, sort_order).'],
                 ['website_pages',          'Custom CMS pages — UNIQUE (website_config_id, slug). Content is free HTML.'],
@@ -980,8 +980,101 @@ GET /robots.txt`}</Code>
             <InfoBox type="tip">
               To add a new theme knob: update <Mono>ThemeSchema</Mono> in
               <Mono>routes/website.js</Mono>, the <Mono>DEFAULT_THEME</Mono> constant in
-              <Mono>admin/src/pages/Website.jsx</Mono>, and the CSS-variable block in
-              <Mono>shared/head.eta</Mono> together.
+              <Mono>admin/src/pages/Website.jsx</Mono>, the CSS-variable block in
+              <Mono>shared/head.eta</Mono>, AND <Mono>canvas/themeResolver.js</Mono>
+              (mirror used by the admin canvas) — four places, in lockstep.
+            </InfoBox>
+
+            <H3>Page builder canvas (admin)</H3>
+            <P>
+              The website CMS page builder is a visual canvas in the style of Gutenberg /
+              Editor.js. Operators see the page rendered with the same fonts, colours, and
+              spacing as the public site, and edit it directly. Lives under
+              <Mono>admin/src/components/website-builder/</Mono>.
+            </P>
+            <P>
+              Each block on the canvas is rendered through three layers:
+              <Mono>BlockShell</Mono> (chrome — drag handle, hover/selected outline,
+              floating toolbar) →&nbsp;<Mono>Canvas component</Mono> (visual mirror of the
+              matching server <Mono>.eta</Mono> partial) →&nbsp;optional inline editors
+              (<Mono>InlineText</Mono> for plain text, <Mono>InlineRichText</Mono> for
+              TipTap rich text). Container blocks (currently just <Mono>columns</Mono>)
+              receive a <Mono>renderChild</Mono> callback so they can recurse into
+              <Mono> BlockNode</Mono> for nested children.
+            </P>
+            <DataTable
+              head={['File', 'Purpose']}
+              rows={[
+                ['PageBuilder.jsx',                'Top-level component. Owns the single page-level DndContext, selection state, save/reset/templates UI.'],
+                ['blockTree.js',                   'Pure helpers — findBlock, patchBlockData, removeBlock, duplicateBlock, cloneWithFreshIds, insertAt, moveWithinParent, reorderWithinParent, moveAcrossParents, parentKey/parseParentKey. Treats top-level + nested blocks uniformly.'],
+                ['blockRegistry.js',               '15 block-type entries (added "columns") + CONTAINER_OPTIONS + NO_CONTAINER_BLOCKS + PAGE_TEMPLATES. newBlock() mints fresh ids.'],
+                ['canvas/blockCanvas.jsx',         'Per-type visual components — Hero/Text/Image/TwoColumn/CtaStrip/Faq/Divider/Columns/DataPlaceholder. innerContainerStyle() mirrors the boxed/wide/full switch in every server .eta.'],
+                ['canvas/canvasRegistry.js',       'block.type → canvas component map.'],
+                ['canvas/BlockShell.jsx',          'Chrome: drag handle, hover/selected outline, floating toolbar (move up/down, Settings, Duplicate, Delete).'],
+                ['canvas/BlockNode.jsx',           'Recursive renderer (top-level + nested via renderChild).'],
+                ['canvas/BlockInserter.jsx',       '"+" button between blocks (mode="between") + dashed empty-state CTA (mode="empty"). Category-grouped picker with search.'],
+                ['canvas/BlockInspector.jsx',      'Right-side settings panel (340px). Container width toggle on top, then per-type editor reused from editors/.'],
+                ['canvas/ThemeFrame.jsx',          'Wraps the canvas with the same CSS variables as views/site/shared/head.eta, scoped to a per-instance class. Auto-loads Google Fonts.'],
+                ['canvas/themeResolver.js',        'JS mirror of head.eta theme resolution. KEEP IN SYNC with the public side and admin DEFAULT_THEME.'],
+                ['canvas/InlineText.jsx',          'contentEditable plain-text editor for headings, button labels, captions. Single-line by default; Enter blocked, pasted newlines stripped.'],
+                ['canvas/InlineRichText.jsx',     'TipTap rich text with floating format bar (bold, italic, underline, H2/H3, lists, blockquote, alignment, link).'],
+                ['editors/ColumnsEditor.jsx',      'Settings for the Columns block (lane count, gap, alignment, stack-on, background).'],
+              ]}
+            />
+            <H3>Cross-container drag (page builder)</H3>
+            <P>
+              A single <Mono>DndContext</Mono> at the page level coordinates every drag —
+              top-level reorder, within-column reorder, cross-column moves, and
+              column ↔ top-level moves. Per-empty-column <Mono>useDroppable</Mono> zones
+              (<Mono>ColumnDropZone</Mono> in <Mono>blockCanvas.jsx</Mono>) are needed
+              because per-block <Mono>useSortable</Mono> hooks alone don't accept a drop
+              into an empty column.
+            </P>
+            <Code>{`// PageBuilder.jsx — handleAnyDragEnd (simplified)
+const sourceInfo = findBlock(blocks, active.id)
+const sourceParent = sourceInfo.parent
+
+// destination — either next-to a block (sortable item) or end-of-container
+let destParent, destIndex
+if (isContainerId(over.id)) {
+  destParent = parseParentKey(over.id)
+  destIndex  = listForParent(blocks, destParent).length
+} else {
+  const overInfo = findBlock(blocks, over.id)
+  destParent = overInfo.parent
+  destIndex  = listForParent(blocks, destParent).indexOf(over.id)
+}
+
+// Columns can't nest inside Columns — silently bail
+if (sourceInfo.block.type === 'columns' && destParent.kind === 'column') return
+
+if (sameParent(sourceParent, destParent))
+  setBlocks(arr => reorderWithinParent(arr, sourceParent, active.id, over.id))
+else
+  setBlocks(arr => moveAcrossParents(arr, active.id, sourceParent, destParent, destIndex))`}</Code>
+
+            <H3>Block types &amp; <Mono>data.container</Mono></H3>
+            <P>
+              <strong>15 block types</strong> after the canvas rewrite (added
+              <Mono> columns</Mono>): hero, text, image, two_column, cta_strip, gallery,
+              opening_hours, find_us, contact, booking_widget, menu_pdfs, allergens, faq,
+              divider, columns. Every sectional block carries a per-block
+              <Mono> data.container</Mono> field (<Mono>boxed</Mono> | <Mono>wide</Mono> |
+              <Mono> full</Mono>) — read by both <Mono>innerContainerStyle()</Mono> in
+              the admin canvas AND the matching <Mono>views/site/blocks/{'<type>.eta'}</Mono>
+              partial. <Mono>NO_CONTAINER_BLOCKS</Mono> in <Mono>blockRegistry.js</Mono>
+              currently lists only <Mono>divider</Mono>; <Mono>columns</Mono> IS in the
+              picker so the operator can have a wide-bleed columns row inside an
+              otherwise-boxed page.
+            </P>
+            <InfoBox type="warn">
+              Adding a new block type is a <strong>4-place change</strong>: (1) entry in
+              <Mono> blockRegistry.js</Mono>, (2) per-type partial under
+              <Mono> views/site/blocks/{'<type>.eta'}</Mono>, (3) line in
+              <Mono> blocks/renderer.eta</Mono> dispatch, (4) line in
+              <Mono> canvas/canvasRegistry.js</Mono> mapping the type → canvas component.
+              Skipping (4) means the admin canvas falls through to "Unknown block type"
+              while the public site still renders.
             </InfoBox>
 
             <H3>Pluggable storage</H3>
@@ -1005,8 +1098,14 @@ GET /robots.txt`}</Code>
             <H3>Admin page</H3>
             <P>
               <Mono>admin/src/pages/Website.jsx</Mono> at the <Mono>/website</Mono> route.
-              Left-rail nav with 18 sections. First-time tenants see an onboarding card that
-              POSTs a subdomain slug to create the config row.
+              Left-rail nav with <strong>17 venue sections</strong> — Page builder is the
+              first one and the only section that runs full-width
+              (<Mono>max-w-3xl mx-auto</Mono> is dropped when <Mono>active === 'page'</Mono>);
+              all other sections still wrap at the constrained width. Brand-defaults mode
+              has its own 4-section nav (Brand identity, Brand theme, Brand analytics,
+              Emergency banner). First-time tenants see an onboarding card that POSTs a
+              subdomain slug to create the config row. Hero + About are gone from the
+              sidebar — their content lives inside blocks added via the Page builder.
             </P>
             <P>Shared primitives in the same file:</P>
             <ul className="list-disc ml-5 space-y-1 text-sm text-muted-foreground mb-4">
@@ -1014,8 +1113,16 @@ GET /robots.txt`}</Code>
               <li><Mono>FileUpload</Mono>, <Mono>ImageField</Mono> — wrap <Mono>api.upload()</Mono></li>
               <li><Mono>useConfigFields(config, fields)</Mono> — hook used by simple sections to stage edits and PATCH a subset of config fields on save</li>
               <li>
-                Gallery uses <Mono>@dnd-kit/sortable</Mono> (new dep). Touch-drag requires a
-                200ms delay to avoid conflict with page scroll.
+                Gallery uses <Mono>@dnd-kit/sortable</Mono>. Touch-drag requires a 200ms
+                delay to avoid conflict with page scroll. The "From library" button opens
+                <Mono> MediaLibraryModal</Mono> in picker mode for adding existing media
+                items without a fresh upload.
+              </li>
+              <li>
+                Page builder is in <Mono>components/website-builder/</Mono> — see the
+                "Page builder canvas" section above for the full architecture (Tree
+                helpers, BlockShell, BlockNode, BlockInserter, BlockInspector, ThemeFrame,
+                Inline editors, blockCanvas).
               </li>
             </ul>
 

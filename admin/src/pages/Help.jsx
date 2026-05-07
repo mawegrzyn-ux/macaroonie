@@ -1154,37 +1154,116 @@ export default function Help() {
                 when you flip the <em>Publish</em> toggle in Setup &amp; domain.
               </li>
               <li>
-                Fill in sections in any order. Each section has its own <strong>Save</strong>
-                button — changes only go live when you save.
+                The home page is built in the <strong>Page builder</strong> (the first
+                section in the left rail). Everything else (theme, gallery, menus, hours,
+                contact, etc.) is configured in its own section. Each section has its own
+                <strong> Save</strong> button — changes only go live when you save.
               </li>
             </ol>
 
-            <H3>The 18 sections</H3>
-            <P>The left rail groups sections into logical steps:</P>
+            <H3>Page builder — the canvas</H3>
+            <P>
+              The <strong>Page builder</strong> is a visual canvas: you see the page roughly
+              as your guests will, and edit it directly. The page is made of <strong>blocks</strong>
+              — Hero, Rich text, Image, Two columns, CTA strip, Gallery, Opening hours, FAQ,
+              Columns, etc. Stack blocks in any order; everything is drag-and-drop.
+            </P>
+            <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
+              <li>
+                <strong>Click any block</strong> to select it. A primary-coloured outline
+                appears around the block, and a small toolbar floats above it (move up,
+                move down, Settings, Duplicate, Delete).
+              </li>
+              <li>
+                <strong>Click headings, button labels, captions</strong> directly to edit
+                the text. Rich-text blocks show a small format bar above the text when
+                you're typing — bold, italic, underline, headings, lists, alignment, link.
+              </li>
+              <li>
+                <strong>Hover the boundary between two blocks</strong> to reveal a "+"
+                button — click it to insert a new block at that position. The picker is
+                grouped by category (Hero, Content, Layout, Live data) and has a search box.
+                A bigger <em>Add your first block</em> button is shown on an empty canvas.
+              </li>
+              <li>
+                <strong>Drag the grip handle</strong> on the left edge of a block to reorder
+                — works across columns too (see below).
+              </li>
+              <li>
+                <strong>Settings panel</strong> (right-hand side, opens with the cog icon
+                in the floating toolbar) holds layout options for the active block —
+                container width, alignment, gaps, backgrounds, etc. Press <Mono>Escape</Mono>
+                or click the × to close.
+              </li>
+              <li>
+                <strong>Container width</strong> toggle is on every block (Boxed / Wide /
+                Full bleed). Boxed sticks to the site's standard column; Wide is slightly
+                wider; Full bleed runs edge-to-edge of the viewport.
+              </li>
+              <li>
+                <strong>Templates</strong> — the toolbar at the top has a Templates button.
+                Pick a starter (Restaurant Classic, Modern Bistro, Minimal Café) and the
+                canvas is replaced with that arrangement of blocks. From scratch is also
+                available for a clean slate.
+              </li>
+            </ul>
+            <InfoBox type="tip">
+              Live-data blocks (Gallery, Opening hours, Find us, Contact, Booking widget,
+              Menus, Allergens) <strong>don't store content on the block</strong> — they
+              pull from your existing per-section data so a single edit in (say) Gallery
+              flows to every place that block appears. The block itself just holds a
+              heading + display options.
+            </InfoBox>
+
+            <H3>Columns block</H3>
+            <P>
+              <strong>Columns</strong> is a container block — it splits the page into 2,
+              3, or 4 lanes side by side. Each lane is its own drop zone that accepts any
+              other block type (except another Columns — no nested layouts).
+            </P>
+            <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
+              <li>Drag any block into a lane to drop it there.</li>
+              <li>Drag a block from one lane to another to rearrange.</li>
+              <li>
+                Shrinking from 4 lanes to 2 (in Settings) <strong>merges the dropped
+                lanes' contents</strong> into the last surviving column — nothing is
+                lost silently.
+              </li>
+              <li>
+                <strong>Stack on</strong> setting controls when columns become rows on
+                narrow screens — Mobile only, Mobile + tablet, or Never.
+              </li>
+            </ul>
+
+            <H3>The 17 sections</H3>
+            <P>The left rail (per venue) groups sections into logical steps:</P>
 
             <DataTable
               head={['Section', 'What it does']}
               rows={[
+                ['Page builder',     'Visual canvas — drag-and-drop blocks, edit headings and text inline, organise with columns. The home page is built entirely from blocks.'],
                 ['Setup & domain',   'Subdomain slug, custom domain (with DNS verification), publish toggle.'],
                 ['Template',         'Visual layout. Pick Classic (warm, traditional) or Modern (editorial, full-bleed hero).'],
-                ['Theme',            'Your look & feel — independent of template. Colours, fonts, sizes, spacing, corners, buttons, hero overlay.'],
+                ['Theme overrides',  'Per-venue look & feel — independent of template. Colours, fonts, sizes, spacing, corners, buttons, hero overlay. Inherits brand defaults.'],
                 ['Branding',         'Site name, tagline, logo, favicon.'],
-                ['Hero',             'The first screen guests see: image, heading, subheading, call-to-action button.'],
-                ['About',            'Short story / description with an optional image.'],
-                ['Gallery',          'Photo grid. Drag to reorder, add captions, upload new images.'],
-                ['Menus',            'Upload PDF menus with labels (e.g. Lunch, Dinner, Drinks).'],
+                ['Gallery',          'Photo grid. Drag to reorder, add captions, upload new images, or pick from your media library.'],
+                ['Menus (PDF)',      'Upload PDF menus with labels (e.g. Lunch, Dinner, Drinks).'],
                 ['Allergens',        'Either a PDF document OR a structured dish-by-dish table with allergen pills.'],
-                ['Opening hours',    '7-day grid. Multiple sessions per day (Lunch/Dinner) supported.'],
+                ['Opening hours',    '7-day grid. Multiple sessions per day (Lunch/Dinner) supported, or pull directly from your venue schedule.'],
                 ['Find us',          'Address, latitude/longitude, Google Maps embed URL.'],
                 ['Contact',          'Phone, email, Instagram, Facebook, X, TikTok, YouTube.'],
                 ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
                 ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
-                ['Booking widget',   'Embed your Macaroonie booking widget inline. Choose which venue and light/dark theme.'],
+                ['Booking widget',   'Configure which venue the booking widget books for and pick light/dark theme. Embed it on the page via a Booking widget block.'],
                 ['Custom pages',     'Standalone pages (e.g. Private Dining). Each appears at /p/{slug}.'],
                 ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
                 ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
               ]}
             />
+            <InfoBox type="info">
+              Hero and About are no longer separate sidebar sections — their content lives
+              inside Hero / Two-columns / Rich text blocks added via the Page builder.
+            </InfoBox>
 
             <H3>Theme manager — how it works</H3>
             <P>
@@ -1255,7 +1334,9 @@ export default function Help() {
               The gallery section shows a grid of images. <strong>Drag any image</strong>
               by the grip handle (top-left) to reorder. Captions are edited inline — changes
               aren't saved until you click <strong>Save order &amp; captions</strong> at the
-              bottom of the section.
+              bottom of the section. Click <strong>From library</strong> next to the upload
+              button to add an existing image from your media library — no fresh upload
+              needed.
             </P>
             <InfoBox type="tip">
               On touch devices, press-and-hold an image for a moment before dragging (so
@@ -1311,8 +1392,10 @@ export default function Help() {
             </P>
             <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
               <li>
-                <strong>On your Macaroonie site</strong> — add a <em>Booking widget</em> block
-                from the Page builder. The widget renders inline at the chosen position.
+                <strong>On your Macaroonie site</strong> — open the Page builder, hover
+                between two blocks for a "+" inserter, pick <em>Booking widget</em> from
+                the Live data category. The widget renders inline at the chosen position
+                using your venue + theme settings from the Booking widget section.
               </li>
               <li>
                 <strong>On any other site</strong> — copy the iframe HTML from the
@@ -1405,6 +1488,26 @@ export default function Help() {
                 <p className="text-sm text-muted-foreground">
                   Custom pages inherit the theme automatically — no action needed. If you're
                   still seeing the old style, hard-refresh your browser to bypass the cache.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">My inline edit doesn't seem to take</p>
+                <p className="text-sm text-muted-foreground">
+                  After typing into a heading or button label, click anywhere outside the
+                  field (or press Tab) to commit the change — the canvas commits on blur.
+                  Enter is blocked on single-line fields (button labels, headings) so you
+                  don't accidentally insert a line break; pasted text has newlines stripped
+                  for the same reason. For multi-line fields (subheading, paragraph), Enter
+                  inserts a new line as expected.
+                </p>
+              </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">I dragged a column block but it didn't go in</p>
+                <p className="text-sm text-muted-foreground">
+                  Columns can't nest inside Columns — if you try to drop a Columns block
+                  into one of the existing column lanes, the drag silently snaps back. To
+                  add a Columns block, drop it outside any existing Columns block (top
+                  level), then drag the content blocks into its lanes one by one.
                 </p>
               </div>
             </div>
