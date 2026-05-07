@@ -5,6 +5,10 @@ const minH = heightMap[d.height || 'medium']
 const align = d.align === 'left' ? 'flex-start' : 'center'
 const textAlign = d.align === 'left' ? 'left' : 'center'
 const overlay = (d.overlay_opacity ?? 0.4)
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 %>
 <section class="block hero" style="
   position:relative;
@@ -20,7 +24,7 @@ const overlay = (d.overlay_opacity ?? 0.4)
   <% if (d.image_url && overlay > 0) { %>
     <div style="position:absolute; inset:0; background:rgba(0,0,0,<%= overlay %>);"></div>
   <% } %>
-  <div class="container" style="position:relative; text-align:<%= textAlign %>; padding:64px 24px;">
+  <div style="<%= containerStyle %> position:relative; text-align:<%= textAlign %>; padding-top:64px; padding-bottom:64px;">
     <% if (d.heading) { %>
       <h1 style="font-family:var(--f-heading); font-size:clamp(32px,5vw,64px); margin:0 0 16px; letter-spacing:-0.01em;">
         <%= d.heading %>

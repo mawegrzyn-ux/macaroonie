@@ -1,0 +1,39 @@
+<%
+const d = it.block.data || {}
+const cols = Array.isArray(d.columns) ? d.columns : []
+const gapMap = { tight: 16, normal: 32, wide: 56 }
+const gap = gapMap[d.gap || 'normal']
+const alignMap = { top: 'flex-start', center: 'center', bottom: 'flex-end', stretch: 'stretch' }
+const alignItems = alignMap[d.align || 'top']
+const stackBp = d.stackOn === 'tablet' ? 900 : d.stackOn === 'never' ? 0 : 700
+const bg = d.background === 'surface' ? 'background:var(--c-surface);'
+        : d.background === 'accent'  ? 'background:var(--c-accent); color:#fff;'
+        : ''
+const cw = d.container === 'wide' ? '1400px'
+        : d.container === 'full' ? 'none'
+        : 'var(--cw)'
+const containerStyle = (d.container === 'full')
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
+const cssClass = 'columns-block-' + (it.block.id || Math.random().toString(36).slice(2,8))
+%>
+<section class="block <%= cssClass %>" style="<%= bg %> padding:48px 0;">
+  <div style="<%= containerStyle %>">
+    <div class="cols-grid" style="display:grid; grid-template-columns:repeat(<%= cols.length %>, 1fr); gap:<%= gap %>px; align-items:<%= alignItems %>;">
+      <% for (const col of cols) { %>
+        <div>
+          <% for (const child of (col.blocks || [])) { %>
+            <%~ include('./renderer', { ...it, block: child }) %>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+  </div>
+  <% if (stackBp > 0) { %>
+    <style>
+      @media (max-width: <%= stackBp %>px) {
+        .<%= cssClass %> .cols-grid { grid-template-columns: 1fr !important; }
+      }
+    </style>
+  <% } %>
+</section>

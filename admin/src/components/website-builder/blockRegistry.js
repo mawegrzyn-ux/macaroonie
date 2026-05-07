@@ -25,7 +25,7 @@
 import {
   Image as ImageIcon, Type, Columns2, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
-  Layout,
+  Layout, Columns,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -36,6 +36,24 @@ import { CtaStripEditor }      from './editors/CtaStripEditor'
 import { DataBlockEditor }     from './editors/DataBlockEditor'
 import { DividerEditor }       from './editors/DividerEditor'
 import { FaqEditor }           from './editors/FaqEditor'
+import { ColumnsEditor }       from './editors/ColumnsEditor'
+
+// Sectional blocks (everything except divider + columns) get a shared
+// `container` field controlling whether the block is boxed (within the
+// site's max-width) or full-bleed. New blocks should set this in their
+// defaultData; rendering reads `data.container` and switches the wrapper.
+export const CONTAINER_OPTIONS = [
+  { value: 'boxed', label: 'Boxed',     hint: 'Stays within the site\u2019s container width.' },
+  { value: 'wide',  label: 'Wide',      hint: 'A bit wider than boxed.' },
+  { value: 'full',  label: 'Full bleed', hint: 'Edge-to-edge of the viewport.' },
+]
+export const DEFAULT_CONTAINER = 'boxed'
+
+// Blocks that should NOT show the container width control in the inspector
+// (because they're either intrinsically full-bleed, or just visual filler).
+// Columns IS included in the toggle — its `container` controls the outer
+// row's max-width before the columns split.
+export const NO_CONTAINER_BLOCKS = new Set(['divider'])
 
 export const BLOCKS = [
   {
@@ -50,6 +68,7 @@ export const BLOCKS = [
       height: 'medium',           // small | medium | large | full
       overlay_opacity: 0.4,
       align: 'center',            // left | center
+      container: 'boxed',         // boxed | wide | full
     },
     editor: HeroEditor,
   },
@@ -64,6 +83,7 @@ export const BLOCKS = [
       max_width: 'normal',        // narrow | normal | wide
       align: 'left',              // left | center
       background: 'default',      // default | surface | accent
+      container: 'boxed',
     },
     editor: TextEditor,
   },
@@ -77,6 +97,7 @@ export const BLOCKS = [
       url: null, alt: '', caption: '',
       max_width: 'normal',        // narrow | normal | wide | full
       align: 'center',            // left | center | right
+      container: 'boxed',
     },
     editor: ImageBlockEditor,
   },
@@ -93,6 +114,7 @@ export const BLOCKS = [
       image_side: 'left',         // left | right
       gap: 'normal',              // tight | normal | wide
       background: 'default',
+      container: 'boxed',
     },
     editor: TwoColumnEditor,
   },
@@ -106,6 +128,7 @@ export const BLOCKS = [
       heading: 'Hungry?', subheading: '',
       cta_text: 'Book a table', cta_link: '#booking',
       bg_style: 'primary',        // primary | accent | dark | light
+      container: 'boxed',
     },
     editor: CtaStripEditor,
   },
@@ -115,7 +138,7 @@ export const BLOCKS = [
     description: 'Pulls from your gallery images. Style + size controlled in the Gallery section.',
     icon:        Layout,
     category:    'data',
-    defaultData: { heading: 'Gallery' },
+    defaultData: { heading: 'Gallery', container: 'boxed' },
     editor:      DataBlockEditor,
     pullsFromConfig: true,
   },
@@ -125,7 +148,7 @@ export const BLOCKS = [
     description: 'Weekly schedule. Pulled from manual entries or venue schedule.',
     icon:        Clock,
     category:    'data',
-    defaultData: { heading: 'Opening hours' },
+    defaultData: { heading: 'Opening hours', container: 'boxed' },
     editor:      DataBlockEditor,
     pullsFromConfig: true,
   },
@@ -135,7 +158,7 @@ export const BLOCKS = [
     description: 'Address + map. Pulled from your contact details.',
     icon:        MapPin,
     category:    'data',
-    defaultData: { heading: 'Find us' },
+    defaultData: { heading: 'Find us', container: 'boxed' },
     editor:      DataBlockEditor,
     pullsFromConfig: true,
   },
@@ -145,7 +168,7 @@ export const BLOCKS = [
     description: 'Phone, email, social links.',
     icon:        Phone,
     category:    'data',
-    defaultData: { heading: 'Get in touch' },
+    defaultData: { heading: 'Get in touch', container: 'boxed' },
     editor:      DataBlockEditor,
     pullsFromConfig: true,
   },
@@ -155,7 +178,7 @@ export const BLOCKS = [
     description: 'Embeds the live reservation widget for the chosen venue.',
     icon:        Calendar,
     category:    'data',
-    defaultData: { heading: 'Reserve a table' },
+    defaultData: { heading: 'Reserve a table', container: 'boxed' },
     editor:      DataBlockEditor,
     pullsFromConfig: true,
   },
@@ -165,7 +188,7 @@ export const BLOCKS = [
     description: 'Lists your uploaded PDF menus with a download link.',
     icon:        BookOpen,
     category:    'data',
-    defaultData: { heading: 'Our menu' },
+    defaultData: { heading: 'Our menu', container: 'boxed' },
     editor:      DataBlockEditor,
     pullsFromConfig: true,
   },
@@ -175,7 +198,7 @@ export const BLOCKS = [
     description: 'Allergen info, either as a PDF download or a structured table.',
     icon:        AlertTriangle,
     category:    'data',
-    defaultData: { heading: 'Allergen information' },
+    defaultData: { heading: 'Allergen information', container: 'boxed' },
     editor:      DataBlockEditor,
     pullsFromConfig: true,
   },
@@ -188,6 +211,7 @@ export const BLOCKS = [
     defaultData: {
       heading: 'Frequently asked',
       items:   [{ q: 'Do you take walk-ins?', a: 'Yes — subject to availability.' }],
+      container: 'boxed',
     },
     editor: FaqEditor,
   },
@@ -200,6 +224,26 @@ export const BLOCKS = [
     defaultData: { style: 'line', size: 'medium', color: 'auto' },
     editor:      DividerEditor,
   },
+  {
+    key:         'columns',
+    label:       'Columns',
+    description: 'A row of 2–4 columns, each holding any other blocks.',
+    icon:        Columns,
+    category:    'layout',
+    isContainer: true,
+    defaultData: {
+      columns: [
+        { id: null, blocks: [] },
+        { id: null, blocks: [] },
+      ],
+      gap:        'normal',  // tight | normal | wide
+      align:      'top',     // top | center | bottom
+      stackOn:    'mobile',  // mobile | tablet | never
+      background: 'default', // default | surface | accent
+      container:  'boxed',
+    },
+    editor: ColumnsEditor,
+  },
 ]
 
 export const BLOCK_BY_KEY = Object.fromEntries(BLOCKS.map(b => [b.key, b]))
@@ -207,10 +251,15 @@ export const BLOCK_BY_KEY = Object.fromEntries(BLOCKS.map(b => [b.key, b]))
 export function newBlock(key) {
   const def = BLOCK_BY_KEY[key]
   if (!def) throw new Error(`Unknown block type: ${key}`)
+  const data = structuredClone(def.defaultData)
+  // Container blocks need their child columns to get fresh ids too.
+  if (def.isContainer && Array.isArray(data.columns)) {
+    data.columns = data.columns.map(c => ({ ...c, id: crypto.randomUUID() }))
+  }
   return {
     id:   crypto.randomUUID(),
     type: key,
-    data: structuredClone(def.defaultData),
+    data,
   }
 }
 

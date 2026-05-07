@@ -1385,6 +1385,7 @@ function GallerySection({ config }) {
   })
   const [items, setItems]           = useState(fetched)
   const [captionEdits, setEdits]    = useState({})   // id → caption
+  const [libraryOpen, setLibraryOpen] = useState(false)
   useEffect(() => { setItems(fetched); setEdits({}) }, [fetched])
   const dirtyOrder = items.map(i => i.id).join(',') !== fetched.map(i => i.id).join(',')
   const dirty = dirtyOrder || Object.keys(captionEdits).length > 0
@@ -1491,11 +1492,18 @@ function GallerySection({ config }) {
 
       <SectionCard
         title="Images"
-        description="Drag to reorder. Upload JPG / PNG / WebP up to 8 MB each."
+        description="Drag to reorder. Upload JPG / PNG / WebP up to 8 MB each, or pick from your media library."
         action={
-          <FileUpload kind="images" scope="website:gallery" accept="image/*"
-            onUploaded={r => add.mutate({ image_url: r.url, sort_order: items.length })}
-            label="Add image" />
+          <div className="flex items-center gap-2">
+            <button type="button"
+              onClick={() => setLibraryOpen(true)}
+              className="inline-flex items-center gap-1.5 border rounded-md px-3 py-2 text-sm hover:bg-accent min-h-[36px]">
+              <ImageIcon className="w-3.5 h-3.5" /> From library
+            </button>
+            <FileUpload kind="images" scope="website:gallery" accept="image/*"
+              onUploaded={r => add.mutate({ image_url: r.url, sort_order: items.length })}
+              label="Add image" />
+          </div>
         }>
         {isLoading ? (
           <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -1539,6 +1547,17 @@ function GallerySection({ config }) {
           </button>
         </div>
       )}
+
+      <MediaLibraryModal
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        mode="picker"
+        scope="website:gallery"
+        onPick={(url) => {
+          add.mutate({ image_url: url, sort_order: items.length })
+          setLibraryOpen(false)
+        }}
+      />
     </div>
   )
 }
@@ -2635,7 +2654,7 @@ export default function Website() {
 
       {/* Main panel */}
       <main className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto p-6">
+        <div className={cn('p-6', active !== 'page' && 'max-w-3xl mx-auto')}>
           <div className="mb-6">
             {mode === 'brand' ? (
               <h1 className="text-xl font-semibold">{sectionLabel}</h1>

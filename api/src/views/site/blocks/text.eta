@@ -5,9 +5,15 @@ const maxW = widthMap[d.max_width || 'normal']
 const bg = d.background === 'surface' ? 'background:var(--c-surface);'
          : d.background === 'accent'  ? 'background:var(--c-accent); color:#fff;'
          : ''
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 %>
-<section class="block" style="<%= bg %> padding:48px 24px;">
-  <div style="max-width:<%= maxW %>px; margin:0 auto; text-align:<%= d.align || 'left' %>;">
-    <div class="prose"><%~ d.html || '' %></div>
+<section class="block" style="<%= bg %> padding:48px 0;">
+  <div style="<%= containerStyle %>">
+    <div style="max-width:<%= maxW %>px; margin:0 auto; text-align:<%= d.align || 'left' %>;">
+      <div class="prose"><%~ d.html || '' %></div>
+    </div>
   </div>
 </section>

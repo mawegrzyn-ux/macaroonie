@@ -17,8 +17,23 @@ import { useRef, useState } from 'react'
 import { useApi } from '@/lib/api'
 import { Image as ImageIcon, Upload, Loader2 } from 'lucide-react'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
+import { useDroppable } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { InlineText }      from './InlineText'
 import { InlineRichText }  from './InlineRichText'
+import { BlockInserter }   from './BlockInserter'
+import { parentKey }       from '../blockTree'
+
+// Inner container max-width based on the per-block `container` setting.
+// Mirror of the corresponding switch in each Eta partial.
+function innerContainerStyle(width) {
+  switch (width) {
+    case 'wide':  return { maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, width: '100%' }
+    case 'full':  return { maxWidth: 'none', width: '100%', paddingLeft: 24, paddingRight: 24 }
+    case 'boxed':
+    default:      return { maxWidth: 'var(--cw)', marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, width: '100%' }
+  }
+}
 
 // ── Hero ─────────────────────────────────────────────────────
 
@@ -48,7 +63,7 @@ export function HeroCanvas({ data, onChange, selected }) {
       {data.image_url && overlay > 0 && (
         <div style={{ position: 'absolute', inset: 0, background: `rgba(0,0,0,${overlay})` }} />
       )}
-      <div className="container" style={{ position: 'relative', textAlign, padding: '64px 24px' }}>
+      <div style={{ ...innerContainerStyle(data.container), position: 'relative', textAlign, paddingTop: 64, paddingBottom: 64 }}>
         <InlineText
           as="h1"
           value={data.heading}
@@ -109,14 +124,16 @@ export function TextCanvas({ data, onChange }) {
   const set = (k) => (v) => onChange({ ...data, [k]: v })
 
   return (
-    <section className="block" style={{ background: bg, color, padding: '48px 24px' }}>
-      <div style={{ maxWidth: maxW, margin: '0 auto', textAlign: data.align || 'left' }}>
-        <InlineRichText
-          value={data.html}
-          onChange={set('html')}
-          placeholder="Write something…"
-          className="prose"
-        />
+    <section className="block" style={{ background: bg, color, paddingTop: 48, paddingBottom: 48 }}>
+      <div style={innerContainerStyle(data.container)}>
+        <div style={{ maxWidth: maxW, margin: '0 auto', textAlign: data.align || 'left' }}>
+          <InlineRichText
+            value={data.html}
+            onChange={set('html')}
+            placeholder="Write something…"
+            className="prose"
+          />
+        </div>
       </div>
     </section>
   )
@@ -131,22 +148,24 @@ export function ImageCanvas({ data, onChange, selected }) {
   const set = (k) => (v) => onChange({ ...data, [k]: v })
 
   return (
-    <section className="block" style={{ padding: '32px 24px', display: 'flex', justifyContent: align }}>
-      <figure style={{ margin: 0, maxWidth: maxW || undefined, width: '100%' }}>
-        {data.url ? (
-          <img src={data.url} alt={data.alt || ''} style={{ width: '100%', height: 'auto', borderRadius: 'var(--r-md, 8px)', display: 'block' }} />
-        ) : (
-          <ImagePlaceholder onChange={set('url')} scope="website:image" />
-        )}
-        <figcaption style={{ marginTop: 8, fontSize: 14, color: 'var(--c-muted)', textAlign: 'center' }}>
-          <InlineText
-            as="span"
-            value={data.caption}
-            onChange={set('caption')}
-            placeholder={selected ? 'Add a caption (optional)' : ''}
-          />
-        </figcaption>
-      </figure>
+    <section className="block" style={{ paddingTop: 32, paddingBottom: 32 }}>
+      <div style={{ ...innerContainerStyle(data.container), display: 'flex', justifyContent: align }}>
+        <figure style={{ margin: 0, maxWidth: maxW || undefined, width: '100%' }}>
+          {data.url ? (
+            <img src={data.url} alt={data.alt || ''} style={{ width: '100%', height: 'auto', borderRadius: 'var(--r-md, 8px)', display: 'block' }} />
+          ) : (
+            <ImagePlaceholder onChange={set('url')} scope="website:image" />
+          )}
+          <figcaption style={{ marginTop: 8, fontSize: 14, color: 'var(--c-muted)', textAlign: 'center' }}>
+            <InlineText
+              as="span"
+              value={data.caption}
+              onChange={set('caption')}
+              placeholder={selected ? 'Add a caption (optional)' : ''}
+            />
+          </figcaption>
+        </figure>
+      </div>
     </section>
   )
 }
@@ -162,8 +181,8 @@ export function TwoColumnCanvas({ data, onChange, selected }) {
   const set = (k) => (v) => onChange({ ...data, [k]: v })
 
   return (
-    <section className="block" style={{ background: bg, padding: '64px 24px' }}>
-      <div className="container" style={{ display: 'grid', gridTemplateColumns: cols, gap, alignItems: 'center' }}>
+    <section className="block" style={{ background: bg, paddingTop: 64, paddingBottom: 64 }}>
+      <div style={{ ...innerContainerStyle(data.container), display: 'grid', gridTemplateColumns: cols, gap, alignItems: 'center' }}>
         {data.image_url ? (
           <div style={{ order }}>
             <img src={data.image_url} alt={data.image_alt || ''}
@@ -228,8 +247,8 @@ export function CtaStripCanvas({ data, onChange, selected }) {
   const set = (k) => (v) => onChange({ ...data, [k]: v })
 
   return (
-    <section className="block" style={{ background: bg, color: fg, padding: '48px 24px', textAlign: 'center' }}>
-      <div className="container" style={{ maxWidth: 780 }}>
+    <section className="block" style={{ background: bg, color: fg, paddingTop: 48, paddingBottom: 48, textAlign: 'center' }}>
+      <div style={{ ...innerContainerStyle(data.container), maxWidth: data.container === 'full' ? 'none' : (data.container === 'wide' ? 1100 : 780) }}>
         <InlineText
           as="h2"
           value={data.heading}
@@ -304,8 +323,8 @@ export function FaqCanvas({ data, onChange, selected }) {
   const removeItem = (i) => set('items')(items.filter((_, j) => j !== i))
 
   return (
-    <section className="block" style={{ padding: '48px 24px' }}>
-      <div className="container" style={{ maxWidth: 780 }}>
+    <section className="block" style={{ paddingTop: 48, paddingBottom: 48 }}>
+      <div style={{ ...innerContainerStyle(data.container), maxWidth: data.container === 'full' ? 'none' : (data.container === 'wide' ? 1100 : 780) }}>
         <InlineText
           as="h2"
           value={data.heading}
@@ -372,6 +391,98 @@ export function FaqCanvas({ data, onChange, selected }) {
   )
 }
 
+// ── Columns (container block; nests other blocks) ───────────
+//
+// ColumnsCanvas no longer manages its own DndContext — the page-level
+// DndContext (in PageBuilder) coordinates all drags so blocks can move
+// across columns and between columns and the top level.
+
+export function ColumnsCanvas({
+  data, onChange, selected,
+  parentBlockId, onAddInColumn, renderChild,
+}) {
+  const cols = Array.isArray(data.columns) ? data.columns : []
+  const gapMap = { tight: 16, normal: 32, wide: 56 }
+  const gap = gapMap[data.gap || 'normal']
+  const alignMap = { top: 'flex-start', center: 'center', bottom: 'flex-end', stretch: 'stretch' }
+  const alignItems = alignMap[data.align || 'top']
+  const stackBp = data.stackOn === 'tablet' ? 900 : data.stackOn === 'never' ? 0 : 700
+  const bg = data.background === 'surface' ? 'var(--c-surface)'
+           : data.background === 'accent'  ? 'var(--c-accent)'
+           : 'transparent'
+  const fg = data.background === 'accent' ? '#fff' : 'inherit'
+
+  return (
+    <section className="block columns-block" style={{
+      background: bg, color: fg,
+      paddingTop: 48, paddingBottom: 48,
+    }}>
+      <div style={innerContainerStyle(data.container)}>
+        <div className="columns-grid" style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${cols.length}, 1fr)`,
+          gap, alignItems,
+        }}>
+          {cols.map((col) => {
+            const colBlocks = col.blocks || []
+            const parentRef = { kind: 'column', blockId: parentBlockId, columnId: col.id }
+            const containerId = parentKey(parentRef)
+            return (
+              <ColumnDropZone key={col.id}
+                containerId={containerId}
+                isEmpty={colBlocks.length === 0}
+              >
+                <SortableContext id={containerId} items={colBlocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
+                  {colBlocks.length === 0 ? (
+                    <BlockInserter mode="empty" onPick={(k) => onAddInColumn?.(parentRef, 0, k)} />
+                  ) : (
+                    <>
+                      <BlockInserter onPick={(k) => onAddInColumn?.(parentRef, 0, k)} />
+                      {colBlocks.map((child, i) => (
+                        <div key={child.id}>
+                          {renderChild(child, parentRef, i, colBlocks.length)}
+                          <BlockInserter onPick={(k) => onAddInColumn?.(parentRef, i + 1, k)} />
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </SortableContext>
+              </ColumnDropZone>
+            )
+          })}
+        </div>
+      </div>
+      <style>{`
+        @media (max-width: ${stackBp}px) {
+          .columns-block .columns-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
+    </section>
+  )
+}
+
+// A column body that registers itself as a droppable. This is what lets
+// empty columns receive cross-container drops (the per-block useSortable
+// hooks alone don't cover the empty case).
+function ColumnDropZone({ containerId, isEmpty, children }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: containerId,
+    data: { kind: 'container', containerId },
+  })
+  return (
+    <div ref={setNodeRef} style={{
+      minHeight: 120,
+      outline: isOver ? '2px solid var(--c-primary)' : 'none',
+      outlineOffset: -2,
+      borderRadius: 8,
+      background: isOver ? 'rgba(99,8,18,0.05)' : 'transparent',
+      transition: 'background .12s, outline-color .12s',
+    }}>
+      {children}
+    </div>
+  )
+}
+
 // ── Data placeholder (gallery, hours, contact, find_us, etc.) ─
 
 const DATA_BLOCK_LABELS = {
@@ -390,13 +501,13 @@ export function DataPlaceholderCanvas({ data, onChange, blockType }) {
 
   return (
     <section className="block" style={{
-      padding: '48px 24px',
+      paddingTop: 48, paddingBottom: 48,
       background: 'repeating-linear-gradient(45deg, rgba(99,8,18,0.025) 0 12px, transparent 12px 24px)',
       border: '1px dashed rgba(99,8,18,0.25)',
       borderRadius: 'var(--r-md, 8px)',
       margin: '0 24px',
     }}>
-      <div className="container" style={{ textAlign: 'center' }}>
+      <div style={{ ...innerContainerStyle(data.container), textAlign: 'center' }}>
         <InlineText
           as="h2"
           value={data.heading}

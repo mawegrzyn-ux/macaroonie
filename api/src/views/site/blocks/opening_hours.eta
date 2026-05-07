@@ -6,9 +6,13 @@ for (const h of (it.opening_hours || [])) {
   if (!byDow[h.day_of_week]) byDow[h.day_of_week] = []
   byDow[h.day_of_week].push(h)
 }
+const innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '900px' : '640px'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + innerMax + '; margin:0 auto; padding:0 24px;'
 %>
-<section class="block" style="padding:48px 24px;">
-  <div class="container" style="max-width:640px;">
+<section class="block" style="padding:48px 0;">
+  <div style="<%= containerStyle %>">
     <% if (d.heading) { %>
       <h2 style="font-family:var(--f-heading); margin:0 0 16px; text-align:center;"><%= d.heading %></h2>
     <% } %>

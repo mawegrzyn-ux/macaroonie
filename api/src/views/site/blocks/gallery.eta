@@ -4,10 +4,14 @@ const galStyle = it.config.gallery_style || 'grid'
 const galSize  = it.config.gallery_size  || 'medium'
 const thumbMin = galSize === 'small' ? 160 : galSize === 'large' ? 320 : 240
 const thumbHt  = galSize === 'small' ? 160 : galSize === 'large' ? 280 : 220
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 %>
 <% if (it.gallery && it.gallery.length) { %>
-<section class="block" style="background:var(--c-surface); padding:64px 24px;">
-  <div class="container">
+<section class="block" style="background:var(--c-surface); padding:64px 0;">
+  <div style="<%= containerStyle %>">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
     <% if (galStyle === 'horizontal') { %>
       <div style="display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory; padding-bottom:12px;">

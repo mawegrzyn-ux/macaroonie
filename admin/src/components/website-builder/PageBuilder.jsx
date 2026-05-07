@@ -1,25 +1,17 @@
 // src/components/website-builder/PageBuilder.jsx
 //
 // Block-based page composition for tenant websites — Gutenberg / Editor.js
-// style canvas. The user adds blocks via "+" inserters between blocks,
-// drags to reorder via the always-visible grip, edits content inline on
-// the canvas (TipTap-backed), and tunes block-specific options in a
-// right-side inspector that opens when a block is selected.
-//
-// State flow:
-//   - Draft `blocks` lives in component state.
-//   - "Save" PATCHes website_config.home_blocks with the array.
-//   - "Reset" reverts to the last saved version.
-//   - "Apply template" replaces the current blocks (with confirm).
-//   - Public-site CSS variables are loaded into the canvas via ThemeFrame.
+// style canvas. Top-level blocks AND nested blocks (inside Columns) share
+// one selection model, one set of mutators (see ./blockTree.js), and one
+// recursive node renderer (./canvas/BlockNode).
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
+  DndContext, closestCorners, PointerSensor, TouchSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
 import {
-  SortableContext, arrayMove, verticalListSortingStrategy,
+  SortableContext, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import {
   Save, RefreshCw, Layers, Loader2, Sparkles, X,
@@ -27,10 +19,17 @@ import {
 import { useApi } from '@/lib/api'
 import { newBlock, PAGE_TEMPLATES } from './blockRegistry'
 import { ThemeFrame }     from './canvas/ThemeFrame'
-import { BlockShell }     from './canvas/BlockShell'
 import { BlockInserter }  from './canvas/BlockInserter'
 import { BlockInspector } from './canvas/BlockInspector'
-import { getCanvasComponent } from './canvas/canvasRegistry'
+import { BlockNode }      from './canvas/BlockNode'
+import {
+  flattenBlocks, findBlock,
+  patchBlockData, replaceBlock as treeReplace,
+  removeBlock as treeRemove,
+  duplicateBlock as treeDuplicate,
+  moveWithinParent, reorderWithinParent, insertAt, listForParent,
+  moveAcrossParents, parentKey, parseParentKey,
+} from './blockTree'
 
 export function PageBuilder({ config }) {
   const api = useApi()
@@ -49,7 +48,8 @@ export function PageBuilder({ config }) {
   }, [initial])
 
   const dirty = JSON.stringify(blocks) !== JSON.stringify(initial)
-  const selectedBlock = blocks.find(b => b.id === selectedId) || null
+  const selectedBlock = selectedId ? findBlock(blocks, selectedId)?.block || null : null
+  const blockCount    = flattenBlocks(blocks).length
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -61,49 +61,91 @@ export function PageBuilder({ config }) {
     onSuccess:  (cfg) => qc.setQueryData(['website-config'], cfg),
   })
 
-  function handleDragEnd(e) {
-    const { active, over } = e
-    if (!over || active.id === over.id) return
-    const oldIdx = blocks.findIndex(b => b.id === active.id)
-    const newIdx = blocks.findIndex(b => b.id === over.id)
-    if (oldIdx < 0 || newIdx < 0) return
-    setBlocks(arr => arrayMove(arr, oldIdx, newIdx))
+  // ── Drag-end: handles every move (top-level, within-column,
+  //              cross-column, top↔column) under one DndContext.
+
+  function isContainerId(id) {
+    return id === 'top' || (typeof id === 'string' && id.startsWith('col:'))
+  }
+  function sameParent(a, b) {
+    if (!a || !b) return false
+    if (a.kind !== b.kind) return false
+    if (a.kind === 'top') return true
+    return a.blockId === b.blockId && a.columnId === b.columnId
   }
 
-  function addBlock(key, atIndex) {
+  function handleAnyDragEnd(e) {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+
+    const sourceInfo = findBlock(blocks, active.id)
+    if (!sourceInfo) return
+    const sourceParent = sourceInfo.parent
+
+    // Resolve the destination parent + index. The over target is either
+    // another sortable block (drop NEXT TO it) or a container droppable
+    // (drop AT END of the container).
+    let destParent = null
+    let destIndex  = null
+
+    if (isContainerId(over.id)) {
+      destParent = parseParentKey(over.id)
+      if (!destParent) return
+      destIndex  = listForParent(blocks, destParent).length
+    } else {
+      const overInfo = findBlock(blocks, over.id)
+      if (!overInfo) return
+      destParent = overInfo.parent
+      const destList = listForParent(blocks, destParent)
+      destIndex = destList.findIndex(b => b.id === over.id)
+    }
+
+    // No nested columns — silently bail.
+    if (sourceInfo.block.type === 'columns' && destParent.kind === 'column') return
+
+    if (sameParent(sourceParent, destParent)) {
+      // Within the same parent. If the over target was the container
+      // itself there's nothing to reorder against.
+      if (isContainerId(over.id)) return
+      setBlocks(arr => reorderWithinParent(arr, sourceParent, active.id, over.id))
+    } else {
+      setBlocks(arr => moveAcrossParents(arr, active.id, sourceParent, destParent, destIndex))
+    }
+  }
+
+  // ── Top-level inserts ───────────────────────────────────────
+
+  function addTop(key, atIndex) {
     const block = newBlock(key)
-    setBlocks(arr => {
-      const idx = atIndex == null ? arr.length : atIndex
-      return [...arr.slice(0, idx), block, ...arr.slice(idx)]
-    })
+    setBlocks(arr => insertAt(arr, { kind: 'top' }, atIndex, block))
     setSelectedId(block.id)
     setInspectorOpen(true)
   }
 
-  function patchBlock(id, data) {
-    setBlocks(arr => arr.map(b => b.id === id ? { ...b, data } : b))
-  }
-  function replaceBlock(id, next) {
-    setBlocks(arr => arr.map(b => b.id === id ? next : b))
-  }
-  function removeBlock(id) {
-    setBlocks(arr => arr.filter(b => b.id !== id))
+  // ── Tree-aware mutators (work on any block, top-level or nested) ─
+
+  function patch(id, data) { setBlocks(arr => patchBlockData(arr, id, data)) }
+  function replace(id, next) { setBlocks(arr => treeReplace(arr, id, next)) }
+  function remove(id) {
+    setBlocks(arr => treeRemove(arr, id))
     if (selectedId === id) { setSelectedId(null); setInspectorOpen(false) }
   }
-  function duplicateBlock(id) {
-    const idx = blocks.findIndex(b => b.id === id)
-    if (idx < 0) return
-    const dup = { ...blocks[idx], id: crypto.randomUUID(), data: structuredClone(blocks[idx].data) }
-    setBlocks(arr => [...arr.slice(0, idx + 1), dup, ...arr.slice(idx + 1)])
-    setSelectedId(dup.id)
+  function duplicate(id) {
+    setBlocks(arr => treeDuplicate(arr, id))
   }
-  function moveBlock(id, dir) {
-    const idx = blocks.findIndex(b => b.id === id)
-    if (idx < 0) return
-    const newIdx = idx + dir
-    if (newIdx < 0 || newIdx >= blocks.length) return
-    setBlocks(arr => arrayMove(arr, idx, newIdx))
+  function move(id, dir) {
+    setBlocks(arr => moveWithinParent(arr, id, dir))
   }
+
+  // Add a block inside a column. Called from ColumnsCanvas.
+  function addInColumn(parentRef, atIndex, key) {
+    const block = newBlock(key)
+    setBlocks(arr => insertAt(arr, parentRef, atIndex, block))
+    setSelectedId(block.id)
+    setInspectorOpen(true)
+  }
+
+  // ── Templates ───────────────────────────────────────────────
 
   function applyTemplate(tpl) {
     if (blocks.length > 0 && !window.confirm(`Replace all ${blocks.length} blocks with the "${tpl.label}" template?`)) return
@@ -111,6 +153,20 @@ export function PageBuilder({ config }) {
     setTemplatesOpen(false)
     setSelectedId(null)
     setInspectorOpen(false)
+  }
+
+  // ── Render ──────────────────────────────────────────────────
+
+  const nodeHandlers = {
+    selectedId,
+    onSelect:        (id) => setSelectedId(id),
+    onPatch:         patch,
+    onRemove:        remove,
+    onDuplicate:     duplicate,
+    onMove:          move,
+    onOpenInspector: (id) => { setSelectedId(id); setInspectorOpen(true) },
+    onAddInColumn:   addInColumn,
+    config,
   }
 
   return (
@@ -122,9 +178,9 @@ export function PageBuilder({ config }) {
             <Layers className="w-4 h-4" /> Page builder
           </p>
           <p className="text-xs text-muted-foreground">
-            {blocks.length === 0
+            {blockCount === 0
               ? 'Empty — start from a template or add a block.'
-              : `${blocks.length} block${blocks.length !== 1 ? 's' : ''}` + (dirty ? ' · unsaved changes' : ' · saved')}
+              : `${blockCount} block${blockCount !== 1 ? 's' : ''}` + (dirty ? ' · unsaved changes' : ' · saved')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -148,8 +204,7 @@ export function PageBuilder({ config }) {
 
       {/* Canvas + Inspector */}
       <div className="flex gap-3 items-start">
-        <div className="flex-1 min-w-0 border rounded-lg overflow-hidden bg-muted/30">
-          {/* Click-on-empty-space deselects */}
+        <div className="flex-1 min-w-0 border rounded-lg bg-muted/30">
           <div
             onClick={() => { setSelectedId(null); setInspectorOpen(false) }}
             className="px-12 py-6"
@@ -157,45 +212,24 @@ export function PageBuilder({ config }) {
             <ThemeFrame config={config}>
               {blocks.length === 0 ? (
                 <div className="py-12">
-                  <BlockInserter mode="empty" onPick={(k) => addBlock(k, 0)} />
+                  <BlockInserter mode="empty" onPick={(k) => addTop(k, 0)} />
                 </div>
               ) : (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                    <BlockInserter onPick={(k) => addBlock(k, 0)} />
-                    {blocks.map((block, i) => {
-                      const Canvas = getCanvasComponent(block.type)
-                      return (
-                        <div key={block.id}>
-                          <BlockShell
-                            blockId={block.id}
-                            selected={selectedId === block.id}
-                            onSelect={() => setSelectedId(block.id)}
-                            onRemove={() => removeBlock(block.id)}
-                            onDuplicate={() => duplicateBlock(block.id)}
-                            onMoveUp={() => moveBlock(block.id, -1)}
-                            onMoveDown={() => moveBlock(block.id, 1)}
-                            canMoveUp={i > 0}
-                            canMoveDown={i < blocks.length - 1}
-                            onOpenInspector={() => setInspectorOpen(true)}
-                            label={block.type}
-                          >
-                            {Canvas ? (
-                              <Canvas
-                                data={block.data}
-                                onChange={(data) => patchBlock(block.id, data)}
-                                selected={selectedId === block.id}
-                                blockType={block.type}
-                                config={config}
-                              />
-                            ) : (
-                              <UnknownBlock type={block.type} />
-                            )}
-                          </BlockShell>
-                          <BlockInserter onPick={(k) => addBlock(k, i + 1)} />
-                        </div>
-                      )
-                    })}
+                <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleAnyDragEnd}>
+                  <SortableContext id="top" items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
+                    <BlockInserter onPick={(k) => addTop(k, 0)} />
+                    {blocks.map((block, i) => (
+                      <div key={block.id}>
+                        <BlockNode
+                          block={block}
+                          parent={{ kind: 'top' }}
+                          index={i}
+                          siblingCount={blocks.length}
+                          {...nodeHandlers}
+                        />
+                        <BlockInserter onPick={(k) => addTop(k, i + 1)} />
+                      </div>
+                    ))}
                   </SortableContext>
                 </DndContext>
               )}
@@ -203,17 +237,15 @@ export function PageBuilder({ config }) {
           </div>
         </div>
 
-        {/* Inspector */}
         {inspectorOpen && selectedBlock && (
           <BlockInspector
             block={selectedBlock}
-            onChange={(next) => replaceBlock(selectedBlock.id, next)}
+            onChange={(next) => replace(selectedBlock.id, next)}
             onClose={() => setInspectorOpen(false)}
           />
         )}
       </div>
 
-      {/* Floating "open inspector" hint when a block is selected but inspector closed */}
       {selectedBlock && !inspectorOpen && (
         <div className="fixed bottom-6 right-6 z-40">
           <button type="button" onClick={() => setInspectorOpen(true)}
@@ -231,21 +263,6 @@ export function PageBuilder({ config }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-
-function UnknownBlock({ type }) {
-  return (
-    <div style={{
-      padding: '24px',
-      background: '#fee2e2',
-      color: '#991b1b',
-      border: '1px solid #fecaca',
-      borderRadius: 8,
-      fontSize: 14,
-    }}>
-      Unknown block type: <code>{type}</code>
-    </div>
-  )
-}
 
 function TemplatePickerModal({ onClose, onApply }) {
   return (

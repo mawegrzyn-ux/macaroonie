@@ -5,9 +5,13 @@ const gap = gapMap[d.gap || 'normal']
 const cols = d.image_url ? '1fr 1fr' : '1fr'
 const order = d.image_side === 'right' ? 2 : 1
 const bg = d.background === 'surface' ? 'background:var(--c-surface);' : ''
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 %>
-<section class="block" style="<%= bg %> padding:64px 24px;">
-  <div class="container" style="display:grid; grid-template-columns:<%= cols %>; gap:<%= gap %>; align-items:center;">
+<section class="block" style="<%= bg %> padding:64px 0;">
+  <div style="<%= containerStyle %> display:grid; grid-template-columns:<%= cols %>; gap:<%= gap %>; align-items:center;">
     <% if (d.image_url) { %>
       <div style="order:<%= order %>;">
         <img src="<%= d.image_url %>" alt="<%= d.image_alt || '' %>"

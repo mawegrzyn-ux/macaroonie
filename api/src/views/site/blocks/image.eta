@@ -3,17 +3,23 @@ const d = it.block.data || {}
 const widthMap = { narrow: 600, normal: 900, wide: 1200, full: null }
 const maxW = widthMap[d.max_width || 'normal']
 const align = d.align === 'left' ? 'flex-start' : d.align === 'right' ? 'flex-end' : 'center'
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 %>
 <% if (d.url) { %>
-<section class="block" style="padding:32px 24px; display:flex; justify-content:<%= align %>;">
-  <figure style="margin:0; <%= maxW ? 'max-width:' + maxW + 'px;' : 'width:100%;' %> width:100%;">
-    <img src="<%= d.url %>" alt="<%= d.alt || '' %>"
-         style="width:100%; height:auto; border-radius:var(--r-md, 8px); display:block;" loading="lazy" />
-    <% if (d.caption) { %>
-      <figcaption style="margin-top:8px; font-size:14px; color:var(--c-muted); text-align:center;">
-        <%= d.caption %>
-      </figcaption>
-    <% } %>
-  </figure>
+<section class="block" style="padding:32px 0;">
+  <div style="<%= containerStyle %> display:flex; justify-content:<%= align %>;">
+    <figure style="margin:0; <%= maxW ? 'max-width:' + maxW + 'px;' : 'width:100%;' %> width:100%;">
+      <img src="<%= d.url %>" alt="<%= d.alt || '' %>"
+           style="width:100%; height:auto; border-radius:var(--r-md, 8px); display:block;" loading="lazy" />
+      <% if (d.caption) { %>
+        <figcaption style="margin-top:8px; font-size:14px; color:var(--c-muted); text-align:center;">
+          <%= d.caption %>
+        </figcaption>
+      <% } %>
+    </figure>
+  </div>
 </section>
 <% } %>

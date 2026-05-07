@@ -9,9 +9,13 @@ const bgMap = {
 const bg = bgMap[d.bg_style || 'primary']
 const btnBg  = (d.bg_style === 'light') ? 'var(--c-primary)' : '#fff'
 const btnFg  = (d.bg_style === 'light') ? '#fff' : 'var(--c-primary)'
+const innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '1100px' : '780px'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + innerMax + '; margin:0 auto; padding:0 24px;'
 %>
-<section class="block" style="<%= bg %> padding:48px 24px; text-align:center;">
-  <div class="container" style="max-width:780px;">
+<section class="block" style="<%= bg %> padding:48px 0; text-align:center;">
+  <div style="<%= containerStyle %>">
     <% if (d.heading) { %>
       <h2 style="font-family:var(--f-heading); font-size:clamp(22px,3vw,36px); margin:0 0 8px;">
         <%= d.heading %>

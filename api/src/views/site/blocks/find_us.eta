@@ -2,9 +2,13 @@
 const d = it.block.data || {}
 const c = it.config
 const addressLines = [c.address_line1, c.address_line2, [c.city, c.postcode].filter(Boolean).join(' ')].filter(Boolean)
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 %>
-<section class="block" style="padding:48px 24px; background:var(--c-surface);">
-  <div class="container">
+<section class="block" style="padding:48px 0; background:var(--c-surface);">
+  <div style="<%= containerStyle %>">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:stretch;">
       <div>

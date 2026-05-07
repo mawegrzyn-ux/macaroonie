@@ -5,9 +5,13 @@ const widgetBase = `${it.rootDomain ? (it.siteUrl || '') : ''}`
 const accent = (c.primary_colour || '').replace('#','')
 const theme  = c.widget_theme || 'light'
 const venueId = c.widget_venue_id
+const innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '900px' : '640px'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + innerMax + '; margin:0 auto; padding:0 24px;'
 %>
-<section class="block" id="booking" style="padding:48px 24px; background:var(--c-surface);">
-  <div class="container" style="max-width:640px; text-align:center;">
+<section class="block" id="booking" style="padding:48px 0; background:var(--c-surface);">
+  <div style="<%= containerStyle %> text-align:center;">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
     <% if (venueId) { %>
       <iframe src="<%= widgetBase %>/widget/<%= venueId %>?theme=<%= theme %>&accent=<%= accent %>"

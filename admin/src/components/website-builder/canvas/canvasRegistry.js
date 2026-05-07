@@ -5,6 +5,7 @@
 import {
   HeroCanvas, TextCanvas, ImageCanvas, TwoColumnCanvas,
   CtaStripCanvas, DividerCanvas, FaqCanvas, DataPlaceholderCanvas,
+  ColumnsCanvas,
 } from './blockCanvas'
 
 export const CANVAS_BY_TYPE = {
@@ -15,6 +16,7 @@ export const CANVAS_BY_TYPE = {
   cta_strip:      CtaStripCanvas,
   divider:        DividerCanvas,
   faq:            FaqCanvas,
+  columns:        ColumnsCanvas,
   // All "live data" blocks share one placeholder.
   gallery:        DataPlaceholderCanvas,
   opening_hours:  DataPlaceholderCanvas,

@@ -31,4 +31,6 @@ const t = it.block.type
   <%~ include('./faq', it) %>
 <% } else if (t === 'divider') { %>
   <%~ include('./divider', it) %>
+<% } else if (t === 'columns') { %>
+  <%~ include('./columns', it) %>
 <% } %>
