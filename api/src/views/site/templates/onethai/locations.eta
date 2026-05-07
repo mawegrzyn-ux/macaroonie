@@ -1,0 +1,44 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<%
+const ASSETS = '/template-assets/onethai'
+const venues = it.venues || []
+const heading = it.tenant_site?.locations_heading || 'Our locations'
+%>
+<main>
+<section class="story" style="padding-top: 80px;">
+  <img class="icon-decor faint story-decor" src="<%= ASSETS %>/icons/icon-lemongrass-bunch.png" alt="" aria-hidden="true">
+  <div class="container">
+    <div class="section-label mono-cap has-icon"><img class="section-icon" src="<%= ASSETS %>/icons/icon-coriander.png" alt="">Where to find us</div>
+    <h2 style="margin-bottom: 16px;"><%= heading %></h2>
+    <% if (it.tenant_site?.locations_intro) { %>
+      <p style="color: var(--muted); max-width: 640px; margin-bottom: 40px;"><%= it.tenant_site.locations_intro %></p>
+    <% } %>
+
+    <% if (venues.length === 0) { %>
+      <p style="color: var(--muted);">No locations yet.</p>
+    <% } else { %>
+      <div class="loc-grid">
+        <% venues.forEach(function(v){ %>
+          <a href="/locations/<%= v.slug %>" class="loc-card">
+            <div class="photo"<% if (v.hero_image_url) { %> style="background-image: url('<%= v.hero_image_url %>');"<% } %>></div>
+            <div class="body">
+              <h3><%= v.name %></h3>
+              <% if (v.address_line1 || v.city) { %>
+                <p class="addr"><%= [v.address_line1, v.city, v.postcode].filter(Boolean).join(' · ') %></p>
+              <% } %>
+              <% if (v.phone) { %><p class="addr"><%= v.phone %></p><% } %>
+              <span class="visit-link">Visit &rsaquo;</span>
+            </div>
+          </a>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+</section>
+
+<div class="vine-divider" aria-hidden="true">
+  <img src="<%= ASSETS %>/divider-vine.png" alt="">
+</div>
+</main>
+<%~ include('./partials/footer', it) %>

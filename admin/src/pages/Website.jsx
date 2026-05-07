@@ -583,6 +583,12 @@ const TEMPLATES = [
     description: 'Full-bleed hero, editorial typography, card-based gallery and a transparent floating header. More graphic and bold.',
     accent: '#1a1a1a',
   },
+  {
+    key: 'onethai',
+    label: 'Onethai',
+    description: 'Thai-restaurant aesthetic — burgundy + cream palette, Fraunces serif headlines with Caveat script accents, decorative herb/spice icons, dotted dividers, and a scrolling-dish ticker. Ships with default sample menu items the operator can override.',
+    accent: '#630812',
+  },
 ]
 
 function TemplateSection({ config }) {
@@ -2446,6 +2452,7 @@ function BrandIdentitySection() {
             className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
             <option value="classic">Classic</option>
             <option value="modern">Modern</option>
+            <option value="onethai">Onethai</option>
           </select>
         </FormRow>
         <FormRow label="Social preview image (OG)">

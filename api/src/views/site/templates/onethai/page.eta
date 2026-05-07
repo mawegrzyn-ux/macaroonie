@@ -1,0 +1,26 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<%
+const blocks = Array.isArray(it.page?.blocks) ? it.page.blocks : []
+%>
+<main>
+<% if (blocks.length === 0) { %>
+  <section class="story" style="padding: 80px 0;">
+    <div class="container" style="max-width: 780px;">
+      <h2 style="font-family: 'Fraunces', serif; font-size: clamp(2rem, 4vw, 3rem); font-weight: 400; letter-spacing: -0.02em; margin-bottom: 28px;"><%= it.page.title %></h2>
+      <% if (it.page.content) { %>
+        <article style="font-size: 1.05rem; line-height: 1.7; color: var(--ink); white-space: pre-wrap;">
+          <%~ it.page.content %>
+        </article>
+      <% } else { %>
+        <p style="color: var(--muted);">This page has no content yet.</p>
+      <% } %>
+    </div>
+  </section>
+<% } else { %>
+  <% for (const block of blocks) { %>
+    <%~ include('../../blocks/renderer', { ...it, block }) %>
+  <% } %>
+<% } %>
+</main>
+<%~ include('./partials/footer', it) %>

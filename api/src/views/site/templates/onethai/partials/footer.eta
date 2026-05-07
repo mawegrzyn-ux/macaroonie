@@ -1,0 +1,83 @@
+<%
+const ASSETS = '/template-assets/onethai'
+const onLocation = !!it.venue
+const venues     = it.venues || []
+const sl = it.config.social_links || {}
+const socials = Object.entries(sl).filter(function(e){return e[1]})
+const showLocationsLink = !it.tenant_site?.hide_locations_index && venues.length > 1
+%>
+<footer class="ot-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <% if (it.config.logo_url) { %>
+          <img src="<%= it.config.logo_url %>" alt="<%= it.config.site_name || it.tenant_name %>" />
+        <% } %>
+        <% if (it.config.tagline) { %>
+          <p class="footer-tagline"><%= it.config.tagline %></p>
+        <% } %>
+        <% if (socials.length) { %>
+          <div style="display:flex; gap:14px; margin-top:8px;">
+            <% socials.forEach(function(entry){ %>
+              <a href="<%= entry[1] %>" target="_blank" rel="noopener" style="text-transform:capitalize; color:var(--plum);"><%= entry[0] %></a>
+            <% }) %>
+          </div>
+        <% } %>
+      </div>
+
+      <% if (onLocation) { %>
+        <div class="footer-col">
+          <% if (it.config.show_find_us) { %>
+            <h5 class="mono-cap">Visit</h5>
+            <% if (it.config.address_line1) { %>
+              <p><%= it.config.address_line1 %><% if (it.config.address_line2) { %><br /><%= it.config.address_line2 %><% } %><br /><%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %></p>
+            <% } %>
+            <% if (it.config.phone) { %><a href="tel:<%= it.config.phone %>"><%= it.config.phone %></a><% } %>
+            <% if (it.config.email) { %><a href="mailto:<%= it.config.email %>"><%= it.config.email %></a><% } %>
+          <% } %>
+        </div>
+        <div class="footer-col">
+          <h5 class="mono-cap">Quick Links</h5>
+          <a href="/locations/<%= it.venue.slug %>#menu">Menu</a>
+          <a href="/locations/<%= it.venue.slug %>#booking">Book a Table</a>
+          <% if (it.config.show_ordering) { %><a href="/locations/<%= it.venue.slug %>#order">Order Online</a><% } %>
+          <% if (showLocationsLink) { %><a href="/locations">Other locations</a><% } %>
+        </div>
+      <% } else { %>
+        <div class="footer-col" style="grid-column: span 2;">
+          <% if (showLocationsLink) { %>
+            <h5 class="mono-cap">Locations</h5>
+            <% venues.forEach(function(v){ %>
+              <a href="/locations/<%= v.slug %>"><%= v.name %><% if (v.city) { %> — <%= v.city %><% } %></a>
+            <% }) %>
+          <% } else if (venues.length === 1) { %>
+            <h5 class="mono-cap">Visit</h5>
+            <% const v = venues[0] %>
+            <% if (v.address_line1) { %>
+              <p><%= v.address_line1 %><% if (v.city) { %><br /><%= v.city %><% if (v.postcode) { %> <%= v.postcode %><% } %><% } %></p>
+            <% } %>
+            <% if (v.phone) { %><a href="tel:<%= v.phone %>"><%= v.phone %></a><% } %>
+            <% if (v.email) { %><a href="mailto:<%= v.email %>"><%= v.email %></a><% } %>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+
+    <div class="footer-icons" aria-hidden="true">
+      <img src="<%= ASSETS %>/icons/icon-thai-basil.png" alt="">
+      <img src="<%= ASSETS %>/icons/icon-chilli.png" alt="">
+      <img src="<%= ASSETS %>/icons/icon-star-anise.png" alt="">
+      <img src="<%= ASSETS %>/icons/icon-lemongrass-bunch.png" alt="">
+      <img src="<%= ASSETS %>/icons/icon-kaffir-leaf.png" alt="">
+      <img src="<%= ASSETS %>/icons/icon-lime-wedge.png" alt="">
+      <img src="<%= ASSETS %>/icons/icon-coriander.png" alt="">
+    </div>
+
+    <div class="footer-bottom">
+      <span>© <%= new Date().getFullYear() %> <%= it.config.site_name || it.tenant_name %></span>
+      <span class="hand">Powered by <a href="https://<%= it.rootDomain %>" target="_blank" rel="noopener" style="color:inherit;">Macaroonie</a></span>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

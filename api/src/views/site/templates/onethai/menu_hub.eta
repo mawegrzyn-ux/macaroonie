@@ -1,0 +1,38 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<%
+const ASSETS = '/template-assets/onethai'
+const venues = it.venues || []
+%>
+<main>
+<section class="story" style="padding: 80px 0 40px;">
+  <div class="container">
+    <div class="section-label mono-cap has-icon"><img class="section-icon" src="<%= ASSETS %>/icons/icon-chilli.png" alt="">Menus</div>
+    <h2>Pick a location</h2>
+    <p style="color: var(--muted); margin-top: 8px;">Each of our restaurants has its own menu — choose where you'd like to eat.</p>
+  </div>
+</section>
+
+<section class="menu-sample" style="padding: 40px 0 100px;">
+  <div class="container">
+    <% if (venues.length === 0) { %>
+      <p style="color: var(--muted); text-align: center;">No locations yet.</p>
+    <% } else { %>
+      <div class="loc-grid">
+        <% venues.forEach(function(v){ %>
+          <a href="/locations/<%= v.slug %>/menu" class="loc-card">
+            <div class="body" style="padding: 28px;">
+              <h3><%= v.name %></h3>
+              <% if (v.address_line1 || v.city) { %>
+                <p class="addr"><%= [v.address_line1, v.city].filter(Boolean).join(' · ') %></p>
+              <% } %>
+              <span class="visit-link">View menus &rsaquo;</span>
+            </div>
+          </a>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+</section>
+</main>
+<%~ include('./partials/footer', it) %>

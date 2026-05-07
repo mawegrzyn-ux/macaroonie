@@ -1,0 +1,15 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<main>
+<%
+const blocks = Array.isArray(it.config.page_blocks) ? it.config.page_blocks : []
+%>
+<% if (blocks.length === 0) { %>
+  <%~ include('./fallback_location', it) %>
+<% } else { %>
+  <% for (const block of blocks) { %>
+    <%~ include('../../blocks/renderer', { ...it, block }) %>
+  <% } %>
+<% } %>
+</main>
+<%~ include('./partials/footer', it) %>

@@ -35,7 +35,7 @@ const SUBDOMAIN_RE = new RegExp(
   'i',
 )
 
-const KNOWN_TEMPLATES = new Set(['classic', 'modern'])
+const KNOWN_TEMPLATES = new Set(['classic', 'modern', 'onethai'])
 const DEFAULT_TEMPLATE = 'classic'
 
 /**

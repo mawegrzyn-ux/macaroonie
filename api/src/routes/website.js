@@ -111,7 +111,7 @@ const TenantSiteBody = z.object({
   custom_domain:    z.string().toLowerCase().max(253).nullable().optional(),
 
   // Template + theme
-  template_key:     z.enum(['classic', 'modern']).optional(),
+  template_key:     z.enum(['classic', 'modern', 'onethai']).optional(),
   theme:            ThemeSchema.optional(),
 
   // Home page
@@ -188,7 +188,7 @@ const VenueConfigBody = z.object({
   primary_colour:   z.string().regex(HEX_COLOUR).optional(),
   secondary_colour: z.string().regex(HEX_COLOUR).nullable().optional(),
   font_family:      z.string().max(100).optional(),
-  template_key:     z.enum(['classic', 'modern']).optional(),
+  template_key:     z.enum(['classic', 'modern', 'onethai']).optional(),
   theme:            ThemeSchema.optional(),
 
   show_booking_widget: z.boolean().optional(),

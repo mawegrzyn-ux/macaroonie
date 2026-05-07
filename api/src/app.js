@@ -102,6 +102,17 @@ export async function buildApp() {
     maxAge: '30d',
   })
 
+  // ── Template-shipped assets (icons, dividers, etc.) ─────
+  // Lives in api/public/template-assets/{template_key}/... and is served at
+  // /template-assets/{template_key}/... — same on apex, subdomain, custom-domain.
+  await app.register(fastifyStatic, {
+    root:   path.join(__dirname, '..', 'public', 'template-assets'),
+    prefix: '/template-assets/',
+    decorateReply: false,
+    cacheControl: true,
+    maxAge: '30d',
+  })
+
   // ── Routes ───────────────────────────────────────────────
 
   // Stripe webhook first — must bypass JSON body parser

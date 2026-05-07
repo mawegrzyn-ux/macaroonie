@@ -1,0 +1,43 @@
+<%~ include('../../shared/head', it) %>
+<%~ include('./partials/header', it) %>
+<%
+const ASSETS = '/template-assets/onethai'
+const active = it.activeMenu || (it.menus && it.menus[0])
+%>
+<main>
+<section class="story" style="padding: 60px 0 40px;">
+  <div class="container">
+    <div class="section-label mono-cap has-icon"><img class="section-icon" src="<%= ASSETS %>/icons/icon-chilli.png" alt="">Menu</div>
+    <h2><%= active ? active.label : 'Our menus' %></h2>
+  </div>
+</section>
+
+<section class="menu-sample" style="padding: 40px 0 80px;">
+  <div class="container">
+    <% if (it.menus && it.menus.length > 1) { %>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:32px;">
+        <% it.menus.forEach(function(m){ %>
+          <a href="/locations/<%= it.venue.slug %>/menu/<%= m.id %>"
+             class="btn <%= (it.activeMenu && it.activeMenu.id === m.id) ? 'btn-primary' : 'btn-secondary' %>">
+            <%= m.label %>
+          </a>
+        <% }) %>
+      </div>
+    <% } %>
+
+    <% if (active) { %>
+      <div style="border:1px solid var(--line); border-radius:8px; overflow:hidden; background:var(--paper);">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:14px 18px; background:var(--paper-warm); border-bottom:1px solid var(--line);">
+          <span style="font-family:'Fraunces', serif; font-size:1.1rem; font-weight:500;"><%= active.label %></span>
+          <a href="<%= active.file_url %>" target="_blank" rel="noopener" class="btn btn-primary"
+             style="padding:8px 18px; font-size:0.85rem;">Download PDF</a>
+        </div>
+        <iframe src="<%= active.file_url %>#view=FitH" style="width:100%; height:82vh; border:0; background:#fff;" title="<%= active.label %>"></iframe>
+      </div>
+    <% } else { %>
+      <p style="color: var(--muted); text-align: center; padding: 40px 0;">No menus uploaded yet.</p>
+    <% } %>
+  </div>
+</section>
+</main>
+<%~ include('./partials/footer', it) %>
