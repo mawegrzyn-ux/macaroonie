@@ -302,27 +302,6 @@ const ASSETS = '/template-assets/onethai'
     transform: translateY(-1px);
   }
 
-  /* Hero block — drop a decorative chilli SVG into the corners and a
-     soft radial-warming overlay so it stops looking like a generic
-     gradient. Pure CSS, no markup change. */
-  section.block.hero::before,
-  section.block.hero::after {
-    content: "";
-    position: absolute;
-    width: 80px;
-    height: 80px;
-    background-image: url('<%= ASSETS %>/icons/icon-thai-basil.png');
-    background-size: contain;
-    background-repeat: no-repeat;
-    opacity: 0.18;
-    pointer-events: none;
-    z-index: 0;
-  }
-  section.block.hero::before { top: 24px;    left: 24px;    transform: rotate(-12deg); }
-  section.block.hero::after  { bottom: 24px; right: 24px;   transform: rotate(15deg); }
-  /* Make sure inner content sits above pseudo decoration */
-  section.block.hero > * { position: relative; z-index: 1; }
-
   /* Hero heading — tighten leading + lift the script-accent feel */
   section.block.hero h1 {
     line-height: 1.0 !important;
@@ -337,37 +316,6 @@ const ASSETS = '/template-assets/onethai'
     border-top: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
   }
-
-  /* Vine divider as a between-block decoration. Inserted after hero
-     and after every 3rd content block to break up rhythm. */
-  main > section.block.hero + section.block::before {
-    content: "";
-    display: block;
-    width: 100%;
-    max-width: 480px;
-    height: 56px;
-    margin: 0 auto 24px;
-    background: url('<%= ASSETS %>/divider-vine.png') center/contain no-repeat;
-    opacity: 0.45;
-  }
-
-  /* Subtle floating herb-icon decoration on alternating blocks — same
-     technique fallback_location uses but applied to generic blocks. */
-  main > section.block:nth-of-type(3n+2):not(.hero)::after {
-    content: "";
-    position: absolute;
-    top: 24px;
-    right: 4%;
-    width: 90px;
-    height: 90px;
-    background: url('<%= ASSETS %>/icons/icon-lemongrass-bunch.png') center/contain no-repeat;
-    opacity: 0.10;
-    pointer-events: none;
-    transform: rotate(-12deg);
-    z-index: 0;
-  }
-  main > section.block { position: relative; }
-  main > section.block:nth-of-type(3n+2):not(.hero) > * { position: relative; z-index: 1; }
 
   /* Booking widget block — give it the cream surface + a touch of
      ornament. The block emits id="booking" so we target that. */

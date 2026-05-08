@@ -986,10 +986,11 @@ const DEFAULT_THEME = {
 }
 
 const FONT_OPTIONS = [
-  'Inter', 'Playfair Display', 'Poppins', 'Lora', 'Montserrat',
-  'Roboto', 'Open Sans', 'Raleway', 'Merriweather', 'Work Sans',
-  'Karla', 'DM Sans', 'DM Serif Display', 'Space Grotesk', 'Manrope',
-  'Cormorant Garamond', 'Libre Baskerville', 'Nunito', 'Rubik',
+  'Inter', 'Fraunces', 'Caveat', 'Playfair Display', 'Poppins',
+  'Lora', 'Montserrat', 'Roboto', 'Open Sans', 'Raleway',
+  'Merriweather', 'Work Sans', 'Karla', 'DM Sans', 'DM Serif Display',
+  'Space Grotesk', 'Manrope', 'Cormorant Garamond', 'Libre Baskerville',
+  'Nunito', 'Rubik',
 ]
 
 function mergeTheme(existing) {

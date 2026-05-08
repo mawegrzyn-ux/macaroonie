@@ -1,20 +1,20 @@
 // components/website-builder/FontPicker.jsx
 //
-// Drop-in replacement for the plain <select> font dropdown — renders each
-// option in its own typeface so operators can see what they're picking
-// before committing. Native <option> elements don't honour custom
-// font-family in Chrome/Safari so we build a custom popover.
+// Font picker — drop-in replacement for the plain <select>. Renders each
+// option in its own typeface. The popover is portalled to document.body
+// and positioned with viewport coordinates so it can never get clipped by
+// an ancestor's overflow:hidden (e.g. SectionCard's rounded-rectangle wrap).
 //
-// Loads every font in `fonts` via one Google Fonts <link>, injected once
-// into <head>. Subsequent FontPicker instances reuse the same link.
+// All fonts in `fonts` are loaded once via a single Google Fonts <link>;
+// subsequent FontPicker instances share it.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
 
 let _fontsLinkInjected = false
 
 function ensureFontsLoaded(fonts) {
-  // Only inject once per page — even if multiple FontPickers mount.
   if (_fontsLinkInjected) return
   _fontsLinkInjected = true
   const families = fonts
@@ -29,13 +29,37 @@ function ensureFontsLoaded(fonts) {
 
 export function FontPicker({ value, onChange, fonts, placeholder = 'Pick a font' }) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
+  const triggerRef = useRef(null)
+  const popRef     = useRef(null)
+  const [coords, setCoords] = useState({ left: 0, top: 0, width: 0 })
 
   useEffect(() => { ensureFontsLoaded(fonts) }, [fonts])
 
+  // Position the popover under the trigger using viewport-fixed coords.
+  // Recompute on open and on scroll / resize while open.
+  useLayoutEffect(() => {
+    if (!open) return
+    function place() {
+      const r = triggerRef.current?.getBoundingClientRect()
+      if (!r) return
+      setCoords({ left: r.left, top: r.bottom + 4, width: r.width })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true) // capture: catch any scrolling ancestor
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open])
+
   useEffect(() => {
     if (!open) return
-    function onDoc(e) { if (!wrapRef.current?.contains(e.target)) setOpen(false) }
+    function onDoc(e) {
+      if (triggerRef.current?.contains(e.target)) return
+      if (popRef.current?.contains(e.target))     return
+      setOpen(false)
+    }
     function onKey(e) { if (e.key === 'Escape') setOpen(false) }
     document.addEventListener('mousedown', onDoc)
     document.addEventListener('keydown', onKey)
@@ -46,8 +70,9 @@ export function FontPicker({ value, onChange, fonts, placeholder = 'Pick a font'
   }, [open])
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
+    <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(o => !o)}
         className="w-full border rounded-md px-3 py-2 text-sm bg-background text-left flex items-center justify-between min-h-[44px] hover:border-primary/40"
@@ -57,17 +82,19 @@ export function FontPicker({ value, onChange, fonts, placeholder = 'Pick a font'
         </span>
         <ChevronDown className="w-4 h-4 text-muted-foreground" />
       </button>
-      {open && (
+      {open && createPortal(
         <div
+          ref={popRef}
           style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0, right: 0,
-            zIndex: 50,
+            position: 'fixed',
+            left:  coords.left,
+            top:   coords.top,
+            width: coords.width,
+            zIndex: 9999,
             background: '#fff',
             border: '1px solid #e5e7eb',
             borderRadius: 6,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
             maxHeight: 360,
             overflowY: 'auto',
           }}
@@ -95,8 +122,9 @@ export function FontPicker({ value, onChange, fonts, placeholder = 'Pick a font'
               {value === font && <Check size={14} style={{ color: '#630812' }} />}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   )
 }
