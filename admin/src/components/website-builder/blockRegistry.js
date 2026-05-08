@@ -276,11 +276,21 @@ export const BLOCK_CATEGORIES = [
 // are generated on apply). Keep these short — the user can always
 // add more after loading.
 
+// Page templates bundle:
+//   - blocks:     starter set of page-builder blocks (home_blocks / page_blocks)
+//   - style_pack: which CSS shell wraps the rendered page (== template_key on
+//                 tenant_site / website_config). Drives header / footer / fonts
+//                 / decorative chrome on the live site.
+//
+// Picking a template is one step that applies both — no separate "site
+// template" picker. `style_pack: null` means "leave as-is" (used for empty
+// scaffolds where the operator has likely already chosen a style).
 export const PAGE_TEMPLATES = [
   {
     key:         'restaurant-classic',
     label:       'Restaurant — Classic',
-    description: 'Hero, story, gallery, menu PDFs, opening hours, contact.',
+    description: 'Warm, traditional layout. Hero, story, gallery, menu PDFs, opening hours, contact.',
+    style_pack:  'classic',
     blocks: [
       { type: 'hero',          data: { heading: 'Welcome', subheading: 'Seasonal food, served all day.', cta_text: 'Book a table', cta_link: '#booking', height: 'large' } },
       { type: 'text',          data: { html: '<h2>Our story</h2><p>Tell your guests what makes you different. Keep it warm, keep it short.</p>', max_width: 'narrow' } },
@@ -293,7 +303,8 @@ export const PAGE_TEMPLATES = [
   {
     key:         'modern-bistro',
     label:       'Modern Bistro',
-    description: 'Hero, two-column about, CTA strip, gallery, booking widget.',
+    description: 'Editorial, full-bleed hero, transparent header. Two-column about, CTA strip, booking widget.',
+    style_pack:  'modern',
     blocks: [
       { type: 'hero',           data: { heading: 'Tonight, well-fed.', subheading: 'Modern bistro in the heart of town.', cta_text: 'Reserve →', cta_link: '#booking', height: 'medium', align: 'left' } },
       { type: 'two_column',     data: { heading: 'A small kitchen, big ambitions.', body_html: '<p>Family-run since the 90s, serving honest food in a modern setting.</p>', cta_text: 'Read our story', cta_link: '/p/about', image_side: 'right' } },
@@ -306,7 +317,8 @@ export const PAGE_TEMPLATES = [
   {
     key:         'minimal-cafe',
     label:       'Minimal Café',
-    description: 'Hero, opening hours, single image, contact. Clean and quick.',
+    description: 'Clean and quick. Classic shell, minimal blocks: hero, hours, single image, contact.',
+    style_pack:  'classic',
     blocks: [
       { type: 'hero',          data: { heading: 'Coffee. Cake. Quiet.', subheading: '', cta_text: '', cta_link: '', height: 'small' } },
       { type: 'opening_hours', data: { heading: 'When we\'re open' } },
@@ -315,9 +327,30 @@ export const PAGE_TEMPLATES = [
     ],
   },
   {
+    // Thai-restaurant aesthetic — burgundy + cream, Fraunces serif, Caveat
+    // script accents, decorative herb/spice icons, scrolling-dish ticker, vine
+    // dividers. Picking this template applies both the Onethai CSS shell AND
+    // a starter block layout.
+    key:         'onethai',
+    label:       'Onethai — Thai Restaurant',
+    description: 'Burgundy + cream Thai aesthetic with Fraunces + Caveat fonts, herb-icon decoration, scrolling ticker. Hero, story, gallery, menus, hours, contact, booking.',
+    style_pack:  'onethai',
+    blocks: [
+      { type: 'hero',          data: { heading: 'A small Thai cafe with very loyal regulars.', subheading: 'Tucked away in our neighbourhood, cooking the dishes we grew up on for years.', cta_text: 'Book a table', cta_link: '#booking', height: 'large', align: 'center' } },
+      { type: 'two_column',    data: { heading: 'Cooking for our neighbours.', body_html: '<p>One Thai opened on a quiet stretch of West Street years ago, with a short menu, a few tables, and the kind of nervous optimism you only have when you\'re cooking your grandmother\'s recipes for strangers.</p><p>The menu has grown — a little classic, a little modern, always honest — but the room is still small, the kitchen is still ours.</p>', cta_text: 'See the menu', cta_link: '#menu', image_side: 'right' } },
+      { type: 'gallery',       data: { heading: 'In the kitchen' } },
+      { type: 'menu_pdfs',     data: { heading: 'Our menus' } },
+      { type: 'opening_hours', data: { heading: 'Opening hours' } },
+      { type: 'find_us',       data: { heading: 'Find us' } },
+      { type: 'contact',       data: { heading: 'Get in touch' } },
+      { type: 'booking_widget', data: { heading: 'Reserve your table' } },
+    ],
+  },
+  {
     key:         'from-scratch',
     label:       'From scratch',
-    description: 'Empty page — pick blocks one by one.',
+    description: 'Empty page. Pick blocks one by one. Keeps your current style.',
+    style_pack:  null,
     blocks: [],
   },
 ]

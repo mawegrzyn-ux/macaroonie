@@ -14,7 +14,7 @@ import {
   SortableContext, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import {
-  Save, RefreshCw, Layers, Loader2, Sparkles, X,
+  Save, RefreshCw, Layers, Loader2, Sparkles, X, ExternalLink,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { newBlock, PAGE_TEMPLATES } from './blockRegistry'
@@ -156,13 +156,31 @@ export function PageBuilder({
   }
 
   // ── Templates ───────────────────────────────────────────────
+  //
+  // Applying a template is a SINGLE action that swaps both:
+  //   - blocks (home_blocks / page_blocks)
+  //   - style_pack → template_key (CSS shell driving header/footer/fonts)
+  //
+  // We persist immediately so the operator sees the new look on Save (no
+  // half-applied state where blocks update but the style is still the old one).
+
+  const applyTpl = useMutation({
+    mutationFn: ({ newBlocks, styleKey }) => {
+      const body = { [blocksField]: newBlocks }
+      if (styleKey) body.template_key = styleKey
+      return api.patch(saveEndpoint, body)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: invalidateKey }),
+  })
 
   function applyTemplate(tpl) {
     if (blocks.length > 0 && !window.confirm(`Replace all ${blocks.length} blocks with the "${tpl.label}" template?`)) return
-    setBlocks(tpl.blocks.map(b => ({ id: crypto.randomUUID(), type: b.type, data: structuredClone(b.data) })))
-    setTemplatesOpen(false)
+    const newBlocks = tpl.blocks.map(b => ({ id: crypto.randomUUID(), type: b.type, data: structuredClone(b.data) }))
+    setBlocks(newBlocks)
     setSelectedId(null)
     setInspectorOpen(false)
+    applyTpl.mutate({ newBlocks, styleKey: tpl.style_pack || null })
+    setTemplatesOpen(false)
   }
 
   // ── Render ──────────────────────────────────────────────────
@@ -179,6 +197,15 @@ export function PageBuilder({
     config,
   }
 
+  // The current style pack — picked via "Templates" button. Drives the
+  // server-rendered header/footer/decorations on the live site.
+  const templateKey = config?.template_key || 'classic'
+  const TEMPLATE_LABELS = { classic: 'Classic', modern: 'Modern', onethai: 'Onethai' }
+  const templateLabel = TEMPLATE_LABELS[templateKey] || templateKey
+  const liveUrl = config?.subdomain_slug
+    ? `https://${config.subdomain_slug}.macaroonie.com`
+    : null
+
   return (
     <div className="space-y-3">
       {/* Top toolbar */}
@@ -186,11 +213,20 @@ export function PageBuilder({
         <div>
           <p className="text-sm font-semibold inline-flex items-center gap-1.5">
             <Layers className="w-4 h-4" /> Page builder
+            <span className="ml-2 text-[11px] font-medium px-2 py-0.5 rounded bg-primary/10 text-primary">
+              {templateLabel}
+            </span>
           </p>
           <p className="text-xs text-muted-foreground">
             {blockCount === 0
               ? 'Empty — start from a template or add a block.'
               : `${blockCount} block${blockCount !== 1 ? 's' : ''}` + (dirty ? ' · unsaved changes' : ' · saved')}
+            {liveUrl && (
+              <> · <a href={liveUrl} target="_blank" rel="noopener"
+                className="text-primary hover:underline inline-flex items-center gap-1">
+                View live <ExternalLink className="w-3 h-3" />
+              </a></>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -298,7 +334,14 @@ function TemplatePickerModal({ onClose, onApply }) {
           {PAGE_TEMPLATES.map(t => (
             <button key={t.key} type="button" onClick={() => onApply(t)}
               className="text-left border rounded-lg p-4 hover:border-primary hover:shadow-sm">
-              <p className="text-sm font-semibold mb-1">{t.label}</p>
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <p className="text-sm font-semibold">{t.label}</p>
+                {t.style_pack && (
+                  <span className="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-primary/10 text-primary shrink-0">
+                    {t.style_pack}
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-muted-foreground mb-3">{t.description}</p>
               <div className="flex flex-wrap gap-1">
                 {t.blocks.length === 0

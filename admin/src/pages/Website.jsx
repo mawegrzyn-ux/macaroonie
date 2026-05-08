@@ -40,7 +40,6 @@ import { PageBuilder } from '@/components/website-builder/PageBuilder'
 const TENANT_SECTIONS = [
   { key: 'tenant-page',     label: 'Home page',         icon: LayoutTemplate },
   { key: 'tenant-domain',   label: 'Domain & publish',  icon: Globe },
-  { key: 'tenant-template', label: 'Template',          icon: LayoutTemplate },
   { key: 'tenant-identity', label: 'Brand identity',    icon: ImageIcon },
   { key: 'tenant-theme',    label: 'Brand theme',       icon: Palette },
   { key: 'tenant-locations',label: 'Locations index',   icon: MapPin },
@@ -2460,15 +2459,6 @@ function BrandIdentitySection() {
             {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
           </select>
         </FormRow>
-        <FormRow label="Default template">
-          <select value={state.template_key}
-            onChange={e => setState(s => ({ ...s, template_key: e.target.value }))}
-            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
-            <option value="classic">Classic</option>
-            <option value="modern">Modern</option>
-            <option value="onethai">Onethai</option>
-          </select>
-        </FormRow>
         <FormRow label="Social preview image (OG)">
           <ImageField url={state.og_image_url} onChange={v => setState(s => ({ ...s, og_image_url: v || '' }))} />
         </FormRow>
@@ -2845,9 +2835,6 @@ function TenantActiveSection({ active, tenantSite }) {
         />
       )
     case 'tenant-domain':    return <TenantDomainSection    tenantSite={tenantSite} />
-    case 'tenant-template':  return <TemplateSection        config={tenantSite}
-                                       saveEndpoint="/website/tenant-site"
-                                       invalidateKey={['tenant-site']} />
     case 'tenant-identity':  return <BrandIdentitySection />
     case 'tenant-theme':     return <BrandThemeSection />
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />
