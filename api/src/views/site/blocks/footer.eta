@@ -69,7 +69,8 @@ const gridCols = totalCols <= 1 ? '1fr'
       <% cols.forEach(function(col){ %>
         <div class="col">
           <h5><%= col.title %></h5>
-          <% (col.items || []).forEach(function(item){ %>
+          <% const _items = col.items || [] %>
+          <% _items.forEach(function(item){ %>
             <a href="<%= item.url %>"><%= item.label %></a>
           <% }) %>
         </div>

@@ -28,7 +28,8 @@ const colCount = Math.max(1, cols.length || 1)
           <h3 style="font-family:'Caveat', var(--f-heading), cursive; font-weight:600; color:var(--c-primary); font-size:1.7rem; padding-bottom:14px; margin:0 0 24px; border-bottom:1px solid var(--c-border);">
             <%= col.title || '' %>
           </h3>
-          <% (col.dishes || []).forEach(function(dish){ %>
+          <% const _dishes = col.dishes || [] %>
+          <% _dishes.forEach(function(dish){ %>
             <div style="display:grid; grid-template-columns:auto 1fr auto; align-items:baseline; gap:12px; padding:18px 0; border-bottom:1px dotted var(--c-border);">
               <div style="font-family:var(--f-heading); font-size:1.1rem; font-weight:500;">
                 <%= dish.name || '' %>
