@@ -225,23 +225,34 @@ export function PageBuilder({
                   <BlockInserter mode="empty" onPick={(k) => addTop(k, 0)} />
                 </div>
               ) : (
-                <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleAnyDragEnd}>
-                  <SortableContext id="top" items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                    <BlockInserter onPick={(k) => addTop(k, 0)} />
-                    {blocks.map((block, i) => (
-                      <div key={block.id}>
-                        <BlockNode
-                          block={block}
-                          parent={{ kind: 'top' }}
-                          index={i}
-                          siblingCount={blocks.length}
-                          {...nodeHandlers}
-                        />
-                        <BlockInserter onPick={(k) => addTop(k, i + 1)} />
-                      </div>
-                    ))}
-                  </SortableContext>
-                </DndContext>
+                <>
+                  <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleAnyDragEnd}>
+                    <SortableContext id="top" items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
+                      <BlockInserter onPick={(k) => addTop(k, 0)} />
+                      {blocks.map((block, i) => (
+                        <div key={block.id}>
+                          <BlockNode
+                            block={block}
+                            parent={{ kind: 'top' }}
+                            index={i}
+                            siblingCount={blocks.length}
+                            {...nodeHandlers}
+                          />
+                          <BlockInserter onPick={(k) => addTop(k, i + 1)} />
+                        </div>
+                      ))}
+                    </SortableContext>
+                  </DndContext>
+                  {/* Always-visible inserter after the last block.
+                      The hover-revealed 24px strips between blocks are easy to
+                      miss — especially the trailing one, which sits inside the
+                      canvas's bottom padding. This persistent CTA makes "add
+                      another block" obvious. */}
+                  <div className="pt-2">
+                    <BlockInserter mode="empty" label="Add another block"
+                      onPick={(k) => addTop(k, blocks.length)} />
+                  </div>
+                </>
               )}
             </ThemeFrame>
           </div>

@@ -52,7 +52,8 @@ const menuHref = onLocation ? `/locations/${venueSlug}/menu` : '/menu'
       <a href="<%= menuHref %>">Menu</a>
       <% if (onLocation && it.config.show_find_us) { %><a href="/locations/<%= venueSlug %>#find-us">Visit</a><% } %>
       <% if (onLocation && it.config.show_contact) { %><a href="/locations/<%= venueSlug %>#contact">Contact</a><% } %>
-      <% (onLocation ? locationPages : tenantPages).forEach(function(p) { %>
+      <% const _navPages = onLocation ? locationPages : tenantPages %>
+      <% _navPages.forEach(function(p) { %>
         <a href="<%= onLocation ? `/locations/${venueSlug}/p/${p.slug}` : `/p/${p.slug}` %>"><%= p.title %></a>
       <% }) %>
       <a href="<%= onLocation ? `/locations/${venueSlug}#booking` : '/locations' %>" class="cta">

@@ -28,7 +28,8 @@ const ctaText  = it.config.hero_cta_text || 'Book a Table'
       <% if (onLocation && it.config.show_find_us) { %>
         <a href="/locations/<%= venueSlug %>#find-us">Visit</a>
       <% } %>
-      <% (onLocation ? locationPages : tenantPages).forEach(function(p) { %>
+      <% const _navPages = onLocation ? locationPages : tenantPages %>
+      <% _navPages.forEach(function(p) { %>
         <a href="<%= onLocation ? `/locations/${venueSlug}/p/${p.slug}` : `/p/${p.slug}` %>"><%= p.title %></a>
       <% }) %>
       <a href="<%= bookHref %>" class="nav-cta"><%= ctaText %></a>

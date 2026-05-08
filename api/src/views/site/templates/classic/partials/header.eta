@@ -54,7 +54,8 @@ const menuHref = onLocation
       <% if (onLocation && it.config.show_contact) { %>
         <a href="/locations/<%= venueSlug %>#contact">Contact</a>
       <% } %>
-      <% (onLocation ? locationPages : tenantPages).forEach(function(p) { %>
+      <% const _navPages = onLocation ? locationPages : tenantPages %>
+      <% _navPages.forEach(function(p) { %>
         <a href="<%= onLocation ? `/locations/${venueSlug}/p/${p.slug}` : `/p/${p.slug}` %>">
           <%= p.title %>
         </a>

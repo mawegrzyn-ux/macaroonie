@@ -40,6 +40,7 @@ import { PageBuilder } from '@/components/website-builder/PageBuilder'
 const TENANT_SECTIONS = [
   { key: 'tenant-page',     label: 'Home page',         icon: LayoutTemplate },
   { key: 'tenant-domain',   label: 'Domain & publish',  icon: Globe },
+  { key: 'tenant-template', label: 'Template',          icon: LayoutTemplate },
   { key: 'tenant-identity', label: 'Brand identity',    icon: ImageIcon },
   { key: 'tenant-theme',    label: 'Brand theme',       icon: Palette },
   { key: 'tenant-locations',label: 'Locations index',   icon: MapPin },
@@ -591,15 +592,19 @@ const TEMPLATES = [
   },
 ]
 
-function TemplateSection({ config }) {
+function TemplateSection({
+  config,
+  saveEndpoint  = '/website/tenant-site',
+  invalidateKey = ['tenant-site'],
+}) {
   const api = useApi()
   const qc  = useQueryClient()
   const [key, setKey] = useState(config.template_key || 'classic')
   const dirty = key !== (config.template_key || 'classic')
 
   const save = useMutation({
-    mutationFn: () => api.patch('/website/config', { template_key: key }),
-    onSuccess:  (cfg) => qc.setQueryData(['website-config'], cfg),
+    mutationFn: () => api.patch(saveEndpoint, { template_key: key }),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: invalidateKey }),
   })
 
   return (
@@ -622,10 +627,19 @@ function TemplateSection({ config }) {
                       Sample Restaurant
                     </div>
                   </div>
-                ) : (
+                ) : t.key === 'modern' ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
                     <div className="text-lg font-bold tracking-tight">Sample</div>
                     <div className="text-[10px] opacity-70 uppercase tracking-wider">editorial style</div>
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ background: '#faf6ef' }}>
+                    <div style={{ fontFamily: 'Caveat, cursive', fontSize: '24px', fontWeight: 600, color: t.accent }}>
+                      Sample Cafe
+                    </div>
+                    <div style={{ fontFamily: 'Inter, sans-serif', fontSize: '9px', textTransform: 'uppercase', letterSpacing: '0.3em', color: '#7a1a26', marginTop: '2px' }}>
+                      Thai · Est. 2016
+                    </div>
                   </div>
                 )}
               </div>
@@ -2831,6 +2845,9 @@ function TenantActiveSection({ active, tenantSite }) {
         />
       )
     case 'tenant-domain':    return <TenantDomainSection    tenantSite={tenantSite} />
+    case 'tenant-template':  return <TemplateSection        config={tenantSite}
+                                       saveEndpoint="/website/tenant-site"
+                                       invalidateKey={['tenant-site']} />
     case 'tenant-identity':  return <BrandIdentitySection />
     case 'tenant-theme':     return <BrandThemeSection />
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />

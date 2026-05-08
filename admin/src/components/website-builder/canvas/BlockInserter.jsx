@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Plus, X, Search } from 'lucide-react'
 import { BLOCKS, BLOCK_CATEGORIES } from '../blockRegistry'
 
-export function BlockInserter({ onPick, mode = 'between' }) {
+export function BlockInserter({ onPick, mode = 'between', label }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const wrapRef = useRef(null)
@@ -56,7 +56,7 @@ export function BlockInserter({ onPick, mode = 'between' }) {
             cursor: 'pointer',
           }}
         >
-          <Plus size={16} /> Add your first block
+          <Plus size={16} /> {label || 'Add your first block'}
         </button>
         {open && <Popover onClose={() => setOpen(false)} onPick={(k) => { onPick(k); setOpen(false) }}
           query={query} setQuery={setQuery} filtered={filtered} placement="below" />}
