@@ -75,7 +75,7 @@ export default async function widgetApiRoutes(app) {
     // per-venue website_config holds only location-page content.
     const [extras] = await withTenant(venue.tenant_id, tx => tx`
       SELECT br.slot_duration_mins, br.min_covers, br.max_covers,
-             br.booking_window_days, br.cutoff_before_mins, br.hold_ttl_secs,
+             br.book_until_days, br.cutoff_before_mins, br.hold_ttl_secs,
              dr.requires_deposit, dr.amount_pence, dr.currency,
              ts.primary_colour, ts.secondary_colour, ts.font_family,
              ts.theme, ts.site_name
@@ -95,7 +95,7 @@ export default async function widgetApiRoutes(app) {
       slot_duration_mins: extras?.slot_duration_mins ?? 90,
       min_covers:         extras?.min_covers ?? 1,
       max_covers:         extras?.max_covers ?? 8,
-      booking_window_days: extras?.booking_window_days ?? 30,
+      booking_window_days: extras?.book_until_days ?? 30,
       hold_ttl_secs:       extras?.hold_ttl_secs ?? 300,
       requires_deposit:    !!extras?.requires_deposit,
       deposit_amount_pence: extras?.amount_pence || null,

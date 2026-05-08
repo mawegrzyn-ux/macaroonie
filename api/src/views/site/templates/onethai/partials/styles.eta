@@ -245,4 +245,137 @@ const ASSETS = '/template-assets/onethai'
   .loc-card h3 { font-family: 'Fraunces', serif; font-size: 1.4rem; font-weight: 500; margin-bottom: 8px; }
   .loc-card .addr { color: var(--muted); font-size: 0.92rem; margin: 0 0 6px; }
   .loc-card .visit-link { margin-top: auto; color: var(--plum); font-weight: 500; padding-top: 10px; }
+
+  /* ─────────────────────────────────────────────────────────
+     GENERIC-BLOCK OVERRIDES
+     The page-builder emits generic <section class="block">…</section>
+     blocks which by default are plain. When the operator picks the
+     Onethai page template the canvas is populated with these generic
+     blocks but the brand expectation is the full Thai aesthetic. The
+     rules below "tinge" every generic block so the published page has
+     the burgundy/cream/Fraunces character even without rewriting each
+     block partial.
+
+     Class hooks the blocks already use:
+       section.block            — every block at top level
+       section.block.hero       — hero block specifically
+       section.block h1, h2     — block headings
+       a, .btn                  — call-to-action buttons
+     ───────────────────────────────────────────────────────── */
+
+  /* Plum headings throughout, Fraunces serif (theme already does this
+     for h1/h2/h3 via shared/head.eta, but reinforce in case a block
+     overrides inline) */
+  section.block h1, section.block h2, section.block h3 {
+    font-family: 'Fraunces', serif !important;
+    color: var(--plum);
+    letter-spacing: -0.02em;
+  }
+
+  /* Top-level block headings get the dotted-line + dot ornament that
+     the One Thai site uses above its section labels. Pseudo-element
+     on h2 so it works with any block that emits a heading. */
+  section.block > div > h2:first-child::before,
+  section.block > .container > div > h2:first-child::before,
+  section.block > .container > h2:first-child::before {
+    content: "";
+    display: block;
+    width: 32px;
+    height: 1px;
+    background: var(--plum);
+    opacity: 0.6;
+    margin: 0 auto 14px;
+  }
+
+  /* CTA buttons — One Thai uses fully-rounded pills with optional
+     hover-translate. Generic blocks emit plain <a> with inline styles;
+     bump them to pills via attribute targeting. */
+  section.block a[style*="background:#fff"],
+  section.block a[style*="background: #fff"] {
+    border-radius: 999px !important;
+    padding: 14px 28px !important;
+    font-weight: 500 !important;
+    transition: all .25s ease;
+  }
+  section.block a[style*="background:#fff"]:hover,
+  section.block a[style*="background: #fff"]:hover {
+    transform: translateY(-1px);
+  }
+
+  /* Hero block — drop a decorative chilli SVG into the corners and a
+     soft radial-warming overlay so it stops looking like a generic
+     gradient. Pure CSS, no markup change. */
+  section.block.hero::before,
+  section.block.hero::after {
+    content: "";
+    position: absolute;
+    width: 80px;
+    height: 80px;
+    background-image: url('<%= ASSETS %>/icons/icon-thai-basil.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    opacity: 0.18;
+    pointer-events: none;
+    z-index: 0;
+  }
+  section.block.hero::before { top: 24px;    left: 24px;    transform: rotate(-12deg); }
+  section.block.hero::after  { bottom: 24px; right: 24px;   transform: rotate(15deg); }
+  /* Make sure inner content sits above pseudo decoration */
+  section.block.hero > * { position: relative; z-index: 1; }
+
+  /* Hero heading — tighten leading + lift the script-accent feel */
+  section.block.hero h1 {
+    line-height: 1.0 !important;
+    font-weight: 400 !important;
+  }
+
+  /* Alternate-band Thai cream surface so consecutive blocks visually
+     separate. The CSS variable cascade handles the colour for you,
+     but we want subtle cream bands on every other block. */
+  main > section.block:nth-of-type(even):not(.hero) {
+    background: var(--paper-warm);
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* Vine divider as a between-block decoration. Inserted after hero
+     and after every 3rd content block to break up rhythm. */
+  main > section.block.hero + section.block::before {
+    content: "";
+    display: block;
+    width: 100%;
+    max-width: 480px;
+    height: 56px;
+    margin: 0 auto 24px;
+    background: url('<%= ASSETS %>/divider-vine.png') center/contain no-repeat;
+    opacity: 0.45;
+  }
+
+  /* Subtle floating herb-icon decoration on alternating blocks — same
+     technique fallback_location uses but applied to generic blocks. */
+  main > section.block:nth-of-type(3n+2):not(.hero)::after {
+    content: "";
+    position: absolute;
+    top: 24px;
+    right: 4%;
+    width: 90px;
+    height: 90px;
+    background: url('<%= ASSETS %>/icons/icon-lemongrass-bunch.png') center/contain no-repeat;
+    opacity: 0.10;
+    pointer-events: none;
+    transform: rotate(-12deg);
+    z-index: 0;
+  }
+  main > section.block { position: relative; }
+  main > section.block:nth-of-type(3n+2):not(.hero) > * { position: relative; z-index: 1; }
+
+  /* Booking widget block — give it the cream surface + a touch of
+     ornament. The block emits id="booking" so we target that. */
+  section.block#booking {
+    background: var(--paper-warm) !important;
+  }
+  section.block#booking iframe {
+    border: 1px solid var(--line) !important;
+    border-radius: 8px;
+  }
 </style>

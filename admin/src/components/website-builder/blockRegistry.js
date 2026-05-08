@@ -328,23 +328,19 @@ export const PAGE_TEMPLATES = [
   },
   {
     // Thai-restaurant aesthetic — burgundy + cream, Fraunces serif, Caveat
-    // script accents, decorative herb/spice icons, scrolling-dish ticker, vine
-    // dividers. Picking this template applies both the Onethai CSS shell AND
-    // a starter block layout.
+    // script accents, decorative herb/spice icons, scrolling-dish ticker,
+    // vine dividers. Picking this template applies the Onethai CSS shell AND
+    // leaves blocks EMPTY so the rich `fallback_location.eta` showpiece
+    // renders verbatim (hero with chilli flourishes, ticker, story stamp,
+    // sample-menu two-column, reviews band, visit grid, vine, dark order).
+    // Operators who want to deviate can start adding custom blocks; as soon
+    // as the array is non-empty, the showpiece is replaced by the block
+    // renderer (with the same Thai-tinged CSS still applying).
     key:         'onethai',
     label:       'Onethai — Thai Restaurant',
-    description: 'Burgundy + cream Thai aesthetic with Fraunces + Caveat fonts, herb-icon decoration, scrolling ticker. Hero, story, gallery, menus, hours, contact, booking.',
+    description: 'Burgundy + cream Thai aesthetic — Fraunces + Caveat fonts, herb-icon decoration, scrolling-dish ticker, vine divider. Empty blocks render the rich showpiece layout; add blocks to customise.',
     style_pack:  'onethai',
-    blocks: [
-      { type: 'hero',          data: { heading: 'A small Thai cafe with very loyal regulars.', subheading: 'Tucked away in our neighbourhood, cooking the dishes we grew up on for years.', cta_text: 'Book a table', cta_link: '#booking', height: 'large', align: 'center' } },
-      { type: 'two_column',    data: { heading: 'Cooking for our neighbours.', body_html: '<p>One Thai opened on a quiet stretch of West Street years ago, with a short menu, a few tables, and the kind of nervous optimism you only have when you\'re cooking your grandmother\'s recipes for strangers.</p><p>The menu has grown — a little classic, a little modern, always honest — but the room is still small, the kitchen is still ours.</p>', cta_text: 'See the menu', cta_link: '#menu', image_side: 'right' } },
-      { type: 'gallery',       data: { heading: 'In the kitchen' } },
-      { type: 'menu_pdfs',     data: { heading: 'Our menus' } },
-      { type: 'opening_hours', data: { heading: 'Opening hours' } },
-      { type: 'find_us',       data: { heading: 'Find us' } },
-      { type: 'contact',       data: { heading: 'Get in touch' } },
-      { type: 'booking_widget', data: { heading: 'Reserve your table' } },
-    ],
+    blocks: [],
   },
   {
     key:         'from-scratch',

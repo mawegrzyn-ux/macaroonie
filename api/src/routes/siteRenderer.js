@@ -259,7 +259,7 @@ export default async function siteRendererRoutes(app) {
     const [venue] = await sql`
       SELECT v.id, v.tenant_id, v.name, v.timezone,
              br.slot_duration_mins, br.min_covers, br.max_covers,
-             br.booking_window_days, br.hold_ttl_secs,
+             br.book_until_days, br.hold_ttl_secs,
              ts.primary_colour, ts.font_family, ts.site_name AS tenant_site_name,
              wc.hero_heading
         FROM venues v
@@ -287,7 +287,7 @@ export default async function siteRendererRoutes(app) {
         slot_duration_mins:  venue.slot_duration_mins ?? 90,
         min_covers:          venue.min_covers ?? 1,
         max_covers:          venue.max_covers ?? 8,
-        booking_window_days: venue.booking_window_days ?? 30,
+        booking_window_days: venue.book_until_days ?? 30,
         hold_ttl_secs:       venue.hold_ttl_secs ?? 300,
       }],
       initialVenueId: venue.id,
@@ -326,7 +326,7 @@ export default async function siteRendererRoutes(app) {
     const venues = await sql`
       SELECT v.id, v.name, v.timezone,
              br.slot_duration_mins, br.min_covers, br.max_covers,
-             br.booking_window_days, br.hold_ttl_secs,
+             br.book_until_days, br.hold_ttl_secs,
              wc.address_line1, wc.city, wc.postcode
         FROM venues v
         LEFT JOIN booking_rules  br ON br.venue_id  = v.id
@@ -355,7 +355,7 @@ export default async function siteRendererRoutes(app) {
         slot_duration_mins:  v.slot_duration_mins ?? 90,
         min_covers:          v.min_covers ?? 1,
         max_covers:          v.max_covers ?? 8,
-        booking_window_days: v.booking_window_days ?? 30,
+        booking_window_days: v.book_until_days ?? 30,
         hold_ttl_secs:       v.hold_ttl_secs ?? 300,
       })),
       initialVenueId,
