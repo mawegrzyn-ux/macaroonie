@@ -333,13 +333,6 @@ export function PageBuilder({
                   </div>
                 </>
               )}
-              {/* Footer chrome — display-only preview of the live site footer */}
-              <FooterPreview
-                tenantSite={effectiveTenantSite}
-                venues={venues}
-                tenantName={tenantName}
-                onJumpTo={onJumpTo}
-              />
             </ThemeFrame>
           </div>
         </div>
