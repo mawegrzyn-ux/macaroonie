@@ -26,7 +26,7 @@ import {
   Image as ImageIcon, Type, Columns2, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
-  ShoppingBag,
+  ShoppingBag, BookOpen as MenuIcon,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -41,7 +41,7 @@ import { ColumnsEditor }       from './editors/ColumnsEditor'
 import {
   HeaderBlockEditor, FooterBlockEditor, TickerBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
-  OrderOptionsEditor,
+  OrderOptionsEditor, MenuInlineEditor,
 } from './editors/SiteBlockEditors'
 
 // Sectional blocks (everything except divider + columns) get a shared
@@ -157,6 +157,16 @@ export const BLOCKS = [
       container: 'boxed',
     },
     editor: DishListEditor,
+  },
+  {
+    key:         'menu_inline',
+    label:       'Menu (inline)',
+    description: 'Embeds a structured menu (sections + dishes + variants + dietary tags) on the page. Pick which menu to render.',
+    icon:        MenuIcon,
+    category:    'data',
+    defaultData: { heading: 'Our menu', menu_id: null, container: 'boxed' },
+    editor:      MenuInlineEditor,
+    pullsFromConfig: false,
   },
   {
     key:         'order_options',

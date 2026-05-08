@@ -353,6 +353,28 @@ export function DishListCanvas({ data, onChange }) {
   )
 }
 
+// ── Menu (inline) — pulls from a chosen menu at SSR time ─────
+
+export function MenuInlineCanvas({ data }) {
+  return (
+    <section className="block" style={{
+      padding: '48px 24px',
+      background: 'repeating-linear-gradient(45deg, rgba(99,8,18,0.025) 0 12px, transparent 12px 24px)',
+      border: '1px dashed rgba(99,8,18,0.25)',
+      borderRadius: 'var(--r-md, 8px)', margin: '0 24px', textAlign: 'center',
+    }}>
+      <h2 style={{ fontFamily: 'var(--f-heading)', margin: '0 0 8px', color: 'var(--c-primary)' }}>
+        {data.heading || 'Menu'}
+      </h2>
+      <p style={{ margin: 0, color: 'var(--c-muted)', fontSize: 14 }}>
+        {data.menu_id
+          ? <>Inline menu · <em>renders the chosen menu's sections + dishes on the live site</em></>
+          : <em>Pick a menu in the inspector to render.</em>}
+      </p>
+    </section>
+  )
+}
+
 // ── Order options (takeaway / delivery cards) ────────────────
 
 export function OrderOptionsCanvas({ data }) {

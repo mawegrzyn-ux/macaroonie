@@ -87,6 +87,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
   {
+    key:    'menus',
+    label:  'Menus',
+    group:  'menus',
+    description: 'Structured menu manager — sections, dishes, variants, dietary tags, printable PDFs.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'view' },
+  },
+  {
     key:    'email_templates',
     label:  'Booking emails',
     group:  'email_templates',
@@ -161,6 +168,12 @@ export const MODULE_GROUPS = [
     label:  'Website CMS',
     description: 'Per-venue marketing sites, brand defaults, theme manager.',
     moduleKeys: ['website'],
+  },
+  {
+    key:    'menus',
+    label:  'Menus',
+    description: 'Structured menu manager — sections, dishes, variants, dietary tags, printable PDFs.',
+    moduleKeys: ['menus'],
   },
   {
     key:    'cash_recon',

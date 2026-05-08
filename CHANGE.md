@@ -5,6 +5,72 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-09 — Structured menu manager] *(migrations 048 + 049)*
+
+End-to-end menu management. Replaces the previous PDF-only `website_menu_documents`
+flow with a proper structured model.
+
+**Schema (migration 048):**
+- `menus` (per tenant or per venue) — name, slug, tagline, service_times,
+  intro_line, is_published, print_columns
+- `menu_sections` — title, subtitle, highlight (cream-bg "house favourites" sections)
+- `menu_items` — name, native_name (e.g. ผัดไทย), description, price_pence,
+  notes ("Min 2", "pp"), is_featured
+- `menu_item_variants` — Chicken £12.50 / Pork £12.50 / Prawns £13.40 / Beef £13.00
+- `menu_dietary_tags` (per tenant) — code (gf, v, n, spicy), label, glyph, colour
+- `menu_item_dietary` — M:N item ↔ tag
+- `menu_callouts` — Allergies & Diet, Go Large, Make It Thai Hot, Order & Book
+- All RLS-scoped via the existing `app.tenant_id` pattern
+
+**Module registration (migration 049):** seeds `tenant_modules` row for `menus` on
+every existing tenant + adds `menus: 'manage' | 'view'` defaults to all built-in roles.
+
+**API** — `/api/menus` mounted in app.js:
+- `GET    /` — list all menus for tenant (optional `?venue_id=` filter)
+- `GET    /:id` — full structure (sections + items + variants + dietary)
+- `POST   /` — create menu metadata
+- `PATCH  /:id` — single bulk-upsert that rewrites the whole tree
+  (server delete-and-reinserts under the `menu_id`; admin form holds the
+  full menu in React state and posts on Save)
+- `DELETE /:id`
+- `POST   /seed/:slug` — seed a sample menu (`onethai-dinner` / `onethai-lunch`)
+  with full content from the One Thai screenshots
+- `GET    /dietary/all`, `POST/PATCH/DELETE /dietary` — tenant dietary tag CRUD
+- `GET    /public/:menuId` — unauthenticated read for the website (gates on
+  tenant_site.is_published)
+- `GET    /:id/print` — public printable A4-landscape HTML; the browser handles
+  "Save as PDF" via its print dialog (no server-side PDF dependency)
+
+**Sample data** ([api/src/services/menuSeeds.js](api/src/services/menuSeeds.js)) —
+the full One Thai Dinner + Lunch menus from the supplied screenshots, with
+sections, dishes, variants, dietary tags, and footer callouts. Reusable as a
+template for any tenant via `POST /menus/seed/onethai-{dinner|lunch}`.
+
+**Admin** — new `/menus` page in main nav (Chef-hat icon, between Website and Media):
+- List view: shows all menus per tenant with status, scope, tagline, Print + Edit + Delete
+- "Sample menus" panel: one-click seed buttons for One Thai Dinner / Lunch
+- "New menu" modal: name + slug + tagline + scope (tenant or venue)
+- Edit view: nested forms for menu meta + sections + items + variants + dietary
+  tag toggles + callouts. Single Save that PATCHes the whole tree.
+- Sticky top + bottom save bars; visible Save error banner on failure
+
+**Website CMS — new `menu_inline` block:**
+- Picks an existing menu by id, renders sections + items + variants + dietary
+  badges inline on the page (alternative to the existing PDF link block)
+- SSR data hydration: `siteDataSvc.loadTenantBundle()` + `loadLocationBundle()`
+  scan `home_blocks` / `page_blocks` for any `menu_inline` references and
+  batch-load the menus once; the partial renders from the pre-hydrated map
+  without an N+1 query at render time
+- Admin editor pulls the tenant's menu list via `useQuery(['menus'])` and shows
+  a dropdown picker
+
+**Print route:** `/api/menus/:id/print` — A4-landscape HTML with the brand
+colour, multi-column layout, dietary badges, callout grid, and a "Save as
+PDF / Print" button (hidden in print). Operators print via the browser's
+own dialog.
+
+---
+
 ## [2026-05-08 — Block-first website CMS] *(migration 047)*
 
 The CMS is now a single block model end-to-end. Header / footer / Onethai

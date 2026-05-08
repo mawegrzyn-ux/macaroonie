@@ -157,6 +157,10 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
     return { venues, pages }
   })
 
+  // If any menu_inline block on the home page references a menu, hydrate
+  // the menus map so the SSR partial can render without an extra query.
+  const menusById = await loadInlineMenus(ts.tenant_id, ts.home_blocks)
+
   return {
     tenant_site: ts,
     config:      ts,            // alias: templates read `it.config`
@@ -165,7 +169,74 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
     tenant_slug: ts.tenant_slug,
     venues:      bundle.venues,
     pages:       bundle.pages,
+    menus_by_id: menusById,
   }
+}
+
+/* ── Inline-menu hydration ────────────────────────────────────
+ * Walks blocks looking for `type: 'menu_inline'` with a `menu_id`,
+ * batch-loads each unique menu (with sections + items + variants +
+ * dietary tags), and returns an id → menu map for the renderer.
+ * Also scans nested blocks inside the `columns` container. */
+async function loadInlineMenus(tenantId, ...blockArrays) {
+  const menuIds = new Set()
+  function walk(blocks) {
+    if (!Array.isArray(blocks)) return
+    for (const b of blocks) {
+      if (b?.type === 'menu_inline' && b?.data?.menu_id) menuIds.add(b.data.menu_id)
+      if (Array.isArray(b?.data?.columns)) {
+        for (const col of b.data.columns) walk(col?.blocks)
+      }
+    }
+  }
+  for (const arr of blockArrays) walk(arr)
+  if (menuIds.size === 0) return {}
+
+  return withTenant(tenantId, async tx => {
+    const ids = Array.from(menuIds)
+    const menus = await tx`
+      SELECT m.*,
+             COALESCE((
+               SELECT json_agg(jsonb_build_object('id', t.id, 'code', t.code, 'label', t.label, 'glyph', t.glyph, 'colour', t.colour) ORDER BY t.sort_order)
+                 FROM menu_dietary_tags t WHERE t.tenant_id = m.tenant_id
+             ), '[]'::json) AS dietary_tags
+        FROM menus m
+       WHERE m.id = ANY(${ids}::uuid[])
+         AND m.is_published = true
+    `
+    if (!menus.length) return {}
+
+    const menuIdsArr = menus.map(m => m.id)
+    const sections = await tx`
+      SELECT s.*,
+             COALESCE((
+               SELECT json_agg(jsonb_build_object(
+                 'id', i.id, 'name', i.name, 'native_name', i.native_name,
+                 'description', i.description, 'price_pence', i.price_pence,
+                 'notes', i.notes, 'is_featured', i.is_featured, 'sort_order', i.sort_order,
+                 'variants', COALESCE((
+                   SELECT json_agg(jsonb_build_object('label', v.label, 'price_pence', v.price_pence) ORDER BY v.sort_order)
+                     FROM menu_item_variants v WHERE v.item_id = i.id
+                 ), '[]'::json),
+                 'dietary', COALESCE((
+                   SELECT json_agg(t.code)
+                     FROM menu_item_dietary mid
+                     JOIN menu_dietary_tags t ON t.id = mid.tag_id
+                    WHERE mid.item_id = i.id
+                 ), '[]'::json)
+               ) ORDER BY i.sort_order)
+                 FROM menu_items i WHERE i.section_id = s.id
+             ), '[]'::json) AS items
+        FROM menu_sections s
+       WHERE s.menu_id = ANY(${menuIdsArr}::uuid[])
+       ORDER BY s.sort_order
+    `
+
+    const byMenu = {}
+    for (const m of menus) byMenu[m.id] = { ...m, sections: [] }
+    for (const s of sections) byMenu[s.menu_id]?.sections.push(s)
+    return byMenu
+  })
 }
 
 /**
@@ -270,6 +341,14 @@ export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpub
     }
   })
 
+  // Merge tenant + venue inline-menu hydration. The location page may
+  // reference menus via menu_inline blocks in either page_blocks (this
+  // page's blocks) or home_blocks (header/footer if shared).
+  const menusById = {
+    ...(tenantBundle.menus_by_id || {}),
+    ...(await loadInlineMenus(tenantId, result.mergedConfig.page_blocks)),
+  }
+
   return {
     ...tenantBundle,
     config:        result.mergedConfig,
@@ -279,6 +358,7 @@ export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpub
     opening_hours: result.openingHours,
     allergens:     result.allergens,
     location_pages: result.pages,
+    menus_by_id:   menusById,
   }
 }
 

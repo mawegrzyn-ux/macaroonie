@@ -7,6 +7,8 @@
 // replaces the block's data object.
 
 import { Plus, X } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { useApi } from '@/lib/api'
 import { FormRow, ImageField } from '../shared'
 import { FontPicker } from '../FontPicker'
 
@@ -365,6 +367,40 @@ export function DishListEditor({ data, onChange }) {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Menu (inline) editor ───────────────────────────────────
+
+export function MenuInlineEditor({ data, onChange }) {
+  const api = useApi()
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+  const { data: menus = [] } = useQuery({
+    queryKey: ['menus'],
+    queryFn:  () => api.get('/menus'),
+  })
+  return (
+    <div className="space-y-3">
+      <FormRow label="Heading" hint="Shown above the menu. Blank to hide.">
+        <Input value={data.heading} onChange={set('heading')} placeholder="Our menu" />
+      </FormRow>
+      <FormRow label="Menu" hint="Pick which menu to render. Manage menus from the main Menus page.">
+        <Select value={data.menu_id || ''} onChange={v => set('menu_id')(v || null)}>
+          <option value="">— Pick a menu —</option>
+          {menus.map(m => (
+            <option key={m.id} value={m.id}>
+              {m.name}{m.venue_name ? ` (${m.venue_name})` : ''} · /menus/{m.slug}
+            </option>
+          ))}
+        </Select>
+      </FormRow>
+      {data.menu_id && (
+        <a href={`/api/menus/${data.menu_id}/print`} target="_blank" rel="noopener"
+          className="text-xs text-primary hover:underline">
+          Preview printable version →
+        </a>
+      )}
     </div>
   )
 }

@@ -18,6 +18,8 @@ const t = it.block.type
   <%~ include('./reviews_band', it) %>
 <% } else if (t === 'order_options') { %>
   <%~ include('./order_options', it) %>
+<% } else if (t === 'menu_inline') { %>
+  <%~ include('./menu_inline', it) %>
 <% } else if (t === 'hero') { %>
   <%~ include('./hero', it) %>
 <% } else if (t === 'text') { %>

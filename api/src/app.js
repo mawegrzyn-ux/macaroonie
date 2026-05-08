@@ -32,6 +32,7 @@ import teamRoutes          from './routes/team.js'
 import accessRoutes        from './routes/access.js'
 import emailMonitoringRoutes from './routes/emailMonitoring.js'
 import mediaRoutes          from './routes/media.js'
+import menusRoutes          from './routes/menus.js'
 import widgetApiRoutes      from './routes/widgetApi.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -144,6 +145,7 @@ export async function buildApp() {
   await app.register(accessRoutes,        { prefix: '/api/access' })
   await app.register(emailMonitoringRoutes, { prefix: '/api/email-monitoring' })
   await app.register(mediaRoutes,            { prefix: '/api/media' })
+  await app.register(menusRoutes,            { prefix: '/api/menus' })
   await app.register(widgetApiRoutes,        { prefix: '/widget-api' })
   await app.register(manageBookingRoutes, { prefix: '/manage' })
 

@@ -10,7 +10,7 @@ import {
 import {
   HeaderCanvas, FooterCanvas, TickerCanvas,
   StoryWithStampCanvas, DishListCanvas, ReviewsBandCanvas,
-  OrderOptionsCanvas,
+  OrderOptionsCanvas, MenuInlineCanvas,
 } from './siteBlocks'
 
 export const CANVAS_BY_TYPE = {
@@ -23,6 +23,7 @@ export const CANVAS_BY_TYPE = {
   dish_list:        DishListCanvas,
   reviews_band:     ReviewsBandCanvas,
   order_options:    OrderOptionsCanvas,
+  menu_inline:      MenuInlineCanvas,
   // Existing
   hero:           HeroCanvas,
   text:           TextCanvas,

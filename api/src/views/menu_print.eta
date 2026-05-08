@@ -1,0 +1,211 @@
+<%
+const m = it.menu
+const sections = m.sections || []
+const callouts = m.callouts || []
+const tagsByCode = Object.fromEntries((m.dietary_tags || []).map(t => [t.code, t]))
+function fmtPrice(p) {
+  if (p == null) return ''
+  const n = Number(p) / 100
+  return '£' + n.toFixed(2)
+}
+const cols = m.print_columns || 4
+const tenantName = m.tenant_name || ''
+%><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title><%= m.name %> — <%= tenantName %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --plum: <%= m.primary_colour || '#630812' %>;
+      --plum-soft: rgba(99, 8, 18, 0.6);
+      --paper: #faf6ef;
+      --paper-warm: #f3ead8;
+      --line: rgba(99, 8, 18, 0.18);
+      --ink: #2a1c1a;
+      --muted: #7a6b62;
+      --chilli: #c9302c;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: #f0ece5; color: var(--ink);
+      font-family: 'Inter', sans-serif;
+      font-weight: 400; line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+    .page {
+      width: 297mm; max-width: 100%;
+      min-height: 210mm;
+      margin: 16px auto;
+      padding: 16mm 16mm 12mm;
+      background: var(--paper);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+      position: relative;
+    }
+    /* Print bar — visible on screen, hidden on print. */
+    .print-bar {
+      position: sticky; top: 0; z-index: 50;
+      background: var(--plum); color: #f5efe6;
+      padding: 10px 24px;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px;
+    }
+    .print-bar button {
+      background: #f5efe6; color: var(--plum);
+      border: none; padding: 8px 18px; border-radius: 4px;
+      font-weight: 600; cursor: pointer;
+      font-family: inherit; font-size: 13px;
+    }
+    @media print {
+      html, body { background: var(--paper); }
+      .print-bar { display: none; }
+      .page { box-shadow: none; margin: 0; padding: 12mm; min-height: auto; }
+      @page { size: A4 landscape; margin: 0; }
+    }
+    /* Header */
+    .menu-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 6mm; border-bottom: 1px solid var(--line); margin-bottom: 6mm; gap: 12mm; }
+    .menu-head h1 { font-family: 'Fraunces', serif; font-size: 28px; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; line-height: 1; }
+    .menu-head .tagline { font-family: 'Caveat', cursive; font-size: 18px; color: var(--plum); margin-top: 2px; }
+    .menu-head .right { text-align: right; font-size: 11px; color: var(--muted); line-height: 1.5; }
+    .menu-head .right strong { color: var(--ink); display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
+    .menu-logo { width: 18mm; height: 18mm; object-fit: contain; flex-shrink: 0; }
+    .menu-intro { background: var(--paper-warm); padding: 6px 10px; font-size: 11px; color: var(--muted); border-radius: 3px; margin-bottom: 4mm; }
+    .menu-intro strong { color: var(--ink); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+
+    /* Columns grid */
+    .cols { column-count: <%= cols %>; column-gap: 6mm; column-fill: balance; }
+    @media (max-width: 800px) { .cols { column-count: 1 !important; } }
+    .section { break-inside: avoid; margin-bottom: 5mm; }
+    .section.highlight { background: #fff7e6; padding: 4mm; border-radius: 4px; }
+    .section h2 { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
+    .section .sub { font-size: 10px; font-weight: 400; color: var(--muted); margin-left: 6px; text-transform: none; letter-spacing: 0; }
+    .section .head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding-bottom: 1.5mm; margin-bottom: 2mm; border-bottom: 1px solid var(--line); }
+
+    /* Items */
+    .item { padding: 1.5mm 0; }
+    .item.featured { background: var(--paper-warm); padding: 2mm 3mm; border-radius: 3px; margin-bottom: 1.5mm; }
+    .item-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+    .item-name { font-size: 11.5px; font-weight: 500; color: var(--ink); }
+    .item-name .native { font-style: italic; font-weight: 300; color: var(--muted); font-size: 10px; margin-left: 4px; }
+    .item-price { font-family: 'Fraunces', serif; font-size: 11.5px; font-weight: 500; color: var(--plum); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .item-desc { font-size: 10.5px; color: var(--muted); margin-top: 1px; line-height: 1.4; }
+    .item-notes { font-size: 9.5px; color: var(--plum-soft); font-style: italic; margin-top: 1px; }
+    .item-tags { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
+    .tag-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 3px; color: #fff; font-size: 9px; font-weight: 700; line-height: 1; }
+    /* Variants */
+    .variants { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; margin-top: 1mm; }
+    .variant-label { font-size: 10.5px; color: var(--ink); }
+    .variant-price { font-family: 'Fraunces', serif; font-size: 10.5px; color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; }
+
+    /* Callouts (footer notes) */
+    .callouts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; margin-top: 6mm; padding-top: 4mm; border-top: 1px solid var(--line); font-size: 10px; }
+    .callout strong { display: block; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin-bottom: 2px; font-weight: 600; }
+    .callout p { color: var(--muted); white-space: pre-line; line-height: 1.45; }
+    .callout .key { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2mm; }
+    .callout .key .pair { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; }
+
+    /* Footer line */
+    .menu-foot { text-align: center; padding-top: 4mm; font-family: 'Fraunces', serif; font-style: italic; color: var(--muted); font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div class="print-bar">
+    <span><%= m.name %> — <%= tenantName %> <% if (m.service_times) { %> · <%= m.service_times %><% } %></span>
+    <button onclick="window.print()">Save as PDF / Print</button>
+  </div>
+  <div class="page">
+    <div class="menu-head">
+      <div>
+        <h1><%= m.name %></h1>
+        <% if (m.tagline) { %><div class="tagline"><%= m.tagline %></div><% } %>
+      </div>
+      <% if (m.logo_url) { %><img class="menu-logo" src="<%= m.logo_url %>" alt="" /><% } %>
+      <div class="right">
+        <strong><%= tenantName %></strong>
+        <% if (m.address_line1) { %><div><%= m.address_line1 %><% if (m.postcode) { %>, <%= m.postcode %><% } %></div><% } %>
+        <% if (m.phone) { %><div><%= m.phone %></div><% } %>
+        <% if (m.service_times) { %><div><%= m.service_times %></div><% } %>
+      </div>
+    </div>
+
+    <% if (m.intro_line) { %>
+      <div class="menu-intro"><%~ m.intro_line %></div>
+    <% } %>
+
+    <div class="cols">
+      <% sections.forEach(function(s){ %>
+        <div class="section<%= s.highlight ? ' highlight' : '' %>">
+          <div class="head-row">
+            <h2><%= s.title %><% if (s.subtitle) { %><span class="sub"><%= s.subtitle %></span><% } %></h2>
+          </div>
+          <% (s.items || []).forEach(function(item){ %>
+            <div class="item<%= item.is_featured ? ' featured' : '' %>">
+              <div class="item-row">
+                <div>
+                  <span class="item-name">
+                    <%= item.name %>
+                    <% if (item.native_name) { %><span class="native"><%= item.native_name %></span><% } %>
+                  </span>
+                  <% if (item.dietary && item.dietary.length) { %>
+                    <span class="item-tags">
+                      <% item.dietary.forEach(function(code){ %>
+                        <% const tag = tagsByCode[code] %>
+                        <% if (tag) { %>
+                          <span class="tag-chip" style="background: <%= tag.colour %>;" title="<%= tag.label %>"><%= tag.glyph %></span>
+                        <% } %>
+                      <% }) %>
+                    </span>
+                  <% } %>
+                </div>
+                <% if (item.price_pence != null && (!item.variants || item.variants.length === 0)) { %>
+                  <span class="item-price"><%= fmtPrice(item.price_pence) %></span>
+                <% } %>
+              </div>
+              <% if (item.description) { %><div class="item-desc"><%= item.description %></div><% } %>
+              <% if (item.notes) { %><div class="item-notes"><%= item.notes %></div><% } %>
+              <% if (item.variants && item.variants.length) { %>
+                <div class="variants">
+                  <% item.variants.forEach(function(v){ %>
+                    <span class="variant-label"><%= v.label %></span>
+                    <span class="variant-price"><%= fmtPrice(v.price_pence) %></span>
+                  <% }) %>
+                </div>
+              <% } %>
+            </div>
+          <% }) %>
+        </div>
+      <% }) %>
+    </div>
+
+    <% if (callouts.length) { %>
+      <div class="callouts">
+        <% callouts.forEach(function(c){ %>
+          <div class="callout">
+            <strong><%= c.title %></strong>
+            <% if (c.body) { %><p><%= c.body %></p><% } %>
+            <% if (c.kind === 'allergens' && (m.dietary_tags || []).length) { %>
+              <div class="key">
+                <% (m.dietary_tags || []).forEach(function(tag){ %>
+                  <span class="pair">
+                    <span class="tag-chip" style="background: <%= tag.colour %>;"><%= tag.glyph %></span>
+                    <%= tag.label %>
+                  </span>
+                <% }) %>
+              </div>
+            <% } %>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+
+    <% if (m.footer_motto) { %>
+      <div class="menu-foot"><%= m.footer_motto %></div>
+    <% } else { %>
+      <div class="menu-foot">— honest cooking, made fresh in our kitchen —</div>
+    <% } %>
+  </div>
+</body>
+</html>

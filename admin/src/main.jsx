@@ -25,6 +25,7 @@ import CashRecon      from '@/pages/CashRecon'
 import EmailTemplates from '@/pages/EmailTemplates'
 import EmailMonitoring from '@/pages/EmailMonitoring'
 import Media          from '@/pages/Media'
+import Menus          from '@/pages/Menus'
 import Team           from '@/pages/Team'
 import Access         from '@/pages/Access'
 import Platform       from '@/pages/Platform'
@@ -112,6 +113,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="email-templates" element={<EmailTemplates />} />
                 <Route path="email-monitoring" element={<EmailMonitoring />} />
                 <Route path="media"            element={<Media />} />
+                <Route path="menus"            element={<Menus />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="team"        element={<Team />} />
                 <Route path="access"      element={<Access />} />
