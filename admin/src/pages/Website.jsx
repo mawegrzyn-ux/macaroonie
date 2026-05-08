@@ -2729,15 +2729,39 @@ function BrandIdentitySection() {
   const [state, setState] = useState(initial)
   useEffect(() => setState(initial), [initial])
   const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+  const [saveError, setSaveError]   = useState(null)
+  const [savedFlash, setSavedFlash] = useState(false)
 
   const save = useMutation({
     mutationFn: () => {
       const body = {}
-      for (const [k, v] of Object.entries(state)) body[k] = v === '' ? null : v
+      // Empty strings → null for nullable fields. Skip non-nullable ones
+      // (template_key + font_family are enums/strings without .nullable()
+      // in Zod, and the inspector inputs always set a real value.)
+      for (const [k, v] of Object.entries(state)) {
+        if (v === '' && k !== 'template_key' && k !== 'font_family' && k !== 'primary_colour') {
+          body[k] = null
+        } else {
+          body[k] = v
+        }
+      }
       return hasBrand ? api.patch('/website/brand-defaults', body)
                       : api.post('/website/brand-defaults', body)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['brand-defaults'] }),
+    onMutate: () => { setSaveError(null); setSavedFlash(false) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['brand-defaults'] })
+      qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 2000)
+    },
+    onError: (e) => {
+      // Surface the API error so silent failures stop being invisible.
+      const msg = e?.body?.error || e?.message || 'Save failed'
+      setSaveError(msg)
+      // eslint-disable-next-line no-console
+      console.error('Brand identity save failed:', e)
+    },
   })
 
   return (
@@ -2773,6 +2797,16 @@ function BrandIdentitySection() {
           <ImageField url={state.og_image_url} onChange={v => setState(s => ({ ...s, og_image_url: v || '' }))} />
         </FormRow>
       </SectionCard>
+      {saveError && (
+        <div className="bg-destructive/10 border border-destructive/30 text-destructive text-sm rounded-md px-4 py-3">
+          <strong>Save failed:</strong> {saveError}
+        </div>
+      )}
+      {savedFlash && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-md px-4 py-2">
+          ✓ Saved
+        </div>
+      )}
       <SaveBar dirty={dirty} saving={save.isPending}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
@@ -2791,13 +2825,27 @@ function BrandThemeSection() {
   const baseline = useMemo(() => mergeTheme(brand.theme), [brand.theme])
   useEffect(() => setTheme(mergeTheme(brand.theme)), [brand.theme])
   const dirty = JSON.stringify(theme) !== JSON.stringify(baseline)
+  const [saveError, setSaveError]   = useState(null)
+  const [savedFlash, setSavedFlash] = useState(false)
 
   const save = useMutation({
     mutationFn: () => {
       return hasBrand ? api.patch('/website/brand-defaults', { theme })
                       : api.post('/website/brand-defaults', { theme })
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['brand-defaults'] }),
+    onMutate: () => { setSaveError(null); setSavedFlash(false) },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['brand-defaults'] })
+      qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 2000)
+    },
+    onError: (e) => {
+      const msg = e?.body?.error || e?.message || 'Save failed'
+      setSaveError(msg)
+      // eslint-disable-next-line no-console
+      console.error('Brand theme save failed:', e)
+    },
   })
 
   function setPath(section, key, value) {
@@ -2830,6 +2878,16 @@ function BrandThemeSection() {
         <SliderField label="Base font size" unit="px" min={12} max={22} value={theme.typography.base_size_px} onChange={v => setPath('typography', 'base_size_px', v)} />
         <SliderField label="Heading scale" unit="x" min={1.0} max={1.8} step={0.05} value={theme.typography.heading_scale} onChange={v => setPath('typography', 'heading_scale', v)} />
       </SectionCard>
+      {saveError && (
+        <div className="bg-destructive/10 border border-destructive/30 text-destructive text-sm rounded-md px-4 py-3">
+          <strong>Save failed:</strong> {saveError}
+        </div>
+      )}
+      {savedFlash && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-md px-4 py-2">
+          ✓ Saved
+        </div>
+      )}
       <div className="flex items-center justify-between pt-2 border-t">
         <button type="button" onClick={() => setTheme(structuredClone(DEFAULT_THEME))}
           className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5">Reset to defaults</button>

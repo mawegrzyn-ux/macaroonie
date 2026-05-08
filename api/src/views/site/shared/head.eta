@@ -53,15 +53,40 @@ const btnW  = buttons.weight   || 600
 const heroOpacity = (hero.overlay_opacity != null ? hero.overlay_opacity : 0.4)
 const heroMinH    = hero.min_height_px || 520
 
-/* Google Fonts URL — only loaded if both fonts are common ones. */
+/* Google Fonts URL — loaded for: theme heading + body fonts AND any
+   font_family referenced by a block on this page (e.g. ticker block's
+   custom font choice). Without scanning blocks, a per-block font choice
+   would silently fall back to the browser default because the font file
+   was never requested. Mirrors the FontPicker's FONT_OPTIONS list. */
 const GOOGLE_FONTS = new Set([
-  'Inter','Playfair Display','Poppins','Lora','Montserrat','Roboto','Open Sans',
-  'Source Sans Pro','Raleway','Merriweather','Work Sans','Karla','DM Sans','DM Serif Display',
-  'Space Grotesk','Manrope','Cormorant Garamond','Libre Baskerville','Nunito','Rubik',
+  'Inter','Fraunces','Caveat','Playfair Display','Poppins','Lora','Montserrat',
+  'Roboto','Open Sans','Source Sans Pro','Raleway','Merriweather','Work Sans',
+  'Karla','DM Sans','DM Serif Display','Space Grotesk','Manrope',
+  'Cormorant Garamond','Libre Baskerville','Nunito','Rubik',
 ])
 const fontsToLoad = []
-if (GOOGLE_FONTS.has(headingFont)) fontsToLoad.push(headingFont)
-if (GOOGLE_FONTS.has(bodyFont) && bodyFont !== headingFont) fontsToLoad.push(bodyFont)
+function pushFont(f) {
+  if (f && GOOGLE_FONTS.has(f) && !fontsToLoad.includes(f)) fontsToLoad.push(f)
+}
+pushFont(headingFont)
+pushFont(bodyFont)
+
+/* Walk through any blocks the page renders and collect font_family fields. */
+function collectBlockFonts(blocks) {
+  if (!Array.isArray(blocks)) return
+  for (const b of blocks) {
+    pushFont(b?.data?.font_family)
+    /* `columns` containers hold nested blocks — recurse. */
+    if (Array.isArray(b?.data?.columns)) {
+      for (const col of b.data.columns) {
+        if (Array.isArray(col?.blocks)) collectBlockFonts(col.blocks)
+      }
+    }
+  }
+}
+collectBlockFonts(it.config?.home_blocks)
+collectBlockFonts(it.config?.page_blocks)
+
 const gfUrl = fontsToLoad.length
   ? `https://fonts.googleapis.com/css2?${fontsToLoad.map(f => `family=${encodeURIComponent(f)}:wght@300;400;500;600;700;800`).join('&')}&display=swap`
   : null

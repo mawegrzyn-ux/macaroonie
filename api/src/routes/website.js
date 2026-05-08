@@ -467,12 +467,14 @@ export default async function websiteRoutes(app) {
   })
 
   // ── Back-compat: brand-defaults endpoints alias tenant-site ─
-  // (Keeps old admin-portal builds working during the deploy window.)
+  // (Old admin-portal builds use these. Both POST and PATCH do the same
+  // upsert via ensureTenantSite — admin code may call POST when it thinks
+  // the row doesn't exist yet, even though our GET always creates one.)
   app.get('/brand-defaults', async (req) => {
     return withTenant(req.tenantId, async tx => ensureTenantSite(tx, req.tenantId))
   })
 
-  app.patch('/brand-defaults', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  async function brandDefaultsUpsert(req) {
     const body = TenantSiteBody.parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -486,7 +488,12 @@ export default async function websiteRoutes(app) {
       `
       return row
     })
-  })
+  }
+
+  app.patch('/brand-defaults', { preHandler: requireRole('admin', 'owner') },
+    async (req) => brandDefaultsUpsert(req))
+  app.post('/brand-defaults',  { preHandler: requireRole('admin', 'owner') },
+    async (req) => brandDefaultsUpsert(req))
 
   // ════════════════════════════════════════════════════════════
   //   PER-VENUE LOCATION PAGE
