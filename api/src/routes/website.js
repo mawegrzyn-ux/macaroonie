@@ -144,6 +144,26 @@ const TenantSiteBody = z.object({
   banner_link_text: z.string().max(100).nullable().optional(),
   banner_severity:  z.enum(['info', 'warn', 'alert']).optional(),
 
+  // Header CTA + extra nav links (rendered by partials/header.eta)
+  header_cta:       z.object({
+    text: z.string().max(60).nullable().optional(),
+    url:  z.string().max(500).nullable().optional(),
+  }).nullable().optional(),
+  nav_extra_links:  z.array(z.object({
+    label: z.string().min(1).max(60),
+    url:   z.string().min(1).max(500),
+  })).optional(),
+
+  // Footer columns + copyright (rendered by partials/footer.eta)
+  footer_columns:   z.array(z.object({
+    title: z.string().min(1).max(60),
+    items: z.array(z.object({
+      label: z.string().min(1).max(60),
+      url:   z.string().min(1).max(500),
+    })).max(20),
+  })).max(6).optional(),
+  footer_copyright: z.string().max(200).nullable().optional(),
+
   // Publishing
   is_published:     z.boolean().optional(),
 })

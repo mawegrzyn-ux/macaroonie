@@ -6,6 +6,9 @@ const sl = it.config.social_links || {}
 const socials = Object.entries(sl).filter(function(e){return e[1]})
 const showLocationsLink = !it.tenant_site?.hide_locations_index && venues.length > 1
 const cityLine = [it.config.city, it.config.postcode].filter(Boolean).join(' ')
+const customCols = Array.isArray(it.tenant_site?.footer_columns) ? it.tenant_site.footer_columns : []
+const copyrightText = it.tenant_site?.footer_copyright
+  || `© ${new Date().getFullYear()} ${it.config.site_name || it.tenant_name}`
 %>
 <footer class="ot-footer">
   <div class="container">
@@ -62,6 +65,15 @@ const cityLine = [it.config.city, it.config.postcode].filter(Boolean).join(' ')
           <% } %>
         </div>
       <% } %>
+
+      <% customCols.forEach(function(col){ %>
+        <div class="footer-col">
+          <h5 class="mono-cap"><%= col.title %></h5>
+          <% (col.items || []).forEach(function(item){ %>
+            <a href="<%= item.url %>"><%= item.label %></a>
+          <% }) %>
+        </div>
+      <% }) %>
     </div>
 
     <div class="footer-icons" aria-hidden="true">
@@ -75,7 +87,7 @@ const cityLine = [it.config.city, it.config.postcode].filter(Boolean).join(' ')
     </div>
 
     <div class="footer-bottom">
-      <span>© <%= new Date().getFullYear() %> <%= it.config.site_name || it.tenant_name %></span>
+      <span><%= copyrightText %></span>
       <span class="hand">Powered by <a href="https://<%= it.rootDomain %>" target="_blank" rel="noopener" style="color:inherit;">Macaroonie</a></span>
     </div>
   </div>

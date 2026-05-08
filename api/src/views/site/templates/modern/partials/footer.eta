@@ -4,6 +4,9 @@ const venues     = it.venues || []
 const sl = it.config.social_links || {}
 const socials = Object.entries(sl).filter(function(e){return e[1]})
 const cityLine = [it.config.city, it.config.postcode].filter(Boolean).join(' ')
+const customCols = Array.isArray(it.tenant_site?.footer_columns) ? it.tenant_site.footer_columns : []
+const copyrightText = it.tenant_site?.footer_copyright
+  || `© ${new Date().getFullYear()} ${it.config.site_name || it.tenant_name}.`
 %>
 <style>
   .m-footer {
@@ -78,10 +81,19 @@ const cityLine = [it.config.city, it.config.postcode].filter(Boolean).join(' ')
           <% }) %>
         <% } %>
       </div>
+
+      <% customCols.forEach(function(col){ %>
+        <div>
+          <div class="title"><%= col.title %></div>
+          <% (col.items || []).forEach(function(item){ %>
+            <div><a href="<%= item.url %>"><%= item.label %></a></div>
+          <% }) %>
+        </div>
+      <% }) %>
     </div>
 
     <div class="bottom">
-      <span>© <%= new Date().getFullYear() %> <%= it.config.site_name || it.tenant_name %>.</span>
+      <span><%= copyrightText %></span>
       <span>Powered by <a href="https://<%= it.rootDomain %>" target="_blank" rel="noopener">Macaroonie</a></span>
     </div>
   </div>

@@ -42,6 +42,7 @@ const TENANT_SECTIONS = [
   { key: 'tenant-domain',   label: 'Domain & publish',  icon: Globe },
   { key: 'tenant-identity', label: 'Brand identity',    icon: ImageIcon },
   { key: 'tenant-theme',    label: 'Brand theme',       icon: Palette },
+  { key: 'tenant-nav',      label: 'Header & footer',   icon: LayoutTemplate },
   { key: 'tenant-locations',label: 'Locations index',   icon: MapPin },
   { key: 'tenant-seo',      label: 'SEO',               icon: Search },
   { key: 'tenant-analytics',label: 'Analytics',         icon: BarChart3 },
@@ -563,6 +564,191 @@ function TenantSeoSection({ tenantSite }) {
           setDesc(tenantSite.meta_description || '')
           setOgUrl(tenantSite.og_image_url || '')
         }}
+        onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Tenant-level: header & footer (nav links, CTA, footer columns) ─
+
+function TenantNavSection({ tenantSite }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const initial = useMemo(() => ({
+    cta_text: tenantSite.header_cta?.text || '',
+    cta_url:  tenantSite.header_cta?.url  || '',
+    nav_extra_links: Array.isArray(tenantSite.nav_extra_links) ? tenantSite.nav_extra_links : [],
+    footer_columns:  Array.isArray(tenantSite.footer_columns)  ? tenantSite.footer_columns  : [],
+    footer_copyright: tenantSite.footer_copyright || '',
+  }), [tenantSite])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/website/tenant-site', {
+      header_cta:       (state.cta_text || state.cta_url)
+                          ? { text: state.cta_text || null, url: state.cta_url || null }
+                          : null,
+      nav_extra_links:  state.nav_extra_links.filter(l => l.label && l.url),
+      footer_columns:   state.footer_columns
+                          .map(c => ({ ...c, items: (c.items || []).filter(i => i.label && i.url) }))
+                          .filter(c => c.title && c.items.length),
+      footer_copyright: state.footer_copyright || null,
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+  })
+
+  function setNavItem(i, k, v) {
+    setState(s => {
+      const next = s.nav_extra_links.slice()
+      next[i] = { ...next[i], [k]: v }
+      return { ...s, nav_extra_links: next }
+    })
+  }
+  function addNavItem() {
+    setState(s => ({ ...s, nav_extra_links: [...s.nav_extra_links, { label: '', url: '' }] }))
+  }
+  function removeNavItem(i) {
+    setState(s => ({ ...s, nav_extra_links: s.nav_extra_links.filter((_, j) => j !== i) }))
+  }
+
+  function setColumn(i, patch) {
+    setState(s => {
+      const next = s.footer_columns.slice()
+      next[i] = { ...next[i], ...patch }
+      return { ...s, footer_columns: next }
+    })
+  }
+  function setColumnItem(ci, ii, k, v) {
+    setState(s => {
+      const cols = s.footer_columns.slice()
+      const items = (cols[ci].items || []).slice()
+      items[ii] = { ...items[ii], [k]: v }
+      cols[ci] = { ...cols[ci], items }
+      return { ...s, footer_columns: cols }
+    })
+  }
+  function addColumn() {
+    setState(s => ({ ...s, footer_columns: [...s.footer_columns, { title: '', items: [{ label: '', url: '' }] }] }))
+  }
+  function removeColumn(ci) {
+    setState(s => ({ ...s, footer_columns: s.footer_columns.filter((_, j) => j !== ci) }))
+  }
+  function addColumnItem(ci) {
+    setState(s => {
+      const cols = s.footer_columns.slice()
+      cols[ci] = { ...cols[ci], items: [...(cols[ci].items || []), { label: '', url: '' }] }
+      return { ...s, footer_columns: cols }
+    })
+  }
+  function removeColumnItem(ci, ii) {
+    setState(s => {
+      const cols = s.footer_columns.slice()
+      cols[ci] = { ...cols[ci], items: (cols[ci].items || []).filter((_, j) => j !== ii) }
+      return { ...s, footer_columns: cols }
+    })
+  }
+
+  return (
+    <div className="space-y-5">
+      <SectionCard title="Header booking CTA"
+        description="The pill button on the right of the header. Defaults to 'Book a Table' linking to /locations.">
+        <FormRow label="Button text">
+          <TextInput value={state.cta_text}
+            onChange={e => setState(s => ({ ...s, cta_text: e.target.value }))}
+            placeholder="Book a Table" />
+        </FormRow>
+        <FormRow label="Button URL"
+          hint="Use a path like /locations or an absolute URL.">
+          <TextInput value={state.cta_url}
+            onChange={e => setState(s => ({ ...s, cta_url: e.target.value }))}
+            placeholder="/locations" />
+        </FormRow>
+      </SectionCard>
+
+      <SectionCard title="Extra nav links"
+        description="Custom links shown after the auto-generated entries (Locations, Menu, Custom pages)."
+        action={
+          <button type="button" onClick={addNavItem}
+            className="text-xs inline-flex items-center gap-1 bg-primary/10 text-primary rounded-md px-2.5 py-1.5 font-medium">
+            <Plus className="w-3 h-3" /> Add link
+          </button>
+        }>
+        {state.nav_extra_links.length === 0
+          ? <p className="text-xs text-muted-foreground text-center py-3">No extra nav links yet.</p>
+          : state.nav_extra_links.map((link, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <TextInput value={link.label}
+                onChange={e => setNavItem(i, 'label', e.target.value)}
+                placeholder="Label" className="flex-1" />
+              <TextInput value={link.url}
+                onChange={e => setNavItem(i, 'url', e.target.value)}
+                placeholder="URL" className="flex-1" />
+              <button type="button" onClick={() => removeNavItem(i)}
+                className="text-destructive hover:bg-destructive/10 p-2 rounded">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+      </SectionCard>
+
+      <SectionCard title="Footer columns"
+        description="Each column has a heading and a list of links. Up to 6 columns."
+        action={state.footer_columns.length < 6 && (
+          <button type="button" onClick={addColumn}
+            className="text-xs inline-flex items-center gap-1 bg-primary/10 text-primary rounded-md px-2.5 py-1.5 font-medium">
+            <Plus className="w-3 h-3" /> Add column
+          </button>
+        )}>
+        {state.footer_columns.length === 0
+          ? <p className="text-xs text-muted-foreground text-center py-3">
+              No custom footer columns yet. The footer auto-shows brand info, locations, and social links.
+            </p>
+          : state.footer_columns.map((col, ci) => (
+            <div key={ci} className="border rounded-lg p-3 space-y-2 bg-muted/30">
+              <div className="flex items-center gap-2">
+                <TextInput value={col.title}
+                  onChange={e => setColumn(ci, { title: e.target.value })}
+                  placeholder="Column title (e.g. Quick Links)" className="flex-1 font-medium" />
+                <button type="button" onClick={() => removeColumn(ci)}
+                  className="text-destructive hover:bg-destructive/10 p-2 rounded text-xs">
+                  Remove column
+                </button>
+              </div>
+              {(col.items || []).map((item, ii) => (
+                <div key={ii} className="flex items-start gap-2 pl-4">
+                  <TextInput value={item.label}
+                    onChange={e => setColumnItem(ci, ii, 'label', e.target.value)}
+                    placeholder="Label" className="flex-1" />
+                  <TextInput value={item.url}
+                    onChange={e => setColumnItem(ci, ii, 'url', e.target.value)}
+                    placeholder="URL" className="flex-1" />
+                  <button type="button" onClick={() => removeColumnItem(ci, ii)}
+                    className="text-destructive hover:bg-destructive/10 p-2 rounded">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              <button type="button" onClick={() => addColumnItem(ci)}
+                className="text-xs text-primary hover:underline pl-4">
+                + Add link to this column
+              </button>
+            </div>
+          ))}
+      </SectionCard>
+
+      <SectionCard title="Footer copyright"
+        description="Override the auto-generated © {year} {brand}. line.">
+        <FormRow label="Copyright text">
+          <TextInput value={state.footer_copyright}
+            onChange={e => setState(s => ({ ...s, footer_copyright: e.target.value }))}
+            placeholder="© 2026 Your Brand. All rights reserved." />
+        </FormRow>
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)}
         onSave={() => save.mutate()} />
     </div>
   )
@@ -2412,6 +2598,8 @@ function BrandIdentitySection() {
   const hasBrand = !!brand?.id
   const initial = useMemo(() => ({
     brand_name:       brand.brand_name ?? '',
+    site_name:        brand.site_name ?? '',
+    tagline:          brand.tagline ?? '',
     logo_url:         brand.logo_url ?? '',
     favicon_url:      brand.favicon_url ?? '',
     primary_colour:   brand.primary_colour ?? '#630812',
@@ -2440,6 +2628,12 @@ function BrandIdentitySection() {
         description="These values cascade to every venue website. Venues can override per-location if needed.">
         <FormRow label="Brand name" hint="Franchise name shown across all venue sites.">
           <TextInput value={state.brand_name} onChange={e => setState(s => ({ ...s, brand_name: e.target.value }))} />
+        </FormRow>
+        <FormRow label="Site name" hint="Shown in the header next to the logo and in the footer. Falls back to brand name.">
+          <TextInput value={state.site_name} onChange={e => setState(s => ({ ...s, site_name: e.target.value }))} />
+        </FormRow>
+        <FormRow label="Tagline" hint="Short subtitle under the brand name in the header / footer.">
+          <TextInput value={state.tagline} onChange={e => setState(s => ({ ...s, tagline: e.target.value }))} />
         </FormRow>
         <FormRow label="Logo"><ImageField url={state.logo_url} onChange={v => setState(s => ({ ...s, logo_url: v || '' }))} /></FormRow>
         <FormRow label="Favicon"><ImageField url={state.favicon_url} onChange={v => setState(s => ({ ...s, favicon_url: v || '' }))} /></FormRow>
@@ -2837,6 +3031,7 @@ function TenantActiveSection({ active, tenantSite }) {
     case 'tenant-domain':    return <TenantDomainSection    tenantSite={tenantSite} />
     case 'tenant-identity':  return <BrandIdentitySection />
     case 'tenant-theme':     return <BrandThemeSection />
+    case 'tenant-nav':       return <TenantNavSection       tenantSite={tenantSite} />
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />
     case 'tenant-seo':       return <TenantSeoSection       tenantSite={tenantSite} />
     case 'tenant-analytics': return <BrandAnalyticsSection />

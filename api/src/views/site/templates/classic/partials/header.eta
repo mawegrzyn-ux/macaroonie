@@ -10,6 +10,10 @@ const showLocationsLink = !it.tenant_site?.hide_locations_index && (it.venues ||
 const menuHref = onLocation
   ? `/locations/${venueSlug}/menu`
   : '/menu'
+const navExtra = Array.isArray(it.tenant_site?.nav_extra_links) ? it.tenant_site.nav_extra_links : []
+const ctaCfg   = it.tenant_site?.header_cta || {}
+const ctaText  = ctaCfg.text || it.config.hero_cta_text || 'Book a Table'
+const ctaHref  = ctaCfg.url  || (onLocation ? `/locations/${venueSlug}#booking` : '/locations')
 %>
 <style>
   .site-header {
@@ -60,9 +64,10 @@ const menuHref = onLocation
           <%= p.title %>
         </a>
       <% }) %>
-      <a href="<%= onLocation ? `/locations/${venueSlug}#booking` : '/locations' %>" class="cta">
-        <%= it.config.hero_cta_text || 'Book a Table' %>
-      </a>
+      <% navExtra.forEach(function(link){ %>
+        <a href="<%= link.url %>"><%= link.label %></a>
+      <% }) %>
+      <a href="<%= ctaHref %>" class="cta"><%= ctaText %></a>
     </nav>
   </div>
 </header>

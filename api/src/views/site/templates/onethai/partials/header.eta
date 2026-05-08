@@ -5,8 +5,10 @@ const tenantPages      = (it.pages || []).filter(p => p.is_published !== false)
 const locationPages    = (it.location_pages || []).filter(p => p.is_published !== false)
 const showLocationsLink = !it.tenant_site?.hide_locations_index && (it.venues || []).length > 1
 const menuHref = onLocation ? `/locations/${venueSlug}/menu` : '/menu'
-const bookHref = onLocation ? `/locations/${venueSlug}#booking` : '/locations'
-const ctaText  = it.config.hero_cta_text || 'Book a Table'
+const navExtra = Array.isArray(it.tenant_site?.nav_extra_links) ? it.tenant_site.nav_extra_links : []
+const ctaCfg   = it.tenant_site?.header_cta || {}
+const ctaText  = ctaCfg.text || it.config.hero_cta_text || 'Book a Table'
+const ctaHref  = ctaCfg.url  || (onLocation ? `/locations/${venueSlug}#booking` : '/locations')
 %>
 <%~ include('./styles', it) %>
 <nav class="ot-nav">
@@ -32,7 +34,10 @@ const ctaText  = it.config.hero_cta_text || 'Book a Table'
       <% _navPages.forEach(function(p) { %>
         <a href="<%= onLocation ? `/locations/${venueSlug}/p/${p.slug}` : `/p/${p.slug}` %>"><%= p.title %></a>
       <% }) %>
-      <a href="<%= bookHref %>" class="nav-cta"><%= ctaText %></a>
+      <% navExtra.forEach(function(link){ %>
+        <a href="<%= link.url %>"><%= link.label %></a>
+      <% }) %>
+      <a href="<%= ctaHref %>" class="nav-cta"><%= ctaText %></a>
     </div>
     <button class="menu-btn" aria-label="Menu">
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
