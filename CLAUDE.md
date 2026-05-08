@@ -436,7 +436,16 @@ for sales reporting and reconciliation. Architecture decisions pending: Partner 
 Restaurant API, polling vs webhook, per-venue vs tenant-level credentials, where it
 displays in the admin UI.
 
-**3. RBAC rollout to existing routes**
+**3. Header & Footer as page-builder blocks**
+The site header and footer are currently template-baked (`templates/{key}/partials/header.eta` + `footer.eta`) and read auto-derived data: tenant_site logo + nav from venues/menus/pages, social_links, address, etc. Operators want them editable AS BLOCKS in the page builder so they can add/remove nav links, swap CTA copy, restructure footer columns, surface custom social handles. Required:
+- Two new block types: `header` and `footer`. Each has rich data shape (header: `{ logo_url, brand_text, nav_items: [{label,url}], cta: {text, url} }`; footer: `{ columns: [{title, items: [{label,url}]}], copyright, show_social, show_powered_by }`).
+- React canvas components for both, with editor controls (add/remove link, drag-reorder).
+- Eta block partials per template (`templates/{key}/blocks/header.eta`, `footer.eta`) so each template renders its own signature chrome.
+- Rendering shift: `index.eta` and `location.eta` STOP including `partials/header.eta` / `partials/footer.eta`. Instead, the home_blocks/page_blocks array renders, and we auto-prepend a `header` block + auto-append a `footer` block when missing (so the user always gets working chrome out of the box).
+- Page builder UX: header block should be locked at index 0, footer at the last position (no drag). New "+" inserter sits between them.
+- Picking a page template seeds blocks with header + footer at the expected positions.
+
+**4. RBAC rollout to existing routes**
 The foundation (migration 038, `requirePermission` middleware, `/api/access/*`, `/access` admin page) is in place. Still to do — incrementally:
 - Replace `requireRole('admin', 'owner')` with `requirePermission('<module>', 'manage')` on every existing route, module by module
 - Update `Team.jsx` to assign `custom_role_id` (currently still writes the legacy `users.role` enum)

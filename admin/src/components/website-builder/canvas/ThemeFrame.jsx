@@ -142,10 +142,135 @@ export function ThemeFrame({ config, children, className = '' }) {
     }
   `
 
+  // Template-specific overlays — applied only when the active site template
+  // expects them. Keeps the admin canvas visually aligned with the SSR
+  // output for templates that have their own signature aesthetic.
+  const templateKey = config?.template_key || 'classic'
+  const templateCss = templateKey === 'onethai' ? onethaiCss(scopeId) : ''
+
   return (
     <div className={`${scopeId} ${className}`} ref={styleRef}>
       <style dangerouslySetInnerHTML={{ __html: css }} />
+      {templateCss && <style dangerouslySetInnerHTML={{ __html: templateCss }} />}
+      {/* Make sure the Onethai Google Fonts are loaded when the canvas
+          previews that template — they're already in the global font list,
+          but operators may be on default theme fonts. */}
+      {templateKey === 'onethai' && (
+        <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&display=swap" />
+      )}
       {children}
     </div>
   )
+}
+
+// Onethai overlay — mirrors the SSR rules in
+// api/src/views/site/templates/onethai/partials/styles.eta so the admin
+// canvas matches what gets rendered live. Asset paths are absolute (the
+// admin and the API share the macaroonie.com origin in production).
+function onethaiCss(scopeId) {
+  const ASSETS = '/template-assets/onethai'
+  return `
+    .${scopeId} {
+      --plum:        var(--c-primary, #630812);
+      --plum-deep:   #4a060e;
+      --plum-soft:   #7a1a26;
+      --chilli:      var(--c-accent,  #c9302c);
+      --herb:        #6b8e4e;
+      --cream:       #f5efe6;
+      --paper:       var(--c-bg,      #faf6ef);
+      --paper-warm:  var(--c-surface, #f3ead8);
+      --line:        rgba(99, 8, 18, 0.18);
+      --hl-soft:     #f5b8c0;
+      background:    var(--paper);
+    }
+    .${scopeId} h1, .${scopeId} h2, .${scopeId} h3 {
+      font-family: 'Fraunces', serif;
+      letter-spacing: -0.02em;
+    }
+    .${scopeId} section.block h1,
+    .${scopeId} section.block h2,
+    .${scopeId} section.block h3 {
+      color: var(--plum);
+    }
+    /* Hero — corner chillies via pseudo-elements (no markup change) */
+    .${scopeId} section.block.hero { position: relative; overflow: hidden; }
+    .${scopeId} section.block.hero::before,
+    .${scopeId} section.block.hero::after {
+      content: "";
+      position: absolute;
+      width: 80px; height: 80px;
+      background-size: contain; background-repeat: no-repeat;
+      opacity: 0.18; pointer-events: none; z-index: 0;
+    }
+    .${scopeId} section.block.hero::before {
+      top: 24px; left: 24px; transform: rotate(-12deg);
+      background-image: url('${ASSETS}/icons/icon-thai-basil.png');
+    }
+    .${scopeId} section.block.hero::after {
+      bottom: 24px; right: 24px; transform: rotate(15deg);
+      background-image: url('${ASSETS}/icons/icon-lemongrass-bunch.png');
+    }
+    .${scopeId} section.block.hero > * { position: relative; z-index: 1; }
+    .${scopeId} section.block.hero h1 { font-weight: 400; line-height: 1.0; }
+
+    /* Heading dotted-line ornament above section h2s (One Thai signature) */
+    .${scopeId} section.block > div > h2:first-child::before,
+    .${scopeId} section.block > .container > h2:first-child::before {
+      content: "";
+      display: block;
+      width: 32px; height: 1px;
+      background: var(--plum);
+      opacity: 0.6;
+      margin: 0 auto 14px;
+    }
+
+    /* Alternating cream bands so consecutive blocks separate visually */
+    .${scopeId} section.block:nth-of-type(even):not(.hero) {
+      background: var(--paper-warm);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    /* Vine divider after the hero block */
+    .${scopeId} section.block.hero + section.block::before {
+      content: "";
+      display: block;
+      width: 100%; max-width: 480px;
+      height: 56px;
+      margin: 0 auto 24px;
+      background: url('${ASSETS}/divider-vine.png') center/contain no-repeat;
+      opacity: 0.45;
+    }
+
+    /* Floating herb decoration on every 3rd block */
+    .${scopeId} section.block:nth-of-type(3n+2):not(.hero) { position: relative; }
+    .${scopeId} section.block:nth-of-type(3n+2):not(.hero)::after {
+      content: "";
+      position: absolute;
+      top: 24px; right: 4%;
+      width: 90px; height: 90px;
+      background: url('${ASSETS}/icons/icon-lemongrass-bunch.png') center/contain no-repeat;
+      opacity: 0.10;
+      transform: rotate(-12deg);
+      pointer-events: none;
+      z-index: 0;
+    }
+    .${scopeId} section.block:nth-of-type(3n+2):not(.hero) > * { position: relative; z-index: 1; }
+
+    /* Booking widget block — cream surface */
+    .${scopeId} section.block#booking,
+    .${scopeId} section.block.block-booking_widget {
+      background: var(--paper-warm);
+    }
+
+    /* CTAs — pill-shape (One Thai signature) */
+    .${scopeId} section.block a[style*="background:#fff"],
+    .${scopeId} section.block a[style*="background: #fff"],
+    .${scopeId} section.block span[style*="background:var(--c-primary)"],
+    .${scopeId} section.block span[style*="background: var(--c-primary)"] {
+      border-radius: 999px;
+      padding: 14px 28px;
+    }
+  `
 }
