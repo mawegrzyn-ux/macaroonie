@@ -7,8 +7,21 @@ import {
   CtaStripCanvas, DividerCanvas, FaqCanvas, DataPlaceholderCanvas,
   ColumnsCanvas,
 } from './blockCanvas'
+import {
+  HeaderCanvas, FooterCanvas, TickerCanvas,
+  StoryWithStampCanvas, DishListCanvas, ReviewsBandCanvas,
+} from './siteBlocks'
 
 export const CANVAS_BY_TYPE = {
+  // Site shell
+  header:           HeaderCanvas,
+  footer:           FooterCanvas,
+  // Themed content
+  ticker:           TickerCanvas,
+  story_with_stamp: StoryWithStampCanvas,
+  dish_list:        DishListCanvas,
+  reviews_band:     ReviewsBandCanvas,
+  // Existing
   hero:           HeroCanvas,
   text:           TextCanvas,
   image:          ImageCanvas,

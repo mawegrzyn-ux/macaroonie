@@ -5,6 +5,58 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-08 — Block-first website CMS] *(migration 047)*
+
+The CMS is now a single block model end-to-end. Header / footer / Onethai
+showpiece — all the chrome that used to be hardcoded Eta partials — are now
+first-class block types that operators edit in the page builder.
+
+**Six new block types** ([blockRegistry.js](admin/src/components/website-builder/blockRegistry.js)):
+- `header` — sticky nav with logo, brand text, link list, booking CTA. Replaces
+  the per-template `partials/header.eta`. Editable via the inspector
+  (add/remove/reorder links, override brand text, customise CTA).
+- `footer` — multi-column footer with brand block, custom columns, auto legal
+  links (Terms/Privacy/Cookies), copyright override, powered-by toggle.
+- `ticker` — scrolling text strip (the Onethai food-name ticker), editable
+  items list, choice of script vs sans font, scroll speed, background colour.
+- `story_with_stamp` — two-column story section with optional dashed-pill
+  "X years" badge.
+- `dish_list` — multi-column menu sample with name + native script + heat dots
+  + price + description per dish.
+- `reviews_band` — coloured band with N customer reviews (stars + quote +
+  attribution).
+
+**Templates as starter blocks:** picking the Onethai page-template now seeds
+the canvas with `[header, hero, ticker, story_with_stamp, dish_list,
+reviews_band, find_us, contact, booking_widget, footer]` pre-filled with
+Thai-restaurant content — every section is editable. Picking a template ALSO
+auto-applies matching theme defaults (deep-merged over operator overrides) so
+colours and fonts come along.
+
+**Eta cleanup:**
+- `index.eta` / `location.eta` now render blocks-only, auto-prepending a
+  default header block + auto-appending a default footer if the array doesn't
+  contain them.
+- `fallback_home.eta` and `fallback_location.eta` deleted (Onethai-specific
+  showpieces that became dead weight).
+- `partials/header.eta` and `partials/footer.eta` now exist as 4-line shims
+  that delegate to the block renderer — keeps supporting pages
+  (`locations.eta`, `menu.eta`, `menu_hub.eta`, `page.eta`) working without
+  touching them.
+- `shared/head.eta` conditionally includes `templates/onethai/partials/styles`
+  when `template_key = onethai`.
+
+**Admin cleanup:**
+- "Header & footer" form-based section dropped (nav links, footer columns,
+  CTA fields, copyright override). All of it is now in the block editor.
+- In-canvas SiteChrome (HeaderPreview / FooterPreview) and OnethaiShowpiece
+  preview components deleted — the canvas now shows real React mirrors of
+  the block partials.
+- Migration 047 drops `tenant_site.header_cta`, `nav_extra_links`,
+  `footer_columns`, `footer_copyright`. Zod schema updated.
+
+---
+
 ## [2026-05-08]
 
 ### CMS architecture flip: one site per TENANT *(migration 043)*

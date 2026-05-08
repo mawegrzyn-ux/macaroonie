@@ -1,46 +1,4 @@
 <%
-const onLocation       = !!it.venue
-const venueSlug        = it.venue?.slug
-const tenantPages      = (it.pages || []).filter(p => p.is_published !== false)
-const locationPages    = (it.location_pages || []).filter(p => p.is_published !== false)
-const showLocationsLink = !it.tenant_site?.hide_locations_index && (it.venues || []).length > 1
-const menuHref = onLocation ? `/locations/${venueSlug}/menu` : '/menu'
-const navExtra = Array.isArray(it.tenant_site?.nav_extra_links) ? it.tenant_site.nav_extra_links : []
-const ctaCfg   = it.tenant_site?.header_cta || {}
-const ctaText  = ctaCfg.text || it.config.hero_cta_text || 'Book a Table'
-const ctaHref  = ctaCfg.url  || (onLocation ? `/locations/${venueSlug}#booking` : '/locations')
+/* Shim — delegates to the new header block partial. */
 %>
-<%~ include('./styles', it) %>
-<nav class="ot-nav">
-  <div class="nav-inner">
-    <a href="/" class="logo-link">
-      <% if (it.config.logo_url) { %>
-        <img src="<%= it.config.logo_url %>" alt="<%= it.config.site_name || it.tenant_name %>" />
-      <% } %>
-      <div class="wordmark">
-        <span class="brand-script"><%= it.config.site_name || it.tenant_name %></span>
-        <% if (it.config.tagline) { %>
-          <span class="brand-mono"><%= it.config.tagline %></span>
-        <% } %>
-      </div>
-    </a>
-    <div class="nav-links">
-      <% if (showLocationsLink) { %><a href="/locations">Locations</a><% } %>
-      <a href="<%= menuHref %>">Menu</a>
-      <% if (onLocation && it.config.show_find_us) { %>
-        <a href="/locations/<%= venueSlug %>#find-us">Visit</a>
-      <% } %>
-      <% const _navPages = onLocation ? locationPages : tenantPages %>
-      <% _navPages.forEach(function(p) { %>
-        <a href="<%= onLocation ? `/locations/${venueSlug}/p/${p.slug}` : `/p/${p.slug}` %>"><%= p.title %></a>
-      <% }) %>
-      <% navExtra.forEach(function(link){ %>
-        <a href="<%= link.url %>"><%= link.label %></a>
-      <% }) %>
-      <a href="<%= ctaHref %>" class="nav-cta"><%= ctaText %></a>
-    </div>
-    <button class="menu-btn" aria-label="Menu">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h18M3 12h18M3 17h18"/></svg>
-    </button>
-  </div>
-</nav>
+<%~ include('../../../blocks/renderer', { ...it, block: { type: 'header', data: {} } }) %>

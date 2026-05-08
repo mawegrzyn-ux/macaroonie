@@ -119,6 +119,16 @@ const gfUrl = fontsToLoad.length
     }) %>
   </script>
 
+  <%
+  /* Per-template style pack — when a template has its own decoration CSS
+     (Onethai's herb-icon overlay etc.) we load it here so the SSR output
+     matches the admin canvas's ThemeFrame template overlay. */
+  const _tpl = it.config?.template_key || 'classic'
+  %>
+  <% if (_tpl === 'onethai') { %>
+    <%~ include('../templates/onethai/partials/styles', it) %>
+  <% } %>
+
   <style>
     :root {
       /* Colours */

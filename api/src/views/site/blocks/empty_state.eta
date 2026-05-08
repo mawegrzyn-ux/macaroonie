@@ -1,0 +1,15 @@
+<%
+/* Empty-state shown by index.eta / location.eta when home_blocks /
+   page_blocks is empty. Mostly useful in dev — published sites should
+   always have blocks. */
+%>
+<section class="block" style="padding: 120px 24px; text-align: center;">
+  <div style="max-width: 540px; margin: 0 auto;">
+    <h1 style="font-family: var(--f-heading); font-size: clamp(2rem, 4vw, 3rem); margin-bottom: 16px;">
+      <%= it.config.site_name || it.tenant_name || 'Welcome' %>
+    </h1>
+    <p style="color: var(--c-muted); font-size: 1.05rem;">
+      This page hasn't been built yet. Open the page builder in your admin to add blocks.
+    </p>
+  </div>
+</section>

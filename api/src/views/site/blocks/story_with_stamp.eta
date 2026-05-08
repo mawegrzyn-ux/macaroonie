@@ -1,0 +1,49 @@
+<%
+const d = it.block.data || {}
+const showImage = d.image_side && d.image_side !== 'none' && d.image_url
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw, 1100px)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
+const cols = showImage ? '1fr 1.3fr' : '1fr'
+const imageOrder = d.image_side === 'right' ? 2 : 1
+const showStamp = d.stamp_show !== false
+%>
+<section class="block" style="padding: 110px 0; position: relative;">
+  <div style="<%= containerStyle %>">
+    <div style="display:grid; grid-template-columns: <%= cols %>; gap:80px; align-items:start;">
+      <% if (showImage) { %>
+        <div style="order: <%= imageOrder %>;">
+          <img src="<%= d.image_url %>" alt="" style="width:100%; border-radius:var(--r-md, 8px); display:block;" />
+        </div>
+      <% } %>
+      <div style="order: <%= imageOrder === 1 ? 2 : 1 %>;">
+        <% if (d.heading) { %>
+          <h2 style="font-family:var(--f-heading); font-size:clamp(2rem,4vw,3rem); font-weight:400; line-height:1.05; letter-spacing:-0.02em; color:var(--c-primary); margin:0 0 24px;">
+            <%= d.heading %>
+          </h2>
+        <% } %>
+        <% if (d.body_html) { %>
+          <div class="prose" style="color:var(--c-muted); line-height:1.7; font-size:1.05rem;">
+            <%~ d.body_html %>
+          </div>
+        <% } %>
+        <% if (showStamp && (d.stamp_number || d.stamp_label)) { %>
+          <div style="display:inline-flex; align-items:center; gap:14px; margin-top:24px;
+            padding:12px 22px; background:var(--c-surface);
+            border:1px dashed var(--c-primary); border-radius:999px;
+            color:var(--c-primary); font-family:'Caveat', var(--f-heading), cursive; font-size:1.4rem;">
+            <% if (d.stamp_number) { %>
+              <span style="background:var(--c-primary); color:#fff; width:32px; height:32px; border-radius:50%;
+                display:flex; align-items:center; justify-content:center;
+                font-family:var(--f-heading); font-size:1rem; font-weight:500;">
+                <%= d.stamp_number %>
+              </span>
+            <% } %>
+            <% if (d.stamp_label) { %><%= d.stamp_label %><% } %>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,56 @@
+<%
+const d = it.block.data || {}
+const cols = Array.isArray(d.columns) ? d.columns : []
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw, 1100px)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
+const colCount = Math.max(1, cols.length || 1)
+%>
+<section class="block" style="padding:100px 0; background:var(--c-surface); border-top:1px solid var(--c-border); border-bottom:1px solid var(--c-border);">
+  <div style="<%= containerStyle %>">
+    <% if (d.heading || d.subheading) { %>
+      <div style="margin-bottom:48px;">
+        <% if (d.heading) { %>
+          <h2 style="font-family:var(--f-heading); font-size:clamp(2rem,4vw,3rem); font-weight:400; color:var(--c-primary); letter-spacing:-0.02em; margin:0 0 8px;">
+            <%= d.heading %>
+          </h2>
+        <% } %>
+        <% if (d.subheading) { %>
+          <p style="color:var(--c-muted); font-size:1.05rem; margin:0;"><%= d.subheading %></p>
+        <% } %>
+      </div>
+    <% } %>
+
+    <div style="display:grid; grid-template-columns:repeat(<%= colCount %>, 1fr); gap:0 80px;">
+      <% cols.forEach(function(col){ %>
+        <div>
+          <h3 style="font-family:'Caveat', var(--f-heading), cursive; font-weight:600; color:var(--c-primary); font-size:1.7rem; padding-bottom:14px; margin:0 0 24px; border-bottom:1px solid var(--c-border);">
+            <%= col.title || '' %>
+          </h3>
+          <% (col.dishes || []).forEach(function(dish){ %>
+            <div style="display:grid; grid-template-columns:auto 1fr auto; align-items:baseline; gap:12px; padding:18px 0; border-bottom:1px dotted var(--c-border);">
+              <div style="font-family:var(--f-heading); font-size:1.1rem; font-weight:500;">
+                <%= dish.name || '' %>
+                <% if (dish.thai) { %>
+                  <span style="font-style:italic; font-weight:300; color:var(--c-muted); font-size:0.9rem; margin-left:8px;"><%= dish.thai %></span>
+                <% } %>
+              </div>
+              <% if (dish.heat) { %>
+                <span style="color:var(--c-accent); font-size:0.75rem; letter-spacing:0.1em;"><%= dish.heat %></span>
+              <% } else { %>
+                <span></span>
+              <% } %>
+              <div style="color:var(--c-primary); font-weight:500; font-family:var(--f-heading); font-variant-numeric:tabular-nums;">
+                <%= dish.price || '' %>
+              </div>
+              <% if (dish.desc) { %>
+                <div style="grid-column:1 / -1; font-size:0.9rem; color:var(--c-muted); margin-top:4px;"><%= dish.desc %></div>
+              <% } %>
+            </div>
+          <% }) %>
+        </div>
+      <% }) %>
+    </div>
+  </div>
+</section>

@@ -1,9 +1,22 @@
 <%
 // Block renderer dispatch — switches on block.type and includes the right partial.
-// Receives `it.block`, `it.config`, `it.venue`, `it.gallery`, `it.menus`, `it.opening_hours`, `it.allergens`.
+// Receives `it.block`, `it.config`, `it.venue`, `it.gallery`, `it.menus`,
+// `it.opening_hours`, `it.allergens`, `it.tenant_site`, `it.venues`, `it.pages`.
 const t = it.block.type
 %>
-<% if (t === 'hero') { %>
+<% if (t === 'header') { %>
+  <%~ include('./header', it) %>
+<% } else if (t === 'footer') { %>
+  <%~ include('./footer', it) %>
+<% } else if (t === 'ticker') { %>
+  <%~ include('./ticker', it) %>
+<% } else if (t === 'story_with_stamp') { %>
+  <%~ include('./story_with_stamp', it) %>
+<% } else if (t === 'dish_list') { %>
+  <%~ include('./dish_list', it) %>
+<% } else if (t === 'reviews_band') { %>
+  <%~ include('./reviews_band', it) %>
+<% } else if (t === 'hero') { %>
   <%~ include('./hero', it) %>
 <% } else if (t === 'text') { %>
   <%~ include('./text', it) %>

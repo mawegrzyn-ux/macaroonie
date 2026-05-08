@@ -25,7 +25,7 @@
 import {
   Image as ImageIcon, Type, Columns2, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
-  Layout, Columns,
+  Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -37,6 +37,10 @@ import { DataBlockEditor }     from './editors/DataBlockEditor'
 import { DividerEditor }       from './editors/DividerEditor'
 import { FaqEditor }           from './editors/FaqEditor'
 import { ColumnsEditor }       from './editors/ColumnsEditor'
+import {
+  HeaderBlockEditor, FooterBlockEditor, TickerBlockEditor,
+  StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
+} from './editors/SiteBlockEditors'
 
 // Sectional blocks (everything except divider + columns) get a shared
 // `container` field controlling whether the block is boxed (within the
@@ -53,9 +57,121 @@ export const DEFAULT_CONTAINER = 'boxed'
 // (because they're either intrinsically full-bleed, or just visual filler).
 // Columns IS included in the toggle — its `container` controls the outer
 // row's max-width before the columns split.
-export const NO_CONTAINER_BLOCKS = new Set(['divider'])
+export const NO_CONTAINER_BLOCKS = new Set(['divider', 'header', 'footer', 'ticker'])
+
+// Blocks that pin to the start (header) or end (footer) of the page when
+// added — keeps the page-builder UX matching what the live site renders.
+export const PIN_TO_TOP    = new Set(['header'])
+export const PIN_TO_BOTTOM = new Set(['footer'])
 
 export const BLOCKS = [
+  // ── Site shell — header / footer ─────────────────────────
+  {
+    key:         'header',
+    label:       'Header',
+    description: 'Sticky site header — logo, nav links, booking CTA. Lives at the top of every page.',
+    icon:        PanelTop,
+    category:    'shell',
+    defaultData: {
+      brand_text: '',         // override site_name
+      brand_subtitle: '',     // override tagline
+      show_logo: true,
+      sticky:    true,
+      links: [
+        { label: 'Locations', url: '/locations' },
+        { label: 'Menu',      url: '/menu' },
+      ],
+      cta: { show: true, text: 'Book a Table', url: '/locations' },
+    },
+    editor: HeaderBlockEditor,
+  },
+  {
+    key:         'footer',
+    label:       'Footer',
+    description: 'Site footer — brand block, custom columns, legal links, copyright.',
+    icon:        PanelBottom,
+    category:    'shell',
+    defaultData: {
+      show_brand_block: true,
+      show_legal_links: true,
+      show_powered_by:  true,
+      columns:          [],
+      copyright_text:   '',
+    },
+    editor: FooterBlockEditor,
+  },
+
+  // ── Themed content blocks ────────────────────────────────
+  {
+    key:         'ticker',
+    label:       'Ticker',
+    description: 'Scrolling strip of words — dish names, taglines, etc. Edit the items list.',
+    icon:        Megaphone,
+    category:    'content',
+    defaultData: {
+      items:      ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
+      bg_style:   'primary',     // primary | accent | dark
+      font_style: 'script',      // script | sans
+      speed:      'medium',      // slow | medium | fast
+    },
+    editor: TickerBlockEditor,
+  },
+  {
+    key:         'story_with_stamp',
+    label:       'Story with stamp',
+    description: 'Two-column story section with optional dashed-pill "X years" stamp.',
+    icon:        BookText,
+    category:    'content',
+    defaultData: {
+      heading:      'Cooking for our neighbours.',
+      body_html:    '<p>Tell your story — what makes your kitchen yours. Keep it short, keep it warm.</p>',
+      stamp_show:   true,
+      stamp_number: '10',
+      stamp_label:  'years',
+      image_url:    null,
+      image_side:   'right',     // left | right | none
+      container:    'boxed',
+    },
+    editor: StoryWithStampEditor,
+  },
+  {
+    key:         'dish_list',
+    label:       'Dish menu',
+    description: 'Multi-column dish menu with name, native script, heat dots, price, and description.',
+    icon:        ChefHat,
+    category:    'content',
+    defaultData: {
+      heading:    'A Taste of the Menu',
+      subheading: '',
+      columns: [
+        {
+          title: 'The Classics',
+          dishes: [
+            { name: 'Pad Thai', thai: '', heat: '', price: '£11.50', desc: 'Wok-tossed rice noodles, tamarind, peanuts, lime.' },
+          ],
+        },
+      ],
+      container: 'boxed',
+    },
+    editor: DishListEditor,
+  },
+  {
+    key:         'reviews_band',
+    label:       'Reviews band',
+    description: 'A coloured strip with 1–4 customer testimonials and stars.',
+    icon:        Quote,
+    category:    'content',
+    defaultData: {
+      heading:  '',
+      bg_style: 'primary',         // primary | accent | dark | surface
+      items: [
+        { stars: 5, text: 'A short, warm review goes here.', attr: 'Customer name, location' },
+      ],
+      container: 'boxed',
+    },
+    editor: ReviewsBandEditor,
+  },
+
   {
     key:         'hero',
     label:       'Hero',
@@ -264,6 +380,7 @@ export function newBlock(key) {
 }
 
 export const BLOCK_CATEGORIES = [
+  { key: 'shell',   label: 'Site shell (header / footer)' },
   { key: 'hero',    label: 'Hero' },
   { key: 'content', label: 'Content' },
   { key: 'layout',  label: 'Layout' },
@@ -328,19 +445,97 @@ export const PAGE_TEMPLATES = [
   },
   {
     // Thai-restaurant aesthetic — burgundy + cream, Fraunces serif, Caveat
-    // script accents, decorative herb/spice icons, scrolling-dish ticker,
-    // vine dividers. Picking this template applies the Onethai CSS shell AND
-    // leaves blocks EMPTY so the rich `fallback_location.eta` showpiece
-    // renders verbatim (hero with chilli flourishes, ticker, story stamp,
-    // sample-menu two-column, reviews band, visit grid, vine, dark order).
-    // Operators who want to deviate can start adding custom blocks; as soon
-    // as the array is non-empty, the showpiece is replaced by the block
-    // renderer (with the same Thai-tinged CSS still applying).
+    // script accents. Seeds the full block list the operator can edit:
+    // header → hero → ticker → story → dish menu → reviews → find us →
+    // contact → booking → footer. Picking this template also auto-applies
+    // matching theme defaults (see Website.jsx TemplateSection).
     key:         'onethai',
     label:       'Onethai — Thai Restaurant',
-    description: 'Burgundy + cream Thai aesthetic — Fraunces + Caveat fonts, herb-icon decoration, scrolling-dish ticker, vine divider. Empty blocks render the rich showpiece layout; add blocks to customise.',
+    description: 'Full block layout in the burgundy/cream Fraunces+Caveat aesthetic — header, hero, scrolling ticker, story, dish menu, reviews, visit, contact, booking, footer. Edit each block to customise.',
     style_pack:  'onethai',
-    blocks: [],
+    template_key: 'onethai',
+    theme_defaults: {
+      colors: {
+        primary:    '#630812',
+        accent:     '#c9302c',
+        background: '#faf6ef',
+        surface:    '#f3ead8',
+        text:       '#2a1c1a',
+        muted:      '#7a6b62',
+        border:     '#e5e7eb',
+      },
+      typography: {
+        heading_font: 'Fraunces',
+        body_font:    'Inter',
+      },
+    },
+    blocks: [
+      { type: 'header',           data: {
+        brand_text: '', brand_subtitle: '', show_logo: true, sticky: true,
+        links: [
+          { label: 'Locations', url: '/locations' },
+          { label: 'Menu',      url: '/menu' },
+          { label: 'Visit',     url: '#find-us' },
+        ],
+        cta: { show: true, text: 'Book a Table', url: '#booking' },
+      }},
+      { type: 'hero',             data: {
+        heading: 'A small Thai cafe with very loyal regulars.',
+        subheading: 'Tucked away in our neighbourhood, cooking the dishes we grew up on for years.',
+        cta_text: 'Book a table', cta_link: '#booking',
+        height: 'large', align: 'center', overlay_opacity: 0.4, container: 'boxed',
+      }},
+      { type: 'ticker',           data: {
+        items: ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
+        bg_style: 'primary', font_style: 'script', speed: 'medium',
+      }},
+      { type: 'story_with_stamp', data: {
+        heading: 'Cooking for our neighbours.',
+        body_html: '<p>One Thai opened on a quiet stretch of West Street years ago, with a short menu, a few tables, and the kind of nervous optimism you only have when you\'re cooking your grandmother\'s recipes for strangers.</p><p>The menu has grown — a little classic, a little modern, always honest — but the room is still small, the kitchen is still ours.</p>',
+        stamp_show: true, stamp_number: '10', stamp_label: 'years in the area',
+        image_url: null, image_side: 'right', container: 'boxed',
+      }},
+      { type: 'dish_list',        data: {
+        heading: 'A Taste of the Menu', subheading: 'Classics, and a few quiet experiments.',
+        columns: [
+          {
+            title: 'The Classics',
+            dishes: [
+              { name: 'Pad Thai',         thai: 'ผัดไทย',     heat: '',    price: '£11.50', desc: 'Wok-tossed rice noodles, tamarind, peanuts, lime. The benchmark.' },
+              { name: 'Massaman Beef',    thai: 'มัสมั่น',     heat: '●●○', price: '£13.80', desc: 'Slow-cooked beef, potato, peanuts, cinnamon, star anise.' },
+              { name: 'Tom Yum Goong',    thai: 'ต้มยำกุ้ง',   heat: '●●●', price: '£8.50',  desc: 'King prawns, lemongrass, lime leaf, galangal.' },
+              { name: 'Green Curry',      thai: 'แกงเขียวหวาน', heat: '●●○', price: '£12.50', desc: 'House-made curry paste, Thai basil, bamboo shoots.' },
+            ],
+          },
+          {
+            title: 'House Favourites',
+            dishes: [
+              { name: 'Spare Ribs',     thai: 'ซี่โครงอบ', heat: '',    price: '£9.80',  desc: 'Slow-marinated, twice-cooked.' },
+              { name: 'Pad Krapow Moo', thai: 'ผัดกะเพรา', heat: '●●●', price: '£11.80', desc: 'Minced pork, holy basil, chilli, fried egg.' },
+              { name: 'Khao Soi',       thai: 'ข้าวซอย',  heat: '●●○', price: '£13.20', desc: 'Northern egg noodles, coconut curry, pickled mustard.' },
+              { name: 'Som Tam',        thai: 'ส้มตำ',    heat: '●●●', price: '£8.20',  desc: 'Green papaya salad, lime, palm sugar, peanuts.' },
+            ],
+          },
+        ],
+        container: 'boxed',
+      }},
+      { type: 'reviews_band',     data: {
+        heading: '', bg_style: 'primary',
+        items: [
+          { stars: 5, text: 'Probably the best Thai food this side of Bangkok — and I drive past three other places to get here.', attr: 'Mark, regular since 2018' },
+          { stars: 5, text: 'Tiny place, huge flavours. The spare ribs are dangerously good and the staff actually remember you.', attr: 'Sarah, Hertford' },
+          { stars: 5, text: 'A proper neighbourhood gem. We have been coming here for years and it never disappoints.', attr: 'James & Priya' },
+        ],
+        container: 'boxed',
+      }},
+      { type: 'find_us',          data: { heading: 'Find us', container: 'boxed' } },
+      { type: 'contact',          data: { heading: 'Get in touch', container: 'boxed' } },
+      { type: 'booking_widget',   data: { heading: 'Reserve your table', container: 'boxed' } },
+      { type: 'footer',           data: {
+        show_brand_block: true, show_legal_links: true, show_powered_by: true,
+        columns: [], copyright_text: '',
+      }},
+    ],
   },
   {
     key:         'from-scratch',

@@ -1,0 +1,32 @@
+<%
+const d = it.block.data || {}
+const items = Array.isArray(d.items) ? d.items : []
+const bgMap = { primary: 'var(--c-primary)', accent: 'var(--c-accent)', dark: '#1f1f1f' }
+const bg = bgMap[d.bg_style] || bgMap.primary
+const speedMap = { slow: '70s', medium: '45s', fast: '25s' }
+const duration = speedMap[d.speed] || speedMap.medium
+const isScript = d.font_style !== 'sans'
+const tickerId = `t-${(it.block.id || '').slice(0, 8)}`
+%>
+<style>
+  .<%= tickerId %> { background: <%= bg %>; color:#f5efe6; padding:18px 0; overflow:hidden;
+    border-top:1px solid rgba(0,0,0,0.15); border-bottom:1px solid rgba(0,0,0,0.15); }
+  .<%= tickerId %> .track { display:flex; gap:48px; white-space:nowrap;
+    animation: <%= tickerId %>-scroll <%= duration %> linear infinite;
+    font-family: <%= isScript ? '"Caveat", var(--f-heading), cursive' : 'var(--f-body), sans-serif' %>;
+    font-size: <%= isScript ? '1.7rem' : '1rem' %>; font-weight: 500; letter-spacing: <%= isScript ? '0' : '0.05em' %>; }
+  .<%= tickerId %> .track > span { display:flex; align-items:center; gap:48px; padding-left:48px; }
+  .<%= tickerId %> .sep { width:6px; height:6px; background:currentColor; border-radius:50%; opacity:0.7; }
+  @keyframes <%= tickerId %>-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+</style>
+<div class="<%= tickerId %>" aria-hidden="true">
+  <div class="track">
+    <span>
+      <% for (let i = 0; i < 2; i++) { %>
+        <% items.forEach(function(item){ %>
+          <%= item %><span class="sep"></span>
+        <% }) %>
+      <% } %>
+    </span>
+  </div>
+</div>

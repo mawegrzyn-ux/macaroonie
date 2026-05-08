@@ -1,0 +1,93 @@
+<%
+const d = it.block.data || {}
+const ts = it.tenant_site || {}
+const venues = it.venues || []
+const sl = ts.social_links || {}
+const socials = Object.entries(sl).filter(function(e){ return e[1] })
+const showLocations = !ts.hide_locations_index && venues.length > 1
+const onLocation = !!it.venue
+
+const siteName = ts.site_name || ts.brand_name || it.tenant_name || ''
+const tagline  = ts.tagline || ''
+const logoUrl  = ts.logo_url
+const cols     = Array.isArray(d.columns) ? d.columns : []
+const showBrand   = d.show_brand_block !== false
+const showLegal   = d.show_legal_links !== false
+const showPowered = d.show_powered_by !== false
+const copyrightText = d.copyright_text || `© ${new Date().getFullYear()} ${siteName}.`
+const legalPages = (it.pages || []).filter(p => ['terms','privacy','cookies'].includes(p.slug) || p.is_legal)
+const totalCols = (showBrand ? 1 : 0) + cols.length + (showLocations && !onLocation ? 1 : 0)
+const gridCols = totalCols <= 1 ? '1fr'
+              : showBrand ? `2fr ${Array(totalCols - 1).fill('1fr').join(' ')}`
+              : `repeat(${totalCols}, 1fr)`
+%>
+<style>
+  .mc-footer { background:var(--c-bg, #faf6ef); padding:64px 24px 30px; border-top:1px solid var(--c-border); margin-top:48px; }
+  .mc-footer .inner { max-width:var(--cw, 1240px); margin:0 auto; }
+  .mc-footer .grid { display:grid; grid-template-columns: <%= gridCols %>; gap:48px; margin-bottom:48px; }
+  .mc-footer .brand-block img { width:90px; height:90px; object-fit:contain; }
+  .mc-footer .brand-name { font-family:var(--f-heading); font-size:18px; font-weight:700; color:var(--c-primary); margin:14px 0 6px; }
+  .mc-footer .tagline    { color:var(--c-muted); max-width:320px; font-style:italic; font-family:var(--f-heading); margin:0; }
+  .mc-footer .col h5 { color:var(--c-primary); margin:0 0 14px; font-family:var(--f-body); text-transform:uppercase; letter-spacing:0.18em; font-size:0.72rem; font-weight:500; }
+  .mc-footer .col a, .mc-footer .col span { display:block; color:var(--c-text); text-decoration:none; margin-bottom:10px; font-size:0.92rem; }
+  .mc-footer .col a:hover { color:var(--c-primary); }
+  .mc-footer .bottom { padding-top:24px; border-top:1px solid var(--c-border); font-size:13px; color:var(--c-muted); display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+  .mc-footer .legal { display:flex; gap:14px; flex-wrap:wrap; }
+  .mc-footer .legal a { color:var(--c-muted); text-decoration:underline; }
+  .mc-footer .powered { font-family:var(--f-heading); }
+  .mc-footer .socials { display:flex; gap:14px; margin-top:8px; }
+  .mc-footer .socials a { color:var(--c-primary); text-transform:capitalize; }
+  @media (max-width: 768px) { .mc-footer .grid { grid-template-columns: 1fr; gap:32px; } }
+</style>
+<footer class="mc-footer">
+  <div class="inner">
+    <div class="grid">
+      <% if (showBrand) { %>
+        <div class="brand-block">
+          <% if (logoUrl) { %><img src="<%= logoUrl %>" alt="<%= siteName %>" /><% } %>
+          <div class="brand-name"><%= siteName %></div>
+          <% if (tagline) { %><p class="tagline"><%= tagline %></p><% } %>
+          <% if (socials.length) { %>
+            <div class="socials">
+              <% socials.forEach(function(entry){ %>
+                <a href="<%= entry[1] %>" target="_blank" rel="noopener"><%= entry[0] %></a>
+              <% }) %>
+            </div>
+          <% } %>
+        </div>
+      <% } %>
+
+      <% if (showLocations && !onLocation) { %>
+        <div class="col">
+          <h5>Locations</h5>
+          <% venues.forEach(function(v){ %>
+            <a href="/locations/<%= v.slug %>"><%= v.name %><% if (v.city) { %> — <%= v.city %><% } %></a>
+          <% }) %>
+        </div>
+      <% } %>
+
+      <% cols.forEach(function(col){ %>
+        <div class="col">
+          <h5><%= col.title %></h5>
+          <% (col.items || []).forEach(function(item){ %>
+            <a href="<%= item.url %>"><%= item.label %></a>
+          <% }) %>
+        </div>
+      <% }) %>
+    </div>
+
+    <div class="bottom">
+      <span><%= copyrightText %></span>
+      <% if (showLegal && legalPages.length) { %>
+        <span class="legal">
+          <% legalPages.forEach(function(p){ %>
+            <a href="/p/<%= p.slug %>"><%= p.title %></a>
+          <% }) %>
+        </span>
+      <% } %>
+      <% if (showPowered) { %>
+        <span class="powered">Powered by <a href="https://<%= it.rootDomain %>" target="_blank" rel="noopener" style="color:inherit;">Macaroonie</a></span>
+      <% } %>
+    </div>
+  </div>
+</footer>

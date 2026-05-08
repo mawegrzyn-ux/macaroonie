@@ -42,7 +42,6 @@ const TENANT_SECTIONS = [
   { key: 'tenant-page',     label: 'Home page',         icon: LayoutTemplate },
   { key: 'tenant-domain',   label: 'Domain & publish',  icon: Globe },
   { key: 'tenant-brand',    label: 'Brand & theme',     icon: Palette },
-  { key: 'tenant-nav',      label: 'Header & footer',   icon: LayoutTemplate },
   { key: 'tenant-locations',label: 'Locations index',   icon: MapPin },
   { key: 'tenant-legal',    label: 'Legal & cookies',   icon: AlertTriangle },
   { key: 'tenant-seo',      label: 'SEO',               icon: Search },
@@ -3170,7 +3169,6 @@ function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, on
         <BrandThemeSection />
       </div>
     )
-    case 'tenant-nav':       return <TenantNavSection       tenantSite={tenantSite} />
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />
     case 'tenant-legal':     return <TenantLegalSection     tenantSite={tenantSite} />
     case 'tenant-seo':       return <TenantSeoSection       tenantSite={tenantSite} />

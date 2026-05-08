@@ -22,8 +22,8 @@ import { ThemeFrame }     from './canvas/ThemeFrame'
 import { BlockInserter }  from './canvas/BlockInserter'
 import { BlockInspector } from './canvas/BlockInspector'
 import { BlockNode }      from './canvas/BlockNode'
-import { HeaderPreview, FooterPreview, SiteChromeStyles } from './canvas/SiteChrome'
-import { OnethaiShowpiece } from './canvas/OnethaiShowpiece'
+// Header + footer + showpiece are now real block types in the canvas
+// (see canvas/siteBlocks.jsx). No separate preview components needed.
 import {
   flattenBlocks, findBlock,
   patchBlockData, replaceBlock as treeReplace,
@@ -177,12 +177,24 @@ export function PageBuilder({
   // half-applied state where blocks update but the style is still the old one).
 
   const applyTpl = useMutation({
-    mutationFn: ({ newBlocks, styleKey }) => {
+    mutationFn: ({ newBlocks, styleKey, themeDefaults }) => {
       const body = { [blocksField]: newBlocks }
-      if (styleKey) body.template_key = styleKey
+      // template_key + theme live on tenant_site, not on per-venue website_config,
+      // so only patch them when we're saving the tenant home (blocksField === 'home_blocks').
+      if (blocksField === 'home_blocks') {
+        if (styleKey) body.template_key = styleKey
+        if (themeDefaults) {
+          // Merge over the existing theme to keep operator overrides where set.
+          const current = effectiveTenantSite?.theme || {}
+          body.theme = deepMergeTheme(current, themeDefaults)
+        }
+      }
       return api.patch(saveEndpoint, body)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: invalidateKey }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: invalidateKey })
+      if (blocksField === 'home_blocks') qc.invalidateQueries({ queryKey: ['tenant-site'] })
+    },
   })
 
   function applyTemplate(tpl) {
@@ -191,8 +203,27 @@ export function PageBuilder({
     setBlocks(newBlocks)
     setSelectedId(null)
     setInspectorOpen(false)
-    applyTpl.mutate({ newBlocks, styleKey: tpl.style_pack || null })
+    applyTpl.mutate({
+      newBlocks,
+      styleKey:      tpl.template_key || tpl.style_pack || null,
+      themeDefaults: tpl.theme_defaults || null,
+    })
     setTemplatesOpen(false)
+  }
+
+  // Tiny deep-merge for the theme JSONB — only the two-level shape we use
+  // ({ colors: {...}, typography: {...}, ... }). New keys win, but existing
+  // ones the operator set survive when missing in the template defaults.
+  function deepMergeTheme(base, layer) {
+    const out = { ...base }
+    for (const [k, v] of Object.entries(layer || {})) {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        out[k] = { ...(base?.[k] || {}), ...v }
+      } else if (v !== undefined && v !== null) {
+        out[k] = v
+      }
+    }
+    return out
   }
 
   // ── Render ──────────────────────────────────────────────────
@@ -268,29 +299,10 @@ export function PageBuilder({
             className="px-12 py-6"
           >
             <ThemeFrame config={config}>
-              {SiteChromeStyles}
-              {/* Header chrome — display-only preview of the live site nav */}
-              <HeaderPreview
-                tenantSite={effectiveTenantSite}
-                pages={pages}
-                venues={venues}
-                tenantName={tenantName}
-                onJumpTo={onJumpTo}
-              />
               {blocks.length === 0 ? (
-                <>
-                  {/* Onethai showpiece preview when blocks empty */}
-                  {effectiveTenantSite?.template_key === 'onethai' && (
-                    <OnethaiShowpiece
-                      tenantSite={effectiveTenantSite}
-                      venues={venues}
-                      tenantName={tenantName}
-                    />
-                  )}
-                  <div className="py-12">
-                    <BlockInserter mode="empty" onPick={(k) => addTop(k, 0)} />
-                  </div>
-                </>
+                <div className="py-12">
+                  <BlockInserter mode="empty" onPick={(k) => addTop(k, 0)} />
+                </div>
               ) : (
                 <>
                   <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleAnyDragEnd}>
