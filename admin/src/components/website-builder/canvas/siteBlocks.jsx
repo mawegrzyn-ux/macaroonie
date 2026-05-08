@@ -188,10 +188,14 @@ export function TickerCanvas({ data, onChange }) {
     accent:  'var(--c-accent)',
     dark:    '#1f1f1f',
   }[data.bg_style || 'primary'] || 'var(--c-primary)'
-  const fontFamily = data.font_style === 'sans'
-    ? 'var(--f-body), sans-serif'
-    : 'Caveat, var(--f-heading), cursive'
-  const fontSize = data.font_style === 'sans' ? 18 : '1.7rem'
+  // Font: prefer explicit font_family. Fall back to the legacy
+  // font_style toggle for blocks created before the picker existed.
+  const fontFamily = data.font_family
+    ? `"${data.font_family}", var(--f-heading), serif`
+    : data.font_style === 'sans'
+      ? 'var(--f-body), sans-serif'
+      : 'Caveat, var(--f-heading), cursive'
+  const fontSize = (data.font_size || 28) + 'px'
   const looped = items.length ? [...items, ...items] : []
 
   return (
@@ -343,6 +347,104 @@ export function DishListCanvas({ data, onChange }) {
               )}
             </div>
           ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ── Order options (takeaway / delivery cards) ────────────────
+
+export function OrderOptionsCanvas({ data }) {
+  const cards = data.cards || []
+  const palettes = {
+    dark:    { bg: '#1f1f1f',           fg: '#f5efe6',     card: 'rgba(245,239,230,0.05)', cardBd: 'rgba(245,239,230,0.15)', tag: 'var(--c-accent, #f5b8c0)', muted: 'rgba(245,239,230,0.65)', badgeBg: 'var(--c-accent, #f5b8c0)', badgeFg: 'var(--c-primary, #630812)' },
+    primary: { bg: 'var(--c-primary)',  fg: '#fff',        card: 'rgba(255,255,255,0.06)', cardBd: 'rgba(255,255,255,0.18)', tag: 'var(--c-accent, #fff)',   muted: 'rgba(255,255,255,0.75)', badgeBg: '#fff',                  badgeFg: 'var(--c-primary, #630812)' },
+    accent:  { bg: 'var(--c-accent)',   fg: '#fff',        card: 'rgba(255,255,255,0.08)', cardBd: 'rgba(255,255,255,0.2)',  tag: '#fff',                     muted: 'rgba(255,255,255,0.8)',  badgeBg: '#fff',                  badgeFg: 'var(--c-accent, #c9302c)' },
+    surface: { bg: 'var(--c-surface)',  fg: 'var(--c-text)', card: 'var(--c-bg)',          cardBd: 'var(--c-border)',         tag: 'var(--c-primary)',         muted: 'var(--c-muted)',         badgeBg: 'var(--c-primary)',      badgeFg: '#fff' },
+  }
+  const p = palettes[data.bg_style || 'dark'] || palettes.dark
+
+  return (
+    <section className="block" style={{ padding: '100px 0', background: p.bg, color: p.fg, position: 'relative', overflow: 'hidden' }}>
+      <div style={innerContainerStyle(data.container)}>
+        {data.eyebrow_text && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 10,
+            color: p.tag, marginBottom: 20,
+            fontFamily: 'var(--f-body)', textTransform: 'uppercase',
+            letterSpacing: '0.18em', fontSize: '0.72rem', fontWeight: 500,
+          }}>{data.eyebrow_text}</div>
+        )}
+        {data.heading && (
+          <h2 style={{
+            fontFamily: 'var(--f-heading)', fontSize: 'clamp(2rem, 4vw, 3rem)',
+            fontWeight: 400, letterSpacing: '-0.02em', lineHeight: 1.05,
+            margin: '0 0 12px', color: p.fg,
+          }}>{data.heading}</h2>
+        )}
+        {data.accent_text && (
+          <p style={{
+            fontFamily: 'Caveat, var(--f-heading), cursive',
+            fontSize: 'clamp(1.6rem, 3vw, 2.4rem)',
+            color: p.tag, margin: '0 0 24px', fontWeight: 500,
+          }}>{data.accent_text}</p>
+        )}
+        {data.body_text && (
+          <p style={{ color: p.muted, maxWidth: 560, margin: '0 0 50px' }}>
+            {data.body_text}
+          </p>
+        )}
+
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: 20, position: 'relative', zIndex: 1,
+        }}>
+          {cards.map((card, i) => (
+            <div key={i} style={{
+              background: p.card, border: `1px solid ${p.cardBd}`,
+              padding: '32px 28px', borderRadius: 6,
+              color: p.fg, display: 'block',
+            }}>
+              {(card.tag || card.badge) && (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  fontSize: '0.7rem', textTransform: 'uppercase',
+                  letterSpacing: '0.2em', color: p.tag, marginBottom: 18,
+                }}>
+                  {card.tag || ''}
+                  {card.badge && (
+                    <span style={{
+                      display: 'inline-block', background: p.badgeBg, color: p.badgeFg,
+                      fontSize: '0.68rem', padding: '3px 9px', borderRadius: 3,
+                      letterSpacing: '0.05em', fontWeight: 600,
+                    }}>{card.badge}</span>
+                  )}
+                </span>
+              )}
+              {card.title && (
+                <h4 style={{
+                  fontFamily: 'var(--f-heading)', fontSize: '1.5rem',
+                  fontWeight: 500, margin: '0 0 8px', color: p.fg,
+                }}>{card.title}</h4>
+              )}
+              {card.description && (
+                <p style={{ fontSize: '0.88rem', color: p.muted, margin: '0 0 24px', lineHeight: 1.5 }}>
+                  {card.description}
+                </p>
+              )}
+              {card.cta_text && (
+                <span style={{ fontSize: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: 8, color: p.fg }}>
+                  {card.cta_text} <span>→</span>
+                </span>
+              )}
+            </div>
+          ))}
+          {cards.length === 0 && (
+            <p style={{ color: p.muted, fontStyle: 'italic', fontSize: 13 }}>
+              No cards yet — add some in the inspector.
+            </p>
+          )}
         </div>
       </div>
     </section>

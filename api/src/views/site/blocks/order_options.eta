@@ -1,0 +1,79 @@
+<%
+const d = it.block.data || {}
+const cards = Array.isArray(d.cards) ? d.cards : []
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw, 1100px)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 24px;'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
+const palettes = {
+  dark:    { bg: '#1f1f1f',          fg: '#f5efe6', card: 'rgba(245,239,230,0.05)', cardBd: 'rgba(245,239,230,0.15)', tag: 'var(--c-accent, #f5b8c0)', muted: 'rgba(245,239,230,0.65)', badgeBg: 'var(--c-accent, #f5b8c0)', badgeFg: 'var(--c-primary, #630812)' },
+  primary: { bg: 'var(--c-primary)', fg: '#fff',    card: 'rgba(255,255,255,0.06)', cardBd: 'rgba(255,255,255,0.18)', tag: 'var(--c-accent, #fff)',     muted: 'rgba(255,255,255,0.75)', badgeBg: '#fff',                 badgeFg: 'var(--c-primary, #630812)' },
+  accent:  { bg: 'var(--c-accent)',  fg: '#fff',    card: 'rgba(255,255,255,0.08)', cardBd: 'rgba(255,255,255,0.2)',  tag: '#fff',                       muted: 'rgba(255,255,255,0.8)',  badgeBg: '#fff',                 badgeFg: 'var(--c-accent, #c9302c)' },
+  surface: { bg: 'var(--c-surface)', fg: 'var(--c-text)', card: 'var(--c-bg)',     cardBd: 'var(--c-border)',         tag: 'var(--c-primary)',          muted: 'var(--c-muted)',         badgeBg: 'var(--c-primary)',     badgeFg: '#fff' },
+}
+const p = palettes[d.bg_style] || palettes.dark
+%>
+<section class="block" style="padding:100px 0; background:<%= p.bg %>; color:<%= p.fg %>; position:relative; overflow:hidden;">
+  <div style="<%= containerStyle %>">
+    <% if (d.eyebrow_text) { %>
+      <div style="display:inline-flex; align-items:center; gap:10px; color:<%= p.tag %>; margin-bottom:20px;
+                  font-family:var(--f-body), sans-serif; text-transform:uppercase;
+                  letter-spacing:0.18em; font-size:0.72rem; font-weight:500;">
+        <%= d.eyebrow_text %>
+      </div>
+    <% } %>
+    <% if (d.heading) { %>
+      <h2 style="font-family:var(--f-heading); font-size:clamp(2rem,4vw,3rem); font-weight:400; letter-spacing:-0.02em; line-height:1.05; margin:0 0 12px; color:<%= p.fg %>;">
+        <%= d.heading %>
+      </h2>
+    <% } %>
+    <% if (d.accent_text) { %>
+      <p style="font-family:'Caveat', var(--f-heading), cursive; font-size:clamp(1.6rem, 3vw, 2.4rem); color:<%= p.tag %>; margin:0 0 24px; font-weight:500;">
+        <%= d.accent_text %>
+      </p>
+    <% } %>
+    <% if (d.body_text) { %>
+      <p style="color:<%= p.muted %>; max-width:560px; margin:0 0 50px;">
+        <%= d.body_text %>
+      </p>
+    <% } %>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:20px; position:relative; z-index:1;">
+      <% cards.forEach(function(card){ %>
+        <a href="<%= card.cta_url || '#' %>"
+           <% if ((card.cta_url || '').startsWith('http')) { %>target="_blank" rel="noopener"<% } %>
+           style="background:<%= p.card %>; border:1px solid <%= p.cardBd %>;
+                  padding:32px 28px; border-radius:6px;
+                  text-decoration:none; color:<%= p.fg %>;
+                  transition:all 0.3s ease; display:block;">
+          <% if (card.tag || card.badge) { %>
+            <span style="display:inline-flex; align-items:center; gap:8px; font-size:0.7rem; text-transform:uppercase; letter-spacing:0.2em; color:<%= p.tag %>; margin-bottom:18px;">
+              <%= card.tag || '' %>
+              <% if (card.badge) { %>
+                <span style="display:inline-block; background:<%= p.badgeBg %>; color:<%= p.badgeFg %>; font-size:0.68rem; padding:3px 9px; border-radius:3px; letter-spacing:0.05em; font-weight:600;">
+                  <%= card.badge %>
+                </span>
+              <% } %>
+            </span>
+          <% } %>
+          <% if (card.title) { %>
+            <h4 style="font-family:var(--f-heading); font-size:1.5rem; font-weight:500; margin:0 0 8px; color:<%= p.fg %>;">
+              <%= card.title %>
+            </h4>
+          <% } %>
+          <% if (card.description) { %>
+            <p style="font-size:0.88rem; color:<%= p.muted %>; margin:0 0 24px; line-height:1.5;">
+              <%= card.description %>
+            </p>
+          <% } %>
+          <% if (card.cta_text) { %>
+            <span style="font-size:0.85rem; display:inline-flex; align-items:center; gap:8px; color:<%= p.fg %>;">
+              <%= card.cta_text %>
+              <span style="display:inline-block; transition:transform 0.25s;">→</span>
+            </span>
+          <% } %>
+        </a>
+      <% }) %>
+    </div>
+  </div>
+</section>

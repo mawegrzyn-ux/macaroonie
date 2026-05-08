@@ -292,7 +292,10 @@ export default async function siteRendererRoutes(app) {
       }],
       initialVenueId: venue.id,
       tenantName:     venue.tenant_site_name || venue.name,
-      apiBase:        `${env.PUBLIC_SITE_SCHEME}://${env.PUBLIC_ROOT_DOMAIN}/widget-api`,
+      // Relative path — the widget iframe and the API share an origin
+      // (whichever subdomain the iframe is served from also proxies
+      // /widget-api/* to the API), so a relative URL avoids CORS entirely.
+      apiBase:        `/widget-api`,
       accent:         accent || venue.primary_colour || '#2563eb',
       theme,
       font_family:    venue.font_family || 'system-ui',
@@ -360,7 +363,10 @@ export default async function siteRendererRoutes(app) {
       })),
       initialVenueId,
       tenantName:     tenantSite.site_name || tenantSite.tenant_name,
-      apiBase:        `${env.PUBLIC_SITE_SCHEME}://${env.PUBLIC_ROOT_DOMAIN}/widget-api`,
+      // Relative path — the widget iframe and the API share an origin
+      // (whichever subdomain the iframe is served from also proxies
+      // /widget-api/* to the API), so a relative URL avoids CORS entirely.
+      apiBase:        `/widget-api`,
       accent:         accent || tenantSite.primary_colour || '#2563eb',
       theme,
       font_family:    tenantSite.font_family || 'system-ui',

@@ -5,7 +5,18 @@ const bgMap = { primary: 'var(--c-primary)', accent: 'var(--c-accent)', dark: '#
 const bg = bgMap[d.bg_style] || bgMap.primary
 const speedMap = { slow: '70s', medium: '45s', fast: '25s' }
 const duration = speedMap[d.speed] || speedMap.medium
-const isScript = d.font_style !== 'sans'
+
+/* Font: prefer the explicit font_family pick. Fall back to the legacy
+   font_style toggle for blocks created before the FontPicker was added. */
+let fontFamilyCss
+if (d.font_family) {
+  fontFamilyCss = `'${d.font_family}', var(--f-heading), serif`
+} else if (d.font_style === 'sans') {
+  fontFamilyCss = 'var(--f-body), sans-serif'
+} else {
+  fontFamilyCss = '"Caveat", var(--f-heading), cursive'
+}
+const fontSize = d.font_size || 28
 const tickerId = `t-${(it.block.id || '').slice(0, 8)}`
 %>
 <style>
@@ -13,8 +24,8 @@ const tickerId = `t-${(it.block.id || '').slice(0, 8)}`
     border-top:1px solid rgba(0,0,0,0.15); border-bottom:1px solid rgba(0,0,0,0.15); }
   .<%= tickerId %> .track { display:flex; gap:48px; white-space:nowrap;
     animation: <%= tickerId %>-scroll <%= duration %> linear infinite;
-    font-family: <%= isScript ? '"Caveat", var(--f-heading), cursive' : 'var(--f-body), sans-serif' %>;
-    font-size: <%= isScript ? '1.7rem' : '1rem' %>; font-weight: 500; letter-spacing: <%= isScript ? '0' : '0.05em' %>; }
+    font-family: <%= fontFamilyCss %>;
+    font-size: <%= fontSize %>px; font-weight: 500; }
   .<%= tickerId %> .track > span { display:flex; align-items:center; gap:48px; padding-left:48px; }
   .<%= tickerId %> .sep { width:6px; height:6px; background:currentColor; border-radius:50%; opacity:0.7; }
   @keyframes <%= tickerId %>-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }

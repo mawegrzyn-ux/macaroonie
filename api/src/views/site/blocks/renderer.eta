@@ -16,6 +16,8 @@ const t = it.block.type
   <%~ include('./dish_list', it) %>
 <% } else if (t === 'reviews_band') { %>
   <%~ include('./reviews_band', it) %>
+<% } else if (t === 'order_options') { %>
+  <%~ include('./order_options', it) %>
 <% } else if (t === 'hero') { %>
   <%~ include('./hero', it) %>
 <% } else if (t === 'text') { %>

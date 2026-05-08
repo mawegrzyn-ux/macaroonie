@@ -26,6 +26,7 @@ import {
   Image as ImageIcon, Type, Columns2, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
+  ShoppingBag,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -40,6 +41,7 @@ import { ColumnsEditor }       from './editors/ColumnsEditor'
 import {
   HeaderBlockEditor, FooterBlockEditor, TickerBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
+  OrderOptionsEditor,
 } from './editors/SiteBlockEditors'
 
 // Sectional blocks (everything except divider + columns) get a shared
@@ -105,14 +107,15 @@ export const BLOCKS = [
   {
     key:         'ticker',
     label:       'Ticker',
-    description: 'Scrolling strip of words — dish names, taglines, etc. Edit the items list.',
+    description: 'Scrolling strip of words — dish names, taglines, etc. Edit the items list, font and size.',
     icon:        Megaphone,
     category:    'content',
     defaultData: {
-      items:      ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
-      bg_style:   'primary',     // primary | accent | dark
-      font_style: 'script',      // script | sans
-      speed:      'medium',      // slow | medium | fast
+      items:       ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
+      bg_style:    'primary',    // primary | accent | dark
+      font_family: 'Caveat',     // any Google font in FONT_OPTIONS
+      font_size:   28,           // px
+      speed:       'medium',     // slow | medium | fast
     },
     editor: TickerBlockEditor,
   },
@@ -154,6 +157,48 @@ export const BLOCKS = [
       container: 'boxed',
     },
     editor: DishListEditor,
+  },
+  {
+    key:         'order_options',
+    label:       'Order options',
+    description: 'Takeaway / delivery card grid — eyebrow, heading with script accent, intro text, and 1-N cards (tag, optional badge, title, description, button).',
+    icon:        ShoppingBag,
+    category:    'content',
+    defaultData: {
+      eyebrow_text:  'Takeaway & Delivery',
+      heading:       'Eating in tonight?',
+      accent_text:   'We have got you.',
+      body_text:     'Order direct for the best price, or use a delivery partner if that is easier.',
+      bg_style:      'dark',          // dark | primary | surface | accent
+      cards: [
+        {
+          tag:         'Direct Collection',
+          badge:       '15% OFF',
+          title:       'Order with us',
+          description: 'Best prices, no middleman, ready when you walk in.',
+          cta_text:    'Order now',
+          cta_url:     '/',
+        },
+        {
+          tag:         'Delivery',
+          badge:       '',
+          title:       'Deliveroo',
+          description: 'To your door, usually within the hour.',
+          cta_text:    'Open Deliveroo',
+          cta_url:     'https://deliveroo.co.uk/',
+        },
+        {
+          tag:         'Delivery',
+          badge:       '',
+          title:       'Just Eat',
+          description: 'Same menu, different driver.',
+          cta_text:    'Open Just Eat',
+          cta_url:     'https://just-eat.co.uk/',
+        },
+      ],
+      container: 'boxed',
+    },
+    editor: OrderOptionsEditor,
   },
   {
     key:         'reviews_band',
@@ -516,7 +561,7 @@ export const PAGE_TEMPLATES = [
       }},
       { type: 'ticker',           data: {
         items: ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
-        bg_style: 'primary', font_style: 'script', speed: 'medium',
+        bg_style: 'primary', font_family: 'Caveat', font_size: 28, speed: 'medium',
       }},
       { type: 'story_with_stamp', data: {
         heading: 'Cooking for our neighbours.',
@@ -559,6 +604,19 @@ export const PAGE_TEMPLATES = [
       }},
       { type: 'find_us',          data: { heading: 'Find us', container: 'boxed' } },
       { type: 'contact',          data: { heading: 'Get in touch', container: 'boxed' } },
+      { type: 'order_options',    data: {
+        eyebrow_text: 'Takeaway & Delivery',
+        heading:      'Eating in tonight?',
+        accent_text:  'We have got you.',
+        body_text:    "Order direct for the best price, or use Deliveroo or Just Eat if that is easier. We don't mind.",
+        bg_style:     'dark',
+        cards: [
+          { tag: 'Direct Collection', badge: '15% OFF', title: 'Order with us',  description: 'Best prices, no middleman, ready when you walk in.', cta_text: 'Order now',     cta_url: '/' },
+          { tag: 'Delivery',          badge: '',         title: 'Deliveroo',     description: 'To your door, usually within the hour.',              cta_text: 'Open Deliveroo', cta_url: 'https://deliveroo.co.uk/' },
+          { tag: 'Delivery',          badge: '',         title: 'Just Eat',      description: 'Same menu, different driver.',                         cta_text: 'Open Just Eat',  cta_url: 'https://just-eat.co.uk/' },
+        ],
+        container: 'boxed',
+      }},
       { type: 'booking_widget',   data: { heading: 'Reserve your table', container: 'boxed' } },
       { type: 'footer',           data: {
         show_brand_block: true, show_legal_links: true, show_powered_by: true,

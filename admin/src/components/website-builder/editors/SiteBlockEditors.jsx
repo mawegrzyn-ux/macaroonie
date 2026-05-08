@@ -8,6 +8,17 @@
 
 import { Plus, X } from 'lucide-react'
 import { FormRow, ImageField } from '../shared'
+import { FontPicker } from '../FontPicker'
+
+// Same list used in Brand identity / Brand theme. Kept duplicated here to
+// avoid a circular import with admin/src/pages/Website.jsx.
+const FONT_OPTIONS = [
+  'Inter', 'Fraunces', 'Caveat', 'Playfair Display', 'Poppins',
+  'Lora', 'Montserrat', 'Roboto', 'Open Sans', 'Raleway',
+  'Merriweather', 'Work Sans', 'Karla', 'DM Sans', 'DM Serif Display',
+  'Space Grotesk', 'Manrope', 'Cormorant Garamond', 'Libre Baskerville',
+  'Nunito', 'Rubik',
+]
 
 // ── Tiny field primitives (kept local to avoid touching shared.jsx) ──
 
@@ -226,11 +237,17 @@ export function TickerBlockEditor({ data, onChange }) {
               <option value="dark">Dark</option>
             </Select>
           </FormRow>
-          <FormRow label="Font">
-            <Select value={data.font_style || 'script'} onChange={set('font_style')}>
-              <option value="script">Script (handwritten)</option>
-              <option value="sans">Sans (regular)</option>
-            </Select>
+          <FormRow label="Font" hint="Pick any font — the live preview shows each in its own typeface.">
+            <FontPicker
+              fonts={FONT_OPTIONS}
+              value={data.font_family || (data.font_style === 'sans' ? 'Inter' : 'Caveat')}
+              onChange={set('font_family')} />
+          </FormRow>
+          <FormRow label={`Font size — ${data.font_size || 28}px`}>
+            <input type="range" min={14} max={64} step={1}
+              value={data.font_size || 28}
+              onChange={e => set('font_size')(Number(e.target.value))}
+              className="w-full" />
           </FormRow>
           <FormRow label="Scroll speed">
             <Select value={data.speed || 'medium'} onChange={set('speed')}>
@@ -344,6 +361,86 @@ export function DishListEditor({ data, onChange }) {
               <button type="button"
                 onClick={() => set('columns')(arrPatch(cols, ci, { dishes: arrAppend(col.dishes, { name: '', thai: '', heat: '', price: '', desc: '' }) }))}
                 className="text-xs text-primary hover:underline">+ Add dish</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Order options editor ───────────────────────────────────
+
+export function OrderOptionsEditor({ data, onChange }) {
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+  const cards = data.cards || []
+
+  function patchCard(i, patch) {
+    set('cards')(arrPatch(cards, i, patch))
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionHead label="Section copy" />
+        <div className="space-y-3">
+          <FormRow label="Eyebrow text" hint="Small uppercase line above the heading. Blank to hide.">
+            <Input value={data.eyebrow_text} onChange={set('eyebrow_text')}
+              placeholder="Takeaway & Delivery" />
+          </FormRow>
+          <FormRow label="Heading">
+            <Input value={data.heading} onChange={set('heading')}
+              placeholder="Eating in tonight?" />
+          </FormRow>
+          <FormRow label="Script accent line" hint="Renders in the script font under the heading. Blank to hide.">
+            <Input value={data.accent_text} onChange={set('accent_text')}
+              placeholder="We have got you." />
+          </FormRow>
+          <FormRow label="Body text">
+            <Area value={data.body_text} onChange={set('body_text')} rows={3} />
+          </FormRow>
+          <FormRow label="Background">
+            <Select value={data.bg_style || 'dark'} onChange={set('bg_style')}>
+              <option value="dark">Dark</option>
+              <option value="primary">Primary (brand colour)</option>
+              <option value="accent">Accent</option>
+              <option value="surface">Surface (light)</option>
+            </Select>
+          </FormRow>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Cards"
+          action={
+            cards.length < 6 && (
+              <AddButton onClick={() => set('cards')(arrAppend(cards, {
+                tag: 'Delivery', badge: '', title: 'New option',
+                description: '', cta_text: 'Open', cta_url: 'https://',
+              }))}>Add card</AddButton>
+            )
+          } />
+        <div className="space-y-3">
+          {cards.map((card, i) => (
+            <div key={i} className="border rounded p-2 space-y-2 bg-muted/30">
+              <div className="flex items-center gap-2">
+                <Input value={card.tag} onChange={v => patchCard(i, { tag: v })}
+                  placeholder="Tag (e.g. Direct Collection)" />
+                <button type="button" onClick={() => set('cards')(arrRemove(cards, i))}
+                  className="text-xs text-destructive hover:underline shrink-0">Remove</button>
+              </div>
+              <Input value={card.badge} onChange={v => patchCard(i, { badge: v })}
+                placeholder="Optional highlighted badge (e.g. 15% OFF)" />
+              <Input value={card.title} onChange={v => patchCard(i, { title: v })}
+                placeholder="Title (e.g. Order with us)" className="font-medium" />
+              <Area value={card.description} onChange={v => patchCard(i, { description: v })}
+                placeholder="Short description" rows={2} />
+              <div className="flex items-center gap-2">
+                <Input value={card.cta_text} onChange={v => patchCard(i, { cta_text: v })}
+                  placeholder="Button text" />
+                <Input value={card.cta_url} onChange={v => patchCard(i, { cta_url: v })}
+                  placeholder="https://… or /path" className="font-mono text-xs" />
+              </div>
             </div>
           ))}
         </div>
