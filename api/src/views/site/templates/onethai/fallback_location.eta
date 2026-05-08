@@ -204,9 +204,10 @@ const yearsOpen = c.years_open || null
         <h2>Pop in, or book ahead<br><em>both work.</em></h2>
 
         <% if (c.address_line1) { %>
+          <% const _addrLine = [c.city, c.postcode].filter(Boolean).join(' ') %>
           <div class="info-block">
             <div class="label mono-cap">Address</div>
-            <p><%= c.address_line1 %><% if (c.address_line2) { %><br /><%= c.address_line2 %><% } %><br /><%= [c.city, c.postcode].filter(Boolean).join(' ') %></p>
+            <p><%= c.address_line1 %><% if (c.address_line2) { %><br /><%= c.address_line2 %><% } %><br /><%= _addrLine %></p>
           </div>
         <% } %>
 

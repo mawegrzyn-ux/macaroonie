@@ -24,6 +24,7 @@ const heading = it.tenant_site?.locations_heading || 'Our locations'
     <% } else { %>
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 28px;">
         <% venues.forEach(function(v) { %>
+          <% const vAddr = [v.address_line1, v.city, v.postcode].filter(Boolean).join(' · ') %>
           <a href="/locations/<%= v.slug %>"
              style="display:flex; flex-direction: column; text-decoration: none; border-radius: var(--r-lg); overflow: hidden; background: var(--c-bg); color: var(--c-text); border: 1px solid var(--c-border);">
             <% if (v.hero_image_url) { %>
@@ -35,7 +36,7 @@ const heading = it.tenant_site?.locations_heading || 'Our locations'
               <h3 style="font-size: 22px; margin-bottom: 8px;"><%= v.name %></h3>
               <% if (v.address_line1 || v.city) { %>
                 <p style="color: var(--c-muted); font-size: 14px; margin: 0 0 6px;">
-                  <%= [v.address_line1, v.city, v.postcode].filter(Boolean).join(' · ') %>
+                  <%= vAddr %>
                 </p>
               <% } %>
               <% if (v.phone) { %>

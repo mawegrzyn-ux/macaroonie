@@ -6,6 +6,7 @@ const onLocation = !!it.venue
 const venues     = it.venues || []
 const sl = (it.config.social_links || {})
 const socials = Object.entries(sl).filter(function(e){return e[1]})
+const cityLine = [it.config.city, it.config.postcode].filter(Boolean).join(' ')
 %>
 <style>
   .site-footer {
@@ -49,7 +50,7 @@ const socials = Object.entries(sl).filter(function(e){return e[1]})
             <% if (it.config.address_line1) { %>
               <div><%= it.config.address_line1 %></div>
               <% if (it.config.address_line2) { %><div><%= it.config.address_line2 %></div><% } %>
-              <div><%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %></div>
+              <div><%= cityLine %></div>
             <% } %>
           <% } %>
         </div>

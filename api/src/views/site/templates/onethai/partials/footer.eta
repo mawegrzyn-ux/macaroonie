@@ -5,6 +5,7 @@ const venues     = it.venues || []
 const sl = it.config.social_links || {}
 const socials = Object.entries(sl).filter(function(e){return e[1]})
 const showLocationsLink = !it.tenant_site?.hide_locations_index && venues.length > 1
+const cityLine = [it.config.city, it.config.postcode].filter(Boolean).join(' ')
 %>
 <footer class="ot-footer">
   <div class="container">
@@ -30,7 +31,7 @@ const showLocationsLink = !it.tenant_site?.hide_locations_index && venues.length
           <% if (it.config.show_find_us) { %>
             <h5 class="mono-cap">Visit</h5>
             <% if (it.config.address_line1) { %>
-              <p><%= it.config.address_line1 %><% if (it.config.address_line2) { %><br /><%= it.config.address_line2 %><% } %><br /><%= [it.config.city, it.config.postcode].filter(Boolean).join(' ') %></p>
+              <p><%= it.config.address_line1 %><% if (it.config.address_line2) { %><br /><%= it.config.address_line2 %><% } %><br /><%= cityLine %></p>
             <% } %>
             <% if (it.config.phone) { %><a href="tel:<%= it.config.phone %>"><%= it.config.phone %></a><% } %>
             <% if (it.config.email) { %><a href="mailto:<%= it.config.email %>"><%= it.config.email %></a><% } %>

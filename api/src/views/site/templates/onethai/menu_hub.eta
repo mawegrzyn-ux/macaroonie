@@ -20,11 +20,12 @@ const venues = it.venues || []
     <% } else { %>
       <div class="loc-grid">
         <% venues.forEach(function(v){ %>
+          <% const vAddr = [v.address_line1, v.city].filter(Boolean).join(' · ') %>
           <a href="/locations/<%= v.slug %>/menu" class="loc-card">
             <div class="body" style="padding: 28px;">
               <h3><%= v.name %></h3>
               <% if (v.address_line1 || v.city) { %>
-                <p class="addr"><%= [v.address_line1, v.city].filter(Boolean).join(' · ') %></p>
+                <p class="addr"><%= vAddr %></p>
               <% } %>
               <span class="visit-link">View menus &rsaquo;</span>
             </div>

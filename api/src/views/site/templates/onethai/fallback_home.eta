@@ -78,12 +78,13 @@ const tickerItems = (c.ticker_items && Array.isArray(c.ticker_items) && c.ticker
 
     <div class="loc-grid">
       <% venues.forEach(function(v){ %>
+        <% const vAddr = [v.address_line1, v.city, v.postcode].filter(Boolean).join(' · ') %>
         <a href="/locations/<%= v.slug %>" class="loc-card">
           <div class="photo"<% if (v.hero_image_url) { %> style="background-image: url('<%= v.hero_image_url %>');"<% } %>></div>
           <div class="body">
             <h3><%= v.name %></h3>
             <% if (v.address_line1 || v.city) { %>
-              <p class="addr"><%= [v.address_line1, v.city, v.postcode].filter(Boolean).join(' · ') %></p>
+              <p class="addr"><%= vAddr %></p>
             <% } %>
             <% if (v.phone) { %><p class="addr"><%= v.phone %></p><% } %>
             <span class="visit-link">Visit &rsaquo;</span>

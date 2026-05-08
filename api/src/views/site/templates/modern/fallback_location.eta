@@ -86,9 +86,10 @@ const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Satur
           <h2>Visit</h2>
           <% if (c.address_line1) { %>
             <p style="font-size: 16px; line-height: 1.7;">
+              <% const _addrLine = [c.city, c.postcode].filter(Boolean).join(' ') %>
               <%= c.address_line1 %><br />
               <% if (c.address_line2) { %><%= c.address_line2 %><br /><% } %>
-              <%= [c.city, c.postcode].filter(Boolean).join(' ') %>
+              <%= _addrLine %>
             </p>
           <% } %>
           <% if (c.google_maps_embed_url) { %>
