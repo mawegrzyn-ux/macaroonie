@@ -22,6 +22,8 @@ import { ThemeFrame }     from './canvas/ThemeFrame'
 import { BlockInserter }  from './canvas/BlockInserter'
 import { BlockInspector } from './canvas/BlockInspector'
 import { BlockNode }      from './canvas/BlockNode'
+import { HeaderPreview, FooterPreview, SiteChromeStyles } from './canvas/SiteChrome'
+import { OnethaiShowpiece } from './canvas/OnethaiShowpiece'
 import {
   flattenBlocks, findBlock,
   patchBlockData, replaceBlock as treeReplace,
@@ -41,9 +43,19 @@ export function PageBuilder({
   blocksField     = 'home_blocks',
   saveEndpoint    = '/website/tenant-site',
   invalidateKey   = ['tenant-site'],
+  // Chrome data — passed by the parent so the canvas can render the
+  // header / footer / showpiece preview the same way the live site does.
+  // In tenant mode `config` IS tenant_site, so it's the same object.
+  // In venue mode the parent passes the tenant_site separately.
+  tenantSite,
+  pages           = [],
+  venues          = [],
+  tenantName      = '',
+  onJumpTo,
 }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const effectiveTenantSite = tenantSite || (blocksField === 'home_blocks' ? config : null)
 
   const initial = useMemo(() => Array.isArray(config?.[blocksField]) ? config[blocksField] : [], [config, blocksField])
   const [blocks, setBlocks] = useState(initial)
@@ -256,10 +268,29 @@ export function PageBuilder({
             className="px-12 py-6"
           >
             <ThemeFrame config={config}>
+              {SiteChromeStyles}
+              {/* Header chrome — display-only preview of the live site nav */}
+              <HeaderPreview
+                tenantSite={effectiveTenantSite}
+                pages={pages}
+                venues={venues}
+                tenantName={tenantName}
+                onJumpTo={onJumpTo}
+              />
               {blocks.length === 0 ? (
-                <div className="py-12">
-                  <BlockInserter mode="empty" onPick={(k) => addTop(k, 0)} />
-                </div>
+                <>
+                  {/* Onethai showpiece preview when blocks empty */}
+                  {effectiveTenantSite?.template_key === 'onethai' && (
+                    <OnethaiShowpiece
+                      tenantSite={effectiveTenantSite}
+                      venues={venues}
+                      tenantName={tenantName}
+                    />
+                  )}
+                  <div className="py-12">
+                    <BlockInserter mode="empty" onPick={(k) => addTop(k, 0)} />
+                  </div>
+                </>
               ) : (
                 <>
                   <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleAnyDragEnd}>
@@ -290,6 +321,13 @@ export function PageBuilder({
                   </div>
                 </>
               )}
+              {/* Footer chrome — display-only preview of the live site footer */}
+              <FooterPreview
+                tenantSite={effectiveTenantSite}
+                venues={venues}
+                tenantName={tenantName}
+                onJumpTo={onJumpTo}
+              />
             </ThemeFrame>
           </div>
         </div>

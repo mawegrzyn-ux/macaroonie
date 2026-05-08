@@ -164,6 +164,12 @@ const TenantSiteBody = z.object({
   })).max(6).optional(),
   footer_copyright: z.string().max(200).nullable().optional(),
 
+  // Cookie consent banner
+  cookies_banner_enabled:     z.boolean().optional(),
+  cookies_banner_text:        z.string().max(500).nullable().optional(),
+  cookies_banner_accept_text: z.string().max(40).optional(),
+  cookies_banner_decline_text: z.string().max(40).nullable().optional(),
+
   // Publishing
   is_published:     z.boolean().optional(),
 })
@@ -239,9 +245,73 @@ const PageBody = z.object({
   content:      z.string().nullable().optional(),
   blocks:       z.array(BlockSchema).nullable().optional(),
   is_published: z.boolean().default(true),
+  is_legal:     z.boolean().optional(),
   sort_order:   z.number().int().default(0),
   // venue_id provided as query param, not in body
 })
+
+// ── Default content for the seeded legal pages ──────────────
+// These are sensible templates the operator can edit afterwards. Restaurant-
+// industry standard wording with placeholders for the operator's brand
+// + contact details (replaced at seed time).
+function defaultLegalContent(kind, { brandName, email }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const contactLine = email
+    ? `If you have any questions, contact us at <a href="mailto:${email}">${email}</a>.`
+    : 'If you have any questions, please contact us.'
+
+  if (kind === 'terms') {
+    return `<h2>Terms &amp; Conditions</h2>
+<p><em>Last updated ${today}</em></p>
+<p>Welcome to ${brandName}. These terms govern your use of our website and the bookings made through it.</p>
+<h3>Bookings</h3>
+<p>Reservations made on this site are an offer to dine which we may accept or decline at our discretion. A booking is only confirmed once you receive an email confirmation from us. Where a deposit is required, the booking is held for the duration of the agreed window.</p>
+<h3>Cancellations and amendments</h3>
+<p>You may cancel or amend a booking using the link in your confirmation email, subject to the cancellation window for that venue. Late cancellations or no-shows may result in the deposit being retained.</p>
+<h3>Allergens and dietary requirements</h3>
+<p>If you or anyone in your party has a food allergy or intolerance, please tell us at the time of booking and again on arrival. Our kitchens handle allergens; we cannot guarantee any dish is free from cross-contamination.</p>
+<h3>Liability</h3>
+<p>Nothing in these terms excludes our liability for death or personal injury caused by negligence, fraud, or any other liability that cannot be excluded by law.</p>
+<h3>Changes</h3>
+<p>We may update these terms from time to time. The current version is always shown on this page.</p>
+<p>${contactLine}</p>`
+  }
+  if (kind === 'privacy') {
+    return `<h2>Privacy Policy</h2>
+<p><em>Last updated ${today}</em></p>
+<p>${brandName} is the controller of any personal data you provide via this site. This page explains what we collect and how we use it.</p>
+<h3>What we collect</h3>
+<ul>
+<li><strong>Booking details</strong> — name, email, phone, party size, date/time, any notes you supply (e.g. allergens).</li>
+<li><strong>Marketing preferences</strong> — only when you explicitly opt in.</li>
+<li><strong>Site analytics</strong> — anonymous usage stats via Google Analytics / Meta Pixel where enabled. See our cookies policy.</li>
+</ul>
+<h3>How we use it</h3>
+<p>To confirm and manage your reservation, to contact you about your visit, and where you have opted in, to send occasional marketing.</p>
+<h3>Sharing</h3>
+<p>We use third parties (e.g. Stripe for payments, our email provider for transactional emails) under data-processor agreements. We do not sell your data.</p>
+<h3>Your rights</h3>
+<p>You have the right to access, correct, export, or delete your personal data at any time. Email us using the address below.</p>
+<h3>Retention</h3>
+<p>We keep booking records for the period needed to comply with tax and accounting law, then delete or anonymise.</p>
+<p>${contactLine}</p>`
+  }
+  if (kind === 'cookies') {
+    return `<h2>Cookies Policy</h2>
+<p><em>Last updated ${today}</em></p>
+<p>This page explains the cookies set by ${brandName} and how to manage them.</p>
+<h3>Strictly necessary</h3>
+<p>These cookies make the site work — for example to remember your booking step or that you have accepted this banner. They cannot be turned off.</p>
+<h3>Analytics</h3>
+<p>If you accept analytics cookies, we use Google Analytics (or similar) to understand traffic. These cookies do not personally identify you.</p>
+<h3>Marketing</h3>
+<p>If marketing pixels (e.g. Meta) are enabled, they set cookies that help us measure ad performance. You can opt out at any time.</p>
+<h3>Managing cookies</h3>
+<p>You can change your choice in your browser settings, or by clearing this site's cookies and reloading the page — the consent banner will appear again.</p>
+<p>${contactLine}</p>`
+  }
+  return ''
+}
 
 const MenuBody = z.object({
   label:      z.string().min(1).max(100),
@@ -649,6 +719,56 @@ export default async function websiteRoutes(app) {
     `)
     if (!row) throw httpError(404, 'Page not found')
     return { ok: true }
+  })
+
+  // ── POST /website/legal-pages ───────────────────────────
+  // Seeds Terms / Privacy / Cookies as tenant-level pages with sensible
+  // default content the operator can edit. Idempotent: if a page with
+  // one of the reserved slugs already exists, we leave it alone.
+  app.post('/legal-pages', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const [tenantSite, tenant] = await withTenant(req.tenantId, async tx => {
+      const [ts] = await tx`SELECT brand_name, site_name FROM tenant_site WHERE tenant_id = ${req.tenantId}`
+      const [t]  = await tx`SELECT name FROM tenants       WHERE id = ${req.tenantId}`
+      return [ts, t]
+    })
+    const brandName = tenantSite?.brand_name || tenantSite?.site_name || tenant?.name || 'Our Restaurant'
+    const ctx = { brandName, email: null }
+
+    const KINDS = [
+      { slug: 'terms',    title: 'Terms & Conditions' },
+      { slug: 'privacy',  title: 'Privacy Policy' },
+      { slug: 'cookies',  title: 'Cookies Policy' },
+    ]
+
+    const created = await withTenant(req.tenantId, async tx => {
+      const out = []
+      for (const k of KINDS) {
+        const [existing] = await tx`
+          SELECT id, slug FROM website_pages
+           WHERE tenant_id = ${req.tenantId}
+             AND venue_id IS NULL
+             AND slug = ${k.slug}
+           LIMIT 1
+        `
+        if (existing) {
+          out.push({ slug: existing.slug, status: 'exists' })
+          continue
+        }
+        const [row] = await tx`
+          INSERT INTO website_pages
+            (tenant_id, venue_id, slug, title, content, is_published, is_legal, sort_order)
+          VALUES
+            (${req.tenantId}, NULL, ${k.slug}, ${k.title},
+             ${defaultLegalContent(k.slug, ctx)},
+             true, true, 100)
+          RETURNING id, slug
+        `
+        out.push({ slug: row.slug, status: 'created' })
+      }
+      return out
+    })
+
+    return { pages: created }
   })
 
   // ── Menus (PDF documents) ───────────────────────────────

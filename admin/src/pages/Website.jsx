@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { PageBuilder } from '@/components/website-builder/PageBuilder'
+import { FontPicker } from '@/components/website-builder/FontPicker'
 
 // ── Section lists ────────────────────────────────────────────
 
@@ -40,10 +41,10 @@ import { PageBuilder } from '@/components/website-builder/PageBuilder'
 const TENANT_SECTIONS = [
   { key: 'tenant-page',     label: 'Home page',         icon: LayoutTemplate },
   { key: 'tenant-domain',   label: 'Domain & publish',  icon: Globe },
-  { key: 'tenant-identity', label: 'Brand identity',    icon: ImageIcon },
-  { key: 'tenant-theme',    label: 'Brand theme',       icon: Palette },
+  { key: 'tenant-brand',    label: 'Brand & theme',     icon: Palette },
   { key: 'tenant-nav',      label: 'Header & footer',   icon: LayoutTemplate },
   { key: 'tenant-locations',label: 'Locations index',   icon: MapPin },
+  { key: 'tenant-legal',    label: 'Legal & cookies',   icon: AlertTriangle },
   { key: 'tenant-seo',      label: 'SEO',               icon: Search },
   { key: 'tenant-analytics',label: 'Analytics',         icon: BarChart3 },
   { key: 'tenant-banner',   label: 'Emergency banner',  icon: AlertTriangle },
@@ -565,6 +566,123 @@ function TenantSeoSection({ tenantSite }) {
           setOgUrl(tenantSite.og_image_url || '')
         }}
         onSave={() => save.mutate()} />
+    </div>
+  )
+}
+
+// ── Tenant-level: legal pages + cookie consent banner ───────
+
+function TenantLegalSection({ tenantSite }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+
+  const { data: pages = [] } = useQuery({
+    queryKey: ['website-pages', 'tenant'],
+    queryFn:  () => api.get('/website/pages?venue_id=tenant'),
+  })
+
+  const initial = useMemo(() => ({
+    cookies_banner_enabled:    !!tenantSite.cookies_banner_enabled,
+    cookies_banner_text:       tenantSite.cookies_banner_text || 'We use cookies to make this site work and to understand how visitors use it. Read our cookies policy to learn more.',
+    cookies_banner_accept_text: tenantSite.cookies_banner_accept_text || 'Accept',
+    cookies_banner_decline_text: tenantSite.cookies_banner_decline_text || 'Decline',
+  }), [tenantSite])
+  const [state, setState] = useState(initial)
+  useEffect(() => setState(initial), [initial])
+  const dirty = JSON.stringify(state) !== JSON.stringify(initial)
+
+  const save = useMutation({
+    mutationFn: () => api.patch('/website/tenant-site', {
+      cookies_banner_enabled:     state.cookies_banner_enabled,
+      cookies_banner_text:        state.cookies_banner_text || null,
+      cookies_banner_accept_text: state.cookies_banner_accept_text || 'Accept',
+      cookies_banner_decline_text: state.cookies_banner_decline_text || null,
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+  })
+
+  const seed = useMutation({
+    mutationFn: () => api.post('/website/legal-pages', {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-pages', 'tenant'] }),
+  })
+
+  const LEGAL_SLUGS = ['terms', 'privacy', 'cookies']
+  const legalPages = pages.filter(p => LEGAL_SLUGS.includes(p.slug) || p.is_legal)
+  const missingSlugs = LEGAL_SLUGS.filter(s => !pages.some(p => p.slug === s))
+
+  return (
+    <div className="space-y-5">
+      <SectionCard
+        title="Legal pages"
+        description="Terms & Conditions, Privacy Policy, and Cookies Policy as standalone pages. Each lives at /p/{slug} on your site."
+        action={missingSlugs.length > 0 && (
+          <button type="button" onClick={() => seed.mutate()}
+            disabled={seed.isPending}
+            className="text-xs inline-flex items-center gap-1 bg-primary text-primary-foreground rounded-md px-3 py-1.5 font-medium disabled:opacity-50">
+            {seed.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+            Generate {missingSlugs.length === 3 ? 'all' : missingSlugs.join(', ')}
+          </button>
+        )}>
+        {legalPages.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-3">
+            No legal pages yet. Click <strong>Generate all</strong> to create Terms, Privacy, and Cookies with sensible default content. You can edit each afterwards in <em>Custom pages</em>.
+          </p>
+        ) : (
+          <div className="divide-y">
+            {legalPages.map(p => (
+              <div key={p.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0 gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{p.title}</p>
+                  <p className="text-xs text-muted-foreground truncate">/p/{p.slug}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {p.is_published
+                    ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">LIVE</span>
+                    : <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">DRAFT</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {legalPages.length > 0 && (
+          <p className="text-xs text-muted-foreground pt-2 border-t">
+            Edit page content under <em>Tenant site → ⋯ Custom pages</em> (per-page editor).
+            The cookie banner below links to <code>/p/cookies</code> automatically.
+          </p>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Cookie consent banner"
+        description="A bottom-of-page banner shown once per visitor until they accept or decline. The choice is stored in a cookie so it doesn't reappear.">
+        <div className="flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-medium">Show cookie banner</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Recommended if you have analytics or marketing pixels enabled.
+            </p>
+          </div>
+          <Toggle value={state.cookies_banner_enabled}
+            onChange={v => setState(s => ({ ...s, cookies_banner_enabled: v }))}
+            label="Show cookie banner" />
+        </div>
+        <FormRow label="Banner text">
+          <TextArea value={state.cookies_banner_text}
+            onChange={e => setState(s => ({ ...s, cookies_banner_text: e.target.value }))}
+            className="min-h-[80px]" />
+        </FormRow>
+        <FormRow label="Accept button text">
+          <TextInput value={state.cookies_banner_accept_text}
+            onChange={e => setState(s => ({ ...s, cookies_banner_accept_text: e.target.value }))} />
+        </FormRow>
+        <FormRow label="Decline button text"
+          hint="Leave blank to show only an Accept button.">
+          <TextInput value={state.cookies_banner_decline_text}
+            onChange={e => setState(s => ({ ...s, cookies_banner_decline_text: e.target.value }))} />
+        </FormRow>
+      </SectionCard>
+
+      <SaveBar dirty={dirty} saving={save.isPending}
+        onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )
 }
@@ -2647,11 +2765,9 @@ function BrandIdentitySection() {
           </div>
         </FormRow>
         <FormRow label="Default font">
-          <select value={state.font_family}
-            onChange={e => setState(s => ({ ...s, font_family: e.target.value }))}
-            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
-            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
+          <FontPicker fonts={FONT_OPTIONS}
+            value={state.font_family}
+            onChange={f => setState(s => ({ ...s, font_family: f }))} />
         </FormRow>
         <FormRow label="Social preview image (OG)">
           <ImageField url={state.og_image_url} onChange={v => setState(s => ({ ...s, og_image_url: v || '' }))} />
@@ -2702,18 +2818,14 @@ function BrandThemeSection() {
       </SectionCard>
       <SectionCard title="Typography">
         <FormRow label="Heading font">
-          <select value={theme.typography.heading_font}
-            onChange={e => setPath('typography', 'heading_font', e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
-            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
+          <FontPicker fonts={FONT_OPTIONS}
+            value={theme.typography.heading_font}
+            onChange={f => setPath('typography', 'heading_font', f)} />
         </FormRow>
         <FormRow label="Body font">
-          <select value={theme.typography.body_font}
-            onChange={e => setPath('typography', 'body_font', e.target.value)}
-            className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] bg-background">
-            {FONT_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
+          <FontPicker fonts={FONT_OPTIONS}
+            value={theme.typography.body_font}
+            onChange={f => setPath('typography', 'body_font', f)} />
         </FormRow>
         <SliderField label="Base font size" unit="px" min={12} max={22} value={theme.typography.base_size_px} onChange={v => setPath('typography', 'base_size_px', v)} />
         <SliderField label="Heading scale" unit="x" min={1.0} max={1.8} step={0.05} value={theme.typography.heading_scale} onChange={v => setPath('typography', 'heading_scale', v)} />
@@ -2874,6 +2986,20 @@ export default function Website() {
     queryFn:  () => api.get('/website/configs'),
   })
 
+  // Tenant-level pages drive the header nav preview in the page builder.
+  const { data: tenantPages = [] } = useQuery({
+    queryKey: ['website-pages', 'tenant'],
+    queryFn:  () => api.get('/website/pages?venue_id=tenant'),
+  })
+
+  // Tenant name for chrome fallbacks.
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn:  () => api.get('/me'),
+    staleTime: 60_000,
+  })
+  const tenantName = me?.tenant?.name || ''
+
   useEffect(() => {
     if (venueId) return
     if (venues.length) setVenueId(venues[0].id)
@@ -2993,7 +3119,9 @@ export default function Website() {
 
           {mode === 'tenant' ? (
             tenantSite
-              ? <TenantActiveSection active={active} tenantSite={tenantSite} />
+              ? <TenantActiveSection active={active} tenantSite={tenantSite}
+                  pages={tenantPages} venues={venues} tenantName={tenantName}
+                  onJumpTo={setActive} />
               : <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                 </div>
@@ -3009,7 +3137,9 @@ export default function Website() {
               <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <VenueActiveSection active={active} config={config} venueId={venueId} />
+            <VenueActiveSection active={active} config={config} venueId={venueId}
+              tenantSite={tenantSite} pages={tenantPages} venues={venues}
+              tenantName={tenantName} setMode={setMode} setActive={setActive} />
           )}
         </div>
       </main>
@@ -3017,7 +3147,7 @@ export default function Website() {
   )
 }
 
-function TenantActiveSection({ active, tenantSite }) {
+function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, onJumpTo }) {
   switch (active) {
     case 'tenant-page':
       return (
@@ -3026,13 +3156,23 @@ function TenantActiveSection({ active, tenantSite }) {
           blocksField="home_blocks"
           saveEndpoint="/website/tenant-site"
           invalidateKey={['tenant-site']}
+          tenantSite={tenantSite}
+          pages={pages}
+          venues={venues}
+          tenantName={tenantName}
+          onJumpTo={onJumpTo}
         />
       )
     case 'tenant-domain':    return <TenantDomainSection    tenantSite={tenantSite} />
-    case 'tenant-identity':  return <BrandIdentitySection />
-    case 'tenant-theme':     return <BrandThemeSection />
+    case 'tenant-brand':     return (
+      <div className="space-y-6">
+        <BrandIdentitySection />
+        <BrandThemeSection />
+      </div>
+    )
     case 'tenant-nav':       return <TenantNavSection       tenantSite={tenantSite} />
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />
+    case 'tenant-legal':     return <TenantLegalSection     tenantSite={tenantSite} />
     case 'tenant-seo':       return <TenantSeoSection       tenantSite={tenantSite} />
     case 'tenant-analytics': return <BrandAnalyticsSection />
     case 'tenant-banner':    return <BrandBannerSection />
@@ -3040,9 +3180,12 @@ function TenantActiveSection({ active, tenantSite }) {
   }
 }
 
-function VenueActiveSection({ active, config, venueId }) {
+function VenueActiveSection({ active, config, venueId, tenantSite, pages, venues, tenantName, setMode, setActive }) {
   const saveEndpoint = `/website/config?venue_id=${venueId}`
   const invalidateKey = ['website-config', venueId]
+  // From the venue page builder, "edit header / footer" jumps back to the
+  // Tenant site mode (where those settings live) — chrome is shared.
+  const jumpToTenant = (key) => { setMode('tenant'); setActive(key) }
   switch (active) {
     case 'page':
       return (
@@ -3051,6 +3194,11 @@ function VenueActiveSection({ active, config, venueId }) {
           blocksField="page_blocks"
           saveEndpoint={saveEndpoint}
           invalidateKey={invalidateKey}
+          tenantSite={tenantSite}
+          pages={pages}
+          venues={venues}
+          tenantName={tenantName}
+          onJumpTo={jumpToTenant}
         />
       )
     case 'branding':  return <BrandingSection  config={config} />

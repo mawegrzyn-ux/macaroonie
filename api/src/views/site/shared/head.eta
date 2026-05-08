@@ -231,6 +231,90 @@ const gfUrl = fontsToLoad.length
   <% } %>
 </head>
 <body>
+<%
+// ── Cookie consent banner (tenant-level, all venue sites) ──
+//   Only renders when:
+//     1. tenant_site.cookies_banner_enabled = true
+//     2. The visitor hasn't already accepted/declined (checked client-side)
+//   The banner is shown via inline JS so we don't need an extra round-trip
+//   or a flash of un-banner'd content. Choice persists in a cookie named
+//   `mc_cookies` (1 = accepted, 0 = declined) — readable by any analytics
+//   the operator may add later.
+const _cookies = it.tenant_site || {}
+%>
+<% if (_cookies.cookies_banner_enabled) { %>
+  <%
+    const bannerText = _cookies.cookies_banner_text
+      || 'We use cookies to make this site work and to understand how visitors use it.'
+    const acceptText  = _cookies.cookies_banner_accept_text  || 'Accept'
+    const declineText = _cookies.cookies_banner_decline_text || ''
+    const cookiesPolicyHref = '/p/cookies'
+  %>
+  <div id="mc-cookie-banner" style="
+    display: none;
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
+    background: #1f1f1f; color: #f5f5f5;
+    padding: 18px 24px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.18);
+    font-family: var(--f-body, system-ui, sans-serif);
+    font-size: 14px; line-height: 1.5;
+  ">
+    <div style="
+      max-width: 1100px; margin: 0 auto;
+      display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    ">
+      <span style="flex: 1; min-width: 240px;">
+        <%= bannerText %>
+        <a href="<%= cookiesPolicyHref %>" style="color: #fff; text-decoration: underline; margin-left: 6px;">Read more</a>
+      </span>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <% if (declineText) { %>
+          <button type="button" id="mc-cookie-decline" style="
+            background: transparent; color: #f5f5f5;
+            border: 1px solid rgba(245,245,245,0.4);
+            padding: 10px 22px; border-radius: 999px;
+            cursor: pointer; font-size: 14px; font-weight: 500;
+            font-family: inherit;
+          "><%= declineText %></button>
+        <% } %>
+        <button type="button" id="mc-cookie-accept" style="
+          background: var(--c-primary, #fff); color: #fff;
+          border: 1px solid var(--c-primary, #fff);
+          padding: 10px 22px; border-radius: 999px;
+          cursor: pointer; font-size: 14px; font-weight: 600;
+          font-family: inherit;
+        "><%= acceptText %></button>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function() {
+      var banner = document.getElementById('mc-cookie-banner');
+      if (!banner) return;
+      function getCookie(name) {
+        var m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+        return m ? decodeURIComponent(m[1]) : null;
+      }
+      function setCookie(name, val, days) {
+        var d = new Date(); d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
+        document.cookie = name + '=' + encodeURIComponent(val) + '; expires=' + d.toUTCString() + '; path=/; SameSite=Lax';
+      }
+      if (getCookie('mc_cookies') == null) {
+        banner.style.display = 'block';
+      }
+      var acc = document.getElementById('mc-cookie-accept');
+      var dec = document.getElementById('mc-cookie-decline');
+      if (acc) acc.addEventListener('click', function() {
+        setCookie('mc_cookies', '1', 365);
+        banner.style.display = 'none';
+      });
+      if (dec) dec.addEventListener('click', function() {
+        setCookie('mc_cookies', '0', 365);
+        banner.style.display = 'none';
+      });
+    })();
+  </script>
+<% } %>
 <% /* Emergency banner — set at the franchise / tenant level, applies to
       all venue sites.  brand.banner_enabled must be true. */ %>
 <% const _banner = it.brand || {} %>

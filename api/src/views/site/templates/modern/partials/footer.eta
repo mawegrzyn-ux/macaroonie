@@ -7,6 +7,7 @@ const cityLine = [it.config.city, it.config.postcode].filter(Boolean).join(' ')
 const customCols = Array.isArray(it.tenant_site?.footer_columns) ? it.tenant_site.footer_columns : []
 const copyrightText = it.tenant_site?.footer_copyright
   || `© ${new Date().getFullYear()} ${it.config.site_name || it.tenant_name}.`
+const legalPages = (it.pages || []).filter(p => ['terms','privacy','cookies'].includes(p.slug) || p.is_legal)
 %>
 <style>
   .m-footer {
@@ -92,6 +93,13 @@ const copyrightText = it.tenant_site?.footer_copyright
       <% }) %>
     </div>
 
+    <% if (legalPages.length) { %>
+      <div style="display:flex; gap:18px; flex-wrap:wrap; padding-top: 16px; font-size: 12px;">
+        <% legalPages.forEach(function(p){ %>
+          <a href="/p/<%= p.slug %>" style="color:#c9c9c9; text-decoration:underline;"><%= p.title %></a>
+        <% }) %>
+      </div>
+    <% } %>
     <div class="bottom">
       <span><%= copyrightText %></span>
       <span>Powered by <a href="https://<%= it.rootDomain %>" target="_blank" rel="noopener">Macaroonie</a></span>
