@@ -175,14 +175,33 @@ export const BLOCKS = [
   {
     key:         'hero',
     label:       'Hero',
-    description: 'Big banner with image, heading, and call-to-action.',
+    description: 'Composable hero — eyebrow, centered logo with optional flourishes, rich heading (with inline script accents), subheading, multiple CTAs.',
     icon:        Sparkles,
     category:    'hero',
     defaultData: {
-      image_url: null, heading: 'Welcome', subheading: '',
-      cta_text: 'Book a table', cta_link: '#booking',
-      height: 'medium',           // small | medium | large | full
+      // Background
+      bg_style: 'image',          // image | gradient | transparent | surface
+      image_url: null,
       overlay_opacity: 0.4,
+      // Pre-header
+      eyebrow_text: '',           // small uppercase line above the logo
+      show_dotted_divider: false, // dotted-line + dot ornament under the eyebrow
+      // Centered logo (optional)
+      logo_url: null,
+      logo_size: 'medium',        // small | medium | large
+      // Decorative flourishes flanking the logo (URLs or null)
+      flourish_left_url:  null,
+      flourish_right_url: null,
+      // Heading — html allows inline <em>script accent</em> styling
+      heading: 'Welcome',
+      heading_html: '',           // when set, takes precedence over heading
+      subheading: '',
+      // Call-to-actions — array of { text, link, style }
+      ctas: [
+        { text: 'Book a table', link: '#booking', style: 'primary' },
+      ],
+      // Layout
+      height: 'medium',           // small | medium | large | full
       align: 'center',            // left | center
       container: 'boxed',         // boxed | wide | full
     },
@@ -480,10 +499,20 @@ export const PAGE_TEMPLATES = [
         cta: { show: true, text: 'Book a Table', url: '#booking' },
       }},
       { type: 'hero',             data: {
-        heading: 'A small Thai cafe with very loyal regulars.',
+        bg_style: 'transparent',
+        eyebrow_text: '— Your Local Thai —',
+        show_dotted_divider: true,
+        logo_url: '/template-assets/onethai/logo.png',
+        logo_size: 'large',
+        flourish_left_url:  '/template-assets/onethai/icons/icon-chilli.png',
+        flourish_right_url: '/template-assets/onethai/icons/icon-chilli.png',
+        heading_html: 'A small Thai cafe<br />with <em>very loyal</em> regulars.',
         subheading: 'Tucked away in our neighbourhood, cooking the dishes we grew up on for years.',
-        cta_text: 'Book a table', cta_link: '#booking',
-        height: 'large', align: 'center', overlay_opacity: 0.4, container: 'boxed',
+        ctas: [
+          { text: 'Book a table',  link: '#booking', style: 'primary' },
+          { text: 'See the menu',  link: '#menu',    style: 'secondary' },
+        ],
+        height: 'large', align: 'center', container: 'boxed',
       }},
       { type: 'ticker',           data: {
         items: ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],

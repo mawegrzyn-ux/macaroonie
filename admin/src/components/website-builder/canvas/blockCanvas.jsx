@@ -36,6 +36,10 @@ function innerContainerStyle(width) {
 }
 
 // ── Hero ─────────────────────────────────────────────────────
+//
+// Composable hero — eyebrow, dotted divider, centered logo with optional
+// flourishes, rich-html heading (with inline <em> script accents), subheading,
+// multiple CTAs. Mirrors api/src/views/site/blocks/hero.eta.
 
 export function HeroCanvas({ data, onChange, selected }) {
   const heightMap = { small: '320px', medium: '520px', large: '680px', full: '600px' }
@@ -44,6 +48,30 @@ export function HeroCanvas({ data, onChange, selected }) {
   const textAlign = data.align === 'left' ? 'left' : 'center'
   const overlay = data.overlay_opacity ?? 0.4
   const set = (k) => (v) => onChange({ ...data, [k]: v })
+
+  // Background style
+  const bgStyle = data.bg_style || 'image'
+  let background, darkText = false
+  if (bgStyle === 'image' && data.image_url) {
+    background = `url('${data.image_url}') center/cover no-repeat`
+  } else if (bgStyle === 'gradient') {
+    background = 'linear-gradient(135deg, var(--c-primary), var(--c-accent))'
+  } else if (bgStyle === 'surface') {
+    background = 'var(--c-surface)'
+    darkText = true
+  } else if (bgStyle === 'transparent') {
+    background = 'transparent'
+    darkText = true
+  } else {
+    // Image style without an image set yet — fall back to gradient.
+    background = 'linear-gradient(135deg, var(--c-primary), var(--c-accent))'
+  }
+  const fg = darkText ? 'var(--c-text)' : '#fff'
+
+  const logoSizeMap = { small: 180, medium: 240, large: 320 }
+  const logoSize = logoSizeMap[data.logo_size || 'medium']
+  const ctas = Array.isArray(data.ctas) ? data.ctas : []
+  const headingHtml = data.heading_html && data.heading_html.trim() ? data.heading_html : null
 
   return (
     <section
@@ -54,60 +82,130 @@ export function HeroCanvas({ data, onChange, selected }) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: align,
-        color: '#fff',
-        background: data.image_url
-          ? `url('${data.image_url}') center/cover no-repeat`
-          : 'linear-gradient(135deg, var(--c-primary), var(--c-accent))',
+        color: fg,
+        background,
       }}
     >
-      {data.image_url && overlay > 0 && (
+      {/* Inline accent style — applies to <em> in heading_html */}
+      <style>{`
+        .pcf-hero-heading em {
+          font-family: 'Caveat', var(--f-heading), cursive;
+          font-style: normal; font-weight: 600;
+          color: ${darkText ? 'var(--c-primary)' : '#fff'};
+          font-size: 1.15em;
+          letter-spacing: 0;
+        }
+      `}</style>
+
+      {bgStyle === 'image' && data.image_url && overlay > 0 && (
         <div style={{ position: 'absolute', inset: 0, background: `rgba(0,0,0,${overlay})` }} />
       )}
+
       <div style={{ ...innerContainerStyle(data.container), position: 'relative', textAlign, paddingTop: 64, paddingBottom: 64 }}>
-        <InlineText
-          as="h1"
-          value={data.heading}
-          onChange={set('heading')}
-          placeholder="Welcome"
-          style={{
-            fontFamily: 'var(--f-heading)',
-            fontSize: 'clamp(32px, 5vw, 64px)',
-            margin: '0 0 16px',
-            letterSpacing: '-0.01em',
-            color: '#fff',
-          }}
-        />
-        <InlineText
-          as="p"
-          multiline
+        {data.eyebrow_text && (
+          <div style={{
+            fontFamily: 'var(--f-body), sans-serif', textTransform: 'uppercase',
+            letterSpacing: '0.18em', fontSize: '0.72rem', fontWeight: 500,
+            color: darkText ? 'var(--c-primary)' : '#fff', opacity: 0.85,
+            marginBottom: 8,
+          }}>{data.eyebrow_text}</div>
+        )}
+
+        {data.show_dotted_divider && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 14, margin: '12px 0', color: darkText ? 'var(--c-primary)' : '#fff',
+          }}>
+            <span style={{ flex: 1, maxWidth: 80, height: 1, background: 'currentColor', opacity: 0.4 }} />
+            <span style={{ width: 3, height: 3, background: 'currentColor', borderRadius: '50%', opacity: 0.6 }} />
+            <span style={{ width: 5, height: 5, background: 'currentColor', borderRadius: '50%' }} />
+            <span style={{ width: 3, height: 3, background: 'currentColor', borderRadius: '50%', opacity: 0.6 }} />
+            <span style={{ flex: 1, maxWidth: 80, height: 1, background: 'currentColor', opacity: 0.4 }} />
+          </div>
+        )}
+
+        {(data.logo_url || data.flourish_left_url || data.flourish_right_url) && (
+          <div style={{
+            display: 'flex', justifyContent: 'center', alignItems: 'center',
+            gap: 24, margin: '20px 0 30px', position: 'relative',
+          }}>
+            {data.flourish_left_url && (
+              <img src={data.flourish_left_url} alt=""
+                style={{ width: 60, height: 'auto', opacity: 0.5 }} />
+            )}
+            {data.logo_url && (
+              <img src={data.logo_url} alt=""
+                style={{ width: logoSize, height: logoSize, objectFit: 'contain' }} />
+            )}
+            {data.flourish_right_url && (
+              <img src={data.flourish_right_url} alt=""
+                style={{ width: 60, height: 'auto', opacity: 0.5, transform: 'scaleX(-1)' }} />
+            )}
+          </div>
+        )}
+
+        {headingHtml ? (
+          <h1 className="pcf-hero-heading"
+            style={{
+              fontFamily: 'var(--f-heading)', fontSize: 'clamp(32px, 5vw, 64px)',
+              margin: '0 0 16px', letterSpacing: '-0.02em', lineHeight: 1.05,
+              fontWeight: 400, color: fg,
+            }}
+            dangerouslySetInnerHTML={{ __html: headingHtml }} />
+        ) : (
+          <InlineText as="h1"
+            value={data.heading}
+            onChange={set('heading')}
+            placeholder="Welcome"
+            style={{
+              fontFamily: 'var(--f-heading)',
+              fontSize: 'clamp(32px, 5vw, 64px)',
+              margin: '0 0 16px',
+              letterSpacing: '-0.02em',
+              lineHeight: 1.05,
+              fontWeight: 400,
+              color: fg,
+            }} />
+        )}
+
+        <InlineText as="p" multiline
           value={data.subheading}
           onChange={set('subheading')}
-          placeholder="Add a tagline"
+          placeholder={selected ? 'Add a tagline' : ''}
           style={{
             fontSize: 'clamp(16px, 1.6vw, 22px)',
-            maxWidth: 600,
-            margin: data.align === 'left' ? '0' : '0 auto',
-            opacity: 0.95,
-            lineHeight: 1.5,
-            color: '#fff',
-          }}
-        />
-        {(data.cta_text || selected) && (
-          <InlineText
-            as="span"
-            value={data.cta_text}
-            onChange={set('cta_text')}
-            placeholder="Book a table"
-            style={{
-              display: 'inline-block', marginTop: 24,
-              background: '#fff', color: 'var(--c-primary)',
-              padding: '14px 32px', borderRadius: 'var(--btn-r, 4px)',
-              fontWeight: 600, minWidth: 80,
-            }}
-          />
+            maxWidth: 640,
+            margin: data.align === 'left' ? '0' : '0 auto 24px',
+            opacity: 0.95, lineHeight: 1.5,
+            color: darkText ? 'var(--c-muted)' : '#fff',
+          }} />
+
+        {ctas.length > 0 && (
+          <div style={{
+            display: 'flex', gap: 14, justifyContent: data.align === 'left' ? 'flex-start' : 'center',
+            flexWrap: 'wrap', marginTop: 24,
+          }}>
+            {ctas.map((cta, i) => {
+              const isPrimary = cta.style !== 'secondary'
+              const onLight = darkText
+              const bg     = isPrimary ? (onLight ? 'var(--c-primary)' : '#fff') : 'transparent'
+              const color  = isPrimary ? (onLight ? '#fff' : 'var(--c-primary)') : (onLight ? 'var(--c-primary)' : '#fff')
+              const border = isPrimary ? '1px solid transparent' : (onLight ? '1px solid var(--c-primary)' : '1px solid #fff')
+              return (
+                <span key={i} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 10,
+                  background: bg, color, border,
+                  padding: '14px 28px', borderRadius: 999,
+                  fontSize: '0.95rem', fontWeight: 500,
+                }}>{cta.text || '(button)'}</span>
+              )
+            })}
+          </div>
         )}
       </div>
-      {selected && <ImagePicker label="Background image" url={data.image_url} onChange={set('image_url')} scope="website:hero" position="bottom-right" />}
+      {selected && bgStyle === 'image' && (
+        <ImagePicker label="Background image" url={data.image_url} onChange={set('image_url')} scope="website:hero" position="bottom-right" />
+      )}
     </section>
   )
 }

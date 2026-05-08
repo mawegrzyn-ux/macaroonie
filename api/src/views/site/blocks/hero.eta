@@ -9,40 +9,130 @@ const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' :
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
+
+/* Background style */
+let bgCss = ''
+let darkText = false
+const bgStyle = d.bg_style || 'image'
+if (bgStyle === 'image' && d.image_url) {
+  bgCss = `background:url('${d.image_url}') center/cover no-repeat;`
+  darkText = false
+} else if (bgStyle === 'gradient') {
+  bgCss = 'background: linear-gradient(135deg, var(--c-primary), var(--c-accent));'
+  darkText = false
+} else if (bgStyle === 'surface') {
+  bgCss = 'background: var(--c-surface);'
+  darkText = true
+} else if (bgStyle === 'transparent') {
+  bgCss = 'background: transparent;'
+  darkText = true
+}
+const fg = darkText ? 'var(--c-text)' : '#fff'
+
+const logoSizeMap = { small: 180, medium: 240, large: 320 }
+const logoSize = logoSizeMap[d.logo_size || 'medium']
+
+const ctas = Array.isArray(d.ctas) ? d.ctas : []
+const headingHtml = d.heading_html && d.heading_html.trim() ? d.heading_html : null
 %>
 <section class="block hero" style="
   position:relative;
   min-height:<%= minH %>;
   display:flex; align-items:center; justify-content:<%= align %>;
-  color:#fff;
-  <% if (d.image_url) { %>
-    background:url('<%= d.image_url %>') center/cover no-repeat;
-  <% } else { %>
-    background:linear-gradient(135deg, var(--c-primary), var(--c-accent));
-  <% } %>
+  color:<%= fg %>;
+  <%= bgCss %>
 ">
-  <% if (d.image_url && overlay > 0) { %>
+  <% if (bgStyle === 'image' && d.image_url && overlay > 0) { %>
     <div style="position:absolute; inset:0; background:rgba(0,0,0,<%= overlay %>);"></div>
   <% } %>
+
   <div style="<%= containerStyle %> position:relative; text-align:<%= textAlign %>; padding-top:64px; padding-bottom:64px;">
-    <% if (d.heading) { %>
-      <h1 style="font-family:var(--f-heading); font-size:clamp(32px,5vw,64px); margin:0 0 16px; letter-spacing:-0.01em;">
-        <%= d.heading %>
+
+    <% if (d.eyebrow_text) { %>
+      <div style="font-family: var(--f-body), sans-serif; text-transform: uppercase; letter-spacing: 0.18em; font-size: 0.72rem; font-weight: 500; color: <%= darkText ? 'var(--c-primary)' : '#fff' %>; opacity: 0.85; margin-bottom: 8px;">
+        <%= d.eyebrow_text %>
+      </div>
+    <% } %>
+
+    <% if (d.show_dotted_divider) { %>
+      <div style="display:flex; align-items:center; justify-content:center; gap:14px; margin: 12px 0; color: <%= darkText ? 'var(--c-primary)' : '#fff' %>;">
+        <span style="flex:1; max-width:80px; height:1px; background:currentColor; opacity:0.4;"></span>
+        <span style="width:3px; height:3px; background:currentColor; border-radius:50%; opacity:0.6;"></span>
+        <span style="width:5px; height:5px; background:currentColor; border-radius:50%;"></span>
+        <span style="width:3px; height:3px; background:currentColor; border-radius:50%; opacity:0.6;"></span>
+        <span style="flex:1; max-width:80px; height:1px; background:currentColor; opacity:0.4;"></span>
+      </div>
+    <% } %>
+
+    <% if (d.logo_url || d.flourish_left_url || d.flourish_right_url) { %>
+      <div style="display:flex; justify-content:center; align-items:center; gap:24px; margin: 20px 0 30px; position:relative;">
+        <% if (d.flourish_left_url) { %>
+          <img src="<%= d.flourish_left_url %>" alt=""
+            style="width:60px; height:auto; opacity:0.5;" />
+        <% } %>
+        <% if (d.logo_url) { %>
+          <img src="<%= d.logo_url %>" alt="<%= d.heading || '' %>"
+            style="width:<%= logoSize %>px; height:<%= logoSize %>px; object-fit:contain;" />
+        <% } %>
+        <% if (d.flourish_right_url) { %>
+          <img src="<%= d.flourish_right_url %>" alt=""
+            style="width:60px; height:auto; opacity:0.5; transform: scaleX(-1);" />
+        <% } %>
+      </div>
+    <% } %>
+
+    <% if (headingHtml || d.heading) { %>
+      <h1 class="hero-heading" style="font-family:var(--f-heading); font-size:clamp(32px,5vw,64px); margin:0 0 16px; letter-spacing:-0.02em; line-height: 1.05; font-weight: 400; color:<%= fg %>;">
+        <% if (headingHtml) { %><%~ headingHtml %><% } else { %><%= d.heading %><% } %>
       </h1>
     <% } %>
+
     <% if (d.subheading) { %>
-      <p style="font-size:clamp(16px,1.6vw,22px); max-width:600px; <%= d.align === 'left' ? '' : 'margin:0 auto;' %> opacity:0.95; line-height:1.5;">
+      <p style="font-size:clamp(16px,1.6vw,22px); max-width:640px; <%= d.align === 'left' ? '' : 'margin:0 auto 24px;' %> opacity:0.95; line-height:1.5; color: <%= darkText ? 'var(--c-muted)' : '#fff' %>;">
         <%= d.subheading %>
       </p>
     <% } %>
-    <% if (d.cta_text) { %>
-      <a href="<%= d.cta_link || '#booking' %>"
-         style="display:inline-block; margin-top:24px;
-                background:#fff; color:var(--c-primary);
-                padding:14px 32px; border-radius:var(--btn-radius, 4px);
-                font-weight:600; text-decoration:none;">
-        <%= d.cta_text %>
-      </a>
+
+    <% if (ctas.length) { %>
+      <div style="display:flex; gap:14px; justify-content:<%= d.align === 'left' ? 'flex-start' : 'center' %>; flex-wrap:wrap; margin-top:24px;">
+        <% ctas.forEach(function(cta){ %>
+          <% const isPrimary = cta.style !== 'secondary' %>
+          <% const onLight = darkText %>
+          <% let bg, color, border %>
+          <% if (isPrimary) {
+              bg = onLight ? 'var(--c-primary)' : '#fff'
+              color = onLight ? '#fff' : 'var(--c-primary)'
+              border = '1px solid transparent'
+            } else {
+              bg = 'transparent'
+              color = onLight ? 'var(--c-primary)' : '#fff'
+              border = onLight ? '1px solid var(--c-primary)' : '1px solid #fff'
+            }
+          %>
+          <a href="<%= cta.link || '#' %>"
+            style="display:inline-flex; align-items:center; gap:10px;
+              background: <%= bg %>; color: <%= color %>; border: <%= border %>;
+              padding: 14px 28px; border-radius: 999px;
+              font-size: 0.95rem; font-weight: 500;
+              text-decoration: none;
+              transition: all 0.2s;">
+            <%= cta.text %>
+          </a>
+        <% }) %>
+      </div>
     <% } %>
   </div>
+
+  <style>
+    /* Inline <em> in hero heading renders as the script accent — same
+       trick the original One Thai layout used. */
+    .hero-heading em {
+      font-family: 'Caveat', var(--f-heading), cursive;
+      font-style: normal;
+      font-weight: 600;
+      color: <%= darkText ? 'var(--c-primary)' : '#fff' %>;
+      font-size: 1.15em;
+      letter-spacing: 0;
+    }
+  </style>
 </section>
