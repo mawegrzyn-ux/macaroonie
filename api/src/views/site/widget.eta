@@ -192,6 +192,80 @@ const _accentEffective = _btnBg || it.accent
     .venue-card .vname { font-weight: 600; font-size: 15px; }
     .venue-card .vaddr { color: var(--w-muted); font-size: 13px; margin-top: 2px; }
     .venue-card .arrow { color: var(--w-muted); font-size: 18px; }
+
+    /* ── Calendar (date step) ─────────────────────────────────── */
+    .cal-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 10px;
+    }
+    .cal-title { font-weight: 600; font-size: 15px; }
+    .cal-nav {
+      width: 32px; height: 32px; border-radius: 999px;
+      background: transparent; color: var(--w-fg);
+      border: 1px solid var(--w-border); cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 18px; line-height: 1; padding: 0;
+    }
+    .cal-nav:hover:not([disabled]) { border-color: var(--w-accent); color: var(--w-accent); }
+    .cal-nav[disabled] { opacity: 0.35; cursor: not-allowed; }
+
+    .cal-dow {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      gap: 4px; margin-bottom: 6px;
+    }
+    .cal-dow span {
+      text-align: center; font-size: 11px;
+      color: var(--w-muted); text-transform: uppercase; letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+    .cal-grid {
+      display: grid; grid-template-columns: repeat(7, 1fr);
+      gap: 4px; margin-bottom: 14px;
+    }
+    .cal-day {
+      aspect-ratio: 1 / 1;
+      padding: 0;
+      border: 1px solid var(--w-border);
+      border-radius: var(--w-radius);
+      background: var(--w-bg); color: var(--w-fg);
+      cursor: pointer; font-family: inherit;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 500;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    .cal-day:hover:not([disabled]) { border-color: var(--w-accent); }
+    .cal-day.active {
+      background: var(--w-accent); color: #fff;
+      border-color: var(--w-accent);
+    }
+    .cal-day.today:not(.active) {
+      border-color: var(--w-accent);
+      box-shadow: inset 0 0 0 1px var(--w-accent);
+    }
+    .cal-day.disabled, .cal-day[disabled] {
+      opacity: 0.28; cursor: not-allowed;
+      background: transparent;
+    }
+    .cal-day.outside {
+      /* Days from prev/next month — render but heavily dimmed and
+         non-interactive (the disabled flag is also set). */
+      visibility: hidden;
+    }
+    .cal-num { line-height: 1; }
+
+    .cal-jump {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px; margin-bottom: 14px;
+      background: var(--w-surface); border-radius: var(--w-radius);
+      font-size: 13px;
+    }
+    .cal-jump label { margin: 0; color: var(--w-muted); white-space: nowrap; flex: 0 0 auto; }
+    .cal-jump input {
+      flex: 1; padding: 8px 10px; font-size: 13px;
+      border: 1px solid var(--w-border); border-radius: var(--w-radius);
+      background: var(--w-bg); color: var(--w-fg);
+      font-family: inherit;
+    }
   </style>
 </head>
 <body>
@@ -287,7 +361,11 @@ const _accentEffective = _btnBg || it.accent
         goto(1);
       }
       function pickCovers(n) { state.covers = n; goto(2); }
-      function pickDate(d) { state.date = d; loadSlots(); }
+      // Just set the date in state — the calendar's "Find times" button
+      // (or jump-to-date input flow) is what advances the wizard. Keeping
+      // selection and slot-fetching separate avoids accidental loads when
+      // the user is browsing months on the calendar.
+      function pickDate(d) { state.date = d; }
       function pickSlot(slot) { state.slot = slot; goto(4); }
 
       async function loadSlots() {
@@ -449,17 +527,138 @@ const _accentEffective = _btnBg || it.accent
 
       function renderDate(root) {
         root.appendChild(el('p', { class: 'step-label' }, 'Pick a date'));
-        const inp = el('input', {
-          type: 'date',
-          value: state.date,
-          min: today(),
-          max: maxDate(),
-          onchange: (e) => pickDate(e.target.value),
+
+        // Calendar month state — live within the wider booking widget state
+        // so back-and-forth doesn't reset the view. Initialise to the month
+        // containing the currently-selected date (or today if blank).
+        if (!state.calMonth) {
+          const seed = state.date ? new Date(state.date + 'T12:00:00') : new Date();
+          state.calMonth = { y: seed.getFullYear(), m: seed.getMonth() };
+        }
+
+        const minStr = today();
+        const maxStr = maxDate();
+
+        // Local-date string helper (same as the one used in the grid loop —
+        // declared up here so the canPrev/canNext checks below use the
+        // same wall-clock comparison).
+        const _isoLocal = (d) => {
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const da = String(d.getDate()).padStart(2, '0');
+          return y + '-' + m + '-' + da;
+        };
+
+        // Header row — month label + prev/next + jump-to-date input.
+        const headerLbl = new Date(state.calMonth.y, state.calMonth.m, 1)
+          .toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+        const canPrev = (function(){
+          // Can go back if the *last day of the previous month* is >= today.
+          const lastPrev = new Date(state.calMonth.y, state.calMonth.m, 0); // day 0 = last day of prev month
+          return _isoLocal(lastPrev) >= minStr;
+        })();
+        const canNext = (function(){
+          // Can go forward if the *first day of the next month* is <= maxStr.
+          const firstNext = new Date(state.calMonth.y, state.calMonth.m + 1, 1);
+          return _isoLocal(firstNext) <= maxStr;
+        })();
+
+        const navHeader = el('div', { class: 'cal-head' },
+          el('button', {
+            class: 'cal-nav', disabled: !canPrev,
+            onclick: () => {
+              if (!canPrev) return;
+              const d = new Date(state.calMonth.y, state.calMonth.m - 1, 1);
+              state.calMonth = { y: d.getFullYear(), m: d.getMonth() };
+              render();
+            },
+          }, '‹'),
+          el('span', { class: 'cal-title' }, headerLbl),
+          el('button', {
+            class: 'cal-nav', disabled: !canNext,
+            onclick: () => {
+              if (!canNext) return;
+              const d = new Date(state.calMonth.y, state.calMonth.m + 1, 1);
+              state.calMonth = { y: d.getFullYear(), m: d.getMonth() };
+              render();
+            },
+          }, '›'),
+        );
+        root.appendChild(navHeader);
+
+        // Day-of-week headers (Mon-first row). Note: we use Mon-Sun ordering;
+        // adjust by computing weekday offset relative to Monday.
+        const dowRow = el('div', { class: 'cal-dow' });
+        ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach(d => {
+          dowRow.appendChild(el('span', {}, d));
         });
-        root.appendChild(el('div', { class: 'field' }, inp));
+        root.appendChild(dowRow);
+
+        // Build the grid: 6 rows of 7 cells (max needed for any month).
+        const firstOfMonth = new Date(state.calMonth.y, state.calMonth.m, 1);
+        // JS getDay: Sun=0..Sat=6. Convert to Mon=0..Sun=6.
+        const startOffset = (firstOfMonth.getDay() + 6) % 7;
+        const grid = el('div', { class: 'cal-grid' });
+
+        for (let i = 0; i < 42; i++) {
+          const cellDate = new Date(state.calMonth.y, state.calMonth.m, 1 - startOffset + i);
+          const iso = _isoLocal(cellDate);
+          const inMonth = cellDate.getMonth() === state.calMonth.m;
+          const beforeMin = iso < minStr;
+          const afterMax  = iso > maxStr;
+          const disabled  = !inMonth || beforeMin || afterMax;
+          const isToday   = iso === minStr;
+          const isPicked  = iso === state.date;
+
+          const classes = ['cal-day'];
+          if (!inMonth) classes.push('outside');
+          if (disabled) classes.push('disabled');
+          if (isToday)  classes.push('today');
+          if (isPicked) classes.push('active');
+
+          const btn = el('button', {
+            class: classes.join(' '),
+            disabled: disabled,
+            onclick: disabled ? null : (() => {
+              pickDate(iso);
+              render();
+            }),
+          },
+            el('span', { class: 'cal-num' }, String(cellDate.getDate())),
+          );
+          grid.appendChild(btn);
+        }
+        root.appendChild(grid);
+
+        // Jump-to-date — small native picker for power users who want to
+        // skip several months in one tap. Updates the calendar AND the
+        // selected date in one go.
+        root.appendChild(el('div', { class: 'cal-jump' },
+          el('label', {}, 'Jump to date'),
+          el('input', {
+            type: 'date',
+            value: state.date || minStr,
+            min:   minStr,
+            max:   maxStr,
+            onchange: (e) => {
+              const v = e.target.value;
+              if (!v) return;
+              pickDate(v);
+              const d = new Date(v + 'T12:00:00');
+              state.calMonth = { y: d.getFullYear(), m: d.getMonth() };
+              render();
+            },
+          }),
+        ));
+
         const nav = el('div', { class: 'nav' },
           el('button', { class: 'btn secondary', onclick: () => goto(1) }, '← Back'),
-          el('button', { class: 'btn', onclick: () => loadSlots() }, 'Find times'),
+          el('button', {
+            class: 'btn',
+            disabled: !state.date,
+            onclick: () => loadSlots(),
+          }, 'Find times'),
         );
         root.appendChild(nav);
       }
@@ -467,7 +666,12 @@ const _accentEffective = _btnBg || it.accent
       function renderSlots(root) {
         root.appendChild(el('p', { class: 'step-label' }, 'Pick a time'));
         const slots = state.slots || [];
-        const available = slots.filter(s => s.reason !== 'unavailable' && s.reason !== 'full' && s.available_seats >= state.covers);
+        // The slot_result type has fields { available, available_covers,
+        // reason, slot_time, ... } — the previous version filtered on a
+        // non-existent `available_seats` field which silently rejected
+        // every slot. Rely on the boolean `available` (the PG function
+        // already accounts for the requested cover count).
+        const available = slots.filter(s => s.available && s.reason !== 'unavailable' && s.reason !== 'full');
 
         if (available.length === 0) {
           root.appendChild(el('p', { class: 'empty' },
