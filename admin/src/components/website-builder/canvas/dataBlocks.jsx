@@ -448,7 +448,16 @@ export function MenuInlineCanvas({ data, onChange }) {
     staleTime: 30_000,
   })
   const tagsByCode = menu ? Object.fromEntries((menu.dietary_tags || []).map(t => [t.code, t])) : {}
-  const cols = menu ? Math.min(menu.print_columns || 3, 3) : 1
+
+  // Layout — block override beats menu default. Capped at 4 to match SSR.
+  const colOverride = typeof data.columns === 'number' ? data.columns : null
+  const cols = menu
+    ? Math.max(1, Math.min(4, colOverride || menu.print_columns || 3))
+    : 1
+  const direction       = data.direction === 'rows' ? 'rows' : 'columns'
+  const showHeaders     = data.show_section_headers !== false
+  const showSubheader   = data.show_subheader      !== false
+  const subheaderText   = (data.subheader_text || '').trim() || (menu && menu.tagline) || ''
 
   // Block-level filters — match the SSR partial exactly so the canvas
   // preview reflects what the live site will render.
@@ -462,6 +471,10 @@ export function MenuInlineCanvas({ data, onChange }) {
       items: (s.items || []).filter(it => itemFilter.length === 0 || itemFilter.includes(it.id)),
     }))
     .filter(s => s.items.length > 0)
+
+  const containerStyle = direction === 'rows'
+    ? { display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '36px 48px', alignItems: 'start' }
+    : { columnCount: cols, columnGap: 48, columnFill: 'balance' }
 
   return (
     <section className="block" style={{ padding: '64px 0' }}>
@@ -479,9 +492,9 @@ export function MenuInlineCanvas({ data, onChange }) {
           <EmptyPanel Icon={BookOpen} title="Menu" hint="Menu not found." where="Check that the menu still exists" />
         ) : (
           <>
-            {menu.tagline && (
+            {showSubheader && subheaderText && (
               <p style={{ textAlign: 'center', fontFamily: 'Caveat, var(--f-heading), cursive', fontSize: '1.3rem', color: 'var(--c-primary)', margin: '-16px 0 24px' }}>
-                {menu.tagline}
+                {subheaderText}
               </p>
             )}
             {menu.intro_line && (
@@ -489,19 +502,21 @@ export function MenuInlineCanvas({ data, onChange }) {
                 {menu.intro_line}
               </p>
             )}
-            <div style={{ columnCount: cols, columnGap: 48, columnFill: 'balance' }}>
+            <div style={containerStyle}>
               {filteredSections.map(s => (
-                <div key={s.id} style={{ breakInside: 'avoid', marginBottom: 36 }}>
-                  <h3 style={{
-                    fontFamily: 'var(--f-heading)', color: 'var(--c-primary)',
-                    fontSize: '1.2rem', fontWeight: 600,
-                    paddingBottom: 8, borderBottom: '1px solid var(--c-border)',
-                    margin: '0 0 16px', display: 'flex',
-                    alignItems: 'baseline', justifyContent: 'space-between', gap: 12,
-                  }}>
-                    <span>{s.title}</span>
-                    {s.subtitle && <span style={{ fontSize: '0.78rem', fontWeight: 400, color: 'var(--c-muted)', fontStyle: 'italic' }}>{s.subtitle}</span>}
-                  </h3>
+                <div key={s.id} style={{ breakInside: 'avoid', marginBottom: direction === 'rows' ? 0 : 36 }}>
+                  {showHeaders && (
+                    <h3 style={{
+                      fontFamily: 'var(--f-heading)', color: 'var(--c-primary)',
+                      fontSize: '1.2rem', fontWeight: 600,
+                      paddingBottom: 8, borderBottom: '1px solid var(--c-border)',
+                      margin: '0 0 16px', display: 'flex',
+                      alignItems: 'baseline', justifyContent: 'space-between', gap: 12,
+                    }}>
+                      <span>{s.title}</span>
+                      {s.subtitle && <span style={{ fontSize: '0.78rem', fontWeight: 400, color: 'var(--c-muted)', fontStyle: 'italic' }}>{s.subtitle}</span>}
+                    </h3>
+                  )}
                   {(s.items || []).map(item => (
                     <div key={item.id} style={{ padding: '10px 0', borderBottom: '1px dotted var(--c-border)' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>

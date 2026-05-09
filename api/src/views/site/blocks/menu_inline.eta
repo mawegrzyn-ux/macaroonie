@@ -7,7 +7,17 @@ const containerStyle = d.container === 'full'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 function fmtPrice(p) { if (p == null) return ''; return '£' + (Number(p) / 100).toFixed(2) }
 const tagsByCode = menu ? Object.fromEntries((menu.dietary_tags || []).map(t => [t.code, t])) : {}
-const cols = menu ? (menu.print_columns || 3) : 1
+
+/* Layout — block override beats the menu's print_columns. Capped at 4. */
+const _colOverride = (typeof d.columns === 'number') ? d.columns : null
+const cols = menu
+  ? Math.max(1, Math.min(4, _colOverride || menu.print_columns || 3))
+  : 1
+const _direction      = d.direction === 'rows' ? 'rows' : 'columns'
+const _showHeaders    = d.show_section_headers !== false
+const _showSubheader  = d.show_subheader      !== false
+const _subheaderText  = (d.subheader_text || '').trim() || (menu && menu.tagline) || ''
+
 const _blockId = `mi-${(it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)}`
 
 /* Block-level filtering: empty arrays = no filter (show everything). When
@@ -26,13 +36,34 @@ function _keepItem(item) {
 }
 %>
 <style>
-  .<%= _blockId %> { column-count: <%= Math.min(cols, 3) %>; column-gap: 48px; column-fill: balance; }
-  @media (max-width: 800px) {
-    .<%= _blockId %> { column-count: 2 !important; column-gap: 32px; }
-  }
-  @media (max-width: 600px) {
-    .<%= _blockId %> { column-count: 1 !important; column-gap: 0; }
-  }
+  <% if (_direction === 'rows') { %>
+    /* Grid: sections placed left-to-right and wrap to the next row. Each
+       row's height equals the tallest item in that row — fine for menus
+       where sections are similar lengths, less elegant for very uneven ones
+       (use the "columns" flow for those). */
+    .<%= _blockId %> {
+      display: grid;
+      grid-template-columns: repeat(<%= cols %>, 1fr);
+      gap: 36px 48px;
+      align-items: start;
+    }
+    @media (max-width: 800px) {
+      .<%= _blockId %> { grid-template-columns: repeat(<%= Math.min(cols, 2) %>, 1fr) !important; gap: 28px 32px; }
+    }
+    @media (max-width: 600px) {
+      .<%= _blockId %> { grid-template-columns: 1fr !important; gap: 28px 0; }
+    }
+  <% } else { %>
+    /* CSS multi-column: sections snake top-to-bottom through column 1,
+       then column 2, etc. Browsers balance heights for visual symmetry. */
+    .<%= _blockId %> { column-count: <%= cols %>; column-gap: 48px; column-fill: balance; }
+    @media (max-width: 800px) {
+      .<%= _blockId %> { column-count: <%= Math.min(cols, 2) %> !important; column-gap: 32px; }
+    }
+    @media (max-width: 600px) {
+      .<%= _blockId %> { column-count: 1 !important; column-gap: 0; }
+    }
+  <% } %>
 </style>
 <section class="block" style="padding: 80px 0;">
   <div style="<%= containerStyle %>">
@@ -46,9 +77,9 @@ function _keepItem(item) {
         Menu not configured — pick one in the inspector.
       </p>
     <% } else { %>
-      <% if (menu.tagline) { %>
+      <% if (_showSubheader && _subheaderText) { %>
         <p style="text-align:center; font-family:'Caveat',var(--f-heading),cursive; font-size:1.3rem; color:var(--c-primary); margin:-24px 0 24px;">
-          <%= menu.tagline %>
+          <%= _subheaderText %>
         </p>
       <% } %>
       <% if (menu.intro_line) { %>
@@ -62,11 +93,13 @@ function _keepItem(item) {
         <% _msections.forEach(function(s){ %>
           <% const _mitems = (s.items || []).filter(_keepItem) %>
           <% if (_mitems.length === 0) { return; } %>
-          <div style="break-inside:avoid; margin-bottom:36px;">
-            <h3 style="font-family:var(--f-heading); color:var(--c-primary); font-size:1.2rem; font-weight:600; padding-bottom:8px; border-bottom:1px solid var(--c-border); margin:0 0 16px; display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
-              <span><%= s.title %></span>
-              <% if (s.subtitle) { %><span style="font-size:0.78rem; font-weight:400; color:var(--c-muted); font-style:italic;"><%= s.subtitle %></span><% } %>
-            </h3>
+          <div style="break-inside:avoid; <%= _direction === 'rows' ? '' : 'margin-bottom:36px;' %>">
+            <% if (_showHeaders) { %>
+              <h3 style="font-family:var(--f-heading); color:var(--c-primary); font-size:1.2rem; font-weight:600; padding-bottom:8px; border-bottom:1px solid var(--c-border); margin:0 0 16px; display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
+                <span><%= s.title %></span>
+                <% if (s.subtitle) { %><span style="font-size:0.78rem; font-weight:400; color:var(--c-muted); font-style:italic;"><%= s.subtitle %></span><% } %>
+              </h3>
+            <% } %>
             <% _mitems.forEach(function(item){ %>
               <div style="padding:10px 0; border-bottom:1px dotted var(--c-border);">
                 <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">

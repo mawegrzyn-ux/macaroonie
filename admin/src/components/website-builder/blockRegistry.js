@@ -180,6 +180,13 @@ export const BLOCKS = [
       section_ids: [],
       item_ids:    [],
       hide_prices: false,
+      // Layout controls
+      columns:     null,       // null = use menu.print_columns; 1-4 overrides
+      direction:   'columns',  // 'columns' = CSS multi-col (snake), 'rows' = grid (left→right wrap)
+      show_section_headers: true,
+      // Subheader (menu tagline rendered in script font)
+      show_subheader: true,
+      subheader_text: '',      // blank = use menu.tagline
       container:   'boxed',
     },
     editor:      MenuInlineEditor,

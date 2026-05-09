@@ -118,11 +118,26 @@ export default async function widgetApiRoutes(app) {
     const slots = await withTenant(venue.tenant_id, tx => tx`
       SELECT * FROM get_available_slots(${req.params.venueId}::uuid, ${date}::date, ${covers}::int)
     `)
-    // Trim slot_time to HH:MM (PG returns HH:MM:SS)
+    /* Migration 020 changed slot_result.slot_time from `time` to
+       `timestamptz`, so postgres.js deserialises it to a Date — calling
+       `.slice()` on it threw `s.slot_time.slice is not a function`.
+       Convert it to the venue's local HH:MM string here so the widget
+       (which builds `${date}T${slot_time}:00`) keeps working unchanged. */
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: venue.timezone || 'UTC',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    })
+    function toLocalHHMM(v) {
+      if (!v) return null
+      const d = v instanceof Date ? v : new Date(v)
+      if (Number.isNaN(d.getTime())) return null
+      // Intl returns "HH:MM" with the en-GB locale + 24-hour clock.
+      return fmt.format(d)
+    }
     return slots.map(s => ({
       ...s,
-      slot_time: s.slot_time ? s.slot_time.slice(0, 5) : null,
-    })).filter(s => s.reason !== 'unavailable')
+      slot_time: toLocalHHMM(s.slot_time),
+    })).filter(s => s.reason !== 'unavailable' && s.slot_time)
   })
 
   // ── POST /venues/:venueId/holds ─────────────────────────

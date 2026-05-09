@@ -527,12 +527,70 @@ export function MenuInlineEditor({ data, onChange }) {
           </div>
 
           <div>
+            <SectionHead label="Layout" />
+            <div className="space-y-3">
+              <FormRow label="Columns"
+                hint={`How many columns to lay out sections in. Blank uses the menu's setting (${menu?.print_columns || 3}).`}>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[null, 1, 2, 3, 4].map(n => (
+                    <button key={String(n)} type="button"
+                      onClick={() => set('columns')(n)}
+                      className={`text-sm border rounded-md py-2 min-h-[36px]
+                        ${data.columns === n
+                          ? 'bg-primary/10 border-primary text-primary font-medium'
+                          : 'hover:bg-accent'}`}>
+                      {n === null ? 'Auto' : n}
+                    </button>
+                  ))}
+                </div>
+              </FormRow>
+              <FormRow label="Flow"
+                hint='"Columns" snakes sections vertically through column 1, then 2, etc. "Rows" places sections left-to-right and wraps to a new row.'>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { v: 'columns', label: 'Columns (snake)' },
+                    { v: 'rows',    label: 'Rows (wrap)' },
+                  ].map(opt => (
+                    <button key={opt.v} type="button"
+                      onClick={() => set('direction')(opt.v)}
+                      className={`text-sm border rounded-md py-2 min-h-[36px]
+                        ${(data.direction || 'columns') === opt.v
+                          ? 'bg-primary/10 border-primary text-primary font-medium'
+                          : 'hover:bg-accent'}`}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </FormRow>
+            </div>
+          </div>
+
+          <div>
             <SectionHead label="Display" />
-            <Toggle
-              checked={!!data.hide_prices}
-              onChange={set('hide_prices')}
-              label="Hide prices"
-            />
+            <div className="space-y-3">
+              <Toggle
+                checked={data.show_section_headers !== false}
+                onChange={set('show_section_headers')}
+                label="Show category headers"
+              />
+              <Toggle
+                checked={data.show_subheader !== false}
+                onChange={set('show_subheader')}
+                label="Show subheader (menu tagline)"
+              />
+              {data.show_subheader !== false && (
+                <FormRow label="Subheader text"
+                  hint={`Override the menu's tagline. Blank = use ${menu?.tagline ? `"${menu.tagline}"` : 'the tagline set on the menu'}.`}>
+                  <Input value={data.subheader_text} onChange={set('subheader_text')}
+                    placeholder={menu?.tagline || 'Menu tagline'} />
+                </FormRow>
+              )}
+              <Toggle
+                checked={!!data.hide_prices}
+                onChange={set('hide_prices')}
+                label="Hide prices"
+              />
+            </div>
           </div>
 
           <a href={`/api/menus/${data.menu_id}/print`} target="_blank" rel="noopener"
