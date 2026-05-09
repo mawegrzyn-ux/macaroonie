@@ -7,17 +7,32 @@ const containerStyle = d.container === 'full'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 const cols = showImage ? '1fr 1.3fr' : '1fr'
 const imageOrder = d.image_side === 'right' ? 2 : 1
+const textOrder  = imageOrder === 1 ? 2 : 1
 const showStamp = d.stamp_show !== false
+const _blockId = `sw-${(it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)}`
 %>
+<style>
+  .<%= _blockId %> { display: grid; grid-template-columns: <%= cols %>; gap: 80px; align-items: start; }
+  .<%= _blockId %> > .sw-img  { order: <%= imageOrder %>; }
+  .<%= _blockId %> > .sw-text { order: <%= textOrder %>; }
+  @media (max-width: 800px) {
+    .<%= _blockId %> { grid-template-columns: 1fr !important; gap: 32px !important; }
+    /* On mobile always stack image above text — looks better and avoids
+       the "image on the right of nothing" effect. */
+    .<%= _blockId %> > .sw-img  { order: 1 !important; }
+    .<%= _blockId %> > .sw-text { order: 2 !important; }
+    .<%= _blockId %> > .sw-img img { max-width: 320px; margin: 0 auto; }
+  }
+</style>
 <section class="block" style="padding: 110px 0; position: relative;">
   <div style="<%= containerStyle %>">
-    <div style="display:grid; grid-template-columns: <%= cols %>; gap:80px; align-items:start;">
+    <div class="<%= _blockId %>">
       <% if (showImage) { %>
-        <div style="order: <%= imageOrder %>;">
+        <div class="sw-img">
           <img src="<%= d.image_url %>" alt="" style="width:100%; border-radius:var(--r-md, 8px); display:block;" />
         </div>
       <% } %>
-      <div style="order: <%= imageOrder === 1 ? 2 : 1 %>;">
+      <div class="sw-text">
         <% if (d.heading) { %>
           <h2 style="font-family:var(--f-heading); font-size:clamp(2rem,4vw,3rem); font-weight:400; line-height:1.05; letter-spacing:-0.02em; color:var(--c-primary); margin:0 0 24px;">
             <%= d.heading %>

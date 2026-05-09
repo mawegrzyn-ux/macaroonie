@@ -13,6 +13,16 @@ const showLogo = d.show_logo !== false
 const links    = Array.isArray(d.links) ? d.links : []
 const cta      = d.cta || {}
 const showCta  = cta.show !== false
+
+/* Mobile visibility controls — default to a reasonable mobile UX:
+   logo + brand name visible, subtitle + nav links hidden, CTA visible.
+   Operators can flip any of them per-header in the page builder. */
+const mShowLogo     = d.mobile_show_logo     !== false
+const mShowBrand    = d.mobile_show_brand    !== false
+const mShowSubtitle = d.mobile_show_subtitle === true   /* off by default */
+const mShowLinks    = d.mobile_show_links    === true   /* off by default */
+const mShowCta      = d.mobile_show_cta      !== false
+const _mobileBp     = d.mobile_breakpoint || 768
 %>
 <style>
   .mc-header { position: <%= sticky ? 'sticky' : 'static' %>; top: 0; z-index: 50;
@@ -20,16 +30,27 @@ const showCta  = cta.show !== false
     -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--c-border); padding: 14px 0; }
   .mc-header .row { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:0 24px; max-width:var(--cw,1240px); margin:0 auto; }
-  .mc-header .brand { display:flex; align-items:center; gap:12px; text-decoration:none; }
-  .mc-header .brand img { width:56px; height:56px; object-fit:contain; }
+  .mc-header .brand { display:flex; align-items:center; gap:12px; text-decoration:none; min-width:0; }
+  .mc-header .brand img { width:56px; height:56px; object-fit:contain; flex-shrink:0; }
   .mc-header .brand .name { font-family:var(--f-heading); font-weight:600; font-size:1.5rem; color:var(--c-primary); line-height:1; }
   .mc-header .brand .sub  { display:block; font-family:var(--f-body); text-transform:uppercase; letter-spacing:0.3em; font-size:0.6rem; color:var(--c-muted); margin-top:4px; }
   .mc-header nav { display:flex; gap:28px; align-items:center; }
   .mc-header nav a { color:var(--c-text); font-size:14px; font-weight:500; text-decoration:none; }
   .mc-header nav a:hover { color:var(--c-primary); }
-  .mc-header nav a.cta { background:var(--c-primary); color:#fff; padding:10px 22px; border-radius:999px; font-weight:500; }
+  .mc-header nav a.cta { background:var(--c-primary); color:#fff; padding:10px 22px; border-radius:999px; font-weight:500; white-space:nowrap; }
   .mc-header nav a.cta:hover { opacity:0.92; color:#fff; text-decoration:none; }
-  @media (max-width: 768px) { .mc-header nav a:not(.cta) { display:none; } }
+  @media (max-width: <%= _mobileBp %>px) {
+    .mc-header .row { gap:12px; padding:0 16px; }
+    .mc-header .brand img { width:42px; height:42px; }
+    .mc-header .brand .name { font-size:1.15rem; }
+    .mc-header nav { gap:14px; }
+    .mc-header nav a.cta { padding:8px 14px; font-size:13px; }
+    <% if (!mShowLogo)     { %>.mc-header .brand img { display:none; }<% } %>
+    <% if (!mShowBrand)    { %>.mc-header .brand .name { display:none; }<% } %>
+    <% if (!mShowSubtitle) { %>.mc-header .brand .sub { display:none; }<% } %>
+    <% if (!mShowLinks)    { %>.mc-header nav a:not(.cta) { display:none; }<% } %>
+    <% if (!mShowCta)      { %>.mc-header nav a.cta { display:none; }<% } %>
+  }
 </style>
 <header class="mc-header">
   <div class="row">

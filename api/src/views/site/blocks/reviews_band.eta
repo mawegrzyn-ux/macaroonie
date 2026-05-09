@@ -13,7 +13,14 @@ const palettes = {
 }
 const p = palettes[d.bg_style] || palettes.primary
 const colCount = Math.max(1, Math.min(items.length || 1, 3))
+const _blockId = `rb-${(it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)}`
 %>
+<style>
+  .<%= _blockId %> { display: grid; grid-template-columns: repeat(<%= colCount %>, 1fr); gap: 40px; }
+  @media (max-width: 800px) {
+    .<%= _blockId %> { grid-template-columns: 1fr !important; gap: 28px !important; }
+  }
+</style>
 <section class="block" style="padding:90px 0; background:<%= p.bg %>; color:<%= p.fg %>;">
   <div style="<%= containerStyle %>">
     <% if (d.heading) { %>
@@ -21,7 +28,7 @@ const colCount = Math.max(1, Math.min(items.length || 1, 3))
         <%= d.heading %>
       </h2>
     <% } %>
-    <div style="display:grid; grid-template-columns:repeat(<%= colCount %>, 1fr); gap:40px;">
+    <div class="<%= _blockId %>">
       <% items.forEach(function(r){ %>
         <div style="border-left:2px solid <%= p.divider %>; padding-left:24px;">
           <div style="color:<%= p.star %>; margin-bottom:14px; letter-spacing:0.15em; font-size:0.85rem;">

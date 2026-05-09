@@ -8,7 +8,17 @@ const containerStyle = d.container === 'full'
 function fmtPrice(p) { if (p == null) return ''; return '£' + (Number(p) / 100).toFixed(2) }
 const tagsByCode = menu ? Object.fromEntries((menu.dietary_tags || []).map(t => [t.code, t])) : {}
 const cols = menu ? (menu.print_columns || 3) : 1
+const _blockId = `mi-${(it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)}`
 %>
+<style>
+  .<%= _blockId %> { column-count: <%= Math.min(cols, 3) %>; column-gap: 48px; column-fill: balance; }
+  @media (max-width: 800px) {
+    .<%= _blockId %> { column-count: 2 !important; column-gap: 32px; }
+  }
+  @media (max-width: 600px) {
+    .<%= _blockId %> { column-count: 1 !important; column-gap: 0; }
+  }
+</style>
 <section class="block" style="padding: 80px 0;">
   <div style="<%= containerStyle %>">
     <% if (d.heading) { %>
@@ -33,7 +43,7 @@ const cols = menu ? (menu.print_columns || 3) : 1
       <% } %>
 
       <% const _msections = menu.sections || [] %>
-      <div style="column-count: <%= Math.min(cols, 3) %>; column-gap:48px; column-fill:balance;">
+      <div class="<%= _blockId %>">
         <% _msections.forEach(function(s){ %>
           <div style="break-inside:avoid; margin-bottom:36px;">
             <h3 style="font-family:var(--f-heading); color:var(--c-primary); font-size:1.2rem; font-weight:600; padding-bottom:8px; border-bottom:1px solid var(--c-border); margin:0 0 16px; display:flex; align-items:baseline; justify-content:space-between; gap:12px;">

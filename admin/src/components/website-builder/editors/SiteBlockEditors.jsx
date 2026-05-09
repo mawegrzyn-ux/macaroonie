@@ -148,6 +148,28 @@ export function HeaderBlockEditor({ data, onChange }) {
           </FormRow>
         </div>
       </div>
+
+      <div>
+        <SectionHead label="Mobile" />
+        <p className="text-xs text-muted-foreground mb-2">
+          Below the breakpoint width, hide elements to keep the header compact.
+        </p>
+        <div className="space-y-2">
+          <Toggle checked={data.mobile_show_logo     !== false} onChange={set('mobile_show_logo')}     label="Show logo on mobile" />
+          <Toggle checked={data.mobile_show_brand    !== false} onChange={set('mobile_show_brand')}    label="Show brand text on mobile" />
+          <Toggle checked={data.mobile_show_subtitle === true}  onChange={set('mobile_show_subtitle')} label="Show subtitle on mobile" />
+          <Toggle checked={data.mobile_show_links    === true}  onChange={set('mobile_show_links')}    label="Show nav links on mobile" />
+          <Toggle checked={data.mobile_show_cta      !== false} onChange={set('mobile_show_cta')}      label="Show booking CTA on mobile" />
+        </div>
+        <FormRow label="Mobile breakpoint (px)" hint="Width at which the mobile rules apply.">
+          <Input
+            type="number"
+            value={data.mobile_breakpoint ?? 768}
+            onChange={v => set('mobile_breakpoint')(Number(v) || 768)}
+            placeholder="768"
+          />
+        </FormRow>
+      </div>
     </div>
   )
 }

@@ -6,7 +6,14 @@ const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 const colCount = Math.max(1, cols.length || 1)
+const _blockId = `dl-${(it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)}`
 %>
+<style>
+  .<%= _blockId %> { display: grid; grid-template-columns: repeat(<%= colCount %>, 1fr); gap: 0 80px; }
+  @media (max-width: 800px) {
+    .<%= _blockId %> { grid-template-columns: 1fr !important; gap: 24px 0 !important; }
+  }
+</style>
 <section class="block" style="padding:100px 0; background:var(--c-surface); border-top:1px solid var(--c-border); border-bottom:1px solid var(--c-border);">
   <div style="<%= containerStyle %>">
     <% if (d.heading || d.subheading) { %>
@@ -22,7 +29,7 @@ const colCount = Math.max(1, cols.length || 1)
       </div>
     <% } %>
 
-    <div style="display:grid; grid-template-columns:repeat(<%= colCount %>, 1fr); gap:0 80px;">
+    <div class="<%= _blockId %>">
       <% cols.forEach(function(col){ %>
         <div>
           <h3 style="font-family:'Caveat', var(--f-heading), cursive; font-weight:600; color:var(--c-primary); font-size:1.7rem; padding-bottom:14px; margin:0 0 24px; border-bottom:1px solid var(--c-border);">

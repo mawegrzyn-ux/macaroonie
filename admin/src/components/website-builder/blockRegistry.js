@@ -84,6 +84,13 @@ export const BLOCKS = [
         { label: 'Menu',      url: '/menu' },
       ],
       cta: { show: true, text: 'Book a Table', url: '/locations' },
+      // Mobile-only visibility flags (≤ mobile_breakpoint px)
+      mobile_show_logo:     true,
+      mobile_show_brand:    true,
+      mobile_show_subtitle: false,
+      mobile_show_links:    false,
+      mobile_show_cta:      true,
+      mobile_breakpoint:    768,
     },
     editor: HeaderBlockEditor,
   },

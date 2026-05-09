@@ -57,13 +57,40 @@ const heroMinH    = hero.min_height_px || 520
    font_family referenced by a block on this page (e.g. ticker block's
    custom font choice). Without scanning blocks, a per-block font choice
    would silently fall back to the browser default because the font file
-   was never requested. Mirrors the FontPicker's FONT_OPTIONS list. */
-const GOOGLE_FONTS = new Set([
-  'Inter','Fraunces','Caveat','Playfair Display','Poppins','Lora','Montserrat',
-  'Roboto','Open Sans','Source Sans Pro','Raleway','Merriweather','Work Sans',
-  'Karla','DM Sans','DM Serif Display','Space Grotesk','Manrope',
-  'Cormorant Garamond','Libre Baskerville','Nunito','Rubik',
-])
+   was never requested. Mirrors the FontPicker's FONT_OPTIONS list.
+
+   Each font has a different set of available weights — Google Fonts v2
+   returns HTTP 400 for the WHOLE stylesheet if a single requested weight
+   is missing for any one font. Requesting `wght@300;400;500;600;700;800`
+   for Caveat (which only has 400-700) or DM Serif Display (which only
+   has 400) used to break the entire page's font loading.
+*/
+const FONT_WEIGHTS = {
+  'Inter':              '300;400;500;600;700;800',
+  'Fraunces':           '300;400;500;600;700;800',
+  'Caveat':             '400;500;600;700',
+  'Playfair Display':   '400;500;600;700;800',
+  'Poppins':            '300;400;500;600;700;800',
+  'Lora':               '400;500;600;700',
+  'Montserrat':         '300;400;500;600;700;800',
+  'Roboto':             '300;400;500;700',
+  'Open Sans':          '300;400;500;600;700;800',
+  'Source Sans Pro':    '300;400;600;700',
+  'Raleway':            '300;400;500;600;700;800',
+  'Merriweather':       '300;400;700;900',
+  'Work Sans':          '300;400;500;600;700;800',
+  'Karla':              '300;400;500;600;700;800',
+  'DM Sans':            '400;500;700',
+  'DM Serif Display':   '400',
+  'Space Grotesk':      '300;400;500;600;700',
+  'Manrope':            '300;400;500;600;700;800',
+  'Cormorant Garamond': '300;400;500;600;700',
+  'Libre Baskerville':  '400;700',
+  'Nunito':             '300;400;500;600;700;800',
+  'Rubik':              '300;400;500;600;700;800',
+}
+const GOOGLE_FONTS = new Set(Object.keys(FONT_WEIGHTS))
+
 const fontsToLoad = []
 function pushFont(f) {
   if (f && GOOGLE_FONTS.has(f) && !fontsToLoad.includes(f)) fontsToLoad.push(f)
@@ -88,7 +115,7 @@ collectBlockFonts(it.config?.home_blocks)
 collectBlockFonts(it.config?.page_blocks)
 
 const gfUrl = fontsToLoad.length
-  ? `https://fonts.googleapis.com/css2?${fontsToLoad.map(f => `family=${encodeURIComponent(f)}:wght@300;400;500;600;700;800`).join('&')}&display=swap`
+  ? `https://fonts.googleapis.com/css2?${fontsToLoad.map(f => `family=${encodeURIComponent(f)}:wght@${FONT_WEIGHTS[f]}`).join('&')}&display=swap`
   : null
 %><!DOCTYPE html>
 <html lang="en">
@@ -211,6 +238,12 @@ const gfUrl = fontsToLoad.length
       font-weight: var(--fw-body);
       line-height: var(--lh);
       letter-spacing: var(--ls);
+      /* Defensive guard: any block that overflows horizontally
+         (grid not collapsing, fixed-width image, etc.) would otherwise
+         add an empty strip on the right. The visible scroll is suppressed
+         here while individual blocks add proper @media collapse rules. */
+      overflow-x: hidden;
+      max-width: 100vw;
     }
     h1, h2, h3, h4 { font-family: var(--f-heading); font-weight: var(--fw-heading); margin: 0; line-height: 1.15; }
     h1 { font-size: var(--fs-h1); }

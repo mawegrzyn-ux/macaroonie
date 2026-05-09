@@ -4,14 +4,18 @@
 
 import {
   HeroCanvas, TextCanvas, ImageCanvas, TwoColumnCanvas,
-  CtaStripCanvas, DividerCanvas, FaqCanvas, DataPlaceholderCanvas,
+  CtaStripCanvas, DividerCanvas, FaqCanvas,
   ColumnsCanvas,
 } from './blockCanvas'
 import {
   HeaderCanvas, FooterCanvas, TickerCanvas,
   StoryWithStampCanvas, DishListCanvas, ReviewsBandCanvas,
-  OrderOptionsCanvas, MenuInlineCanvas,
+  OrderOptionsCanvas,
 } from './siteBlocks'
+import {
+  GalleryCanvas, OpeningHoursCanvas, FindUsCanvas, ContactCanvas,
+  BookingWidgetCanvas, MenuPdfsCanvas, AllergensCanvas, MenuInlineCanvas,
+} from './dataBlocks'
 
 export const CANVAS_BY_TYPE = {
   // Site shell
@@ -23,7 +27,6 @@ export const CANVAS_BY_TYPE = {
   dish_list:        DishListCanvas,
   reviews_band:     ReviewsBandCanvas,
   order_options:    OrderOptionsCanvas,
-  menu_inline:      MenuInlineCanvas,
   // Existing
   hero:           HeroCanvas,
   text:           TextCanvas,
@@ -33,14 +36,18 @@ export const CANVAS_BY_TYPE = {
   divider:        DividerCanvas,
   faq:            FaqCanvas,
   columns:        ColumnsCanvas,
-  // All "live data" blocks share one placeholder.
-  gallery:        DataPlaceholderCanvas,
-  opening_hours:  DataPlaceholderCanvas,
-  find_us:        DataPlaceholderCanvas,
-  contact:        DataPlaceholderCanvas,
-  booking_widget: DataPlaceholderCanvas,
-  menu_pdfs:      DataPlaceholderCanvas,
-  allergens:      DataPlaceholderCanvas,
+  // Live-data blocks — each has its own faithful preview now
+  // (canvas/dataBlocks.jsx). Read from the actual venue config /
+  // website tables / chosen menu and render the same shape the SSR
+  // partial does.
+  gallery:        GalleryCanvas,
+  opening_hours:  OpeningHoursCanvas,
+  find_us:        FindUsCanvas,
+  contact:        ContactCanvas,
+  booking_widget: BookingWidgetCanvas,
+  menu_pdfs:      MenuPdfsCanvas,
+  allergens:      AllergensCanvas,
+  menu_inline:    MenuInlineCanvas,
 }
 
 export function getCanvasComponent(type) {
