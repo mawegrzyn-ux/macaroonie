@@ -362,6 +362,7 @@ export function AllergensCanvas({ data, onChange, config }) {
 // ── Booking widget ───────────────────────────────────────
 
 export function BookingWidgetCanvas({ data, onChange, config }) {
+  const api = useApi()
   // Embeds the SAME /widget/{id} iframe that ships on the live site.
   // Single source of truth — what you see here is what visitors see.
   // Resolution order matches the SSR partial (booking_widget.eta):
@@ -369,12 +370,41 @@ export function BookingWidgetCanvas({ data, onChange, config }) {
   //   2. on a location page: the venue this config row belongs to
   //   3. tenant default_widget_venue_id
   //   4. tenant mode with location picker
-  const ts          = config && config.template_key !== undefined ? config : null
+  //
+  // We need the tenant_site row regardless of which page-builder context
+  // we're in (tenant home OR per-venue page) — both for the
+  // default_widget_venue_id fallback AND for the subdomain_slug we use
+  // to build the iframe's absolute URL (see widgetOrigin below).
+  const { data: tenantSite } = useQuery({
+    queryKey: ['tenant-site'],
+    queryFn:  () => api.get('/website/tenant-site'),
+    staleTime: 60_000,
+  })
+  const ts          = tenantSite || (config && config.template_key !== undefined ? config : null)
   const tenantId    = (ts && ts.tenant_id) || (config && config.tenant_id) || null
   const venueId     = data.venue_id
                    || (config && config.venue_id)
                    || (ts && ts.default_widget_venue_id)
                    || null
+
+  // Where to point the iframe at. The page-builder admin runs on the
+  // apex domain (macaroonie.com) which doesn't proxy /widget/* by
+  // default — relative URLs hit the SPA's catch-all and render blank.
+  // The tenant subdomain (e.g. onethai.macaroonie.com) DOES proxy
+  // everything through the wildcard server block, so use that as the
+  // iframe origin in production. Localhost relies on Vite's /widget proxy.
+  const widgetOrigin = (() => {
+    if (typeof window === 'undefined') return ''
+    const host = window.location.hostname
+    if (host === 'localhost' || host === '127.0.0.1') return ''  // Vite proxy handles it
+    if (!ts?.subdomain_slug) return ''                            // Caller hasn't set one yet
+    // Strip leading subdomain to get the apex (admin may run on
+    // either macaroonie.com or app.macaroonie.com — both reduce to
+    // macaroonie.com via the last-two-parts heuristic).
+    const parts = host.split('.')
+    const apex  = parts.length >= 2 ? parts.slice(-2).join('.') : host
+    return `${window.location.protocol}//${ts.subdomain_slug}.${apex}`
+  })()
 
   // Surface + text colours from the theme so the widget melts into the
   // canvas card visually — same params the SSR block partial sends.
@@ -405,9 +435,9 @@ export function BookingWidgetCanvas({ data, onChange, config }) {
   if (data.large_party_text) qp.set('lp', data.large_party_text)
 
   if (venueId) {
-    widgetSrc = `/widget/${venueId}?${qp.toString()}`
+    widgetSrc = `${widgetOrigin}/widget/${venueId}?${qp.toString()}`
   } else if (tenantId) {
-    widgetSrc = `/widget/tenant/${tenantId}?${qp.toString()}`
+    widgetSrc = `${widgetOrigin}/widget/tenant/${tenantId}?${qp.toString()}`
   }
 
   return (
