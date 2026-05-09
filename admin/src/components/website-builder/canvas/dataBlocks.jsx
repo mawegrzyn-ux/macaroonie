@@ -389,6 +389,21 @@ export function BookingWidgetCanvas({ data, onChange, config }) {
   if (accentHex)  qp.set('accent', accentHex)
   if (surfaceHex) qp.set('bg',     surfaceHex)
   if (textHex)    qp.set('text',   textHex)
+
+  // Per-block widget chrome overrides — match what the SSR partial sends.
+  const stripHash = (s) => (typeof s === 'string' ? s.replace(/^#/, '') : '')
+  if (data.header_show === false) qp.set('headerShow', '0')
+  if (data.header_show === true)  qp.set('headerShow', '1')
+  if (data.header_text)    qp.set('header', data.header_text)
+  if (data.subheader_text) qp.set('sub',    data.subheader_text)
+  if (data.button_bg && /^#?[0-9a-fA-F]{6}$/.test(data.button_bg)) qp.set('btnBg', stripHash(data.button_bg))
+  if (data.button_fg && /^#?[0-9a-fA-F]{6}$/.test(data.button_fg)) qp.set('btnFg', stripHash(data.button_fg))
+  if (typeof data.button_radius_px === 'number') qp.set('btnR',  String(data.button_radius_px))
+  if (typeof data.card_radius_px   === 'number') qp.set('cardR', String(data.card_radius_px))
+  if (data.border_colour && /^#?[0-9a-fA-F]{6}$/.test(data.border_colour)) qp.set('brd', stripHash(data.border_colour))
+  if (data.font_family)    qp.set('font', data.font_family)
+  if (data.large_party_text) qp.set('lp', data.large_party_text)
+
   if (venueId) {
     widgetSrc = `/widget/${venueId}?${qp.toString()}`
   } else if (tenantId) {

@@ -263,12 +263,33 @@ export default async function siteRendererRoutes(app) {
     }
     const bg   = _hex(req.query.bg)
     const text = _hex(req.query.text)
+    /* Widget chrome customisation. All optional — render path falls back
+       to tenant_site.widget_settings for anything not in the URL, then
+       to built-in defaults. */
+    const _intInRange = (s, lo, hi) => {
+      const n = parseInt(s, 10)
+      return Number.isFinite(n) && n >= lo && n <= hi ? n : null
+    }
+    const widgetCustom = {
+      headerShow:     req.query.headerShow === '0' ? false
+                    : req.query.headerShow === '1' ? true : null,
+      headerText:     req.query.header     ? String(req.query.header).slice(0, 120)     : null,
+      subheaderText:  req.query.sub        ? String(req.query.sub).slice(0, 160)        : null,
+      buttonBg:       _hex(req.query.btnBg),
+      buttonFg:       _hex(req.query.btnFg),
+      buttonRadiusPx: _intInRange(req.query.btnR,  0, 40),
+      cardRadiusPx:   _intInRange(req.query.cardR, 0, 40),
+      borderColour:   _hex(req.query.brd),
+      fontFamily:     req.query.font   ? String(req.query.font).slice(0, 100)   : null,
+      largePartyText: req.query.lp     ? String(req.query.lp).slice(0, 300)     : null,
+    }
 
     const [venue] = await sql`
       SELECT v.id, v.tenant_id, v.name, v.timezone,
              br.slot_duration_mins, br.min_covers, br.max_covers,
              br.book_until_days, br.hold_ttl_secs,
              ts.primary_colour, ts.font_family, ts.site_name AS tenant_site_name,
+             ts.widget_settings,
              wc.hero_heading
         FROM venues v
         LEFT JOIN booking_rules  br ON br.venue_id  = v.id
@@ -308,6 +329,8 @@ export default async function siteRendererRoutes(app) {
       theme,
       font_family:    venue.font_family || 'system-ui',
       bg, text,
+      widgetCustom,
+      tenantWidgetDefaults: venue.widget_settings || {},
     })
   })
 
@@ -327,10 +350,28 @@ export default async function siteRendererRoutes(app) {
     }
     const bg   = _hex(req.query.bg)
     const text = _hex(req.query.text)
+    const _intInRange = (s, lo, hi) => {
+      const n = parseInt(s, 10)
+      return Number.isFinite(n) && n >= lo && n <= hi ? n : null
+    }
+    const widgetCustom = {
+      headerShow:     req.query.headerShow === '0' ? false
+                    : req.query.headerShow === '1' ? true : null,
+      headerText:     req.query.header     ? String(req.query.header).slice(0, 120)     : null,
+      subheaderText:  req.query.sub        ? String(req.query.sub).slice(0, 160)        : null,
+      buttonBg:       _hex(req.query.btnBg),
+      buttonFg:       _hex(req.query.btnFg),
+      buttonRadiusPx: _intInRange(req.query.btnR,  0, 40),
+      cardRadiusPx:   _intInRange(req.query.cardR, 0, 40),
+      borderColour:   _hex(req.query.brd),
+      fontFamily:     req.query.font   ? String(req.query.font).slice(0, 100)   : null,
+      largePartyText: req.query.lp     ? String(req.query.lp).slice(0, 300)     : null,
+    }
     const initialVenueId = req.query.venue || null
 
     const [tenantSite] = await sql`
-      SELECT ts.primary_colour, ts.font_family, ts.site_name, t.name AS tenant_name
+      SELECT ts.primary_colour, ts.font_family, ts.site_name, ts.widget_settings,
+             t.name AS tenant_name
         FROM tenants t
         LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
        WHERE t.id = ${tenantId} AND t.is_active = true
@@ -386,6 +427,8 @@ export default async function siteRendererRoutes(app) {
       theme,
       font_family:    tenantSite.font_family || 'system-ui',
       bg, text,
+      widgetCustom,
+      tenantWidgetDefaults: tenantSite.widget_settings || {},
     })
   })
 }

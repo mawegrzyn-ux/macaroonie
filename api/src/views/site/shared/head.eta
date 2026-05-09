@@ -98,12 +98,12 @@ function pushFont(f) {
 pushFont(headingFont)
 pushFont(bodyFont)
 
-/* Block types whose Eta partials hardcode `'Caveat'` in their CSS — these
-   need Caveat loaded from Google Fonts even when the operator hasn't
-   explicitly picked a font for the block. menu_inline tagline,
-   story_with_stamp pill, dish_list column titles, hero <em>, etc. */
+/* Block types whose Eta partials hardcode `'Caveat'` (or default to it
+   when the operator hasn't picked a font) — these need Caveat loaded
+   from Google Fonts unconditionally. menu_inline tagline,
+   story_with_stamp pill, dish_list column titles, hero <em>, ticker. */
 const CAVEAT_BLOCKS = new Set([
-  'menu_inline', 'story_with_stamp', 'dish_list', 'hero',
+  'menu_inline', 'story_with_stamp', 'dish_list', 'hero', 'ticker',
 ])
 
 /* Walk through any blocks the page renders and collect font_family fields. */

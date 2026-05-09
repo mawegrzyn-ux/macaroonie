@@ -51,6 +51,7 @@ const NAV = [
   { label: 'Schedule',    to: '/schedule',    icon: Clock,              module: 'schedule' },
   { label: 'Rules',       to: '/rules',       icon: Settings,           module: 'rules' },
   { label: 'Website',     to: '/website',     icon: Globe,              module: 'website' },
+  { label: 'Booking widget', to: '/widget-settings', icon: LayoutTemplate, module: 'website' },
   { label: 'Menus',       to: '/menus',       icon: ChefHat,            module: 'menus' },
   { label: 'Media',       to: '/media',       icon: FolderOpen,         module: 'website' },
   { label: 'Cash Recon',  to: '/cash-recon',       icon: Wallet,        module: 'cash_recon' },

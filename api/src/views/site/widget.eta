@@ -51,32 +51,77 @@ const _bg    = _isHex(_bgRaw)  ? '#' + _bgRaw  : null
 const _txt   = _isHex(_txtRaw) ? '#' + _txtRaw : null
 const _bgVar = _bg  || (it.theme === 'dark' ? '#1a1a1a' : '#ffffff')
 const _fgVar = _txt || (it.theme === 'dark' ? '#f5f5f5' : '#0f172a')
+
+/* Merge widget chrome: URL param wins, else tenant default, else built-in.
+   `it.widgetCustom` is from the URL (per-block overrides), `it.tenantWidgetDefaults`
+   is from tenant_site.widget_settings (tenant-wide defaults). */
+const _wc  = it.widgetCustom || {}
+const _wd  = it.tenantWidgetDefaults || {}
+function _pickStr(a, b, fallback) {
+  if (a !== null && a !== undefined && a !== '') return a
+  if (b !== null && b !== undefined && b !== '') return b
+  return fallback
+}
+function _pickBool(a, b, fallback) {
+  if (a === true || a === false) return a
+  if (b === true || b === false) return b
+  return fallback
+}
+function _pickNum(a, b, fallback) {
+  if (typeof a === 'number') return a
+  if (typeof b === 'number') return b
+  return fallback
+}
+const _headerShow    = _pickBool(_wc.headerShow,     _wd.header_show,       true)
+const _headerText    = _pickStr (_wc.headerText,     _wd.header_text,       it.tenantName || '')
+const _subheader     = _pickStr (_wc.subheaderText,  _wd.subheader_text,    'Book a table')
+const _btnBg         = _pickStr (_wc.buttonBg,       _wd.button_bg,         null)
+const _btnFg         = _pickStr (_wc.buttonFg,       _wd.button_fg,         '#ffffff')
+const _btnRadius     = _pickNum (_wc.buttonRadiusPx, _wd.button_radius_px,  8)
+const _cardRadius    = _pickNum (_wc.cardRadiusPx,   _wd.card_radius_px,    8)
+const _borderColour  = _pickStr (_wc.borderColour,   _wd.border_colour,     null)
+const _fontOverride  = _pickStr (_wc.fontFamily,     _wd.font_family,       null)
+const _largePartyTxt = _pickStr (_wc.largePartyText, _wd.large_party_text,  'Larger party? Call us — we’ll arrange combined tables.')
+
+/* If the block / tenant overrode the font, that takes precedence over
+   the page-derived font_family. */
+const _ffEffective   = _fontOverride || _ff
+const _gfEffectiveW  = _ffEffective ? _FONT_WEIGHTS[_ffEffective] : null
+const _gfEffectiveUrl = _gfEffectiveW
+  ? 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(_ffEffective) + ':wght@' + _gfEffectiveW + '&display=swap'
+  : _gfUrl
+const _ffEffectiveCss = _ffEffective ? ('"' + _ffEffective + '", ' + _sysStack) : _ffCss
+
+/* Effective accent — the button colour wins over page-level accent. */
+const _accentEffective = _btnBg || it.accent
 %><!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>Book a table — <%= it.tenantName %></title>
-  <% if (_gfUrl) { %>
+  <% if (_gfEffectiveUrl) { %>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="<%= _gfUrl %>" />
+    <link rel="stylesheet" href="<%= _gfEffectiveUrl %>" />
   <% } %>
   <style>
     :root {
-      --w-accent: <%= it.accent %>;
+      --w-accent: <%= _accentEffective %>;
       --w-bg:     <%= _bgVar %>;
       --w-fg:     <%= _fgVar %>;
       --w-muted:  <%= it.theme === 'dark' ? '#a3a3a3' : '#64748b' %>;
       --w-surface:<%= it.theme === 'dark' ? '#262626' : '#f8fafc' %>;
-      --w-border: <%= it.theme === 'dark' ? '#2e2e2e' : '#e2e8f0' %>;
-      --w-radius: 8px;
+      --w-border: <%= _borderColour || (it.theme === 'dark' ? '#2e2e2e' : '#e2e8f0') %>;
+      --w-radius:        <%= _cardRadius %>px;
+      --w-btn-radius:    <%= _btnRadius %>px;
+      --w-btn-fg:        <%= _btnFg %>;
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0; min-height: 100%;
       background: var(--w-bg); color: var(--w-fg);
-      font-family: <%= _ffCss %>;
+      font-family: <%= _ffEffectiveCss %>;
       font-size: 16px; line-height: 1.5;
     }
     .wrap { max-width: 520px; margin: 0 auto; padding: 24px; }
@@ -108,8 +153,8 @@ const _fgVar = _txt || (it.theme === 'dark' ? '#f5f5f5' : '#0f172a')
     label { display: block; font-size: 13px; color: var(--w-muted); margin: 0 0 6px; font-weight: 500; }
     .field { margin-bottom: 14px; }
     .btn {
-      width: 100%; padding: 14px; background: var(--w-accent); color: #fff;
-      border: 0; border-radius: var(--w-radius); font-size: 16px; font-weight: 600;
+      width: 100%; padding: 14px; background: var(--w-accent); color: var(--w-btn-fg);
+      border: 0; border-radius: var(--w-btn-radius); font-size: 16px; font-weight: 600;
       cursor: pointer; font-family: inherit;
     }
     .btn:hover { filter: brightness(1.05); }
@@ -152,8 +197,12 @@ const _fgVar = _txt || (it.theme === 'dark' ? '#f5f5f5' : '#0f172a')
 <body>
   <div class="wrap">
     <div class="card">
-      <h1 id="venue-title"><%= it.tenantName %></h1>
-      <p class="sub">Book a table</p>
+      <% if (_headerShow) { %>
+        <h1 id="venue-title"><%= _headerText %></h1>
+        <% if (_subheader) { %>
+          <p class="sub"><%= _subheader %></p>
+        <% } %>
+      <% } %>
       <div class="progress" id="progress"></div>
       <div id="root"></div>
     </div>
@@ -167,6 +216,9 @@ const _fgVar = _txt || (it.theme === 'dark' ? '#f5f5f5' : '#0f172a')
       const TENANT_NAME = <%~ JSON.stringify(it.tenantName) %>;
       // When set, skip the location picker (deep-link).
       const INITIAL_VENUE_ID = <%~ JSON.stringify(it.initialVenueId || null) %>;
+      // Operator-customisable strings (tenant default + per-block override
+      // resolved server-side; empty string = hide the line entirely).
+      const LARGE_PARTY_TEXT = <%~ JSON.stringify(_largePartyTxt || '') %>;
 
       const venuesById = Object.fromEntries(VENUES.map(v => [v.id, v]));
 
@@ -389,8 +441,10 @@ const _fgVar = _txt || (it.theme === 'dark' ? '#f5f5f5' : '#0f172a')
             el('button', { class: 'btn secondary', onclick: () => goto(0) }, '← Change location'),
           ));
         }
-        root.appendChild(el('p', { class: 'sub', style: 'margin-top:14px' },
-          'Larger party? Call us — we\'ll arrange combined tables.'));
+        if (LARGE_PARTY_TEXT) {
+          root.appendChild(el('p', { class: 'sub', style: 'margin-top:14px' },
+            LARGE_PARTY_TEXT));
+        }
       }
 
       function renderDate(root) {

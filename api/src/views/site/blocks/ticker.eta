@@ -6,18 +6,14 @@ const bg = bgMap[d.bg_style] || bgMap.primary
 const speedMap = { slow: '70s', medium: '45s', fast: '25s' }
 const duration = speedMap[d.speed] || speedMap.medium
 
-/* Font: prefer the explicit font_family pick. Fall back to the legacy
-   font_style toggle for blocks created before the FontPicker was added. */
-let fontFamilyCss
-if (d.font_family) {
-  fontFamilyCss = `'${d.font_family}', var(--f-heading), serif`
-} else if (d.font_style === 'sans') {
-  fontFamilyCss = 'var(--f-body), sans-serif'
-} else {
-  fontFamilyCss = '"Caveat", var(--f-heading), cursive'
-}
+/* Font: always resolve to a single concrete name so the head.eta font-loader
+   can request it from Google Fonts. The legacy `font_style: 'sans'` branch
+   is gone — operators who want sans now pick "Inter" (or any other sans
+   from the FontPicker) explicitly. Default is Caveat for the script vibe. */
+const fontName = d.font_family || 'Caveat'
+const fontFamilyCss = "'" + fontName + "', var(--f-heading), serif"
 const fontSize = d.font_size || 28
-const tickerId = `t-${(it.block.id || '').slice(0, 8)}`
+const tickerId = "t-" + (it.block.id || '').toString().slice(0, 8)
 %>
 <style>
   .<%= tickerId %> { background: <%= bg %>; color:#f5efe6; padding:18px 0; overflow:hidden;

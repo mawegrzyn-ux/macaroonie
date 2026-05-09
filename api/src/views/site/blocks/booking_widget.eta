@@ -12,14 +12,41 @@ const theme  = c.widget_theme || 'light'
 const _theme    = (c.theme || {})
 const _surface  = (_theme.colors?.surface || '').replace('#','')
 const _textCol  = (_theme.colors?.text    || '').replace('#','')
+
+/* Block-level widget overrides. Stored on `data` (block JSONB) — empty
+   strings & nullish skipped so the SSR widget falls back to tenant
+   defaults / built-ins. The widget routes accept short query names
+   (header, sub, btnBg, btnFg, btnR, cardR, brd, font, lp). */
+function _pushParam(arr, key, val) {
+  if (val === undefined || val === null) return
+  if (typeof val === 'string' && val === '') return
+  arr.push(key + '=' + encodeURIComponent(val))
+}
+function _pushHex(arr, key, val) {
+  if (typeof val !== 'string') return
+  const v = val.replace(/^#/, '')
+  if (/^[0-9a-fA-F]{6}$/.test(v)) arr.push(key + '=' + v)
+}
 const widgetQs = (base) => {
   const params = [
-    `theme=${theme}`,
-    `accent=${accent}`,
-    _surface ? `bg=${_surface}`   : '',
-    _textCol ? `text=${_textCol}` : '',
-  ].filter(Boolean).join('&')
-  return `${base}?${params}`
+    'theme=' + theme,
+    'accent=' + accent,
+  ]
+  if (_surface) params.push('bg=' + _surface)
+  if (_textCol) params.push('text=' + _textCol)
+
+  if (d.header_show === false) params.push('headerShow=0')
+  if (d.header_show === true)  params.push('headerShow=1')
+  _pushParam(params, 'header', d.header_text)
+  _pushParam(params, 'sub',    d.subheader_text)
+  _pushHex  (params, 'btnBg',  d.button_bg)
+  _pushHex  (params, 'btnFg',  d.button_fg)
+  if (typeof d.button_radius_px === 'number') params.push('btnR='  + d.button_radius_px)
+  if (typeof d.card_radius_px   === 'number') params.push('cardR=' + d.card_radius_px)
+  _pushHex  (params, 'brd',    d.border_colour)
+  _pushParam(params, 'font',   d.font_family)
+  _pushParam(params, 'lp',     d.large_party_text)
+  return base + '?' + params.join('&')
 }
 
 // Resolution order:

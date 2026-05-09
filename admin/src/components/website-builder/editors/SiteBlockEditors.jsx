@@ -261,10 +261,11 @@ export function TickerBlockEditor({ data, onChange }) {
               <option value="dark">Dark</option>
             </Select>
           </FormRow>
-          <FormRow label="Font" hint="Pick any font — the live preview shows each in its own typeface.">
+          <FormRow label="Font"
+            hint="Pick any font — the live preview shows each in its own typeface. Default: Caveat (script).">
             <FontPicker
               fonts={FONT_OPTIONS}
-              value={data.font_family || (data.font_style === 'sans' ? 'Inter' : 'Caveat')}
+              value={data.font_family || 'Caveat'}
               onChange={set('font_family')} />
           </FormRow>
           <FormRow label={`Font size — ${data.font_size || 28}px`}>
@@ -666,6 +667,174 @@ export function ReviewsBandEditor({ data, onChange }) {
           ))}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── Booking widget editor ──────────────────────────────────
+//
+// Per-block overrides for the booking widget chrome. Tenant-wide defaults
+// live at /widget-settings — anything left blank here inherits from there.
+// The placeholder text on each input shows the value that would be used
+// if blank, pulled live from the tenant_site row.
+
+export function BookingWidgetEditor({ data, onChange, config }) {
+  const api = useApi()
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+
+  // Pull tenant defaults so we can show the inherited values as placeholders.
+  const { data: tenantSite } = useQuery({
+    queryKey: ['tenant-site'],
+    queryFn:  () => api.get('/website/tenant-site'),
+    staleTime: 60_000,
+  })
+  const ws = (tenantSite && tenantSite.widget_settings) || {}
+
+  // Venue picker — useful when the embedding page can't infer a venue
+  // (e.g. tenant home pages that should target a specific location).
+  const { data: venues = [] } = useQuery({
+    queryKey: ['venues'],
+    queryFn:  () => api.get('/venues'),
+    staleTime: 60_000,
+  })
+
+  // Tri-state header toggle: null (inherit) | true | false
+  function setHeaderShow(state) {
+    onChange({ ...data, header_show: state })
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionHead label="Heading + venue" />
+        <div className="space-y-3">
+          <FormRow label="Section heading" hint="Above the iframe. Blank to hide.">
+            <Input value={data.heading} onChange={set('heading')} placeholder="Reserve a table" />
+          </FormRow>
+          <FormRow label="Target venue"
+            hint="Leave blank to use the page's venue (location pages) or the tenant default.">
+            <Select value={data.venue_id || ''} onChange={v => set('venue_id')(v || null)}>
+              <option value="">— Auto (page venue / tenant default) —</option>
+              {venues.map(v => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </Select>
+          </FormRow>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Header" />
+        <p className="text-xs text-muted-foreground mb-2">
+          The text shown at the top of the widget iframe ("One Thai Cafe / Book a table").
+        </p>
+        <div className="space-y-3">
+          <FormRow label="Show widget header">
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { v: null,  label: 'Inherit' },
+                { v: true,  label: 'Show' },
+                { v: false, label: 'Hide' },
+              ].map(opt => (
+                <button key={String(opt.v)} type="button" onClick={() => setHeaderShow(opt.v)}
+                  className={`text-sm border rounded-md py-2 min-h-[36px]
+                    ${data.header_show === opt.v
+                      ? 'bg-primary/10 border-primary text-primary font-medium'
+                      : 'hover:bg-accent'}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </FormRow>
+          <FormRow label="Header text" hint={`Blank = ${ws.header_text || 'tenant site name'}.`}>
+            <Input value={data.header_text} onChange={set('header_text')}
+              placeholder={ws.header_text || 'Tenant site name'} />
+          </FormRow>
+          <FormRow label="Sub-header" hint={`Blank = ${ws.subheader_text || '"Book a table"'}.`}>
+            <Input value={data.subheader_text} onChange={set('subheader_text')}
+              placeholder={ws.subheader_text || 'Book a table'} />
+          </FormRow>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Button" />
+        <div className="space-y-3">
+          <FormRow label="Background colour"
+            hint={`Blank = ${ws.button_bg || 'tenant accent / brand colour'}.`}>
+            <ColourInput value={data.button_bg} onChange={set('button_bg')}
+              placeholder={ws.button_bg || ''} />
+          </FormRow>
+          <FormRow label="Text colour"
+            hint={`Blank = ${ws.button_fg || '#ffffff'}.`}>
+            <ColourInput value={data.button_fg} onChange={set('button_fg')}
+              placeholder={ws.button_fg || '#ffffff'} />
+          </FormRow>
+          <FormRow label={`Corner radius — ${data.button_radius_px ?? ws.button_radius_px ?? 8}px`}>
+            <input type="range" min={0} max={40} step={1}
+              value={data.button_radius_px ?? ws.button_radius_px ?? 8}
+              onChange={e => set('button_radius_px')(Number(e.target.value))}
+              className="w-full" />
+          </FormRow>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Borders + radii" />
+        <div className="space-y-3">
+          <FormRow label="Border colour"
+            hint={`Blank = ${ws.border_colour || 'theme border colour'}.`}>
+            <ColourInput value={data.border_colour} onChange={set('border_colour')}
+              placeholder={ws.border_colour || ''} />
+          </FormRow>
+          <FormRow label={`Card / chip radius — ${data.card_radius_px ?? ws.card_radius_px ?? 8}px`}>
+            <input type="range" min={0} max={40} step={1}
+              value={data.card_radius_px ?? ws.card_radius_px ?? 8}
+              onChange={e => set('card_radius_px')(Number(e.target.value))}
+              className="w-full" />
+          </FormRow>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Typography" />
+        <FormRow label="Widget font"
+          hint={`Blank = ${ws.font_family || 'tenant brand font'}. Different from the page font lets the widget feel like a CTA.`}>
+          <FontPicker
+            fonts={FONT_OPTIONS}
+            value={data.font_family}
+            onChange={set('font_family')}
+            placeholder={ws.font_family || 'Inherit tenant font'} />
+        </FormRow>
+      </div>
+
+      <div>
+        <SectionHead label="Messages" />
+        <FormRow label="“Larger party” text"
+          hint={`Shown under the covers row. Blank = ${ws.large_party_text ? '"' + ws.large_party_text + '"' : 'default copy'}. Set to a single space to hide it.`}>
+          <Area value={data.large_party_text} onChange={set('large_party_text')} rows={2}
+            placeholder={ws.large_party_text || 'Larger party? Call us — we’ll arrange combined tables.'} />
+        </FormRow>
+      </div>
+    </div>
+  )
+}
+
+// Hex-colour input with a swatch + colour picker. Shared with the
+// /widget-settings page; kept local to avoid pulling in shared.jsx
+// changes for one tiny primitive.
+function ColourInput({ value, onChange, placeholder = '' }) {
+  const v = value || ''
+  const isValid = /^#?[0-9a-fA-F]{6}$/.test(v)
+  const swatch  = isValid ? (v.startsWith('#') ? v : '#' + v) : (placeholder.startsWith('#') ? placeholder : (placeholder ? '#' + placeholder : '#cccccc'))
+  return (
+    <div className="flex items-center gap-2">
+      <input type="color"
+        value={isValid ? swatch : '#cccccc'}
+        onChange={e => onChange(e.target.value)}
+        className="w-10 h-9 border rounded cursor-pointer"
+      />
+      <Input value={value} onChange={onChange} placeholder={placeholder || '#hhhhhh'} className="font-mono text-xs" />
     </div>
   )
 }

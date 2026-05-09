@@ -125,6 +125,22 @@ const TenantSiteBody = z.object({
   // Default widget venue (skips location picker on home embed)
   default_widget_venue_id: z.string().uuid().nullable().optional(),
 
+  // Tenant-level booking widget defaults — every booking_widget block
+  // inherits these unless overridden on the block itself. All fields
+  // optional; render path applies defaults for anything missing.
+  widget_settings: z.object({
+    header_show:       z.boolean().optional(),
+    header_text:       z.string().max(120).optional(),
+    subheader_text:    z.string().max(160).optional(),
+    button_bg:         z.string().regex(HEX_COLOUR).optional().or(z.literal('')),
+    button_fg:         z.string().regex(HEX_COLOUR).optional().or(z.literal('')),
+    button_radius_px:  z.number().int().min(0).max(40).optional(),
+    card_radius_px:    z.number().int().min(0).max(40).optional(),
+    border_colour:     z.string().regex(HEX_COLOUR).optional().or(z.literal('')),
+    font_family:       z.string().max(100).optional(),
+    large_party_text:  z.string().max(300).optional(),
+  }).optional(),
+
   // SEO
   meta_title:       z.string().max(200).nullable().optional(),
   meta_description: z.string().max(500).nullable().optional(),

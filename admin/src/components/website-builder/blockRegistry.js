@@ -41,7 +41,7 @@ import { ColumnsEditor }       from './editors/ColumnsEditor'
 import {
   HeaderBlockEditor, FooterBlockEditor, TickerBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
-  OrderOptionsEditor, MenuInlineEditor,
+  OrderOptionsEditor, MenuInlineEditor, BookingWidgetEditor,
 } from './editors/SiteBlockEditors'
 
 // Sectional blocks (everything except divider + columns) get a shared
@@ -382,11 +382,27 @@ export const BLOCKS = [
   {
     key:         'booking_widget',
     label:       'Booking widget',
-    description: 'Embeds the live reservation widget for the chosen venue.',
+    description: 'Embeds the live reservation widget for the chosen venue. Per-block overrides for header text, button colour, font, radii, and the "larger party" message.',
     icon:        Calendar,
     category:    'data',
-    defaultData: { heading: 'Reserve a table', container: 'boxed' },
-    editor:      DataBlockEditor,
+    defaultData: {
+      heading:   'Reserve a table',
+      container: 'boxed',
+      // Per-block widget chrome overrides — leave blank to inherit
+      // tenant-level defaults from /widget-settings.
+      venue_id:        null,
+      header_show:     null,  // null = inherit; true/false = force
+      header_text:     '',
+      subheader_text:  '',
+      button_bg:       '',    // hex, blank = inherit
+      button_fg:       '',
+      button_radius_px: null,
+      card_radius_px:   null,
+      border_colour:   '',
+      font_family:     '',
+      large_party_text: '',
+    },
+    editor:      BookingWidgetEditor,
     pullsFromConfig: true,
   },
   {
