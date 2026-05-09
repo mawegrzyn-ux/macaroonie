@@ -305,7 +305,10 @@ export default async function siteRendererRoutes(app) {
 
     reply.header('X-Frame-Options', 'ALLOWALL')
     reply.header('Content-Security-Policy', "frame-ancestors *")
-    reply.header('Cache-Control', 'public, max-age=300')
+    /* Pre-prod: no caching on the widget HTML so iterating on the
+       widget JS (filter logic, calendar, etc.) is immediate. Flip to
+       `public, max-age=300` once the widget stabilises. */
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
 
     return reply.view('site/widget.eta', {
       mode: 'venue',
@@ -400,7 +403,10 @@ export default async function siteRendererRoutes(app) {
 
     reply.header('X-Frame-Options', 'ALLOWALL')
     reply.header('Content-Security-Policy', "frame-ancestors *")
-    reply.header('Cache-Control', 'public, max-age=300')
+    /* Pre-prod: no caching on the widget HTML so iterating on the
+       widget JS (filter logic, calendar, etc.) is immediate. Flip to
+       `public, max-age=300` once the widget stabilises. */
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
 
     return reply.view('site/widget.eta', {
       mode: 'tenant',

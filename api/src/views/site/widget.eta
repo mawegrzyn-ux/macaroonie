@@ -666,26 +666,42 @@ const _accentEffective = _btnBg || it.accent
       function renderSlots(root) {
         root.appendChild(el('p', { class: 'step-label' }, 'Pick a time'));
         const slots = state.slots || [];
-        // The slot_result type has fields { available, available_covers,
-        // reason, slot_time, ... } — the previous version filtered on a
-        // non-existent `available_seats` field which silently rejected
-        // every slot. Rely on the boolean `available` (the PG function
-        // already accounts for the requested cover count).
-        const available = slots.filter(s => s.available && s.reason !== 'unavailable' && s.reason !== 'full');
 
-        if (available.length === 0) {
+        // The slot_result type has fields { available, available_covers,
+        // reason, slot_time, ... }. Earlier code filtered on a
+        // non-existent `available_seats` field which silently rejected
+        // every slot. The widgetApi route already drops `unavailable`
+        // (zero-cap closed) slots, so what remains is either bookable
+        // or full. Render BOTH so operators can see at a glance whether
+        // there's any service at all on this date — full slots show
+        // disabled with a strikethrough.
+        const usable = slots.filter(s => s.slot_time);
+        const bookable = usable.filter(s => s.available === true);
+
+        if (usable.length === 0) {
           root.appendChild(el('p', { class: 'empty' },
-            'No times available on this date for ' + state.covers + ' guest' + (state.covers > 1 ? 's' : '') + '. Try another day.'));
+            'We\'re not taking bookings for ' + state.covers + ' guest' + (state.covers > 1 ? 's' : '') + ' on this date. Try another day.'));
         } else {
           const grid = el('div', { class: 'slots' });
-          available.forEach(s => {
+          usable.forEach(s => {
+            const isFull   = s.available !== true;
+            const isPicked = state.slot && state.slot.slot_time === s.slot_time;
+            const cls = ['slot'];
+            if (isPicked) cls.push('active');
             const sl = el('button', {
-              class: 'slot' + (state.slot?.slot_time === s.slot_time ? ' active' : ''),
-              onclick: () => pickSlot(s),
+              class: cls.join(' '),
+              disabled: isFull,
+              onclick: isFull ? null : (() => pickSlot(s)),
+              title: isFull ? 'Fully booked' : null,
             }, s.slot_time);
             grid.appendChild(sl);
           });
           root.appendChild(grid);
+
+          if (bookable.length === 0) {
+            root.appendChild(el('p', { class: 'empty', style: 'margin-top:10px' },
+              'All times shown are fully booked for ' + state.covers + ' guest' + (state.covers > 1 ? 's' : '') + '. Try another date or fewer guests.'));
+          }
         }
 
         const nav = el('div', { class: 'nav' },
