@@ -1,0 +1,123 @@
+<%
+/* ── Scrolling text block ───────────────────────────────────────────────
+ *
+ * A clean replacement for the legacy `ticker` block. Loads its OWN Google
+ * Font via a self-contained <link> inside the block markup, applies it to
+ * the scrolling track with `!important`, and never depends on the page's
+ * --f-heading / --f-body cascade. What the operator picks is what renders.
+ *
+ * Key contract:
+ *   data.font_family   one Google Font name from FONT_OPTIONS (default Caveat)
+ *   data.font_size     px (default 28)
+ *   data.font_weight   400 | 500 | 600 | 700 (default 500)
+ *   data.font_style    'normal' | 'italic' (default 'normal')
+ *   data.bg_style      'primary' | 'accent' | 'dark' | 'surface'
+ *   data.text_colour   optional hex override for foreground
+ *   data.speed         'slow' | 'medium' | 'fast'
+ *   data.items         string[] — phrases shown between bullet separators
+ *   data.show_separators  boolean (default true)
+ *
+ * IMPORTANT: keep the top JS block free of regex literals containing
+ * quote chars, and avoid template literals with ${...}. Use plain string
+ * concatenation. (See CLAUDE.md gotcha — Eta's parser tracks quote state
+ * naively and consumes the rest of the file when confused.)
+ */
+const d = it.block.data || {}
+
+const items = Array.isArray(d.items) ? d.items.filter(function(x){ return x && String(x).trim() !== '' }) : []
+
+const FONT_WEIGHTS = {
+  'Inter':              '300;400;500;600;700;800',
+  'Fraunces':           '300;400;500;600;700;800',
+  'Caveat':             '400;500;600;700',
+  'Playfair Display':   '400;500;600;700;800',
+  'Poppins':            '300;400;500;600;700;800',
+  'Lora':               '400;500;600;700',
+  'Montserrat':         '300;400;500;600;700;800',
+  'Roboto':             '300;400;500;700',
+  'Open Sans':          '300;400;500;600;700;800',
+  'Source Sans Pro':    '300;400;600;700',
+  'Raleway':            '300;400;500;600;700;800',
+  'Merriweather':       '300;400;700;900',
+  'Work Sans':          '300;400;500;600;700;800',
+  'Karla':              '300;400;500;600;700;800',
+  'DM Sans':            '400;500;700',
+  'DM Serif Display':   '400',
+  'Space Grotesk':      '300;400;500;600;700',
+  'Manrope':            '300;400;500;600;700;800',
+  'Cormorant Garamond': '300;400;500;600;700',
+  'Libre Baskerville':  '400;700',
+  'Nunito':             '300;400;500;600;700;800',
+  'Rubik':              '300;400;500;600;700;800',
+}
+
+const fontName  = (typeof d.font_family === 'string' && d.font_family.trim()) ? d.font_family.trim() : 'Caveat'
+const fontSize  = (typeof d.font_size === 'number' && d.font_size > 0) ? d.font_size : 28
+const fontStyle = d.font_style === 'italic' ? 'italic' : 'normal'
+
+let fontWeight = 500
+if (typeof d.font_weight === 'number') fontWeight = d.font_weight
+else if (typeof d.font_weight === 'string') {
+  const n = parseInt(d.font_weight, 10)
+  if (!Number.isNaN(n)) fontWeight = n
+}
+
+const fontWeights = FONT_WEIGHTS[fontName] || '400;500;700'
+const gfUrl = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(fontName) + ':wght@' + fontWeights + '&display=swap'
+
+const bgMap = {
+  primary: 'var(--c-primary)',
+  accent:  'var(--c-accent)',
+  dark:    '#1f1f1f',
+  surface: 'var(--c-surface)',
+}
+const bg = bgMap[d.bg_style] || bgMap.primary
+const fgDefault = (d.bg_style === 'surface') ? 'var(--c-text)' : '#f5efe6'
+const fg = (typeof d.text_colour === 'string' && /^#[0-9a-fA-F]{6}$/.test(d.text_colour)) ? d.text_colour : fgDefault
+
+const speedMap = { slow: '70s', medium: '45s', fast: '25s' }
+const duration = speedMap[d.speed] || speedMap.medium
+
+const showSeparators = d.show_separators !== false
+
+const blockId = 'st-' + (it.block.id || Math.random().toString(36).slice(2, 10)).toString().slice(0, 12)
+%>
+<link rel="stylesheet" href="<%= gfUrl %>" />
+<style>
+  .<%= blockId %> {
+    background: <%= bg %>;
+    color: <%= fg %>;
+    padding: 18px 0;
+    overflow: hidden;
+    border-top: 1px solid rgba(0,0,0,0.15);
+    border-bottom: 1px solid rgba(0,0,0,0.15);
+  }
+  .<%= blockId %>-track {
+    display: flex;
+    gap: 48px;
+    white-space: nowrap;
+    animation: <%= blockId %>-scroll <%= duration %> linear infinite;
+
+    /* Force the chosen font on the track itself with !important so no
+       parent style (--f-heading, --f-body, theme inherits) can override. */
+    font-family: "<%= fontName %>", system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
+    font-size: <%= fontSize %>px !important;
+    font-weight: <%= fontWeight %> !important;
+    font-style: <%= fontStyle %> !important;
+    line-height: 1.2;
+  }
+  .<%= blockId %>-track > span { display: flex; align-items: center; gap: 48px; padding-left: 48px; }
+  .<%= blockId %>-sep { width: 6px; height: 6px; background: currentColor; border-radius: 50%; opacity: 0.7; }
+  @keyframes <%= blockId %>-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+</style>
+<div class="<%= blockId %>" aria-hidden="true">
+  <div class="<%= blockId %>-track">
+    <span>
+      <% for (let i = 0; i < 2; i++) { %>
+        <% items.forEach(function(item, idx){ %>
+          <%= item %><% if (showSeparators && (idx < items.length - 1 || i === 0)) { %><span class="<%= blockId %>-sep"></span><% } %>
+        <% }) %>
+      <% } %>
+    </span>
+  </div>
+</div>

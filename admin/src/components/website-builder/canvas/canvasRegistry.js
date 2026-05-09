@@ -3,12 +3,12 @@
 // Maps block.type → canvas component used in the new page builder.
 
 import {
-  HeroCanvas, TextCanvas, ImageCanvas, TwoColumnCanvas,
+  HeroCanvas, TextCanvas, ImageCanvas,
   CtaStripCanvas, DividerCanvas, FaqCanvas,
   ColumnsCanvas,
 } from './blockCanvas'
 import {
-  HeaderCanvas, FooterCanvas, TickerCanvas,
+  HeaderCanvas, FooterCanvas, ScrollingTextCanvas,
   StoryWithStampCanvas, DishListCanvas, ReviewsBandCanvas,
   OrderOptionsCanvas,
 } from './siteBlocks'
@@ -22,21 +22,20 @@ export const CANVAS_BY_TYPE = {
   header:           HeaderCanvas,
   footer:           FooterCanvas,
   // Themed content
-  ticker:           TickerCanvas,
+  scrolling_text:   ScrollingTextCanvas,
   story_with_stamp: StoryWithStampCanvas,
   dish_list:        DishListCanvas,
   reviews_band:     ReviewsBandCanvas,
   order_options:    OrderOptionsCanvas,
-  // Existing
+  // Layout / generic
   hero:           HeroCanvas,
   text:           TextCanvas,
   image:          ImageCanvas,
-  two_column:     TwoColumnCanvas,
   cta_strip:      CtaStripCanvas,
   divider:        DividerCanvas,
   faq:            FaqCanvas,
   columns:        ColumnsCanvas,
-  // Live-data blocks — each has its own faithful preview now
+  // Live-data blocks — each has its own faithful preview
   // (canvas/dataBlocks.jsx). Read from the actual venue config /
   // website tables / chosen menu and render the same shape the SSR
   // partial does.

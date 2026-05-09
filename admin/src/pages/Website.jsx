@@ -889,7 +889,7 @@ const TEMPLATES = [
   {
     key: 'onethai',
     label: 'Onethai',
-    description: 'Thai-restaurant aesthetic — burgundy + cream palette, Fraunces serif headlines with Caveat script accents, decorative herb/spice icons, dotted dividers, and a scrolling-dish ticker. Ships with default sample menu items the operator can override.',
+    description: 'Thai-restaurant aesthetic — burgundy + cream palette, Fraunces serif headlines with Caveat script accents, decorative herb/spice icons, dotted dividers, and a scrolling-text band. Ships with default sample menu items the operator can override.',
     accent: '#630812',
   },
 ]

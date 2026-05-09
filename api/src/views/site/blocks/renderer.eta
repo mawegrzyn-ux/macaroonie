@@ -8,8 +8,8 @@ const t = it.block.type
   <%~ include('./header', it) %>
 <% } else if (t === 'footer') { %>
   <%~ include('./footer', it) %>
-<% } else if (t === 'ticker') { %>
-  <%~ include('./ticker', it) %>
+<% } else if (t === 'scrolling_text') { %>
+  <%~ include('./scrolling_text', it) %>
 <% } else if (t === 'story_with_stamp') { %>
   <%~ include('./story_with_stamp', it) %>
 <% } else if (t === 'dish_list') { %>
@@ -26,8 +26,6 @@ const t = it.block.type
   <%~ include('./text', it) %>
 <% } else if (t === 'image') { %>
   <%~ include('./image', it) %>
-<% } else if (t === 'two_column') { %>
-  <%~ include('./two_column', it) %>
 <% } else if (t === 'cta_strip') { %>
   <%~ include('./cta_strip', it) %>
 <% } else if (t === 'gallery') { %>

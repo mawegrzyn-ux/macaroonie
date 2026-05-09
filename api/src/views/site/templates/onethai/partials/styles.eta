@@ -107,13 +107,6 @@ const ASSETS = '/template-assets/onethai'
   .hero-pills .pill:nth-child(2)::before { background: var(--herb); }
   .hero-pills .pill:nth-child(3)::before { background: var(--plum); }
 
-  /* TICKER */
-  .ticker { background: var(--plum); color: var(--cream); padding: 18px 0; overflow: hidden; border-top: 1px solid var(--plum-deep); border-bottom: 1px solid var(--plum-deep); }
-  .ticker-track { display: flex; gap: 48px; white-space: nowrap; animation: ot-scroll 45s linear infinite; font-family: 'Caveat', cursive; font-size: 1.7rem; font-weight: 500; }
-  .ticker-track span { display: flex; align-items: center; gap: 48px; }
-  .ticker-track .sep { width: 6px; height: 6px; background: var(--cream); border-radius: 50%; opacity: 0.7; }
-  @keyframes ot-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-
   /* STORY */
   .story { padding: 110px 0; position: relative; overflow: hidden; }
   .story-grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 80px; align-items: start; }

@@ -268,68 +268,6 @@ export function ImageCanvas({ data, onChange, selected }) {
   )
 }
 
-// ── Two columns ──────────────────────────────────────────────
-
-export function TwoColumnCanvas({ data, onChange, selected }) {
-  const gapMap = { tight: '24px', normal: '48px', wide: '72px' }
-  const gap = gapMap[data.gap || 'normal']
-  const cols = data.image_url ? '1fr 1fr' : '1fr'
-  const order = data.image_side === 'right' ? 2 : 1
-  const bg = data.background === 'surface' ? 'var(--c-surface)' : 'transparent'
-  const set = (k) => (v) => onChange({ ...data, [k]: v })
-
-  return (
-    <section className="block" style={{ background: bg, paddingTop: 64, paddingBottom: 64 }}>
-      <div style={{ ...innerContainerStyle(data.container), display: 'grid', gridTemplateColumns: cols, gap, alignItems: 'center' }}>
-        {data.image_url ? (
-          <div style={{ order }}>
-            <img src={data.image_url} alt={data.image_alt || ''}
-              style={{ width: '100%', height: 'auto', borderRadius: 'var(--r-lg, 16px)', display: 'block' }} />
-          </div>
-        ) : selected ? (
-          <div style={{ order }}>
-            <ImagePlaceholder onChange={set('image_url')} scope="website:two_column" />
-          </div>
-        ) : null}
-        <div style={{ order: order === 1 ? 2 : 1 }}>
-          <InlineText
-            as="h2"
-            value={data.heading}
-            onChange={set('heading')}
-            placeholder="Heading"
-            style={{
-              fontFamily: 'var(--f-heading)',
-              fontSize: 'clamp(24px, 3vw, 40px)',
-              margin: '0 0 16px',
-            }}
-          />
-          <InlineRichText
-            value={data.body_html}
-            onChange={set('body_html')}
-            placeholder="Tell your story…"
-            className="prose"
-            style={{ color: 'var(--c-muted)', lineHeight: 1.7 }}
-          />
-          {(data.cta_text || selected) && (
-            <InlineText
-              as="span"
-              value={data.cta_text}
-              onChange={set('cta_text')}
-              placeholder="Optional button"
-              style={{
-                display: 'inline-block', marginTop: 20,
-                background: 'var(--c-primary)', color: '#fff',
-                padding: '12px 24px', borderRadius: 'var(--btn-r, 4px)',
-                fontWeight: 600, minWidth: 80,
-              }}
-            />
-          )}
-        </div>
-      </div>
-    </section>
-  )
-}
-
 // ── CTA strip ────────────────────────────────────────────────
 
 export function CtaStripCanvas({ data, onChange, selected }) {

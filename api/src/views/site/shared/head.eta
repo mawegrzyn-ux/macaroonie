@@ -54,7 +54,7 @@ const heroOpacity = (hero.overlay_opacity != null ? hero.overlay_opacity : 0.4)
 const heroMinH    = hero.min_height_px || 520
 
 /* Google Fonts URL — loaded for: theme heading + body fonts AND any
-   font_family referenced by a block on this page (e.g. ticker block's
+   font_family referenced by a block on this page (e.g. scrolling_text block's
    custom font choice). Without scanning blocks, a per-block font choice
    would silently fall back to the browser default because the font file
    was never requested. Mirrors the FontPicker's FONT_OPTIONS list.
@@ -101,9 +101,11 @@ pushFont(bodyFont)
 /* Block types whose Eta partials hardcode `'Caveat'` (or default to it
    when the operator hasn't picked a font) — these need Caveat loaded
    from Google Fonts unconditionally. menu_inline tagline,
-   story_with_stamp pill, dish_list column titles, hero <em>, ticker. */
+   story_with_stamp pill, dish_list column titles, hero <em>.
+   (`scrolling_text` loads its own font directly inside the block partial,
+   so it doesn't need to be in this set.) */
 const CAVEAT_BLOCKS = new Set([
-  'menu_inline', 'story_with_stamp', 'dish_list', 'hero', 'ticker',
+  'menu_inline', 'story_with_stamp', 'dish_list', 'hero',
 ])
 
 /* Walk through any blocks the page renders and collect font_family fields. */

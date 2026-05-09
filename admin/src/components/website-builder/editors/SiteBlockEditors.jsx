@@ -1,7 +1,8 @@
 // editors/SiteBlockEditors.jsx
 //
 // Settings panels (block inspector) for the six "site shell" / themed
-// blocks: header, footer, ticker, story_with_stamp, dish_list, reviews_band.
+// blocks: header, footer, scrolling_text, story_with_stamp, dish_list, reviews_band,
+// order_options, menu_inline, booking_widget.
 // Bundled together because each is small. They follow the standard
 // editor contract: receive { data, onChange, blockType } where onChange(d)
 // replaces the block's data object.
@@ -223,65 +224,6 @@ export function FooterBlockEditor({ data, onChange }) {
         <FormRow label="Copyright text" hint="Leave blank for © {year} {brand}.">
           <Input value={data.copyright_text} onChange={set('copyright_text')} />
         </FormRow>
-      </div>
-    </div>
-  )
-}
-
-// ── Ticker editor ──────────────────────────────────────────
-
-export function TickerBlockEditor({ data, onChange }) {
-  const set = (k) => (v) => onChange({ ...data, [k]: v })
-  const items = data.items || []
-  return (
-    <div className="space-y-5">
-      <div>
-        <SectionHead label="Ticker items"
-          action={<AddButton onClick={() => set('items')(arrAppend(items, 'New item'))}>Add</AddButton>} />
-        {items.length === 0
-          ? <p className="text-xs text-muted-foreground">No items.</p>
-          : <div className="space-y-2">
-              {items.map((item, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input value={item} onChange={v => {
-                    const n = items.slice(); n[i] = v; set('items')(n)
-                  }} />
-                  <RemoveButton onClick={() => set('items')(arrRemove(items, i))} />
-                </div>
-              ))}
-            </div>}
-      </div>
-      <div>
-        <SectionHead label="Style" />
-        <div className="space-y-3">
-          <FormRow label="Background">
-            <Select value={data.bg_style || 'primary'} onChange={set('bg_style')}>
-              <option value="primary">Primary (brand colour)</option>
-              <option value="accent">Accent</option>
-              <option value="dark">Dark</option>
-            </Select>
-          </FormRow>
-          <FormRow label="Font"
-            hint="Pick any font — the live preview shows each in its own typeface. Default: Caveat (script).">
-            <FontPicker
-              fonts={FONT_OPTIONS}
-              value={data.font_family || 'Caveat'}
-              onChange={set('font_family')} />
-          </FormRow>
-          <FormRow label={`Font size — ${data.font_size || 28}px`}>
-            <input type="range" min={14} max={64} step={1}
-              value={data.font_size || 28}
-              onChange={e => set('font_size')(Number(e.target.value))}
-              className="w-full" />
-          </FormRow>
-          <FormRow label="Scroll speed">
-            <Select value={data.speed || 'medium'} onChange={set('speed')}>
-              <option value="slow">Slow</option>
-              <option value="medium">Medium</option>
-              <option value="fast">Fast</option>
-            </Select>
-          </FormRow>
-        </div>
       </div>
     </div>
   )
@@ -723,6 +665,114 @@ export function ReviewsBandEditor({ data, onChange }) {
               <Input value={r.attr} onChange={v => set('items')(arrPatch(items, i, { attr: v }))} placeholder="e.g. Mark, regular since 2018" />
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Scrolling text editor ──────────────────────────────────
+//
+// A from-scratch replacement for the broken Ticker editor. Picks a font,
+// saves it. Period. No legacy `font_style: 'sans'` branch, no display-only
+// fallback that ghosts the underlying state. The SSR partial (scrolling_text.eta)
+// loads the chosen font directly via its own <link> and applies it with
+// !important, so what you pick is what visitors see.
+
+export function ScrollingTextEditor({ data, onChange }) {
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+  const items = data.items || []
+
+  // Persist a real font_family on first interaction so the saved data
+  // matches what the picker is showing.
+  const fontValue = data.font_family || 'Caveat'
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionHead label="Phrases"
+          action={<AddButton onClick={() => set('items')(arrAppend(items, 'New phrase'))}>Add</AddButton>} />
+        <p className="text-xs text-muted-foreground mb-2">
+          Each phrase scrolls past with a bullet between. Order = scroll order. The list loops automatically.
+        </p>
+        {items.length === 0
+          ? <p className="text-xs text-muted-foreground">No phrases yet — add one to start.</p>
+          : <div className="space-y-2">
+              {items.map((phrase, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input value={phrase}
+                    onChange={v => {
+                      const next = items.slice()
+                      next[i] = v
+                      set('items')(next)
+                    }}
+                    placeholder="e.g. Pad Thai" />
+                  <RemoveButton onClick={() => set('items')(arrRemove(items, i))} />
+                </div>
+              ))}
+            </div>}
+      </div>
+
+      <div>
+        <SectionHead label="Typography" />
+        <div className="space-y-3">
+          <FormRow label="Font"
+            hint="Loaded from Google Fonts directly inside the block — no theme cascade.">
+            <FontPicker
+              fonts={FONT_OPTIONS}
+              value={fontValue}
+              onChange={set('font_family')} />
+          </FormRow>
+          <FormRow label={`Font size — ${data.font_size || 28}px`}>
+            <input type="range" min={14} max={72} step={1}
+              value={data.font_size || 28}
+              onChange={e => set('font_size')(Number(e.target.value))}
+              className="w-full" />
+          </FormRow>
+          <FormRow label="Weight">
+            <Select value={String(data.font_weight ?? 500)} onChange={v => set('font_weight')(Number(v))}>
+              <option value="400">Regular (400)</option>
+              <option value="500">Medium (500)</option>
+              <option value="600">Semi-bold (600)</option>
+              <option value="700">Bold (700)</option>
+            </Select>
+          </FormRow>
+          <FormRow label="Style">
+            <Select value={data.font_style || 'normal'} onChange={set('font_style')}>
+              <option value="normal">Normal</option>
+              <option value="italic">Italic</option>
+            </Select>
+          </FormRow>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Colours + motion" />
+        <div className="space-y-3">
+          <FormRow label="Background">
+            <Select value={data.bg_style || 'primary'} onChange={set('bg_style')}>
+              <option value="primary">Primary (brand colour)</option>
+              <option value="accent">Accent</option>
+              <option value="dark">Dark</option>
+              <option value="surface">Surface (light)</option>
+            </Select>
+          </FormRow>
+          <FormRow label="Text colour"
+            hint="Optional override. Blank = white on dark backgrounds, brand text on surface.">
+            <Input value={data.text_colour || ''} onChange={set('text_colour')}
+              placeholder="#hhhhhh — leave blank for auto" />
+          </FormRow>
+          <FormRow label="Scroll speed">
+            <Select value={data.speed || 'medium'} onChange={set('speed')}>
+              <option value="slow">Slow</option>
+              <option value="medium">Medium</option>
+              <option value="fast">Fast</option>
+            </Select>
+          </FormRow>
+          <Toggle
+            checked={data.show_separators !== false}
+            onChange={set('show_separators')}
+            label="Show bullet separators between phrases" />
         </div>
       </div>
     </div>

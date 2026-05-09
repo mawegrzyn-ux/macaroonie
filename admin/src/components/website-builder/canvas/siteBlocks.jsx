@@ -6,8 +6,37 @@
 // rendered to the live site. Inline edits use InlineText / InlineRichText
 // where it makes sense; the rest of the controls live in the editor.
 
+import { useEffect } from 'react'
 import { InlineText }     from './InlineText'
 import { InlineRichText } from './InlineRichText'
+
+const FONT_WEIGHTS = {
+  'Inter': '300;400;500;600;700;800', 'Fraunces': '300;400;500;600;700;800',
+  'Caveat': '400;500;600;700', 'Playfair Display': '400;500;600;700;800',
+  'Poppins': '300;400;500;600;700;800', 'Lora': '400;500;600;700',
+  'Montserrat': '300;400;500;600;700;800', 'Roboto': '300;400;500;700',
+  'Open Sans': '300;400;500;600;700;800', 'Source Sans Pro': '300;400;600;700',
+  'Raleway': '300;400;500;600;700;800', 'Merriweather': '300;400;700;900',
+  'Work Sans': '300;400;500;600;700;800', 'Karla': '300;400;500;600;700;800',
+  'DM Sans': '400;500;700', 'DM Serif Display': '400',
+  'Space Grotesk': '300;400;500;600;700', 'Manrope': '300;400;500;600;700;800',
+  'Cormorant Garamond': '300;400;500;600;700', 'Libre Baskerville': '400;700',
+  'Nunito': '300;400;500;600;700;800', 'Rubik': '300;400;500;600;700;800',
+}
+
+// Lazy-load a Google Font when the canvas mounts a block that uses it.
+// One <link> per font name; subsequent uses reuse the same node.
+const _loadedFonts = new Set()
+function ensureGoogleFont(name) {
+  if (!name || _loadedFonts.has(name)) return
+  const weights = FONT_WEIGHTS[name] || '400;500;700'
+  const link = document.createElement('link')
+  link.rel  = 'stylesheet'
+  link.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(name) + ':wght@' + weights + '&display=swap'
+  link.dataset.macaFont = name
+  document.head.appendChild(link)
+  _loadedFonts.add(name)
+}
 
 const ASSETS = '/template-assets/onethai'
 
@@ -179,43 +208,57 @@ export function FooterCanvas({ data, onChange, config }) {
   )
 }
 
-// ── Ticker ────────────────────────────────────────────────────
+// ── Scrolling text ─────────────────────────────────────────────
+//
+// Loads its own Google Font in useEffect, then applies it directly to the
+// scrolling band. No theme cascade, no fallbacks that drift to the body
+// font. What the operator picks here is exactly what visitors see.
 
-export function TickerCanvas({ data, onChange }) {
-  const items = data.items || []
+export function ScrollingTextCanvas({ data }) {
+  const items = (data.items || []).filter(x => x && String(x).trim() !== '')
+  const fontName  = (data.font_family && data.font_family.trim()) || 'Caveat'
+  const fontSize  = data.font_size || 28
+  const fontWeight= data.font_weight || 500
+  const fontStyle = data.font_style === 'italic' ? 'italic' : 'normal'
+
+  useEffect(() => { ensureGoogleFont(fontName) }, [fontName])
+
   const bg = {
     primary: 'var(--c-primary)',
     accent:  'var(--c-accent)',
     dark:    '#1f1f1f',
+    surface: 'var(--c-surface)',
   }[data.bg_style || 'primary'] || 'var(--c-primary)'
-  // Font: prefer explicit font_family. Fall back to the legacy
-  // font_style toggle for blocks created before the picker existed.
-  const fontFamily = data.font_family
-    ? `"${data.font_family}", var(--f-heading), serif`
-    : data.font_style === 'sans'
-      ? 'var(--f-body), sans-serif'
-      : 'Caveat, var(--f-heading), cursive'
-  const fontSize = (data.font_size || 28) + 'px'
+  const fgDefault = data.bg_style === 'surface' ? 'var(--c-text)' : '#f5efe6'
+  const fg = (typeof data.text_colour === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.text_colour))
+    ? data.text_colour : fgDefault
+
+  const showSeparators = data.show_separators !== false
   const looped = items.length ? [...items, ...items] : []
 
   return (
     <div style={{
-      background: bg, color: '#f5efe6',
+      background: bg, color: fg,
       padding: '18px 0', overflow: 'hidden',
       borderTop: '1px solid rgba(0,0,0,0.15)',
       borderBottom: '1px solid rgba(0,0,0,0.15)',
     }}>
       <div style={{
         display: 'flex', gap: 48, whiteSpace: 'nowrap',
-        fontFamily, fontSize, fontWeight: 500,
+        // !important is enforced server-side in the SSR partial; the canvas
+        // relies on inline styles which already win over class-based rules.
+        fontFamily: `"${fontName}", system-ui, sans-serif`,
+        fontSize: fontSize + 'px',
+        fontWeight,
+        fontStyle,
         paddingLeft: 32,
       }}>
         {looped.length === 0 ? (
-          <span style={{ opacity: 0.6 }}>Add ticker items in the inspector →</span>
+          <span style={{ opacity: 0.6 }}>Add phrases in the inspector →</span>
         ) : looped.map((item, i) => (
           <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 48 }}>
             {item}
-            <span style={{ width: 6, height: 6, background: 'currentColor', borderRadius: '50%', opacity: 0.7 }} />
+            {showSeparators && <span style={{ width: 6, height: 6, background: 'currentColor', borderRadius: '50%', opacity: 0.7 }} />}
           </span>
         ))}
       </div>

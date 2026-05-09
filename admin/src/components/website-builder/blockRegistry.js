@@ -23,7 +23,7 @@
 //   3. Add the partial dispatch line to block-renderer.eta
 
 import {
-  Image as ImageIcon, Type, Columns2, Sparkles, MapPin, Phone,
+  Image as ImageIcon, Type, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
   ShoppingBag, BookOpen as MenuIcon,
@@ -32,16 +32,16 @@ import {
 import { HeroEditor }          from './editors/HeroEditor'
 import { TextEditor }          from './editors/TextEditor'
 import { ImageBlockEditor }    from './editors/ImageBlockEditor'
-import { TwoColumnEditor }     from './editors/TwoColumnEditor'
 import { CtaStripEditor }      from './editors/CtaStripEditor'
 import { DataBlockEditor }     from './editors/DataBlockEditor'
 import { DividerEditor }       from './editors/DividerEditor'
 import { FaqEditor }           from './editors/FaqEditor'
 import { ColumnsEditor }       from './editors/ColumnsEditor'
 import {
-  HeaderBlockEditor, FooterBlockEditor, TickerBlockEditor,
+  HeaderBlockEditor, FooterBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
   OrderOptionsEditor, MenuInlineEditor, BookingWidgetEditor,
+  ScrollingTextEditor,
 } from './editors/SiteBlockEditors'
 
 // Sectional blocks (everything except divider + columns) get a shared
@@ -59,7 +59,7 @@ export const DEFAULT_CONTAINER = 'boxed'
 // (because they're either intrinsically full-bleed, or just visual filler).
 // Columns IS included in the toggle — its `container` controls the outer
 // row's max-width before the columns split.
-export const NO_CONTAINER_BLOCKS = new Set(['divider', 'header', 'footer', 'ticker'])
+export const NO_CONTAINER_BLOCKS = new Set(['divider', 'header', 'footer', 'scrolling_text'])
 
 // Blocks that pin to the start (header) or end (footer) of the page when
 // added — keeps the page-builder UX matching what the live site renders.
@@ -112,19 +112,23 @@ export const BLOCKS = [
 
   // ── Themed content blocks ────────────────────────────────
   {
-    key:         'ticker',
-    label:       'Ticker',
-    description: 'Scrolling strip of words — dish names, taglines, etc. Edit the items list, font and size.',
+    key:         'scrolling_text',
+    label:       'Scrolling text',
+    description: 'Scrolling band of phrases — dish names, taglines. Loads its own font directly so what you pick is what visitors see.',
     icon:        Megaphone,
     category:    'content',
     defaultData: {
-      items:       ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
-      bg_style:    'primary',    // primary | accent | dark
-      font_family: 'Caveat',     // any Google font in FONT_OPTIONS
-      font_size:   28,           // px
-      speed:       'medium',     // slow | medium | fast
+      items:        ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
+      bg_style:     'primary',  // primary | accent | dark | surface
+      text_colour:  '',         // optional hex override
+      font_family:  'Caveat',
+      font_size:    28,
+      font_weight:  500,        // 400 | 500 | 600 | 700
+      font_style:   'normal',   // 'normal' | 'italic'
+      speed:        'medium',
+      show_separators: true,
     },
-    editor: TickerBlockEditor,
+    editor: ScrollingTextEditor,
   },
   {
     key:         'story_with_stamp',
@@ -314,23 +318,6 @@ export const BLOCKS = [
       container: 'boxed',
     },
     editor: ImageBlockEditor,
-  },
-  {
-    key:         'two_column',
-    label:       'Two columns',
-    description: 'Image + text side-by-side. Swap which side is which.',
-    icon:        Columns2,
-    category:    'layout',
-    defaultData: {
-      image_url: null, image_alt: '',
-      heading: '', body_html: '<p>Tell your story.</p>',
-      cta_text: '', cta_link: '',
-      image_side: 'left',         // left | right
-      gap: 'normal',              // tight | normal | wide
-      background: 'default',
-      container: 'boxed',
-    },
-    editor: TwoColumnEditor,
   },
   {
     key:         'cta_strip',
@@ -538,7 +525,7 @@ export const PAGE_TEMPLATES = [
     style_pack:  'modern',
     blocks: [
       { type: 'hero',           data: { heading: 'Tonight, well-fed.', subheading: 'Modern bistro in the heart of town.', cta_text: 'Reserve →', cta_link: '#booking', height: 'medium', align: 'left' } },
-      { type: 'two_column',     data: { heading: 'A small kitchen, big ambitions.', body_html: '<p>Family-run since the 90s, serving honest food in a modern setting.</p>', cta_text: 'Read our story', cta_link: '/p/about', image_side: 'right' } },
+      { type: 'story_with_stamp', data: { heading: 'A small kitchen, big ambitions.', body_html: '<p>Family-run since the 90s, serving honest food in a modern setting.</p>', stamp_show: false, image_side: 'right', image_url: null, container: 'boxed' } },
       { type: 'cta_strip',      data: { heading: 'Bring the team.', subheading: 'Group bookings up to 30 — book online or call us.', cta_text: 'Make a reservation', cta_link: '#booking', bg_style: 'primary' } },
       { type: 'gallery',        data: { heading: 'In the kitchen' } },
       { type: 'booking_widget', data: { heading: 'Book a table' } },
@@ -560,12 +547,12 @@ export const PAGE_TEMPLATES = [
   {
     // Thai-restaurant aesthetic — burgundy + cream, Fraunces serif, Caveat
     // script accents. Seeds the full block list the operator can edit:
-    // header → hero → ticker → story → dish menu → reviews → find us →
-    // contact → booking → footer. Picking this template also auto-applies
-    // matching theme defaults (see Website.jsx TemplateSection).
+    // header → hero → scrolling text → story → dish menu → reviews →
+    // find us → contact → booking → footer. Picking this template also
+    // auto-applies matching theme defaults (see Website.jsx TemplateSection).
     key:         'onethai',
     label:       'Onethai — Thai Restaurant',
-    description: 'Full block layout in the burgundy/cream Fraunces+Caveat aesthetic — header, hero, scrolling ticker, story, dish menu, reviews, visit, contact, booking, footer. Edit each block to customise.',
+    description: 'Full block layout in the burgundy/cream Fraunces+Caveat aesthetic — header, hero, scrolling text band, story, dish menu, reviews, visit, contact, booking, footer. Edit each block to customise.',
     style_pack:  'onethai',
     template_key: 'onethai',
     theme_defaults: {
@@ -609,9 +596,10 @@ export const PAGE_TEMPLATES = [
         ],
         height: 'large', align: 'center', container: 'boxed',
       }},
-      { type: 'ticker',           data: {
+      { type: 'scrolling_text',   data: {
         items: ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
-        bg_style: 'primary', font_family: 'Caveat', font_size: 28, speed: 'medium',
+        bg_style: 'primary', font_family: 'Caveat', font_size: 28, font_weight: 500, font_style: 'normal',
+        speed: 'medium', show_separators: true,
       }},
       { type: 'story_with_stamp', data: {
         heading: 'Cooking for our neighbours.',
