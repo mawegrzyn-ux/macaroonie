@@ -68,8 +68,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api':      'http://localhost:3000',
-      '/webhooks': 'http://localhost:3000',
+      '/api':        'http://localhost:3000',
+      '/webhooks':   'http://localhost:3000',
+      // Widget iframe rendered inside the page builder canvas (and on the
+      // public tenant sites) needs same-origin /widget/* and /widget-api/*
+      // so the canvas iframe just works in dev.
+      '/widget':     'http://localhost:3000',
+      '/widget-api': 'http://localhost:3000',
     },
   },
 })

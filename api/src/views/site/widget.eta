@@ -1,14 +1,50 @@
-<!DOCTYPE html>
+<%
+/* Per-font weights so a missing weight on one font doesn't 400 the whole
+   stylesheet (Google Fonts v2 is strict). Mirrors the map in shared/head.eta. */
+const _FONT_WEIGHTS = {
+  'Inter': '400;500;600;700', 'Fraunces': '400;500;600;700',
+  'Caveat': '400;500;600;700', 'Playfair Display': '400;500;600;700',
+  'Poppins': '400;500;600;700', 'Lora': '400;500;600;700',
+  'Montserrat': '400;500;600;700', 'Roboto': '400;500;700',
+  'Open Sans': '400;500;600;700', 'Source Sans Pro': '400;600;700',
+  'Raleway': '400;500;600;700', 'Merriweather': '400;700',
+  'Work Sans': '400;500;600;700', 'Karla': '400;500;600;700',
+  'DM Sans': '400;500;700', 'DM Serif Display': '400',
+  'Space Grotesk': '400;500;600;700', 'Manrope': '400;500;600;700',
+  'Cormorant Garamond': '400;500;600;700', 'Libre Baskerville': '400;700',
+  'Nunito': '400;500;600;700', 'Rubik': '400;500;600;700',
+}
+const _ff   = (it.font_family || '').replace(/^["']|["']$/g, '')
+const _gfW  = _FONT_WEIGHTS[_ff]
+const _gfUrl = _gfW
+  ? `https://fonts.googleapis.com/css2?family=${encodeURIComponent(_ff)}:wght@${_gfW}&display=swap`
+  : null
+const _ffCss = _ff ? `'${_ff}', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif` : 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+
+/* Surface bg: the parent site can pass `?bg=hex` so the widget visually
+   melts into the host card. Validates as a 6-hex-digit string. */
+const _bgRaw  = String(it.bg || '').replace(/^#/, '')
+const _bg     = /^[0-9a-fA-F]{6}$/.test(_bgRaw) ? '#' + _bgRaw : null
+const _txtRaw = String(it.text || '').replace(/^#/, '')
+const _txt    = /^[0-9a-fA-F]{6}$/.test(_txtRaw) ? '#' + _txtRaw : null
+const _bgVar  = _bg  || (it.theme === 'dark' ? '#1a1a1a' : '#ffffff')
+const _fgVar  = _txt || (it.theme === 'dark' ? '#f5f5f5' : '#0f172a')
+%><!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>Book a table — <%= it.tenantName %></title>
+  <% if (_gfUrl) { %>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="<%= _gfUrl %>" />
+  <% } %>
   <style>
     :root {
       --w-accent: <%= it.accent %>;
-      --w-bg:     <%= it.theme === 'dark' ? '#1a1a1a' : '#ffffff' %>;
-      --w-fg:     <%= it.theme === 'dark' ? '#f5f5f5' : '#0f172a' %>;
+      --w-bg:     <%= _bgVar %>;
+      --w-fg:     <%= _fgVar %>;
       --w-muted:  <%= it.theme === 'dark' ? '#a3a3a3' : '#64748b' %>;
       --w-surface:<%= it.theme === 'dark' ? '#262626' : '#f8fafc' %>;
       --w-border: <%= it.theme === 'dark' ? '#2e2e2e' : '#e2e8f0' %>;
@@ -18,11 +54,14 @@
     html, body {
       margin: 0; padding: 0; min-height: 100%;
       background: var(--w-bg); color: var(--w-fg);
-      font-family: <%= it.font_family %>, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: <%= _ffCss %>;
       font-size: 16px; line-height: 1.5;
     }
     .wrap { max-width: 520px; margin: 0 auto; padding: 24px; }
-    .card { background: var(--w-bg); border: 1px solid var(--w-border); border-radius: 12px; padding: 24px; }
+    /* Card has no border / shadow — the host site's wrapping section already
+       provides the card chrome around the iframe. Keeping the inner card
+       transparent prevents the "white box on cream" double-card effect. */
+    .card { background: transparent; border: 0; border-radius: 0; padding: 0; }
     h1 { margin: 0 0 4px; font-size: 22px; font-weight: 700; }
     .sub { color: var(--w-muted); font-size: 14px; margin: 0 0 20px; }
     .step-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--w-muted); font-weight: 600; margin: 0 0 8px; }

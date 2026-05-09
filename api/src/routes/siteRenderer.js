@@ -255,6 +255,14 @@ export default async function siteRendererRoutes(app) {
     const accent  = /^#?[0-9a-fA-F]{6}$/.test(accentRaw)
       ? (accentRaw.startsWith('#') ? accentRaw : '#' + accentRaw)
       : null
+    /* Optional: parent passes ?bg= and ?text= so the widget melts visually
+       into the host card (no white-on-cream double-card effect). */
+    const _hex = (s) => {
+      const v = String(s || '').replace(/^#/, '')
+      return /^[0-9a-fA-F]{6}$/.test(v) ? '#' + v : null
+    }
+    const bg   = _hex(req.query.bg)
+    const text = _hex(req.query.text)
 
     const [venue] = await sql`
       SELECT v.id, v.tenant_id, v.name, v.timezone,
@@ -299,6 +307,7 @@ export default async function siteRendererRoutes(app) {
       accent:         accent || venue.primary_colour || '#2563eb',
       theme,
       font_family:    venue.font_family || 'system-ui',
+      bg, text,
     })
   })
 
@@ -312,6 +321,12 @@ export default async function siteRendererRoutes(app) {
     const accent   = /^#?[0-9a-fA-F]{6}$/.test(accentRaw)
       ? (accentRaw.startsWith('#') ? accentRaw : '#' + accentRaw)
       : null
+    const _hex = (s) => {
+      const v = String(s || '').replace(/^#/, '')
+      return /^[0-9a-fA-F]{6}$/.test(v) ? '#' + v : null
+    }
+    const bg   = _hex(req.query.bg)
+    const text = _hex(req.query.text)
     const initialVenueId = req.query.venue || null
 
     const [tenantSite] = await sql`
@@ -370,6 +385,7 @@ export default async function siteRendererRoutes(app) {
       accent:         accent || tenantSite.primary_colour || '#2563eb',
       theme,
       font_family:    tenantSite.font_family || 'system-ui',
+      bg, text,
     })
   })
 }

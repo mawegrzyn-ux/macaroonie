@@ -13,7 +13,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
-import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2 } from 'lucide-react'
+import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar } from 'lucide-react'
 import { InlineText } from './InlineText'
 
 // ── Shared helpers ────────────────────────────────────────
@@ -362,40 +362,61 @@ export function AllergensCanvas({ data, onChange, config }) {
 // ── Booking widget ───────────────────────────────────────
 
 export function BookingWidgetCanvas({ data, onChange, config }) {
-  // Renders a stylised preview card. We deliberately don't load the live
-  // /widget/{id} iframe inside the admin canvas — too heavy + flaky with
-  // auth + cross-origin behaviours during edit. The preview communicates
-  // what the operator gets; clicking "View live" on the toolbar opens
-  // the real page.
-  const ts = config && config.template_key !== undefined ? config : null
-  const targetVenue = data.venue_id || (ts && ts.default_widget_venue_id) || (config && config.venue_id) || null
+  // Embeds the SAME /widget/{id} iframe that ships on the live site.
+  // Single source of truth — what you see here is what visitors see.
+  // Resolution order matches the SSR partial (booking_widget.eta):
+  //   1. block-level override (data.venue_id)
+  //   2. on a location page: the venue this config row belongs to
+  //   3. tenant default_widget_venue_id
+  //   4. tenant mode with location picker
+  const ts          = config && config.template_key !== undefined ? config : null
+  const tenantId    = (ts && ts.tenant_id) || (config && config.tenant_id) || null
+  const venueId     = data.venue_id
+                   || (config && config.venue_id)
+                   || (ts && ts.default_widget_venue_id)
+                   || null
+
+  // Surface + text colours from the theme so the widget melts into the
+  // canvas card visually — same params the SSR block partial sends.
+  const theme       = (config && config.theme) || {}
+  const surfaceHex  = (theme.colors?.surface || '').replace(/^#/, '')
+  const textHex     = (theme.colors?.text    || '').replace(/^#/, '')
+  const accentHex   = (theme.colors?.primary || config?.primary_colour || '').replace(/^#/, '')
+
+  let widgetSrc = null
+  const qp = new URLSearchParams()
+  qp.set('theme', config?.widget_theme || 'light')
+  if (accentHex)  qp.set('accent', accentHex)
+  if (surfaceHex) qp.set('bg',     surfaceHex)
+  if (textHex)    qp.set('text',   textHex)
+  if (venueId) {
+    widgetSrc = `/widget/${venueId}?${qp.toString()}`
+  } else if (tenantId) {
+    widgetSrc = `/widget/tenant/${tenantId}?${qp.toString()}`
+  }
+
   return (
     <section className="block" id="booking" style={{ padding: '64px 0', background: 'var(--c-surface)' }}>
       <div style={innerContainerStyle(data.container)}>
         <BlockHeading data={data} onChange={onChange} />
-        <div style={{
-          maxWidth: 480, margin: '0 auto',
-          background: 'var(--c-bg)', border: '1px solid var(--c-border)',
-          borderRadius: 'var(--r-md, 8px)', padding: 24,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 999, background: 'var(--c-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>1</div>
-            <p style={{ margin: 0, fontWeight: 600 }}>How many guests?</p>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-            {[2, 3, 4, 5, 6, 7, 8, '9+'].map(n => (
-              <span key={n} style={{
-                padding: '10px', textAlign: 'center', border: '1px solid var(--c-border)',
-                borderRadius: 'var(--r-sm, 6px)', fontSize: 15, fontWeight: 600,
-                background: n === 2 ? 'var(--c-primary)' : 'var(--c-bg)',
-                color: n === 2 ? '#fff' : 'var(--c-text)',
-              }}>{n}</span>
-            ))}
-          </div>
-          <p style={{ marginTop: 16, color: 'var(--c-muted)', fontSize: 12, textAlign: 'center', fontStyle: 'italic' }}>
-            Live widget renders here{targetVenue ? '' : ' — pick a default venue'}.
-          </p>
-        </div>
+        {widgetSrc ? (
+          <iframe
+            src={widgetSrc}
+            title="Booking widget preview"
+            loading="lazy"
+            style={{
+              display: 'block',
+              width: '100%', maxWidth: 640, margin: '0 auto',
+              minHeight: 640, border: 0,
+              borderRadius: 'var(--r-md, 8px)',
+              background: surfaceHex ? `#${surfaceHex}` : 'transparent',
+            }}
+          />
+        ) : (
+          <EmptyPanel Icon={Calendar} title="Booking widget"
+            hint="No venue resolved."
+            where="Pick a venue on the block, set a default on the tenant site, or attach a venue to this page" />
+        )}
       </div>
     </section>
   )

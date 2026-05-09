@@ -6,6 +6,22 @@ const widgetBase = `${it.rootDomain ? (it.siteUrl || '') : ''}`
 const accent = (c.primary_colour || '').replace('#','')
 const theme  = c.widget_theme || 'light'
 
+/* Pass parent surface + text colours to the iframe so the widget melts
+   into the host card visually (no white-on-cream double-card effect).
+   Falls back gracefully — bare `?bg=` is ignored by the widget. */
+const _theme    = (c.theme || {})
+const _surface  = (_theme.colors?.surface || '').replace('#','')
+const _textCol  = (_theme.colors?.text    || '').replace('#','')
+const widgetQs = (base) => {
+  const params = [
+    `theme=${theme}`,
+    `accent=${accent}`,
+    _surface ? `bg=${_surface}`   : '',
+    _textCol ? `text=${_textCol}` : '',
+  ].filter(Boolean).join('&')
+  return `${base}?${params}`
+}
+
 // Resolution order:
 //   1. block-level override (data.venue_id)
 //   2. on a location page, the current venue
@@ -13,26 +29,30 @@ const theme  = c.widget_theme || 'light'
 //   4. tenant mode with location picker (multi-venue tenant home)
 let widgetUrl = null
 if (d.venue_id) {
-  widgetUrl = `${widgetBase}/widget/${d.venue_id}?theme=${theme}&accent=${accent}`
+  widgetUrl = widgetQs(`${widgetBase}/widget/${d.venue_id}`)
 } else if (it.venue?.id) {
-  widgetUrl = `${widgetBase}/widget/${it.venue.id}?theme=${theme}&accent=${accent}`
+  widgetUrl = widgetQs(`${widgetBase}/widget/${it.venue.id}`)
 } else if (ts.default_widget_venue_id) {
-  widgetUrl = `${widgetBase}/widget/${ts.default_widget_venue_id}?theme=${theme}&accent=${accent}`
+  widgetUrl = widgetQs(`${widgetBase}/widget/${ts.default_widget_venue_id}`)
 } else if (ts.tenant_id) {
-  widgetUrl = `${widgetBase}/widget/tenant/${ts.tenant_id}?theme=${theme}&accent=${accent}`
+  widgetUrl = widgetQs(`${widgetBase}/widget/tenant/${ts.tenant_id}`)
 }
 
 const innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '900px' : '640px'
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
   : 'max-width:' + innerMax + '; margin:0 auto; padding:0 24px;'
+
+/* Iframe bg — match the surface colour passed into the widget so the
+   inner page background blends with the host card while the iframe loads. */
+const _iframeBg = _surface ? '#' + _surface : 'transparent'
 %>
 <section class="block" id="booking" style="padding:48px 0; background:var(--c-surface);">
   <div style="<%= containerStyle %> text-align:center;">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
     <% if (widgetUrl) { %>
       <iframe src="<%= widgetUrl %>"
-              style="width:100%; min-height:640px; border:0; border-radius:var(--r-md, 8px); background:#fff;"
+              style="width:100%; min-height:640px; border:0; border-radius:var(--r-md, 8px); background:<%= _iframeBg %>;"
               loading="lazy"
               title="Book a table"></iframe>
     <% } else { %>
