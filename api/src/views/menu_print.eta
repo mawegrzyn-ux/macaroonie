@@ -141,7 +141,8 @@ const tenantName = m.tenant_name || ''
           <div class="head-row">
             <h2><%= s.title %><% if (s.subtitle) { %><span class="sub"><%= s.subtitle %></span><% } %></h2>
           </div>
-          <% (s.items || []).forEach(function(item){ %>
+          <% const _printItems = s.items || [] %>
+          <% _printItems.forEach(function(item){ %>
             <div class="item<%= item.is_featured ? ' featured' : '' %>">
               <div class="item-row">
                 <div>
@@ -186,9 +187,10 @@ const tenantName = m.tenant_name || ''
           <div class="callout">
             <strong><%= c.title %></strong>
             <% if (c.body) { %><p><%= c.body %></p><% } %>
-            <% if (c.kind === 'allergens' && (m.dietary_tags || []).length) { %>
+            <% const _allTags = m.dietary_tags || [] %>
+            <% if (c.kind === 'allergens' && _allTags.length) { %>
               <div class="key">
-                <% (m.dietary_tags || []).forEach(function(tag){ %>
+                <% _allTags.forEach(function(tag){ %>
                   <span class="pair">
                     <span class="tag-chip" style="background: <%= tag.colour %>;"><%= tag.glyph %></span>
                     <%= tag.label %>

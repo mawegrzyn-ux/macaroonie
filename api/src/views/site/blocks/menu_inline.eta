@@ -32,14 +32,16 @@ const cols = menu ? (menu.print_columns || 3) : 1
         </p>
       <% } %>
 
+      <% const _msections = menu.sections || [] %>
       <div style="column-count: <%= Math.min(cols, 3) %>; column-gap:48px; column-fill:balance;">
-        <% (menu.sections || []).forEach(function(s){ %>
+        <% _msections.forEach(function(s){ %>
           <div style="break-inside:avoid; margin-bottom:36px;">
             <h3 style="font-family:var(--f-heading); color:var(--c-primary); font-size:1.2rem; font-weight:600; padding-bottom:8px; border-bottom:1px solid var(--c-border); margin:0 0 16px; display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
               <span><%= s.title %></span>
               <% if (s.subtitle) { %><span style="font-size:0.78rem; font-weight:400; color:var(--c-muted); font-style:italic;"><%= s.subtitle %></span><% } %>
             </h3>
-            <% (s.items || []).forEach(function(item){ %>
+            <% const _mitems = s.items || [] %>
+            <% _mitems.forEach(function(item){ %>
               <div style="padding:10px 0; border-bottom:1px dotted var(--c-border);">
                 <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
                   <div>
@@ -49,7 +51,8 @@ const cols = menu ? (menu.print_columns || 3) : 1
                     <% if (item.native_name) { %>
                       <span style="font-style:italic; font-weight:300; color:var(--c-muted); font-size:0.85rem; margin-left:6px;"><%= item.native_name %></span>
                     <% } %>
-                    <% (item.dietary || []).forEach(function(code){ %>
+                    <% const _diet = item.dietary || [] %>
+                    <% _diet.forEach(function(code){ %>
                       <% const tag = tagsByCode[code] %>
                       <% if (tag) { %>
                         <span style="display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; padding:0 4px; border-radius:3px; color:#fff; font-size:9px; font-weight:700; margin-left:3px; background:<%= tag.colour %>;" title="<%= tag.label %>">
