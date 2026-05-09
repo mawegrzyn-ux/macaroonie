@@ -261,6 +261,11 @@ server {
   listen 80;
   server_name ${DOMAIN};
 
+  # Match the API's @fastify/multipart 30 MB ceiling. Default 1 MB blocks
+  # PNG uploads (which are typically 2-10 MB) with a 413 before the request
+  # ever reaches the upstream — JPEGs slip through because they're smaller.
+  client_max_body_size 30M;
+
   add_header X-Frame-Options "SAMEORIGIN" always;
   add_header X-Content-Type-Options "nosniff" always;
   add_header Referrer-Policy "strict-origin-when-cross-origin" always;
