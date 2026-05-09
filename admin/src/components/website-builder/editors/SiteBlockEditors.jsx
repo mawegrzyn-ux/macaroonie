@@ -402,13 +402,46 @@ export function MenuInlineEditor({ data, onChange }) {
     queryKey: ['menus'],
     queryFn:  () => api.get('/menus'),
   })
+  // Hydrate the chosen menu so we can offer section + item pickers below.
+  const { data: menu, isLoading: menuLoading } = useQuery({
+    queryKey: ['menu', data.menu_id],
+    queryFn:  () => api.get(`/menus/${data.menu_id}`),
+    enabled:  !!data.menu_id,
+    staleTime: 30_000,
+  })
+
+  const sectionIds = Array.isArray(data.section_ids) ? data.section_ids : []
+  const itemIds    = Array.isArray(data.item_ids)    ? data.item_ids    : []
+
+  const toggleSection = (id) => {
+    const next = sectionIds.includes(id)
+      ? sectionIds.filter(x => x !== id)
+      : [...sectionIds, id]
+    set('section_ids')(next)
+  }
+  const toggleItem = (id) => {
+    const next = itemIds.includes(id)
+      ? itemIds.filter(x => x !== id)
+      : [...itemIds, id]
+    set('item_ids')(next)
+  }
+
+  // When sections are filtered, dishes outside those sections become
+  // unreachable — surface them in the picker anyway, but greyed out.
+  const visibleSections = (menu?.sections || []).filter(s =>
+    sectionIds.length === 0 || sectionIds.includes(s.id),
+  )
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <FormRow label="Heading" hint="Shown above the menu. Blank to hide.">
         <Input value={data.heading} onChange={set('heading')} placeholder="Our menu" />
       </FormRow>
       <FormRow label="Menu" hint="Pick which menu to render. Manage menus from the main Menus page.">
-        <Select value={data.menu_id || ''} onChange={v => set('menu_id')(v || null)}>
+        <Select value={data.menu_id || ''} onChange={v => {
+          // Switching menus invalidates any section/item filters.
+          onChange({ ...data, menu_id: v || null, section_ids: [], item_ids: [] })
+        }}>
           <option value="">— Pick a menu —</option>
           {menus.map(m => (
             <option key={m.id} value={m.id}>
@@ -417,11 +450,95 @@ export function MenuInlineEditor({ data, onChange }) {
           ))}
         </Select>
       </FormRow>
+
       {data.menu_id && (
-        <a href={`/api/menus/${data.menu_id}/print`} target="_blank" rel="noopener"
-          className="text-xs text-primary hover:underline">
-          Preview printable version →
-        </a>
+        <>
+          <div>
+            <SectionHead label="Sections (categories)"
+              action={sectionIds.length > 0 && (
+                <button type="button" onClick={() => set('section_ids')([])}
+                  className="text-xs text-primary hover:underline">Show all</button>
+              )} />
+            <p className="text-xs text-muted-foreground mb-2">
+              {sectionIds.length === 0
+                ? 'Showing all sections. Click chips to limit which sections render.'
+                : `Showing ${sectionIds.length} of ${menu?.sections?.length || 0}.`}
+            </p>
+            {menuLoading
+              ? <p className="text-xs text-muted-foreground">Loading…</p>
+              : !menu?.sections?.length
+                ? <p className="text-xs text-muted-foreground">This menu has no sections yet.</p>
+                : <div className="flex flex-wrap gap-1.5">
+                    {menu.sections.map(s => {
+                      const on = sectionIds.includes(s.id)
+                      const active = sectionIds.length === 0 || on
+                      return (
+                        <button key={s.id} type="button" onClick={() => toggleSection(s.id)}
+                          className={`text-xs border rounded-full px-3 py-1.5 min-h-[32px]
+                            ${on
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : active
+                                ? 'bg-background hover:bg-accent'
+                                : 'bg-muted/40 text-muted-foreground'}`}>
+                          {s.title}
+                        </button>
+                      )
+                    })}
+                  </div>}
+          </div>
+
+          <div>
+            <SectionHead label="Specific dishes"
+              action={itemIds.length > 0 && (
+                <button type="button" onClick={() => set('item_ids')([])}
+                  className="text-xs text-primary hover:underline">Show all</button>
+              )} />
+            <p className="text-xs text-muted-foreground mb-2">
+              {itemIds.length === 0
+                ? 'Showing all dishes within visible sections. Click chips to limit to specific dishes.'
+                : `Limiting to ${itemIds.length} dish${itemIds.length === 1 ? '' : 'es'}.`}
+            </p>
+            {menuLoading
+              ? <p className="text-xs text-muted-foreground">Loading…</p>
+              : visibleSections.length === 0
+                ? <p className="text-xs text-muted-foreground">Pick a section to see its dishes.</p>
+                : <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                    {visibleSections.map(s => (
+                      <div key={s.id}>
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{s.title}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(s.items || []).map(item => {
+                            const on = itemIds.includes(item.id)
+                            return (
+                              <button key={item.id} type="button" onClick={() => toggleItem(item.id)}
+                                className={`text-xs border rounded-full px-2.5 py-1 min-h-[28px]
+                                  ${on
+                                    ? 'bg-primary text-primary-foreground border-primary'
+                                    : 'bg-background hover:bg-accent'}`}>
+                                {item.name}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>}
+          </div>
+
+          <div>
+            <SectionHead label="Display" />
+            <Toggle
+              checked={!!data.hide_prices}
+              onChange={set('hide_prices')}
+              label="Hide prices"
+            />
+          </div>
+
+          <a href={`/api/menus/${data.menu_id}/print`} target="_blank" rel="noopener"
+            className="text-xs text-primary hover:underline block">
+            Preview printable version →
+          </a>
+        </>
       )}
     </div>
   )

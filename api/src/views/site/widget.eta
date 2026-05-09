@@ -1,34 +1,56 @@
 <%
 /* Per-font weights so a missing weight on one font doesn't 400 the whole
-   stylesheet (Google Fonts v2 is strict). Mirrors the map in shared/head.eta. */
+   stylesheet (Google Fonts v2 is strict). Mirrors the map in shared/head.eta.
+
+   IMPORTANT: this block must NOT contain regex literals that include quote
+   chars (e.g. /["']/), nor template literals with ${...}. Eta's parser
+   tracks quote-state naively and gets confused by both — it then fails
+   to find the closing %> of this block and tries to compile the whole
+   rest of the template as JS, producing a misleading "unclosed string"
+   error pointing somewhere far below. Use plain string ops + concat.
+*/
 const _FONT_WEIGHTS = {
-  'Inter': '400;500;600;700', 'Fraunces': '400;500;600;700',
-  'Caveat': '400;500;600;700', 'Playfair Display': '400;500;600;700',
-  'Poppins': '400;500;600;700', 'Lora': '400;500;600;700',
-  'Montserrat': '400;500;600;700', 'Roboto': '400;500;700',
-  'Open Sans': '400;500;600;700', 'Source Sans Pro': '400;600;700',
-  'Raleway': '400;500;600;700', 'Merriweather': '400;700',
-  'Work Sans': '400;500;600;700', 'Karla': '400;500;600;700',
-  'DM Sans': '400;500;700', 'DM Serif Display': '400',
-  'Space Grotesk': '400;500;600;700', 'Manrope': '400;500;600;700',
-  'Cormorant Garamond': '400;500;600;700', 'Libre Baskerville': '400;700',
-  'Nunito': '400;500;600;700', 'Rubik': '400;500;600;700',
+  'Inter':              '400;500;600;700',
+  'Fraunces':           '400;500;600;700',
+  'Caveat':             '400;500;600;700',
+  'Playfair Display':   '400;500;600;700',
+  'Poppins':            '400;500;600;700',
+  'Lora':               '400;500;600;700',
+  'Montserrat':         '400;500;600;700',
+  'Roboto':             '400;500;700',
+  'Open Sans':          '400;500;600;700',
+  'Source Sans Pro':    '400;600;700',
+  'Raleway':            '400;500;600;700',
+  'Merriweather':       '400;700',
+  'Work Sans':          '400;500;600;700',
+  'Karla':              '400;500;600;700',
+  'DM Sans':            '400;500;700',
+  'DM Serif Display':   '400',
+  'Space Grotesk':      '400;500;600;700',
+  'Manrope':            '400;500;600;700',
+  'Cormorant Garamond': '400;500;600;700',
+  'Libre Baskerville':  '400;700',
+  'Nunito':             '400;500;600;700',
+  'Rubik':              '400;500;600;700',
 }
-const _ff   = (it.font_family || '').replace(/^["']|["']$/g, '')
+const _ff   = String(it.font_family || '').trim()
 const _gfW  = _FONT_WEIGHTS[_ff]
 const _gfUrl = _gfW
-  ? `https://fonts.googleapis.com/css2?family=${encodeURIComponent(_ff)}:wght@${_gfW}&display=swap`
+  ? 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(_ff) + ':wght@' + _gfW + '&display=swap'
   : null
-const _ffCss = _ff ? `'${_ff}', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif` : 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+const _sysStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+const _ffCss = _ff ? ('"' + _ff + '", ' + _sysStack) : _sysStack
 
-/* Surface bg: the parent site can pass `?bg=hex` so the widget visually
-   melts into the host card. Validates as a 6-hex-digit string. */
-const _bgRaw  = String(it.bg || '').replace(/^#/, '')
-const _bg     = /^[0-9a-fA-F]{6}$/.test(_bgRaw) ? '#' + _bgRaw : null
-const _txtRaw = String(it.text || '').replace(/^#/, '')
-const _txt    = /^[0-9a-fA-F]{6}$/.test(_txtRaw) ? '#' + _txtRaw : null
-const _bgVar  = _bg  || (it.theme === 'dark' ? '#1a1a1a' : '#ffffff')
-const _fgVar  = _txt || (it.theme === 'dark' ? '#f5f5f5' : '#0f172a')
+/* Surface bg: the parent site can pass ?bg=hex so the widget visually
+   melts into the host card. Hex validation is a non-quote regex. */
+function _isHex(s) { return /^[0-9a-fA-F]{6}$/.test(s) }
+function _stripHash(s) { return String(s || '').replace(/^#/, '') }
+const _bgRaw  = _stripHash(it.bg)
+const _txtRaw = _stripHash(it.text)
+const _bg    = _isHex(_bgRaw)  ? '#' + _bgRaw  : null
+const _txt   = _isHex(_txtRaw) ? '#' + _txtRaw : null
+const _bgVar = _bg  || (it.theme === 'dark' ? '#1a1a1a' : '#ffffff')
+const _fgVar = _txt || (it.theme === 'dark' ? '#f5f5f5' : '#0f172a')
 %><!DOCTYPE html>
 <html lang="en">
 <head>

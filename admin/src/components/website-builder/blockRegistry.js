@@ -168,10 +168,20 @@ export const BLOCKS = [
   {
     key:         'menu_inline',
     label:       'Menu (inline)',
-    description: 'Embeds a structured menu (sections + dishes + variants + dietary tags) on the page. Pick which menu to render.',
+    description: 'Embeds a structured menu (sections + dishes + variants + dietary tags) on the page. Pick which menu, sections, or specific dishes to render.',
     icon:        MenuIcon,
     category:    'data',
-    defaultData: { heading: 'Our menu', menu_id: null, container: 'boxed' },
+    defaultData: {
+      heading:    'Our menu',
+      menu_id:    null,
+      // Optional filters — empty array = no filter (show all). When non-empty,
+      // only listed sections/items render. Stored as id arrays so re-ordering
+      // or renaming on the menu side doesn't break the block.
+      section_ids: [],
+      item_ids:    [],
+      hide_prices: false,
+      container:   'boxed',
+    },
     editor:      MenuInlineEditor,
     pullsFromConfig: false,
   },
@@ -424,7 +434,7 @@ export const BLOCKS = [
   {
     key:         'columns',
     label:       'Columns',
-    description: 'A row of 2–4 columns, each holding any other blocks.',
+    description: 'A row of 1–4 columns, each holding any other blocks.',
     icon:        Columns,
     category:    'layout',
     isContainer: true,

@@ -27,12 +27,12 @@ export function ColumnsEditor({ data, onChange }) {
   return (
     <div className="space-y-3">
       <FormRow label="Columns">
-        <div className="grid grid-cols-3 gap-1.5">
-          {[2, 3, 4].map(n => (
+        <div className="grid grid-cols-4 gap-1.5">
+          {[1, 2, 3, 4].map(n => (
             <button key={n} type="button" onClick={() => setCount(n)}
               className={`text-sm border rounded-md py-2 min-h-[36px]
                 ${cols.length === n ? 'bg-primary/10 border-primary text-primary font-medium' : 'hover:bg-accent'}`}>
-              {n} cols
+              {n === 1 ? '1 col' : `${n} cols`}
             </button>
           ))}
         </div>

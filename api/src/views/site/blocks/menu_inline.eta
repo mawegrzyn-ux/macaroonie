@@ -9,6 +9,21 @@ function fmtPrice(p) { if (p == null) return ''; return '£' + (Number(p) / 100)
 const tagsByCode = menu ? Object.fromEntries((menu.dietary_tags || []).map(t => [t.code, t])) : {}
 const cols = menu ? (menu.print_columns || 3) : 1
 const _blockId = `mi-${(it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)}`
+
+/* Block-level filtering: empty arrays = no filter (show everything). When
+   non-empty, only the listed sections / items render. `hide_prices`
+   suppresses the price column AND each variant's right-hand price. */
+const _sectionFilter = Array.isArray(d.section_ids) ? d.section_ids : []
+const _itemFilter    = Array.isArray(d.item_ids)    ? d.item_ids    : []
+const _hidePrices    = !!d.hide_prices
+function _keepSection(s) {
+  if (!_sectionFilter.length) return true
+  return _sectionFilter.indexOf(s.id) !== -1
+}
+function _keepItem(item) {
+  if (!_itemFilter.length) return true
+  return _itemFilter.indexOf(item.id) !== -1
+}
 %>
 <style>
   .<%= _blockId %> { column-count: <%= Math.min(cols, 3) %>; column-gap: 48px; column-fill: balance; }
@@ -42,15 +57,16 @@ const _blockId = `mi-${(it.block.id || Math.random().toString(36).slice(2, 8)).t
         </p>
       <% } %>
 
-      <% const _msections = menu.sections || [] %>
+      <% const _msections = (menu.sections || []).filter(_keepSection) %>
       <div class="<%= _blockId %>">
         <% _msections.forEach(function(s){ %>
+          <% const _mitems = (s.items || []).filter(_keepItem) %>
+          <% if (_mitems.length === 0) { return; } %>
           <div style="break-inside:avoid; margin-bottom:36px;">
             <h3 style="font-family:var(--f-heading); color:var(--c-primary); font-size:1.2rem; font-weight:600; padding-bottom:8px; border-bottom:1px solid var(--c-border); margin:0 0 16px; display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
               <span><%= s.title %></span>
               <% if (s.subtitle) { %><span style="font-size:0.78rem; font-weight:400; color:var(--c-muted); font-style:italic;"><%= s.subtitle %></span><% } %>
             </h3>
-            <% const _mitems = s.items || [] %>
             <% _mitems.forEach(function(item){ %>
               <div style="padding:10px 0; border-bottom:1px dotted var(--c-border);">
                 <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
@@ -71,7 +87,7 @@ const _blockId = `mi-${(it.block.id || Math.random().toString(36).slice(2, 8)).t
                       <% } %>
                     <% }) %>
                   </div>
-                  <% if (item.price_pence != null && (!item.variants || item.variants.length === 0)) { %>
+                  <% if (!_hidePrices && item.price_pence != null && (!item.variants || item.variants.length === 0)) { %>
                     <span style="font-family:var(--f-heading); color:var(--c-primary); font-weight:500; font-variant-numeric:tabular-nums; white-space:nowrap;">
                       <%= fmtPrice(item.price_pence) %>
                     </span>
@@ -80,12 +96,17 @@ const _blockId = `mi-${(it.block.id || Math.random().toString(36).slice(2, 8)).t
                 <% if (item.description) { %>
                   <p style="font-size:0.88rem; color:var(--c-muted); margin:4px 0 0; line-height:1.45;"><%= item.description %></p>
                 <% } %>
-                <% if (item.variants && item.variants.length) { %>
+                <% if (!_hidePrices && item.variants && item.variants.length) { %>
                   <div style="display:grid; grid-template-columns:1fr auto; gap:0 8px; margin-top:6px; font-size:0.88rem;">
                     <% item.variants.forEach(function(v){ %>
                       <span style="color:var(--c-text);"><%= v.label %></span>
                       <span style="font-family:var(--f-heading); color:var(--c-primary); font-variant-numeric:tabular-nums; text-align:right;"><%= fmtPrice(v.price_pence) %></span>
                     <% }) %>
+                  </div>
+                <% } else if (item.variants && item.variants.length) { %>
+                  <div style="margin-top:6px; font-size:0.88rem; color:var(--c-text);">
+                    <% const _vlabels = item.variants.map(function(v){ return v.label }).join(' · ') %>
+                    <%= _vlabels %>
                   </div>
                 <% } %>
               </div>

@@ -435,6 +435,19 @@ export function MenuInlineCanvas({ data, onChange }) {
   const tagsByCode = menu ? Object.fromEntries((menu.dietary_tags || []).map(t => [t.code, t])) : {}
   const cols = menu ? Math.min(menu.print_columns || 3, 3) : 1
 
+  // Block-level filters — match the SSR partial exactly so the canvas
+  // preview reflects what the live site will render.
+  const sectionFilter = Array.isArray(data.section_ids) ? data.section_ids : []
+  const itemFilter    = Array.isArray(data.item_ids)    ? data.item_ids    : []
+  const hidePrices    = !!data.hide_prices
+  const filteredSections = (menu?.sections || [])
+    .filter(s => sectionFilter.length === 0 || sectionFilter.includes(s.id))
+    .map(s => ({
+      ...s,
+      items: (s.items || []).filter(it => itemFilter.length === 0 || itemFilter.includes(it.id)),
+    }))
+    .filter(s => s.items.length > 0)
+
   return (
     <section className="block" style={{ padding: '64px 0' }}>
       <div style={innerContainerStyle(data.container)}>
@@ -462,7 +475,7 @@ export function MenuInlineCanvas({ data, onChange }) {
               </p>
             )}
             <div style={{ columnCount: cols, columnGap: 48, columnFill: 'balance' }}>
-              {(menu.sections || []).map(s => (
+              {filteredSections.map(s => (
                 <div key={s.id} style={{ breakInside: 'avoid', marginBottom: 36 }}>
                   <h3 style={{
                     fontFamily: 'var(--f-heading)', color: 'var(--c-primary)',
@@ -499,7 +512,7 @@ export function MenuInlineCanvas({ data, onChange }) {
                             )
                           })}
                         </div>
-                        {item.price_pence != null && (!item.variants || item.variants.length === 0) && (
+                        {!hidePrices && item.price_pence != null && (!item.variants || item.variants.length === 0) && (
                           <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
                             {formatPrice(item.price_pence)}
                           </span>
@@ -509,16 +522,22 @@ export function MenuInlineCanvas({ data, onChange }) {
                         <p style={{ fontSize: '0.88rem', color: 'var(--c-muted)', margin: '4px 0 0', lineHeight: 1.45 }}>{item.description}</p>
                       )}
                       {item.variants && item.variants.length > 0 && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0 8px', marginTop: 6, fontSize: '0.88rem' }}>
-                          {item.variants.map((v, i) => (
-                            <div key={i} style={{ display: 'contents' }}>
-                              <span>{v.label}</span>
-                              <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-                                {formatPrice(v.price_pence)}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
+                        !hidePrices ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0 8px', marginTop: 6, fontSize: '0.88rem' }}>
+                            {item.variants.map((v, i) => (
+                              <div key={i} style={{ display: 'contents' }}>
+                                <span>{v.label}</span>
+                                <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+                                  {formatPrice(v.price_pence)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ marginTop: 6, fontSize: '0.88rem' }}>
+                            {item.variants.map(v => v.label).join(' · ')}
+                          </div>
+                        )
                       )}
                     </div>
                   ))}
