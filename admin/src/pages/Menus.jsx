@@ -125,6 +125,7 @@ function MenuList({ onEdit }) {
   })
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="p-6 max-w-5xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <div>
@@ -206,6 +207,7 @@ function MenuList({ onEdit }) {
         <NewMenuModal venues={venues} onClose={() => setCreating(false)}
           onCreated={(m) => { setCreating(false); onEdit(m.id) }} />
       )}
+    </div>
     </div>
   )
 }
@@ -336,8 +338,9 @@ function MenuEditor({ id, onBack }) {
   const printUrl = `/api/menus/${id}/print`
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="p-6 max-w-5xl mx-auto space-y-5 pb-24">
-      {/* Top bar */}
+      {/* Top bar — sticks to the scroll container, not the viewport. */}
       <div className="flex items-center justify-between sticky top-0 z-10 bg-background/95 backdrop-blur py-3 -mx-6 px-6 border-b">
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground">
@@ -431,6 +434,7 @@ function MenuEditor({ id, onBack }) {
           </div>
         </div>
       )}
+    </div>
     </div>
   )
 }
