@@ -106,6 +106,45 @@ export default async function widgetApiRoutes(app) {
     }
   })
 
+  // ── GET /venues/:venueId/schedule-summary ───────────────
+  // Lightweight schedule shape so the widget calendar knows which
+  // days-of-week the venue is open. The widget greys out closed
+  // days BEFORE the user clicks, instead of greeting them with
+  // "no service on this date" after a wasted slot fetch.
+  //
+  // Returns:
+  //   { openDaysOfWeek: number[]  // ISO Sun=0..Sat=6
+  //     bookingWindowDays: number // how far ahead bookings allowed
+  //   }
+  //
+  // Computed from the venue's weekly template only — exception /
+  // override schedules still work at slot-fetch time, but for the
+  // calendar's at-a-glance view the weekly template is enough.
+  app.get('/venues/:venueId/schedule-summary', async (req) => {
+    const venue = await resolveTenant(req.params.venueId)
+    if (!venue) throw httpError(404, 'Venue not found')
+
+    const rows = await withTenant(venue.tenant_id, tx => tx`
+      SELECT DISTINCT t.day_of_week
+        FROM venue_schedule_templates t
+        JOIN venue_sittings           s ON s.template_id = t.id
+       WHERE t.venue_id = ${venue.id}
+       ORDER BY t.day_of_week
+    `)
+
+    const [rules] = await withTenant(venue.tenant_id, tx => tx`
+      SELECT book_until_days
+        FROM booking_rules
+       WHERE venue_id = ${venue.id}
+       LIMIT 1
+    `)
+
+    return {
+      openDaysOfWeek:    rows.map(r => r.day_of_week),
+      bookingWindowDays: rules?.book_until_days ?? 30,
+    }
+  })
+
   // ── GET /venues/:venueId/slots ──────────────────────────
   app.get('/venues/:venueId/slots', async (req) => {
     const venue = await resolveTenant(req.params.venueId)

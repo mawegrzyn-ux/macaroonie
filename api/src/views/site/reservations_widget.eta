@@ -191,19 +191,46 @@ const _accentEffective = _btnBg || it.accent
     .rcal-day {
       aspect-ratio: 1 / 1;
       padding: 0;
+      /* Clearly visible bg + border so cells are unmistakably interactive. */
       border: 1px solid var(--r-border);
       border-radius: var(--r-radius);
-      background: var(--r-bg); color: var(--r-fg);
-      cursor: pointer; font-family: inherit;
+      background: #ffffff;
+      color: var(--r-fg);
+      cursor: pointer;
+      font-family: inherit;
       display: flex; align-items: center; justify-content: center;
-      font-size: 14px; font-weight: 500;
-      transition: border-color 0.12s, background 0.12s;
+      font-size: 15px; font-weight: 600;
+      transition: transform 0.08s, border-color 0.12s, background 0.12s, box-shadow 0.12s;
     }
-    .rcal-day:hover:not([disabled])  { border-color: var(--r-accent); background: var(--r-surface); }
+    .rcal-day:hover:not([disabled])  {
+      border-color: var(--r-accent);
+      box-shadow: 0 1px 6px rgba(0,0,0,0.10);
+      transform: translateY(-1px);
+    }
     .rcal-day.active                 { background: var(--r-accent); color: #fff; border-color: var(--r-accent); }
     .rcal-day.today:not(.active)     { box-shadow: inset 0 0 0 2px var(--r-accent); }
     .rcal-day[disabled],
-    .rcal-day.disabled               { opacity: 0.28; cursor: not-allowed; background: transparent; }
+    .rcal-day.disabled               {
+      /* Past dates — opaque enough to read but clearly different from
+         enabled. No hover effect, no pointer. */
+      opacity: 0.4;
+      cursor: not-allowed;
+      background: transparent;
+      box-shadow: none;
+    }
+    .rcal-day.closed                 {
+      /* Closed day-of-week (venue not open). Distinct from past-date
+         disabled so users can see "closed" vs "in the past". Diagonal
+         hatching makes it unmistakable at a glance. */
+      cursor: not-allowed;
+      color: var(--r-muted);
+      background:
+        repeating-linear-gradient(45deg,
+          transparent 0 6px,
+          rgba(0,0,0,0.04) 6px 7px);
+      box-shadow: none;
+    }
+    .rcal-day.closed:hover           { transform: none; box-shadow: none; border-color: var(--r-border); }
     .rcal-day.outside                { visibility: hidden; }
     .rcal-jump {
       display: flex; align-items: center; gap: 8px;
@@ -339,6 +366,32 @@ const _accentEffective = _btnBg || it.accent
       try { window.__rwState = state; } catch (e) {}
       console.info('[rw] init', { mode: MODE, venue: initialVenue && initialVenue.id, step: state.step, api: API });
 
+      // Schedule summary cache — keyed by venue id. Tells the calendar
+      // which days-of-week the venue is open so we can grey out the rest
+      // before the user clicks. Best-effort — if the fetch fails the
+      // calendar falls back to "all days clickable".
+      var scheduleByVenue = {};
+      function ensureScheduleSummary(venueId) {
+        if (!venueId || scheduleByVenue[venueId]) return;
+        scheduleByVenue[venueId] = { loading: true, openDow: null };
+        fetch(API + '/venues/' + venueId + '/schedule-summary')
+          .then(function(res){ return res.ok ? res.json() : null; })
+          .then(function(data){
+            scheduleByVenue[venueId] = {
+              loading: false,
+              openDow: data && Array.isArray(data.openDaysOfWeek) ? data.openDaysOfWeek : null,
+            };
+            console.info('[rw] schedule-summary', venueId, scheduleByVenue[venueId]);
+            // Re-render if the calendar is currently visible.
+            if (state.step === 2) render();
+          })
+          .catch(function(e){
+            console.warn('[rw] schedule-summary failed', e);
+            scheduleByVenue[venueId] = { loading: false, openDow: null };
+          });
+      }
+      if (initialVenue) ensureScheduleSummary(initialVenue.id);
+
       // Debug overlay — always-on while we diagnose. Shows live state +
       // last action + last API call as a fixed bar at the top of the widget.
       // Once the widget is verified-working in prod, gate this behind
@@ -452,6 +505,7 @@ const _accentEffective = _btnBg || it.accent
         dbgAction('pickVenue ' + id);
         var v = venuesById[id]; if (!v) return;
         state.venue = v;
+        ensureScheduleSummary(v.id);
         goto(1);
       }
       function pickCovers(n) {
@@ -615,7 +669,11 @@ const _accentEffective = _btnBg || it.accent
           state.calMonth = { y: seed.getFullYear(), m: seed.getMonth() };
         }
         var minStr = localToday();
-        var maxStr = localMaxDate();
+        // Removed the per-venue maxStr gate — booking_window_days bugs were
+        // wrongly disabling every future cell. The server returns 0 slots
+        // for dates outside the bookable window anyway and the UI shows a
+        // friendly "no service on this date" message. Let users click ahead.
+        var maxStr = '9999-12-31';
 
         // Header
         var headerLbl = new Date(state.calMonth.y, state.calMonth.m, 1)
@@ -658,23 +716,35 @@ const _accentEffective = _btnBg || it.accent
         var first = new Date(state.calMonth.y, state.calMonth.m, 1);
         var startOff = (first.getDay() + 6) % 7; // Sun=0..Sat=6 → Mon=0..Sun=6
         var grid = el('div', { class: 'rcal-grid' });
+        // Closed-days summary (lazily loaded). null = unknown / not yet
+        // fetched → don't dim by dow. When loaded, mark dates whose
+        // dayOfWeek isn't in openDow as `closed` (visually distinct from
+        // past-dates which are `disabled`).
+        var schedSum = scheduleByVenue[state.venue && state.venue.id] || {};
+        var openDow = schedSum.openDow; // null or array
+
         for (var i = 0; i < 42; i++) (function(i){
           var cell = new Date(state.calMonth.y, state.calMonth.m, 1 - startOff + i);
           var iso  = localDateStr(cell);
           var inMonth   = cell.getMonth() === state.calMonth.m;
           var beforeMin = iso < minStr;
           var afterMax  = iso > maxStr;
-          var disabled  = !inMonth || beforeMin || afterMax;
+          var isPast    = !inMonth || beforeMin || afterMax;
+          var dow       = cell.getDay();
+          var isClosed  = openDow ? (openDow.indexOf(dow) === -1) : false;
+          var disabled  = isPast || isClosed;
           var isToday   = iso === minStr;
           var isPicked  = iso === state.date;
           var classes   = ['rcal-day'];
           if (!inMonth) classes.push('outside');
-          if (disabled) classes.push('disabled');
+          if (isPast)   classes.push('disabled');
+          if (isClosed && !isPast) classes.push('closed');
           if (isToday)  classes.push('today');
           if (isPicked) classes.push('active');
           grid.appendChild(el('button', {
             class: classes.join(' '),
             disabled: disabled,
+            title: isClosed ? 'Closed' : null,
             onclick: disabled ? null : function(){ pickDate(iso); },
           }, String(cell.getDate())));
         })(i);
