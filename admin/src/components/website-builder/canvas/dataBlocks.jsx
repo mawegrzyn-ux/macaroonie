@@ -504,7 +504,21 @@ export function ReservationsWidgetCanvas({ data, onChange, config }) {
   if (typeof data.button_radius_px === 'number') qp.set('btnR',  String(data.button_radius_px))
   if (typeof data.card_radius_px   === 'number') qp.set('cardR', String(data.card_radius_px))
   if (data.font_family)    qp.set('font', data.font_family)
+  if (typeof data.font_size_px === 'number')           qp.set('fontS',   String(data.font_size_px))
+  if (data.font_calendar_family) qp.set('calFont',  data.font_calendar_family)
+  if (typeof data.font_calendar_size_px === 'number') qp.set('calSz',   String(data.font_calendar_size_px))
+  if (data.font_slots_family)    qp.set('slotFont', data.font_slots_family)
+  if (typeof data.font_slots_size_px    === 'number') qp.set('slotSz',  String(data.font_slots_size_px))
+  // Calendar day colours (role names → hex for the URL)
+  const coBg = roleToHex(data.cal_open_bg);     if (coBg) qp.set('coBg', coBg)
+  const coFg = roleToHex(data.cal_open_fg);     if (coFg) qp.set('coFg', coFg)
+  const coBd = roleToHex(data.cal_open_border); if (coBd) qp.set('coBd', coBd)
+  const ccBg = roleToHex(data.cal_closed_bg);     if (ccBg) qp.set('ccBg', ccBg)
+  const ccFg = roleToHex(data.cal_closed_fg);     if (ccFg) qp.set('ccFg', ccFg)
+  const ccBd = roleToHex(data.cal_closed_border); if (ccBd) qp.set('ccBd', ccBd)
   if (data.large_party_text) qp.set('lp', data.large_party_text)
+  if (data.debug_enabled === true)  qp.set('debug', '1')
+  if (data.debug_enabled === false) qp.set('debug', '0')
 
   if (venueId) {
     widgetSrc = `${widgetOrigin}/reservations/${venueId}?${qp.toString()}`

@@ -1141,14 +1141,78 @@ export function ReservationsWidgetEditor({ data, onChange, config }) {
 
       <div>
         <SectionHead label="Typography" />
-        <FormRow label="Widget font"
-          hint={`Blank = ${ws.font_family || 'tenant brand font'}. Different from the page font lets the widget feel like a CTA.`}>
-          <FontPicker
-            fonts={FONT_OPTIONS}
-            value={data.font_family}
-            onChange={set('font_family')}
-            placeholder={ws.font_family || 'Inherit tenant font'} />
-        </FormRow>
+        <p className="text-xs text-muted-foreground mb-2">
+          Three independent font tracks. Each falls back to the tenant default
+          when blank, then to the brand body font.
+        </p>
+        <div className="space-y-3">
+          <FormRow label="Body font"
+            hint={`Headers, button labels, form fields. Blank = ${ws.font_family || 'tenant default'}.`}>
+            <FontPicker fonts={FONT_OPTIONS}
+              value={data.font_family}
+              onChange={set('font_family')}
+              placeholder={ws.font_family || 'Inherit tenant'} />
+          </FormRow>
+          <FormRow label={`Body size — ${data.font_size_px ?? ws.font_size_px ?? 16}px`}>
+            <input type="range" min={11} max={22} step={1}
+              value={data.font_size_px ?? ws.font_size_px ?? 16}
+              onChange={e => set('font_size_px')(Number(e.target.value))}
+              className="w-full" />
+          </FormRow>
+          <FormRow label="Calendar font"
+            hint="Used for the date numbers in the date picker.">
+            <FontPicker fonts={FONT_OPTIONS}
+              value={data.font_calendar_family}
+              onChange={set('font_calendar_family')}
+              placeholder={ws.font_calendar_family || 'Inherit body font'} />
+          </FormRow>
+          <FormRow label={`Calendar size — ${data.font_calendar_size_px ?? ws.font_calendar_size_px ?? 15}px`}>
+            <input type="range" min={10} max={28} step={1}
+              value={data.font_calendar_size_px ?? ws.font_calendar_size_px ?? 15}
+              onChange={e => set('font_calendar_size_px')(Number(e.target.value))}
+              className="w-full" />
+          </FormRow>
+          <FormRow label="Time slots font" hint="Used for the HH:MM time buttons.">
+            <FontPicker fonts={FONT_OPTIONS}
+              value={data.font_slots_family}
+              onChange={set('font_slots_family')}
+              placeholder={ws.font_slots_family || 'Inherit body font'} />
+          </FormRow>
+          <FormRow label={`Time slots size — ${data.font_slots_size_px ?? ws.font_slots_size_px ?? 14}px`}>
+            <input type="range" min={10} max={28} step={1}
+              value={data.font_slots_size_px ?? ws.font_slots_size_px ?? 14}
+              onChange={e => set('font_slots_size_px')(Number(e.target.value))}
+              className="w-full" />
+          </FormRow>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Calendar day colours" />
+        <p className="text-xs text-muted-foreground mb-2">
+          Available days vs closed days. Theme roles only — pick from the brand
+          palette. Blank fields fall back to tenant defaults / sensible defaults.
+        </p>
+        <div className="space-y-3">
+          <FormRow label="Open day — background">
+            <ThemeColourPicker value={data.cal_open_bg} onChange={set('cal_open_bg')} />
+          </FormRow>
+          <FormRow label="Open day — text">
+            <ThemeColourPicker value={data.cal_open_fg} onChange={set('cal_open_fg')} />
+          </FormRow>
+          <FormRow label="Open day — border">
+            <ThemeColourPicker value={data.cal_open_border} onChange={set('cal_open_border')} />
+          </FormRow>
+          <FormRow label="Closed day — background">
+            <ThemeColourPicker value={data.cal_closed_bg} onChange={set('cal_closed_bg')} />
+          </FormRow>
+          <FormRow label="Closed day — text">
+            <ThemeColourPicker value={data.cal_closed_fg} onChange={set('cal_closed_fg')} />
+          </FormRow>
+          <FormRow label="Closed day — border">
+            <ThemeColourPicker value={data.cal_closed_border} onChange={set('cal_closed_border')} />
+          </FormRow>
+        </div>
       </div>
 
       <div>
@@ -1158,6 +1222,31 @@ export function ReservationsWidgetEditor({ data, onChange, config }) {
           <Area value={data.large_party_text} onChange={set('large_party_text')} rows={2}
             placeholder={ws.large_party_text || 'Larger party? Call us — we’ll arrange combined tables.'} />
         </FormRow>
+      </div>
+
+      <div>
+        <SectionHead label="Debug" />
+        <p className="text-xs text-muted-foreground mb-2">
+          Tri-state: Inherit (use tenant default) / Force on / Force off. The
+          diagnostic overlay shows live state at the top of the widget. Should
+          stay off for normal customers.
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {[
+            { v: null,  label: 'Inherit' },
+            { v: true,  label: 'On' },
+            { v: false, label: 'Off' },
+          ].map(opt => (
+            <button key={String(opt.v)} type="button"
+              onClick={() => set('debug_enabled')(opt.v)}
+              className={`text-sm border rounded-md py-2 min-h-[36px]
+                ${data.debug_enabled === opt.v
+                  ? 'bg-primary/10 border-primary text-primary font-medium'
+                  : 'hover:bg-accent'}`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   )

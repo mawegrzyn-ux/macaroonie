@@ -398,20 +398,34 @@ export const BLOCKS = [
     defaultData: {
       heading:   'Reserve a table',
       container: 'boxed',
-      // Per-block widget chrome overrides — leave blank to inherit
+      // Per-block widget chrome overrides — leave blank/null to inherit
       // tenant-level defaults from /reservations-widget. Colours are theme
       // role names ('primary'|'accent'|...|'border') — empty = inherit.
       venue_id:        null,
       header_show:     null,  // null = inherit; true/false = force
       header_text:     '',
       subheader_text:  '',
-      button_bg:       '',    // theme role name, blank = inherit
-      button_fg:       '',    // theme role name, blank = inherit
+      button_bg:       '',
+      button_fg:       '',
       button_radius_px: null,
       card_radius_px:   null,
-      border_colour:   '',    // theme role name, blank = inherit
+      border_colour:   '',
       font_family:     '',
-      large_party_text: '',
+      font_size_px:    null,
+      // Per-element typography (independent of body font)
+      font_calendar_family:  '',
+      font_calendar_size_px: null,
+      font_slots_family:     '',
+      font_slots_size_px:    null,
+      // Calendar day colours (theme role names)
+      cal_open_bg:        '',
+      cal_open_fg:        '',
+      cal_open_border:    '',
+      cal_closed_bg:      '',
+      cal_closed_fg:      '',
+      cal_closed_border:  '',
+      large_party_text:  '',
+      debug_enabled:     null,
     },
     editor:      ReservationsWidgetEditor,
     pullsFromConfig: true,

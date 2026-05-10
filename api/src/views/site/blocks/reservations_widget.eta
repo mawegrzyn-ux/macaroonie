@@ -61,7 +61,22 @@ const widgetQs = (base) => {
   if (typeof d.card_radius_px   === 'number') params.push('cardR=' + d.card_radius_px)
   _pushRoleAsHex (params, 'brd',    d.border_colour)
   _pushParam     (params, 'font',   d.font_family)
-  _pushParam     (params, 'lp',     d.large_party_text)
+  if (typeof d.font_size_px === 'number') params.push('fontS=' + d.font_size_px)
+  // Per-element typography
+  _pushParam     (params, 'calFont',  d.font_calendar_family)
+  if (typeof d.font_calendar_size_px === 'number') params.push('calSz=' + d.font_calendar_size_px)
+  _pushParam     (params, 'slotFont', d.font_slots_family)
+  if (typeof d.font_slots_size_px    === 'number') params.push('slotSz=' + d.font_slots_size_px)
+  // Calendar day colours (role names → hex for the URL)
+  _pushRoleAsHex (params, 'coBg', d.cal_open_bg)
+  _pushRoleAsHex (params, 'coFg', d.cal_open_fg)
+  _pushRoleAsHex (params, 'coBd', d.cal_open_border)
+  _pushRoleAsHex (params, 'ccBg', d.cal_closed_bg)
+  _pushRoleAsHex (params, 'ccFg', d.cal_closed_fg)
+  _pushRoleAsHex (params, 'ccBd', d.cal_closed_border)
+  _pushParam     (params, 'lp',  d.large_party_text)
+  if (d.debug_enabled === true)  params.push('debug=1')
+  if (d.debug_enabled === false) params.push('debug=0')
   return base + '?' + params.join('&')
 }
 
