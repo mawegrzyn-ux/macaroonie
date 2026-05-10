@@ -789,6 +789,234 @@ export function ScrollingTextEditor({ data, onChange }) {
   )
 }
 
+// ── Gallery editor ─────────────────────────────────────────
+//
+// Source-or-pick model:
+//   * source='category' + category_id=<uuid>   → all images in that category
+//   * source='category' + category_id=null     → all images for the tenant
+//   * source='items'    + item_ids=[uuid,...]  → exactly those images, in order
+//
+// Layout (grid / masonry / horizontal scroll), columns (2-4), gap, aspect
+// ratio, captions, lightbox — all controllable. Renders thumbnails of the
+// resolved set inline so the operator can sanity-check the selection.
+
+export function GalleryEditor({ data, onChange }) {
+  const api = useApi()
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+  const source     = data.source || 'category'
+  const categoryId = data.category_id || null
+  const itemIds    = Array.isArray(data.item_ids) ? data.item_ids : []
+
+  const { data: categories = [] } = useQuery({
+    queryKey: ['media-categories'],
+    queryFn:  () => api.get('/media/categories'),
+    staleTime: 60_000,
+  })
+
+  // Library list — used for the multi-pick UI when source='items', AND
+  // to render thumbnails of the resolved selection.
+  const { data: libraryItems = [], isLoading: libLoading } = useQuery({
+    queryKey: ['media-items', { categoryId: source === 'category' ? categoryId : null }],
+    queryFn:  () => {
+      const qs = source === 'category' && categoryId
+        ? '?category_id=' + encodeURIComponent(categoryId)
+        : ''
+      return api.get('/media/items' + qs)
+    },
+    staleTime: 30_000,
+  })
+
+  // Filter to images only (Media library can hold non-images).
+  const images = libraryItems.filter(i => /^image\//.test(i.mimetype || ''))
+
+  // The set actually rendered by the SSR partial — used for the live
+  // thumb preview inside the editor.
+  let resolvedItems = []
+  if (source === 'items') {
+    const byId = Object.fromEntries(images.map(i => [i.id, i]))
+    resolvedItems = itemIds.map(id => byId[id]).filter(Boolean)
+  } else {
+    resolvedItems = images
+  }
+  if (data.max_items && resolvedItems.length > data.max_items) {
+    resolvedItems = resolvedItems.slice(0, data.max_items)
+  }
+
+  function toggleItem(id) {
+    const next = itemIds.includes(id) ? itemIds.filter(x => x !== id) : [...itemIds, id]
+    set('item_ids')(next)
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <SectionHead label="Heading" />
+        <FormRow label="Section heading" hint="Above the gallery. Blank to hide.">
+          <Input value={data.heading} onChange={set('heading')} placeholder="Gallery" />
+        </FormRow>
+      </div>
+
+      <div>
+        <SectionHead label="Source" />
+        <p className="text-xs text-muted-foreground mb-2">
+          Pull images from a Media library category, or hand-pick specific images.
+        </p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {[
+            { v: 'category', label: 'By category' },
+            { v: 'items',    label: 'Pick specific images' },
+          ].map(opt => (
+            <button key={opt.v} type="button" onClick={() => set('source')(opt.v)}
+              className={`text-sm border rounded-md py-2 min-h-[36px]
+                ${source === opt.v ? 'bg-primary/10 border-primary text-primary font-medium' : 'hover:bg-accent'}`}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
+        {source === 'category' && (
+          <FormRow label="Category" className="mt-3"
+            hint="Blank = all images for this tenant.">
+            <Select value={categoryId || ''} onChange={v => set('category_id')(v || null)}>
+              <option value="">— All images —</option>
+              {categories.map(c => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </Select>
+          </FormRow>
+        )}
+
+        {source === 'items' && (
+          <div className="mt-3">
+            <p className="text-xs text-muted-foreground mb-2">
+              {itemIds.length === 0
+                ? 'No images selected. Click thumbnails below to add.'
+                : `${itemIds.length} image${itemIds.length === 1 ? '' : 's'} selected.`}
+              {itemIds.length > 0 && (
+                <button type="button" onClick={() => set('item_ids')([])}
+                  className="ml-2 text-primary hover:underline">Clear</button>
+              )}
+            </p>
+            {libLoading
+              ? <p className="text-xs text-muted-foreground">Loading library…</p>
+              : images.length === 0
+                ? <p className="text-xs text-muted-foreground">No images in your Media library yet — upload some on the Media page.</p>
+                : <div className="grid grid-cols-4 gap-1.5 max-h-[280px] overflow-y-auto p-1 border rounded">
+                    {images.map(img => {
+                      const on = itemIds.includes(img.id)
+                      return (
+                        <button key={img.id} type="button" onClick={() => toggleItem(img.id)}
+                          title={img.filename}
+                          className={`relative aspect-square overflow-hidden rounded border
+                            ${on ? 'ring-2 ring-primary ring-offset-1' : 'hover:border-primary/40'}`}>
+                          <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+                          {on && (
+                            <span className="absolute top-1 right-1 bg-primary text-primary-foreground text-[10px] px-1 py-0.5 rounded">✓</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <SectionHead label="Layout" />
+        <div className="space-y-3">
+          <FormRow label="Style">
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { v: 'grid',       label: 'Grid' },
+                { v: 'masonry',    label: 'Masonry' },
+                { v: 'horizontal', label: 'Horizontal' },
+              ].map(opt => (
+                <button key={opt.v} type="button" onClick={() => set('layout')(opt.v)}
+                  className={`text-sm border rounded-md py-2 min-h-[36px]
+                    ${(data.layout || 'grid') === opt.v
+                      ? 'bg-primary/10 border-primary text-primary font-medium'
+                      : 'hover:bg-accent'}`}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </FormRow>
+          {(data.layout || 'grid') !== 'horizontal' && (
+            <FormRow label="Columns">
+              <div className="grid grid-cols-3 gap-1.5">
+                {[2, 3, 4].map(n => (
+                  <button key={n} type="button" onClick={() => set('columns')(n)}
+                    className={`text-sm border rounded-md py-2 min-h-[36px]
+                      ${(data.columns || 3) === n
+                        ? 'bg-primary/10 border-primary text-primary font-medium'
+                        : 'hover:bg-accent'}`}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </FormRow>
+          )}
+          <FormRow label="Gap">
+            <Select value={data.gap || 'normal'} onChange={set('gap')}>
+              <option value="tight">Tight (8px)</option>
+              <option value="normal">Normal (16px)</option>
+              <option value="wide">Wide (24px)</option>
+            </Select>
+          </FormRow>
+          <FormRow label="Aspect ratio"
+            hint="Forces every image to the same shape. Natural keeps each image's own ratio (best with masonry).">
+            <Select value={data.aspect || 'square'} onChange={set('aspect')}>
+              <option value="square">Square (1:1)</option>
+              <option value="4:3">Landscape (4:3)</option>
+              <option value="16:9">Wide (16:9)</option>
+              <option value="natural">Natural (per-image)</option>
+            </Select>
+          </FormRow>
+          <FormRow label="Max images shown"
+            hint="Optional cap. Blank = show everything matched.">
+            <Input type="number" value={data.max_items ?? ''}
+              onChange={v => set('max_items')(v === '' ? null : Math.max(0, Number(v) || 0))}
+              placeholder="No limit" />
+          </FormRow>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Display" />
+        <div className="space-y-2">
+          <Toggle checked={!!data.show_captions} onChange={set('show_captions')}
+            label="Show captions under images" />
+          <Toggle checked={data.lightbox !== false} onChange={set('lightbox')}
+            label="Click to open full-size (lightbox)" />
+        </div>
+      </div>
+
+      <div>
+        <SectionHead label="Selection preview" />
+        <p className="text-xs text-muted-foreground mb-2">
+          {resolvedItems.length === 0
+            ? 'Nothing will render yet — pick a category or images above.'
+            : `${resolvedItems.length} image${resolvedItems.length === 1 ? '' : 's'} will render.`}
+        </p>
+        {resolvedItems.length > 0 && (
+          <div className="grid grid-cols-6 gap-1">
+            {resolvedItems.slice(0, 12).map(img => (
+              <div key={img.id} className="aspect-square overflow-hidden rounded border">
+                <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+              </div>
+            ))}
+            {resolvedItems.length > 12 && (
+              <div className="aspect-square rounded border bg-muted flex items-center justify-center text-xs text-muted-foreground">
+                +{resolvedItems.length - 12}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Booking widget editor ──────────────────────────────────
 //
 // Per-block overrides for the booking widget chrome. Tenant-wide defaults

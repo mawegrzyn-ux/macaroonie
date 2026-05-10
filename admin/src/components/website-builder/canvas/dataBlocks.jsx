@@ -144,44 +144,99 @@ export function ContactCanvas({ data, onChange, config }) {
 
 // ── Gallery ──────────────────────────────────────────────
 
-export function GalleryCanvas({ data, onChange, config }) {
+export function GalleryCanvas({ data, onChange }) {
+  // Resolves the same way the SSR partial does — the user's selection
+  // (category or hand-picked items) is fetched from the Media library so
+  // the canvas preview matches the live render exactly.
   const api = useApi()
-  const venueId = config?.venue_id
-  const { data: images = [], isLoading } = useQuery({
-    queryKey: ['gallery-preview', venueId],
-    queryFn:  () => api.get(venueId ? `/website/gallery?venue_id=${venueId}` : '/website/gallery'),
-    enabled:  !!venueId,
+  const source     = data.source || 'category'
+  const categoryId = data.category_id || null
+  const itemIds    = Array.isArray(data.item_ids) ? data.item_ids : []
+  const layout     = data.layout || 'grid'
+  const cols       = Math.max(2, Math.min(4, data.columns || 3))
+  const gapMap     = { tight: 8, normal: 16, wide: 24 }
+  const gap        = gapMap[data.gap || 'normal'] || 16
+  const aspect     = data.aspect || 'square'
+
+  const { data: items = [], isLoading } = useQuery({
+    queryKey: ['media-items', { categoryId: source === 'category' ? categoryId : null }],
+    queryFn:  () => {
+      const qs = source === 'category' && categoryId
+        ? '?category_id=' + encodeURIComponent(categoryId) : ''
+      return api.get('/media/items' + qs)
+    },
     staleTime: 30_000,
   })
+
+  // Filter to images & honour the source mode + max_items cap.
+  let resolved = items.filter(i => /^image\//.test(i.mimetype || ''))
+  if (source === 'items') {
+    const byId = Object.fromEntries(resolved.map(i => [i.id, i]))
+    resolved = itemIds.map(id => byId[id]).filter(Boolean)
+  }
+  if (data.max_items && resolved.length > data.max_items) {
+    resolved = resolved.slice(0, data.max_items)
+  }
+
+  const aspectStyle = aspect === '4:3'  ? { aspectRatio: '4 / 3' }
+                    : aspect === '16:9' ? { aspectRatio: '16 / 9' }
+                    : aspect === 'natural' ? {}
+                    : { aspectRatio: '1 / 1' }
+
+  const gridStyle = layout === 'masonry'
+    ? { columnCount: cols, columnGap: gap }
+    : layout === 'horizontal'
+      ? { display: 'flex', gap, overflowX: 'auto', paddingBottom: 8 }
+      : { display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap }
+
   return (
-    <section className="block" style={{ padding: '48px 0' }}>
+    <section className="block" style={{ padding: '48px 0', background: 'var(--c-surface)' }}>
       <div style={innerContainerStyle(data.container)}>
         <BlockHeading data={data} onChange={onChange} />
-        {!venueId ? (
-          <EmptyPanel Icon={ImageIcon} title="Gallery"
-            hint="Gallery images live per-location."
-            where="Add to a venue's location page" />
-        ) : isLoading ? (
+        {isLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 24, color: 'var(--c-muted)' }}>
             <Loader2 className="animate-spin" size={20} />
           </div>
-        ) : images.length === 0 ? (
+        ) : resolved.length === 0 ? (
           <EmptyPanel Icon={ImageIcon} title="Gallery"
-            hint="No images yet."
-            where="Add via Gallery section of this venue" />
+            hint={source === 'items'
+              ? 'No images selected.'
+              : (categoryId ? 'No images in this category.' : 'No images in your Media library.')}
+            where="Configure the gallery in the inspector or upload images on the Media page" />
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
-            {images.slice(0, 8).map(img => (
-              <img key={img.id} src={img.image_url} alt={img.caption || ''}
-                style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 'var(--r-md, 8px)' }} />
-            ))}
-            {images.length > 8 && (
-              <div style={{
-                aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                borderRadius: 'var(--r-md, 8px)', background: 'var(--c-surface)',
-                color: 'var(--c-muted)', fontSize: 14,
-              }}>+{images.length - 8} more</div>
-            )}
+          <div style={gridStyle}>
+            {resolved.map(img => {
+              const wrap = layout === 'masonry'
+                ? { breakInside: 'avoid', marginBottom: gap, display: 'block' }
+                : layout === 'horizontal'
+                  ? { flex: '0 0 220px' }
+                  : {}
+              return (
+                <div key={img.id} style={{
+                  position: 'relative', overflow: 'hidden',
+                  borderRadius: 'var(--r-md, 8px)',
+                  background: 'var(--c-bg)',
+                  ...wrap,
+                }}>
+                  <img src={img.url} alt={img.filename || ''} loading="lazy"
+                    style={{
+                      display: 'block', width: '100%',
+                      objectFit: 'cover',
+                      ...(layout === 'masonry' && aspect === 'natural'
+                        ? { height: 'auto' }
+                        : aspectStyle),
+                    }} />
+                  {data.show_captions && img.filename && (
+                    <span style={{
+                      position: 'absolute', bottom: 0, left: 0, right: 0,
+                      padding: '8px 10px',
+                      background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+                      color: '#fff', fontSize: 13,
+                    }}>{img.filename}</span>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

@@ -99,12 +99,17 @@ export default function ReservationsWidget() {
   }
 
   if (isLoading) {
-    return <div className="p-8 flex items-center gap-2 text-muted-foreground">
-      <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+    return <div className="h-full overflow-y-auto">
+      <div className="p-8 flex items-center gap-2 text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+      </div>
     </div>
   }
 
+  // AppShell's <main> is overflow-hidden — the page needs its own scrolling
+  // container or content past the fold gets stranded (CLAUDE.md gotcha).
   return (
+    <div className="h-full overflow-y-auto">
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Reservations widget</h1>
@@ -268,6 +273,7 @@ export default function ReservationsWidget() {
         {saved && !dirty && <span className="text-xs text-green-700">Saved.</span>}
         {error && <span className="text-xs text-destructive">{error}</span>}
       </div>
+    </div>
     </div>
   )
 }

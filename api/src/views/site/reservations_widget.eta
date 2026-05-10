@@ -333,6 +333,12 @@ const _accentEffective = _btnBg || it.accent
         calMonth: null,
       };
 
+      // Debug — expose state to window so devtools can inspect, and log
+      // every step transition and API call. Helps diagnose "click does
+      // nothing" complaints. Remove or gate behind ?debug=1 once stable.
+      try { window.__rwState = state; } catch (e) {}
+      console.info('[rw] init', { mode: MODE, venue: initialVenue && initialVenue.id, step: state.step, api: API });
+
       // ── Date helpers (LOCAL date, not UTC — `toISOString().slice` shifts
       // by a day in late-evening eastern timezones) ────────────────
       function localDateStr(d) {
@@ -404,41 +410,50 @@ const _accentEffective = _btnBg || it.accent
 
       // ── State actions ──────────────────────────────────────────
       function goto(step) {
+        console.info('[rw] goto', { from: state.step, to: step });
         state.step = step;
         state.error = null;
         render();
       }
 
       function pickVenue(id) {
+        console.info('[rw] pickVenue', id);
         var v = venuesById[id]; if (!v) return;
         state.venue = v;
         goto(1);
       }
       function pickCovers(n) {
+        console.info('[rw] pickCovers', n);
         state.covers = n;
         goto(2);
       }
       function pickDate(iso) {
+        console.info('[rw] pickDate', iso);
         state.date = iso;
         state.slot = null;
         loadSlots();
       }
       function pickSlot(s) {
+        console.info('[rw] pickSlot', s.slot_time);
         state.slot = s;
         goto(4);
       }
       function loadSlots() {
+        var url = '/venues/' + state.venue.id + '/slots?date=' + state.date + '&covers=' + state.covers;
+        console.info('[rw] loadSlots →', API + url);
         state.slotsLoading = true;
         state.slotsError   = null;
         state.step         = 3;
         render();
-        api('/venues/' + state.venue.id + '/slots?date=' + state.date + '&covers=' + state.covers)
+        api(url)
           .then(function(rows){
+            console.info('[rw] loadSlots ←', { count: (rows || []).length, sample: (rows || [])[0] });
             state.slots = rows || [];
             state.slotsLoading = false;
             render();
           })
           .catch(function(e){
+            console.error('[rw] loadSlots failed', e);
             state.slots = [];
             state.slotsLoading = false;
             state.slotsError   = e.message || 'Failed to load times.';

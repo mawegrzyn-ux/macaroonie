@@ -41,7 +41,7 @@ import {
   HeaderBlockEditor, FooterBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
   OrderOptionsEditor, MenuInlineEditor, ReservationsWidgetEditor,
-  ScrollingTextEditor,
+  ScrollingTextEditor, GalleryEditor,
 } from './editors/SiteBlockEditors'
 
 // Sectional blocks (everything except divider + columns) get a shared
@@ -336,12 +336,28 @@ export const BLOCKS = [
   {
     key:         'gallery',
     label:       'Gallery',
-    description: 'Pulls from your gallery images. Style + size controlled in the Gallery section.',
+    description: 'Image gallery sourced from your Media library. Pick a category or hand-pick specific images.',
     icon:        Layout,
     category:    'data',
-    defaultData: { heading: 'Gallery', container: 'boxed' },
-    editor:      DataBlockEditor,
-    pullsFromConfig: true,
+    defaultData: {
+      heading:     'Gallery',
+      container:   'boxed',
+      // Source mode + selection
+      source:      'category',  // 'category' | 'items'
+      category_id: null,        // null = all images for the tenant (when source='category')
+      item_ids:    [],          // explicit list (when source='items')
+      // Layout
+      layout:      'grid',      // 'grid' | 'masonry' | 'horizontal'
+      columns:     3,           // 2 | 3 | 4 (grid + masonry only)
+      gap:         'normal',    // 'tight' | 'normal' | 'wide'
+      aspect:      'square',    // 'square' | '4:3' | '16:9' | 'natural'
+      max_items:   null,        // optional cap (null = no limit)
+      // Display
+      show_captions: false,
+      lightbox:      true,
+    },
+    editor:      GalleryEditor,
+    pullsFromConfig: false,
   },
   {
     key:         'opening_hours',

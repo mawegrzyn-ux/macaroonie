@@ -161,6 +161,11 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
   // the menus map so the SSR partial can render without an extra query.
   const menusById = await loadInlineMenus(ts.tenant_id, ts.home_blocks)
 
+  // Same pattern for `gallery` blocks — pre-resolve each block's image
+  // set (by category or hand-picked item ids) so the partial can render
+  // without per-block DB queries.
+  const galleryByBlock = await loadGalleryItemsForBlocks(ts.tenant_id, ts.home_blocks)
+
   return {
     tenant_site: ts,
     config:      ts,            // alias: templates read `it.config`
@@ -170,6 +175,7 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
     venues:      bundle.venues,
     pages:       bundle.pages,
     menus_by_id: menusById,
+    gallery_items_by_block: galleryByBlock,
   }
 }
 
@@ -236,6 +242,108 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
     for (const m of menus) byMenu[m.id] = { ...m, sections: [] }
     for (const s of sections) byMenu[s.menu_id]?.sections.push(s)
     return byMenu
+  })
+}
+
+/* ── Gallery block hydration ──────────────────────────────────
+ * Walks the supplied block arrays looking for `type: 'gallery'` blocks
+ * and resolves each block's image set against the Media library:
+ *
+ *   data.source === 'category'  → SELECT media_items WHERE category_id = data.category_id
+ *                                  (NULL category_id = all images for the tenant)
+ *   data.source === 'items'     → SELECT media_items WHERE id IN (data.item_ids)
+ *                                  (preserves the operator's chosen order)
+ *
+ * Optional cap: data.max_items truncates the resolved list. Always
+ * filters to MIME starting `image/` so non-image assets don't leak in.
+ *
+ * Returns: { [blockId]: items[] } where items have id/url/filename/
+ * width/height/category_id — enough for the SSR partial to render.
+ */
+async function loadGalleryItemsForBlocks(tenantId, ...blockArrays) {
+  /* Collect every gallery block (with its id + data) so we can batch
+     queries by source type. We also recurse into `columns` containers
+     since galleries can live inside them. */
+  const galleryBlocks = []
+  function walk(blocks) {
+    if (!Array.isArray(blocks)) return
+    for (const b of blocks) {
+      if (b?.type === 'gallery') galleryBlocks.push(b)
+      if (Array.isArray(b?.data?.columns)) {
+        for (const col of b.data.columns) walk(col?.blocks)
+      }
+    }
+  }
+  for (const arr of blockArrays) walk(arr)
+  if (galleryBlocks.length === 0) return {}
+
+  /* Aggregate every category id and every item id we need across all
+     blocks. One DB round-trip per ID set. */
+  const categoryIds = new Set()
+  const itemIds     = new Set()
+  let needAllImages = false
+  for (const b of galleryBlocks) {
+    const d = b.data || {}
+    if (d.source === 'items') {
+      (Array.isArray(d.item_ids) ? d.item_ids : []).forEach(id => id && itemIds.add(id))
+    } else {
+      // 'category' (default) — null category_id means "all images"
+      if (d.category_id) categoryIds.add(d.category_id)
+      else               needAllImages = true
+    }
+  }
+
+  return withTenant(tenantId, async tx => {
+    /* Pull every potentially-needed image in one query. The block-level
+       filtering happens in JS below — cheaper than per-block round-trips
+       when categories + handpicked overlap. */
+    let allRows = []
+    if (needAllImages) {
+      allRows = await tx`
+        SELECT id, url, filename, width, height, category_id, mimetype
+          FROM media_items
+         WHERE tenant_id = ${tenantId}
+           AND mimetype LIKE 'image/%'
+         ORDER BY created_at DESC
+      `
+    } else if (categoryIds.size || itemIds.size) {
+      allRows = await tx`
+        SELECT id, url, filename, width, height, category_id, mimetype
+          FROM media_items
+         WHERE tenant_id = ${tenantId}
+           AND mimetype LIKE 'image/%'
+           AND (
+             ${categoryIds.size
+               ? tx`category_id = ANY(${Array.from(categoryIds)}::uuid[])`
+               : tx`false`}
+             OR
+             ${itemIds.size
+               ? tx`id = ANY(${Array.from(itemIds)}::uuid[])`
+               : tx`false`}
+           )
+         ORDER BY created_at DESC
+      `
+    }
+
+    const byId = Object.fromEntries(allRows.map(r => [r.id, r]))
+    const out  = {}
+    for (const b of galleryBlocks) {
+      const d   = b.data || {}
+      const cap = (typeof d.max_items === 'number' && d.max_items >= 0) ? d.max_items : null
+      let list  = []
+
+      if (d.source === 'items') {
+        const ids = Array.isArray(d.item_ids) ? d.item_ids : []
+        list = ids.map(id => byId[id]).filter(Boolean) // preserve picked order
+      } else if (d.category_id) {
+        list = allRows.filter(r => r.category_id === d.category_id)
+      } else {
+        list = allRows
+      }
+      if (cap !== null) list = list.slice(0, cap)
+      out[b.id] = list
+    }
+    return out
   })
 }
 
@@ -349,6 +457,14 @@ export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpub
     ...(await loadInlineMenus(tenantId, result.mergedConfig.page_blocks)),
   }
 
+  // Same merge for gallery hydration — page-level gallery blocks can
+  // appear on the location page itself, plus any in the inherited home
+  // blocks (typically none, but handle it).
+  const galleryByBlock = {
+    ...(tenantBundle.gallery_items_by_block || {}),
+    ...(await loadGalleryItemsForBlocks(tenantId, result.mergedConfig.page_blocks)),
+  }
+
   return {
     ...tenantBundle,
     config:        result.mergedConfig,
@@ -359,6 +475,7 @@ export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpub
     allergens:     result.allergens,
     location_pages: result.pages,
     menus_by_id:   menusById,
+    gallery_items_by_block: galleryByBlock,
   }
 }
 

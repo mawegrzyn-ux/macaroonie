@@ -1,63 +1,219 @@
 <%
+/* ── Gallery block ──────────────────────────────────────────────────────
+ *
+ * Sources its image set from the per-tenant Media library, resolved
+ * upstream by `loadGalleryItemsForBlocks` in siteDataSvc.js. Each block
+ * gets its own resolved list keyed by block id:
+ *
+ *   it.gallery_items_by_block[block.id] = [{ id, url, filename,
+ *                                            width, height, ... }, ...]
+ *
+ * Layouts:
+ *   grid       — equal-size cells, configurable columns + aspect ratio
+ *   masonry    — CSS multi-column flow, natural heights
+ *   horizontal — single-row flex, scrolls horizontally with snap
+ *
+ * Lightbox: a tiny vanilla-JS overlay with prev/next + ESC/click-out to
+ * close. Self-contained per block (uses the block's unique class name).
+ */
 const d = it.block.data || {}
-const galStyle = it.config.gallery_style || 'grid'
-const galSize  = it.config.gallery_size  || 'medium'
-const thumbMin = galSize === 'small' ? 160 : galSize === 'large' ? 320 : 240
-const thumbHt  = galSize === 'small' ? 160 : galSize === 'large' ? 280 : 220
+const items = (it.gallery_items_by_block || {})[it.block.id] || []
+
 const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
+
+const layout      = d.layout || 'grid'
+const cols        = Math.max(2, Math.min(4, d.columns || 3))
+const gapMap      = { tight: 8, normal: 16, wide: 24 }
+const gap         = gapMap[d.gap || 'normal'] || 16
+const aspect      = d.aspect || 'square'
+const showCaps    = !!d.show_captions
+const lightboxOn  = d.lightbox !== false
+
+const aspectStyle = aspect === '4:3'  ? 'aspect-ratio: 4 / 3;'
+                  : aspect === '16:9' ? 'aspect-ratio: 16 / 9;'
+                  : aspect === 'natural' ? ''
+                  : 'aspect-ratio: 1 / 1;'
+
+const blockId = 'g-' + (it.block.id || Math.random().toString(36).slice(2, 10)).toString().slice(0, 12)
 %>
-<% if (it.gallery && it.gallery.length) { %>
-<section class="block" style="background:var(--c-surface); padding:64px 0;">
-  <div style="<%= containerStyle %>">
-    <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
-    <% if (galStyle === 'horizontal') { %>
-      <div style="display:flex; gap:12px; overflow-x:auto; scroll-snap-type:x mandatory; padding-bottom:12px;">
-        <% it.gallery.forEach(function(g){ %>
-          <a href="<%= g.image_url %>" target="_blank" rel="noopener"
-             style="flex:0 0 <%= thumbMin * 1.4 %>px; scroll-snap-align:start; display:block; position:relative; border-radius:6px; overflow:hidden;">
-            <img src="<%= g.image_url %>" alt="<%= g.caption || '' %>"
-                 style="width:100%; height:<%= thumbHt %>px; object-fit:cover;" loading="lazy" />
-            <% if (g.caption) { %>
-              <div style="position:absolute; bottom:0; left:0; right:0; padding:6px 10px; background:linear-gradient(transparent, rgba(0,0,0,.7)); color:#fff; font-size:12px;">
-                <%= g.caption %>
-              </div>
-            <% } %>
-          </a>
-        <% }) %>
-      </div>
-    <% } else if (galStyle === 'pinterest') { %>
-      <div style="column-count:4; column-gap:12px;">
-        <% it.gallery.forEach(function(g){ %>
-          <a href="<%= g.image_url %>" target="_blank" rel="noopener"
-             style="display:inline-block; width:100%; margin-bottom:12px; break-inside:avoid; position:relative; border-radius:6px; overflow:hidden;">
-            <img src="<%= g.image_url %>" alt="<%= g.caption || '' %>"
-                 style="width:100%; display:block;" loading="lazy" />
-            <% if (g.caption) { %>
-              <div style="position:absolute; bottom:0; left:0; right:0; padding:6px 10px; background:linear-gradient(transparent, rgba(0,0,0,.7)); color:#fff; font-size:12px;">
-                <%= g.caption %>
-              </div>
-            <% } %>
-          </a>
-        <% }) %>
-      </div>
+<% if (items.length) { %>
+<style>
+  .<%= blockId %>-section { padding: 64px 0; background: var(--c-surface); }
+  .<%= blockId %>-head    { margin: 0 0 24px; font-family: var(--f-heading); color: var(--c-primary); }
+
+  <% if (layout === 'grid') { %>
+    .<%= blockId %>-list {
+      display: grid;
+      grid-template-columns: repeat(<%= cols %>, 1fr);
+      gap: <%= gap %>px;
+    }
+  <% } else if (layout === 'masonry') { %>
+    .<%= blockId %>-list {
+      column-count: <%= cols %>;
+      column-gap: <%= gap %>px;
+    }
+    .<%= blockId %>-list .<%= blockId %>-item {
+      break-inside: avoid;
+      margin-bottom: <%= gap %>px;
+      display: block;
+    }
+  <% } else { %>
+    /* horizontal */
+    .<%= blockId %>-list {
+      display: flex;
+      gap: <%= gap %>px;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      padding-bottom: 8px;
+    }
+    .<%= blockId %>-list .<%= blockId %>-item {
+      flex: 0 0 280px;
+      scroll-snap-align: start;
+    }
+  <% } %>
+
+  .<%= blockId %>-item {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--r-md, 8px);
+    cursor: <%= lightboxOn ? 'zoom-in' : 'default' %>;
+    background: var(--c-bg);
+    border: 0;
+    padding: 0;
+    width: 100%;
+    text-align: left;
+    font-family: inherit;
+  }
+  .<%= blockId %>-img {
+    width: 100%;
+    <% if (layout === 'masonry' && aspect === 'natural') { %>
+      height: auto;
+      display: block;
     <% } else { %>
-      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(<%= thumbMin %>px, 1fr)); gap:12px;">
-        <% it.gallery.forEach(function(g){ %>
-          <a href="<%= g.image_url %>" target="_blank" rel="noopener" style="display:block; position:relative; border-radius:6px; overflow:hidden;">
-            <img src="<%= g.image_url %>" alt="<%= g.caption || '' %>"
-                 style="width:100%; height:<%= thumbHt %>px; object-fit:cover;" loading="lazy" />
-            <% if (g.caption) { %>
-              <div style="position:absolute; bottom:0; left:0; right:0; padding:8px 12px; background:linear-gradient(transparent, rgba(0,0,0,.7)); color:#fff; font-size:13px;">
-                <%= g.caption %>
-              </div>
-            <% } %>
-          </a>
-        <% }) %>
-      </div>
+      <%= aspectStyle %>
+      object-fit: cover;
+      display: block;
     <% } %>
+  }
+  .<%= blockId %>-cap {
+    padding: 8px 10px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.7));
+    color: #fff;
+    font-size: 13px;
+    position: absolute; bottom: 0; left: 0; right: 0;
+  }
+
+  /* Mobile: collapse columns / drop horizontal scroll snap.  */
+  @media (max-width: 800px) {
+    <% if (layout === 'grid' || layout === 'masonry') { %>
+      .<%= blockId %>-list { grid-template-columns: repeat(2, 1fr) !important; column-count: 2 !important; }
+    <% } %>
+  }
+  @media (max-width: 500px) {
+    <% if (layout === 'grid' || layout === 'masonry') { %>
+      .<%= blockId %>-list { grid-template-columns: 1fr !important; column-count: 1 !important; }
+    <% } %>
+  }
+
+  /* Lightbox */
+  .<%= blockId %>-lightbox {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(0,0,0,0.85);
+    display: none;
+    align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .<%= blockId %>-lightbox.open { display: flex; }
+  .<%= blockId %>-lightbox img  {
+    max-width: 100%; max-height: 100%;
+    object-fit: contain;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+    border-radius: 4px;
+  }
+  .<%= blockId %>-lbtn {
+    position: absolute;
+    top: 50%; transform: translateY(-50%);
+    width: 48px; height: 48px;
+    background: rgba(255,255,255,0.95); color: #111;
+    border: 0; border-radius: 999px;
+    font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .<%= blockId %>-lprev  { left: 16px; }
+  .<%= blockId %>-lnext  { right: 16px; }
+  .<%= blockId %>-lclose {
+    position: absolute; top: 16px; right: 16px;
+    width: 40px; height: 40px;
+    background: rgba(255,255,255,0.9); color: #111;
+    border: 0; border-radius: 999px; font-size: 18px; cursor: pointer;
+  }
+</style>
+
+<section class="block <%= blockId %>-section">
+  <div style="<%= containerStyle %>">
+    <% if (d.heading) { %>
+      <h2 class="<%= blockId %>-head"><%= d.heading %></h2>
+    <% } %>
+    <div class="<%= blockId %>-list">
+      <% items.forEach(function(img, i){ %>
+        <button type="button"
+                class="<%= blockId %>-item"
+                data-idx="<%= i %>"
+                <% if (!lightboxOn) { %>onclick="window.open('<%= img.url %>', '_blank')"<% } %>>
+          <img class="<%= blockId %>-img"
+               src="<%= img.url %>"
+               alt="<%= img.filename || '' %>"
+               loading="lazy" />
+          <% if (showCaps && img.filename) { %>
+            <span class="<%= blockId %>-cap"><%= img.filename %></span>
+          <% } %>
+        </button>
+      <% }) %>
+    </div>
   </div>
 </section>
+
+<% if (lightboxOn) { %>
+<div class="<%= blockId %>-lightbox" id="<%= blockId %>-lb">
+  <button type="button" class="<%= blockId %>-lbtn <%= blockId %>-lprev"  aria-label="Previous">‹</button>
+  <img alt="" />
+  <button type="button" class="<%= blockId %>-lbtn <%= blockId %>-lnext"  aria-label="Next">›</button>
+  <button type="button" class="<%= blockId %>-lclose"                     aria-label="Close">×</button>
+</div>
+<script>
+  (function(){
+    var BLOCK = <%~ JSON.stringify(blockId) %>;
+    var URLS  = <%~ JSON.stringify(items.map(function(i){ return i.url })) %>;
+    var lb    = document.getElementById(BLOCK + '-lb');
+    if (!lb) return;
+    var imgEl = lb.querySelector('img');
+    var idx   = 0;
+    function open(i)  { idx = (i + URLS.length) % URLS.length; imgEl.src = URLS[idx]; lb.classList.add('open'); }
+    function close()  { lb.classList.remove('open'); imgEl.src = ''; }
+    function next()   { open(idx + 1); }
+    function prev()   { open(idx - 1); }
+
+    document.querySelectorAll('.' + BLOCK + '-item').forEach(function(el){
+      el.addEventListener('click', function(e){
+        e.preventDefault();
+        var i = parseInt(el.getAttribute('data-idx'), 10) || 0;
+        open(i);
+      });
+    });
+    lb.querySelector('.' + BLOCK + '-lclose').addEventListener('click', close);
+    lb.querySelector('.' + BLOCK + '-lnext').addEventListener('click', next);
+    lb.querySelector('.' + BLOCK + '-lprev').addEventListener('click', prev);
+    lb.addEventListener('click', function(e){ if (e.target === lb) close(); });
+    document.addEventListener('keydown', function(e){
+      if (!lb.classList.contains('open')) return;
+      if (e.key === 'Escape') close();
+      else if (e.key === 'ArrowRight') next();
+      else if (e.key === 'ArrowLeft')  prev();
+    });
+  })();
+</script>
+<% } %>
 <% } %>
