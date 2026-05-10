@@ -304,27 +304,38 @@ export default function ReservationsWidget() {
           )}
       </Card>
 
-      {/* Embed snippet */}
-      <Card title="External embed code"
-        hint="Drop this into any third-party site to embed the widget with these defaults.">
+      {/* Share / embed */}
+      <Card title="Share & embed"
+        hint="Direct URL for sharing the widget standalone (email, SMS, link in bio) + iframe code for embedding on third-party sites. Both use your current saved defaults.">
         {venues.length === 0
           ? <p className="text-sm text-muted-foreground">Add a venue first — the embed needs a venueId.</p>
-          : venues.map(v => (
-            <div key={v.id} className="space-y-1 mb-3">
-              <p className="text-xs font-medium text-muted-foreground">{v.name}</p>
-              <EmbedSnippet
-                src={buildEmbedSrc({
-                  tenantId,
-                  subdomain,
-                  venueId: v.id,
-                  settings: form,
-                  theme: tenantSite?.theme,
-                })} />
-            </div>
-          ))}
+          : venues.map(v => {
+            const src = buildEmbedSrc({
+              tenantId,
+              subdomain,
+              venueId: v.id,
+              settings: form,
+              theme: tenantSite?.theme,
+            })
+            return (
+              <div key={v.id} className="space-y-2 mb-4 pb-4 border-b last:border-b-0 last:pb-0 last:mb-0">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{v.name}</p>
+
+                <div className="space-y-1">
+                  <p className="text-[11px] text-muted-foreground">Direct URL</p>
+                  <UrlSnippet src={src} />
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-[11px] text-muted-foreground">Iframe embed code</p>
+                  <EmbedSnippet src={src} />
+                </div>
+              </div>
+            )
+          })}
         <p className="text-xs text-muted-foreground mt-2">
-          The embed sends the same overrides as a query string. If you change defaults
-          here, existing embeds keep working — they only override what the snippet specifies.
+          Both forms include the current settings as URL query params. Existing embeds
+          keep working — they only override what the snippet specifies.
         </p>
       </Card>
 
@@ -378,6 +389,32 @@ function ToggleSwitch({ checked, onChange }) {
   )
 }
 
+function UrlSnippet({ src }) {
+  // Direct widget URL — useful for sharing in emails / SMS / "link in bio".
+  // Anything that can render a URL can show this. Clickable to open in a
+  // new tab so the operator can sanity-check what visitors will land on.
+  return (
+    <div className="flex items-stretch gap-2">
+      <a href={src} target="_blank" rel="noopener"
+        className="flex-1 text-[11px] font-mono bg-muted rounded p-2 overflow-x-auto whitespace-nowrap text-primary hover:underline truncate"
+        title={src}>
+        {src}
+      </a>
+      <button type="button"
+        onClick={() => navigator.clipboard?.writeText(src)}
+        title="Copy URL"
+        className="border rounded px-2 hover:bg-accent inline-flex items-center">
+        <Copy className="w-3.5 h-3.5" />
+      </button>
+      <a href={src} target="_blank" rel="noopener"
+        title="Open in a new tab"
+        className="border rounded px-2 hover:bg-accent inline-flex items-center">
+        <ExternalLink className="w-3.5 h-3.5" />
+      </a>
+    </div>
+  )
+}
+
 function EmbedSnippet({ src }) {
   const code = `<iframe src="${src}" style="width:100%; min-height:640px; border:0;" loading="lazy" title="Book a table"></iframe>`
   return (
@@ -385,15 +422,10 @@ function EmbedSnippet({ src }) {
       <pre className="flex-1 text-[11px] font-mono bg-muted rounded p-2 overflow-x-auto whitespace-pre">{code}</pre>
       <button type="button"
         onClick={() => navigator.clipboard?.writeText(code)}
-        title="Copy"
+        title="Copy embed code"
         className="border rounded px-2 hover:bg-accent inline-flex items-center">
         <Copy className="w-3.5 h-3.5" />
       </button>
-      <a href={src} target="_blank" rel="noopener"
-        title="Preview in a new tab"
-        className="border rounded px-2 hover:bg-accent inline-flex items-center">
-        <ExternalLink className="w-3.5 h-3.5" />
-      </a>
     </div>
   )
 }
