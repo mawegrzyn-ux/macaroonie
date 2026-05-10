@@ -40,7 +40,7 @@ import { ColumnsEditor }       from './editors/ColumnsEditor'
 import {
   HeaderBlockEditor, FooterBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
-  OrderOptionsEditor, MenuInlineEditor, BookingWidgetEditor,
+  OrderOptionsEditor, MenuInlineEditor, ReservationsWidgetEditor,
   ScrollingTextEditor,
 } from './editors/SiteBlockEditors'
 
@@ -374,16 +374,16 @@ export const BLOCKS = [
     pullsFromConfig: true,
   },
   {
-    key:         'booking_widget',
-    label:       'Booking widget',
-    description: 'Embeds the live reservation widget for the chosen venue. Per-block overrides for header text, button colour, font, radii, and the "larger party" message.',
+    key:         'reservations_widget',
+    label:       'Reservations widget',
+    description: 'Embeds the live reservations widget for the chosen venue. Per-block overrides for header text, button colour, font, radii, and the "larger party" message.',
     icon:        Calendar,
     category:    'data',
     defaultData: {
       heading:   'Reserve a table',
       container: 'boxed',
       // Per-block widget chrome overrides — leave blank to inherit
-      // tenant-level defaults from /widget-settings. Colours are theme
+      // tenant-level defaults from /reservations-widget. Colours are theme
       // role names ('primary'|'accent'|...|'border') — empty = inherit.
       venue_id:        null,
       header_show:     null,  // null = inherit; true/false = force
@@ -397,7 +397,7 @@ export const BLOCKS = [
       font_family:     '',
       large_party_text: '',
     },
-    editor:      BookingWidgetEditor,
+    editor:      ReservationsWidgetEditor,
     pullsFromConfig: true,
   },
   {
@@ -529,7 +529,7 @@ export const PAGE_TEMPLATES = [
       { type: 'story_with_stamp', data: { heading: 'A small kitchen, big ambitions.', body_html: '<p>Family-run since the 90s, serving honest food in a modern setting.</p>', stamp_show: false, image_side: 'right', image_url: null, container: 'boxed' } },
       { type: 'cta_strip',      data: { heading: 'Bring the team.', subheading: 'Group bookings up to 30 — book online or call us.', cta_text: 'Make a reservation', cta_link: '#booking', bg_style: 'primary' } },
       { type: 'gallery',        data: { heading: 'In the kitchen' } },
-      { type: 'booking_widget', data: { heading: 'Book a table' } },
+      { type: 'reservations_widget', data: { heading: 'Book a table' } },
       { type: 'find_us',        data: { heading: 'Find us' } },
     ],
   },
@@ -656,7 +656,7 @@ export const PAGE_TEMPLATES = [
         ],
         container: 'boxed',
       }},
-      { type: 'booking_widget',   data: { heading: 'Reserve your table', container: 'boxed' } },
+      { type: 'reservations_widget',   data: { heading: 'Reserve your table', container: 'boxed' } },
       { type: 'footer',           data: {
         show_brand_block: true, show_legal_links: true, show_powered_by: true,
         columns: [], copyright_text: '',

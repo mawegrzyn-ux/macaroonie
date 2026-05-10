@@ -361,9 +361,9 @@ export function AllergensCanvas({ data, onChange, config }) {
 
 // ── Booking widget ───────────────────────────────────────
 
-export function BookingWidgetCanvas({ data, onChange, config }) {
+export function ReservationsWidgetCanvas({ data, onChange, config }) {
   const api = useApi()
-  // Embeds the SAME /widget/{id} iframe that ships on the live site.
+  // Embeds the SAME /reservations/{id} iframe that ships on the live site.
   // Single source of truth — what you see here is what visitors see.
   // Resolution order matches the SSR partial (booking_widget.eta):
   //   1. block-level override (data.venue_id)
@@ -388,7 +388,7 @@ export function BookingWidgetCanvas({ data, onChange, config }) {
                    || null
 
   // Where to point the iframe at. The page-builder admin runs on the
-  // apex domain (macaroonie.com) which doesn't proxy /widget/* by
+  // apex domain (macaroonie.com) which doesn't proxy /reservations/* by
   // default — relative URLs hit the SPA's catch-all and render blank.
   // The tenant subdomain (e.g. onethai.macaroonie.com) DOES proxy
   // everything through the wildcard server block, so use that as the
@@ -452,9 +452,9 @@ export function BookingWidgetCanvas({ data, onChange, config }) {
   if (data.large_party_text) qp.set('lp', data.large_party_text)
 
   if (venueId) {
-    widgetSrc = `${widgetOrigin}/widget/${venueId}?${qp.toString()}`
+    widgetSrc = `${widgetOrigin}/reservations/${venueId}?${qp.toString()}`
   } else if (tenantId) {
-    widgetSrc = `${widgetOrigin}/widget/tenant/${tenantId}?${qp.toString()}`
+    widgetSrc = `${widgetOrigin}/reservations/tenant/${tenantId}?${qp.toString()}`
   }
 
   return (

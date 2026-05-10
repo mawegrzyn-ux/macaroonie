@@ -796,7 +796,7 @@ export function ScrollingTextEditor({ data, onChange }) {
 // The placeholder text on each input shows the value that would be used
 // if blank, pulled live from the tenant_site row.
 
-export function BookingWidgetEditor({ data, onChange, config }) {
+export function ReservationsWidgetEditor({ data, onChange, config }) {
   const api = useApi()
   const set = (k) => (v) => onChange({ ...data, [k]: v })
 

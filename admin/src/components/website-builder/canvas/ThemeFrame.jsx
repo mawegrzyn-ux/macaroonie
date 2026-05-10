@@ -207,9 +207,9 @@ function onethaiCss(scopeId) {
       margin: 0 auto 14px;
     }
 
-    /* Booking widget block — cream surface */
-    .${scopeId} section.block#booking,
-    .${scopeId} section.block.block-booking_widget {
+    /* Reservations widget block — cream surface */
+    .${scopeId} section.block#reservations,
+    .${scopeId} section.block.block-reservations_widget {
       background: var(--paper-warm);
     }
 

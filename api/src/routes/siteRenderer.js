@@ -277,9 +277,11 @@ export default async function siteRendererRoutes(app) {
     reply.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`)
   })
 
-  // ── Booking widget — venue direct (deep link) ──────────
+  // ── Reservations widget — venue direct (deep link) ─────
   // Works on apex AND any tenant subdomain — no siteHost gate.
-  app.get('/widget/:venueId', async (req, reply) => {
+  // Replaced the legacy /widget/* routes (buggy slot filter, native
+  // date input). New widget at views/site/reservations_widget.eta.
+  app.get('/reservations/:venueId', async (req, reply) => {
     const venueId = req.params.venueId
     const theme   = req.query.theme === 'dark' ? 'dark' : 'light'
     const accentRaw = String(req.query.accent || '')
@@ -341,7 +343,7 @@ export default async function siteRendererRoutes(app) {
        `public, max-age=300` once the widget stabilises. */
     reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
 
-    return reply.view('site/widget.eta', {
+    return reply.view('site/reservations_widget.eta', {
       mode: 'venue',
       venues: [{
         id:                  venue.id,
@@ -368,10 +370,10 @@ export default async function siteRendererRoutes(app) {
     })
   })
 
-  // ── Booking widget — tenant mode (location picker) ─────
+  // ── Reservations widget — tenant mode (location picker) ─
   // Loads ALL active venues for the tenant. Step 0 in the UI is
   // location selection; can be skipped via ?venue=<id> deep link.
-  app.get('/widget/tenant/:tenantId', async (req, reply) => {
+  app.get('/reservations/tenant/:tenantId', async (req, reply) => {
     const tenantId = req.params.tenantId
     const theme    = req.query.theme === 'dark' ? 'dark' : 'light'
     const accentRaw = String(req.query.accent || '')
@@ -440,7 +442,7 @@ export default async function siteRendererRoutes(app) {
        `public, max-age=300` once the widget stabilises. */
     reply.header('Cache-Control', 'no-cache, no-store, must-revalidate')
 
-    return reply.view('site/widget.eta', {
+    return reply.view('site/reservations_widget.eta', {
       mode: 'tenant',
       venues: venues.map(v => ({
         id:                  v.id,

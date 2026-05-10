@@ -299,12 +299,12 @@ server {
     proxy_buffering    off;
   }
 
-  # Widget iframe + widget public API. The page-builder canvas embeds the
-  # real /widget/{id} iframe so what operators see in the editor matches
-  # the live site exactly. ^~ defeats the file-extension regex location
-  # block above (apex serves admin assets from disk), so /widget/* always
-  # reaches the API.
-  location ^~ /widget {
+  # Reservations widget iframe + widget public API. The page-builder canvas
+  # embeds the real /reservations/{id} iframe so what operators see in the
+  # editor matches the live site exactly. ^~ defeats the file-extension
+  # regex location block above (apex serves admin assets from disk), so
+  # /reservations/* always reaches the API.
+  location ^~ /reservations {
     limit_req zone=widget_limit burst=20 nodelay;
     proxy_pass         http://booking_api;
     proxy_http_version 1.1;

@@ -526,7 +526,7 @@ const DATA_BLOCK_LABELS = {
   opening_hours:  { title: 'Opening hours',    hint: 'Pulls from manual hours or your venue schedule.' },
   find_us:        { title: 'Find us',          hint: 'Pulls from address + map fields in Find us.' },
   contact:        { title: 'Contact',          hint: 'Pulls from phone, email, and social links.' },
-  booking_widget: { title: 'Booking widget',   hint: 'Embeds the live booking widget for this venue.' },
+  reservations_widget: { title: 'Reservations widget', hint: 'Embeds the live reservations widget for this venue.' },
   menu_pdfs:      { title: 'Menus',            hint: 'Lists your uploaded menu PDFs as download links.' },
   allergens:      { title: 'Allergens',        hint: 'Allergen info — PDF download or structured table.' },
 }

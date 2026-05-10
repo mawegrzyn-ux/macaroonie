@@ -1,10 +1,11 @@
-// pages/WidgetSettings.jsx
+// pages/ReservationsWidget.jsx
 //
-// Tenant-level booking widget defaults. Every booking_widget block on the
-// public sites (and every widget embed code) inherits these unless
-// overridden on the block / embed itself.
+// Tenant-level Reservations widget defaults + management page. Every
+// reservations_widget block on the public sites (and every external embed
+// code) inherits these unless overridden on the block / embed itself.
 //
-// Stored on tenant_site.widget_settings (single JSONB column). Read +
+// Stored on tenant_site.widget_settings (single JSONB column — same column
+// used by the legacy widget; values are forward-compatible). Read +
 // updated via the existing /website/tenant-site GET / PATCH endpoints.
 
 import { useEffect, useState } from 'react'
@@ -36,7 +37,7 @@ const DEFAULT_SETTINGS = {
   large_party_text: 'Larger party? Call us — we’ll arrange combined tables.',
 }
 
-export default function WidgetSettings() {
+export default function ReservationsWidget() {
   const api = useApi()
   const qc  = useQueryClient()
 
@@ -55,6 +56,11 @@ export default function WidgetSettings() {
   const [dirty,  setDirty]  = useState(false)
   const [error,  setError]  = useState(null)
   const [saved,  setSaved]  = useState(false)
+  // Live preview iframe — operator can pick which venue to preview, and
+  // we bump `previewKey` after save to force the iframe to reload with
+  // the latest server-rendered defaults.
+  const [previewVenueId, setPreviewVenueId] = useState(null)
+  const [previewKey,     setPreviewKey]     = useState(0)
   useEffect(() => {
     if (!tenantSite) return
     setForm({ ...DEFAULT_SETTINGS, ...(tenantSite.widget_settings || {}) })
@@ -74,6 +80,7 @@ export default function WidgetSettings() {
       setDirty(false)
       setSaved(true)
       setError(null)
+      setPreviewKey(k => k + 1)  // remount the preview iframe
       qc.invalidateQueries({ queryKey: ['tenant-site'] })
     },
     onError: (e) => setError(e?.body?.error || e.message || 'Save failed'),
@@ -100,10 +107,11 @@ export default function WidgetSettings() {
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Booking widget defaults</h1>
+        <h1 className="text-2xl font-bold">Reservations widget</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          These settings apply to every booking widget across all your venues unless
-          overridden on a specific embed (block or external embed code).
+          These settings apply to every Reservations widget across all your venues unless
+          overridden on a specific embed (page-builder block or external embed code).
+          Live preview shows below — what you see here is what visitors see.
         </p>
       </div>
 
@@ -182,6 +190,46 @@ export default function WidgetSettings() {
             onChange={e => set('large_party_text')(e.target.value)}
             placeholder="Larger party? Call us — we’ll arrange combined tables." />
         </Field>
+      </Card>
+
+      {/* Live preview */}
+      <Card title="Live preview"
+        hint="The actual widget your visitors will see, rendered with your saved defaults.">
+        {venues.length === 0
+          ? <p className="text-sm text-muted-foreground">Add a venue to preview the widget.</p>
+          : (
+            <>
+              {venues.length > 1 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {venues.map(v => (
+                    <button key={v.id} type="button"
+                      onClick={() => setPreviewVenueId(v.id)}
+                      className={`text-xs border rounded-full px-3 py-1.5 min-h-[32px]
+                        ${(previewVenueId || venues[0].id) === v.id
+                          ? 'bg-primary/10 border-primary text-primary font-medium'
+                          : 'hover:bg-accent'}`}>
+                      {v.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <iframe
+                key={previewKey /* force remount on save so preview reflects new defaults */}
+                src={buildEmbedSrc({
+                  tenantId,
+                  subdomain,
+                  venueId: previewVenueId || venues[0].id,
+                  settings: form,
+                  theme: tenantSite?.theme,
+                })}
+                title="Reservations widget preview"
+                style={{
+                  width: '100%', minHeight: 720, border: '1px solid var(--border)',
+                  borderRadius: 8, background: 'transparent',
+                }}
+              />
+            </>
+          )}
       </Card>
 
       {/* Embed snippet */}
@@ -283,7 +331,7 @@ function EmbedSnippet({ src }) {
 // require hex (the widget route can't query the theme).
 function buildEmbedSrc({ tenantId, subdomain, venueId, settings, theme }) {
   const origin = subdomain ? `https://${subdomain}.macaroonie.com` : ''
-  const path   = `/widget/${venueId}`
+  const path   = `/reservations/${venueId}`
   const params = []
   const hexFromRole = (v) => {
     const out = resolveRole(v, theme)

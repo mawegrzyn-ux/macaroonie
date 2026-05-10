@@ -9,7 +9,7 @@ const SOURCE_HINT = {
   opening_hours:  'Manage hours on the Opening hours section. Toggle between manual and venue-derived there.',
   find_us:        'Address + map embed live in the Find us section.',
   contact:        'Phone, email, social links live in the Contact section.',
-  booking_widget: 'Pick which venue\'s widget to embed in the Booking widget section.',
+  reservations_widget: 'Pick which venue\'s widget to embed in the Reservations widget section.',
   menu_pdfs:      'Upload PDFs in the Menus section.',
   allergens:      'Manage allergen info in the Allergens section.',
 }

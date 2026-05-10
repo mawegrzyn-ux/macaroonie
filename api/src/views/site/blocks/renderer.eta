@@ -36,8 +36,8 @@ const t = it.block.type
   <%~ include('./find_us', it) %>
 <% } else if (t === 'contact') { %>
   <%~ include('./contact', it) %>
-<% } else if (t === 'booking_widget') { %>
-  <%~ include('./booking_widget', it) %>
+<% } else if (t === 'reservations_widget') { %>
+  <%~ include('./reservations_widget', it) %>
 <% } else if (t === 'menu_pdfs') { %>
   <%~ include('./menu_pdfs', it) %>
 <% } else if (t === 'allergens') { %>
