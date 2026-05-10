@@ -142,7 +142,21 @@ const TenantSiteBody = z.object({
     card_radius_px:    z.number().int().min(0).max(40).nullable().optional(),
     border_colour:     z.string().max(60).nullable().optional(),
     font_family:       z.string().max(100).nullable().optional(),
+    font_size_px:      z.number().int().min(11).max(22).nullable().optional(),
+    /* Per-element typography. Each can override the base widget font. */
+    font_calendar_family: z.string().max(100).nullable().optional(),
+    font_calendar_size_px:z.number().int().min(10).max(28).nullable().optional(),
+    font_slots_family:    z.string().max(100).nullable().optional(),
+    font_slots_size_px:   z.number().int().min(10).max(28).nullable().optional(),
+    /* Calendar day colours (theme role names; legacy hex still accepted). */
+    cal_open_bg:        z.string().max(60).nullable().optional(),
+    cal_open_fg:        z.string().max(60).nullable().optional(),
+    cal_open_border:    z.string().max(60).nullable().optional(),
+    cal_closed_bg:      z.string().max(60).nullable().optional(),
+    cal_closed_fg:      z.string().max(60).nullable().optional(),
+    cal_closed_border:  z.string().max(60).nullable().optional(),
     large_party_text:  z.string().max(300).nullable().optional(),
+    debug_enabled:     z.boolean().nullable().optional(),
   }).optional(),
 
   // SEO

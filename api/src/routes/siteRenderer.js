@@ -55,7 +55,12 @@ function resolveWidgetDefaults(widgetSettings, themeColours) {
   const out = { ...ws }
   /* Replace role-name colour fields with their resolved hex so widget.eta
      can paint CSS custom properties without further lookups. */
-  for (const k of ['button_bg', 'button_fg', 'border_colour']) {
+  const colourFields = [
+    'button_bg', 'button_fg', 'border_colour',
+    'cal_open_bg', 'cal_open_fg', 'cal_open_border',
+    'cal_closed_bg', 'cal_closed_fg', 'cal_closed_border',
+  ]
+  for (const k of colourFields) {
     out[k] = resolveRoleHex(ws[k], themeColours)
   }
   return out
@@ -314,7 +319,23 @@ export default async function siteRendererRoutes(app) {
       cardRadiusPx:   _intInRange(req.query.cardR, 0, 40),
       borderColour:   _hex(req.query.brd),
       fontFamily:     req.query.font   ? String(req.query.font).slice(0, 100)   : null,
+      fontSizePx:     _intInRange(req.query.fontS, 11, 22),
+      // Per-element typography
+      fontCalendarFamily: req.query.calFont  ? String(req.query.calFont).slice(0, 100)  : null,
+      fontCalendarSizePx: _intInRange(req.query.calSz,  10, 28),
+      fontSlotsFamily:    req.query.slotFont ? String(req.query.slotFont).slice(0, 100) : null,
+      fontSlotsSizePx:    _intInRange(req.query.slotSz, 10, 28),
+      // Calendar day colours (overrides resolve from role names → hex
+      // upstream when reading tenant defaults; URL params are hex direct).
+      calOpenBg:      _hex(req.query.coBg),
+      calOpenFg:      _hex(req.query.coFg),
+      calOpenBorder:  _hex(req.query.coBd),
+      calClosedBg:    _hex(req.query.ccBg),
+      calClosedFg:    _hex(req.query.ccFg),
+      calClosedBorder:_hex(req.query.ccBd),
       largePartyText: req.query.lp     ? String(req.query.lp).slice(0, 300)     : null,
+      debugEnabled:   req.query.debug === '1' ? true
+                    : req.query.debug === '0' ? false : null,
     }
 
     const [venue] = await sql`
@@ -401,7 +422,23 @@ export default async function siteRendererRoutes(app) {
       cardRadiusPx:   _intInRange(req.query.cardR, 0, 40),
       borderColour:   _hex(req.query.brd),
       fontFamily:     req.query.font   ? String(req.query.font).slice(0, 100)   : null,
+      fontSizePx:     _intInRange(req.query.fontS, 11, 22),
+      // Per-element typography
+      fontCalendarFamily: req.query.calFont  ? String(req.query.calFont).slice(0, 100)  : null,
+      fontCalendarSizePx: _intInRange(req.query.calSz,  10, 28),
+      fontSlotsFamily:    req.query.slotFont ? String(req.query.slotFont).slice(0, 100) : null,
+      fontSlotsSizePx:    _intInRange(req.query.slotSz, 10, 28),
+      // Calendar day colours (overrides resolve from role names → hex
+      // upstream when reading tenant defaults; URL params are hex direct).
+      calOpenBg:      _hex(req.query.coBg),
+      calOpenFg:      _hex(req.query.coFg),
+      calOpenBorder:  _hex(req.query.coBd),
+      calClosedBg:    _hex(req.query.ccBg),
+      calClosedFg:    _hex(req.query.ccFg),
+      calClosedBorder:_hex(req.query.ccBd),
       largePartyText: req.query.lp     ? String(req.query.lp).slice(0, 300)     : null,
+      debugEnabled:   req.query.debug === '1' ? true
+                    : req.query.debug === '0' ? false : null,
     }
     const initialVenueId = req.query.venue || null
 

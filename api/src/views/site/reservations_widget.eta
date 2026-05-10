@@ -80,8 +80,22 @@ const _btnRadius     = _pickNum (_wc.buttonRadiusPx, _wd.button_radius_px,  8)
 const _cardRadius    = _pickNum (_wc.cardRadiusPx,   _wd.card_radius_px,    8)
 const _borderColour  = _pickStr (_wc.borderColour,   _wd.border_colour,     null)
 const _fontOverride  = _pickStr (_wc.fontFamily,     _wd.font_family,       null)
+const _bodyFontSize  = _pickNum (_wc.fontSizePx,     _wd.font_size_px,      16)
+const _calFontOverride = _pickStr(_wc.fontCalendarFamily, _wd.font_calendar_family, null)
+const _calFontSize     = _pickNum(_wc.fontCalendarSizePx,  _wd.font_calendar_size_px,  15)
+const _slotFontOverride= _pickStr(_wc.fontSlotsFamily,    _wd.font_slots_family,    null)
+const _slotFontSize    = _pickNum(_wc.fontSlotsSizePx,    _wd.font_slots_size_px,    14)
+/* Calendar day colours — null falls back to per-state defaults built into
+   the widget's CSS at render time. */
+const _calOpenBg     = _pickStr(_wc.calOpenBg,     _wd.cal_open_bg,     null)
+const _calOpenFg     = _pickStr(_wc.calOpenFg,     _wd.cal_open_fg,     null)
+const _calOpenBorder = _pickStr(_wc.calOpenBorder, _wd.cal_open_border, null)
+const _calClosedBg   = _pickStr(_wc.calClosedBg,   _wd.cal_closed_bg,   null)
+const _calClosedFg   = _pickStr(_wc.calClosedFg,   _wd.cal_closed_fg,   null)
+const _calClosedBorder = _pickStr(_wc.calClosedBorder, _wd.cal_closed_border, null)
 const _largePartyTxt = _pickStr (_wc.largePartyText, _wd.large_party_text,
   'Larger party? Call us — we’ll arrange combined tables.')
+const _debugEnabled  = _pickBool(_wc.debugEnabled, _wd.debug_enabled,    false)
 
 /* Per-font Google Fonts weight map (same as head.eta). Required because
    v2 returns 400 for the WHOLE stylesheet if any one weight is missing. */
@@ -112,12 +126,33 @@ const _FONT_WEIGHTS = {
 const _ff   = _fontOverride
            || (it.font_family && String(it.font_family).trim())
            || ''
-const _gfW  = _FONT_WEIGHTS[_ff]
-const _gfUrl = _gfW
-  ? 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(_ff) + ':wght@' + _gfW + '&display=swap'
-  : null
+const _calFf  = _calFontOverride  || _ff
+const _slotFf = _slotFontOverride || _ff
+
+/* Build a single Google Fonts URL covering all picked fonts (de-duped).
+   Each font requests only its supported weights so v2 doesn't 400 the
+   whole stylesheet for a missing weight on one font. */
+function _buildGfUrl(fonts) {
+  var families = []
+  var seen = {}
+  for (var i = 0; i < fonts.length; i++) {
+    var f = fonts[i]
+    if (!f) continue
+    if (seen[f]) continue
+    var w = _FONT_WEIGHTS[f]
+    if (!w) continue
+    seen[f] = true
+    families.push('family=' + encodeURIComponent(f) + ':wght@' + w)
+  }
+  if (!families.length) return null
+  return 'https://fonts.googleapis.com/css2?' + families.join('&') + '&display=swap'
+}
+const _gfUrl = _buildGfUrl([_ff, _calFf, _slotFf])
+
 const _sysStack = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-const _ffCss    = _ff ? ('"' + _ff + '", ' + _sysStack) : _sysStack
+const _ffCss     = _ff     ? ('"' + _ff     + '", ' + _sysStack) : _sysStack
+const _calFfCss  = _calFf  ? ('"' + _calFf  + '", ' + _sysStack) : _sysStack
+const _slotFfCss = _slotFf ? ('"' + _slotFf + '", ' + _sysStack) : _sysStack
 
 /* Effective accent — button-bg override beats venue accent. */
 const _accentEffective = _btnBg || it.accent
@@ -143,13 +178,25 @@ const _accentEffective = _btnBg || it.accent
       --r-radius:        <%= _cardRadius %>px;
       --r-btn-radius:    <%= _btnRadius %>px;
       --r-btn-fg:        <%= _btnFg %>;
+      /* Per-element fonts. Each falls back to the body font if not set. */
+      --r-font-cal:  <%= _calFfCss %>;
+      --r-font-slot: <%= _slotFfCss %>;
+      --r-cal-size:  <%= _calFontSize %>px;
+      --r-slot-size: <%= _slotFontSize %>px;
+      /* Calendar day colours. Null fields fall through to the per-state
+         defaults baked into the CSS rules below (`.rcal-day` etc). */
+      --r-cal-open-bg:     <%= _calOpenBg     || '#ffffff' %>;
+      --r-cal-open-fg:     <%= _calOpenFg     || 'var(--r-fg)' %>;
+      --r-cal-open-border: <%= _calOpenBorder || 'var(--r-border)' %>;
+      --r-cal-closed-fg:   <%= _calClosedFg   || 'var(--r-muted)' %>;
+      --r-cal-closed-border: <%= _calClosedBorder || 'var(--r-border)' %>;
     }
     * { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0; min-height: 100%;
       background: var(--r-bg); color: var(--r-fg);
       font-family: <%= _ffCss %>;
-      font-size: 16px; line-height: 1.5;
+      font-size: <%= _bodyFontSize %>px; line-height: 1.5;
     }
     .rwrap  { max-width: 560px; margin: 0 auto; padding: 24px; }
     .rcard  { background: transparent; border: 0; }
@@ -191,15 +238,17 @@ const _accentEffective = _btnBg || it.accent
     .rcal-day {
       aspect-ratio: 1 / 1;
       padding: 0;
-      /* Clearly visible bg + border so cells are unmistakably interactive. */
-      border: 1px solid var(--r-border);
+      /* Clearly visible bg + border so cells are unmistakably interactive.
+         Colours come from the calendar-specific custom properties so the
+         operator can tune open-day appearance independently of widget bg. */
+      border: 1px solid var(--r-cal-open-border);
       border-radius: var(--r-radius);
-      background: #ffffff;
-      color: var(--r-fg);
+      background: var(--r-cal-open-bg);
+      color: var(--r-cal-open-fg);
       cursor: pointer;
-      font-family: inherit;
+      font-family: var(--r-font-cal);
       display: flex; align-items: center; justify-content: center;
-      font-size: 15px; font-weight: 600;
+      font-size: var(--r-cal-size); font-weight: 600;
       transition: transform 0.08s, border-color 0.12s, background 0.12s, box-shadow 0.12s;
     }
     .rcal-day:hover:not([disabled])  {
@@ -220,17 +269,19 @@ const _accentEffective = _btnBg || it.accent
     }
     .rcal-day.closed                 {
       /* Closed day-of-week (venue not open). Distinct from past-date
-         disabled so users can see "closed" vs "in the past". Diagonal
-         hatching makes it unmistakable at a glance. */
+         disabled so users can see "closed" vs "in the past". Hatching
+         on top of the open-day bg so the colour-swap stays visible. */
       cursor: not-allowed;
-      color: var(--r-muted);
+      color: var(--r-cal-closed-fg);
+      border-color: var(--r-cal-closed-border);
       background:
         repeating-linear-gradient(45deg,
           transparent 0 6px,
-          rgba(0,0,0,0.04) 6px 7px);
+          rgba(0,0,0,0.06) 6px 7px),
+        <%= _calClosedBg || 'transparent' %>;
       box-shadow: none;
     }
-    .rcal-day.closed:hover           { transform: none; box-shadow: none; border-color: var(--r-border); }
+    .rcal-day.closed:hover           { transform: none; box-shadow: none; border-color: var(--r-cal-closed-border); }
     .rcal-day.outside                { visibility: hidden; }
     .rcal-jump {
       display: flex; align-items: center; gap: 8px;
@@ -250,9 +301,10 @@ const _accentEffective = _btnBg || it.accent
     .rslot {
       padding: 10px; text-align: center;
       border: 1px solid var(--r-border); border-radius: var(--r-radius);
-      cursor: pointer; font-size: 14px;
+      cursor: pointer;
+      font-family: var(--r-font-slot);
+      font-size: var(--r-slot-size);
       background: var(--r-bg); color: var(--r-fg);
-      font-family: inherit;
     }
     .rslot:hover:not([disabled]) { border-color: var(--r-accent); }
     .rslot.active                { background: var(--r-accent); color: #fff; border-color: var(--r-accent); }
@@ -392,11 +444,11 @@ const _accentEffective = _btnBg || it.accent
       }
       if (initialVenue) ensureScheduleSummary(initialVenue.id);
 
-      // Debug overlay — always-on while we diagnose. Shows live state +
-      // last action + last API call as a fixed bar at the top of the widget.
-      // Once the widget is verified-working in prod, gate this behind
-      // ?debug=1 again (or remove entirely).
-      var DEBUG_ON = true;
+      // Debug overlay — controllable from the widget settings page or
+      // via ?debug=1 / ?debug=0 URL param. Off by default in production.
+      // Server resolves the merged value into `it.debugEnabled`.
+      var DEBUG_ON = <%~ JSON.stringify(!!_debugEnabled) %>
+        || /[?&]debug=1\b/.test(window.location.search);
       var dbg = { lastAction: '(none)', lastApi: '(none)', lastApiStatus: '' };
       function renderDebug() {
         if (!DEBUG_ON) return;

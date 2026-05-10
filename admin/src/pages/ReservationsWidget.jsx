@@ -27,14 +27,27 @@ const DEFAULT_SETTINGS = {
   header_show:      true,
   header_text:      '',
   subheader_text:   '',
-  // Colour fields are theme role names (or empty = inherit / sensible default).
-  button_bg:        '',     // '' = primary
-  button_fg:        '',     // '' = white
+  button_bg:        '',
+  button_fg:        '',
   button_radius_px: 8,
   card_radius_px:   8,
-  border_colour:    '',     // '' = border role
+  border_colour:    '',
   font_family:      '',
+  font_size_px:     16,
+  // Per-element typography
+  font_calendar_family: '',
+  font_calendar_size_px: 15,
+  font_slots_family:    '',
+  font_slots_size_px:    14,
+  // Calendar day colours (theme role names; '' = sensible default)
+  cal_open_bg:        '',
+  cal_open_fg:        '',
+  cal_open_border:    '',
+  cal_closed_bg:      '',
+  cal_closed_fg:      '',
+  cal_closed_border:  '',
   large_party_text: 'Larger party? Call us — we’ll arrange combined tables.',
+  debug_enabled:    false,
 }
 
 export default function ReservationsWidget() {
@@ -176,13 +189,67 @@ export default function ReservationsWidget() {
 
       {/* Typography */}
       <Card title="Typography"
-        hint="Choose a different font for the widget if you want it to feel like a CTA distinct from the page typography.">
-        <Field label="Widget font" hint="Blank = use the brand body font.">
+        hint="Three independent font tracks — the widget's body, the calendar date numbers, and the slot time buttons. Each can be a different Google Font + size.">
+        <Field label="Body font" hint="Used for headers, button labels, form fields. Blank = brand body font.">
           <FontPicker
             fonts={FONT_OPTIONS}
             value={form.font_family}
             onChange={set('font_family')}
             placeholder={tenantSite?.font_family || 'Brand font'} />
+        </Field>
+        <Field label={`Body size — ${form.font_size_px ?? 16}px`}>
+          <input type="range" min={11} max={22} step={1}
+            value={form.font_size_px ?? 16}
+            onChange={e => set('font_size_px')(Number(e.target.value))}
+            className="w-full" />
+        </Field>
+        <hr className="my-3 border-border" />
+        <Field label="Calendar font" hint="The day numbers in the date picker. Try a tabular sans for clean alignment.">
+          <FontPicker
+            fonts={FONT_OPTIONS}
+            value={form.font_calendar_family}
+            onChange={set('font_calendar_family')}
+            placeholder="Inherit body font" />
+        </Field>
+        <Field label={`Calendar size — ${form.font_calendar_size_px ?? 15}px`}>
+          <input type="range" min={10} max={28} step={1}
+            value={form.font_calendar_size_px ?? 15}
+            onChange={e => set('font_calendar_size_px')(Number(e.target.value))}
+            className="w-full" />
+        </Field>
+        <hr className="my-3 border-border" />
+        <Field label="Time slots font" hint="The HH:MM buttons on the time-pick step.">
+          <FontPicker
+            fonts={FONT_OPTIONS}
+            value={form.font_slots_family}
+            onChange={set('font_slots_family')}
+            placeholder="Inherit body font" />
+        </Field>
+        <Field label={`Time slots size — ${form.font_slots_size_px ?? 14}px`}>
+          <input type="range" min={10} max={28} step={1}
+            value={form.font_slots_size_px ?? 14}
+            onChange={e => set('font_slots_size_px')(Number(e.target.value))}
+            className="w-full" />
+        </Field>
+      </Card>
+
+      {/* Calendar colours */}
+      <Card title="Calendar day colours"
+        hint="Available days vs closed days (venue's day-off, e.g. Sunday). Theme roles only — pick from the brand palette. Blank fields fall back to sensible defaults.">
+        <Field label="Open day — background"><ThemeColourPicker value={form.cal_open_bg} onChange={set('cal_open_bg')} /></Field>
+        <Field label="Open day — text"><ThemeColourPicker value={form.cal_open_fg} onChange={set('cal_open_fg')} /></Field>
+        <Field label="Open day — border"><ThemeColourPicker value={form.cal_open_border} onChange={set('cal_open_border')} /></Field>
+        <hr className="my-3 border-border" />
+        <Field label="Closed day — background"><ThemeColourPicker value={form.cal_closed_bg} onChange={set('cal_closed_bg')} /></Field>
+        <Field label="Closed day — text"><ThemeColourPicker value={form.cal_closed_fg} onChange={set('cal_closed_fg')} /></Field>
+        <Field label="Closed day — border"><ThemeColourPicker value={form.cal_closed_border} onChange={set('cal_closed_border')} /></Field>
+      </Card>
+
+      {/* Debug */}
+      <Card title="Debug"
+        hint="Diagnostic overlay shown at the top of the widget. Helps identify state + API issues. Leave OFF for normal customers.">
+        <Field label="Show debug overlay">
+          <ToggleSwitch checked={!!form.debug_enabled} onChange={set('debug_enabled')} />
         </Field>
       </Card>
 
@@ -357,6 +424,25 @@ function buildEmbedSrc({ tenantId, subdomain, venueId, settings, theme }) {
   if (typeof settings.button_radius_px === 'number') params.push('btnR='  + settings.button_radius_px)
   if (typeof settings.card_radius_px   === 'number') params.push('cardR=' + settings.card_radius_px)
   if (settings.font_family)    params.push('font='     + encodeURIComponent(settings.font_family))
+  if (typeof settings.font_size_px === 'number') params.push('fontS=' + settings.font_size_px)
+  if (settings.font_calendar_family) params.push('calFont='  + encodeURIComponent(settings.font_calendar_family))
+  if (typeof settings.font_calendar_size_px === 'number') params.push('calSz=' + settings.font_calendar_size_px)
+  if (settings.font_slots_family)    params.push('slotFont=' + encodeURIComponent(settings.font_slots_family))
+  if (typeof settings.font_slots_size_px === 'number')    params.push('slotSz=' + settings.font_slots_size_px)
+  // Calendar day colours — resolve role names to hex for the URL params.
+  const coBg = hexFromRole(settings.cal_open_bg)
+  const coFg = hexFromRole(settings.cal_open_fg)
+  const coBd = hexFromRole(settings.cal_open_border)
+  const ccBg = hexFromRole(settings.cal_closed_bg)
+  const ccFg = hexFromRole(settings.cal_closed_fg)
+  const ccBd = hexFromRole(settings.cal_closed_border)
+  if (coBg) params.push('coBg=' + coBg)
+  if (coFg) params.push('coFg=' + coFg)
+  if (coBd) params.push('coBd=' + coBd)
+  if (ccBg) params.push('ccBg=' + ccBg)
+  if (ccFg) params.push('ccFg=' + ccFg)
+  if (ccBd) params.push('ccBd=' + ccBd)
   if (settings.large_party_text) params.push('lp='     + encodeURIComponent(settings.large_party_text))
+  if (settings.debug_enabled) params.push('debug=1')
   return origin + path + '?' + params.join('&')
 }
