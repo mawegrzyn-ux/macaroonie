@@ -30,6 +30,37 @@ const RESERVED_SUBDOMAINS = new Set([
   'cdn', 'ws', 'stripe', 'webhook', 'webhooks',
 ])
 
+/* Theme-role → hex resolution for widget settings. Operators pick role
+   names ('primary', 'accent', etc.) in the editor; the widget itself only
+   speaks hex via its CSS custom properties. We resolve here once at render
+   time using the tenant's theme palette, falling back to global defaults. */
+const ROLE_HEX_DEFAULTS = {
+  primary:    '#630812',
+  accent:     '#f4a7b9',
+  background: '#ffffff',
+  surface:    '#f9f6f1',
+  text:       '#1a1a1a',
+  muted:      '#666666',
+  border:     '#e5e7eb',
+}
+function resolveRoleHex(value, themeColours) {
+  if (!value) return null
+  if (typeof value !== 'string') return null
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value
+  const palette = themeColours || {}
+  return palette[value] || ROLE_HEX_DEFAULTS[value] || null
+}
+function resolveWidgetDefaults(widgetSettings, themeColours) {
+  const ws = widgetSettings || {}
+  const out = { ...ws }
+  /* Replace role-name colour fields with their resolved hex so widget.eta
+     can paint CSS custom properties without further lookups. */
+  for (const k of ['button_bg', 'button_fg', 'border_colour']) {
+    out[k] = resolveRoleHex(ws[k], themeColours)
+  }
+  return out
+}
+
 const SUBDOMAIN_RE = new RegExp(
   `^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\\.${env.PUBLIC_ROOT_DOMAIN.replace(/\./g, '\\.')}$`,
   'i',
@@ -289,7 +320,7 @@ export default async function siteRendererRoutes(app) {
              br.slot_duration_mins, br.min_covers, br.max_covers,
              br.book_until_days, br.hold_ttl_secs,
              ts.primary_colour, ts.font_family, ts.site_name AS tenant_site_name,
-             ts.widget_settings,
+             ts.widget_settings, ts.theme,
              wc.hero_heading
         FROM venues v
         LEFT JOIN booking_rules  br ON br.venue_id  = v.id
@@ -333,7 +364,7 @@ export default async function siteRendererRoutes(app) {
       font_family:    venue.font_family || 'system-ui',
       bg, text,
       widgetCustom,
-      tenantWidgetDefaults: venue.widget_settings || {},
+      tenantWidgetDefaults: resolveWidgetDefaults(venue.widget_settings, venue.theme && venue.theme.colors),
     })
   })
 
@@ -374,6 +405,7 @@ export default async function siteRendererRoutes(app) {
 
     const [tenantSite] = await sql`
       SELECT ts.primary_colour, ts.font_family, ts.site_name, ts.widget_settings,
+             ts.theme,
              t.name AS tenant_name
         FROM tenants t
         LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
@@ -434,7 +466,7 @@ export default async function siteRendererRoutes(app) {
       font_family:    tenantSite.font_family || 'system-ui',
       bg, text,
       widgetCustom,
-      tenantWidgetDefaults: tenantSite.widget_settings || {},
+      tenantWidgetDefaults: resolveWidgetDefaults(tenantSite.widget_settings, tenantSite.theme && tenantSite.theme.colors),
     })
   })
 }

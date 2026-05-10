@@ -8,11 +8,12 @@
  *
  * Key contract:
  *   data.font_family   one Google Font name from FONT_OPTIONS (default Caveat)
- *   data.font_size     px (default 28)
+ *   data.font_scale    'sm'|'base'|'lg'|'xl'|'2xl'|'3xl' — multiplier of theme base size
  *   data.font_weight   400 | 500 | 600 | 700 (default 500)
  *   data.font_style    'normal' | 'italic' (default 'normal')
- *   data.bg_style      'primary' | 'accent' | 'dark' | 'surface'
- *   data.text_colour   optional hex override for foreground
+ *   data.bg_style      'primary' | 'accent' | 'surface' — theme role only
+ *   data.text_colour   theme role name ('primary'|'accent'|'background'|'surface'|
+ *                      'text'|'muted'|'border') — '' = auto contrast for bg
  *   data.speed         'slow' | 'medium' | 'fast'
  *   data.items         string[] — phrases shown between bullet separators
  *   data.show_separators  boolean (default true)
@@ -52,8 +53,12 @@ const FONT_WEIGHTS = {
 }
 
 const fontName  = (typeof d.font_family === 'string' && d.font_family.trim()) ? d.font_family.trim() : 'Caveat'
-const fontSize  = (typeof d.font_size === 'number' && d.font_size > 0) ? d.font_size : 28
 const fontStyle = d.font_style === 'italic' ? 'italic' : 'normal'
+
+/* Font sizing — multiplier of the theme's `--fs-base` so the band scales
+   with the operator's brand base size. No raw px input. */
+const SCALE_MAP = { sm: 1, base: 1.125, lg: 1.5, xl: 2, '2xl': 2.5, '3xl': 3.5 }
+const fontScale = SCALE_MAP[d.font_scale] || SCALE_MAP.lg
 
 let fontWeight = 500
 if (typeof d.font_weight === 'number') fontWeight = d.font_weight
@@ -65,15 +70,27 @@ else if (typeof d.font_weight === 'string') {
 const fontWeights = FONT_WEIGHTS[fontName] || '400;500;700'
 const gfUrl = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(fontName) + ':wght@' + fontWeights + '&display=swap'
 
+/* Backgrounds are theme roles only — no hardcoded #1f1f1f "dark" preset.
+   Operators wanting dark band set theme.colors.primary appropriately. */
 const bgMap = {
   primary: 'var(--c-primary)',
   accent:  'var(--c-accent)',
-  dark:    '#1f1f1f',
   surface: 'var(--c-surface)',
 }
 const bg = bgMap[d.bg_style] || bgMap.primary
-const fgDefault = (d.bg_style === 'surface') ? 'var(--c-text)' : '#f5efe6'
-const fg = (typeof d.text_colour === 'string' && /^#[0-9a-fA-F]{6}$/.test(d.text_colour)) ? d.text_colour : fgDefault
+
+/* Text colour — accepts either a theme role name or (for backwards-compat
+   with old blocks) a hex string. Empty / unknown = auto-contrast based on bg. */
+const ROLE_KEYS = ['primary','accent','background','surface','text','muted','border']
+function _resolveRoleOrHex(v) {
+  if (!v) return null
+  if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) return v
+  if (ROLE_KEYS.indexOf(v) !== -1) return 'var(--c-' + v + ')'
+  return null
+}
+const fgPicked  = _resolveRoleOrHex(d.text_colour)
+const fgDefault = (d.bg_style === 'surface') ? 'var(--c-text)' : 'var(--c-background)'
+const fg = fgPicked || fgDefault
 
 const speedMap = { slow: '70s', medium: '45s', fast: '25s' }
 const duration = speedMap[d.speed] || speedMap.medium
@@ -99,9 +116,11 @@ const blockId = 'st-' + (it.block.id || Math.random().toString(36).slice(2, 10))
     animation: <%= blockId %>-scroll <%= duration %> linear infinite;
 
     /* Force the chosen font on the track itself with !important so no
-       parent style (--f-heading, --f-body, theme inherits) can override. */
+       parent style (--f-heading, --f-body, theme inherits) can override.
+       Font size is calc()'d off the theme's --fs-base so the band scales
+       with the brand's base size. */
     font-family: "<%= fontName %>", system-ui, -apple-system, BlinkMacSystemFont, sans-serif !important;
-    font-size: <%= fontSize %>px !important;
+    font-size: calc(var(--fs-base, 16px) * <%= fontScale %>) !important;
     font-weight: <%= fontWeight %> !important;
     font-style: <%= fontStyle %> !important;
     line-height: 1.2;

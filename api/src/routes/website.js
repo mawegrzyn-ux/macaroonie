@@ -128,17 +128,21 @@ const TenantSiteBody = z.object({
   // Tenant-level booking widget defaults — every booking_widget block
   // inherits these unless overridden on the block itself. All fields
   // optional; render path applies defaults for anything missing.
+  // Colour fields accept theme role names ('primary'|'accent'|'background'|
+  // 'surface'|'text'|'muted'|'border'), an empty string, or null. Legacy
+  // hex values are also accepted so existing tenant rows keep validating
+  // until the pre-prod data is rewritten.
   widget_settings: z.object({
-    header_show:       z.boolean().optional(),
-    header_text:       z.string().max(120).optional(),
-    subheader_text:    z.string().max(160).optional(),
-    button_bg:         z.string().regex(HEX_COLOUR).optional().or(z.literal('')),
-    button_fg:         z.string().regex(HEX_COLOUR).optional().or(z.literal('')),
-    button_radius_px:  z.number().int().min(0).max(40).optional(),
-    card_radius_px:    z.number().int().min(0).max(40).optional(),
-    border_colour:     z.string().regex(HEX_COLOUR).optional().or(z.literal('')),
-    font_family:       z.string().max(100).optional(),
-    large_party_text:  z.string().max(300).optional(),
+    header_show:       z.boolean().nullable().optional(),
+    header_text:       z.string().max(120).nullable().optional(),
+    subheader_text:    z.string().max(160).nullable().optional(),
+    button_bg:         z.string().max(60).nullable().optional(),
+    button_fg:         z.string().max(60).nullable().optional(),
+    button_radius_px:  z.number().int().min(0).max(40).nullable().optional(),
+    card_radius_px:    z.number().int().min(0).max(40).nullable().optional(),
+    border_colour:     z.string().max(60).nullable().optional(),
+    font_family:       z.string().max(100).nullable().optional(),
+    large_party_text:  z.string().max(300).nullable().optional(),
   }).optional(),
 
   // SEO

@@ -214,24 +214,34 @@ export function FooterCanvas({ data, onChange, config }) {
 // scrolling band. No theme cascade, no fallbacks that drift to the body
 // font. What the operator picks here is exactly what visitors see.
 
+const SCROLL_SCALE_MAP = { sm: 1, base: 1.125, lg: 1.5, xl: 2, '2xl': 2.5, '3xl': 3.5 }
+const ROLE_KEYS = ['primary','accent','background','surface','text','muted','border']
+
+function resolveRoleOrHex(v) {
+  if (!v) return null
+  if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) return v
+  if (ROLE_KEYS.indexOf(v) !== -1) return `var(--c-${v})`
+  return null
+}
+
 export function ScrollingTextCanvas({ data }) {
   const items = (data.items || []).filter(x => x && String(x).trim() !== '')
   const fontName  = (data.font_family && data.font_family.trim()) || 'Caveat'
-  const fontSize  = data.font_size || 28
+  const fontScale = SCROLL_SCALE_MAP[data.font_scale] || SCROLL_SCALE_MAP.lg
   const fontWeight= data.font_weight || 500
   const fontStyle = data.font_style === 'italic' ? 'italic' : 'normal'
 
   useEffect(() => { ensureGoogleFont(fontName) }, [fontName])
 
+  // Backgrounds are theme roles only — matches scrolling_text.eta exactly.
   const bg = {
     primary: 'var(--c-primary)',
     accent:  'var(--c-accent)',
-    dark:    '#1f1f1f',
     surface: 'var(--c-surface)',
   }[data.bg_style || 'primary'] || 'var(--c-primary)'
-  const fgDefault = data.bg_style === 'surface' ? 'var(--c-text)' : '#f5efe6'
-  const fg = (typeof data.text_colour === 'string' && /^#[0-9a-fA-F]{6}$/.test(data.text_colour))
-    ? data.text_colour : fgDefault
+  const fgPicked  = resolveRoleOrHex(data.text_colour)
+  const fgDefault = data.bg_style === 'surface' ? 'var(--c-text)' : 'var(--c-background)'
+  const fg = fgPicked || fgDefault
 
   const showSeparators = data.show_separators !== false
   const looped = items.length ? [...items, ...items] : []
@@ -248,7 +258,7 @@ export function ScrollingTextCanvas({ data }) {
         // !important is enforced server-side in the SSR partial; the canvas
         // relies on inline styles which already win over class-based rules.
         fontFamily: `"${fontName}", system-ui, sans-serif`,
-        fontSize: fontSize + 'px',
+        fontSize: `calc(var(--fs-base, 16px) * ${fontScale})`,
         fontWeight,
         fontStyle,
         paddingLeft: 32,

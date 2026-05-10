@@ -12,6 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { Save, Loader2, Copy, ExternalLink } from 'lucide-react'
 import { FontPicker } from '@/components/website-builder/FontPicker'
+import { ThemeColourPicker, resolveRole } from '@/components/website-builder/ThemeColourPicker'
 
 const FONT_OPTIONS = [
   'Inter', 'Fraunces', 'Caveat', 'Playfair Display', 'Poppins',
@@ -25,11 +26,12 @@ const DEFAULT_SETTINGS = {
   header_show:      true,
   header_text:      '',
   subheader_text:   '',
-  button_bg:        '',
-  button_fg:        '#ffffff',
+  // Colour fields are theme role names (or empty = inherit / sensible default).
+  button_bg:        '',     // '' = primary
+  button_fg:        '',     // '' = white
   button_radius_px: 8,
   card_radius_px:   8,
-  border_colour:    '',
+  border_colour:    '',     // '' = border role
   font_family:      '',
   large_party_text: 'Larger party? Call us — we’ll arrange combined tables.',
 }
@@ -129,15 +131,13 @@ export default function WidgetSettings() {
 
       {/* Button */}
       <Card title="Button"
-        hint='The "Continue / Confirm" button styling.'>
+        hint='The "Continue / Confirm" button styling. Pick a role from the brand palette.'>
         <Field label="Background colour"
           hint="Blank = brand primary colour.">
-          <ColourInput value={form.button_bg} onChange={set('button_bg')}
-            placeholder={tenantSite?.primary_colour || ''} />
+          <ThemeColourPicker value={form.button_bg} onChange={set('button_bg')} />
         </Field>
-        <Field label="Text colour" hint="Default white.">
-          <ColourInput value={form.button_fg} onChange={set('button_fg')}
-            placeholder="#ffffff" />
+        <Field label="Text colour" hint="Blank = white.">
+          <ThemeColourPicker value={form.button_fg} onChange={set('button_fg')} />
         </Field>
         <Field label={`Corner radius — ${form.button_radius_px ?? 8}px`}>
           <input type="range" min={0} max={40} step={1}
@@ -150,9 +150,8 @@ export default function WidgetSettings() {
       {/* Borders */}
       <Card title="Borders + radii">
         <Field label="Border colour"
-          hint="Used for input outlines and chip borders. Blank = subtle theme grey.">
-          <ColourInput value={form.border_colour} onChange={set('border_colour')}
-            placeholder="" />
+          hint="Used for input outlines and chip borders. Blank = the theme's border role.">
+          <ThemeColourPicker value={form.border_colour} onChange={set('border_colour')} />
         </Field>
         <Field label={`Card / chip radius — ${form.card_radius_px ?? 8}px`}>
           <input type="range" min={0} max={40} step={1}
@@ -194,7 +193,13 @@ export default function WidgetSettings() {
             <div key={v.id} className="space-y-1 mb-3">
               <p className="text-xs font-medium text-muted-foreground">{v.name}</p>
               <EmbedSnippet
-                src={buildEmbedSrc({ tenantId, subdomain, venueId: v.id, settings: form })} />
+                src={buildEmbedSrc({
+                  tenantId,
+                  subdomain,
+                  venueId: v.id,
+                  settings: form,
+                  theme: tenantSite?.theme,
+                })} />
             </div>
           ))}
         <p className="text-xs text-muted-foreground mt-2">
@@ -252,26 +257,6 @@ function ToggleSwitch({ checked, onChange }) {
   )
 }
 
-function ColourInput({ value, onChange, placeholder = '' }) {
-  const v = value || ''
-  const isValid = /^#?[0-9a-fA-F]{6}$/.test(v)
-  const swatch  = isValid
-    ? (v.startsWith('#') ? v : '#' + v)
-    : (placeholder.startsWith('#') ? placeholder : (placeholder ? '#' + placeholder : '#cccccc'))
-  return (
-    <div className="flex items-center gap-2">
-      <input type="color"
-        value={isValid ? swatch : '#cccccc'}
-        onChange={e => onChange(e.target.value)}
-        className="w-10 h-9 border rounded cursor-pointer" />
-      <input className={inputClass + ' font-mono text-xs'}
-        value={value || ''}
-        onChange={e => onChange(e.target.value)}
-        placeholder={placeholder || '#hhhhhh'} />
-    </div>
-  )
-}
-
 function EmbedSnippet({ src }) {
   const code = `<iframe src="${src}" style="width:100%; min-height:640px; border:0;" loading="lazy" title="Book a table"></iframe>`
   return (
@@ -293,22 +278,30 @@ function EmbedSnippet({ src }) {
 }
 
 // Builds the same query string the booking_widget block partial sends —
-// so previewing the embed in this page matches what visitors see.
-function buildEmbedSrc({ tenantId, subdomain, venueId, settings }) {
+// so previewing the embed in this page matches what visitors see. Resolves
+// theme role names to actual hex colours since the widget URL params
+// require hex (the widget route can't query the theme).
+function buildEmbedSrc({ tenantId, subdomain, venueId, settings, theme }) {
   const origin = subdomain ? `https://${subdomain}.macaroonie.com` : ''
   const path   = `/widget/${venueId}`
   const params = []
-  // Theme / accent left at defaults — operators tweak these in the page builder.
+  const hexFromRole = (v) => {
+    const out = resolveRole(v, theme)
+    return out ? out.replace(/^#/, '') : null
+  }
   params.push('theme=light')
   if (settings.header_show === false) params.push('headerShow=0')
   if (settings.header_show === true)  params.push('headerShow=1')
   if (settings.header_text)    params.push('header='   + encodeURIComponent(settings.header_text))
   if (settings.subheader_text) params.push('sub='      + encodeURIComponent(settings.subheader_text))
-  if (settings.button_bg)      params.push('btnBg='    + settings.button_bg.replace(/^#/, ''))
-  if (settings.button_fg)      params.push('btnFg='    + settings.button_fg.replace(/^#/, ''))
+  const btnBgHex = hexFromRole(settings.button_bg)
+  const btnFgHex = hexFromRole(settings.button_fg)
+  const brdHex   = hexFromRole(settings.border_colour)
+  if (btnBgHex) params.push('btnBg=' + btnBgHex)
+  if (btnFgHex) params.push('btnFg=' + btnFgHex)
+  if (brdHex)   params.push('brd='   + brdHex)
   if (typeof settings.button_radius_px === 'number') params.push('btnR='  + settings.button_radius_px)
   if (typeof settings.card_radius_px   === 'number') params.push('cardR=' + settings.card_radius_px)
-  if (settings.border_colour)  params.push('brd='      + settings.border_colour.replace(/^#/, ''))
   if (settings.font_family)    params.push('font='     + encodeURIComponent(settings.font_family))
   if (settings.large_party_text) params.push('lp='     + encodeURIComponent(settings.large_party_text))
   return origin + path + '?' + params.join('&')

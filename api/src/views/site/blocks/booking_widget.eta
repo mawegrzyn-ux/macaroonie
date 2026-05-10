@@ -16,16 +16,30 @@ const _textCol  = (_theme.colors?.text    || '').replace('#','')
 /* Block-level widget overrides. Stored on `data` (block JSONB) — empty
    strings & nullish skipped so the SSR widget falls back to tenant
    defaults / built-ins. The widget routes accept short query names
-   (header, sub, btnBg, btnFg, btnR, cardR, brd, font, lp). */
+   (header, sub, btnBg, btnFg, btnR, cardR, brd, font, lp).
+   Colour fields here are theme role names (primary/accent/text/...).
+   `resolveRoleHex` looks them up in the merged theme; legacy hex values
+   from old blocks are passed through unchanged. */
+const _themeColours = (_theme && _theme.colors) || {}
+const _ROLE_DEFAULTS = {
+  primary: '#630812', accent: '#f4a7b9', background: '#ffffff',
+  surface: '#f9f6f1', text: '#1a1a1a', muted: '#666666', border: '#e5e7eb',
+}
+function resolveRoleHex(v) {
+  if (typeof v !== 'string' || v === '') return null
+  if (/^#?[0-9a-fA-F]{6}$/.test(v)) return v.replace(/^#/, '')
+  if (_themeColours[v]) return _themeColours[v].replace(/^#/, '')
+  if (_ROLE_DEFAULTS[v]) return _ROLE_DEFAULTS[v].replace(/^#/, '')
+  return null
+}
 function _pushParam(arr, key, val) {
   if (val === undefined || val === null) return
   if (typeof val === 'string' && val === '') return
   arr.push(key + '=' + encodeURIComponent(val))
 }
-function _pushHex(arr, key, val) {
-  if (typeof val !== 'string') return
-  const v = val.replace(/^#/, '')
-  if (/^[0-9a-fA-F]{6}$/.test(v)) arr.push(key + '=' + v)
+function _pushRoleAsHex(arr, key, val) {
+  const hex = resolveRoleHex(val)
+  if (hex) arr.push(key + '=' + hex)
 }
 const widgetQs = (base) => {
   const params = [
@@ -37,15 +51,15 @@ const widgetQs = (base) => {
 
   if (d.header_show === false) params.push('headerShow=0')
   if (d.header_show === true)  params.push('headerShow=1')
-  _pushParam(params, 'header', d.header_text)
-  _pushParam(params, 'sub',    d.subheader_text)
-  _pushHex  (params, 'btnBg',  d.button_bg)
-  _pushHex  (params, 'btnFg',  d.button_fg)
+  _pushParam     (params, 'header', d.header_text)
+  _pushParam     (params, 'sub',    d.subheader_text)
+  _pushRoleAsHex (params, 'btnBg',  d.button_bg)
+  _pushRoleAsHex (params, 'btnFg',  d.button_fg)
   if (typeof d.button_radius_px === 'number') params.push('btnR='  + d.button_radius_px)
   if (typeof d.card_radius_px   === 'number') params.push('cardR=' + d.card_radius_px)
-  _pushHex  (params, 'brd',    d.border_colour)
-  _pushParam(params, 'font',   d.font_family)
-  _pushParam(params, 'lp',     d.large_party_text)
+  _pushRoleAsHex (params, 'brd',    d.border_colour)
+  _pushParam     (params, 'font',   d.font_family)
+  _pushParam     (params, 'lp',     d.large_party_text)
   return base + '?' + params.join('&')
 }
 

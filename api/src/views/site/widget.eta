@@ -361,11 +361,14 @@ const _accentEffective = _btnBg || it.accent
         goto(1);
       }
       function pickCovers(n) { state.covers = n; goto(2); }
-      // Just set the date in state — the calendar's "Find times" button
-      // (or jump-to-date input flow) is what advances the wizard. Keeping
-      // selection and slot-fetching separate avoids accidental loads when
-      // the user is browsing months on the calendar.
-      function pickDate(d) { state.date = d; }
+      // Set the date AND immediately load slots, advancing to the slots
+      // step. The user gets one tap from "I want this date" to "here are
+      // your times". Browsing months on the calendar uses the prev/next
+      // arrows which don't call this — so accidental loads are avoided.
+      function pickDate(d) {
+        state.date = d;
+        loadSlots();
+      }
       function pickSlot(slot) { state.slot = slot; goto(4); }
 
       async function loadSlots() {
@@ -664,23 +667,23 @@ const _accentEffective = _btnBg || it.accent
       }
 
       function renderSlots(root) {
-        root.appendChild(el('p', { class: 'step-label' }, 'Pick a time'));
+        root.appendChild(el('p', { class: 'step-label' },
+          'Times for ' + formatDate(state.date)));
+
         const slots = state.slots || [];
 
         // The slot_result type has fields { available, available_covers,
-        // reason, slot_time, ... }. Earlier code filtered on a
-        // non-existent `available_seats` field which silently rejected
-        // every slot. The widgetApi route already drops `unavailable`
-        // (zero-cap closed) slots, so what remains is either bookable
-        // or full. Render BOTH so operators can see at a glance whether
-        // there's any service at all on this date — full slots show
-        // disabled with a strikethrough.
+        // reason, slot_time, ... }. The widgetApi route already drops
+        // `unavailable` (zero-cap closed) slots, so what remains is
+        // either bookable (`available: true`) or full. Render BOTH so
+        // operators can see at a glance whether there's any service at
+        // all on this date — full slots show disabled with strikethrough.
         const usable = slots.filter(s => s.slot_time);
         const bookable = usable.filter(s => s.available === true);
 
         if (usable.length === 0) {
           root.appendChild(el('p', { class: 'empty' },
-            'We\'re not taking bookings for ' + state.covers + ' guest' + (state.covers > 1 ? 's' : '') + ' on this date. Try another day.'));
+            'No service on this date — try another day.'));
         } else {
           const grid = el('div', { class: 'slots' });
           usable.forEach(s => {
@@ -692,7 +695,9 @@ const _accentEffective = _btnBg || it.accent
               class: cls.join(' '),
               disabled: isFull,
               onclick: isFull ? null : (() => pickSlot(s)),
-              title: isFull ? 'Fully booked' : null,
+              title: isFull
+                ? 'Fully booked for ' + state.covers + ' guest' + (state.covers > 1 ? 's' : '')
+                : null,
             }, s.slot_time);
             grid.appendChild(sl);
           });
@@ -700,7 +705,10 @@ const _accentEffective = _btnBg || it.accent
 
           if (bookable.length === 0) {
             root.appendChild(el('p', { class: 'empty', style: 'margin-top:10px' },
-              'All times shown are fully booked for ' + state.covers + ' guest' + (state.covers > 1 ? 's' : '') + '. Try another date or fewer guests.'));
+              'All ' + usable.length + ' times shown are full for ' + state.covers + ' guest' + (state.covers > 1 ? 's' : '') + '. Try another date or fewer guests.'));
+          } else {
+            root.appendChild(el('p', { class: 'sub', style: 'margin-top:10px; text-align:center; opacity:0.7;' },
+              bookable.length + ' time' + (bookable.length === 1 ? '' : 's') + ' available'));
           }
         }
 

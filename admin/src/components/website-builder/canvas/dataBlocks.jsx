@@ -421,16 +421,33 @@ export function BookingWidgetCanvas({ data, onChange, config }) {
   if (textHex)    qp.set('text',   textHex)
 
   // Per-block widget chrome overrides — match what the SSR partial sends.
+  // Colour fields are theme role names; resolve to hex (the widget URL
+  // params only accept hex, the widget itself paints CSS custom props).
   const stripHash = (s) => (typeof s === 'string' ? s.replace(/^#/, '') : '')
+  const ROLE_HEX = {
+    primary: '#630812', accent: '#f4a7b9', background: '#ffffff',
+    surface: '#f9f6f1', text: '#1a1a1a', muted: '#666666', border: '#e5e7eb',
+  }
+  const colours = (theme && theme.colors) || {}
+  const roleToHex = (val) => {
+    if (!val || typeof val !== 'string') return null
+    if (/^#?[0-9a-fA-F]{6}$/.test(val)) return stripHash(val)
+    const hex = colours[val] || ROLE_HEX[val]
+    return hex ? stripHash(hex) : null
+  }
+
   if (data.header_show === false) qp.set('headerShow', '0')
   if (data.header_show === true)  qp.set('headerShow', '1')
   if (data.header_text)    qp.set('header', data.header_text)
   if (data.subheader_text) qp.set('sub',    data.subheader_text)
-  if (data.button_bg && /^#?[0-9a-fA-F]{6}$/.test(data.button_bg)) qp.set('btnBg', stripHash(data.button_bg))
-  if (data.button_fg && /^#?[0-9a-fA-F]{6}$/.test(data.button_fg)) qp.set('btnFg', stripHash(data.button_fg))
+  const bgHex  = roleToHex(data.button_bg)
+  const fgHex  = roleToHex(data.button_fg)
+  const brdHex = roleToHex(data.border_colour)
+  if (bgHex)  qp.set('btnBg', bgHex)
+  if (fgHex)  qp.set('btnFg', fgHex)
+  if (brdHex) qp.set('brd',   brdHex)
   if (typeof data.button_radius_px === 'number') qp.set('btnR',  String(data.button_radius_px))
   if (typeof data.card_radius_px   === 'number') qp.set('cardR', String(data.card_radius_px))
-  if (data.border_colour && /^#?[0-9a-fA-F]{6}$/.test(data.border_colour)) qp.set('brd', stripHash(data.border_colour))
   if (data.font_family)    qp.set('font', data.font_family)
   if (data.large_party_text) qp.set('lp', data.large_party_text)
 

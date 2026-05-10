@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { FormRow, ImageField } from '../shared'
 import { FontPicker } from '../FontPicker'
+import { ThemeColourPicker, THEME_ROLES } from '../ThemeColourPicker'
 
 // Same list used in Brand identity / Brand theme. Kept duplicated here to
 // avoid a circular import with admin/src/pages/Website.jsx.
@@ -65,6 +66,12 @@ function Toggle({ checked, onChange, label }) {
       <span>{label || (checked ? 'On' : 'Off')}</span>
     </label>
   )
+}
+
+function roleLabel(roleKey) {
+  if (!roleKey) return null
+  const r = THEME_ROLES.find(x => x.key === roleKey)
+  return r ? r.label : roleKey
 }
 
 function SectionHead({ label, action }) {
@@ -723,11 +730,16 @@ export function ScrollingTextEditor({ data, onChange }) {
               value={fontValue}
               onChange={set('font_family')} />
           </FormRow>
-          <FormRow label={`Font size — ${data.font_size || 28}px`}>
-            <input type="range" min={14} max={72} step={1}
-              value={data.font_size || 28}
-              onChange={e => set('font_size')(Number(e.target.value))}
-              className="w-full" />
+          <FormRow label="Font size"
+            hint={`Relative to the theme's base font size. Current scale: ${data.font_scale || 'lg'}.`}>
+            <Select value={data.font_scale || 'lg'} onChange={set('font_scale')}>
+              <option value="sm">Small (1× base)</option>
+              <option value="base">Base (1.125× base)</option>
+              <option value="lg">Large (1.5× base)</option>
+              <option value="xl">Extra-large (2× base)</option>
+              <option value="2xl">Display (2.5× base)</option>
+              <option value="3xl">Hero (3.5× base)</option>
+            </Select>
           </FormRow>
           <FormRow label="Weight">
             <Select value={String(data.font_weight ?? 500)} onChange={v => set('font_weight')(Number(v))}>
@@ -753,14 +765,12 @@ export function ScrollingTextEditor({ data, onChange }) {
             <Select value={data.bg_style || 'primary'} onChange={set('bg_style')}>
               <option value="primary">Primary (brand colour)</option>
               <option value="accent">Accent</option>
-              <option value="dark">Dark</option>
               <option value="surface">Surface (light)</option>
             </Select>
           </FormRow>
           <FormRow label="Text colour"
-            hint="Optional override. Blank = white on dark backgrounds, brand text on surface.">
-            <Input value={data.text_colour || ''} onChange={set('text_colour')}
-              placeholder="#hhhhhh — leave blank for auto" />
+            hint="Pick a theme role. Inherit = white on dark backgrounds, brand text colour on surface.">
+            <ThemeColourPicker value={data.text_colour} onChange={set('text_colour')} />
           </FormRow>
           <FormRow label="Scroll speed">
             <Select value={data.speed || 'medium'} onChange={set('speed')}>
@@ -869,14 +879,12 @@ export function BookingWidgetEditor({ data, onChange, config }) {
         <SectionHead label="Button" />
         <div className="space-y-3">
           <FormRow label="Background colour"
-            hint={`Blank = ${ws.button_bg || 'tenant accent / brand colour'}.`}>
-            <ColourInput value={data.button_bg} onChange={set('button_bg')}
-              placeholder={ws.button_bg || ''} />
+            hint={`Pick a theme role. Inherit = ${roleLabel(ws.button_bg) || 'tenant default'}.`}>
+            <ThemeColourPicker value={data.button_bg} onChange={set('button_bg')} />
           </FormRow>
           <FormRow label="Text colour"
-            hint={`Blank = ${ws.button_fg || '#ffffff'}.`}>
-            <ColourInput value={data.button_fg} onChange={set('button_fg')}
-              placeholder={ws.button_fg || '#ffffff'} />
+            hint={`Pick a theme role. Inherit = ${roleLabel(ws.button_fg) || 'white'}.`}>
+            <ThemeColourPicker value={data.button_fg} onChange={set('button_fg')} />
           </FormRow>
           <FormRow label={`Corner radius — ${data.button_radius_px ?? ws.button_radius_px ?? 8}px`}>
             <input type="range" min={0} max={40} step={1}
@@ -891,9 +899,8 @@ export function BookingWidgetEditor({ data, onChange, config }) {
         <SectionHead label="Borders + radii" />
         <div className="space-y-3">
           <FormRow label="Border colour"
-            hint={`Blank = ${ws.border_colour || 'theme border colour'}.`}>
-            <ColourInput value={data.border_colour} onChange={set('border_colour')}
-              placeholder={ws.border_colour || ''} />
+            hint={`Pick a theme role. Inherit = ${roleLabel(ws.border_colour) || 'theme border'}.`}>
+            <ThemeColourPicker value={data.border_colour} onChange={set('border_colour')} />
           </FormRow>
           <FormRow label={`Card / chip radius — ${data.card_radius_px ?? ws.card_radius_px ?? 8}px`}>
             <input type="range" min={0} max={40} step={1}
@@ -928,21 +935,3 @@ export function BookingWidgetEditor({ data, onChange, config }) {
   )
 }
 
-// Hex-colour input with a swatch + colour picker. Shared with the
-// /widget-settings page; kept local to avoid pulling in shared.jsx
-// changes for one tiny primitive.
-function ColourInput({ value, onChange, placeholder = '' }) {
-  const v = value || ''
-  const isValid = /^#?[0-9a-fA-F]{6}$/.test(v)
-  const swatch  = isValid ? (v.startsWith('#') ? v : '#' + v) : (placeholder.startsWith('#') ? placeholder : (placeholder ? '#' + placeholder : '#cccccc'))
-  return (
-    <div className="flex items-center gap-2">
-      <input type="color"
-        value={isValid ? swatch : '#cccccc'}
-        onChange={e => onChange(e.target.value)}
-        className="w-10 h-9 border rounded cursor-pointer"
-      />
-      <Input value={value} onChange={onChange} placeholder={placeholder || '#hhhhhh'} className="font-mono text-xs" />
-    </div>
-  )
-}

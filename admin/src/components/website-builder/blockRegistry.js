@@ -114,17 +114,17 @@ export const BLOCKS = [
   {
     key:         'scrolling_text',
     label:       'Scrolling text',
-    description: 'Scrolling band of phrases — dish names, taglines. Loads its own font directly so what you pick is what visitors see.',
+    description: 'Scrolling band of phrases — dish names, taglines. Loads its own font directly so what you pick is what visitors see. Colours and font sizes track the theme.',
     icon:        Megaphone,
     category:    'content',
     defaultData: {
       items:        ['Pad Thai', 'Massaman', 'Tom Yum', 'Pad Krapow', 'Green Curry', 'Som Tam', 'Spare Ribs', 'Khao Soi'],
-      bg_style:     'primary',  // primary | accent | dark | surface
-      text_colour:  '',         // optional hex override
+      bg_style:     'primary',  // 'primary' | 'accent' | 'surface' (theme roles only)
+      text_colour:  '',         // theme role name; '' = auto-contrast against bg
       font_family:  'Caveat',
-      font_size:    28,
-      font_weight:  500,        // 400 | 500 | 600 | 700
-      font_style:   'normal',   // 'normal' | 'italic'
+      font_scale:   'lg',       // 'sm'|'base'|'lg'|'xl'|'2xl'|'3xl' — multiplier of theme base
+      font_weight:  500,
+      font_style:   'normal',
       speed:        'medium',
       show_separators: true,
     },
@@ -383,16 +383,17 @@ export const BLOCKS = [
       heading:   'Reserve a table',
       container: 'boxed',
       // Per-block widget chrome overrides — leave blank to inherit
-      // tenant-level defaults from /widget-settings.
+      // tenant-level defaults from /widget-settings. Colours are theme
+      // role names ('primary'|'accent'|...|'border') — empty = inherit.
       venue_id:        null,
       header_show:     null,  // null = inherit; true/false = force
       header_text:     '',
       subheader_text:  '',
-      button_bg:       '',    // hex, blank = inherit
-      button_fg:       '',
+      button_bg:       '',    // theme role name, blank = inherit
+      button_fg:       '',    // theme role name, blank = inherit
       button_radius_px: null,
       card_radius_px:   null,
-      border_colour:   '',
+      border_colour:   '',    // theme role name, blank = inherit
       font_family:     '',
       large_party_text: '',
     },
