@@ -339,6 +339,36 @@ const _accentEffective = _btnBg || it.accent
       try { window.__rwState = state; } catch (e) {}
       console.info('[rw] init', { mode: MODE, venue: initialVenue && initialVenue.id, step: state.step, api: API });
 
+      // Debug overlay — always-on while we diagnose. Shows live state +
+      // last action + last API call as a fixed bar at the top of the widget.
+      // Once the widget is verified-working in prod, gate this behind
+      // ?debug=1 again (or remove entirely).
+      var DEBUG_ON = true;
+      var dbg = { lastAction: '(none)', lastApi: '(none)', lastApiStatus: '' };
+      function renderDebug() {
+        if (!DEBUG_ON) return;
+        var bar = document.getElementById('rw-debug') || (function(){
+          var b = document.createElement('div');
+          b.id = 'rw-debug';
+          b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;'
+            + 'background:#0f172a;color:#a7f3d0;font:12px/1.4 monospace;'
+            + 'padding:6px 10px;white-space:pre-wrap;border-bottom:1px solid #16a34a';
+          document.body.appendChild(b);
+          return b;
+        })();
+        bar.textContent =
+          'step=' + state.step
+          + '  venue=' + (state.venue && state.venue.id || 'none')
+          + '  date=' + (state.date || 'none')
+          + '  covers=' + state.covers
+          + '  slots=' + state.slots.length
+          + '  | last action: ' + dbg.lastAction
+          + '\nlast API: ' + dbg.lastApi
+          + (dbg.lastApiStatus ? '  → ' + dbg.lastApiStatus : '');
+      }
+      function dbgAction(label) { dbg.lastAction = label + ' @ ' + new Date().toLocaleTimeString(); renderDebug(); }
+      function dbgApi(url, status) { dbg.lastApi = url; dbg.lastApiStatus = status || 'in flight…'; renderDebug(); }
+
       // ── Date helpers (LOCAL date, not UTC — `toISOString().slice` shifts
       // by a day in late-evening eastern timezones) ────────────────
       function localDateStr(d) {
@@ -411,6 +441,7 @@ const _accentEffective = _btnBg || it.accent
       // ── State actions ──────────────────────────────────────────
       function goto(step) {
         console.info('[rw] goto', { from: state.step, to: step });
+        dbgAction('goto step ' + step);
         state.step = step;
         state.error = null;
         render();
@@ -418,29 +449,39 @@ const _accentEffective = _btnBg || it.accent
 
       function pickVenue(id) {
         console.info('[rw] pickVenue', id);
+        dbgAction('pickVenue ' + id);
         var v = venuesById[id]; if (!v) return;
         state.venue = v;
         goto(1);
       }
       function pickCovers(n) {
         console.info('[rw] pickCovers', n);
+        dbgAction('pickCovers ' + n);
         state.covers = n;
-        goto(2);
+        // Auto-load slots for today instead of just advancing to a passive
+        // calendar — operator wants instant feedback that the widget is
+        // talking to the API. They can browse to a different date from the
+        // slots step if needed.
+        if (!state.date) state.date = localToday();
+        loadSlots();
       }
       function pickDate(iso) {
         console.info('[rw] pickDate', iso);
+        dbgAction('pickDate ' + iso);
         state.date = iso;
         state.slot = null;
         loadSlots();
       }
       function pickSlot(s) {
         console.info('[rw] pickSlot', s.slot_time);
+        dbgAction('pickSlot ' + s.slot_time);
         state.slot = s;
         goto(4);
       }
       function loadSlots() {
         var url = '/venues/' + state.venue.id + '/slots?date=' + state.date + '&covers=' + state.covers;
         console.info('[rw] loadSlots →', API + url);
+        dbgApi(API + url);
         state.slotsLoading = true;
         state.slotsError   = null;
         state.step         = 3;
@@ -448,12 +489,14 @@ const _accentEffective = _btnBg || it.accent
         api(url)
           .then(function(rows){
             console.info('[rw] loadSlots ←', { count: (rows || []).length, sample: (rows || [])[0] });
+            dbgApi(API + url, 'OK · ' + (rows || []).length + ' rows');
             state.slots = rows || [];
             state.slotsLoading = false;
             render();
           })
           .catch(function(e){
             console.error('[rw] loadSlots failed', e);
+            dbgApi(API + url, 'ERROR · ' + (e.message || 'unknown'));
             state.slots = [];
             state.slotsLoading = false;
             state.slotsError   = e.message || 'Failed to load times.';
@@ -502,6 +545,7 @@ const _accentEffective = _btnBg || it.accent
 
       // ── Render ─────────────────────────────────────────────────
       function render() {
+        renderDebug();
         var prog = document.getElementById('rprog');
         var root = document.getElementById('rroot');
         if (!prog || !root) return;
