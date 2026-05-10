@@ -24,7 +24,7 @@ const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 
-const layout      = d.layout || 'grid'
+const layoutMode  = d.layout || 'grid'
 const cols        = Math.max(2, Math.min(4, d.columns || 3))
 const gapMap      = { tight: 8, normal: 16, wide: 24 }
 const gap         = gapMap[d.gap || 'normal'] || 16
@@ -44,13 +44,13 @@ const blockId = 'g-' + (it.block.id || Math.random().toString(36).slice(2, 10)).
   .<%= blockId %>-section { padding: 64px 0; background: var(--c-surface); }
   .<%= blockId %>-head    { margin: 0 0 24px; font-family: var(--f-heading); color: var(--c-primary); }
 
-  <% if (layout === 'grid') { %>
+  <% if (layoutMode === 'grid') { %>
     .<%= blockId %>-list {
       display: grid;
       grid-template-columns: repeat(<%= cols %>, 1fr);
       gap: <%= gap %>px;
     }
-  <% } else if (layout === 'masonry') { %>
+  <% } else if (layoutMode === 'masonry') { %>
     .<%= blockId %>-list {
       column-count: <%= cols %>;
       column-gap: <%= gap %>px;
@@ -89,7 +89,7 @@ const blockId = 'g-' + (it.block.id || Math.random().toString(36).slice(2, 10)).
   }
   .<%= blockId %>-img {
     width: 100%;
-    <% if (layout === 'masonry' && aspect === 'natural') { %>
+    <% if (layoutMode === 'masonry' && aspect === 'natural') { %>
       height: auto;
       display: block;
     <% } else { %>
@@ -108,12 +108,12 @@ const blockId = 'g-' + (it.block.id || Math.random().toString(36).slice(2, 10)).
 
   /* Mobile: collapse columns / drop horizontal scroll snap.  */
   @media (max-width: 800px) {
-    <% if (layout === 'grid' || layout === 'masonry') { %>
+    <% if (layoutMode === 'grid' || layoutMode === 'masonry') { %>
       .<%= blockId %>-list { grid-template-columns: repeat(2, 1fr) !important; column-count: 2 !important; }
     <% } %>
   }
   @media (max-width: 500px) {
-    <% if (layout === 'grid' || layout === 'masonry') { %>
+    <% if (layoutMode === 'grid' || layoutMode === 'masonry') { %>
       .<%= blockId %>-list { grid-template-columns: 1fr !important; column-count: 1 !important; }
     <% } %>
   }
