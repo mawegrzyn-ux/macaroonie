@@ -455,8 +455,17 @@ const _accentEffective = _btnBg || it.accent
           else if (k === 'onclick' || k === 'oninput' || k === 'onchange') {
             if (v) node[k] = v;
           }
-          else if (k === 'disabled' && v) node.setAttribute('disabled', 'disabled');
-          else if (v != null) node.setAttribute(k, v);
+          else if (k === 'disabled') {
+            // Critical: only set disabled when truthy. Browsers treat the
+            // PRESENCE of a `disabled` attribute as disabled regardless
+            // of its value — `setAttribute('disabled', false)` would
+            // still disable the button. The earlier code fell through to
+            // the catch-all on `disabled: false` and disabled every
+            // button we tried to render. THIS was why the calendar +
+            // slot grid have been silently dead-clicking for hours.
+            if (v) node.setAttribute('disabled', 'disabled');
+          }
+          else if (v != null && v !== false) node.setAttribute(k, v);
         }
         for (var i = 2; i < arguments.length; i++) {
           var c = arguments[i];
