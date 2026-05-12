@@ -5,6 +5,107 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-12 — Reservations widget rebuild + CMS polish] *(migrations 050 + 051 + 052)*
+
+A from-scratch rewrite of the public booking widget and a broad cleanup of
+the page builder. Built across the week of 2026-05-05 → 2026-05-12.
+
+**Reservations widget (front-end + admin):**
+- Routes renamed `/widget/:id` → `/reservations/:id` (and tenant equivalent).
+  The old `widget.eta` + `booking_widget` block are gone; migration 052
+  rewrites existing live data to `reservations_widget`.
+- New `views/site/reservations_widget.eta` — clean state machine, fixed slot
+  filter (was reading the non-existent `s.available_seats`), month-view
+  calendar with prev/next + jump-to-date, closed-day hatching from a new
+  `GET /widget-api/venues/:id/schedule-summary` endpoint.
+- Three independent typography tracks: Body / Calendar date numbers / Time
+  slot buttons, each with FontPicker + px-size slider. Single deduped
+  Google Fonts URL covering all picked fonts with per-font weight specs.
+- Calendar day colour controls (Open day + Closed day, each bg/fg/border).
+- Per-block anchor ID (`<section id="<anchor>">`) so any link can target
+  the widget.
+- Live debug overlay (tri-state on block, boolean on tenant defaults;
+  also accepts `?debug=1` URL override).
+
+**Admin: Reservations widget settings page** (`/reservations-widget`,
+sidebar nav "Reservations widget", replaces `/widget-settings`):
+- Live preview iframe with per-venue switcher
+- Share & embed card showing both Direct URL (copyable, clickable) and
+  Iframe embed code per venue
+- Same control surface as the page-builder block (header/button/borders/
+  typography 3-track/day colours/messages/debug)
+
+**Theme-only colour pickers:**
+- New `ThemeColourPicker` component shows the 7 theme roles as swatches
+  rendered with their actual brand hex. Stores role name (not hex).
+- Replaced all hex `<input type="color">` widgets across the booking widget
+  settings, block editor, scrolling-text, with role-only pickers.
+
+**Block changes:**
+- Dropped legacy `ticker` block (migration 051 → `scrolling_text`).
+- Dropped legacy `two_column` block (migration 051 → `story_with_stamp`).
+- Dropped legacy `booking_widget` block (migration 052 → `reservations_widget`).
+- `scrolling_text`: clean rebuild, loads own Google Font with `!important`,
+  no theme cascade, default Caveat. Size as multiplier of `--fs-base`.
+- `gallery`: now sources from the per-tenant Media library (was disconnected
+  per-venue `website_gallery_images`). By-category or pick-specific source
+  modes. Three layouts (Grid/Masonry/Horizontal-scroll). Optional lightbox.
+- `menu_inline`: section filter + dish filter + hide-prices + column count
+  (1-4 with Auto) + flow direction (Snake CSS-multi-column vs Wrap CSS-grid)
+  + section header toggle + subheader override.
+- `columns`: 1-4 columns (was 2-4).
+
+**Mobile responsive partials:**
+- `menu_inline`, `dish_list`, `reviews_band`, `story_with_stamp` now use
+  scoped `_blockId` classes + `@media` collapse rules so the grids don't
+  stay multi-column on phones.
+- `header` block has 5 mobile-visibility flags + breakpoint.
+- `head.eta` body has `overflow-x: hidden` defensive guard.
+
+**Schema (migration 050):**
+- `tenant_site.widget_settings jsonb DEFAULT '{}'` — single JSONB column
+  for all booking widget defaults.
+
+**Migrations:**
+- 050: `tenant_site.widget_settings` jsonb column.
+- 051: rewrite `ticker` → `scrolling_text` and `two_column` →
+  `story_with_stamp` in tenant_site.home_blocks + website_config.page_blocks.
+  Idempotent.
+- 052: rewrite `booking_widget` → `reservations_widget` same way.
+
+**Bug fixes (notable, each documented as a CLAUDE.md gotcha):**
+- `el()` helper was passing `disabled: false` through to
+  `setAttribute('disabled', false)` which **still disables** the button —
+  every calendar cell + slot was wrongly dead-clicked for days.
+- Eta's `autoEscape: true` was HTML-escaping the `"` in CSS font-family
+  strings to `&quot;`, breaking every font picker silently — fixed by
+  switching font-family CSS to `<%~` raw output.
+- Eta auto-declares a function called `layout` at the top of every compiled
+  template; `const layout = ...` in `gallery.eta` collided and 500'd the
+  whole page. Renamed to `layoutMode`.
+- `slot_result.slot_time` is `timestamptz` (since migration 020), not
+  `time` — `widgetApi` `.slice(0,5)` was throwing because it's a Date
+  object. Now `Intl.DateTimeFormat` in venue timezone.
+- Slot filter on the widget was `s.available_seats >= state.covers`; the
+  PG function returns `s.available` (bool) and `s.available_covers` (int).
+  Field name was wrong, every slot was rejected.
+- HoldBody Zod requires `guest_name` — widget was sending only
+  `{ starts_at, covers }` and the hold POST failed 422 silently. Widget
+  now sends guest details in the hold body.
+- Google Fonts v2 returns 400 for the entire stylesheet if any single
+  requested weight is missing on any font. Added `FONT_WEIGHTS` maps to
+  `head.eta`, `FontPicker.jsx`, and the widget partial — each font only
+  requests its actual supported weights.
+- Nginx default `client_max_body_size: 1m` was silently 413'ing every PNG
+  upload. `setup.sh` now sets `30M` to match the API ceiling; live servers
+  need manual nginx config update (one line).
+
+**Files added/deleted:**
+- Added: `api/src/views/site/reservations_widget.eta`, `api/src/views/site/blocks/reservations_widget.eta`, `admin/src/pages/ReservationsWidget.jsx` (renamed from WidgetSettings.jsx), `admin/src/components/website-builder/ThemeColourPicker.jsx`, `migrations/050_tenant_widget_settings.sql`, `migrations/051_drop_legacy_blocks.sql`, `migrations/052_drop_booking_widget_block.sql`
+- Deleted: `api/src/views/site/widget.eta`, `api/src/views/site/blocks/{ticker,two_column,booking_widget}.eta`, `admin/src/components/website-builder/editors/TwoColumnEditor.jsx`
+
+---
+
 ## [2026-05-09 — Structured menu manager] *(migrations 048 + 049)*
 
 End-to-end menu management. Replaces the previous PDF-only `website_menu_documents`

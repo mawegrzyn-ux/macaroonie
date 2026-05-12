@@ -1179,7 +1179,7 @@ export default function Help() {
                 ['Contact',          'Phone, email, Instagram, Facebook, X, TikTok, YouTube.'],
                 ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
                 ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
-                ['Booking widget',   'Embed your Macaroonie booking widget inline. Choose which venue and light/dark theme.'],
+                ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours, anchor ID.'],
                 ['Custom pages',     'Standalone pages (e.g. Private Dining). Each appears at /p/{slug}.'],
                 ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
                 ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
@@ -1300,32 +1300,72 @@ export default function Help() {
               the top of each to make them visible.
             </InfoBox>
 
-            <H3>Booking widget</H3>
+            <H3>Reservations widget</H3>
             <P>
-              Guests book directly via an embeddable widget. In <strong>Booking widget</strong>
-              pick which venue the bookings go to, choose a light or dark theme, and save —
-              the colour automatically inherits your brand primary.
+              Guests book directly via an embeddable widget. <strong>Reservations widget</strong>
+              in the sidebar lets you set the tenant-wide defaults that apply to every embed
+              of the widget across all your venues.
             </P>
             <P>
-              Two ways to use it:
+              The flow visitors see: covers → date → time → details → confirmation.
+              A month-view calendar with prev/next navigation, jump-to-date input, and
+              closed days greyed out (hatched) so they can't waste clicks on the venue's
+              day off.
             </P>
+            <P>What you can customise on the Reservations widget page:</P>
             <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
               <li>
-                <strong>On your Macaroonie site</strong> — add a <em>Booking widget</em> block
-                from the Page builder. The widget renders inline at the chosen position.
+                <strong>Header</strong> — show/hide the brand line at top, override the
+                header text, override the "Book a table" sub-line.
               </li>
               <li>
-                <strong>On any other site</strong> — copy the iframe HTML from the
-                <em> Embed snippet</em> panel and paste it into your existing website. Works
-                from any domain — no code review needed on your side, the widget runs in a
-                sandboxed iframe.
+                <strong>Button</strong> — background and text colour (pick from your brand
+                palette), corner radius.
+              </li>
+              <li>
+                <strong>Borders + radii</strong> — border colour, card/chip corner radius.
+              </li>
+              <li>
+                <strong>Typography</strong> — three independent font tracks: <em>Body</em>
+                (header, button labels, form fields), <em>Calendar</em> (date numbers),
+                <em>Time slots</em> (HH:MM buttons). Each has its own font picker and
+                size slider — mix a script font for the calendar with a sans-serif for
+                slots, etc.
+              </li>
+              <li>
+                <strong>Calendar day colours</strong> — Open day vs Closed day, each with
+                background, text, and border. Pick from the brand palette.
+              </li>
+              <li>
+                <strong>Messages</strong> — "Larger party? Call us" copy override.
+              </li>
+              <li>
+                <strong>Debug</strong> — diagnostic overlay at top of widget showing live
+                state. Leave off for normal customers; flip on to debug.
+              </li>
+            </ul>
+
+            <P>Two ways to use it on a site:</P>
+            <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
+              <li>
+                <strong>On your Macaroonie site</strong> — add a <em>Reservations widget</em>
+                block from the Page builder. Same controls as the tenant defaults but
+                per-block, so a specific page can override fonts/colours without changing
+                the tenant default. Set <em>Anchor ID</em> in the block to make it linkable
+                with <Mono>&lt;a href="#book-now"&gt;</Mono> from anywhere.
+              </li>
+              <li>
+                <strong>On any other site</strong> — the <em>Share &amp; embed</em> card on
+                the Reservations widget page generates both a direct URL (for email links,
+                QR codes, link-in-bio) and an iframe embed code (for embedding inline on
+                third-party sites). Both bake your saved defaults into URL query params.
               </li>
             </ul>
             <InfoBox type="info">
               The widget posts a <Mono>macaroonie:booking-confirmed</Mono> message to the
               parent window when a booking succeeds — your dev can hook this for analytics,
-              redirects, or thank-you popups. The 5-minute hold (slot reservation) runs
-              client-side; abandoning the form releases the slot automatically.
+              redirects, or thank-you popups. The hold TTL (configurable per venue in Rules,
+              default 5 min) reserves the slot client-side; abandoning the form releases it.
             </InfoBox>
 
             <H3>Custom pages</H3>
