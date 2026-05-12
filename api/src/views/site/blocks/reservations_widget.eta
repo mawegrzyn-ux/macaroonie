@@ -97,8 +97,14 @@ const containerStyle = d.container === 'full'
   : 'max-width:' + innerMax + '; margin:0 auto; padding:0 24px;'
 
 const _iframeBg = _surface ? '#' + _surface : 'transparent'
+
+/* Anchor id — operator-defined per block, defaults to "reservations".
+   Defensive sanitisation here too in case old data has unsafe chars. */
+const _rawAnchor   = (d.anchor_id || '').toString().replace(/^#/, '')
+const _safeAnchor  = _rawAnchor.replace(/[^A-Za-z0-9_-]/g, '-').replace(/-{2,}/g, '-').slice(0, 60)
+const _sectionId   = _safeAnchor || 'reservations'
 %>
-<section class="block" id="reservations" style="padding:48px 0; background:var(--c-surface);">
+<section class="block" id="<%= _sectionId %>" style="padding:48px 0; background:var(--c-surface);">
   <div style="<%= containerStyle %> text-align:center;">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
     <% if (widgetUrl) { %>

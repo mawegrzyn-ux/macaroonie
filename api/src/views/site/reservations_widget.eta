@@ -577,12 +577,9 @@ const _accentEffective = _btnBg || it.accent
         console.info('[rw] pickCovers', n);
         dbgAction('pickCovers ' + n);
         state.covers = n;
-        // Auto-load slots for today instead of just advancing to a passive
-        // calendar — operator wants instant feedback that the widget is
-        // talking to the API. They can browse to a different date from the
-        // slots step if needed.
-        if (!state.date) state.date = localToday();
-        loadSlots();
+        // Proper flow: covers → date → time. The user explicitly picks a
+        // date on the calendar; we don't assume "today" and skip the step.
+        goto(2);
       }
       function pickDate(iso) {
         console.info('[rw] pickDate', iso);
@@ -628,13 +625,26 @@ const _accentEffective = _btnBg || it.accent
         // Build starts_at as a local-time ISO string. The widget API
         // expects timezone-naive — server converts to venue tz.
         var startsAt = state.date + 'T' + state.slot.slot_time + ':00';
+        // Send guest details with the hold — HoldBody Zod requires
+        // guest_name (min(1)), so a hold without it fails validation
+        // before the confirm step even runs. The widget already has the
+        // details from the previous step, so send them in one shot.
         api('/venues/' + state.venue.id + '/holds', {
           method: 'POST',
-          body: JSON.stringify({ starts_at: startsAt, covers: state.covers }),
+          body: JSON.stringify({
+            starts_at:   startsAt,
+            covers:      state.covers,
+            guest_name:  state.details.name,
+            guest_email: state.details.email || null,
+            guest_phone: state.details.phone || null,
+          }),
         })
         .then(function(hold){
           state.hold = hold;
           state.holdExpiresAt = hold.expires_at;
+          /* Confirm just attaches notes (name/email/phone already on the
+             hold). Sending the names again is harmless — ConfirmBody
+             accepts them as optional duplicates. */
           return api('/venues/' + state.venue.id + '/holds/' + hold.id + '/confirm', {
             method: 'POST',
             body: JSON.stringify({

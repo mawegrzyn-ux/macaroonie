@@ -398,6 +398,9 @@ export const BLOCKS = [
     defaultData: {
       heading:   'Reserve a table',
       container: 'boxed',
+      // Anchor / HTML id — lets you link to this block from anywhere
+      // with <a href="#your-anchor">. Defaults to `reservations` when blank.
+      anchor_id: '',
       // Per-block widget chrome overrides — leave blank/null to inherit
       // tenant-level defaults from /reservations-widget. Colours are theme
       // role names ('primary'|'accent'|...|'border') — empty = inherit.

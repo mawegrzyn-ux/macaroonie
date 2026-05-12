@@ -526,8 +526,17 @@ export function ReservationsWidgetCanvas({ data, onChange, config }) {
     widgetSrc = `${widgetOrigin}/reservations/tenant/${tenantId}?${qp.toString()}`
   }
 
+  // Anchor id — operator-defined, falls back to "reservations". Same
+  // sanitisation as the SSR partial (alphanumeric + dashes/underscores).
+  const safeAnchor = String(data.anchor_id || '')
+    .replace(/^#/, '')
+    .replace(/[^A-Za-z0-9_-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 60)
+  const sectionId = safeAnchor || 'reservations'
+
   return (
-    <section className="block" id="booking" style={{ padding: '64px 0', background: 'var(--c-surface)' }}>
+    <section className="block" id={sectionId} style={{ padding: '64px 0', background: 'var(--c-surface)' }}>
       <div style={innerContainerStyle(data.container)}>
         <BlockHeading data={data} onChange={onChange} />
         {widgetSrc ? (
