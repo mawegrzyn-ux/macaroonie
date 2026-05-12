@@ -929,13 +929,28 @@ const _accentEffective = _btnBg || it.accent
           root.appendChild(el('p', { class: 'rerr' }, state.error));
         }
 
-        var canSubmit = (state.details.name || '').trim().length >= 2 && !state.loading;
+        /* Button only disabled during the in-flight booking. Name length
+           was previously gated at render time, but typing in <input> fires
+           `oninput` which only updates `state.details.name` — render() is
+           never called, so the button was stuck in its initial disabled
+           state. Validate on click instead. */
         root.appendChild(el('div', { class: 'rnav' },
           el('button', { class: 'rbtn secondary', onclick: function(){ goto(3); } }, '← Time'),
           el('button', {
             class: 'rbtn',
-            disabled: !canSubmit,
-            onclick: createHoldThenConfirm,
+            disabled: state.loading,
+            onclick: function(){
+              var name = (state.details.name || '').trim();
+              if (name.length < 2) {
+                state.error = 'Please enter your name (at least 2 letters).';
+                render();
+                // Re-focus the name field for convenience.
+                var nameInput = document.querySelector('.rfield input[type="text"]');
+                if (nameInput) nameInput.focus();
+                return;
+              }
+              createHoldThenConfirm();
+            },
           }, state.loading ? 'Booking…' : 'Confirm booking'),
         ));
       }
