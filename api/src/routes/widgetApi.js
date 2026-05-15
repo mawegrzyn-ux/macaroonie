@@ -219,6 +219,40 @@ export default async function widgetApiRoutes(app) {
         tableId = firstMember.table_id
       }
 
+      // Widget doesn't pre-select a table — auto-allocate the best-fit
+      // available table for this time window. Prefer the smallest table
+      // that fits the party (min_covers ≤ covers ≤ max_covers), ordered
+      // by sort_order. Falls back to null (→ unallocated at confirm time)
+      // if no suitable table is free.
+      if (!tableId) {
+        const [autoTable] = await tx`
+          SELECT t.id
+            FROM tables t
+           WHERE t.venue_id      = ${venue.id}
+             AND t.is_active     = true
+             AND t.is_unallocated = false
+             AND t.min_covers   <= ${body.covers}
+             AND t.max_covers   >= ${body.covers}
+             AND NOT EXISTS (
+               SELECT 1 FROM bookings b
+                WHERE b.table_id  = t.id
+                  AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                  AND b.starts_at  < ${endsAt.toISOString()}
+                  AND b.ends_at    > ${startsAt.toISOString()}
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM booking_holds bh
+                WHERE bh.table_id  = t.id
+                  AND bh.expires_at > now()
+                  AND bh.starts_at  < ${endsAt.toISOString()}
+                  AND bh.ends_at    > ${startsAt.toISOString()}
+             )
+           ORDER BY t.sort_order, t.max_covers
+           LIMIT 1
+        `
+        if (autoTable) tableId = autoTable.id
+      }
+
       const [newHold] = await tx`
         INSERT INTO booking_holds
           (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
