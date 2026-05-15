@@ -8,14 +8,15 @@
 // the request operates on. Aggressive rate limit per IP.
 //
 // Routes:
-//   GET    /venues/:venueId                         — public venue info + booking rules
-//   GET    /venues/:venueId/slots?date=&covers=     — available slots
-//   POST   /venues/:venueId/holds                   — create a hold
-//   DELETE /venues/:venueId/holds/:holdId           — cancel a hold
-//   POST   /venues/:venueId/holds/:holdId/confirm   — confirm a free booking
-//
-// Mirrors the auth'd /api/bookings + /api/venues/:id/slots endpoints
-// but resolves tenant_id from the venue, not from a JWT.
+//   GET    /openapi.json                                — OpenAPI spec for AI agents / ChatGPT Actions
+//   GET    /venues/lookup?slug=                        — resolve site slug → venue list
+//   GET    /venues/:venueId                            — public venue info + booking rules
+//   GET    /venues/:venueId/schedule-summary           — open days of week
+//   GET    /venues/:venueId/slots?date=&covers=        — available slots (table-availability aware)
+//   POST   /venues/:venueId/book                       — AI one-shot booking (no hold step)
+//   POST   /venues/:venueId/holds                      — create a hold (widget multi-step flow)
+//   DELETE /venues/:venueId/holds/:holdId              — cancel a hold
+//   POST   /venues/:venueId/holds/:holdId/confirm      — confirm a free booking
 
 import { z } from 'zod'
 import { sql, withTenant } from '../config/db.js'
@@ -43,6 +44,17 @@ const ConfirmBody = z.object({
   covers:        z.number().int().min(1).max(50).optional(),
 })
 
+// Used by the AI one-shot booking endpoint POST /venues/:venueId/book
+const BookBody = z.object({
+  date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD'),
+  time:        z.string().regex(/^\d{2}:\d{2}$/, 'time must be HH:MM in venue local time'),
+  covers:      z.number().int().min(1).max(50),
+  guest_name:  z.string().min(1).max(200),
+  guest_email: z.string().email().nullable().optional(),
+  guest_phone: z.string().max(50).nullable().optional(),
+  notes:       z.string().max(2000).nullable().optional(),
+})
+
 async function resolveTenant(venueId) {
   const [venue] = await sql`
     SELECT v.id, v.tenant_id, v.name, v.timezone, v.currency
@@ -65,6 +77,211 @@ export default async function widgetApiRoutes(app) {
 
   // Preflight
   app.options('/*', async (req, reply) => reply.code(204).send())
+
+  // ── GET /openapi.json ───────────────────────────────────
+  // Machine-readable API spec. Paste the URL into a ChatGPT Custom Action
+  // or any OpenAPI-compatible AI tool. Server URL is derived from the
+  // incoming Host header so it works on any tenant subdomain.
+  app.get('/openapi.json', async (req) => {
+    const host = req.headers.host || ('api.' + env.PUBLIC_ROOT_DOMAIN)
+    const serverUrl = 'https://' + host + '/widget-api'
+    return {
+      openapi: '3.1.0',
+      info: {
+        title: 'Macaroonie Restaurant Booking API',
+        version: '1.0.0',
+        description:
+          'Use this API to check restaurant availability and make table reservations on behalf of guests. ' +
+          'Typical flow: (1) call /venues/lookup with the restaurant slug to get a venueId, ' +
+          '(2) call /venues/{venueId}/schedule-summary to find open days, ' +
+          '(3) call /venues/{venueId}/slots to get available times for the chosen date and party size, ' +
+          '(4) confirm details with the guest, then (5) call /venues/{venueId}/book to complete the reservation.',
+      },
+      servers: [{ url: serverUrl, description: 'Booking API' }],
+      paths: {
+        '/venues/lookup': {
+          get: {
+            operationId: 'lookupVenue',
+            summary: 'Find a venue by site slug',
+            description:
+              'Look up a restaurant by its site slug — the subdomain part of its macaroonie.com URL. ' +
+              'For example, "hai" for hai.macaroonie.com. Returns venue IDs, names, and party size limits. ' +
+              'Call this first to get the venueId required by all other endpoints.',
+            parameters: [
+              {
+                name: 'slug', in: 'query', required: true,
+                description: 'Site slug, e.g. "hai" from hai.macaroonie.com',
+                schema: { type: 'string' },
+              },
+            ],
+            responses: {
+              200: {
+                description: 'Venue list for this site',
+                content: { 'application/json': { schema: {
+                  type: 'object',
+                  properties: {
+                    slug:      { type: 'string' },
+                    site_name: { type: 'string' },
+                    venues: {
+                      type: 'array',
+                      items: { type: 'object', properties: {
+                        id:         { type: 'string', description: 'venueId — use this in all other endpoints' },
+                        name:       { type: 'string' },
+                        timezone:   { type: 'string', description: 'IANA timezone, e.g. Europe/London' },
+                        currency:   { type: 'string' },
+                        min_covers: { type: 'integer', description: 'Minimum party size accepted' },
+                        max_covers: { type: 'integer', description: 'Maximum party size accepted' },
+                      }},
+                    },
+                  },
+                }}},
+              },
+              404: { description: 'No venue found for this slug' },
+            },
+          },
+        },
+        '/venues/{venueId}/schedule-summary': {
+          get: {
+            operationId: 'getScheduleSummary',
+            summary: 'Get open days of the week',
+            description:
+              'Returns which days of the week the venue is open and how many days ahead bookings are allowed. ' +
+              'Use this to rule out closed days before loading individual slot lists.',
+            parameters: [
+              { name: 'venueId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+            ],
+            responses: {
+              200: {
+                description: 'Schedule summary',
+                content: { 'application/json': { schema: {
+                  type: 'object',
+                  properties: {
+                    openDaysOfWeek:    { type: 'array', items: { type: 'integer' }, description: '0=Sunday … 6=Saturday' },
+                    bookingWindowDays: { type: 'integer', description: 'How many days ahead bookings can be made' },
+                  },
+                }}},
+              },
+            },
+          },
+        },
+        '/venues/{venueId}/slots': {
+          get: {
+            operationId: 'getAvailableSlots',
+            summary: 'List available time slots for a date and party size',
+            description:
+              'Returns bookable time slots for the given date and number of guests. ' +
+              'Only returns slots where a real table is physically free — no ghost availability. ' +
+              'Use the returned slot_time values as the "time" field in /book.',
+            parameters: [
+              { name: 'venueId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+              { name: 'date',   in: 'query', required: true,  description: 'YYYY-MM-DD in venue local time', schema: { type: 'string', example: '2026-06-01' } },
+              { name: 'covers', in: 'query', required: true,  description: 'Number of guests',              schema: { type: 'integer', minimum: 1, maximum: 50 } },
+            ],
+            responses: {
+              200: {
+                description: 'Available slots',
+                content: { 'application/json': { schema: {
+                  type: 'array',
+                  items: { type: 'object', properties: {
+                    slot_time:       { type: 'string', description: 'HH:MM in venue local time — pass as "time" to /book' },
+                    available:       { type: 'boolean' },
+                    available_covers: { type: 'integer', nullable: true },
+                  }},
+                }}},
+              },
+            },
+          },
+        },
+        '/venues/{venueId}/book': {
+          post: {
+            operationId: 'makeBooking',
+            summary: 'Make a table reservation in one step',
+            description:
+              'Creates a confirmed booking and automatically assigns the best available table for the party size. ' +
+              'Always confirm the booking details (date, time, covers, name) with the guest before calling this endpoint. ' +
+              'Returns a short reference code and a manage URL the guest can use to modify or cancel.',
+            parameters: [
+              { name: 'venueId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+            ],
+            requestBody: {
+              required: true,
+              content: { 'application/json': { schema: {
+                type: 'object',
+                required: ['date', 'time', 'covers', 'guest_name'],
+                properties: {
+                  date:        { type: 'string', description: 'YYYY-MM-DD', example: '2026-06-01' },
+                  time:        { type: 'string', description: 'HH:MM in venue local time — use slot_time from /slots', example: '19:00' },
+                  covers:      { type: 'integer', description: 'Number of guests', minimum: 1 },
+                  guest_name:  { type: 'string', description: 'Full name of the lead guest' },
+                  guest_email: { type: 'string', format: 'email', description: 'Email for confirmation (strongly recommended)', nullable: true },
+                  guest_phone: { type: 'string', description: 'Phone number (optional)', nullable: true },
+                  notes:       { type: 'string', description: 'Special requests, dietary needs, occasion (optional)', nullable: true },
+                },
+              }}},
+            },
+            responses: {
+              201: {
+                description: 'Booking confirmed',
+                content: { 'application/json': { schema: {
+                  type: 'object',
+                  properties: {
+                    booking_id: { type: 'string' },
+                    reference:  { type: 'string', description: 'Short reference code, e.g. A1B2C3D4' },
+                    status:     { type: 'string', enum: ['confirmed', 'unconfirmed'] },
+                    venue:      { type: 'string' },
+                    table:      { type: 'string' },
+                    date:       { type: 'string' },
+                    time:       { type: 'string' },
+                    covers:     { type: 'integer' },
+                    guest_name: { type: 'string' },
+                    guest_email:{ type: 'string', nullable: true },
+                    manage_url: { type: 'string', description: 'Guest uses this to view, modify or cancel' },
+                    message:    { type: 'string', description: 'Human-readable confirmation to relay to the guest' },
+                  },
+                }}},
+              },
+              409: { description: 'No tables available for this time — ask the guest to choose a different slot' },
+              422: { description: 'Validation error, booking cutoff passed, or deposit required' },
+            },
+          },
+        },
+      },
+    }
+  })
+
+  // ── GET /venues/lookup?slug= ────────────────────────────
+  // Cross-tenant lookup — uses sql directly (no withTenant) so it can
+  // see all tenant sites. Same pattern as resolveTenant().
+  app.get('/venues/lookup', async (req) => {
+    const slug = String(req.query.slug || '').toLowerCase().trim()
+    if (!slug) throw httpError(400, 'slug query parameter is required')
+
+    const rows = await sql`
+      SELECT v.id, v.name, v.timezone, v.currency,
+             COALESCE(ts.site_name, t.slug) AS site_name,
+             br.min_covers, br.max_covers
+        FROM tenant_site ts
+        JOIN tenants     t  ON t.id  = ts.tenant_id  AND t.is_active = true
+        JOIN venues      v  ON v.tenant_id = t.id    AND v.is_active = true
+        LEFT JOIN booking_rules br ON br.venue_id = v.id
+       WHERE ts.subdomain_slug = ${slug}
+       ORDER BY v.name
+    `
+    if (!rows.length) throw httpError(404, 'No venue found for slug "' + slug + '"')
+
+    return {
+      slug,
+      site_name: rows[0].site_name,
+      venues: rows.map(v => ({
+        id:         v.id,
+        name:       v.name,
+        timezone:   v.timezone,
+        currency:   v.currency,
+        min_covers: v.min_covers ?? 1,
+        max_covers: v.max_covers ?? 8,
+      })),
+    }
+  })
 
   // ── GET /venues/:venueId ────────────────────────────────
   app.get('/venues/:venueId', async (req) => {
@@ -219,6 +436,138 @@ export default async function widgetApiRoutes(app) {
       }
 
       return available
+    })
+  })
+
+  // ── POST /venues/:venueId/book ─────────────────────────
+  // One-shot booking for AI agents. Skips the hold → confirm two-step
+  // flow. Atomically assigns a table and creates the booking in a
+  // single transaction. Always confirm details with the guest before
+  // calling this endpoint.
+  app.post('/venues/:venueId/book', async (req, reply) => {
+    const venue = await resolveTenant(req.params.venueId)
+    if (!venue) throw httpError(404, 'Venue not found')
+    const body = BookBody.parse(req.body)
+
+    const { booking: bk, table: tableRow } = await withTenant(venue.tenant_id, async tx => {
+      const [rules] = await tx`
+        SELECT slot_duration_mins, min_covers, max_covers,
+               cutoff_before_mins, enable_unconfirmed_flow
+          FROM booking_rules
+         WHERE venue_id = ${venue.id}
+      `
+      if (!rules) throw httpError(404, 'Venue booking rules not configured')
+      if (body.covers < rules.min_covers || body.covers > rules.max_covers) {
+        throw httpError(422, 'Covers must be between ' + rules.min_covers + ' and ' + rules.max_covers)
+      }
+
+      const [deposit] = await tx`SELECT requires_deposit FROM deposit_rules WHERE venue_id = ${venue.id}`
+      if (deposit?.requires_deposit) {
+        throw httpError(422, 'This venue requires a deposit — online payment not available through this channel')
+      }
+
+      // Convert venue-local date+time to a UTC timestamp via PostgreSQL so
+      // the server's local timezone is irrelevant.
+      const localStr = body.date + ' ' + body.time + ':00'
+      const [{ ts: startsAt }] = await tx`
+        SELECT (${localStr}::timestamp AT TIME ZONE ${venue.timezone}) AS ts
+      `
+      const endsAt = new Date(startsAt.getTime() + rules.slot_duration_mins * 60_000)
+
+      const cutoffMs = rules.cutoff_before_mins * 60_000
+      if (Date.now() > startsAt.getTime() - cutoffMs) {
+        throw httpError(422, 'Booking cutoff has passed for this slot')
+      }
+
+      // Best-fit free table — identical logic to the holds auto-allocator.
+      const [autoTable] = await tx`
+        SELECT t.id, t.label, t.max_covers
+          FROM tables t
+         WHERE t.venue_id       = ${venue.id}
+           AND t.is_active      = true
+           AND t.is_unallocated = false
+           AND t.min_covers    <= ${body.covers}
+           AND t.max_covers    >= ${body.covers}
+           AND NOT EXISTS (
+             SELECT 1 FROM bookings b
+              WHERE b.table_id  = t.id
+                AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                AND b.starts_at  < ${endsAt.toISOString()}
+                AND b.ends_at    > ${startsAt.toISOString()}
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM booking_holds bh
+              WHERE bh.table_id  = t.id
+                AND bh.expires_at > now()
+                AND bh.starts_at  < ${endsAt.toISOString()}
+                AND bh.ends_at    > ${startsAt.toISOString()}
+           )
+         ORDER BY t.sort_order, t.max_covers
+         LIMIT 1
+      `
+      if (!autoTable) {
+        throw httpError(409, 'No tables available for this time — please suggest an alternative slot to the guest')
+      }
+
+      const initialStatus = rules.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+
+      const [booking] = await tx`
+        INSERT INTO bookings
+          (venue_id, table_id, tenant_id, starts_at, ends_at, covers,
+           guest_name, guest_email, guest_phone, guest_notes, status)
+        VALUES
+          (${venue.id}, ${autoTable.id}, ${venue.tenant_id},
+           ${startsAt.toISOString()}, ${endsAt.toISOString()}, ${body.covers},
+           ${body.guest_name}, ${body.guest_email ?? null}, ${body.guest_phone ?? null},
+           ${body.notes ?? null}, ${initialStatus}::booking_status)
+        RETURNING *
+      `
+      return { booking, table: autoTable }
+    })
+
+    const reference = bk.id.slice(0, 8).toUpperCase()
+    const manageUrl = 'https://' + (req.headers.host || env.PUBLIC_ROOT_DOMAIN) +
+                      '/manage/' + bk.manage_token
+
+    // Customer upsert + confirmation email (fire-and-forget)
+    withTenant(venue.tenant_id, async tx => {
+      const customerId = await upsertCustomer(tx, venue.tenant_id, {
+        name:  bk.guest_name,
+        email: bk.guest_email,
+        phone: bk.guest_phone,
+      })
+      if (customerId) {
+        await tx`UPDATE bookings SET customer_id = ${customerId} WHERE id = ${bk.id}`
+      }
+    }).catch(() => {})
+
+    notificationQueue.add('booking_email', {
+      bookingId: bk.id, tenantId: venue.tenant_id,
+      venueId:   bk.venue_id, type: 'confirmation',
+    }).catch(() => {})
+
+    broadcastBooking('booking.created', bk)
+
+    const dateLabel = new Intl.DateTimeFormat('en-GB', {
+      timeZone: venue.timezone, dateStyle: 'full', timeStyle: 'short',
+    }).format(new Date(bk.starts_at))
+
+    return reply.code(201).send({
+      booking_id:  bk.id,
+      reference,
+      status:      bk.status,
+      venue:       venue.name,
+      table:       tableRow.label,
+      date:        body.date,
+      time:        body.time,
+      covers:      bk.covers,
+      guest_name:  bk.guest_name,
+      guest_email: bk.guest_email,
+      manage_url:  manageUrl,
+      message:     'Booking confirmed! ' + bk.guest_name + ', your table is reserved for ' +
+                   body.covers + ' at ' + venue.name + ' on ' + dateLabel +
+                   '. Reference: ' + reference +
+                   '. The guest can view or modify at: ' + manageUrl,
     })
   })
 
