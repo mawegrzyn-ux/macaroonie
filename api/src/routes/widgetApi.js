@@ -146,6 +146,10 @@ export default async function widgetApiRoutes(app) {
   })
 
   // ── GET /venues/:venueId/slots ──────────────────────────
+  // Only returns slots where a real, bookable table is free for the
+  // requested party size. A slot that is "available" in the aggregate
+  // sitting cap but has no free table for the party is excluded so
+  // guests never reach a booking that can't be confirmed.
   app.get('/venues/:venueId/slots', async (req) => {
     const venue = await resolveTenant(req.params.venueId)
     if (!venue) throw httpError(404, 'Venue not found')
@@ -154,14 +158,6 @@ export default async function widgetApiRoutes(app) {
     const covers = Math.max(1, Math.min(50, Number(req.query.covers) || 2))
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw httpError(400, 'Invalid date — expected YYYY-MM-DD')
 
-    const slots = await withTenant(venue.tenant_id, tx => tx`
-      SELECT * FROM get_available_slots(${req.params.venueId}::uuid, ${date}::date, ${covers}::int)
-    `)
-    /* Migration 020 changed slot_result.slot_time from `time` to
-       `timestamptz`, so postgres.js deserialises it to a Date — calling
-       `.slice()` on it threw `s.slot_time.slice is not a function`.
-       Convert it to the venue's local HH:MM string here so the widget
-       (which builds `${date}T${slot_time}:00`) keeps working unchanged. */
     const fmt = new Intl.DateTimeFormat('en-GB', {
       timeZone: venue.timezone || 'UTC',
       hour: '2-digit', minute: '2-digit', hour12: false,
@@ -170,13 +166,60 @@ export default async function widgetApiRoutes(app) {
       if (!v) return null
       const d = v instanceof Date ? v : new Date(v)
       if (Number.isNaN(d.getTime())) return null
-      // Intl returns "HH:MM" with the en-GB locale + 24-hour clock.
       return fmt.format(d)
     }
-    return slots.map(s => ({
-      ...s,
-      slot_time: toLocalHHMM(s.slot_time),
-    })).filter(s => s.reason !== 'unavailable' && s.slot_time)
+
+    return withTenant(venue.tenant_id, async tx => {
+      const [rules] = await tx`
+        SELECT slot_duration_mins FROM booking_rules WHERE venue_id = ${venue.id} LIMIT 1
+      `
+      const durationMins = rules?.slot_duration_mins ?? 90
+
+      const rawSlots = await tx`
+        SELECT * FROM get_available_slots(${req.params.venueId}::uuid, ${date}::date, ${covers}::int)
+      `
+
+      // Only carry forward slots the sitting cap considers available.
+      const candidates = rawSlots.filter(s => s.reason === 'available' && s.slot_time)
+
+      // For each candidate, verify that a real table (min_covers ≤ party ≤
+      // max_covers, not unallocated) is actually free for the booking window.
+      // Runs inside the same transaction for a consistent snapshot.
+      const available = []
+      for (const slot of candidates) {
+        const slotStart = slot.slot_time   // Date from postgres.js
+        const slotEnd   = new Date(slotStart.getTime() + durationMins * 60_000)
+        const [{ has_free_table }] = await tx`
+          SELECT EXISTS (
+            SELECT 1 FROM tables t
+            WHERE t.venue_id       = ${venue.id}
+              AND t.is_active      = true
+              AND t.is_unallocated = false
+              AND t.min_covers    <= ${covers}
+              AND t.max_covers    >= ${covers}
+              AND NOT EXISTS (
+                SELECT 1 FROM bookings b
+                WHERE b.table_id  = t.id
+                  AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                  AND b.starts_at  < ${slotEnd.toISOString()}
+                  AND b.ends_at    > ${slotStart.toISOString()}
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM booking_holds bh
+                WHERE bh.table_id  = t.id
+                  AND bh.expires_at > now()
+                  AND bh.starts_at  < ${slotEnd.toISOString()}
+                  AND bh.ends_at    > ${slotStart.toISOString()}
+              )
+          ) AS has_free_table
+        `
+        if (has_free_table) {
+          available.push({ ...slot, slot_time: toLocalHHMM(slotStart) })
+        }
+      }
+
+      return available
+    })
   })
 
   // ── POST /venues/:venueId/holds ─────────────────────────
@@ -219,20 +262,19 @@ export default async function widgetApiRoutes(app) {
         tableId = firstMember.table_id
       }
 
-      // Widget doesn't pre-select a table — auto-allocate the best-fit
-      // available table for this time window. Prefer the smallest table
-      // that fits the party (min_covers ≤ covers ≤ max_covers), ordered
-      // by sort_order. Falls back to null (→ unallocated at confirm time)
-      // if no suitable table is free.
+      // Auto-allocate: find the best-fit free table (smallest that fits the
+      // party). Fail fast if none available — slot filtering in GET /slots
+      // should have prevented this, but guards against the race window
+      // between a guest viewing slots and creating a hold.
       if (!tableId) {
         const [autoTable] = await tx`
           SELECT t.id
             FROM tables t
-           WHERE t.venue_id      = ${venue.id}
-             AND t.is_active     = true
+           WHERE t.venue_id       = ${venue.id}
+             AND t.is_active      = true
              AND t.is_unallocated = false
-             AND t.min_covers   <= ${body.covers}
-             AND t.max_covers   >= ${body.covers}
+             AND t.min_covers    <= ${body.covers}
+             AND t.max_covers    >= ${body.covers}
              AND NOT EXISTS (
                SELECT 1 FROM bookings b
                 WHERE b.table_id  = t.id
@@ -250,7 +292,8 @@ export default async function widgetApiRoutes(app) {
            ORDER BY t.sort_order, t.max_covers
            LIMIT 1
         `
-        if (autoTable) tableId = autoTable.id
+        if (!autoTable) throw httpError(409, 'No tables available for this time — please choose another slot')
+        tableId = autoTable.id
       }
 
       const [newHold] = await tx`
@@ -316,32 +359,16 @@ export default async function widgetApiRoutes(app) {
       const [bookingRules] = await tx`SELECT enable_unconfirmed_flow FROM booking_rules WHERE venue_id = ${h.venue_id}`
       const initialStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
 
-      // Widget holds have no table assigned (slot resolver is venue-level).
-      // Assign to the unallocated row so the booking appears on the timeline;
-      // operators can relocate it from the booking drawer.
-      let tableId = h.table_id
-      if (!tableId) {
-        const [existing] = await tx`
-          SELECT id FROM tables WHERE venue_id = ${venue.id} AND is_unallocated = true LIMIT 1
-        `
-        if (existing) {
-          tableId = existing.id
-        } else {
-          const [created] = await tx`
-            INSERT INTO tables (venue_id, tenant_id, label, min_covers, max_covers, is_active, is_unallocated, sort_order)
-            VALUES (${venue.id}, ${venue.tenant_id}, 'Unallocated', 1, 9999, true, true, -999)
-            RETURNING id
-          `
-          tableId = created.id
-        }
-      }
+      // Hold always has a table assigned (set at hold-creation time).
+      // Guard against stale null-table holds from before this fix.
+      if (!h.table_id) throw httpError(409, 'This hold has no table — please start a new booking')
 
       const [bk] = await tx`
         INSERT INTO bookings
           (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
            guest_name, guest_email, guest_phone, guest_notes, status)
         VALUES
-          (${h.venue_id}, ${tableId}, ${h.combination_id ?? null}, ${venue.tenant_id},
+          (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${venue.tenant_id},
            ${h.starts_at}, ${h.ends_at}, ${body.covers ?? h.covers},
            ${body.guest_name ?? h.guest_name},
            ${body.guest_email || h.guest_email || null},
