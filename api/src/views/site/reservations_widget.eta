@@ -632,11 +632,13 @@ const _accentEffective = _btnBg || it.accent
         api('/venues/' + state.venue.id + '/holds', {
           method: 'POST',
           body: JSON.stringify({
-            starts_at:   startsAt,
-            covers:      state.covers,
-            guest_name:  state.details.name,
-            guest_email: state.details.email || null,
-            guest_phone: state.details.phone || null,
+            starts_at:      startsAt,
+            covers:         state.covers,
+            guest_name:     state.details.name,
+            guest_email:    state.details.email || null,
+            guest_phone:    state.details.phone || null,
+            table_id:       state.slot.table_id       || null,
+            combination_id: state.slot.combination_id || null,
           }),
         })
         .then(function(hold){
