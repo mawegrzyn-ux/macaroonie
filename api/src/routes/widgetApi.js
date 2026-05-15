@@ -282,12 +282,32 @@ export default async function widgetApiRoutes(app) {
       const [bookingRules] = await tx`SELECT enable_unconfirmed_flow FROM booking_rules WHERE venue_id = ${h.venue_id}`
       const initialStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
 
+      // Widget holds have no table assigned (slot resolver is venue-level).
+      // Assign to the unallocated row so the booking appears on the timeline;
+      // operators can relocate it from the booking drawer.
+      let tableId = h.table_id
+      if (!tableId) {
+        const [existing] = await tx`
+          SELECT id FROM tables WHERE venue_id = ${venue.id} AND is_unallocated = true LIMIT 1
+        `
+        if (existing) {
+          tableId = existing.id
+        } else {
+          const [created] = await tx`
+            INSERT INTO tables (venue_id, tenant_id, label, min_covers, max_covers, is_active, is_unallocated, sort_order)
+            VALUES (${venue.id}, ${venue.tenant_id}, 'Unallocated', 1, 9999, true, true, -999)
+            RETURNING id
+          `
+          tableId = created.id
+        }
+      }
+
       const [bk] = await tx`
         INSERT INTO bookings
           (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
            guest_name, guest_email, guest_phone, guest_notes, status)
         VALUES
-          (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${venue.tenant_id},
+          (${h.venue_id}, ${tableId}, ${h.combination_id ?? null}, ${venue.tenant_id},
            ${h.starts_at}, ${h.ends_at}, ${body.covers ?? h.covers},
            ${body.guest_name ?? h.guest_name},
            ${body.guest_email || h.guest_email || null},
