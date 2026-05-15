@@ -289,8 +289,12 @@ export default async function menusRoutes(app) {
     })
   })
 
-  // Authenticated admin endpoints from here on.
-  app.addHook('preHandler', requireAuth)
+  // ── Authenticated admin routes — scoped so addHook doesn't ──
+  // reach the public routes above. Fastify's addHook applies to
+  // every route in the same encapsulation scope regardless of
+  // registration order, so the public routes must live outside.
+  await app.register(async function adminMenuRoutes(app) {
+    app.addHook('preHandler', requireAuth)
 
   // ════════════════════════════════════════════════════════════
   //   MENUS — list / get / create / patch / delete
@@ -439,4 +443,6 @@ export default async function menusRoutes(app) {
 
     return reply.code(201).send(created)
   })
+
+  }) // end adminMenuRoutes
 }
