@@ -1328,7 +1328,7 @@ export function ReservationsWidgetEditor({ data, onChange, config }) {
         <FormRow label="“Larger party” text"
           hint={`Shown under the covers row. Blank = ${ws.large_party_text ? '"' + ws.large_party_text + '"' : 'default copy'}. Set to a single space to hide it.`}>
           <Area value={data.large_party_text} onChange={set('large_party_text')} rows={2}
-            placeholder={ws.large_party_text || 'Larger party? Call us — we’ll arrange combined tables.'} />
+            placeholder={ws.large_party_text || "Larger party? Call us — we’ll arrange combined tables."} />
         </FormRow>
       </div>
 
