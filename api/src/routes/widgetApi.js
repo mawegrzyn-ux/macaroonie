@@ -109,6 +109,7 @@ async function tryWidgetDisplace(tx, venueId, covers, startsAt, windowEnd) {
 
 // Try to displace all conflicts on a specific combination.
 // Returns { tableId, combinationId, displacedIds } or null.
+// Destinations tried in order: free individual table, then free combination.
 async function tryDisplaceCombo(tx, venueId, combinationId, startsAt, windowEnd) {
   const members = await tx`
     SELECT m.table_id FROM table_combination_members m
@@ -131,13 +132,17 @@ async function tryDisplaceCombo(tx, venueId, combinationId, startsAt, windowEnd)
   `
   if (!conflicts.length) return null
 
-  // Greedy allocation: claim tables one conflict at a time.
+  // Greedy allocation: claim tables/combos one conflict at a time.
   // claimedTableIds starts with the combo's own members (those need to be freed).
   const claimedTableIds = new Set(memberIds)
   const displacements   = []
 
   for (const conflict of conflicts) {
     const claimedArr = [...claimedTableIds]
+    const cStart = new Date(conflict.starts_at).toISOString()
+    const cEnd   = new Date(conflict.ends_at).toISOString()
+
+    // 1. Try a free individual table first (cheapest option).
     const [freeTable] = await tx`
       SELECT t.id FROM tables t
        WHERE t.venue_id       = ${venueId}
@@ -150,37 +155,98 @@ async function tryDisplaceCombo(tx, venueId, combinationId, startsAt, windowEnd)
            SELECT 1 FROM bookings b2
             WHERE b2.table_id = t.id
               AND b2.status NOT IN ('cancelled', 'no_show', 'checked_out')
-              AND b2.starts_at < ${new Date(conflict.ends_at).toISOString()}
-              AND b2.ends_at   > ${new Date(conflict.starts_at).toISOString()}
+              AND b2.starts_at < ${cEnd}
+              AND b2.ends_at   > ${cStart}
          )
          AND NOT EXISTS (
            SELECT 1 FROM booking_holds bh
             WHERE bh.table_id = t.id
               AND bh.expires_at > now()
-              AND bh.starts_at  < ${new Date(conflict.ends_at).toISOString()}
-              AND bh.ends_at    > ${new Date(conflict.starts_at).toISOString()}
+              AND bh.starts_at  < ${cEnd}
+              AND bh.ends_at    > ${cStart}
          )
        ORDER BY t.max_covers ASC
        LIMIT 1
     `
-    if (!freeTable) return null  // This conflict can't be displaced — try next combo
-    claimedTableIds.add(freeTable.id)
-    displacements.push({ bookingId: conflict.id, newTableId: freeTable.id })
+    if (freeTable) {
+      claimedTableIds.add(freeTable.id)
+      displacements.push({ bookingId: conflict.id, newTableId: freeTable.id, newComboId: null })
+      continue
+    }
+
+    // 2. No individual table — try a free existing combination as destination.
+    const memberIdsArr = Array.from(memberIds)
+    const [freeCombo] = await tx`
+      SELECT c.id,
+             (SELECT m2.table_id FROM table_combination_members m2
+                JOIN tables t2 ON t2.id = m2.table_id
+               WHERE m2.combination_id = c.id
+               ORDER BY t2.sort_order, t2.label LIMIT 1) AS first_table_id
+        FROM table_combinations c
+       WHERE c.venue_id   = ${venueId}
+         AND c.is_active  = true
+         AND c.min_covers <= ${conflict.covers}
+         AND c.max_covers >= ${conflict.covers}
+         -- Must not share any tables with the combination we are freeing
+         AND NOT EXISTS (
+           SELECT 1 FROM table_combination_members mcx
+            WHERE mcx.combination_id = c.id
+              AND mcx.table_id = ANY(${memberIdsArr}::uuid[])
+         )
+         -- All member tables of the destination combo must be free (not claimed,
+         -- not booked/held) during the conflict booking's own time window.
+         AND NOT EXISTS (
+           SELECT 1 FROM table_combination_members mc2
+            JOIN tables mt2 ON mt2.id = mc2.table_id
+           WHERE mc2.combination_id = c.id
+             AND (
+               NOT mt2.is_active
+               OR mt2.id = ANY(${claimedArr}::uuid[])
+               OR EXISTS (
+                 SELECT 1 FROM bookings b2
+                  WHERE b2.table_id = mt2.id
+                    AND b2.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                    AND b2.starts_at < ${cEnd}
+                    AND b2.ends_at   > ${cStart}
+               )
+               OR EXISTS (
+                 SELECT 1 FROM booking_holds bh2
+                  WHERE bh2.table_id = mt2.id
+                    AND bh2.expires_at > now()
+                    AND bh2.starts_at  < ${cEnd}
+                    AND bh2.ends_at    > ${cStart}
+               )
+             )
+         )
+       ORDER BY c.max_covers
+       LIMIT 1
+    `
+    if (!freeCombo) return null  // This conflict has nowhere to go — give up
+
+    // Claim all member tables of the destination combo so no subsequent
+    // conflict in this loop can also target them.
+    const comboMembers = await tx`
+      SELECT table_id FROM table_combination_members WHERE combination_id = ${freeCombo.id}
+    `
+    for (const m of comboMembers) claimedTableIds.add(m.table_id)
+    displacements.push({ bookingId: conflict.id, newTableId: freeCombo.first_table_id, newComboId: freeCombo.id })
   }
 
-  // All conflicts can be displaced — do it
-  for (const { bookingId, newTableId } of displacements) {
+  // All conflicts can be displaced — apply
+  for (const { bookingId, newTableId, newComboId } of displacements) {
     await tx`
       UPDATE bookings
-         SET table_id = ${newTableId}, combination_id = NULL, updated_at = now()
+         SET table_id       = ${newTableId},
+             combination_id = ${newComboId ?? null},
+             updated_at     = now()
        WHERE id = ${bookingId}
     `
   }
 
   return {
-    tableId:       members[0].table_id,
+    tableId:      members[0].table_id,
     combinationId,
-    displacedIds:  displacements.map(d => d.bookingId),
+    displacedIds: displacements.map(d => d.bookingId),
   }
 }
 
@@ -621,7 +687,7 @@ export default async function widgetApiRoutes(app) {
              LIMIT 1
           ) AS combination_id,
           -- Displacement candidate: a combination where every conflict can be moved
-          -- to a free individual table (not one of the combo's own members).
+          -- to either a free individual table OR a free existing combination.
           -- Only combinations with no locked/arrived/seated conflicts qualify.
           (
             SELECT c.id
@@ -647,6 +713,8 @@ export default async function widgetApiRoutes(app) {
                    AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
                    AND b.ends_at   > s.slot_time
                )
+               -- Every displaceable conflict must have EITHER a free individual table
+               -- OR a free existing combination it can move into.
                AND NOT EXISTS (
                  SELECT 1
                    FROM table_combination_members mc
@@ -657,6 +725,7 @@ export default async function widgetApiRoutes(app) {
                     AND bc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
                     AND bc.ends_at   > s.slot_time
                     AND NOT EXISTS (
+                      -- Free individual table for this conflict
                       SELECT 1 FROM tables t
                        WHERE t.venue_id       = ${venue.id}
                          AND t.is_active      = true
@@ -680,6 +749,44 @@ export default async function widgetApiRoutes(app) {
                               AND bh2.expires_at > now()
                               AND bh2.starts_at  < bc.ends_at
                               AND bh2.ends_at    > bc.starts_at
+                         )
+                    )
+                    AND NOT EXISTS (
+                      -- Free existing combination for this conflict
+                      SELECT 1 FROM table_combinations c2
+                       WHERE c2.venue_id   = ${venue.id}
+                         AND c2.is_active  = true
+                         AND c2.min_covers <= bc.covers
+                         AND c2.max_covers >= bc.covers
+                         AND NOT EXISTS (
+                           SELECT 1 FROM table_combination_members mcx2
+                            WHERE mcx2.combination_id = c2.id
+                              AND mcx2.table_id IN (
+                                SELECT table_id FROM table_combination_members
+                                 WHERE combination_id = c.id
+                              )
+                         )
+                         AND NOT EXISTS (
+                           SELECT 1 FROM table_combination_members mc3
+                            JOIN tables mt3 ON mt3.id = mc3.table_id
+                           WHERE mc3.combination_id = c2.id
+                             AND (
+                               NOT mt3.is_active
+                               OR EXISTS (
+                                 SELECT 1 FROM bookings b3
+                                  WHERE b3.table_id = mt3.id
+                                    AND b3.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                                    AND b3.starts_at < bc.ends_at
+                                    AND b3.ends_at   > bc.starts_at
+                               )
+                               OR EXISTS (
+                                 SELECT 1 FROM booking_holds bh3
+                                  WHERE bh3.table_id = mt3.id
+                                    AND bh3.expires_at > now()
+                                    AND bh3.starts_at  < bc.ends_at
+                                    AND bh3.ends_at    > bc.starts_at
+                               )
+                             )
                          )
                     )
                )
