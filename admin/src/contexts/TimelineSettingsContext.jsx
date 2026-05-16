@@ -30,9 +30,10 @@ function loadPrefs() {
       wideColumns:     s?.wideColumns     ?? false,
       timelineStart:   s?.timelineStart   ?? 9,
       timelineEnd:     s?.timelineEnd     ?? 24,
+      manualMode:      s?.manualMode      ?? false,
     }
   } catch {
-    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm', selectedDate: todayStr(), wideColumns: false, timelineStart: 9, timelineEnd: 24 }
+    return { hideInactive: false, groupBySections: true, panelMode: true, tileMode: 'compact', compactFontSize: 'sm', selectedDate: todayStr(), wideColumns: false, timelineStart: 9, timelineEnd: 24, manualMode: false }
   }
 }
 
@@ -52,6 +53,7 @@ export function TimelineSettingsProvider({ children }) {
   const [wideColumns,      setWideColumns]      = useState(prefs.wideColumns)
   const [timelineStart,    setTimelineStart]    = useState(prefs.timelineStart)
   const [timelineEnd,      setTimelineEnd]      = useState(prefs.timelineEnd)
+  const [manualMode,       setManualMode]       = useState(prefs.manualMode)
   // Counter that Timeline watches to trigger a manual refetch
   const [refetchTrigger,   setRefetchTrigger]   = useState(0)
 
@@ -59,8 +61,8 @@ export function TimelineSettingsProvider({ children }) {
 
   // Persist view prefs whenever they change
   useEffect(() => {
-    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns, timelineStart, timelineEnd })
-  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns, timelineStart, timelineEnd])
+    savePrefs({ hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns, timelineStart, timelineEnd, manualMode })
+  }, [hideInactive, groupBySections, panelMode, tileMode, compactFontSize, selectedDate, wideColumns, timelineStart, timelineEnd, manualMode])
 
   return (
     <TimelineSettingsCtx.Provider value={{
@@ -74,6 +76,7 @@ export function TimelineSettingsProvider({ children }) {
       wideColumns,      setWideColumns,
       timelineStart,    setTimelineStart,
       timelineEnd,      setTimelineEnd,
+      manualMode,       setManualMode,
       refetchTrigger,   triggerRefetch,
     }}>
       {children}

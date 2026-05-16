@@ -880,20 +880,23 @@ export default async function bookingsRoutes(app) {
   //   1. Try single table if target alone fits covers
   //   2. Try smallest combination that contains target table and fits covers
   //   3. Fall back to physically-adjacent tables (expand outward by sort_order)
-  //   4. For any bookings that conflict with the new allocation:
-  //      a. Try to move each conflicted booking to a free single table
-  //      b. Try to move each conflicted booking to a fully-free existing combination
+  //   4. Verify a pre-configured combination exists (never auto-create)
+  //   5. If manual_mode: skip conflict resolution, move directly (overlaps allowed)
+  //   6. Otherwise find conflicts; for each:
+  //      a. Try to move to a free single table
+  //      b. Try to move to a fully-free existing combination
   //      c. Chain-displacement: try a combination whose occupants can each move to a
   //         free individual table (one extra cascade level, e.g. T8+T9 where T8 has
   //         a 2-person that can go to T11 once the primary frees it)
   //      d. If nothing works → assign to venue's Unallocated table (auto-created)
-  //   5. Execute all moves atomically; broadcast every change
+  //   7. Execute all moves atomically; broadcast every change
   //
   // Returns: { moved: Booking, displaced: Booking[] }
   app.patch('/:id/relocate', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
     const body = z.object({
       target_table_id: z.string().uuid(),
       starts_at:       z.string().datetime().optional(),
+      manual_mode:     z.boolean().optional(),
     }).parse(req.body)
 
     const result = await withTenant(req.tenantId, async tx => {
@@ -1094,7 +1097,23 @@ export default async function bookingsRoutes(app) {
         canonicalTableId = allocationTableIds[0]
       }
 
-      // ── 5. Find conflicts at the new time for all allocated tables ─
+      // ── 5. Manual mode: skip conflict resolution, move directly ─
+      if (body.manual_mode) {
+        const [moved] = await tx`
+          UPDATE bookings
+             SET table_id       = ${canonicalTableId},
+                 combination_id = ${allocationComboId},
+                 starts_at      = ${newStart.toISOString()},
+                 ends_at        = ${newEnd.toISOString()},
+                 updated_at     = now()
+           WHERE id        = ${req.params.id}
+             AND tenant_id = ${req.tenantId}
+          RETURNING *
+        `
+        return { moved, displaced: [] }
+      }
+
+      // ── 6. Find conflicts at the new time for all allocated tables ─
       const conflicts = await tx`
         SELECT b.id, b.table_id, b.combination_id, b.covers,
                b.starts_at, b.ends_at, b.guest_name, b.table_locked
@@ -1114,14 +1133,14 @@ export default async function bookingsRoutes(app) {
                )
       `
 
-      // ── 5b. Reject immediately if any conflict has table_locked = true ──
+      // ── 6b. Reject immediately if any conflict has table_locked = true ──
       const locked = conflicts.find(c => c.table_locked)
       if (locked) {
         const name = locked.guest_name ? `"${locked.guest_name}"` : 'A booking'
         throw httpError(422, `${name} on the target table has table locking enabled — unlock it first before moving this booking.`)
       }
 
-      // ── 6. Resolve each conflict — free table, free combo, or unallocated ─
+      // ── 7. Resolve each conflict — free table, free combo, or unallocated ─
       // usedTableIds tracks all tables committed in this transaction so we
       // don't move two conflicts to the same table or overlapping combinations.
       const usedTableIds = new Set(allocationTableIds)
@@ -1329,7 +1348,7 @@ export default async function bookingsRoutes(app) {
         }
       }
 
-      // ── 7. Get or create Unallocated table if needed ─────────
+      // ── 8. Get or create Unallocated table if needed ─────────
       let unallocatedTableId = null
       if (resolutions.some(r => r.unallocated)) {
         const [existing] = await tx`
@@ -1355,7 +1374,7 @@ export default async function bookingsRoutes(app) {
         }
       }
 
-      // ── 8. Execute all moves ─────────────────────────────────
+      // ── 9. Execute all moves ─────────────────────────────────
       const displaced = []
       for (const { conflict, newTableId, comboId, unallocated } of resolutions) {
         let destTableId, destComboId

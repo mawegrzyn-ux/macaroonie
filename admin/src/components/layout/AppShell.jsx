@@ -9,7 +9,7 @@ import {
   LogOut, LayoutTemplate, Menu, X,
   BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
-  Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat,
+  Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -341,6 +341,19 @@ export default function AppShell() {
                     Detail
                   </button>
                   <button
+                    onClick={() => tlSettings.setManualMode(v => !v)}
+                    title={tlSettings.manualMode ? 'Manual mode on — drags move booking directly, overlaps allowed. Click to turn off.' : 'Manual mode off — smart cascade on drop. Click to enable direct control.'}
+                    className={cn(
+                      'flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation transition-colors',
+                      tlSettings.manualMode
+                        ? 'bg-amber-500 text-white border-amber-600'
+                        : 'text-muted-foreground border-border hover:bg-accent',
+                    )}
+                  >
+                    <Hand className="w-3 h-3" />
+                    Manual
+                  </button>
+                  <button
                     onClick={tlSettings.triggerRefetch}
                     title="Refresh timeline"
                     className="flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation text-muted-foreground border-border hover:bg-accent transition-colors"
@@ -400,6 +413,16 @@ export default function AppShell() {
                   )}
                 >
                   <LayoutList className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => tlSettings.setManualMode(v => !v)}
+                  title={tlSettings.manualMode ? 'Manual mode on' : 'Manual mode off'}
+                  className={cn(
+                    'p-2 rounded touch-manipulation transition-colors',
+                    tlSettings.manualMode ? 'text-white bg-amber-500' : 'text-muted-foreground hover:bg-accent',
+                  )}
+                >
+                  <Hand className="w-4 h-4" />
                 </button>
                 <button
                   onClick={tlSettings.triggerRefetch}
