@@ -216,6 +216,13 @@ export default function Help() {
               If non-adjacent tables are combined (e.g. T1+T2 and T4, with T3A between them in the list),
               separate tiles appear at each group's position.
             </P>
+            <InfoBox type="info">
+              Pre-configured combinations always take priority over the adjacency rule when you drag a
+              booking on the Timeline. Even if a combination's members are not neighbours in the sort
+              order (e.g. T1+T2+T3B with T3A sitting between T2 and T3B), the system will use the
+              combination as a relocation target. The "Allow non-adjacent tables" rule in Rules only
+              affects the engine's automatic expansion, not combinations you have explicitly created.
+            </InfoBox>
 
             <H3>Setting table order</H3>
             <P>
@@ -451,7 +458,7 @@ export default function Help() {
                 },
                 {
                   label: 'Allow combining non-adjacent tables',
-                  desc: 'Off by default. When off, the adjacency expansion only picks tables that are neighbours in your table sort order. Turn on to allow non-neighbouring tables to be combined — useful if you want the engine to skip a reserved table and take the next one.',
+                  desc: 'Off by default. Controls automatic adjacency expansion only — when the engine is building a multi-table group on the fly, it will not skip over other tables to reach a non-neighbouring one. This setting does NOT affect pre-configured combinations: a combination you have explicitly created in the Tables page is always eligible as a relocation target, regardless of whether its members are adjacent in the sort order. Turn this on if you also want the engine\'s automatic expansion to be able to skip neighbours.',
                 },
               ].map(({ label, desc }) => (
                 <div key={label} className="border rounded-lg p-3">
@@ -700,6 +707,33 @@ export default function Help() {
               Resolve unallocated bookings before the service starts. Guests with unallocated bookings
               have no table and will need to be seated manually.
             </InfoBox>
+
+            <H3>Manual Mode</H3>
+            <P>
+              The <strong>Manual</strong> button (hand icon, turns amber when on) in the timeline
+              sidebar switches off smart cascade displacement. In Manual Mode, dragging a booking
+              to a new table places it there directly — even if another booking is already in that
+              slot. No conflicts are moved, no Unallocated row is used.
+            </P>
+            <P>
+              Use Manual Mode when you want to rearrange tables yourself, create a deliberate
+              temporary overlap, or resolve a complex seating puzzle step by step. Overlapping
+              tiles still show the red stop-sign badge so you can see exactly what needs fixing.
+              Turn Manual Mode off when you're done to restore the smart cascade behaviour.
+            </P>
+            <InfoBox type="warn">
+              Manual Mode can create double-bookings on the same table. Always check for red
+              stop-sign badges before the service starts and resolve any overlaps.
+            </InfoBox>
+
+            <H3>Accessing a booking stacked beneath another</H3>
+            <P>
+              When two bookings overlap on the same table row, the top tile receives taps normally.
+              To open the booking drawer for the tile <em>beneath</em> it, press and hold the top
+              tile for <strong>5 seconds</strong> without moving your finger — the drawer for the
+              underlying booking opens instead. Moving more than a few pixels during the hold
+              cancels it and starts a normal drag.
+            </P>
 
             <H3>Hold to drag (mobile / touch screen)</H3>
             <P>
@@ -1386,6 +1420,21 @@ export default function Help() {
               description (the preview snippet under the title). Upload a social preview image
               (ideally 1200×630 — this is what appears when someone shares your URL on Facebook,
               WhatsApp, iMessage, LinkedIn etc.).
+            </P>
+            <P>
+              <strong>Restaurant details for search</strong> — fill in <em>Cuisine type</em>
+              (e.g. Thai, Italian, Japanese) and <em>Price range</em> ($–$$$$). These appear
+              directly in Google search results and are also read by AI assistants such as
+              ChatGPT, Perplexity, and Google Gemini when they summarise your restaurant. The
+              system embeds them as <Mono>schema.org/Restaurant</Mono> structured data (JSON-LD)
+              on every page of your site automatically.
+            </P>
+            <P>
+              Your site also serves an <Mono>llms.txt</Mono> file at{' '}
+              <Mono>{'https://{slug}.macaroonie.com/llms.txt'}</Mono> — a plain-text index
+              that AI crawlers read to discover your venues, addresses, opening hours, and booking
+              links without having to parse HTML. No action required on your part; it is generated
+              automatically from your published content.
             </P>
             <P>
               Analytics: paste your <strong>Google Analytics 4 measurement ID</strong> (starts
