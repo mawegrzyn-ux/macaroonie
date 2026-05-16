@@ -77,6 +77,16 @@ const widgetQs = (base) => {
   _pushParam     (params, 'lp',  d.large_party_text)
   if (d.debug_enabled === true)  params.push('debug=1')
   if (d.debug_enabled === false) params.push('debug=0')
+  if (d.confirmation_heading) params.push('confHead=' + encodeURIComponent(d.confirmation_heading))
+  if (d.confirmation_body_html) params.push('confBody=' + encodeURIComponent(d.confirmation_body_html))
+  if (d.confirmation_ctas && d.confirmation_ctas.length) {
+    const _ctasMapped = d.confirmation_ctas
+      .map(c => ({ label: c.label, url: c.url,
+        bg: resolveRoleHex(c.bg) ? '#' + resolveRoleHex(c.bg) : null,
+        fg: resolveRoleHex(c.fg) ? '#' + resolveRoleHex(c.fg) : null }))
+      .filter(c => c.label && c.url)
+    if (_ctasMapped.length) params.push('ctas=' + encodeURIComponent(JSON.stringify(_ctasMapped)))
+  }
   return base + '?' + params.join('&')
 }
 

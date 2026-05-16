@@ -94,8 +94,32 @@ const _calClosedBg   = _pickStr(_wc.calClosedBg,   _wd.cal_closed_bg,   null)
 const _calClosedFg   = _pickStr(_wc.calClosedFg,   _wd.cal_closed_fg,   null)
 const _calClosedBorder = _pickStr(_wc.calClosedBorder, _wd.cal_closed_border, null)
 const _largePartyTxt = _pickStr (_wc.largePartyText, _wd.large_party_text,
-  'Larger party? Call us — we’ll arrange combined tables.')
+  ‘Larger party? Call us — we’ll arrange combined tables.’)
 const _debugEnabled  = _pickBool(_wc.debugEnabled, _wd.debug_enabled,    false)
+
+/* ── Confirmation page ─────────────────────────────────────
+   heading:   plain text override for "You’re booked"
+   bodyHtml:  HTML with merge tags {{reference}} {{guest_name}} {{date}}
+              {{time}} {{covers}} {{venue_name}} {{email}}
+   ctas:      array of {label, url, bg, fg} — all colours already hex */
+const _confirmHeading  = _pickStr(_wc.confirmHeading,  _wd.confirmation_heading,  ‘’)
+const _confirmBodyHtml = _pickStr(_wc.confirmBodyHtml, _wd.confirmation_body_html, ‘’)
+/* Resolve CTA colours from role names → hex for the tenant-defaults path.
+   widgetCustom.confirmCtas are already hex (parsed in siteRenderer). */
+function _resolveCtas(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return []
+  return raw.slice(0, 6).filter(function(c){ return c && c.label && c.url }).map(function(c){
+    return {
+      label: c.label,
+      url:   c.url,
+      bg:    c.bg  ? (‘#’ + (c.bg.replace ? c.bg.replace(/^#/, ‘’) : c.bg)) : null,
+      fg:    c.fg  ? (‘#’ + (c.fg.replace ? c.fg.replace(/^#/, ‘’) : c.fg)) : null,
+    }
+  })
+}
+const _confirmCtas = (_wc.confirmCtas && _wc.confirmCtas.length > 0)
+  ? _resolveCtas(_wc.confirmCtas)
+  : _resolveCtas(_wd.confirmation_ctas || [])
 
 /* Per-font Google Fonts weight map (same as head.eta). Required because
    v2 returns 400 for the WHOLE stylesheet if any one weight is missing. */
@@ -389,6 +413,9 @@ const _accentEffective = _btnBg || it.accent
       var TENANT    = <%~ JSON.stringify(it.tenantName) %>;
       var INITIAL_VENUE_ID = <%~ JSON.stringify(it.initialVenueId || null) %>;
       var LARGE_PARTY_TEXT = <%~ JSON.stringify(_largePartyTxt || '') %>;
+      var CONFIRM_HEADING   = <%~ JSON.stringify(_confirmHeading  || '') %>;
+      var CONFIRM_BODY_HTML = <%~ JSON.stringify(_confirmBodyHtml || '') %>;
+      var CONFIRM_CTAS      = <%~ JSON.stringify(_confirmCtas) %>;
 
       var venuesById = Object.fromEntries(VENUES.map(function(v){ return [v.id, v]; }));
 
@@ -957,22 +984,58 @@ const _accentEffective = _btnBg || it.accent
         ));
       }
 
+      function applyMergeFields(html, b) {
+        return html
+          .replace(/\{\{reference\}\}/g, b.reference || ‘—‘)
+          .replace(/\{\{guest_name\}\}/g, b.guest_name || ‘—‘)
+          .replace(/\{\{date\}\}/g, fmtFullDate(state.date))
+          .replace(/\{\{time\}\}/g, state.slot ? state.slot.slot_time : ‘’)
+          .replace(/\{\{covers\}\}/g, String(state.covers))
+          .replace(/\{\{venue_name\}\}/g, (state.venue && state.venue.name) || ‘’)
+          .replace(/\{\{email\}\}/g, b.guest_email || ‘’)
+      }
+
       function renderConfirmed(root) {
         var b = state.booking || {};
-        root.appendChild(el('div', { class: 'rcenter' }, el('span', { class: 'rcheck' }, '✓')));
-        root.appendChild(el('h2', { class: 'rcenter', style: 'margin:0 0 6px;font-size:20px;' }, 'You’re booked'));
-        root.appendChild(el('p', { class: 'rsub rcenter' }, 'Reference: ' + (b.reference || '—')));
-        root.appendChild(el('div', { class: 'rsummary', style: 'margin-top:16px' },
-          MODE === 'tenant' && state.venue
-            ? el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'Location'), el('span', {}, state.venue.name))
+        root.appendChild(el(‘div’, { class: ‘rcenter’ }, el(‘span’, { class: ‘rcheck’ }, ‘✓’)));
+        root.appendChild(el(‘h2’, { class: ‘rcenter’, style: ‘margin:0 0 6px;font-size:20px;’ }, CONFIRM_HEADING || ‘You’re booked’));
+        root.appendChild(el(‘p’, { class: ‘rsub rcenter’ }, ‘Reference: ‘ + (b.reference || ‘—‘)));
+        root.appendChild(el(‘div’, { class: ‘rsummary’, style: ‘margin-top:16px’ },
+          MODE === ‘tenant’ && state.venue
+            ? el(‘div’, { class: ‘rline’ }, el(‘span’, { class: ‘rlbl’ }, ‘Location’), el(‘span’, {}, state.venue.name))
             : null,
-          el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'Name'),   el('span', {}, b.guest_name || '—')),
-          el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'When'),   el('span', {}, fmtFullDate(state.date) + ' at ' + state.slot.slot_time)),
-          el('div', { class: 'rline' }, el('span', { class: 'rlbl' }, 'Guests'), el('span', {}, String(state.covers))),
+          el(‘div’, { class: ‘rline’ }, el(‘span’, { class: ‘rlbl’ }, ‘Name’),   el(‘span’, {}, b.guest_name || ‘—‘)),
+          el(‘div’, { class: ‘rline’ }, el(‘span’, { class: ‘rlbl’ }, ‘When’),   el(‘span’, {}, fmtFullDate(state.date) + ‘ at ‘ + state.slot.slot_time)),
+          el(‘div’, { class: ‘rline’ }, el(‘span’, { class: ‘rlbl’ }, ‘Guests’), el(‘span’, {}, String(state.covers))),
         ));
         if (b.guest_email) {
-          root.appendChild(el('p', { class: 'rsub rcenter', style: 'margin-top:14px' },
-            'Confirmation sent to ' + b.guest_email + '.'));
+          root.appendChild(el(‘p’, { class: ‘rsub rcenter’, style: ‘margin-top:14px’ },
+            ‘Confirmation sent to ‘ + b.guest_email + ‘.’));
+        }
+        if (CONFIRM_BODY_HTML) {
+          var bodyDiv = document.createElement(‘div’);
+          bodyDiv.className = ‘rconf-body’;
+          bodyDiv.style.cssText = ‘margin-top:18px; font-size:15px; line-height:1.6;’;
+          bodyDiv.innerHTML = applyMergeFields(CONFIRM_BODY_HTML, b);
+          root.appendChild(bodyDiv);
+        }
+        if (CONFIRM_CTAS && CONFIRM_CTAS.length > 0) {
+          var ctaWrap = document.createElement(‘div’);
+          ctaWrap.style.cssText = ‘margin-top:18px; display:flex; flex-direction:column; gap:10px;’;
+          CONFIRM_CTAS.forEach(function(cta){
+            var a = document.createElement(‘a’);
+            a.href = cta.url;
+            a.target = ‘_blank’;
+            a.rel = ‘noopener noreferrer’;
+            a.textContent = cta.label;
+            a.style.cssText = ‘display:block; text-align:center; padding:13px 20px;’
+              + ‘border-radius:var(--r-btn-radius);’
+              + ‘text-decoration:none; font-weight:600; font-size:15px;’
+              + ‘background:’ + (cta.bg || ‘var(--r-accent)’) + ‘;’
+              + ‘color:’ + (cta.fg || ‘var(--r-btn-fg)’) + ‘;’;
+            ctaWrap.appendChild(a);
+          });
+          root.appendChild(ctaWrap);
         }
       }
 
