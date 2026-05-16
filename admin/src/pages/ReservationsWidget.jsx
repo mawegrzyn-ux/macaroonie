@@ -8,10 +8,10 @@
 // used by the legacy widget; values are forward-compatible). Read +
 // updated via the existing /website/tenant-site GET / PATCH endpoints.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
-import { Save, Loader2, Copy, ExternalLink } from 'lucide-react'
+import { Save, Loader2, Copy, ExternalLink, X } from 'lucide-react'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 import { ThemeColourPicker, resolveRole } from '@/components/website-builder/ThemeColourPicker'
 
@@ -46,8 +46,12 @@ const DEFAULT_SETTINGS = {
   cal_closed_bg:      '',
   cal_closed_fg:      '',
   cal_closed_border:  '',
-  large_party_text: 'Larger party? Call us — we’ll arrange combined tables.',
+  large_party_text: ‘Larger party? Call us — we’ll arrange combined tables.’,
   debug_enabled:    false,
+  // Confirmation page
+  confirmation_heading:   ‘’,
+  confirmation_body_html: ‘’,
+  confirmation_ctas:      [],
 }
 
 export default function ReservationsWidget() {
@@ -245,6 +249,33 @@ export default function ReservationsWidget() {
         <Field label="Closed day — border"><ThemeColourPicker value={form.cal_closed_border} onChange={set('cal_closed_border')} /></Field>
       </Card>
 
+      {/* Confirmation page */}
+      <Card title="Confirmation page"
+        hint="Content shown to guests after a successful booking. Merge fields: {{reference}} {{guest_name}} {{date}} {{time}} {{covers}} {{venue_name}} {{email}}.">
+        <Field label="Heading" hint='Override "You\'re booked". Blank = default.'>
+          <input className={inputClass}
+            value={form.confirmation_heading || ''}
+            onChange={e => set('confirmation_heading')(e.target.value)}
+            placeholder="You're booked!" />
+        </Field>
+        <Field label="Body HTML"
+          hint="Shown below the booking summary card. Supports HTML tags and the merge fields above.">
+          <ConfBodyEditor
+            value={form.confirmation_body_html || ''}
+            onChange={set('confirmation_body_html')}
+            inputClass={inputClass}
+          />
+        </Field>
+        <Field label="CTA buttons"
+          hint="Up to 4 buttons shown below the body. Link to a menu, directions, review page, etc.">
+          <CtaListEditor
+            value={form.confirmation_ctas || []}
+            onChange={set('confirmation_ctas')}
+            inputClass={inputClass}
+          />
+        </Field>
+      </Card>
+
       {/* Debug */}
       <Card title="Debug"
         hint="Diagnostic overlay shown at the top of the widget. Helps identify state + API issues. Leave OFF for normal customers.">
@@ -430,6 +461,108 @@ function EmbedSnippet({ src }) {
   )
 }
 
+const MERGE_FIELDS = [
+  '{{reference}}', '{{guest_name}}', '{{date}}', '{{time}}',
+  '{{covers}}', '{{venue_name}}', '{{email}}',
+]
+
+function ConfBodyEditor({ value, onChange, inputClass }) {
+  const ref = useRef(null)
+
+  function insertField(field) {
+    const el = ref.current
+    if (!el) { onChange(value + field); return }
+    const start = el.selectionStart
+    const end   = el.selectionEnd
+    const next  = value.slice(0, start) + field + value.slice(end)
+    onChange(next)
+    requestAnimationFrame(() => {
+      el.selectionStart = el.selectionEnd = start + field.length
+      el.focus()
+    })
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1">
+        {MERGE_FIELDS.map(f => (
+          <button key={f} type="button"
+            onClick={() => insertField(f)}
+            className="text-[10px] font-mono bg-primary/10 text-primary border border-primary/20 rounded px-1.5 py-0.5 hover:bg-primary/20">
+            {f}
+          </button>
+        ))}
+      </div>
+      <textarea
+        ref={ref}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rows={5}
+        placeholder={'<p>See you soon, {{guest_name}}! Your reference is <strong>{{reference}}</strong>.</p>'}
+        className={inputClass + ' font-mono text-xs min-h-[90px]'}
+      />
+    </div>
+  )
+}
+
+function CtaListEditor({ value, onChange, inputClass }) {
+  const ctas = value || []
+
+  function update(i, field, val) {
+    onChange(ctas.map((c, idx) => idx === i ? { ...c, [field]: val } : c))
+  }
+  function addCta() {
+    if (ctas.length >= 4) return
+    onChange([...ctas, { label: '', url: '', bg: 'primary', fg: '' }])
+  }
+  function removeCta(i) {
+    onChange(ctas.filter((_, idx) => idx !== i))
+  }
+
+  return (
+    <div className="space-y-2">
+      {ctas.map((cta, i) => (
+        <div key={i} className="border rounded-md p-2.5 space-y-2 bg-muted/30">
+          <div className="flex items-center gap-1.5">
+            <input
+              value={cta.label || ''}
+              onChange={e => update(i, 'label', e.target.value)}
+              placeholder="Button label"
+              className={inputClass + ' flex-1'}
+            />
+            <button type="button" onClick={() => removeCta(i)}
+              className="text-destructive hover:bg-destructive/10 p-1.5 rounded flex-shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <input
+            value={cta.url || ''}
+            onChange={e => update(i, 'url', e.target.value)}
+            placeholder="https://..."
+            className={inputClass}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-[10px] text-muted-foreground mb-1">Background colour</div>
+              <ThemeColourPicker value={cta.bg} onChange={v => update(i, 'bg', v)} />
+            </div>
+            <div>
+              <div className="text-[10px] text-muted-foreground mb-1">Text colour</div>
+              <ThemeColourPicker value={cta.fg} onChange={v => update(i, 'fg', v)} />
+            </div>
+          </div>
+        </div>
+      ))}
+      {ctas.length < 4 && (
+        <button type="button" onClick={addCta}
+          className="w-full text-xs border-2 border-dashed rounded-md py-2.5 text-muted-foreground hover:text-foreground hover:border-foreground/40">
+          + Add button
+        </button>
+      )}
+    </div>
+  )
+}
+
 // Builds the same query string the booking_widget block partial sends —
 // so previewing the embed in this page matches what visitors see. Resolves
 // theme role names to actual hex colours since the widget URL params
@@ -476,5 +609,18 @@ function buildEmbedSrc({ tenantId, subdomain, venueId, settings, theme }) {
   if (ccBd) params.push('ccBd=' + ccBd)
   if (settings.large_party_text) params.push('lp='     + encodeURIComponent(settings.large_party_text))
   if (settings.debug_enabled) params.push('debug=1')
+  if (settings.confirmation_heading) params.push('confHead=' + encodeURIComponent(settings.confirmation_heading))
+  if (settings.confirmation_body_html) params.push('confBody=' + encodeURIComponent(settings.confirmation_body_html))
+  if (settings.confirmation_ctas && settings.confirmation_ctas.length > 0) {
+    const ctas = settings.confirmation_ctas
+      .filter(c => c.label && c.url)
+      .map(c => ({
+        label: c.label,
+        url:   c.url,
+        bg:    hexFromRole(c.bg) ? '#' + hexFromRole(c.bg) : null,
+        fg:    hexFromRole(c.fg) ? '#' + hexFromRole(c.fg) : null,
+      }))
+    if (ctas.length > 0) params.push('ctas=' + encodeURIComponent(JSON.stringify(ctas)))
+  }
   return origin + path + '?' + params.join('&')
 }

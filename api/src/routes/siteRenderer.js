@@ -398,6 +398,21 @@ export default async function siteRendererRoutes(app) {
       largePartyText: req.query.lp     ? String(req.query.lp).slice(0, 300)     : null,
       debugEnabled:   req.query.debug === '1' ? true
                     : req.query.debug === '0' ? false : null,
+      // ── Confirmation page ─────────────────────────────────
+      confirmHeading:  req.query.confHead ? String(req.query.confHead).slice(0, 200) : null,
+      confirmBodyHtml: req.query.confBody ? String(req.query.confBody).slice(0, 2000) : null,
+      confirmCtas:     (() => {
+        try {
+          const raw = JSON.parse(decodeURIComponent(req.query.ctas || ''))
+          if (!Array.isArray(raw)) return null
+          return raw.slice(0, 6).map(c => ({
+            label: String(c.label || '').slice(0, 80),
+            url:   String(c.url   || '').slice(0, 300),
+            bg:    _hex(c.bg) || null,
+            fg:    _hex(c.fg) || null,
+          })).filter(c => c.label && c.url)
+        } catch { return null }
+      })(),
     }
 
     const [venue] = await sql`
@@ -501,6 +516,21 @@ export default async function siteRendererRoutes(app) {
       largePartyText: req.query.lp     ? String(req.query.lp).slice(0, 300)     : null,
       debugEnabled:   req.query.debug === '1' ? true
                     : req.query.debug === '0' ? false : null,
+      // ── Confirmation page ─────────────────────────────────
+      confirmHeading:  req.query.confHead ? String(req.query.confHead).slice(0, 200) : null,
+      confirmBodyHtml: req.query.confBody ? String(req.query.confBody).slice(0, 2000) : null,
+      confirmCtas:     (() => {
+        try {
+          const raw = JSON.parse(decodeURIComponent(req.query.ctas || ''))
+          if (!Array.isArray(raw)) return null
+          return raw.slice(0, 6).map(c => ({
+            label: String(c.label || '').slice(0, 80),
+            url:   String(c.url   || '').slice(0, 300),
+            bg:    _hex(c.bg) || null,
+            fg:    _hex(c.fg) || null,
+          })).filter(c => c.label && c.url)
+        } catch { return null }
+      })(),
     }
     const initialVenueId = req.query.venue || null
 

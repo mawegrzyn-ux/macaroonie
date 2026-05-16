@@ -430,6 +430,10 @@ export const BLOCKS = [
       cal_closed_border:  '',
       large_party_text:  '',
       debug_enabled:     null,
+      // Confirmation page overrides
+      confirmation_heading:  '',
+      confirmation_body_html: '',
+      confirmation_ctas:     [],
     },
     editor:      ReservationsWidgetEditor,
     pullsFromConfig: true,

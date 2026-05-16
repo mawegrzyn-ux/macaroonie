@@ -1069,6 +1069,53 @@ export function GalleryEditor({ data, onChange }) {
 // The placeholder text on each input shows the value that would be used
 // if blank, pulled live from the tenant_site row.
 
+function BlockCtaEditor({ value, onChange }) {
+  const ctas = value || []
+
+  function update(i, field, val) {
+    onChange(ctas.map((c, idx) => idx === i ? { ...c, [field]: val } : c))
+  }
+  function addCta() {
+    if (ctas.length >= 4) return
+    onChange([...ctas, { label: '', url: '', bg: 'primary', fg: '' }])
+  }
+  function removeCta(i) {
+    onChange(ctas.filter((_, idx) => idx !== i))
+  }
+
+  return (
+    <div className="space-y-2">
+      {ctas.map((cta, i) => (
+        <div key={i} className="border rounded-md p-2.5 space-y-2 bg-muted/30">
+          <div className="flex items-center gap-1.5">
+            <input
+              value={cta.label || ''}
+              onChange={e => update(i, 'label', e.target.value)}
+              placeholder="Button label"
+              className="flex-1 text-sm border rounded-md px-2 py-1.5 min-h-[36px] bg-background"
+            />
+            <RemoveButton onClick={() => removeCta(i)} />
+          </div>
+          <Input value={cta.url} onChange={v => update(i, 'url', v)} placeholder="https://..." />
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-[10px] text-muted-foreground mb-1">Background</div>
+              <ThemeColourPicker value={cta.bg} onChange={v => update(i, 'bg', v)} />
+            </div>
+            <div>
+              <div className="text-[10px] text-muted-foreground mb-1">Text</div>
+              <ThemeColourPicker value={cta.fg} onChange={v => update(i, 'fg', v)} />
+            </div>
+          </div>
+        </div>
+      ))}
+      {ctas.length < 4 && (
+        <AddButton onClick={addCta}>Add button</AddButton>
+      )}
+    </div>
+  )
+}
+
 export function ReservationsWidgetEditor({ data, onChange, config }) {
   const api = useApi()
   const set = (k) => (v) => onChange({ ...data, [k]: v })
@@ -1283,6 +1330,38 @@ export function ReservationsWidgetEditor({ data, onChange, config }) {
           <Area value={data.large_party_text} onChange={set('large_party_text')} rows={2}
             placeholder={ws.large_party_text || 'Larger party? Call us — we’ll arrange combined tables.'} />
         </FormRow>
+      </div>
+
+      <div>
+        <SectionHead label="Confirmation page" />
+        <p className="text-xs text-muted-foreground mb-2">
+          Content shown to guests after a successful booking.
+          Supports HTML and merge fields:
+          {' '}<code className="text-[10px]">{'{{guest_name}}'}</code>,
+          {' '}<code className="text-[10px]">{'{{reference}}'}</code>,
+          {' '}<code className="text-[10px]">{'{{date}}'}</code>,
+          {' '}<code className="text-[10px]">{'{{time}}'}</code>,
+          {' '}<code className="text-[10px]">{'{{covers}}'}</code>,
+          {' '}<code className="text-[10px]">{'{{venue_name}}'}</code>,
+          {' '}<code className="text-[10px]">{'{{email}}'}</code>.
+          Blank = tenant defaults.
+        </p>
+        <div className="space-y-3">
+          <FormRow label="Heading" hint='Override "You\'re booked". Blank = tenant default.'>
+            <Input value={data.confirmation_heading} onChange={set('confirmation_heading')}
+              placeholder={ws.confirmation_heading || "You're booked!"} />
+          </FormRow>
+          <FormRow label="Body HTML" hint="Below the booking summary card. Supports basic HTML + merge fields.">
+            <Area value={data.confirmation_body_html} onChange={set('confirmation_body_html')} rows={4}
+              placeholder={ws.confirmation_body_html || '<p>See you soon!</p>'} />
+          </FormRow>
+          <FormRow label="CTA buttons" hint="Up to 4 link buttons below the body.">
+            <BlockCtaEditor
+              value={data.confirmation_ctas || []}
+              onChange={v => onChange({ ...data, confirmation_ctas: v })}
+            />
+          </FormRow>
+        </div>
       </div>
 
       <div>
