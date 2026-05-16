@@ -880,16 +880,23 @@ export default async function bookingsRoutes(app) {
   //   1. Try single table if target alone fits covers
   //   2. Try smallest combination that contains target table and fits covers
   //   3. Fall back to physically-adjacent tables (expand outward by sort_order)
-  //   4. For any bookings that conflict with the new allocation:
-  //      a. Try to move each conflicted booking to a free single table
-  //      b. If none available → assign to venue's Unallocated table (auto-created)
-  //   5. Execute all moves atomically; broadcast every change
+  //   4. Verify a pre-configured combination exists (never auto-create)
+  //   5. If manual_mode: skip conflict resolution, move directly (overlaps allowed)
+  //   6. Otherwise find conflicts; for each:
+  //      a. Try to move to a free single table
+  //      b. Try to move to a fully-free existing combination
+  //      c. Chain-displacement: try a combination whose occupants can each move to a
+  //         free individual table (one extra cascade level, e.g. T8+T9 where T8 has
+  //         a 2-person that can go to T11 once the primary frees it)
+  //      d. If nothing works → assign to venue's Unallocated table (auto-created)
+  //   7. Execute all moves atomically; broadcast every change
   //
   // Returns: { moved: Booking, displaced: Booking[] }
   app.patch('/:id/relocate', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
     const body = z.object({
       target_table_id: z.string().uuid(),
       starts_at:       z.string().datetime().optional(),
+      manual_mode:     z.boolean().optional(),
     }).parse(req.body)
 
     const result = await withTenant(req.tenantId, async tx => {
@@ -1090,7 +1097,23 @@ export default async function bookingsRoutes(app) {
         canonicalTableId = allocationTableIds[0]
       }
 
-      // ── 5. Find conflicts at the new time for all allocated tables ─
+      // ── 5. Manual mode: skip conflict resolution, move directly ─
+      if (body.manual_mode) {
+        const [moved] = await tx`
+          UPDATE bookings
+             SET table_id       = ${canonicalTableId},
+                 combination_id = ${allocationComboId},
+                 starts_at      = ${newStart.toISOString()},
+                 ends_at        = ${newEnd.toISOString()},
+                 updated_at     = now()
+           WHERE id        = ${req.params.id}
+             AND tenant_id = ${req.tenantId}
+          RETURNING *
+        `
+        return { moved, displaced: [] }
+      }
+
+      // ── 6. Find conflicts at the new time for all allocated tables ─
       const conflicts = await tx`
         SELECT b.id, b.table_id, b.combination_id, b.covers,
                b.starts_at, b.ends_at, b.guest_name, b.table_locked
@@ -1110,14 +1133,14 @@ export default async function bookingsRoutes(app) {
                )
       `
 
-      // ── 5b. Reject immediately if any conflict has table_locked = true ──
+      // ── 6b. Reject immediately if any conflict has table_locked = true ──
       const locked = conflicts.find(c => c.table_locked)
       if (locked) {
         const name = locked.guest_name ? `"${locked.guest_name}"` : 'A booking'
         throw httpError(422, `${name} on the target table has table locking enabled — unlock it first before moving this booking.`)
       }
 
-      // ── 6. Resolve each conflict — free table, free combo, or unallocated ─
+      // ── 7. Resolve each conflict — free table, free combo, or unallocated ─
       // usedTableIds tracks all tables committed in this transaction so we
       // don't move two conflicts to the same table or overlapping combinations.
       const usedTableIds = new Set(allocationTableIds)
@@ -1215,12 +1238,117 @@ export default async function bookingsRoutes(app) {
           for (const tid of freeCombo.member_table_ids) usedTableIds.add(tid)
           resolutions.push({ conflict, newTableId: null, comboId: freeCombo.id, unallocated: false })
         } else {
-          // 6c. No table or combo available — send to Unallocated
-          resolutions.push({ conflict, newTableId: null, comboId: null, unallocated: true })
+          // 6c. Chain-displacement: find a combo where every occupant can be moved
+          //     to a free individual table (one extra cascade level).
+          //     E.g. T8+T9 for a 4-person, but T8 has a 2-person that can move to T11.
+          //     alreadyMovingIds treats primary + all planned conflicts as vacating,
+          //     so their original tables appear free to the sub-resolution search.
+          const alreadyMovingIds = [req.params.id, conflict.id, ...resolutions.map(r => r.conflict.id)]
+
+          const potCombos = await tx`
+            SELECT c.id, c.max_covers,
+                   array_agg(m.table_id ORDER BY t3.sort_order, t3.label) AS member_table_ids
+              FROM table_combinations c
+              JOIN table_combination_members m ON m.combination_id = c.id
+              JOIN tables t3 ON t3.id = m.table_id
+             WHERE c.tenant_id  = ${req.tenantId}
+               AND c.venue_id   = ${booking.venue_id}
+               AND c.is_active  = true
+               AND c.max_covers >= ${conflict.covers}
+               AND NOT EXISTS (
+                     SELECT 1 FROM table_combination_members m2
+                      WHERE m2.combination_id = c.id
+                        AND m2.table_id = ANY(${usedArr}::uuid[])
+                   )
+             GROUP BY c.id, c.max_covers
+             ORDER BY c.max_covers ASC
+          `
+
+          let chainResolved = false
+          for (const potCombo of potCombos) {
+            const memberIds = potCombo.member_table_ids
+
+            const occupants = await tx`
+              SELECT b.id, b.table_id, b.combination_id, b.covers,
+                     b.starts_at, b.ends_at, b.table_locked
+                FROM bookings b
+               WHERE b.tenant_id = ${req.tenantId}
+                 AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                 AND b.id != ALL(${alreadyMovingIds}::uuid[])
+                 AND b.starts_at < ${conflict.ends_at}
+                 AND b.ends_at   > ${conflict.starts_at}
+                 AND (
+                       b.table_id = ANY(${memberIds}::uuid[])
+                       OR (b.combination_id IS NOT NULL AND EXISTS (
+                             SELECT 1 FROM table_combination_members m5
+                              WHERE m5.combination_id = b.combination_id
+                                AND m5.table_id = ANY(${memberIds}::uuid[])
+                           ))
+                     )
+            `
+
+            if (occupants.length === 0) continue  // caught by freeCombo above
+
+            const tentativeUsed = new Set([...usedTableIds, ...memberIds])
+            const subResolutions = []
+            let allCanMove = true
+
+            for (const occupant of occupants) {
+              if (occupant.table_locked) { allCanMove = false; break }
+              const tentativeUsedArr = [...tentativeUsed]
+              const subExcluded = [...alreadyMovingIds, occupant.id]
+
+              const [subFree] = await tx`
+                SELECT t.id FROM tables t
+                 WHERE t.venue_id       = ${booking.venue_id}
+                   AND t.tenant_id      = ${req.tenantId}
+                   AND t.is_active      = true
+                   AND t.is_unallocated = false
+                   AND t.max_covers     >= ${occupant.covers}
+                   AND t.id != ALL(${tentativeUsedArr}::uuid[])
+                   AND NOT EXISTS (
+                         SELECT 1 FROM bookings b2
+                          WHERE b2.tenant_id = ${req.tenantId}
+                            AND b2.id != ALL(${subExcluded}::uuid[])
+                            AND b2.status NOT IN ('cancelled', 'no_show', 'checked_out')
+                            AND b2.starts_at < ${occupant.ends_at}
+                            AND b2.ends_at   > ${occupant.starts_at}
+                            AND (
+                                  b2.table_id = t.id
+                                  OR (b2.combination_id IS NOT NULL AND EXISTS (
+                                        SELECT 1 FROM table_combination_members m6
+                                         WHERE m6.combination_id = b2.combination_id
+                                           AND m6.table_id = t.id
+                                      ))
+                                )
+                       )
+                 ORDER BY t.max_covers ASC
+                 LIMIT 1
+              `
+
+              if (!subFree) { allCanMove = false; break }
+              tentativeUsed.add(subFree.id)
+              subResolutions.push({ conflict: occupant, newTableId: subFree.id, comboId: null, unallocated: false })
+            }
+
+            if (allCanMove) {
+              for (const tid of memberIds) usedTableIds.add(tid)
+              for (const sr of subResolutions) usedTableIds.add(sr.newTableId)
+              resolutions.push({ conflict, newTableId: null, comboId: potCombo.id, unallocated: false })
+              resolutions.push(...subResolutions)
+              chainResolved = true
+              break
+            }
+          }
+
+          if (!chainResolved) {
+            // 6d. Nothing works — send to Unallocated
+            resolutions.push({ conflict, newTableId: null, comboId: null, unallocated: true })
+          }
         }
       }
 
-      // ── 7. Get or create Unallocated table if needed ─────────
+      // ── 8. Get or create Unallocated table if needed ─────────
       let unallocatedTableId = null
       if (resolutions.some(r => r.unallocated)) {
         const [existing] = await tx`
@@ -1246,7 +1374,7 @@ export default async function bookingsRoutes(app) {
         }
       }
 
-      // ── 8. Execute all moves ─────────────────────────────────
+      // ── 9. Execute all moves ─────────────────────────────────
       const displaced = []
       for (const { conflict, newTableId, comboId, unallocated } of resolutions) {
         let destTableId, destComboId

@@ -68,11 +68,44 @@ function durationToWidth(startIso, endIso, hw = HOUR_WIDTH) {
 // tileMode: 'compact' | 'extensive'
 // compactFontSize: 'sm' | 'md' | 'lg'  (ignored in extensive mode)
 // tableById: Map<uuid, table> — used in extensive mode for table label display
-function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false, isOverlap = false, rowHeight, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH, startHour = START_HOUR }) {
+function BookingCard({ booking, onClick, onLongPress, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false, isOverlap = false, rowHeight, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH, startHour = START_HOUR }) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
   })
+
+  // ── Long-press: 5 s hold → open the stacked booking beneath ──
+  const longPressTimer    = useRef(null)
+  const longPressOrigin   = useRef({ x: 0, y: 0 })
+  const longPressActivated = useRef(false)
+
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }, [])
+
+  // Pull dnd-kit's onPointerDown out so we can merge our handler with it
+  const { onPointerDown: dndPointerDown, ...restListeners } = listeners ?? {}
+
+  const handlePointerDown = useCallback((e) => {
+    dndPointerDown?.(e)
+    if (!onLongPress) return
+    longPressOrigin.current   = { x: e.clientX, y: e.clientY }
+    longPressActivated.current = false
+    longPressTimer.current = setTimeout(() => {
+      longPressActivated.current = true
+      onLongPress(booking)
+    }, 5000)
+  }, [dndPointerDown, onLongPress, booking])
+
+  const handlePointerMove = useCallback((e) => {
+    if (!longPressTimer.current) return
+    const dx = e.clientX - longPressOrigin.current.x
+    const dy = e.clientY - longPressOrigin.current.y
+    if (dx * dx + dy * dy > 64) cancelLongPress()  // cancel if finger drifts > 8 px
+  }, [cancelLongPress])
 
   const x         = timeToX(booking.starts_at, hourWidth, startHour)
   const endsAtIso = resizePreviewMs ? new Date(resizePreviewMs).toISOString() : booking.ends_at
@@ -110,9 +143,18 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
     <div
       ref={setNodeRef}
       style={style}
-      {...listeners}
+      {...restListeners}
       {...attributes}
-      onClick={(e) => { e.stopPropagation(); onClick(booking) }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={cancelLongPress}
+      onPointerCancel={cancelLongPress}
+      onClick={(e) => {
+        e.stopPropagation()
+        // If the 5-second long-press already fired, swallow this click
+        if (longPressActivated.current) { longPressActivated.current = false; return }
+        onClick(booking)
+      }}
       className={cn('timeline-slot overflow-hidden', booking.status, isDragging && 'dragging', isOverlap && 'ring-2 ring-red-500 ring-inset')}
     >
       {isOverlap && (
@@ -200,7 +242,7 @@ function BookingCard({ booking, onClick, isDragging, resizePreviewMs, onResizeSt
 //
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
-function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set(), overlappingIds = null, rowHeight = ROW_HEIGHT, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH, startHour = START_HOUR, totalHours = TOTAL_HOURS }) {
+function TableRow({ table, bookings, date, onBookingClick, onLongPress, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set(), overlappingIds = null, rowHeight = ROW_HEIGHT, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH, startHour = START_HOUR, totalHours = TOTAL_HOURS }) {
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -295,6 +337,7 @@ function TableRow({ table, bookings, date, onBookingClick, activeId, onResizeSta
               key={b.id}
               booking={b}
               onClick={onBookingClick}
+              onLongPress={onLongPress}
               isDragging={b.id === activeId}
               onResizeStart={onResizeStart}
               resizePreviewMs={b.id === resizeBookingId ? resizePreviewMs : null}
@@ -403,6 +446,12 @@ export default function Timeline() {
     setSelected(booking)
   }, [])
 
+  // Long-press (5 s hold) on a stacked booking → open the peer booking beneath
+  const handleLongPress = useCallback((booking) => {
+    const peer = overlapPeerMap.get(booking.id)
+    if (peer) setSelected(peer)
+  }, [overlapPeerMap])
+
   const onPanelResizeStart = useCallback((e) => {
     e.preventDefault()
     isPanelResizing.current = true
@@ -438,7 +487,7 @@ export default function Timeline() {
   // Row height + column width derived from tile mode / wide-columns setting.
   // Declared early so nowX useMemo (below) can reference hourWidth/totalWidth
   // without hitting the Temporal Dead Zone.
-  const { tileMode, compactFontSize, wideColumns, timelineStart, timelineEnd } = tlSettings
+  const { tileMode, compactFontSize, wideColumns, timelineStart, timelineEnd, manualMode } = tlSettings
   const startHour  = timelineStart ?? START_HOUR
   const endHour    = timelineEnd   ?? END_HOUR
   const totalHours = endHour - startHour
@@ -746,10 +795,11 @@ export default function Timeline() {
 
   // PATCH /relocate — cross-table drop (finds best allocation, cascades conflicts)
   const relocateMutation = useMutation({
-    mutationFn: ({ bookingId, targetTableId, startsAt }) =>
+    mutationFn: ({ bookingId, targetTableId, startsAt, manual }) =>
       api.patch(`/bookings/${bookingId}/relocate`, {
         target_table_id: targetTableId,
         ...(startsAt ? { starts_at: startsAt } : {}),
+        ...(manual    ? { manual_mode: true }   : {}),
       }),
     onSuccess: () => {
       // Refresh bookings AND tables (Unallocated table may have been auto-created)
@@ -803,11 +853,12 @@ export default function Timeline() {
     const newStart  = new Date(parseISO(booking.starts_at).getTime() + deltaMins * 60_000)
 
     if (tableChanged) {
-      // Cross-table drop → smart relocate with conflict cascade
+      // Cross-table drop → smart relocate (or direct move in manual mode)
       relocateMutation.mutate({
         bookingId:     booking.id,
         targetTableId,
         startsAt: deltaMins !== 0 ? newStart.toISOString() : undefined,
+        manual:   manualMode,
       })
     } else {
       // Same-table drop → simple time shift
@@ -964,11 +1015,12 @@ export default function Timeline() {
 
   // Detect bookings that share a table and have overlapping time windows.
   // These are highlighted with a stop sign on their tile.
-  const overlappingIds = useMemo(() => {
+  const { overlappingIds, overlapPeerMap } = useMemo(() => {
     const active = bookingsRes.filter(b =>
       !['cancelled', 'no_show', 'checked_out'].includes(b.status)
     )
-    const ids = new Set()
+    const ids     = new Set()
+    const peerMap = new Map()  // bookingId → first overlapping peer booking
     for (let i = 0; i < active.length; i++) {
       for (let j = i + 1; j < active.length; j++) {
         const a = active[i], b = active[j]
@@ -987,10 +1039,12 @@ export default function Timeline() {
         if (aStart < bEnd && bStart < aEnd) {
           ids.add(a.id)
           ids.add(b.id)
+          if (!peerMap.has(a.id)) peerMap.set(a.id, b)
+          if (!peerMap.has(b.id)) peerMap.set(b.id, a)
         }
       }
     }
-    return ids
+    return { overlappingIds: ids, overlapPeerMap: peerMap }
   }, [bookingsRes])
 
   const activeBooking = useMemo(() =>
@@ -1117,6 +1171,7 @@ export default function Timeline() {
                     bookings={bookingsByTable[unallocatedTable.id] ?? []}
                     date={date}
                     onBookingClick={handleBookingClick}
+                    onLongPress={handleLongPress}
                     activeId={activeId}
                     onResizeStart={handleResizeStart}
                     resizeBookingId={resizeState?.bookingId}
@@ -1155,6 +1210,7 @@ export default function Timeline() {
                         bookings={bookingsByTable[table.id] ?? []}
                         date={date}
                         onBookingClick={handleBookingClick}
+                        onLongPress={handleLongPress}
                         activeId={activeId}
                         onResizeStart={handleResizeStart}
                         resizeBookingId={resizeState?.bookingId}
@@ -1186,6 +1242,7 @@ export default function Timeline() {
                     bookings={bookingsByTable[table.id] ?? []}
                     date={date}
                     onBookingClick={handleBookingClick}
+                    onLongPress={handleLongPress}
                     activeId={activeId}
                     onResizeStart={handleResizeStart}
                     resizeBookingId={resizeState?.bookingId}
