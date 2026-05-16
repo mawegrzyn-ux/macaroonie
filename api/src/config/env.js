@@ -35,6 +35,9 @@ const schema = z.object({
   PUBLIC_ROOT_DOMAIN:    z.string().default('macaroonie.com'),
   PUBLIC_SITE_SCHEME:    z.enum(['http', 'https']).default('https'),
 
+  // Apify (review scraper)
+  APIFY_API_KEY:         z.string().optional(),
+
   // Storage driver — 'local' writes to UPLOAD_DIR, 's3' writes to an
   // S3-compatible bucket (AWS S3, DigitalOcean Spaces, Cloudflare R2, …).
   STORAGE_DRIVER:        z.enum(['local', 's3']).default('local'),

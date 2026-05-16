@@ -636,7 +636,9 @@ export function OrderOptionsEditor({ data, onChange }) {
 
 export function ReviewsBandEditor({ data, onChange }) {
   const set = (k) => (v) => onChange({ ...data, [k]: v })
-  const items = data.items || []
+  const items  = data.items || []
+  const source = data.source || 'static'
+
   return (
     <div className="space-y-5">
       <div>
@@ -655,25 +657,68 @@ export function ReviewsBandEditor({ data, onChange }) {
           </FormRow>
         </div>
       </div>
+
       <div>
-        <SectionHead label="Reviews"
-          action={<AddButton onClick={() => set('items')(arrAppend(items, { stars: 5, text: '', attr: '' }))}>Add review</AddButton>} />
+        <SectionHead label="Review source" />
         <div className="space-y-3">
-          {items.map((r, i) => (
-            <div key={i} className="border rounded p-2 space-y-2 bg-muted/30">
-              <div className="flex items-center gap-2">
-                <Select value={String(r.stars || 5)} onChange={v => set('items')(arrPatch(items, i, { stars: Number(v) }))}>
-                  {[5, 4, 3, 2, 1].map(s => <option key={s} value={s}>{'★'.repeat(s)}</option>)}
+          <FormRow label="Source">
+            <Select value={source} onChange={set('source')}>
+              <option value="static">Hand-curated (entered below)</option>
+              <option value="db">Live from review database</option>
+            </Select>
+          </FormRow>
+          {source === 'db' && (
+            <>
+              <FormRow label="Min. star rating">
+                <Select value={String(data.min_rating || 4)} onChange={v => set('min_rating')(Number(v))}>
+                  {[5, 4, 3, 2, 1].map(s => <option key={s} value={s}>{'★'.repeat(s) + ' and above'}</option>)}
                 </Select>
-                <button type="button" onClick={() => set('items')(arrRemove(items, i))}
-                  className="text-xs text-destructive hover:underline ml-auto">Remove</button>
-              </div>
-              <Area value={r.text} onChange={v => set('items')(arrPatch(items, i, { text: v }))} placeholder="What they said" rows={3} />
-              <Input value={r.attr} onChange={v => set('items')(arrPatch(items, i, { attr: v }))} placeholder="e.g. Mark, regular since 2018" />
-            </div>
-          ))}
+              </FormRow>
+              <FormRow label="Max. to show">
+                <Select value={String(data.max_count || 6)} onChange={v => set('max_count')(Number(v))}>
+                  {[3, 4, 5, 6, 8, 10].map(n => <option key={n} value={n}>{n} reviews</option>)}
+                </Select>
+              </FormRow>
+              <FormRow label="Platform filter">
+                <Select value={data.platform || ''} onChange={set('platform')}>
+                  <option value="">All platforms</option>
+                  <option value="google">Google</option>
+                  <option value="tripadvisor">TripAdvisor</option>
+                  <option value="justeat">Just Eat</option>
+                  <option value="deliveroo">Deliveroo</option>
+                  <option value="manual">Manually added</option>
+                </Select>
+              </FormRow>
+              <p className="text-xs text-muted-foreground">
+                Shows approved reviews only. Featured reviews appear first. Manage your review database under <strong>Reviews</strong> in the sidebar.
+              </p>
+            </>
+          )}
         </div>
       </div>
+
+      {source === 'static' && (
+        <div>
+          <SectionHead label="Reviews"
+            action={<AddButton onClick={() => set('items')(arrAppend(items, { stars: 5, text: '', attr: '' }))}>Add review</AddButton>} />
+          <div className="space-y-3">
+            {items.map((r, i) => (
+              <div key={i} className="border rounded p-2 space-y-2 bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <Select value={String(r.stars || 5)} onChange={v => set('items')(arrPatch(items, i, { stars: Number(v) }))}>
+                    {[5, 4, 3, 2, 1].map(s => <option key={s} value={s}>{'★'.repeat(s)}</option>)}
+                  </Select>
+                  <button type="button" onClick={() => set('items')(arrRemove(items, i))}
+                    className="text-xs text-destructive hover:underline ml-auto">Remove</button>
+                </div>
+                <Area value={r.text} onChange={v => set('items')(arrPatch(items, i, { text: v }))} placeholder="What they said" rows={3} />
+                <Input value={r.attr} onChange={v => set('items')(arrPatch(items, i, { attr: v }))} placeholder="e.g. Mark, regular since 2018" />
+              </div>
+            ))}
+            {items.length === 0 && <p className="text-xs text-muted-foreground">No reviews yet — add one above.</p>}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -166,6 +166,9 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
   // without per-block DB queries.
   const galleryByBlock = await loadGalleryItemsForBlocks(ts.tenant_id, ts.home_blocks)
 
+  // Pre-resolve DB-backed reviews_band blocks
+  const reviewsByBlock = await loadReviewsForBlocks(ts.tenant_id, ts.home_blocks)
+
   return {
     tenant_site: ts,
     config:      ts,            // alias: templates read `it.config`
@@ -176,6 +179,7 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
     pages:       bundle.pages,
     menus_by_id: menusById,
     gallery_items_by_block: galleryByBlock,
+    reviews_by_block:       reviewsByBlock,
   }
 }
 
@@ -465,6 +469,12 @@ export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpub
     ...(await loadGalleryItemsForBlocks(tenantId, result.mergedConfig.page_blocks)),
   }
 
+  // Reviews hydration for DB-backed reviews_band blocks on location pages
+  const reviewsByBlock = {
+    ...(tenantBundle.reviews_by_block || {}),
+    ...(await loadReviewsForBlocks(tenantId, result.mergedConfig.page_blocks)),
+  }
+
   return {
     ...tenantBundle,
     config:        result.mergedConfig,
@@ -476,7 +486,53 @@ export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpub
     location_pages: result.pages,
     menus_by_id:   menusById,
     gallery_items_by_block: galleryByBlock,
+    reviews_by_block:       reviewsByBlock,
   }
+}
+
+/* ── Reviews hydration ────────────────────────────────────────
+ * Walks blocks looking for `type: 'reviews_band'` with `data.source === 'db'`.
+ * Loads approved reviews for each block's venue_id (or all tenant reviews),
+ * respecting max_count and min_rating filters set in the block data.
+ * Returns { [blockId]: reviewItem[] } */
+async function loadReviewsForBlocks(tenantId, ...blockArrays) {
+  const reviewBlocks = []
+  function walk(blocks) {
+    if (!Array.isArray(blocks)) return
+    for (const b of blocks) {
+      if (b?.type === 'reviews_band' && b?.data?.source === 'db') reviewBlocks.push(b)
+      if (Array.isArray(b?.data?.columns)) {
+        for (const col of b.data.columns) walk(col?.blocks)
+      }
+    }
+  }
+  for (const arr of blockArrays) walk(arr)
+  if (reviewBlocks.length === 0) return {}
+
+  const out = {}
+  await withTenant(tenantId, async tx => {
+    for (const b of reviewBlocks) {
+      const d = b.data || {}
+      const venueId   = d.venue_id   ?? null
+      const minRating = d.min_rating  ?? 1
+      const maxCount  = d.max_count   ?? 6
+      const platform  = d.platform    ?? null
+
+      const rows = await tx`
+        SELECT rating, review_text, reviewer_name
+          FROM reviews
+         WHERE tenant_id  = ${tenantId}
+           AND is_approved = true
+           AND rating >= ${minRating}
+           ${venueId  ? tx`AND venue_id = ${venueId}`  : tx``}
+           ${platform ? tx`AND platform = ${platform}` : tx``}
+         ORDER BY is_featured DESC, review_date DESC NULLS LAST
+         LIMIT ${maxCount}
+      `
+      out[b.id] = rows
+    }
+  })
+  return out
 }
 
 // Back-compat alias: a few callers still import `loadSiteBundle`.

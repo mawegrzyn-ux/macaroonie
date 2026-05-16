@@ -1,6 +1,23 @@
 <%
+/* reviews_band block
+   data.source = 'static' (default, hand-curated items[]) or 'db' (pulled from reviews table)
+   data.items  = [{stars, text, attr}]      — static mode
+   it.reviewsData = Map<blockId, item[]>    — injected by siteDataSvc when source='db'
+*/
 const d = it.block.data || {}
-const items = Array.isArray(d.items) ? d.items : []
+const _blockId = 'rb-' + (it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)
+
+/* Resolve items */
+let items = []
+if (d.source === 'db' && it.reviews_by_block && it.reviews_by_block[it.block.id]) {
+  const dbItems = it.reviews_by_block[it.block.id] || []
+  items = dbItems.map(function(r) {
+    return { stars: r.rating, text: r.review_text, attr: r.reviewer_name }
+  })
+} else {
+  items = Array.isArray(d.items) ? d.items : []
+}
+
 const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw, 1100px)'
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
@@ -13,7 +30,6 @@ const palettes = {
 }
 const p = palettes[d.bg_style] || palettes.primary
 const colCount = Math.max(1, Math.min(items.length || 1, 3))
-const _blockId = `rb-${(it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)}`
 %>
 <style>
   .<%= _blockId %> { display: grid; grid-template-columns: repeat(<%= colCount %>, 1fr); gap: 40px; }
@@ -28,20 +44,24 @@ const _blockId = `rb-${(it.block.id || Math.random().toString(36).slice(2, 8)).t
         <%= d.heading %>
       </h2>
     <% } %>
-    <div class="<%= _blockId %>">
-      <% items.forEach(function(r){ %>
-        <div style="border-left:2px solid <%= p.divider %>; padding-left:24px;">
-          <div style="color:<%= p.star %>; margin-bottom:14px; letter-spacing:0.15em; font-size:0.85rem;">
-            <% for (let i = 0; i < (r.stars || 5); i++) { %>★<% } %>
+    <% if (items.length === 0) { %>
+      <p style="text-align:center; opacity:0.6; font-style:italic;">No reviews to display yet.</p>
+    <% } else { %>
+      <div class="<%= _blockId %>">
+        <% items.forEach(function(r){ %>
+          <div style="border-left:2px solid <%= p.divider %>; padding-left:24px;">
+            <div style="color:<%= p.star %>; margin-bottom:14px; letter-spacing:0.15em; font-size:0.85rem;">
+              <% for (let i = 0; i < (r.stars || 5); i++) { %>★<% } %>
+            </div>
+            <p style="font-family:var(--f-heading); font-style:italic; font-size:1.1rem; line-height:1.5; margin:0 0 18px;">
+              <%= r.text || '' %>
+            </p>
+            <p style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.15em; opacity:0.75; margin:0;">
+              — <%= r.attr || '' %>
+            </p>
           </div>
-          <p style="font-family:var(--f-heading); font-style:italic; font-size:1.1rem; line-height:1.5; margin:0 0 18px;">
-            <%= r.text || '' %>
-          </p>
-          <p style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.15em; opacity:0.75; margin:0;">
-            — <%= r.attr || '' %>
-          </p>
-        </div>
-      <% }) %>
-    </div>
+        <% }) %>
+      </div>
+    <% } %>
   </div>
 </section>
