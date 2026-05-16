@@ -31,6 +31,10 @@ import Menus          from '@/pages/Menus'
 import Team           from '@/pages/Team'
 import Access         from '@/pages/Access'
 import Platform       from '@/pages/Platform'
+import Backlog         from '@/pages/Backlog'
+import IssueLog        from '@/pages/IssueLog'
+import FeatureRequests from '@/pages/FeatureRequests'
+import Changelog       from '@/pages/Changelog'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -121,8 +125,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="team"        element={<Team />} />
                 <Route path="access"      element={<Access />} />
-                <Route path="platform"    element={<Platform />} />
-                <Route path="docs"        element={<Docs />} />
+                <Route path="platform"           element={<Platform />} />
+                <Route path="backlog"            element={<Backlog />} />
+                <Route path="issues"             element={<IssueLog />} />
+                <Route path="feature-requests"   element={<FeatureRequests />} />
+                <Route path="changelog"          element={<Changelog />} />
+                <Route path="docs"               element={<Docs />} />
                 <Route path="help"        element={<Help />} />
                 <Route path="settings"    element={<Settings />} />
               </Route>

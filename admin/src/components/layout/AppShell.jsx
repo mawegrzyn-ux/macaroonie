@@ -10,6 +10,7 @@ import {
   BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
   Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand, MessageSquare,
+  AlertCircle, Lightbulb, Newspaper, KanbanSquare,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -64,12 +65,17 @@ const NAV = [
   { label: 'Team',          to: '/team',   icon: Users,                 module: 'team' },
   { label: 'Access',        to: '/access', icon: Shield,                module: 'team' },
   null,
+  { label: 'Issues',           to: '/issues',           icon: AlertCircle,  module: 'issue_log' },
+  { label: 'Feature requests', to: '/feature-requests', icon: Lightbulb,    module: 'feature_requests' },
+  { label: "What's new",       to: '/changelog',        icon: Newspaper,    module: 'changelog' },
+  null,
   { label: 'Documentation', to: '/docs',   icon: BookMarked,            module: 'documentation' },
   { label: 'Help',          to: '/help',   icon: HelpCircle,            module: 'documentation' },
 ]
 
 const PLATFORM_NAV = [
   { label: 'Tenants',   to: '/platform', icon: Shield },
+  { label: 'Backlog',   to: '/backlog',  icon: KanbanSquare },
 ]
 
 function NavItem({ item, open }) {
