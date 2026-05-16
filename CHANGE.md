@@ -5,6 +5,38 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-05-16 — SEO/AI discoverability, widget displacement, timeline manual mode] *(migration 055)*
+
+### SEO & AI discoverability
+- **Schema.org JSON-LD** injected on every tenant site page: `Restaurant` entity with address, geo, phone, email, opening hours, menu link, `servesCuisine`, `priceRange`; `BreadcrumbList` on location pages. Output uses `<%~ %>` raw interpolation to avoid HTML-escaping JSON.
+- **Open Graph + Twitter Card** meta tags on all pages. `og:url` and `canonical` are computed per-page (home vs location).
+- **`llms.txt`** served at `/llms.txt` on every tenant subdomain/custom domain by `siteRenderer.js` — lists site name, venue locations with addresses, booking links, custom pages, and links to `sitemap.xml` and the public JSON API. `robots.txt` references it via a comment.
+- **`robots.txt`** updated in both `siteRenderer.js` and `publicSite.js` to reference `llms.txt`.
+- **Cuisine type + price range** fields added to `website_config` (migration 055). Exposed in the Website builder SEO section as "Restaurant details for search". Wired into the JSON-LD `servesCuisine` and `priceRange` fields. Price range is a `$`/`$$`/`$$$`/`$$$$` dropdown.
+
+### Widget availability (public booking widget)
+- **Combo-to-combo displacement** in `tryDisplaceCombo`: when a conflict has no free individual table, the system now also tries free existing combinations as displacement destinations.
+- **SQL slot-availability subquery** extended to match — slots are shown as available only when every conflict on the target combo can be moved (to a free individual table OR a free combo).
+- Both changes are in `widgetApi.js`; the JS displacement logic and the SQL availability check are kept in sync.
+
+### Admin timeline cascade displacement
+- **Chain-displacement (second cascade level)** added to `PATCH /bookings/:id/relocate`. When a conflict can't find a free single table or a fully-free combination, the system now tries combinations whose occupants can each be moved to a free individual table, all in the same atomic transaction. Covers scenarios like: 4-person on T3A+T3B wants T8+T9 but T8 has a 2-person who can move to T11.
+- **Pre-configured combos bypass the non-adjacent rule** in step 3b. The adjacency rule exists to prevent auto-expansion from skipping over tables, but it shouldn't block combinations the operator explicitly created. Cross-section and disallowed-pairs rules still apply. Fixes 422 errors when table names like T3A/T3B create a sort-order gap.
+
+### Timeline manual mode
+- **Manual Mode toggle** (amber `Hand` button in the timeline sidebar). When enabled, drag-to-table calls `/relocate` with `manual_mode: true`: the allocation logic still runs (picks the right table/combo), but conflict detection and cascade displacement are skipped — the booking is placed directly, temporarily overlapping others if needed. Useful for resolving complex table puzzles by hand.
+- State persisted to `maca_timeline_prefs` localStorage.
+- Overlap stop-sign badges and red ring still show in manual mode so conflicts are visible.
+
+### Timeline long-press for stacked bookings
+- Pressing and holding a booking tile for **5 seconds** (without moving) opens the booking drawer for the tile stacked beneath it. Moving more than 8 px during the hold cancels it (drag takes over). Works on touch and mouse.
+- `overlapPeerMap` computed alongside `overlappingIds`; `overlapPeerMapRef` used as a ref bridge to avoid Temporal Dead Zone crash (memo declared ~600 lines below the callback).
+
+### Bug fixes
+- TDZ crash fix: `overlapPeerMap` referenced in `handleLongPress` before its `useMemo` declaration — fixed with a `useRef` bridge synced in render.
+
+---
+
 ## [2026-05-12 — Reservations widget rebuild + CMS polish] *(migrations 050 + 051 + 052)*
 
 A from-scratch rewrite of the public booking widget and a broad cleanup of

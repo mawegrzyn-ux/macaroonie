@@ -992,12 +992,13 @@ export default async function bookingsRoutes(app) {
            ORDER BY c.max_covers ASC
         `
         for (const combo of combos) {
-          // Cross-section rule: all members must share the same section as the target
+          // Cross-section rule still applies to pre-configured combos
           if (!crossSection && combo.section_ids.some(s => s !== targetTable.section_id)) continue
-          // Non-adjacent rule: members must form a contiguous run by sort_order index
-          if (!nonAdjacent && !isAdjacentSet(combo.table_ids)) continue
           // Disallowed pairs: skip if any member pair is blocked
           if (hasDisallowedPair(combo.table_ids)) continue
+          // Non-adjacent rule is NOT applied here — this combo was explicitly configured
+          // by the operator, so they've already decided the table set is valid regardless
+          // of physical adjacency. The non-adjacent rule only gates auto-expansion (3c).
 
           allocationTableIds = combo.table_ids
           allocationComboId  = combo.id
