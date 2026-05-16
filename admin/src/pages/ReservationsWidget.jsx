@@ -252,7 +252,7 @@ export default function ReservationsWidget() {
       {/* Confirmation page */}
       <Card title="Confirmation page"
         hint="Content shown to guests after a successful booking. Merge fields: {{reference}} {{guest_name}} {{date}} {{time}} {{covers}} {{venue_name}} {{email}}.">
-        <Field label="Heading" hint='Override "You\'re booked". Blank = default.'>
+        <Field label="Heading" hint="Override the confirmation heading. Blank = default.">
           <input className={inputClass}
             value={form.confirmation_heading || ''}
             onChange={e => set('confirmation_heading')(e.target.value)}

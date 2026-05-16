@@ -1347,7 +1347,7 @@ export function ReservationsWidgetEditor({ data, onChange, config }) {
           Blank = tenant defaults.
         </p>
         <div className="space-y-3">
-          <FormRow label="Heading" hint='Override "You\'re booked". Blank = tenant default.'>
+          <FormRow label="Heading" hint="Override the confirmation heading. Blank = tenant default.">
             <Input value={data.confirmation_heading} onChange={set('confirmation_heading')}
               placeholder={ws.confirmation_heading || "You're booked!"} />
           </FormRow>
