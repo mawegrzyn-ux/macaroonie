@@ -49,8 +49,8 @@ const DEFAULT_SETTINGS = {
   large_party_text: "Larger party? Call us — we’ll arrange combined tables.",
   debug_enabled:    false,
   // Confirmation page
-  confirmation_heading:   ‘’,
-  confirmation_body_html: ‘’,
+  confirmation_heading:   "",
+  confirmation_body_html: "",
   confirmation_ctas:      [],
 }
 
