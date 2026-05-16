@@ -1593,7 +1593,7 @@ function ContactSection({ config }) {
 
 function SeoSection({ config }) {
   const { values, set, dirty, save, reset } = useConfigFields(config,
-    ['meta_title', 'meta_description', 'og_image_url'])
+    ['meta_title', 'meta_description', 'og_image_url', 'cuisine', 'price_range'])
 
   return (
     <div className="space-y-5">
@@ -1612,6 +1612,28 @@ function SeoSection({ config }) {
         <FormRow label="Social preview image"
           hint="Shown when your URL is shared on Facebook, Twitter, iMessage, etc. 1200×630 works well.">
           <ImageField url={values.og_image_url} onChange={set('og_image_url')} />
+        </FormRow>
+      </SectionCard>
+      <SectionCard title="Restaurant details for search"
+        description="Used by Google, ChatGPT, and other AI tools to understand what this location serves.">
+        <FormRow label="Cuisine type"
+          hint="e.g. Thai, Italian, Indian, Japanese. Shown in Google search results.">
+          <TextInput value={values.cuisine || ''} onChange={set('cuisine')}
+            placeholder="e.g. Thai" maxLength={200} />
+        </FormRow>
+        <FormRow label="Price range"
+          hint="Shown in Google search results alongside your listing.">
+          <select
+            value={values.price_range || ''}
+            onChange={e => set('price_range')(e.target.value || null)}
+            className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background touch-manipulation"
+          >
+            <option value="">Not set</option>
+            <option value="$">$ — Inexpensive</option>
+            <option value="$$">$$ — Moderate</option>
+            <option value="$$$">$$$ — Expensive</option>
+            <option value="$$$$">$$$$ — Very expensive</option>
+          </select>
         </FormRow>
       </SectionCard>
       <SaveBar dirty={dirty} saving={save.isPending}

@@ -177,6 +177,8 @@ const _ldRestaurant = {
     'longitude': it.config.longitude,
   } : undefined,
   'image':    it.config.hero_image_url || it.config.og_image_url || undefined,
+  'servesCuisine': it.config.cuisine    || undefined,
+  'priceRange':    it.config.price_range || undefined,
   'openingHoursSpecification': _ohSpec.length ? _ohSpec : undefined,
   'hasMenu': (_isLoc && it.venue && it.menus && it.menus.length)
     ? it.siteUrl + '/locations/' + it.venue.slug + '/menu'
