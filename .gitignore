@@ -58,3 +58,4 @@ test-results/
 *.key
 backups/
 releases/
+.claude/
