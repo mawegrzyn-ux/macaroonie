@@ -228,6 +228,10 @@ const VenueConfigBody = z.object({
   tagline:          z.string().max(300).nullable().optional(),
   site_name:        z.string().max(200).nullable().optional(),
 
+  // SEO / AI structured data
+  cuisine:          z.string().max(200).nullable().optional(),
+  price_range:      z.string().max(20).nullable().optional(),
+
   primary_colour:   z.string().regex(HEX_COLOUR).optional(),
   secondary_colour: z.string().regex(HEX_COLOUR).nullable().optional(),
   font_family:      z.string().max(100).optional(),

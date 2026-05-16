@@ -128,15 +128,83 @@ collectBlockFonts(it.config?.page_blocks)
 const gfUrl = fontsToLoad.length
   ? `https://fonts.googleapis.com/css2?${fontsToLoad.map(f => `family=${encodeURIComponent(f)}:wght@${FONT_WEIGHTS[f]}`).join('&')}&display=swap`
   : null
+
+/* ── Page context for SEO / AI metadata ── */
+const _pageKind = (it.page && it.page.kind) || 'home'
+const _isLoc    = _pageKind === 'location'
+
+const canonicalUrl = (_isLoc && it.venue)
+  ? it.siteUrl + '/locations/' + it.venue.slug
+  : it.siteUrl + '/'
+
+const pageTitle = it.pageTitle || it.config.meta_title || it.config.site_name || it.tenant_name
+const pageDesc  = it.config.meta_description || ''
+
+/* OpeningHoursSpecification — only populated on location pages */
+const _OH_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+const _ohSpec  = []
+if (_isLoc && Array.isArray(it.opening_hours)) {
+  for (const _oh of it.opening_hours) {
+    if (!_oh.is_closed && _oh.opens_at && _oh.closes_at && _oh.day_of_week != null) {
+      _ohSpec.push({
+        '@type':     'OpeningHoursSpecification',
+        'dayOfWeek': 'https://schema.org/' + _OH_DAYS[_oh.day_of_week],
+        'opens':     String(_oh.opens_at).slice(0, 5),
+        'closes':    String(_oh.closes_at).slice(0, 5),
+      })
+    }
+  }
+}
+
+/* Restaurant JSON-LD — venue-specific on location pages, tenant-level on home */
+const _ldRestaurant = {
+  '@context':  'https://schema.org',
+  '@type':     'Restaurant',
+  'name':      (_isLoc && it.venue) ? it.venue.name : (it.config.site_name || it.tenant_name),
+  'url':       canonicalUrl,
+  'telephone': it.config.phone  || undefined,
+  'email':     it.config.email  || undefined,
+  'address': it.config.address_line1 ? {
+    '@type':           'PostalAddress',
+    'streetAddress':   [it.config.address_line1, it.config.address_line2].filter(Boolean).join(', '),
+    'addressLocality': it.config.city     || undefined,
+    'postalCode':      it.config.postcode || undefined,
+    'addressCountry':  it.config.country  || 'GB',
+  } : undefined,
+  'geo': (it.config.latitude && it.config.longitude) ? {
+    '@type':     'GeoCoordinates',
+    'latitude':  it.config.latitude,
+    'longitude': it.config.longitude,
+  } : undefined,
+  'image':    it.config.hero_image_url || it.config.og_image_url || undefined,
+  'servesCuisine': it.config.cuisine    || undefined,
+  'priceRange':    it.config.price_range || undefined,
+  'openingHoursSpecification': _ohSpec.length ? _ohSpec : undefined,
+  'hasMenu': (_isLoc && it.venue && it.menus && it.menus.length)
+    ? it.siteUrl + '/locations/' + it.venue.slug + '/menu'
+    : undefined,
+}
+
+/* BreadcrumbList — only on location pages */
+const _ldBreadcrumb = (_isLoc && it.venue) ? {
+  '@context': 'https://schema.org',
+  '@type':    'BreadcrumbList',
+  'itemListElement': [
+    { '@type': 'ListItem', 'position': 1, 'name': it.config.site_name || it.tenant_name, 'item': it.siteUrl + '/' },
+    { '@type': 'ListItem', 'position': 2, 'name': 'Locations', 'item': it.siteUrl + '/locations' },
+    { '@type': 'ListItem', 'position': 3, 'name': it.venue.name, 'item': canonicalUrl },
+  ],
+} : null
 %><!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title><%= it.pageTitle || it.config.meta_title || it.config.site_name || it.tenant_name %></title>
-  <% if (it.config.meta_description) { %>
-    <meta name="description" content="<%= it.config.meta_description %>" />
+  <title><%= pageTitle %></title>
+  <% if (pageDesc) { %>
+    <meta name="description" content="<%= pageDesc %>" />
   <% } %>
+  <link rel="canonical" href="<%= canonicalUrl %>" />
   <% if (it.config.favicon_url) { %>
     <link rel="icon" href="<%= it.config.favicon_url %>" />
   <% } %>
@@ -147,40 +215,31 @@ const gfUrl = fontsToLoad.length
     <link rel="stylesheet" href="<%= gfUrl %>" />
   <% } %>
 
-  <meta property="og:title" content="<%= it.config.meta_title || it.config.site_name || it.tenant_name %>" />
-  <meta property="og:type"  content="website" />
-  <meta property="og:url"   content="<%= it.siteUrl %>" />
-  <% if (it.config.og_image_url) { %>
-    <meta property="og:image" content="<%= it.config.og_image_url %>" />
+  <meta property="og:site_name"   content="<%= it.config.site_name || it.tenant_name %>" />
+  <meta property="og:title"       content="<%= pageTitle %>" />
+  <meta property="og:type"        content="website" />
+  <meta property="og:url"         content="<%= canonicalUrl %>" />
+  <meta property="og:locale"      content="en_GB" />
+  <% if (it.config.og_image_url || it.config.hero_image_url) { %>
+    <meta property="og:image" content="<%= it.config.og_image_url || it.config.hero_image_url %>" />
   <% } %>
-  <% if (it.config.meta_description) { %>
-    <meta property="og:description" content="<%= it.config.meta_description %>" />
+  <% if (pageDesc) { %>
+    <meta property="og:description" content="<%= pageDesc %>" />
   <% } %>
-  <meta name="twitter:card" content="summary_large_image" />
 
-  <script type="application/ld+json">
-    <%~ JSON.stringify({
-      "@context": "https://schema.org",
-      "@type":    "Restaurant",
-      "name":     it.config.site_name || it.tenant_name,
-      "url":      it.siteUrl,
-      "telephone": it.config.phone || undefined,
-      "email":     it.config.email || undefined,
-      "address":   it.config.address_line1 ? {
-        "@type":           "PostalAddress",
-        "streetAddress":   [it.config.address_line1, it.config.address_line2].filter(Boolean).join(', '),
-        "addressLocality": it.config.city || undefined,
-        "postalCode":      it.config.postcode || undefined,
-        "addressCountry":  it.config.country || 'GB',
-      } : undefined,
-      "geo": (it.config.latitude && it.config.longitude) ? {
-        "@type":     "GeoCoordinates",
-        "latitude":  it.config.latitude,
-        "longitude": it.config.longitude,
-      } : undefined,
-      "image": it.config.hero_image_url || it.config.og_image_url || undefined,
-    }) %>
-  </script>
+  <meta name="twitter:card"  content="summary_large_image" />
+  <meta name="twitter:title" content="<%= pageTitle %>" />
+  <% if (pageDesc) { %>
+    <meta name="twitter:description" content="<%= pageDesc %>" />
+  <% } %>
+  <% if (it.config.og_image_url || it.config.hero_image_url) { %>
+    <meta name="twitter:image" content="<%= it.config.og_image_url || it.config.hero_image_url %>" />
+  <% } %>
+
+  <script type="application/ld+json"><%~ JSON.stringify(_ldRestaurant) %></script>
+  <% if (_ldBreadcrumb) { %>
+  <script type="application/ld+json"><%~ JSON.stringify(_ldBreadcrumb) %></script>
+  <% } %>
 
   <%
   /* Per-template style pack — when a template has its own decoration CSS

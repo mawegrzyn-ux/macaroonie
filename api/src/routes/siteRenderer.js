@@ -278,8 +278,70 @@ export default async function siteRendererRoutes(app) {
   app.get('/robots.txt', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()
     const host = (req.hostname || req.headers.host || '').split(':')[0]
-    const base = `${env.PUBLIC_SITE_SCHEME}://${host}`
-    reply.type('text/plain').send(`User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`)
+    const base = env.PUBLIC_SITE_SCHEME + '://' + host
+    reply.type('text/plain').send(
+      'User-agent: *\nAllow: /\nSitemap: ' + base + '/sitemap.xml\n\n' +
+      '# AI/LLM readable content index\n# llms.txt: ' + base + '/llms.txt\n'
+    )
+  })
+
+  app.get('/llms.txt', async (req, reply) => {
+    if (!req.siteHost) return reply.callNotFound()
+    const bundle = await loadTenantBundle(req.siteHost)
+    if (!bundle) { reply.code(404); return 'Not found' }
+
+    const host = (req.hostname || req.headers.host || '').split(':')[0]
+    const base = env.PUBLIC_SITE_SCHEME + '://' + host
+    const ts   = bundle.tenant_site
+    const name = ts.site_name || bundle.tenant_name || ''
+    const desc = ts.meta_description || ''
+
+    const lines = []
+    lines.push('# ' + name)
+    lines.push('')
+    if (desc) {
+      lines.push('> ' + desc)
+      lines.push('')
+    }
+
+    if (bundle.venues.length) {
+      lines.push('## Locations')
+      lines.push('')
+      for (const v of bundle.venues) {
+        const addr = [v.address_line1, v.city, v.postcode].filter(Boolean).join(', ')
+        lines.push('- [' + v.name + '](' + base + '/locations/' + v.slug + ')' + (addr ? ': ' + addr : ''))
+      }
+      lines.push('')
+
+      lines.push('## Book a Table')
+      lines.push('')
+      for (const v of bundle.venues) {
+        lines.push('- [Book at ' + v.name + '](' + base + '/reservations/' + v.id + ')')
+      }
+      lines.push('')
+    }
+
+    if (!ts.hide_locations_index) {
+      lines.push('## Browse All Locations')
+      lines.push('')
+      lines.push('- ' + base + '/locations')
+      lines.push('')
+    }
+
+    if (bundle.pages.length) {
+      lines.push('## Pages')
+      lines.push('')
+      for (const p of bundle.pages) {
+        lines.push('- [' + p.title + '](' + base + '/p/' + p.slug + ')')
+      }
+      lines.push('')
+    }
+
+    lines.push('## Machine-Readable Data')
+    lines.push('')
+    lines.push('- [sitemap.xml](' + base + '/sitemap.xml)')
+
+    reply.type('text/plain').send(lines.join('\n') + '\n')
   })
 
   // ── Reservations widget — venue direct (deep link) ─────
