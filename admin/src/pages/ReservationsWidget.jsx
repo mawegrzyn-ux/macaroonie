@@ -46,7 +46,7 @@ const DEFAULT_SETTINGS = {
   cal_closed_bg:      '',
   cal_closed_fg:      '',
   cal_closed_border:  '',
-  large_party_text: ‘Larger party? Call us — we’ll arrange combined tables.’,
+  large_party_text: "Larger party? Call us — we’ll arrange combined tables.",
   debug_enabled:    false,
   // Confirmation page
   confirmation_heading:   ‘’,
