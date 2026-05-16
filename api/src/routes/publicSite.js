@@ -56,7 +56,61 @@ export default async function publicSiteRoutes(app) {
     if (!bundle) throw httpError(404, 'Site not found')
 
     const base = `${env.PUBLIC_SITE_SCHEME}://${req.params.slug}.${env.PUBLIC_ROOT_DOMAIN}`
-    const body = `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n`
+    const body = `User-agent: *\nAllow: /\nSitemap: ${base}/sitemap.xml\n\n# AI/LLM readable content index\n# llms.txt: ${base}/llms.txt\n`
     reply.type('text/plain').send(body)
+  })
+
+  // ── GET /api/site/:slug/llms.txt ─────────────────────────
+  app.get('/:slug/llms.txt', async (req, reply) => {
+    const bundle = await loadTenantBundle(req.params.slug)
+    if (!bundle) throw httpError(404, 'Site not found')
+
+    const base = `${env.PUBLIC_SITE_SCHEME}://${req.params.slug}.${env.PUBLIC_ROOT_DOMAIN}`
+    const ts   = bundle.tenant_site
+    const name = ts.site_name || bundle.tenant_name || ''
+    const desc = ts.meta_description || ''
+
+    const lines = []
+    lines.push(`# ${name}`)
+    lines.push('')
+    if (desc) { lines.push(`> ${desc}`); lines.push('') }
+
+    if (bundle.venues.length) {
+      lines.push('## Locations')
+      lines.push('')
+      for (const v of bundle.venues) {
+        const addr = [v.address_line1, v.city, v.postcode].filter(Boolean).join(', ')
+        lines.push(`- [${v.name}](${base}/locations/${v.slug})${addr ? ': ' + addr : ''}`)
+      }
+      lines.push('')
+      lines.push('## Book a Table')
+      lines.push('')
+      for (const v of bundle.venues) {
+        lines.push(`- [Book at ${v.name}](${base}/reservations/${v.id})`)
+      }
+      lines.push('')
+    }
+
+    if (!ts.hide_locations_index) {
+      lines.push('## Browse All Locations')
+      lines.push('')
+      lines.push(`- ${base}/locations`)
+      lines.push('')
+    }
+
+    if (bundle.pages.length) {
+      lines.push('## Pages')
+      lines.push('')
+      for (const p of bundle.pages) {
+        lines.push(`- [${p.title}](${base}/p/${p.slug})`)
+      }
+      lines.push('')
+    }
+
+    lines.push('## Machine-Readable Data')
+    lines.push('')
+    lines.push(`- [sitemap.xml](${base}/sitemap.xml)`)
+
+    reply.type('text/plain').send(lines.join('\n') + '\n')
   })
 }
