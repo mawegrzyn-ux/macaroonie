@@ -439,6 +439,9 @@ export default function Timeline() {
   // Set to true by the resize pointerup handler so the subsequent click event
   // on the booking card does not open the drawer after a resize drag.
   const wasResizingRef  = useRef(false)
+  // Ref bridge for overlapPeerMap — avoids TDZ since the useMemo declaring it
+  // lives ~600 lines below handleLongPress. Synced in render, read in handler.
+  const overlapPeerMapRef = useRef(new Map())
 
   // Wrapper used as onBookingClick — swallows the first click that follows a resize.
   const handleBookingClick = useCallback((booking) => {
@@ -446,11 +449,13 @@ export default function Timeline() {
     setSelected(booking)
   }, [])
 
-  // Long-press (5 s hold) on a stacked booking → open the peer booking beneath
+  // Long-press (5 s hold) on a stacked booking → open the peer booking beneath.
+  // Reads overlapPeerMapRef rather than the memo value directly to avoid TDZ
+  // (the memo is declared hundreds of lines below this callback).
   const handleLongPress = useCallback((booking) => {
-    const peer = overlapPeerMap.get(booking.id)
+    const peer = overlapPeerMapRef.current.get(booking.id)
     if (peer) setSelected(peer)
-  }, [overlapPeerMap])
+  }, [])
 
   const onPanelResizeStart = useCallback((e) => {
     e.preventDefault()
@@ -1046,6 +1051,7 @@ export default function Timeline() {
     }
     return { overlappingIds: ids, overlapPeerMap: peerMap }
   }, [bookingsRes])
+  overlapPeerMapRef.current = overlapPeerMap
 
   const activeBooking = useMemo(() =>
     bookingsRes.find(b => b.id === activeId), [bookingsRes, activeId])
