@@ -9,7 +9,7 @@ import {
   LogOut, LayoutTemplate, Menu, X,
   BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
-  Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand,
+  Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand, MessageSquare,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -54,6 +54,7 @@ const NAV = [
   { label: 'Reservations widget', to: '/reservations-widget', icon: LayoutTemplate, module: 'website' },
   { label: 'Menus',       to: '/menus',       icon: ChefHat,            module: 'menus' },
   { label: 'Media',       to: '/media',       icon: FolderOpen,         module: 'website' },
+  { label: 'Reviews',     to: '/reviews',     icon: MessageSquare,      module: 'website' },
   { label: 'Cash Recon',  to: '/cash-recon',       icon: Wallet,        module: 'cash_recon' },
   { label: 'Emails',      to: '/email-templates', icon: Mail,           module: 'email_templates' },
   { label: 'Email monitor', to: '/email-monitoring', icon: Activity,    module: 'email_templates' },

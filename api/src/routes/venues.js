@@ -14,6 +14,7 @@ const VenueBody = z.object({
   currency:         z.string().length(3).default('GBP'),
   zero_cap_display: z.enum(['hidden', 'unavailable']).default('hidden'),
   is_active:        z.boolean().default(true),
+  google_place_id:  z.string().max(500).nullable().optional(),
 })
 
 const SectionBody = z.object({
@@ -66,9 +67,10 @@ export default async function venuesRoutes(app) {
   app.post('/', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = VenueBody.parse(req.body)
     const [venue] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO venues (tenant_id, name, slug, timezone, currency, zero_cap_display, is_active)
+      INSERT INTO venues (tenant_id, name, slug, timezone, currency, zero_cap_display, is_active, google_place_id)
       VALUES (${req.tenantId}, ${body.name}, ${body.slug}, ${body.timezone},
-              ${body.currency}, ${body.zero_cap_display}, ${body.is_active})
+              ${body.currency}, ${body.zero_cap_display}, ${body.is_active},
+              ${body.google_place_id ?? null})
       RETURNING *
     `)
     return reply.code(201).send(venue)

@@ -247,6 +247,7 @@ export const BLOCKS = [
     defaultData: {
       heading:  '',
       bg_style: 'primary',         // primary | accent | dark | surface
+      source:   'static',          // static | db
       items: [
         { stars: 5, text: 'A short, warm review goes here.', attr: 'Customer name, location' },
       ],

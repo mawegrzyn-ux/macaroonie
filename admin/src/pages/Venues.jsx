@@ -18,6 +18,7 @@ const VenueSchema = z.object({
   currency:         z.string().length(3, 'Must be 3 characters'),
   zero_cap_display: z.enum(['hidden', 'unavailable']),
   is_active:        z.boolean(),
+  google_place_id:  z.string().max(500).nullable().optional(),
 })
 
 const TIMEZONES = [
@@ -88,6 +89,11 @@ function VenueForm({ venue, onSave, onCancel }) {
           <option value="hidden">Hidden from widget</option>
           <option value="unavailable">Shown as unavailable</option>
         </select>
+      </Field>
+
+      <Field label="Google Place ID (for review scraper)">
+        <input {...register('google_place_id')} className={inp} placeholder="ChIJxxxxxxxx… or Google Maps URL" />
+        <p className="text-xs text-muted-foreground mt-0.5">Find it by searching the venue on Google Maps → Share → copy the link, or use the Place ID Finder at developers.google.com/maps/documentation/javascript/examples/places-placeid-finder</p>
       </Field>
 
       <label className="flex items-center gap-2 text-sm cursor-pointer">
