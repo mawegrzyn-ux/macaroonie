@@ -94,7 +94,7 @@ const _calClosedBg   = _pickStr(_wc.calClosedBg,   _wd.cal_closed_bg,   null)
 const _calClosedFg   = _pickStr(_wc.calClosedFg,   _wd.cal_closed_fg,   null)
 const _calClosedBorder = _pickStr(_wc.calClosedBorder, _wd.cal_closed_border, null)
 const _largePartyTxt = _pickStr (_wc.largePartyText, _wd.large_party_text,
-  ‘Larger party? Call us — we’ll arrange combined tables.’)
+  "Larger party? Call us — we’ll arrange combined tables.")
 const _debugEnabled  = _pickBool(_wc.debugEnabled, _wd.debug_enabled,    false)
 
 /* ── Confirmation page ─────────────────────────────────────
