@@ -35,6 +35,10 @@ import mediaRoutes          from './routes/media.js'
 import menusRoutes          from './routes/menus.js'
 import widgetApiRoutes      from './routes/widgetApi.js'
 import reviewsRoutes        from './routes/reviews.js'
+import backlogRoutes         from './routes/backlog.js'
+import issueLogRoutes        from './routes/issueLog.js'
+import featureRequestsRoutes from './routes/featureRequests.js'
+import changelogRoutes       from './routes/changelog.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -149,6 +153,10 @@ export async function buildApp() {
   await app.register(menusRoutes,            { prefix: '/api/menus' })
   await app.register(widgetApiRoutes,        { prefix: '/widget-api' })
   await app.register(reviewsRoutes,          { prefix: '/api/reviews' })
+  await app.register(backlogRoutes,          { prefix: '/api/backlog' })
+  await app.register(issueLogRoutes,         { prefix: '/api/issues' })
+  await app.register(featureRequestsRoutes,  { prefix: '/api/feature-requests' })
+  await app.register(changelogRoutes,        { prefix: '/api/changelog' })
   await app.register(manageBookingRoutes, { prefix: '/manage' })
 
   // ── Health check ─────────────────────────────────────────

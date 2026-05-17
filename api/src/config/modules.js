@@ -135,6 +135,27 @@ export const MODULES = [
     description: 'Operator user guide and developer docs.',
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'view' },
   },
+  {
+    key:    'issue_log',
+    label:  'Issue log',
+    group:  'support',
+    description: 'ITIL-style incident and problem tracking.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
+  {
+    key:    'feature_requests',
+    label:  'Feature requests',
+    group:  'support',
+    description: 'Submit and upvote feature requests.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
+  {
+    key:    'changelog',
+    label:  'Changelog',
+    core:   true,
+    description: 'Platform release notes and feature updates.',
+    default: { owner: 'view', admin: 'view', operator: 'view', viewer: 'view' },
+  },
 ]
 
 export const MODULE_KEYS = MODULES.map(m => m.key)
@@ -180,6 +201,12 @@ export const MODULE_GROUPS = [
     label:  'Cash reconciliation',
     description: 'Daily close-out, weekly grid, service-charge sources.',
     moduleKeys: ['cash_recon'],
+  },
+  {
+    key:    'support',
+    label:  'Support & roadmap',
+    description: 'Issue tracking, feature requests, and changelog.',
+    moduleKeys: ['issue_log', 'feature_requests'],
   },
 ]
 
