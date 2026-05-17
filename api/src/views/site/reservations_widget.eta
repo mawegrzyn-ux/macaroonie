@@ -202,10 +202,9 @@ const _accentEffective = _btnBg || it.accent
       --r-radius:        <%= _cardRadius %>px;
       --r-btn-radius:    <%= _btnRadius %>px;
       --r-btn-fg:        <%= _btnFg %>;
-      /* Per-element fonts. Use raw output (<%~ %>) NOT <%= %> — Eta's
-         autoEscape turns the embedded `"` quotes into `&quot;` which is
-         invalid CSS and silently falls every font-family back to system-ui.
-         This was THE bug behind "fonts don't apply" for weeks. */
+      /* Per-element fonts: use raw Eta output, not auto-escaped output.
+         Auto-escape converts embedded double-quotes to &quot; which is
+         invalid CSS and silently falls back to system-ui for every font. */
       --r-font-cal:  <%~ _calFfCss %>;
       --r-font-slot: <%~ _slotFfCss %>;
       --r-cal-size:  <%= _calFontSize %>px;
