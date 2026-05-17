@@ -998,7 +998,7 @@ const _accentEffective = _btnBg || it.accent
       function renderConfirmed(root) {
         var b = state.booking || {};
         root.appendChild(el(‘div’, { class: ‘rcenter’ }, el(‘span’, { class: ‘rcheck’ }, ‘✓’)));
-        root.appendChild(el(‘h2’, { class: ‘rcenter’, style: ‘margin:0 0 6px;font-size:20px;’ }, CONFIRM_HEADING || ‘You’re booked’));
+        root.appendChild(el(‘h2’, { class: ‘rcenter’, style: ‘margin:0 0 6px;font-size:20px;’ }, CONFIRM_HEADING || "You’re booked"));
         root.appendChild(el(‘p’, { class: ‘rsub rcenter’ }, ‘Reference: ‘ + (b.reference || ‘—‘)));
         root.appendChild(el(‘div’, { class: ‘rsummary’, style: ‘margin-top:16px’ },
           MODE === ‘tenant’ && state.venue
