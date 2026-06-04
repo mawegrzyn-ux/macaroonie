@@ -148,7 +148,7 @@ export default function AppShell() {
   const isPlatformAdmin   = me?.is_platform_admin
   const availableTenants  = me?.available_tenants ?? []
   const currentTenant     = me?.current_tenant
-  const hasMultipleTenants = availableTenants.length > 1
+  const hasTenants        = availableTenants.length > 0
 
   // Org switch: re-authenticate with a different organization
   const { loginWithRedirect } = useAuth0()
@@ -215,29 +215,39 @@ export default function AppShell() {
           )}
         </div>
 
-        {/* Org switcher — shown when user has multiple tenants */}
-        {open && hasMultipleTenants && (
+        {/* Org switcher — shown when user has at least one tenant available */}
+        {open && hasTenants && (
           <div className="shrink-0 px-3 py-2 border-b">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
               Tenant
             </p>
+            {!currentTenant && (
+              <p className="text-[11px] text-amber-600 mb-1 font-medium">No tenant selected — pick one below</p>
+            )}
             <select
               value={currentTenant?.id || ''}
               onChange={e => switchTenant(e.target.value)}
-              className="w-full text-xs border rounded px-2 py-1.5 bg-background touch-manipulation min-h-[36px]"
+              className={cn(
+                'w-full text-xs border rounded px-2 py-1.5 bg-background touch-manipulation min-h-[36px]',
+                !currentTenant && 'border-amber-400',
+              )}
             >
+              {!currentTenant && <option value="">— select tenant —</option>}
               {availableTenants.map(t => (
                 <option key={t.id} value={t.id}>{t.name}</option>
               ))}
             </select>
           </div>
         )}
-        {!open && hasMultipleTenants && (
+        {!open && hasTenants && (
           <div className="shrink-0 border-b flex justify-center py-1.5">
             <button
               onClick={() => setOpen(true)}
-              title={`Switch tenant (${currentTenant?.name || ''})`}
-              className="p-2 rounded hover:bg-accent text-muted-foreground"
+              title={currentTenant ? `Tenant: ${currentTenant.name}` : 'No tenant selected — click to switch'}
+              className={cn(
+                'p-2 rounded',
+                !currentTenant ? 'text-amber-500 hover:bg-amber-50' : 'hover:bg-accent text-muted-foreground',
+              )}
             >
               <ChevronDown className="w-4 h-4" />
             </button>
@@ -463,7 +473,11 @@ export default function AppShell() {
               />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium truncate">{user?.name}</p>
-                <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+                {currentTenant ? (
+                  <p className="text-xs text-muted-foreground truncate">{currentTenant.name}</p>
+                ) : (
+                  <p className="text-xs text-amber-500 truncate">No tenant</p>
+                )}
               </div>
               <button
                 onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
@@ -477,7 +491,7 @@ export default function AppShell() {
             <button
               onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
               className="w-full flex justify-center p-2 rounded hover:bg-accent text-muted-foreground"
-              title="Sign out"
+              title={`Sign out${currentTenant ? ` (${currentTenant.name})` : ''}`}
             >
               <LogOut className="w-4 h-4" />
             </button>
