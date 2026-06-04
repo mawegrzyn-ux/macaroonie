@@ -5,6 +5,36 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-06-04 — Reviews, dev tools, widget hold fixes, curly-quote crash fix] *(migrations 053 + 054 + 056 + 057)*
+
+### Reviews system *(migration 056)*
+- New `reviews` table with RLS. Three ingestion paths: Apify Google scraper, manual entry, CSV import.
+- `POST /api/reviews/scrape` enqueues a BullMQ job (`reviewScrapeWorker.js`) that calls the Apify API via `apifySvc.js`.
+- Moderation: `is_approved` + `is_featured` flags. Bulk-approve endpoint.
+- Admin page at `/reviews` (sidebar nav) with filter/sort and stats card.
+- `google_place_id` column added to venues. Requires `APIFY_API_TOKEN` env var.
+
+### Dev tools *(migration 057)*
+- **Backlog** (`/backlog`, platform-admin only) — 5-column Kanban with @dnd-kit drag between columns. Types: epic/story/task/bug/spike. Priority + story points.
+- **Issue log** (`/issues`, tenant-facing) — ITIL-style tickets. Impact × urgency auto-derives P1–P4 priority. Platform admin can update status, resolve, and promote to backlog.
+- **Feature requests** (`/feature-requests`, tenant-facing) — upvote toggle (cross-tenant `feature_request_upvotes` table). Platform admin sets lifecycle status and can promote to backlog.
+- **Changelog** (`/changelog`, all users) — timeline list. Platform admin publish/unpublish. Tenants see published entries only.
+- Three new modules: `issue_log` + `feature_requests` (group: support), `changelog` (core: true).
+
+### Widget booking hold fixes *(migrations 053 + 054)*
+- Migration 053: `booking_holds.table_id` made nullable — public widget holds are venue-level (no per-table selection) and were failing the NOT NULL constraint on every attempt.
+- Migration 054: `confirm_hold()` rewritten — status check now excludes `no_show` + `checked_out`; for combination holds all member tables are verified, not just the first.
+
+### Widget confirmation page
+- Configurable heading text, rich-body HTML, and up to N CTA buttons (label + URL) per widget embed.
+- Stored as `confirmHeading` / `confirmBodyHtml` / `cta_buttons[]` on block/tenant-defaults data shape.
+- Editable via TipTap WYSIWYG in the block editor and Reservations Widget settings page.
+
+### Bug fixes
+- **Curly-quote crash in `reservations_widget.eta`** — 153 U+2018/U+2019 typographic quote characters introduced by the Edit tool during confirmation-page development caused recurring "Bad template syntax — Invalid or unexpected token" 500 errors. Four characters were inside the server-side `<% %>` block (lines 105, 106, 115, 116), breaking Eta/V8 on every widget render. Fixed via Python byte-level global replacement.
+
+---
+
 ## [2026-05-16 — SEO/AI discoverability, widget displacement, timeline manual mode] *(migration 055)*
 
 ### SEO & AI discoverability

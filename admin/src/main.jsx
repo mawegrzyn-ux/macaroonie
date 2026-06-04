@@ -35,6 +35,8 @@ import Backlog         from '@/pages/Backlog'
 import IssueLog        from '@/pages/IssueLog'
 import FeatureRequests from '@/pages/FeatureRequests'
 import Changelog       from '@/pages/Changelog'
+import OrderSheets         from '@/pages/OrderSheets'
+import OrderSheetTemplates from '@/pages/OrderSheetTemplates'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -130,6 +132,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="issues"             element={<IssueLog />} />
                 <Route path="feature-requests"   element={<FeatureRequests />} />
                 <Route path="changelog"          element={<Changelog />} />
+                <Route path="order-sheets"           element={<OrderSheets />} />
+                <Route path="order-sheets/templates" element={<OrderSheetTemplates />} />
                 <Route path="docs"               element={<Docs />} />
                 <Route path="help"        element={<Help />} />
                 <Route path="settings"    element={<Settings />} />

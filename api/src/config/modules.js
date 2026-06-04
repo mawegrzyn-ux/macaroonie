@@ -156,6 +156,13 @@ export const MODULES = [
     description: 'Platform release notes and feature updates.',
     default: { owner: 'view', admin: 'view', operator: 'view', viewer: 'view' },
   },
+  {
+    key:    'order_sheets',
+    label:  'Order sheets',
+    group:  'order_sheets',
+    description: 'Supplier order templates and order preparation workflow.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
 ]
 
 export const MODULE_KEYS = MODULES.map(m => m.key)
@@ -207,6 +214,12 @@ export const MODULE_GROUPS = [
     label:  'Support & roadmap',
     description: 'Issue tracking, feature requests, and changelog.',
     moduleKeys: ['issue_log', 'feature_requests'],
+  },
+  {
+    key:    'order_sheets',
+    label:  'Order sheets',
+    description: 'Build and manage supplier order sheets.',
+    moduleKeys: ['order_sheets'],
   },
 ]
 
