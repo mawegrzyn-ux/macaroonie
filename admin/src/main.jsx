@@ -45,6 +45,11 @@ const queryClient = new QueryClient({
   },
 })
 
+// Persisted so that after Auth0 redirects back from an invitation acceptance
+// (without the original ?invitation=...&organization=... params), the fallback
+// loginWithRedirect still scopes the login to the correct org.
+const ORG_HINT_KEY = 'maca_auth0_org_hint'
+
 function RequireAuth({ children }) {
   const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
 
@@ -70,12 +75,21 @@ function RequireAuth({ children }) {
   // Handle invitation links even if a session already exists — the
   // invitation acceptance must run regardless of current auth state.
   if (hasInviteParams) {
+    // Persist so the fallback loginWithRedirect below uses this org if
+    // Auth0 comes back without establishing a session in the first trip.
+    try { localStorage.setItem(ORG_HINT_KEY, organization) } catch {}
     loginWithRedirect({ authorizationParams: { invitation, organization } })
     return null
   }
 
   if (!isAuthenticated) {
-    loginWithRedirect()
+    // Prefer the explicit env-var org, then the org saved from the last
+    // invitation link. This ensures users who accepted an invite and were
+    // redirected back without a live session still land in the right org.
+    const orgHint =
+      import.meta.env.VITE_AUTH0_ORG_ID ||
+      (() => { try { return localStorage.getItem(ORG_HINT_KEY) } catch { return null } })()
+    loginWithRedirect(orgHint ? { authorizationParams: { organization: orgHint } } : {})
     return null
   }
   return children
