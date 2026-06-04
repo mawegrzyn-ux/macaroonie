@@ -1987,6 +1987,113 @@ export default function Help() {
           </section>
 
           {/* ── FAQ ───────────────────────────────────────── */}
+          <section id="reviews" data-help="">
+            <H2>Reviews</H2>
+            <P>
+              The Reviews page (<strong>sidebar nav</strong>) lets you collect, moderate, and showcase
+              guest reviews from Google (via automated scraping) or add them manually.
+            </P>
+            <H3>Importing reviews</H3>
+            <DataTable
+              head={['Method', 'How']}
+              rows={[
+                ['Google scrape', 'Enter a Google Place ID on the Venue settings page, then click Scrape Google Reviews on the Reviews page. The job runs in the background via Apify — results appear within a minute or two. Requires an APIFY_API_TOKEN to be configured on the server.'],
+                ['Manual entry', 'Click Add review, fill in the reviewer name, rating, text, and date. Useful for reviews collected by phone or in person.'],
+                ['CSV import', 'Upload a CSV with columns: reviewer_name, rating, review_text, review_date. Platform admin can provide a template.'],
+              ]}
+            />
+            <H3>Moderation</H3>
+            <P>
+              New reviews (scraped or imported) start as <strong>unapproved</strong>. Approved reviews can
+              be shown in the Reviews Band block on your public site. Featured reviews are highlighted at
+              the top of the block. Use <strong>Bulk approve</strong> to approve multiple at once after
+              a scrape.
+            </P>
+            <InfoBox type="tip">
+              The Reviews Band block on your site automatically pulls from your approved (and optionally
+              featured) reviews — no copy-paste required.
+            </InfoBox>
+          </section>
+
+          <section id="issues" data-help="">
+            <H2>Issue Log</H2>
+            <P>
+              The Issue Log (<strong>sidebar nav</strong>) is your ITIL-style incident and service request
+              tracker. Use it to report bugs, outages, change requests, or service needs. Platform admin
+              can acknowledge, update, and resolve issues, and can promote them to the development backlog.
+            </P>
+            <H3>Priority matrix</H3>
+            <P>
+              Priority is calculated automatically from <strong>Impact</strong> and <strong>Urgency</strong>:
+            </P>
+            <DataTable
+              head={['Impact', 'Urgency', 'Priority']}
+              rows={[
+                ['Critical', 'Critical', 'P1 — Critical'],
+                ['Critical / High', 'High / Critical', 'P2 — High'],
+                ['Medium or mixed', 'Medium or mixed', 'P3 — Medium'],
+                ['Low', 'Low', 'P4 — Low'],
+              ]}
+            />
+            <H3>Categories</H3>
+            <DataTable
+              head={['Category', 'When to use']}
+              rows={[
+                ['Incident', 'Something is broken or degraded right now.'],
+                ['Problem', 'Root cause investigation of recurring incidents.'],
+                ['Change request', 'Planned modification to the system.'],
+                ['Service request', 'Routine request (e.g. account changes, access).'],
+              ]}
+            />
+            <H3>Lifecycle</H3>
+            <P>
+              Issues move through: <strong>New</strong> → <strong>Acknowledged</strong> → <strong>In
+              progress</strong> → <strong>Resolved</strong> → <strong>Closed</strong>. Platform admin
+              adds resolution notes when closing. Issues can be promoted to a backlog item if
+              development work is needed.
+            </P>
+          </section>
+
+          <section id="feature-requests" data-help="">
+            <H2>Feature Requests</H2>
+            <P>
+              The Feature Requests page (<strong>sidebar nav</strong>) is a shared wishlist across all
+              tenants. Submit requests, upvote existing ones, and track progress as platform admin moves
+              items through their lifecycle.
+            </P>
+            <H3>Upvoting</H3>
+            <P>
+              Click the upvote button on any request to add your vote. Click again to remove it. Your
+              votes are tied to your account. The upvote count is visible to all tenants — popular
+              requests get prioritised.
+            </P>
+            <H3>Lifecycle statuses</H3>
+            <DataTable
+              head={['Status', 'Meaning']}
+              rows={[
+                ['Submitted', 'Received, not yet reviewed.'],
+                ['Under review', 'Platform admin is evaluating feasibility.'],
+                ['Planned', 'Accepted, will be built in a future sprint.'],
+                ['In progress', 'Currently being built.'],
+                ['Shipped', 'Deployed and available.'],
+                ['Declined', 'Not going ahead — see admin notes for reason.'],
+              ]}
+            />
+          </section>
+
+          <section id="changelog" data-help="">
+            <H2>What is new</H2>
+            <P>
+              The <strong>What is new</strong> page (<strong>sidebar nav</strong>) shows a timeline of
+              platform updates, new features, and bug fixes published by the platform team. Each entry
+              has a title, date, category (feature / fix / improvement / deprecation), and description.
+            </P>
+            <P>
+              New entries are published by platform admin — they appear automatically for all tenants
+              as soon as they are published. Unpublished drafts are only visible to platform admin.
+            </P>
+          </section>
+
           <section id="faq" data-help="">
             <H2>FAQ &amp; Troubleshooting</H2>
             <div className="space-y-4">

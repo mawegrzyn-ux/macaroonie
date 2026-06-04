@@ -865,6 +865,59 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/:id/export', 'admin', 'GDPR data export — returns a JSON file download with customer + all booking records.'],
               ]}
             />
+
+            <H3>Reviews — <span className="font-mono font-normal text-sm">/api/reviews</span></H3>
+            <P>
+              Tenant-scoped via RLS. Three ingestion paths: Apify Google scraper, manual entry, CSV
+              import. Requires <Mono>APIFY_API_TOKEN</Mono> env var for scraping. Google Place ID
+              stored on the venue row (<Mono>google_place_id</Mono>). Migration 056.
+            </P>
+            <DataTable
+              head={['Method', 'Path', 'Min role', 'Description']}
+              rows={[
+                ['GET', '/', 'operator', 'List reviews. Filter by venue_id, platform, is_approved, is_featured, source, rating.'],
+                ['GET', '/stats', 'operator', 'Aggregate stats — total/approved/featured counts + average rating, broken down by venue.'],
+                ['GET', '/scrape-jobs', 'admin', 'Recent Apify scrape jobs and their status.'],
+                ['GET', '/:id', 'operator', 'Single review detail.'],
+                ['POST', '/', 'operator', 'Create a manual review.'],
+                ['PATCH', '/:id', 'operator', 'Update review fields (approve, feature, edit text, add reply).'],
+                ['DELETE', '/:id', 'admin', 'Delete a review permanently.'],
+                ['POST', '/bulk-approve', 'admin', 'Approve multiple reviews by ID array.'],
+                ['POST', '/scrape', 'admin', 'Enqueue an Apify Google scrape job for a venue. Requires google_place_id on the venue.'],
+                ['POST', '/import-csv', 'admin', 'Import reviews from a CSV upload (reviewer_name, rating, review_text, review_date columns).'],
+              ]}
+            />
+
+            <H3>Dev tools — <span className="font-mono font-normal text-sm">/api/backlog | /api/issues | /api/feature-requests | /api/changelog</span></H3>
+            <P>
+              Platform-internal tools for tracking development work and communicating with tenants.
+              Migration 057. New modules: <Mono>issue_log</Mono> + <Mono>feature_requests</Mono>
+              (group: support), <Mono>changelog</Mono> (core).
+            </P>
+            <DataTable
+              head={['Route', 'Auth', 'Description']}
+              rows={[
+                ['/api/backlog GET /', 'platform admin', 'List all backlog items grouped by status column.'],
+                ['/api/backlog POST /', 'platform admin', 'Create backlog item (title, type, priority, story_points, labels).'],
+                ['/api/backlog PATCH /:id', 'platform admin', 'Update item fields.'],
+                ['/api/backlog DELETE /:id', 'platform admin', 'Delete item.'],
+                ['/api/backlog PATCH /:id/move', 'platform admin', 'Move item to a new status column (Kanban drag).'],
+                ['/api/issues GET /', 'tenant', 'List issues for tenant. Platform admin sees all tenants.'],
+                ['/api/issues POST /', 'tenant', 'Create issue. Priority auto-derived from impact × urgency matrix.'],
+                ['/api/issues PATCH /:id', 'tenant / platform', 'Update issue. Platform admin can update status, resolution_notes, promoted_to_backlog_id.'],
+                ['/api/issues POST /:id/promote', 'platform admin', 'Promote issue to backlog — creates a backlog_item and links it.'],
+                ['/api/feature-requests GET /', 'tenant', 'List feature requests. Includes upvoted_by_me flag per request.'],
+                ['/api/feature-requests POST /', 'tenant', 'Submit a feature request.'],
+                ['/api/feature-requests PATCH /:id', 'platform admin', 'Update status, admin_notes.'],
+                ['/api/feature-requests POST /:id/upvote', 'tenant', 'Toggle upvote (insert or delete from feature_request_upvotes).'],
+                ['/api/feature-requests POST /:id/promote', 'platform admin', 'Promote to backlog item.'],
+                ['/api/changelog GET /', 'any', 'List changelog entries. Tenants see published only; platform admin sees all.'],
+                ['/api/changelog POST /', 'platform admin', 'Create a changelog entry (draft by default).'],
+                ['/api/changelog PATCH /:id', 'platform admin', 'Update entry fields.'],
+                ['/api/changelog DELETE /:id', 'platform admin', 'Delete entry.'],
+                ['/api/changelog PATCH /:id/publish', 'platform admin', 'Publish or unpublish a changelog entry.'],
+              ]}
+            />
           </section>
 
           {/* ── WEBSITE CMS ───────────────────────────────── */}
