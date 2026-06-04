@@ -312,6 +312,49 @@ export default async function teamRoutes(app) {
     return { ok: true }
   })
 
+  // ── POST /team/:userId/resend-invite ────────────────────
+  // Creates a fresh Auth0 org invitation for a pending user
+  // (auth0_user_id IS NULL). Returns the invitation URL so the
+  // admin can copy-paste it if email delivery is unreliable.
+  app.post('/:userId/resend-invite', {
+    preHandler: requireRole('owner'),
+  }, async (req, reply) => {
+    if (!req.tenantId)   throw httpError(400, 'No tenant context')
+    if (!req.auth0OrgId) throw httpError(400, 'Tenant has no Auth0 org configured')
+    if (!auth0CanInvite()) throw httpError(503, 'Auth0 invitations not configured')
+
+    const [target] = await withTenant(req.tenantId, tx => tx`
+      SELECT email, full_name, role FROM users
+       WHERE id = ${req.params.userId} AND tenant_id = ${req.tenantId}
+         AND auth0_user_id IS NULL
+    `)
+    if (!target) throw httpError(404, 'User not found or already accepted invite')
+
+    let inviterName = null
+    if (req.user.sub) {
+      const [me] = await withTenant(req.tenantId, tx => tx`
+        SELECT full_name, email FROM users WHERE auth0_user_id = ${req.user.sub}
+      `)
+      inviterName = me?.full_name || me?.email || null
+    }
+
+    try {
+      const invitation = await inviteUserToOrg({
+        orgId:       req.auth0OrgId,
+        email:       target.email,
+        role:        target.role,
+        inviterName,
+      })
+      return reply.send({
+        ok: true,
+        invitation: { id: invitation.id, url: invitation.invitation_url, expires_at: invitation.expires_at },
+      })
+    } catch (err) {
+      req.log.warn({ err: err.message }, 'Auth0 resend invitation failed')
+      throw httpError(422, err.message)
+    }
+  })
+
   // ── POST /team/:userId/reset-password ───────────────────
   // Operator-triggered password reset. Auth0 emails the user a
   // one-time link to set a new password. The user does not need
