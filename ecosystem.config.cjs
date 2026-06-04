@@ -7,6 +7,7 @@ module.exports = {
     watch:              false,
     max_memory_restart: '512M',
     interpreter_args:   '--import ./api/src/preload.js',
+    env_file: './api/.env',
     env: {
       NODE_ENV: 'production',
       PORT:     3000,
