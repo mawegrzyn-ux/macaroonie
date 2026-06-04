@@ -83,12 +83,12 @@ function RequireAuth({ children }) {
   }
 
   if (!isAuthenticated) {
-    // Prefer the explicit env-var org, then the org saved from the last
-    // invitation link. This ensures users who accepted an invite and were
-    // redirected back without a live session still land in the right org.
+    // localStorage hint (written when following an invite link) takes priority
+    // over the env-var default — prevents VITE_AUTH0_ORG_ID (usually the
+    // platform/macaroonie org) from overriding the invited user's tenant org.
     const orgHint =
-      import.meta.env.VITE_AUTH0_ORG_ID ||
-      (() => { try { return localStorage.getItem(ORG_HINT_KEY) } catch { return null } })()
+      (() => { try { return localStorage.getItem(ORG_HINT_KEY) } catch { return null } })() ||
+      import.meta.env.VITE_AUTH0_ORG_ID
     loginWithRedirect(orgHint ? { authorizationParams: { organization: orgHint } } : {})
     return null
   }
@@ -110,7 +110,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         redirect_uri: window.location.origin,
         audience:     import.meta.env.VITE_AUTH0_AUDIENCE,
         scope:        'openid profile email',
-        ...(import.meta.env.VITE_AUTH0_ORG_ID ? { organization: import.meta.env.VITE_AUTH0_ORG_ID } : {}),
+        // Do NOT set organization here — it would force ALL token refreshes
+        // (including tenant users) into the platform org. The loginWithRedirect
+        // call in RequireAuth handles org selection per-user via localStorage hint.
       }}
       useRefreshTokens
       cacheLocation="localstorage"
