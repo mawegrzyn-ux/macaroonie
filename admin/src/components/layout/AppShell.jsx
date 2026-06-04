@@ -35,7 +35,7 @@ function MacaroonIcon({ className = 'w-5 h-5' }) {
   )
 }
 import { cn } from '@/lib/utils'
-import { useApi } from '@/lib/api'
+import { useApi, setPlatformTenantOverride } from '@/lib/api'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings } from '@/contexts/SettingsContext'
 
@@ -150,14 +150,21 @@ export default function AppShell() {
   const currentTenant     = me?.current_tenant
   const hasTenants        = availableTenants.length > 0
 
-  // Org switch: re-authenticate with a different organization
+  // Org switch
   const { loginWithRedirect } = useAuth0()
   function switchTenant(tenantId) {
+    if (!tenantId) return
+    if (isPlatformAdmin) {
+      // Platform admins don't need to re-authenticate via Auth0 org —
+      // we store the chosen tenant in localStorage and inject it as a
+      // header (X-Platform-Tenant) on every API request.
+      // The API only honours this for verified platform admins.
+      setPlatformTenantOverride(tenantId)
+      window.location.reload()
+      return
+    }
     const tenant = availableTenants.find(t => t.id === tenantId)
     if (!tenant) return
-    // We need the Auth0 org_id, not our internal tenant_id.
-    // For now, redirect to login with the tenant slug hint.
-    // The Auth0 Action resolves the org from the login.
     loginWithRedirect({
       authorizationParams: {
         organization: tenant.auth0_org_id || undefined,

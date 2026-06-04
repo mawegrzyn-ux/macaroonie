@@ -102,24 +102,37 @@ export async function requireAuth(req, reply) {
       tenantId = tenant?.id ?? null
     }
 
+    // Platform admin tenant override — allows a platform admin to work in a
+    // specific tenant without re-authenticating through that tenant's Auth0 org.
+    // Only honoured when the caller IS a platform admin and has no org claim.
+    if (isPlatformAdmin && !tenantId) {
+      const overrideId = req.headers['x-platform-tenant']
+      if (overrideId) {
+        const [overrideTenant] = await sql`
+          SELECT id FROM tenants WHERE id = ${overrideId} AND is_active = true LIMIT 1
+        `.catch(() => [null])
+        if (overrideTenant) tenantId = overrideTenant.id
+      }
+    }
+
     // Reconcile local user row with Auth0 identity.
     //
-    // Skipped entirely for platform admins (they don't need a tenant-scoped
-    // users row, and skipping avoids extra DB round-trips on every platform
-    // admin request).
+    // Runs for ALL authenticated users who have a tenant context —
+    // including platform admins (they may also have an invited users row
+    // in the tenant and need their auth0_user_id linked on first login).
     //
     // For tenant users:
     //   1. Already linked → bump last_login_at, use local role.
     //   2. First login after invite (auth0_user_id NULL, email matches) → link sub.
     //   3. is_active=false locally → deny.
-    //   4. No users row found after full reconcile attempt → deny (user was never
-    //      invited). This blocks auto-joined users from assign_membership_on_login.
+    //   4. No users row found after full reconcile attempt → deny non-platform-admins
+    //      (user was never invited). Platform admins operate fine without a row.
     //
     // Both reads use Promise.race timeouts so a stuck DB query can never
     // produce ERR_EMPTY_RESPONSE upstream. last_login_at is fire-and-forget.
     let dbRole = null
-    let userNotFound = false  // true when reconcile completed but found no row
-    if (!isPlatformAdmin && tenantId && auth0Sub) {
+    let userNotFound = false
+    if (tenantId && auth0Sub) {
       const withTimeout = (p, ms, label) => Promise.race([
         p,
         new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timeout`)), ms)),
@@ -151,9 +164,10 @@ export async function requireAuth(req, reply) {
           dbRole = resolved.role
           sql`UPDATE users SET last_login_at = now() WHERE id = ${resolved.id}`
             .catch(e => req.log.warn({ err: e }, 'last_login_at update failed'))
-        } else {
+        } else if (!isPlatformAdmin) {
           // Reconcile completed cleanly but no matching user row exists —
           // this user was never invited. Block them.
+          // Platform admins operate without a tenant users row — allow through.
           userNotFound = true
         }
       } catch (e) {
