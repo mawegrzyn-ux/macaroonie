@@ -602,18 +602,16 @@ export default function OrderSheets() {
   const [showNewModal, setShowNewModal]          = useState(false)
   const [filterVenueId, setFilterVenueId]        = useState('')
 
-  // Resizable panel
-  const [panelWidth, setPanelWidth] = useState(420)
+  // Resizable list panel (left side)
+  const [listWidth, setListWidth] = useState(320)
   const resizeRef = useRef(null)
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault()
     const startX     = e.clientX
-    const startWidth = panelWidth
-
+    const startWidth = listWidth
     function onMove(e2) {
-      const delta = startX - e2.clientX
-      setPanelWidth(Math.min(620, Math.max(280, startWidth + delta)))
+      setListWidth(Math.min(480, Math.max(240, startWidth + (e2.clientX - startX))))
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove)
@@ -621,7 +619,7 @@ export default function OrderSheets() {
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [panelWidth])
+  }, [listWidth])
 
   // Me query for admin check
   const { data: me } = useQuery({
@@ -678,10 +676,13 @@ export default function OrderSheets() {
     <div className="flex h-full overflow-hidden">
 
       {/* Left column */}
-      <div className={cn(
-        'flex flex-col border-r bg-background overflow-hidden',
-        selectedOrderId ? 'hidden md:flex md:w-80 lg:w-96 shrink-0' : 'flex-1',
-      )}>
+      <div
+        className={cn(
+          'flex flex-col border-r bg-background overflow-hidden',
+          selectedOrderId ? 'hidden md:flex shrink-0' : 'flex-1',
+        )}
+        style={selectedOrderId ? { width: listWidth } : undefined}
+      >
 
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
@@ -796,13 +797,7 @@ export default function OrderSheets() {
             className="hidden md:block w-1 cursor-col-resize bg-border hover:bg-primary/30 transition-colors shrink-0"
           />
 
-          <div
-            className={cn(
-              'flex flex-col bg-background overflow-hidden',
-              'flex-1 md:flex-none',
-            )}
-            style={{ width: typeof window !== 'undefined' && window.innerWidth >= 768 ? panelWidth : undefined }}
-          >
+          <div className="flex-1 flex flex-col bg-background overflow-hidden min-w-0">
             <OrderDetail
               orderId={selectedOrderId}
               isAdmin={isAdmin}
