@@ -9,7 +9,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
-  GripVertical, Plus, Trash2, X, ClipboardList, Loader2, AlertCircle,
+  GripVertical, Plus, Trash2, X, ClipboardList, Loader2,
   Check, ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -48,20 +48,30 @@ function SectionCard({ title, children, action }) {
   )
 }
 
-function SortableItemRow({ item, showPrices, onEdit, onDelete }) {
+function SortableItemRow({ item, showPrices, suggestedByVenue, assignedVenues, onEdit, onDelete }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+
+  const suggestedSummary = assignedVenues
+    .filter(v => (suggestedByVenue[v.id] ?? '') !== '' && Number(suggestedByVenue[v.id]) > 0)
+    .map(v => `${v.name}: ${suggestedByVenue[v.id]}`)
+    .join(' · ')
 
   return (
     <div ref={setNodeRef} style={style} className="flex items-center gap-2 py-2.5 border-b last:border-0">
       <button {...attributes} {...listeners} className="p-1.5 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation shrink-0">
         <GripVertical className="w-4 h-4" />
       </button>
-      <div className="flex-1 min-w-0 flex items-center gap-3">
-        <span className="text-sm font-medium truncate flex-1">{item.name}</span>
-        <span className="text-xs text-muted-foreground shrink-0">{item.unit}</span>
-        {showPrices && item.price != null && (
-          <span className="text-xs text-muted-foreground shrink-0">£{Number(item.price).toFixed(2)}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium truncate flex-1">{item.name}</span>
+          <span className="text-xs text-muted-foreground shrink-0">{item.unit}</span>
+          {showPrices && item.price != null && (
+            <span className="text-xs text-muted-foreground shrink-0">£{Number(item.price).toFixed(2)}</span>
+          )}
+        </div>
+        {suggestedSummary && (
+          <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{suggestedSummary}</p>
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
@@ -112,8 +122,6 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
   const [deleteItemId, setDeleteItemId] = useState(null)
 
   const [suggestedQtys, setSuggestedQtys] = useState({})
-  const [suggestSaved, setSuggestSaved]   = useState(false)
-  const [suggestError, setSuggestError]   = useState('')
 
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError]     = useState('')
@@ -185,8 +193,24 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
   })
 
   const editItemMutation = useMutation({
-    mutationFn: (item) => api.patch(`/order-sheets/templates/${templateId}/items/${item.id}`, { name: item.name, unit: item.unit, price: item.price ?? null }),
-    onSuccess: (updated) => { setItems(prev => prev.map(i => i.id === updated.id ? updated : i)); setEditingItem(null) },
+    mutationFn: async (item) => {
+      const updated = await api.patch(`/order-sheets/templates/${templateId}/items/${item.id}`, {
+        name: item.name, unit: item.unit, price: item.price ?? null,
+      })
+      if (assignedVenues.length > 0) {
+        const venueQtys = assignedVenues.map(v => ({
+          venue_id: v.id,
+          qty: Number((suggestedQtys[item.id] ?? {})[v.id] ?? 0) || 0,
+        }))
+        await api.put(`/order-sheets/templates/${templateId}/items/${item.id}/suggested`, { venue_qtys: venueQtys })
+      }
+      return updated
+    },
+    onSuccess: (updated) => {
+      setItems(prev => prev.map(i => i.id === updated.id ? updated : i))
+      setEditingItem(null)
+      queryClient.invalidateQueries(['order-sheets', 'templates'])
+    },
   })
 
   const deleteItemMutation = useMutation({
@@ -208,28 +232,11 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     onError: (err) => setDeleteError(err?.message ?? 'Delete failed'),
   })
 
-  async function saveSuggestedQtys() {
-    setSuggestError('')
-    try {
-      for (const item of items) {
-        const venueQtys = assignedVenues
-          .map(v => ({ venue_id: v.id, qty: Number((suggestedQtys[item.id] ?? {})[v.id] ?? 0) }))
-          .filter(v => (suggestedQtys[item.id] ?? {})[v.venue_id] !== '')
-        await api.put(`/order-sheets/templates/${templateId}/items/${item.id}/suggested`, { venue_qtys: venueQtys })
-      }
-      queryClient.invalidateQueries(['order-sheets', 'templates'])
-      setSuggestSaved(true); setTimeout(() => setSuggestSaved(false), 2000)
-    } catch (err) {
-      setSuggestError(err?.message ?? 'Save failed')
-    }
-  }
-
   function toggleDeliveryDay(day) {
     setDeliveryDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
   }
 
   const assignedVenues = allVenues.filter(v => venueIds.includes(v.id))
-  const showSuggestedSection = !isNew && assignedVenues.length > 0 && items.length > 0
 
   if (!isNew && isLoading) {
     return <div className="flex-1 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
@@ -349,22 +356,38 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
                   <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
                     {items.map(item => (
                       editingItem?.id === item.id ? (
-                        <div key={item.id} className="flex items-center gap-2 py-2.5 border-b last:border-0">
-                          <div className="p-1.5 shrink-0"><GripVertical className="w-4 h-4 text-muted-foreground opacity-30" /></div>
-                          <input type="text" value={editingItem.name} onChange={e => setEditingItem(p => ({ ...p, name: e.target.value }))}
-                            onKeyDown={e => e.key === 'Enter' && editItemMutation.mutate(editingItem)}
-                            className="flex-1 border rounded px-2 py-1.5 text-sm min-w-0 touch-manipulation" placeholder="Item name" autoFocus />
-                          <input type="text" value={editingItem.unit} onChange={e => setEditingItem(p => ({ ...p, unit: e.target.value }))}
-                            onKeyDown={e => e.key === 'Enter' && editItemMutation.mutate(editingItem)}
-                            className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Unit" />
-                          {showPrices && (
-                            <input type="number" inputMode="decimal" min="0" step="0.01" value={editingItem.price ?? ''}
-                              onChange={e => setEditingItem(p => ({ ...p, price: e.target.value !== '' ? Number(e.target.value) : null }))}
-                              onKeyDown={e => e.key === 'Enter' && editItemMutation.mutate(editingItem)}
-                              className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Price" />
+                        <div key={item.id} className="py-2.5 border-b last:border-0 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="p-1.5 shrink-0"><GripVertical className="w-4 h-4 text-muted-foreground opacity-30" /></div>
+                            <input type="text" value={editingItem.name} onChange={e => setEditingItem(p => ({ ...p, name: e.target.value }))}
+                              className="flex-1 border rounded px-2 py-1.5 text-sm min-w-0 touch-manipulation" placeholder="Item name" autoFocus />
+                            <input type="text" value={editingItem.unit} onChange={e => setEditingItem(p => ({ ...p, unit: e.target.value }))}
+                              className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Unit" />
+                            {showPrices && (
+                              <input type="number" inputMode="decimal" min="0" step="0.01" value={editingItem.price ?? ''}
+                                onChange={e => setEditingItem(p => ({ ...p, price: e.target.value !== '' ? Number(e.target.value) : null }))}
+                                className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Price" />
+                            )}
+                            <button onClick={() => editItemMutation.mutate(editingItem)} disabled={editItemMutation.isPending}
+                              className="p-2 text-primary touch-manipulation disabled:opacity-50">
+                              {editItemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                            </button>
+                            <button onClick={() => setEditingItem(null)} className="p-2 text-muted-foreground touch-manipulation"><X className="w-4 h-4" /></button>
+                          </div>
+                          {assignedVenues.length > 0 && (
+                            <div className="ml-8 flex flex-wrap gap-x-4 gap-y-1.5 items-center pb-1">
+                              <span className="text-xs text-muted-foreground font-medium shrink-0">Suggested qty:</span>
+                              {assignedVenues.map(v => (
+                                <div key={v.id} className="flex items-center gap-1.5">
+                                  <span className="text-xs text-muted-foreground">{v.name}</span>
+                                  <input type="number" inputMode="decimal" min="0" step="1"
+                                    value={(suggestedQtys[item.id] ?? {})[v.id] ?? ''}
+                                    onChange={e => setSuggestedQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [v.id]: e.target.value } }))}
+                                    className="w-16 h-8 text-center text-sm border rounded px-1 touch-manipulation" placeholder="0" />
+                                </div>
+                              ))}
+                            </div>
                           )}
-                          <button onClick={() => editItemMutation.mutate(editingItem)} className="p-2 text-primary touch-manipulation"><Check className="w-4 h-4" /></button>
-                          <button onClick={() => setEditingItem(null)} className="p-2 text-muted-foreground touch-manipulation"><X className="w-4 h-4" /></button>
                         </div>
                       ) : deleteItemId === item.id ? (
                         <div key={item.id} className="flex items-center gap-2 py-2.5 border-b last:border-0">
@@ -375,7 +398,9 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
                             className="text-xs border rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Cancel</button>
                         </div>
                       ) : (
-                        <SortableItemRow key={item.id} item={item} showPrices={showPrices} onEdit={setEditingItem} onDelete={setDeleteItemId} />
+                        <SortableItemRow key={item.id} item={item} showPrices={showPrices}
+                          suggestedByVenue={suggestedQtys[item.id] ?? {}} assignedVenues={assignedVenues}
+                          onEdit={setEditingItem} onDelete={setDeleteItemId} />
                       )
                     ))}
                   </SortableContext>
@@ -406,48 +431,6 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
                 </div>
                 {itemError && <p className="text-sm text-red-600 mt-1.5">{itemError}</p>}
               </div>
-            </div>
-          </SectionCard>
-        )}
-
-        {/* Suggested quantities */}
-        {showSuggestedSection && (
-          <SectionCard title="Suggested quantities">
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">Set a suggested quantity per item per venue to help staff when filling in orders.</p>
-              <div className="overflow-x-auto -mx-4 px-4">
-                <table className="min-w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2 pr-4 text-xs font-medium text-muted-foreground">Item</th>
-                      {assignedVenues.map(v => (
-                        <th key={v.id} className="text-center py-2 px-2 text-xs font-medium text-muted-foreground whitespace-nowrap">{v.name}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map(item => (
-                      <tr key={item.id} className="border-b last:border-0">
-                        <td className="py-2.5 pr-4 font-medium text-sm">{item.name}</td>
-                        {assignedVenues.map(venue => (
-                          <td key={venue.id} className="py-2.5 px-2 text-center">
-                            <input type="number" inputMode="decimal" min="0" step="1"
-                              value={(suggestedQtys[item.id] ?? {})[venue.id] ?? ''}
-                              onChange={e => setSuggestedQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [venue.id]: e.target.value } }))}
-                              className="w-20 h-10 text-center text-sm border rounded px-1 touch-manipulation" placeholder="0" />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {suggestError && <div className="flex items-center gap-2 text-sm text-red-600"><AlertCircle className="w-4 h-4 shrink-0" />{suggestError}</div>}
-              <button onClick={saveSuggestedQtys}
-                className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium touch-manipulation min-h-[44px]">
-                {suggestSaved ? <Check className="w-3.5 h-3.5" /> : null}
-                Save suggested quantities
-              </button>
             </div>
           </SectionCard>
         )}
@@ -516,7 +499,7 @@ export default function OrderSheetTemplates() {
   const [selectedId, setSelectedId] = useState(null)
   const [panelWidth, setPanelWidth] = useState(500)
 
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/api/me'), staleTime: 120_000 })
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
   const isAdmin = me?.role === 'admin' || me?.role === 'owner'
 
   const { data: templates = [], isLoading } = useQuery({
