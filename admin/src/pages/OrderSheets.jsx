@@ -58,7 +58,7 @@ function NewOrderModal({ onClose, onCreated }) {
 
   const { data: templates = [] } = useQuery({
     queryKey: ['order-sheets', 'templates'],
-    queryFn:  () => api.get('/api/order-sheets/templates'),
+    queryFn:  () => api.get('/order-sheets/templates'),
   })
 
   const { data: allVenues = [] } = useQuery({
@@ -76,7 +76,7 @@ function NewOrderModal({ onClose, onCreated }) {
   }, [templateId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const createMutation = useMutation({
-    mutationFn: (body) => api.post('/api/order-sheets/orders', body),
+    mutationFn: (body) => api.post('/order-sheets/orders', body),
     onSuccess: (order) => {
       queryClient.invalidateQueries(['order-sheets'])
       onCreated(order)
@@ -194,7 +194,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['order-sheets', 'orders', orderId],
-    queryFn:  () => api.get(`/api/order-sheets/orders/${orderId}`),
+    queryFn:  () => api.get(`/order-sheets/orders/${orderId}`),
     enabled:  !!orderId,
   })
 
@@ -233,13 +233,13 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
         qty: qtys[item.id] !== '' && qtys[item.id] != null ? Number(qtys[item.id]) : null,
         unit_price: item.unit_price ?? null,
       }))
-      await api.put(`/api/order-sheets/orders/${orderId}/items`, { items })
+      await api.put(`/order-sheets/orders/${orderId}/items`, { items })
       if (order?.status === 'ordering') {
         const patchBody = {}
         if (notes !== (order.notes ?? '')) patchBody.notes = notes
         if (deliveryDate !== String(order.delivery_date).slice(0, 10)) patchBody.delivery_date = deliveryDate
         if (Object.keys(patchBody).length > 0) {
-          await api.patch(`/api/order-sheets/orders/${orderId}`, patchBody)
+          await api.patch(`/order-sheets/orders/${orderId}`, patchBody)
         }
       }
     },
@@ -259,15 +259,15 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
           qty: qtys[item.id] !== '' && qtys[item.id] != null ? Number(qtys[item.id]) : null,
           unit_price: item.unit_price ?? null,
         }))
-        await api.put(`/api/order-sheets/orders/${orderId}/items`, { items })
+        await api.put(`/order-sheets/orders/${orderId}/items`, { items })
         const patchBody = {}
         if (notes !== (order.notes ?? '')) patchBody.notes = notes
         if (deliveryDate !== String(order.delivery_date).slice(0, 10)) patchBody.delivery_date = deliveryDate
         if (Object.keys(patchBody).length > 0) {
-          await api.patch(`/api/order-sheets/orders/${orderId}`, patchBody)
+          await api.patch(`/order-sheets/orders/${orderId}`, patchBody)
         }
       }
-      return api.patch(`/api/order-sheets/orders/${orderId}/status`, { status: newStatus })
+      return api.patch(`/order-sheets/orders/${orderId}/status`, { status: newStatus })
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['order-sheets'])
@@ -277,7 +277,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: () => api.delete(`/api/order-sheets/orders/${orderId}`),
+    mutationFn: () => api.delete(`/order-sheets/orders/${orderId}`),
     onSuccess: () => {
       queryClient.invalidateQueries(['order-sheets'])
       onDeleted?.()
@@ -614,7 +614,7 @@ export default function OrderSheets() {
   const statusParam = selectedStatuses.join(',')
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ['order-sheets', 'orders', statusParam],
-    queryFn:  () => api.get(`/api/order-sheets/orders?status=${encodeURIComponent(statusParam)}`),
+    queryFn:  () => api.get(`/order-sheets/orders?status=${encodeURIComponent(statusParam)}`),
   })
 
   // Status counts from query (approx — refetches when filter changes)

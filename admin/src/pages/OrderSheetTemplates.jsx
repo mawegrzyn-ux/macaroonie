@@ -119,7 +119,7 @@ function TemplateEditor({ templateId, onClose, onSaved }) {
 
   const { data: template, isLoading } = useQuery({
     queryKey: ['order-sheets', 'templates', templateId],
-    queryFn:  () => api.get(`/api/order-sheets/templates/${templateId}`),
+    queryFn:  () => api.get(`/order-sheets/templates/${templateId}`),
     enabled:  !!templateId && !isNew,
   })
 
@@ -189,7 +189,7 @@ function TemplateEditor({ templateId, onClose, onSaved }) {
     const reordered = arrayMove(items, oldIdx, newIdx)
     setItems(reordered)
     // Persist reorder
-    api.patch(`/api/order-sheets/templates/${templateId}/item-order`, {
+    api.patch(`/order-sheets/templates/${templateId}/item-order`, {
       ids: reordered.map(i => i.id),
     }).then(() => {
       queryClient.invalidateQueries(['order-sheets', 'templates'])
@@ -200,11 +200,11 @@ function TemplateEditor({ templateId, onClose, onSaved }) {
   const saveBasicMutation = useMutation({
     mutationFn: async () => {
       if (isNew) {
-        return api.post('/api/order-sheets/templates', {
+        return api.post('/order-sheets/templates', {
           name, show_prices: showPrices, venue_ids: venueIds,
         })
       }
-      return api.patch(`/api/order-sheets/templates/${templateId}`, {
+      return api.patch(`/order-sheets/templates/${templateId}`, {
         name, show_prices: showPrices, is_active: isActive,
       })
     },
@@ -219,7 +219,7 @@ function TemplateEditor({ templateId, onClose, onSaved }) {
 
   // ── Venue save ───────────────────────────────────────────────
   const saveVenuesMutation = useMutation({
-    mutationFn: () => api.put(`/api/order-sheets/templates/${templateId}/venues`, { venue_ids: venueIds }),
+    mutationFn: () => api.put(`/order-sheets/templates/${templateId}/venues`, { venue_ids: venueIds }),
     onSuccess: () => {
       queryClient.invalidateQueries(['order-sheets', 'templates'])
       setVenueSaved(true)
@@ -230,7 +230,7 @@ function TemplateEditor({ templateId, onClose, onSaved }) {
 
   // ── Add item ─────────────────────────────────────────────────
   const addItemMutation = useMutation({
-    mutationFn: () => api.post(`/api/order-sheets/templates/${templateId}/items`, {
+    mutationFn: () => api.post(`/order-sheets/templates/${templateId}/items`, {
       name: newItemName.trim(),
       unit: newItemUnit.trim(),
       price: newItemPrice !== '' ? Number(newItemPrice) : null,
@@ -256,7 +256,7 @@ function TemplateEditor({ templateId, onClose, onSaved }) {
   // ── Edit item (inline save on blur/enter) ────────────────────
   const editItemMutation = useMutation({
     mutationFn: (item) => api.patch(
-      `/api/order-sheets/templates/${templateId}/items/${item.id}`,
+      `/order-sheets/templates/${templateId}/items/${item.id}`,
       { name: item.name, unit: item.unit, price: item.price ?? null },
     ),
     onSuccess: (updated) => {
@@ -274,7 +274,7 @@ function TemplateEditor({ templateId, onClose, onSaved }) {
 
   // ── Delete item ───────────────────────────────────────────────
   const deleteItemMutation = useMutation({
-    mutationFn: (itemId) => api.delete(`/api/order-sheets/templates/${templateId}/items/${itemId}`),
+    mutationFn: (itemId) => api.delete(`/order-sheets/templates/${templateId}/items/${itemId}`),
     onSuccess: (_, itemId) => {
       setItems(prev => prev.filter(i => i.id !== itemId))
       setSuggestedQtys(prev => { const next = { ...prev }; delete next[itemId]; return next })
@@ -297,7 +297,7 @@ function TemplateEditor({ templateId, onClose, onSaved }) {
           }
         }
         await api.put(
-          `/api/order-sheets/templates/${templateId}/items/${item.id}/suggested`,
+          `/order-sheets/templates/${templateId}/items/${item.id}/suggested`,
           { venue_qtys: venueQtys },
         )
       }
@@ -692,7 +692,7 @@ export default function OrderSheetTemplates() {
 
   const { data: templates = [], isLoading } = useQuery({
     queryKey: ['order-sheets', 'templates'],
-    queryFn:  () => api.get('/api/order-sheets/templates'),
+    queryFn:  () => api.get('/order-sheets/templates'),
   })
 
   const handleResizeStart = useCallback((e) => {
