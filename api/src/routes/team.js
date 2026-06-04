@@ -312,6 +312,38 @@ export default async function teamRoutes(app) {
     return { ok: true }
   })
 
+  // ── DELETE /team/:userId/permanent ──────────────────────
+  // Hard-delete: removes the users row entirely + removes from Auth0 org.
+  // Use for cleaning up pending invites or test accounts.
+  // Cannot delete yourself.
+  app.delete('/:userId/permanent', {
+    preHandler: requireRole('owner'),
+  }, async (req) => {
+    if (!req.tenantId) throw httpError(400, 'No tenant context')
+
+    const [target] = await withTenant(req.tenantId, tx => tx`
+      SELECT id, auth0_user_id FROM users WHERE id = ${req.params.userId}
+    `)
+    if (!target) throw httpError(404, 'User not found')
+    if (target.auth0_user_id === req.user.sub) {
+      throw httpError(422, 'Cannot delete yourself')
+    }
+
+    await withTenant(req.tenantId, tx => tx`
+      DELETE FROM users WHERE id = ${req.params.userId} AND tenant_id = ${req.tenantId}
+    `)
+
+    if (target.auth0_user_id && req.auth0OrgId && auth0IsConfigured()) {
+      try {
+        await removeUserFromOrg({ orgId: req.auth0OrgId, auth0UserId: target.auth0_user_id })
+      } catch (err) {
+        req.log.warn({ err: err.message, userId: target.id }, 'Auth0 org-removal failed on hard delete')
+      }
+    }
+
+    return { ok: true }
+  })
+
   // ── POST /team/:userId/resend-invite ────────────────────
   // Creates a fresh Auth0 org invitation for a pending user
   // (auth0_user_id IS NULL). Returns the invitation URL so the

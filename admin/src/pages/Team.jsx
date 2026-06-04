@@ -6,8 +6,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  UserPlus, Shield, Loader2, X, Check, ChevronDown, KeyRound, AlertTriangle,
-  MailCheck, Copy, ExternalLink,
+  UserPlus, Loader2, X, Check, KeyRound, AlertTriangle,
+  MailCheck, Copy, ExternalLink, Trash2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -61,6 +61,11 @@ export default function Team() {
 
   const remove = useMutation({
     mutationFn: (id) => api.delete(`/team/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
+  })
+
+  const permanentDelete = useMutation({
+    mutationFn: (id) => api.delete(`/team/${id}/permanent`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
   })
 
@@ -123,6 +128,7 @@ export default function Team() {
                       }
                       onRoleChange={(role) => updateRole.mutate({ id: m.id, role })}
                       onDeactivate={() => toggleActive.mutate({ id: m.id, is_active: false })}
+                      onPermanentDelete={() => permanentDelete.mutate(m.id)}
                       onResetPassword={() => resetPassword.mutate(m.id)}
                       resetPending={resetPassword.isPending && resetPassword.variables === m.id}
                       resetSuccess={resetPassword.isSuccess && resetPassword.variables === m.id}
@@ -196,7 +202,7 @@ export default function Team() {
 
 function MemberRow({
   member, roles, isOwner, currentSub, canResendInvite, canResetPassword,
-  inviteUrl, onResendInvite, onRoleChange, onDeactivate, onResetPassword, onRemove,
+  inviteUrl, onResendInvite, onRoleChange, onDeactivate, onPermanentDelete, onResetPassword, onRemove,
   resetPending, resetSuccess,
 }) {
   const isSelf = member.auth0_user_id === currentSub
@@ -204,7 +210,8 @@ function MemberRow({
     ? new Date(member.last_login_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     : 'Never'
   const pending = !member.auth0_user_id
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied]             = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   function copyUrl() {
     navigator.clipboard.writeText(inviteUrl).then(() => {
@@ -262,13 +269,37 @@ function MemberRow({
           </button>
         )}
 
-        {isOwner && !isSelf && (
+        {isOwner && !isSelf && !pending && (
           <button onClick={onDeactivate} title="Deactivate"
             className="p-2 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation">
             <X className="w-4 h-4" />
           </button>
         )}
+
+        {isOwner && !isSelf && (
+          <button onClick={() => setConfirmDelete(true)} title="Delete permanently"
+            className="p-2 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
       </div>
+
+      {/* Permanent delete confirmation */}
+      {confirmDelete && (
+        <div className="flex items-center gap-3 bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2 text-xs">
+          <span className="text-destructive font-medium flex-1">
+            Permanently delete {member.full_name || member.email}? This cannot be undone.
+          </span>
+          <button onClick={() => setConfirmDelete(false)}
+            className="px-2 py-1 rounded text-muted-foreground hover:bg-accent touch-manipulation">
+            Cancel
+          </button>
+          <button onClick={() => { setConfirmDelete(false); onPermanentDelete() }}
+            className="px-3 py-1 rounded bg-destructive text-destructive-foreground font-medium touch-manipulation">
+            Delete
+          </button>
+        </div>
+      )}
 
       {/* Invite URL — shown after clicking Resend */}
       {inviteUrl && (
