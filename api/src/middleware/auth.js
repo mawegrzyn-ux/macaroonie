@@ -17,7 +17,7 @@
 import jwksClient from 'jwks-rsa'
 import { createVerifier } from 'fast-jwt'   // fast-jwt ships with fastify/jwt, no extra dep
 import { env } from '../config/env.js'
-import { sql } from '../config/db.js'
+import { sql, withTenant } from '../config/db.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
 
@@ -143,20 +143,22 @@ export async function requireAuth(req, reply) {
       ])
       try {
         const [localUser] = await withTimeout(
-          sql`SELECT id, role, is_active FROM users
-               WHERE auth0_user_id = ${auth0Sub} AND tenant_id = ${tenantId}
-               LIMIT 1`,
+          withTenant(tenantId, tx => tx`
+            SELECT id, role, is_active FROM users
+             WHERE auth0_user_id = ${auth0Sub} AND tenant_id = ${tenantId}
+             LIMIT 1`),
           2000, 'user lookup',
         )
         let resolved = localUser
         if (!resolved && payload.email) {
           const [linked] = await withTimeout(
-            sql`UPDATE users
-                   SET auth0_user_id = ${auth0Sub}, last_login_at = now()
-                 WHERE tenant_id = ${tenantId}
-                   AND lower(email) = lower(${payload.email})
-                   AND auth0_user_id IS NULL
-                RETURNING id, role, is_active`,
+            withTenant(tenantId, tx => tx`
+              UPDATE users
+                 SET auth0_user_id = ${auth0Sub}, last_login_at = now()
+               WHERE tenant_id = ${tenantId}
+                 AND lower(email) = lower(${payload.email})
+                 AND auth0_user_id IS NULL
+              RETURNING id, role, is_active`),
             2000, 'invite link',
           )
           if (linked) resolved = linked
@@ -166,7 +168,7 @@ export async function requireAuth(req, reply) {
             return reply.code(403).send({ error: 'Your account has been deactivated' })
           }
           dbRole = resolved.role
-          sql`UPDATE users SET last_login_at = now() WHERE id = ${resolved.id}`
+          withTenant(tenantId, tx => tx`UPDATE users SET last_login_at = now() WHERE id = ${resolved.id}`)
             .catch(e => req.log.warn({ err: e }, 'last_login_at update failed'))
         } else if (!isPlatformAdmin) {
           // Reconcile completed cleanly but no matching user row exists —
