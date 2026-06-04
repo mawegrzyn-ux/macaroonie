@@ -72,13 +72,13 @@ export default async function teamRoutes(app) {
     }))
     if (!req.tenantId) return builtins
     const customs = await withTenant(req.tenantId, tx => tx`
-      SELECT id, name FROM tenant_roles
+      SELECT id, label FROM tenant_roles
        WHERE tenant_id = ${req.tenantId} AND NOT is_builtin
-       ORDER BY name
+       ORDER BY label
     `)
     return [
       ...builtins,
-      ...customs.map(r => ({ value: r.id, label: r.name, is_builtin: false, description: null })),
+      ...customs.map(r => ({ value: r.id, label: r.label, is_builtin: false, description: null })),
     ]
   })
 
@@ -96,8 +96,9 @@ export default async function teamRoutes(app) {
   }, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context — select a tenant first')
     return withTenant(req.tenantId, tx => tx`
-      SELECT u.id, u.email, u.full_name, u.role, u.custom_role_id,
-             tr.name AS custom_role_name,
+      SELECT u.id, u.email, u.full_name, u.role,
+             CASE WHEN tr.is_builtin = false THEN u.custom_role_id ELSE NULL END AS custom_role_id,
+             CASE WHEN tr.is_builtin = false THEN tr.label        ELSE NULL END AS custom_role_name,
              u.is_active, u.auth0_user_id, u.last_login_at,
              u.invited_at, u.invited_by, u.created_at
         FROM users u
@@ -235,15 +236,17 @@ export default async function teamRoutes(app) {
       if (!customRole) throw httpError(404, 'Custom role not found')
 
       const nonRoleFields = fields.filter(f => f !== 'role')
-      const extraUpdate = nonRoleFields.length
-        ? tx`${tx({ ...Object.fromEntries(nonRoleFields.map(f => [f, body[f]])) })}, `
-        : tx``
-      ;[updated] = await withTenant(req.tenantId, tx => tx`
-        UPDATE users
-           SET ${extraUpdate} custom_role_id = ${body.role}, updated_at = now()
-         WHERE id = ${req.params.userId} AND tenant_id = ${req.tenantId}
-        RETURNING *
-      `)
+      ;[updated] = await withTenant(req.tenantId, tx => {
+        const extraUpdate = nonRoleFields.length
+          ? tx`${tx(Object.fromEntries(nonRoleFields.map(f => [f, body[f]])), ...nonRoleFields)}, `
+          : tx``
+        return tx`
+          UPDATE users
+             SET ${extraUpdate} custom_role_id = ${body.role}, updated_at = now()
+           WHERE id = ${req.params.userId} AND tenant_id = ${req.tenantId}
+          RETURNING *
+        `
+      })
     } else {
       const dbBody = { ...body }
       if (body.role) dbBody.custom_role_id = null  // clear custom role when reverting to built-in
