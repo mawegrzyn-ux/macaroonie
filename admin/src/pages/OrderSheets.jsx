@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
-  X, Plus, ChevronRight, Package, ClipboardList,
+  X, Plus, ChevronDown, Package, ClipboardList,
   CheckCircle, AlertCircle, Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -28,6 +28,20 @@ function fmtDateShort(dateStr) {
   } catch {
     return String(dateStr)
   }
+}
+
+/** Returns the next calendar date (YYYY-MM-DD) whose day-of-week is in deliveryDays. */
+function nextDeliveryDate(deliveryDays) {
+  if (!deliveryDays || deliveryDays.length === 0) return ''
+  const today = new Date()
+  for (let i = 0; i <= 7; i++) {
+    const d = new Date(today)
+    d.setDate(today.getDate() + i)
+    if (deliveryDays.includes(d.getDay())) {
+      return d.toISOString().slice(0, 10)
+    }
+  }
+  return ''
 }
 
 const STATUS_LABEL = { ordering: 'Ordering', ready: 'Ready', placed: 'Placed' }
@@ -70,9 +84,15 @@ function NewOrderModal({ onClose, onCreated }) {
   const assignedVenueIds = selectedTemplate?.venue_ids ?? []
   const venuesForTemplate = allVenues.filter(v => assignedVenueIds.includes(v.id))
 
-  // When template changes reset venue if not in new set
+  // When template changes: reset venue if not in new set, auto-set delivery date
   useEffect(() => {
+    if (!templateId) return
+    const tmpl = templates.find(t => t.id === templateId)
     if (venueId && !assignedVenueIds.includes(venueId)) setVenueId('')
+    if (tmpl?.delivery_days?.length > 0) {
+      const next = nextDeliveryDate(tmpl.delivery_days)
+      if (next) setDeliveryDate(next)
+    }
   }, [templateId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const createMutation = useMutation({
@@ -157,7 +177,7 @@ function NewOrderModal({ onClose, onCreated }) {
                 value={deliveryDate}
                 onChange={e => setDeliveryDate(e.target.value)}
                 required
-                className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
               />
             </div>
           </div>
@@ -339,7 +359,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                   type="date"
                   value={deliveryDate}
                   onChange={e => { setDeliveryDate(e.target.value); setDirty(true) }}
-                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                  className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
                 />
               </div>
             </div>
@@ -577,9 +597,10 @@ export default function OrderSheets() {
   const api = useApi()
   const queryClient = useQueryClient()
 
-  const [selectedStatuses, setSelectedStatuses] = useState(['ordering'])
+  const [selectedStatuses, setSelectedStatuses] = useState(['ordering', 'ready', 'placed'])
   const [selectedOrderId, setSelectedOrderId]   = useState(null)
   const [showNewModal, setShowNewModal]          = useState(false)
+  const [filterVenueId, setFilterVenueId]        = useState('')
 
   // Resizable panel
   const [panelWidth, setPanelWidth] = useState(420)
@@ -605,19 +626,33 @@ export default function OrderSheets() {
   // Me query for admin check
   const { data: me } = useQuery({
     queryKey: ['me'],
-    queryFn:  () => api.get('/api/me'),
+    queryFn:  () => api.get('/me'),
     staleTime: 120_000,
   })
   const isAdmin = me?.role === 'admin' || me?.role === 'owner'
 
-  // Orders list
-  const statusParam = selectedStatuses.join(',')
-  const { data: orders = [], isLoading } = useQuery({
-    queryKey: ['order-sheets', 'orders', statusParam],
-    queryFn:  () => api.get(`/order-sheets/orders?status=${encodeURIComponent(statusParam)}`),
+  // Venues for filter dropdown
+  const { data: venues = [] } = useQuery({
+    queryKey: ['venues'],
+    queryFn:  () => api.get('/venues'),
+    staleTime: 300_000,
   })
 
-  // Status counts from query (approx — refetches when filter changes)
+  // Always-on active orders (ordering status) — drives the toolbar
+  const { data: activeOrders = [] } = useQuery({
+    queryKey: ['order-sheets', 'orders', 'active'],
+    queryFn:  () => api.get('/order-sheets/orders?status=ordering'),
+    staleTime: 0,
+  })
+
+  // Orders list — respects status filter + venue filter
+  const statusParam = selectedStatuses.join(',')
+  const venueParam  = filterVenueId ? `&venue_id=${encodeURIComponent(filterVenueId)}` : ''
+  const { data: orders = [], isLoading } = useQuery({
+    queryKey: ['order-sheets', 'orders', statusParam, filterVenueId],
+    queryFn:  () => api.get(`/order-sheets/orders?status=${encodeURIComponent(statusParam)}${venueParam}`),
+  })
+
   function toggleStatus(s) {
     setSelectedStatuses(prev =>
       prev.includes(s)
@@ -629,7 +664,7 @@ export default function OrderSheets() {
 
   function handleCreated(order) {
     setShowNewModal(false)
-    setSelectedStatuses(['ordering'])
+    setSelectedStatuses(['ordering', 'ready', 'placed'])
     setSelectedOrderId(order.id)
     queryClient.invalidateQueries(['order-sheets'])
   }
@@ -663,6 +698,47 @@ export default function OrderSheets() {
           </button>
         </div>
 
+        {/* Active orders toolbar — quick-access pills for orders in "ordering" state */}
+        {activeOrders.length > 0 && (
+          <div className="px-3 pt-2.5 pb-2 border-b bg-muted/30 shrink-0">
+            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Active</p>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {activeOrders.map(order => (
+                <button
+                  key={order.id}
+                  onClick={() => setSelectedOrderId(order.id)}
+                  className={cn(
+                    'flex-none inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors touch-manipulation whitespace-nowrap min-h-[32px]',
+                    selectedOrderId === order.id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-foreground border-border hover:bg-accent',
+                  )}
+                >
+                  <span className="font-semibold">{order.template_name}</span>
+                  <span className="opacity-60">· {order.venue_name} · {fmtDateShort(order.delivery_date)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Venue filter */}
+        <div className="px-3 py-2 border-b shrink-0">
+          <div className="relative">
+            <select
+              value={filterVenueId}
+              onChange={e => { setFilterVenueId(e.target.value); setSelectedOrderId(null) }}
+              className="w-full border rounded-lg px-3 pr-8 py-2 text-xs bg-background touch-manipulation min-h-[36px] appearance-none"
+            >
+              <option value="">All venues</option>
+              {venues.map(v => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          </div>
+        </div>
+
         {/* Status filter tabs */}
         <div className="flex border-b shrink-0 px-2 pt-2 gap-1">
           {ALL_STATUSES.map(s => (
@@ -692,9 +768,9 @@ export default function OrderSheets() {
               <Package className="w-8 h-8 text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground">No orders found</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {selectedStatuses.length === 1 && selectedStatuses[0] === 'ordering'
-                  ? 'Create a new order to get started'
-                  : 'Try adjusting the status filter above'}
+                {filterVenueId
+                  ? 'No orders for this venue with the selected filters'
+                  : 'Create a new order to get started'}
               </p>
             </div>
           ) : (

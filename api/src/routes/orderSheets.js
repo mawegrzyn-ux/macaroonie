@@ -17,10 +17,11 @@ const TemplateBody = z.object({
 })
 
 const TemplatePatch = z.object({
-  name:        z.string().min(1).max(200).optional(),
-  show_prices: z.boolean().optional(),
-  is_active:   z.boolean().optional(),
-  sort_order:  z.number().int().optional(),
+  name:          z.string().min(1).max(200).optional(),
+  show_prices:   z.boolean().optional(),
+  is_active:     z.boolean().optional(),
+  sort_order:    z.number().int().optional(),
+  delivery_days: z.array(z.number().int().min(0).max(6)).optional(),
 })
 
 const VenueIdsBody = z.object({
@@ -105,6 +106,7 @@ export default async function orderSheetsRoutes(app) {
         t.show_prices,
         t.is_active,
         t.sort_order,
+        t.delivery_days,
         t.created_at,
         t.updated_at,
         COALESCE(
@@ -130,6 +132,7 @@ export default async function orderSheetsRoutes(app) {
         t.show_prices,
         t.is_active,
         t.sort_order,
+        t.delivery_days,
         t.created_at,
         t.updated_at,
         COALESCE(
