@@ -62,7 +62,11 @@ export async function requireAuth(req, reply) {
     // Verify signature + expiry via JWKS (RS256)
     const payload = await verify(token)
 
-    const auth0OrgId = payload[`${CLAIM_NS}tenant_id`]
+    // Try the custom claim first (injected by Auth0 Login Action).
+    // Fall back to the standard `org_id` claim that Auth0 always includes
+    // when a user logs in within an organisation — this means tenant
+    // resolution works even when the Login Action is not deployed.
+    const auth0OrgId = payload[`${CLAIM_NS}tenant_id`] ?? payload.org_id ?? null
     const role       = payload[`${CLAIM_NS}role`] ?? 'operator'
     const auth0Sub   = payload.sub
 
