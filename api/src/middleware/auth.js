@@ -112,10 +112,13 @@ export async function requireAuth(req, reply) {
     //   1. Already linked → bump last_login_at, use local role.
     //   2. First login after invite (auth0_user_id NULL, email matches) → link sub.
     //   3. is_active=false locally → deny.
+    //   4. No users row found after full reconcile attempt → deny (user was never
+    //      invited). This blocks auto-joined users from assign_membership_on_login.
     //
     // Both reads use Promise.race timeouts so a stuck DB query can never
     // produce ERR_EMPTY_RESPONSE upstream. last_login_at is fire-and-forget.
     let dbRole = null
+    let userNotFound = false  // true when reconcile completed but found no row
     if (!isPlatformAdmin && tenantId && auth0Sub) {
       const withTimeout = (p, ms, label) => Promise.race([
         p,
@@ -148,10 +151,23 @@ export async function requireAuth(req, reply) {
           dbRole = resolved.role
           sql`UPDATE users SET last_login_at = now() WHERE id = ${resolved.id}`
             .catch(e => req.log.warn({ err: e }, 'last_login_at update failed'))
+        } else {
+          // Reconcile completed cleanly but no matching user row exists —
+          // this user was never invited. Block them.
+          userNotFound = true
         }
       } catch (e) {
+        // Timeout or DB error — allow through with JWT role fallback rather
+        // than blocking a legitimate user due to infra failure.
         req.log.warn({ err: e?.message || e }, 'User reconcile failed (non-fatal)')
       }
+    }
+
+    // Block users who logged into the org but were never invited.
+    // (userNotFound is only set when reconcile ran cleanly — DB timeouts
+    //  leave it false so we don't block legitimate users during infra issues.)
+    if (userNotFound) {
+      return reply.code(403).send({ error: 'Your account has not been set up for this organisation. Ask your administrator to invite you.' })
     }
 
     req.user = {
