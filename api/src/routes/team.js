@@ -140,6 +140,15 @@ export default async function teamRoutes(app) {
       throw httpError(403, 'Only owners can invite other owners')
     }
 
+    // Custom role? (UUID value means it's a tenant_roles row, not an enum)
+    const isCustomRole = UUID_RE.test(body.role)
+    if (isCustomRole) {
+      const [cr] = await withTenant(req.tenantId, tx => tx`
+        SELECT id FROM tenant_roles WHERE id = ${body.role} AND tenant_id = ${req.tenantId}
+      `)
+      if (!cr) throw httpError(404, 'Custom role not found')
+    }
+
     // Find the inviting user's local ID (best effort — used for audit only)
     let invitedBy = null
     let inviterName = null
@@ -153,23 +162,30 @@ export default async function teamRoutes(app) {
 
     // Insert local row first so a unique-conflict surfaces before we
     // hit Auth0. If Auth0 fails we DELETE this row before returning.
+    // Custom roles: store 'operator' as the base enum + set custom_role_id.
     const [user] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO users (tenant_id, email, full_name, role, invited_at, invited_by)
-      VALUES (${req.tenantId}, ${email}, ${body.full_name ?? null},
-              ${body.role}::user_role, now(), ${invitedBy})
+      INSERT INTO users (tenant_id, email, full_name, role, custom_role_id, invited_at, invited_by)
+      VALUES (
+        ${req.tenantId}, ${email}, ${body.full_name ?? null},
+        ${isCustomRole ? 'operator' : body.role}::user_role,
+        ${isCustomRole ? body.role : null},
+        now(), ${invitedBy}
+      )
       RETURNING *
     `)
 
     // Send Auth0 invitation if configured. The Login Action reads
     // app_metadata.role and injects it as a JWT claim, so seeding it
     // at invitation time means the role is correct on first login.
+    // For custom roles use 'operator' as the base Auth0 claim — the real
+    // permissions are resolved from tenant_roles on every request.
     let invitation = null
     if (auth0CanInvite()) {
       try {
         invitation = await inviteUserToOrg({
           orgId:       req.auth0OrgId,
           email,
-          role:        body.role,
+          role:        isCustomRole ? 'operator' : body.role,
           inviterName,
         })
       } catch (err) {
