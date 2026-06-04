@@ -39,6 +39,7 @@ import backlogRoutes         from './routes/backlog.js'
 import issueLogRoutes        from './routes/issueLog.js'
 import featureRequestsRoutes from './routes/featureRequests.js'
 import changelogRoutes       from './routes/changelog.js'
+import orderSheetsRoutes     from './routes/orderSheets.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -157,6 +158,7 @@ export async function buildApp() {
   await app.register(issueLogRoutes,         { prefix: '/api/issues' })
   await app.register(featureRequestsRoutes,  { prefix: '/api/feature-requests' })
   await app.register(changelogRoutes,        { prefix: '/api/changelog' })
+  await app.register(orderSheetsRoutes,      { prefix: '/api/order-sheets' })
   await app.register(manageBookingRoutes, { prefix: '/manage' })
 
   // ── Health check ─────────────────────────────────────────
