@@ -153,6 +153,10 @@ function TenantRow({ tenant, onEdit, inactive }) {
           )}
         </div>
         <p className="text-xs text-muted-foreground truncate">{tenant.slug}</p>
+        {tenant.auth0_org_id
+          ? <p className="text-xs text-muted-foreground font-mono truncate">{tenant.auth0_org_id}</p>
+          : <p className="text-xs text-amber-600 font-medium">No Auth0 org ID — logins will fail</p>
+        }
       </div>
       <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
         <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {tenant.venue_count}</span>
