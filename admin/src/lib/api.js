@@ -7,6 +7,23 @@ import { useCallback } from 'react'
 
 const BASE = '/api'
 
+// Platform admin tenant override — lets a platform admin work in a specific
+// tenant context without re-authenticating via Auth0 org.
+// Stored in localStorage; injected as X-Platform-Tenant header on every request.
+// The API only honours this header for requests from authenticated platform admins.
+const PLATFORM_TENANT_KEY = 'maca_platform_tenant'
+
+export function getPlatformTenantOverride() {
+  try { return localStorage.getItem(PLATFORM_TENANT_KEY) ?? null } catch { return null }
+}
+
+export function setPlatformTenantOverride(id) {
+  try {
+    if (id) localStorage.setItem(PLATFORM_TENANT_KEY, id)
+    else localStorage.removeItem(PLATFORM_TENANT_KEY)
+  } catch {}
+}
+
 class ApiError extends Error {
   constructor(status, body) {
     super(body?.error ?? `HTTP ${status}`)
@@ -17,11 +34,13 @@ class ApiError extends Error {
 
 async function request(token, method, path, body) {
   const hasBody = body != null
+  const platformTenant = getPlatformTenantOverride()
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       'Authorization': `Bearer ${token}`,
+      ...(platformTenant ? { 'X-Platform-Tenant': platformTenant } : {}),
     },
     ...(hasBody ? { body: JSON.stringify(body) } : {}),
   })
