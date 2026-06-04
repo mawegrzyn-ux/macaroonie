@@ -39,15 +39,16 @@ import {
 } from '../services/auth0MgmtSvc.js'
 
 const ROLES = ['viewer', 'operator', 'admin', 'owner']
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const InviteBody = z.object({
   email:     z.string().email(),
   full_name: z.string().min(1).max(200).optional(),
-  role:      z.enum(['viewer', 'operator', 'admin', 'owner']).default('operator'),
+  role:      z.string().default('operator'), // built-in enum value OR custom role UUID
 })
 
 const UpdateBody = z.object({
-  role:      z.enum(['viewer', 'operator', 'admin', 'owner']).optional(),
+  role:      z.string().optional(), // built-in enum value OR custom role UUID
   full_name: z.string().max(200).nullable().optional(),
   is_active: z.boolean().optional(),
 })
@@ -57,16 +58,29 @@ export default async function teamRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
   // ── GET /team/roles ─────────────────────────────────────
-  app.get('/roles', async () => ROLES.map(r => ({
-    value: r,
-    label: r.charAt(0).toUpperCase() + r.slice(1),
-    description: {
-      owner:    'Full access. Can manage team, billing, and all settings.',
-      admin:    'Can manage venues, rules, website, emails. Cannot manage team.',
-      operator: 'Front-of-house. Can manage bookings and view the timeline.',
-      viewer:   'Read-only access to bookings and timeline.',
-    }[r],
-  })))
+  app.get('/roles', async (req) => {
+    const builtins = ROLES.map(r => ({
+      value: r,
+      label: r.charAt(0).toUpperCase() + r.slice(1),
+      is_builtin: true,
+      description: {
+        owner:    'Full access. Can manage team, billing, and all settings.',
+        admin:    'Can manage venues, rules, website, emails. Cannot manage team.',
+        operator: 'Front-of-house. Can manage bookings and view the timeline.',
+        viewer:   'Read-only access to bookings and timeline.',
+      }[r],
+    }))
+    if (!req.tenantId) return builtins
+    const customs = await withTenant(req.tenantId, tx => tx`
+      SELECT id, name FROM tenant_roles
+       WHERE tenant_id = ${req.tenantId} AND NOT is_builtin
+       ORDER BY name
+    `)
+    return [
+      ...builtins,
+      ...customs.map(r => ({ value: r.id, label: r.name, is_builtin: false, description: null })),
+    ]
+  })
 
   // ── GET /team/auth0-status ──────────────────────────────
   // Lets the UI decide whether to show "send invite via email" vs
@@ -82,19 +96,21 @@ export default async function teamRoutes(app) {
   }, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context — select a tenant first')
     return withTenant(req.tenantId, tx => tx`
-      SELECT id, email, full_name, role, is_active,
-             auth0_user_id, last_login_at, invited_at, invited_by,
-             created_at
-        FROM users
-       WHERE tenant_id = ${req.tenantId}
+      SELECT u.id, u.email, u.full_name, u.role, u.custom_role_id,
+             tr.name AS custom_role_name,
+             u.is_active, u.auth0_user_id, u.last_login_at,
+             u.invited_at, u.invited_by, u.created_at
+        FROM users u
+   LEFT JOIN tenant_roles tr ON tr.id = u.custom_role_id
+       WHERE u.tenant_id = ${req.tenantId}
        ORDER BY
-         CASE role
+         CASE u.role
            WHEN 'owner'    THEN 1
            WHEN 'admin'    THEN 2
            WHEN 'operator' THEN 3
            WHEN 'viewer'   THEN 4
          END,
-         full_name, email
+         u.full_name, u.email
     `)
   })
 
@@ -195,31 +211,55 @@ export default async function teamRoutes(app) {
     `)
     if (!target) throw httpError(404, 'User not found')
 
-    if (target.auth0_user_id === req.user.sub && body.role && body.role !== target.role) {
+    if (target.auth0_user_id === req.user.sub && body.role !== undefined) {
       throw httpError(422, 'Cannot change your own role')
     }
     if (target.auth0_user_id === req.user.sub && body.is_active === false) {
       throw httpError(422, 'Cannot deactivate yourself')
     }
 
-    if (body.role === 'owner' && req.user.role !== 'owner' && !req.isPlatformAdmin) {
+    const isCustomRole = body.role && UUID_RE.test(body.role)
+
+    if (!isCustomRole && body.role && !ROLES.includes(body.role)) {
+      throw httpError(400, 'Invalid role')
+    }
+    if (!isCustomRole && body.role === 'owner' && req.user.role !== 'owner' && !req.isPlatformAdmin) {
       throw httpError(403, 'Only owners can promote to owner')
     }
 
-    const [updated] = await withTenant(req.tenantId, tx => tx`
-      UPDATE users
-         SET ${tx(body, ...fields)}, updated_at = now()
-       WHERE id = ${req.params.userId}
-         AND tenant_id = ${req.tenantId}
-      RETURNING *
-    `)
+    let updated
+    if (isCustomRole) {
+      const [customRole] = await withTenant(req.tenantId, tx => tx`
+        SELECT id FROM tenant_roles WHERE id = ${body.role} AND tenant_id = ${req.tenantId}
+      `)
+      if (!customRole) throw httpError(404, 'Custom role not found')
+
+      const nonRoleFields = fields.filter(f => f !== 'role')
+      const extraUpdate = nonRoleFields.length
+        ? tx`${tx({ ...Object.fromEntries(nonRoleFields.map(f => [f, body[f]])) })}, `
+        : tx``
+      ;[updated] = await withTenant(req.tenantId, tx => tx`
+        UPDATE users
+           SET ${extraUpdate} custom_role_id = ${body.role}, updated_at = now()
+         WHERE id = ${req.params.userId} AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `)
+    } else {
+      const dbBody = { ...body }
+      if (body.role) dbBody.custom_role_id = null  // clear custom role when reverting to built-in
+      const dbFields = Object.keys(dbBody)
+      ;[updated] = await withTenant(req.tenantId, tx => tx`
+        UPDATE users
+           SET ${tx(dbBody, ...dbFields)}, updated_at = now()
+         WHERE id = ${req.params.userId} AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `)
+    }
     if (!updated) throw httpError(404, 'User not found')
 
-    // If role changed AND we have an Auth0 link, push the role to Auth0
-    // so the next login carries the correct claim. Best-effort — log
-    // failures but don't roll back; the local DB is the source of truth
-    // and the auth middleware will reconcile on next login.
-    if (body.role && body.role !== target.role && updated.auth0_user_id && auth0IsConfigured()) {
+    // Sync built-in role to Auth0 app_metadata (skip for custom roles —
+    // the auth middleware resolves permissions from DB on every request).
+    if (!isCustomRole && body.role && body.role !== target.role && updated.auth0_user_id && auth0IsConfigured()) {
       try {
         await updateUserAppMetadata({
           auth0UserId: updated.auth0_user_id,

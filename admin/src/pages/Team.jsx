@@ -208,7 +208,7 @@ function MemberRow({
       </div>
 
       {isOwner && !isSelf ? (
-        <select value={member.role}
+        <select value={member.custom_role_id ?? member.role}
           onChange={e => onRoleChange(e.target.value)}
           className={cn(
             'rounded-full px-3 py-1 text-xs font-medium border-0 cursor-pointer min-h-[32px] touch-manipulation',
@@ -218,7 +218,7 @@ function MemberRow({
         </select>
       ) : (
         <span className={cn('rounded-full px-3 py-1 text-xs font-medium', ROLE_COLOURS[member.role])}>
-          {member.role}
+          {member.custom_role_name ?? member.role}
         </span>
       )}
 
