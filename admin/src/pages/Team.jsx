@@ -3,10 +3,11 @@
 // In-app team management — invite users, set roles, deactivate.
 // RBAC: admin/owner can view; only owner can invite/edit/remove.
 
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  UserPlus, Shield, Loader2, X, Check, ChevronDown, KeyRound, AlertTriangle,
+  UserPlus, Loader2, X, Check, KeyRound, AlertTriangle,
+  MailCheck, Copy, ExternalLink, Trash2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -46,6 +47,8 @@ export default function Team() {
     mutationFn: (id) => api.post(`/team/${id}/reset-password`, {}),
   })
 
+  const [inviteUrls, setInviteUrls] = useState({})  // userId → url
+
   const updateRole = useMutation({
     mutationFn: ({ id, role }) => api.patch(`/team/${id}`, { role }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
@@ -58,6 +61,11 @@ export default function Team() {
 
   const remove = useMutation({
     mutationFn: (id) => api.delete(`/team/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
+  })
+
+  const permanentDelete = useMutation({
+    mutationFn: (id) => api.delete(`/team/${id}/permanent`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
   })
 
@@ -110,9 +118,17 @@ export default function Team() {
                   {activeMembers.map(m => (
                     <MemberRow key={m.id} member={m} roles={roles} isOwner={isOwner}
                       currentSub={me?.auth0_sub}
+                      canResendInvite={!!auth0Status?.invitations_ready}
                       canResetPassword={!!auth0Status?.invitations_ready}
+                      inviteUrl={inviteUrls[m.id]}
+                      onResendInvite={() =>
+                        api.post(`/team/${m.id}/resend-invite`, {})
+                          .then(r => setInviteUrls(prev => ({ ...prev, [m.id]: r.invitation?.url })))
+                          .catch(() => {})
+                      }
                       onRoleChange={(role) => updateRole.mutate({ id: m.id, role })}
                       onDeactivate={() => toggleActive.mutate({ id: m.id, is_active: false })}
+                      onPermanentDelete={() => permanentDelete.mutate(m.id)}
                       onResetPassword={() => resetPassword.mutate(m.id)}
                       resetPending={resetPassword.isPending && resetPassword.variables === m.id}
                       resetSuccess={resetPassword.isSuccess && resetPassword.variables === m.id}
@@ -185,8 +201,8 @@ export default function Team() {
 }
 
 function MemberRow({
-  member, roles, isOwner, currentSub, canResetPassword,
-  onRoleChange, onDeactivate, onResetPassword, onRemove,
+  member, roles, isOwner, currentSub, canResendInvite, canResetPassword,
+  inviteUrl, onResendInvite, onRoleChange, onDeactivate, onPermanentDelete, onResetPassword, onRemove,
   resetPending, resetSuccess,
 }) {
   const isSelf = member.auth0_user_id === currentSub
@@ -194,52 +210,108 @@ function MemberRow({
     ? new Date(member.last_login_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
     : 'Never'
   const pending = !member.auth0_user_id
+  const [copied, setCopied]             = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  function copyUrl() {
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   return (
-    <div className="flex items-center gap-4 px-5 py-3">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium truncate">{member.full_name || member.email}</p>
-          {isSelf && <span className="text-[10px] text-muted-foreground">(you)</span>}
-          {pending && <span className="text-[10px] rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5">Invite pending</span>}
+    <div className="flex flex-col px-5 py-3 gap-2">
+      <div className="flex items-center gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-medium truncate">{member.full_name || member.email}</p>
+            {isSelf && <span className="text-[10px] text-muted-foreground">(you)</span>}
+            {pending && <span className="text-[10px] rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5">Invite pending</span>}
+          </div>
+          <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Last login: {lastLogin}</p>
         </div>
-        <p className="text-xs text-muted-foreground truncate">{member.email}</p>
-        <p className="text-[11px] text-muted-foreground mt-0.5">Last login: {lastLogin}</p>
+
+        {isOwner && !isSelf ? (
+          <select value={member.custom_role_id ?? member.role}
+            onChange={e => onRoleChange(e.target.value)}
+            className={cn(
+              'rounded-full px-3 py-1 text-xs font-medium border-0 cursor-pointer min-h-[32px] touch-manipulation',
+              ROLE_COLOURS[member.role],
+            )}>
+            {roles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </select>
+        ) : (
+          <span className={cn('rounded-full px-3 py-1 text-xs font-medium', ROLE_COLOURS[member.role])}>
+            {member.custom_role_name ?? member.role}
+          </span>
+        )}
+
+        {isOwner && !isSelf && pending && canResendInvite && (
+          <button onClick={onResendInvite}
+            title="Resend invitation email"
+            className="p-2 rounded text-amber-600 hover:text-amber-700 hover:bg-amber-50 touch-manipulation">
+            <MailCheck className="w-4 h-4" />
+          </button>
+        )}
+
+        {isOwner && !isSelf && !pending && canResetPassword && (
+          <button onClick={onResetPassword} disabled={resetPending}
+            title={resetSuccess ? 'Password reset email sent' : 'Send password reset email'}
+            className={cn(
+              'p-2 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 touch-manipulation disabled:opacity-50',
+              resetSuccess && 'text-emerald-600',
+            )}>
+            {resetPending ? <Loader2 className="w-4 h-4 animate-spin" />
+             : resetSuccess ? <Check className="w-4 h-4" />
+             : <KeyRound className="w-4 h-4" />}
+          </button>
+        )}
+
+        {isOwner && !isSelf && !pending && (
+          <button onClick={onDeactivate} title="Deactivate"
+            className="p-2 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation">
+            <X className="w-4 h-4" />
+          </button>
+        )}
+
+        {isOwner && !isSelf && (
+          <button onClick={() => setConfirmDelete(true)} title="Delete permanently"
+            className="p-2 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation">
+            <Trash2 className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
-      {isOwner && !isSelf ? (
-        <select value={member.custom_role_id ?? member.role}
-          onChange={e => onRoleChange(e.target.value)}
-          className={cn(
-            'rounded-full px-3 py-1 text-xs font-medium border-0 cursor-pointer min-h-[32px] touch-manipulation',
-            ROLE_COLOURS[member.role],
-          )}>
-          {roles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-        </select>
-      ) : (
-        <span className={cn('rounded-full px-3 py-1 text-xs font-medium', ROLE_COLOURS[member.role])}>
-          {member.custom_role_name ?? member.role}
-        </span>
+      {/* Permanent delete confirmation */}
+      {confirmDelete && (
+        <div className="flex items-center gap-3 bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2 text-xs">
+          <span className="text-destructive font-medium flex-1">
+            Permanently delete {member.full_name || member.email}? This cannot be undone.
+          </span>
+          <button onClick={() => setConfirmDelete(false)}
+            className="px-2 py-1 rounded text-muted-foreground hover:bg-accent touch-manipulation">
+            Cancel
+          </button>
+          <button onClick={() => { setConfirmDelete(false); onPermanentDelete() }}
+            className="px-3 py-1 rounded bg-destructive text-destructive-foreground font-medium touch-manipulation">
+            Delete
+          </button>
+        </div>
       )}
 
-      {isOwner && !isSelf && canResetPassword && (
-        <button onClick={onResetPassword} disabled={resetPending}
-          title={resetSuccess ? 'Password reset email sent' : 'Send password reset email'}
-          className={cn(
-            'p-2 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 touch-manipulation disabled:opacity-50',
-            resetSuccess && 'text-emerald-600',
-          )}>
-          {resetPending ? <Loader2 className="w-4 h-4 animate-spin" />
-           : resetSuccess ? <Check className="w-4 h-4" />
-           : <KeyRound className="w-4 h-4" />}
-        </button>
-      )}
-
-      {isOwner && !isSelf && (
-        <button onClick={onDeactivate} title="Deactivate"
-          className="p-2 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation">
-          <X className="w-4 h-4" />
-        </button>
+      {/* Invite URL — shown after clicking Resend */}
+      {inviteUrl && (
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs">
+          <ExternalLink className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+          <span className="text-amber-800 flex-1 truncate font-mono">{inviteUrl}</span>
+          <button onClick={copyUrl}
+            className="shrink-0 text-amber-700 hover:text-amber-900 flex items-center gap-1 touch-manipulation">
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
       )}
     </div>
   )
