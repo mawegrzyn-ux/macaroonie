@@ -5,7 +5,7 @@
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 
 // ── Schemas ───────────────────────────────────────────────────
@@ -135,7 +135,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── POST /categories ────────────────────────────────────────
-  app.post('/categories', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/categories', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { name } = CategoryBody.parse(req.body)
     const [maxRow] = await withTenant(req.tenantId, tx => tx`
       SELECT COALESCE(MAX(sort_order), -1) AS m FROM order_sheet_categories
@@ -150,7 +150,7 @@ export default async function orderSheetsRoutes(app) {
 
   // ── PATCH /categories/reorder ───────────────────────────────
   // Must be before /:id
-  app.patch('/categories/reorder', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/categories/reorder', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { ids } = CategoryOrderBody.parse(req.body)
     await withTenant(req.tenantId, async tx => {
       for (let i = 0; i < ids.length; i++) {
@@ -161,7 +161,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── PATCH /categories/:id ───────────────────────────────────
-  app.patch('/categories/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/categories/:id', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { name } = CategoryBody.parse(req.body)
     const [cat] = await withTenant(req.tenantId, tx => tx`
@@ -172,7 +172,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── DELETE /categories/:id ──────────────────────────────────
-  app.delete('/categories/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/categories/:id', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     await withTenant(req.tenantId, tx => tx`
       DELETE FROM order_sheet_categories WHERE id = ${id}
@@ -262,7 +262,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── POST /templates ─────────────────────────────────────────
-  app.post('/templates', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/templates', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const body = TemplateBody.parse(req.body)
 
     const [tmpl] = await withTenant(req.tenantId, tx => tx`
@@ -289,7 +289,7 @@ export default async function orderSheetsRoutes(app) {
   // ── POST /templates/merge ────────────────────────────────────
   // Copies categories + items from secondary templates into the primary,
   // optionally renames the primary, then deletes the secondary templates.
-  app.post('/templates/merge', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/templates/merge', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { primary_id, secondary_ids, name } = z.object({
       primary_id:    z.string().uuid(),
       secondary_ids: z.array(z.string().uuid()).min(1),
@@ -332,7 +332,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── PATCH /templates/:id ────────────────────────────────────
-  app.patch('/templates/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/templates/:id', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const body = TemplatePatch.parse(req.body)
 
@@ -351,7 +351,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── DELETE /templates/bulk ────────────────────────────────────
-  app.delete('/templates/bulk', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/templates/bulk', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
     await withTenant(req.tenantId, tx => tx`
       DELETE FROM order_sheet_templates WHERE id = ANY(${ids})
@@ -360,7 +360,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── DELETE /templates/:id ───────────────────────────────────
-  app.delete('/templates/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/templates/:id', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     await withTenant(req.tenantId, tx => tx`
       DELETE FROM order_sheet_templates WHERE id = ${id}
@@ -369,7 +369,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── PUT /templates/:id/venues ───────────────────────────────
-  app.put('/templates/:id/venues', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/templates/:id/venues', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { venue_ids } = VenueIdsBody.parse(req.body)
 
@@ -391,7 +391,7 @@ export default async function orderSheetsRoutes(app) {
 
   // ── DELETE /templates/:id/items/bulk ───────────────────────
   // (registered before /:itemId so static "bulk" takes routing priority)
-  app.delete('/templates/:id/items/bulk', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/templates/:id/items/bulk', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { ids } = BulkItemIdsBody.parse(req.body)
     await withTenant(req.tenantId, tx => tx`
@@ -402,7 +402,7 @@ export default async function orderSheetsRoutes(app) {
 
   // ── PATCH /templates/:id/items/bulk-category ───────────────
   // Assigns (or clears) a category on multiple items at once.
-  app.patch('/templates/:id/items/bulk-category', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/templates/:id/items/bulk-category', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { ids, category_id } = BulkItemCategoryBody.parse(req.body)
     await withTenant(req.tenantId, tx => tx`
@@ -414,7 +414,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── POST /templates/:id/items ───────────────────────────────
-  app.post('/templates/:id/items', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/templates/:id/items', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const body = ItemBody.parse(req.body)
 
@@ -439,7 +439,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── PATCH /templates/:id/items/:itemId ──────────────────────
-  app.patch('/templates/:id/items/:itemId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/templates/:id/items/:itemId', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id, itemId } = req.params
     const body = ItemPatch.parse(req.body)
 
@@ -459,7 +459,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── DELETE /templates/:id/items/:itemId ─────────────────────
-  app.delete('/templates/:id/items/:itemId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/templates/:id/items/:itemId', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id, itemId } = req.params
     await withTenant(req.tenantId, tx => tx`
       DELETE FROM order_sheet_items WHERE id = ${itemId} AND template_id = ${id}
@@ -468,7 +468,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── PATCH /templates/:id/item-order ─────────────────────────
-  app.patch('/templates/:id/item-order', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/templates/:id/item-order', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { ids } = ItemOrderBody.parse(req.body)
 
@@ -485,7 +485,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── PUT /templates/:id/items/:itemId/suggested ───────────────
-  app.put('/templates/:id/items/:itemId/suggested', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/templates/:id/items/:itemId/suggested', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id, itemId } = req.params
     const { venue_qtys } = SuggestedBody.parse(req.body)
 
@@ -613,7 +613,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── POST /orders ─────────────────────────────────────────────
-  app.post('/orders', async (req) => {
+  app.post('/orders', { preHandler: [requireAuth, requirePermission('order_sheets', 'manage')] }, async (req) => {
     const body = OrderBody.parse(req.body)
 
     const [assignment] = await withTenant(req.tenantId, tx => tx`
@@ -711,7 +711,8 @@ export default async function orderSheetsRoutes(app) {
 
     const transKey = `${current.status}->${newStatus}`
     if (ADMIN_TRANSITIONS.has(transKey)) {
-      if (!['admin', 'owner'].includes(req.user.role)) {
+      const effectiveRole = req.user.effectiveRole ?? req.user.role
+      if (!['admin', 'owner'].includes(effectiveRole) && !req.isPlatformAdmin) {
         throw httpError(403, 'Only admin or owner can perform this status change')
       }
     }
@@ -734,7 +735,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── DELETE /orders/:id ───────────────────────────────────────
-  app.delete('/orders/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/orders/:id', { preHandler: [requireAuth, requirePermission('order_sheets', 'manage')] }, async (req) => {
     const { id } = req.params
     await withTenant(req.tenantId, tx => tx`
       DELETE FROM order_sheets WHERE id = ${id}

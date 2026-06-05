@@ -160,8 +160,15 @@ export const MODULES = [
     key:    'order_sheets',
     label:  'Order sheets',
     group:  'order_sheets',
-    description: 'Supplier order templates and order preparation workflow.',
-    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+    description: 'Fill quantities and advance status on supplier orders. view = fill existing; manage = also create new orders.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
+    key:    'order_sheet_setup',
+    label:  'Order sheet setup',
+    group:  'order_sheets',
+    description: 'Manage order sheet templates and categories.',
+    default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
 ]
 
@@ -219,7 +226,7 @@ export const MODULE_GROUPS = [
     key:    'order_sheets',
     label:  'Order sheets',
     description: 'Build and manage supplier order sheets.',
-    moduleKeys: ['order_sheets'],
+    moduleKeys: ['order_sheets', 'order_sheet_setup'],
   },
 ]
 

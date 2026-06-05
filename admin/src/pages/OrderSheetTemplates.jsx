@@ -442,7 +442,9 @@ export default function OrderSheetTemplates() {
   )
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
-  const isAdmin = me?.role === 'admin' || me?.role === 'owner'
+  // Editing templates + categories requires order_sheet_setup:manage.
+  // Platform admins and tenant owner/admin fall through via the permission map.
+  const isAdmin = me?.is_platform_admin || me?.permissions?.order_sheet_setup === 'manage'
 
   const { data: templates = [], isLoading: templatesLoading } = useQuery({
     queryKey: ['order-sheets', 'templates'],
