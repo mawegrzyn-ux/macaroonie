@@ -17,7 +17,7 @@ import {
   isConfigured as auth0IsConfigured,
   provisionTenantOrg,
 } from '../services/auth0MgmtSvc.js'
-import { MODULES, MODULE_KEYS } from '../config/modules.js'
+import { MODULES, MODULE_KEYS, resolvePermission } from '../config/modules.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -106,7 +106,7 @@ export default async function platformRoutes(app) {
         continue
       }
       if (!enabledModules.includes(k)) { permissions[k] = 'none'; continue }
-      permissions[k] = effectiveRole?.permissions?.[k] ?? 'none'
+      permissions[k] = resolvePermission(k, effectiveRole?.permissions, effectiveRole?.key)
     }
 
     // Available tenants — for platform admins, all active tenants.

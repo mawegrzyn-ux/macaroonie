@@ -243,3 +243,24 @@ export function permissionAtLeast(actual, required) {
   const idx = (lvl) => PERMISSION_LEVELS.indexOf(lvl ?? 'none')
   return idx(actual) >= idx(required)
 }
+
+const MODULE_BY_KEY = Object.fromEntries(MODULES.map(m => [m.key, m]))
+
+/**
+ * Resolve a role's permission level for a module.
+ *
+ * Prefers the explicit entry in the role's permissions JSONB. When a role has
+ * no entry — e.g. a module added to the registry after the role was created,
+ * before its data migration has run — fall back to the module's registry
+ * default for that role's key (owner/admin/operator/viewer). Returns 'none'
+ * for unknown modules or custom role keys with no registry default.
+ *
+ * @param {string} moduleKey
+ * @param {object|null|undefined} permissions  role permissions JSONB
+ * @param {string|null|undefined} roleKey      role key (built-in: owner/admin/operator/viewer)
+ */
+export function resolvePermission(moduleKey, permissions, roleKey) {
+  const explicit = permissions?.[moduleKey]
+  if (explicit) return explicit
+  return MODULE_BY_KEY[moduleKey]?.default?.[roleKey] ?? 'none'
+}
