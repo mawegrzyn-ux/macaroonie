@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
-  X, Plus, ChevronDown, Package, ClipboardList,
+  X, Plus, Minus, ChevronDown, Package, ClipboardList,
   CheckCircle, AlertCircle, Loader2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -223,8 +223,12 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   const [notes, setNotes]       = useState('')
   const [deliveryDate, setDeliveryDate] = useState('')
   const [dirty, setDirty]       = useState(false)
+  const [showSaved, setShowSaved]       = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [actionError, setActionError] = useState('')
+
+  const autosaveTimerRef = useRef(null)
+  const savedTimerRef    = useRef(null)
 
   // Sync local state when order loads
   useEffect(() => {
@@ -239,11 +243,18 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
     setDirty(false)
     setDeleteConfirm(false)
     setActionError('')
+    clearTimeout(autosaveTimerRef.current)
   }, [order?.id, order?.status]) // reset when id or status changes
+
+  function scheduleAutosave() {
+    clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = setTimeout(() => saveMutation.mutate(), 700)
+  }
 
   function setQty(itemId, val) {
     setQtys(prev => ({ ...prev, [itemId]: val }))
     setDirty(true)
+    scheduleAutosave()
   }
 
   const saveMutation = useMutation({
@@ -266,12 +277,17 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
     onSuccess: () => {
       queryClient.invalidateQueries(['order-sheets'])
       setDirty(false)
+      setShowSaved(true)
+      clearTimeout(savedTimerRef.current)
+      savedTimerRef.current = setTimeout(() => setShowSaved(false), 2000)
     },
     onError: (err) => setActionError(err?.message ?? 'Save failed'),
   })
 
   const statusMutation = useMutation({
     mutationFn: async (newStatus) => {
+      // Cancel any pending autosave — we'll save synchronously below if needed
+      clearTimeout(autosaveTimerRef.current)
       // Save items first if ordering
       if (order?.status === 'ordering' && dirty) {
         const items = (order?.items ?? []).map(item => ({
@@ -331,16 +347,37 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="flex items-start justify-between p-4 border-b shrink-0 gap-3">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="font-semibold text-base truncate">{order.template_name}</h2>
           <p className="text-sm text-muted-foreground truncate">{order.venue_name} · {fmtDate(order.delivery_date)}</p>
-          <div className="mt-1.5">
+          <div className="mt-1.5 flex items-center gap-2">
             <StatusBadge status={order.status} />
+            {isOrdering && saveMutation.isPending && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" />Saving…
+              </span>
+            )}
+            {isOrdering && !saveMutation.isPending && showSaved && (
+              <span className="text-xs text-green-600 flex items-center gap-1">
+                <CheckCircle className="w-3 h-3" />Saved
+              </span>
+            )}
           </div>
         </div>
-        <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground shrink-0 touch-manipulation">
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {isOrdering && (
+            <button
+              onClick={() => statusMutation.mutate('ready')}
+              disabled={statusMutation.isPending}
+              className="bg-amber-500 hover:bg-amber-600 text-white rounded-lg px-4 py-2.5 text-sm font-semibold touch-manipulation min-h-[44px] disabled:opacity-50 whitespace-nowrap"
+            >
+              {statusMutation.isPending ? '…' : 'Mark as Ready'}
+            </button>
+          )}
+          <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Scrollable body */}
@@ -358,30 +395,30 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                 <input
                   type="date"
                   value={deliveryDate}
-                  onChange={e => { setDeliveryDate(e.target.value); setDirty(true) }}
+                  onChange={e => { setDeliveryDate(e.target.value); setDirty(true); scheduleAutosave() }}
                   className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
                 />
               </div>
             </div>
           )}
 
-          {/* Items table */}
-          <div className="overflow-x-auto -mx-4 px-4">
+          {/* Items table — overflow-y-clip keeps sticky thead working inside x-scroll */}
+          <div className="overflow-x-auto overflow-y-clip -mx-4 px-4">
             <table className="w-full text-sm border-collapse min-w-[500px]">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-background">
                 <tr className="border-b">
                   <th className="text-left py-2 pr-3 font-medium text-muted-foreground text-xs">Item</th>
                   <th className="text-left py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Unit</th>
                   {order.show_prices && (
                     <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Price</th>
                   )}
+                  <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Qty</th>
                   <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Suggested</th>
                   {histCols.map((h, i) => (
                     <th key={i} className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">
                       {h ? fmtDateShort(h.delivery_date) : '—'}
                     </th>
                   ))}
-                  <th className="text-right py-2 font-medium text-muted-foreground text-xs whitespace-nowrap">Qty</th>
                 </tr>
               </thead>
               <tbody>
@@ -394,6 +431,40 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                         {item.price != null ? `£${Number(item.price).toFixed(2)}` : '—'}
                       </td>
                     )}
+                    <td className="py-2 pr-3 text-right">
+                      {isOrdering ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setQty(item.id, String(Math.max(0, (Number(qtys[item.id]) || 0) - 1)))}
+                            className="w-8 h-10 flex items-center justify-center border rounded-lg hover:bg-accent text-muted-foreground touch-manipulation shrink-0"
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min="0"
+                            step="1"
+                            value={qtys[item.id] ?? ''}
+                            onChange={e => setQty(item.id, e.target.value)}
+                            className="w-14 h-10 text-center text-sm border rounded-lg px-1 touch-manipulation"
+                            placeholder="0"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setQty(item.id, String((Number(qtys[item.id]) || 0) + 1))}
+                            className="w-8 h-10 flex items-center justify-center border rounded-lg hover:bg-accent text-muted-foreground touch-manipulation shrink-0"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-medium">
+                          {qtys[item.id] !== '' && qtys[item.id] != null ? Number(qtys[item.id]) : '—'}
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
                       {item.suggested_qty != null ? Number(item.suggested_qty) : '—'}
                     </td>
@@ -405,24 +476,6 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                         </td>
                       )
                     })}
-                    <td className="py-2.5 text-right">
-                      {isOrdering ? (
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min="0"
-                          step="1"
-                          value={qtys[item.id] ?? ''}
-                          onChange={e => setQty(item.id, e.target.value)}
-                          className="w-20 h-12 text-center text-base border rounded-lg px-2 touch-manipulation"
-                          placeholder="0"
-                        />
-                      ) : (
-                        <span className="text-sm font-medium">
-                          {qtys[item.id] !== '' && qtys[item.id] != null ? Number(qtys[item.id]) : '—'}
-                        </span>
-                      )}
-                    </td>
                   </tr>
                 ))}
                 {(order.items ?? []).length === 0 && (
@@ -442,7 +495,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
               <label className="block text-xs font-medium text-muted-foreground mb-1">Notes</label>
               <textarea
                 value={notes}
-                onChange={e => { setNotes(e.target.value); setDirty(true) }}
+                onChange={e => { setNotes(e.target.value); setDirty(true); scheduleAutosave() }}
                 rows={2}
                 placeholder="Optional notes…"
                 className="w-full border rounded-lg px-3 py-2 text-sm resize-none touch-manipulation"
@@ -462,28 +515,8 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
             </div>
           )}
 
-          {/* Save (ordering) */}
-          {isOrdering && (
-            <button
-              onClick={() => saveMutation.mutate()}
-              disabled={saveMutation.isPending || !dirty}
-              className="w-full bg-primary text-primary-foreground rounded-lg py-3 text-sm font-medium touch-manipulation min-h-[48px] disabled:opacity-40"
-            >
-              {saveMutation.isPending ? 'Saving…' : 'Save'}
-            </button>
-          )}
-
           {/* Status transitions */}
           <div className="space-y-2">
-            {isOrdering && (
-              <button
-                onClick={() => statusMutation.mutate('ready')}
-                disabled={statusMutation.isPending}
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white rounded-lg py-3 text-sm font-semibold touch-manipulation min-h-[48px] disabled:opacity-50"
-              >
-                {statusMutation.isPending ? 'Updating…' : 'Mark as Ready'}
-              </button>
-            )}
             {isReady && (
               <>
                 <button
