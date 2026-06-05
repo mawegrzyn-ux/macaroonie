@@ -124,7 +124,7 @@ export default function OrderSheetCategories() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-3 px-4 py-3 border-b shrink-0">
+      <div className="flex items-center gap-3 px-4 py-3 pl-14 lg:pl-4 border-b shrink-0">
         <Tag className="w-4 h-4 text-muted-foreground" />
         <h1 className="font-semibold text-sm flex-1">Order Sheet Categories</h1>
         <p className="text-xs text-muted-foreground hidden sm:block">Shared across all templates</p>

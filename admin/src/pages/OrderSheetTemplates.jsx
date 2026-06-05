@@ -709,7 +709,7 @@ export default function OrderSheetTemplates() {
     <div className="flex flex-col h-full overflow-hidden">
 
       {/* ── Header bar ── */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b shrink-0 bg-background">
+      <div className="flex items-center gap-2 px-3 py-2 pl-14 lg:pl-3 border-b shrink-0 bg-background">
         <ClipboardList className="w-4 h-4 text-muted-foreground shrink-0" />
 
         {/* Template selector (hidden in manage mode) */}

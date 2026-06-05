@@ -56,7 +56,7 @@ const NAV = [
   { label: 'Menus',       to: '/menus',       icon: ChefHat,            module: 'menus' },
   { label: 'Media',       to: '/media',       icon: FolderOpen,         module: 'website' },
   { label: 'Reviews',     to: '/reviews',     icon: MessageSquare,      module: 'website' },
-  { label: 'Order sheets',            to: '/order-sheets',             icon: ClipboardList, module: 'order_sheets' },
+  { label: 'Order sheets',            to: '/order-sheets',             icon: ClipboardList, module: 'order_sheets', end: true },
   { label: 'Order sheet templates',  to: '/order-sheets/templates',  icon: ClipboardList, module: 'order_sheets' },
   { label: 'Order sheet categories', to: '/order-sheets/categories', icon: Tag,           module: 'order_sheets' },
   { label: 'Cash Recon',  to: '/cash-recon',       icon: Wallet,        module: 'cash_recon' },
@@ -86,7 +86,7 @@ function NavItem({ item, open }) {
   return (
     <NavLink
       to={item.to}
-      end={item.to === '/'}
+      end={item.end ?? item.to === '/'}
       title={!open ? item.label : undefined}
       className={({ isActive }) => cn(
         'flex items-center gap-3 py-2 rounded-md text-sm font-medium transition-colors',
