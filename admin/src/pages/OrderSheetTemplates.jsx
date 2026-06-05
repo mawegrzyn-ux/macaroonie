@@ -1,5 +1,6 @@
 // src/pages/OrderSheetTemplates.jsx
-import { useState, useCallback, useEffect, useRef } from 'react'
+// Full-page Excel-like order sheet template editor.
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -10,158 +11,197 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   GripVertical, Plus, Trash2, X, ClipboardList, Loader2,
-  Check, ChevronRight, Pencil,
+  Check, Settings, Tag, ChevronDown, AlertCircle,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
+const DAY_ORDER  = [1, 2, 3, 4, 5, 6, 0]
 
-function Toggle({ checked, onChange }) {
-  return (
+// ── Inline cell components ────────────────────────────────────────────────────
+
+function InlineText({ value, onSave, placeholder = '—', className, type = 'text', inputMode, required }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  function beginEdit() {
+    setDraft(value ?? '')
+    setEditing(true)
+  }
+
+  function commit() {
+    setEditing(false)
+    const v = type === 'number'
+      ? (draft === '' ? null : Number(draft))
+      : draft.trim() || null
+    const prev = value ?? null
+    if (v !== prev) onSave(v)
+  }
+
+  if (!editing) return (
     <div
-      onClick={() => onChange(!checked)}
+      onClick={beginEdit}
       className={cn(
-        'relative w-10 h-6 rounded-full transition-colors cursor-pointer touch-manipulation',
-        checked ? 'bg-primary' : 'bg-muted',
+        'min-h-[36px] flex items-center px-2 cursor-text select-none',
+        !value && 'text-muted-foreground text-xs italic',
+        className,
       )}
     >
-      <span className={cn(
-        'absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform',
-        checked ? 'translate-x-5' : 'translate-x-1',
-      )} />
+      {value !== null && value !== undefined && value !== '' ? (
+        type === 'number' && value != null ? Number(value).toString() : value
+      ) : placeholder}
     </div>
   )
-}
-
-function SectionCard({ title, children, action }) {
-  return (
-    <div className="border rounded-xl overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
-        <h3 className="text-sm font-semibold">{title}</h3>
-        {action}
-      </div>
-      <div className="p-4">{children}</div>
-    </div>
-  )
-}
-
-// ── Category row (sortable) ────────────────────────────────────────────────────
-
-function SortableCategoryRow({ category, onSave, onDelete }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
-  const [editing, setEditing] = useState(false)
-  const [editName, setEditName] = useState(category.name)
-
-  function handleSave() {
-    const trimmed = editName.trim()
-    if (!trimmed) return
-    onSave(category.id, trimmed)
-    setEditing(false)
-  }
-
-  function handleCancel() {
-    setEditName(category.name)
-    setEditing(false)
-  }
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-2 py-2 border-b last:border-0">
-      <button {...attributes} {...listeners}
-        className="p-1.5 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation shrink-0">
-        <GripVertical className="w-4 h-4" />
-      </button>
-      {editing ? (
-        <>
-          <input
-            type="text"
-            value={editName}
-            onChange={e => setEditName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel() }}
-            className="flex-1 border rounded px-2 py-1 text-sm touch-manipulation min-h-[36px]"
-            autoFocus
-          />
-          <button onClick={handleSave}
-            className="p-1.5 text-primary touch-manipulation" title="Save">
-            <Check className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={handleCancel}
-            className="p-1.5 text-muted-foreground touch-manipulation" title="Cancel">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </>
-      ) : (
-        <>
-          <span className="flex-1 text-sm">{category.name}</span>
-          <button onClick={() => setEditing(true)}
-            className="p-1.5 text-muted-foreground hover:text-foreground touch-manipulation" title="Rename">
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={() => onDelete(category.id)}
-            className="p-1.5 text-muted-foreground hover:text-red-600 touch-manipulation" title="Delete">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </>
+    <input
+      type={type}
+      inputMode={inputMode}
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') { e.preventDefault(); commit() }
+        if (e.key === 'Escape') { setEditing(false); setDraft(value ?? '') }
+      }}
+      autoFocus
+      className={cn(
+        'w-full min-h-[36px] px-2 bg-primary/5 border-b-2 border-primary outline-none text-sm',
+        className,
       )}
-    </div>
+    />
   )
 }
 
-// ── Item row (sortable) ────────────────────────────────────────────────────────
+function InlineSelect({ value, onSave, options, className }) {
+  return (
+    <select
+      value={value ?? ''}
+      onChange={e => onSave(e.target.value || null)}
+      className={cn(
+        'w-full min-h-[36px] px-2 bg-transparent outline-none text-sm cursor-pointer',
+        !value && 'text-muted-foreground',
+        className,
+      )}
+    >
+      <option value="">—</option>
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  )
+}
 
-function SortableItemRow({ item, showPrices, suggestedByVenue, assignedVenues, onEdit, onDelete, checked, onCheck }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+function SugQtyCell({ value, onSave }) {
+  const [v, setV] = useState(value ?? '')
+  const committedRef = useRef(value)
 
-  const suggestedSummary = assignedVenues
-    .filter(v => (suggestedByVenue[v.id] ?? '') !== '' && Number(suggestedByVenue[v.id]) > 0)
-    .map(v => `${v.name}: ${suggestedByVenue[v.id]}`)
-    .join(' · ')
+  useEffect(() => {
+    if (!document.activeElement || document.activeElement.tagName !== 'INPUT') {
+      setV(value ?? '')
+      committedRef.current = value
+    }
+  }, [value])
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-2 py-2.5 border-b last:border-0">
-      <div
-        className="flex items-center px-1 cursor-pointer touch-manipulation shrink-0"
-        onClick={e => { e.stopPropagation(); onCheck(item.id) }}
-      >
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={() => onCheck(item.id)}
-          onClick={e => e.stopPropagation()}
-          className="w-4 h-4 rounded cursor-pointer"
+    <input
+      type="number"
+      inputMode="decimal"
+      min="0"
+      value={v}
+      onChange={e => setV(e.target.value)}
+      onFocus={() => { committedRef.current = v }}
+      onBlur={() => {
+        const n = v === '' ? null : Number(v)
+        if (n !== committedRef.current) {
+          committedRef.current = n
+          onSave(n)
+        }
+      }}
+      className="w-full min-h-[36px] text-right px-2 bg-transparent outline-none border-b border-transparent focus:border-primary focus:bg-primary/5 text-sm"
+    />
+  )
+}
+
+// ── Sortable item row ─────────────────────────────────────────────────────────
+
+function SortableItemRow({
+  item, showPrices, assignedVenues, categories, suggestedQtys,
+  checked, onCheck, onSaveField, onSaveSugQty, onDelete, colTemplate,
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    display: 'grid',
+    gridTemplateColumns: colTemplate,
+    alignItems: 'stretch',
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className={cn('border-b group hover:bg-muted/20', isDragging && 'bg-accent shadow-sm')}>
+      {/* Checkbox */}
+      <div className="flex items-center justify-center px-1">
+        <input type="checkbox" checked={checked} onChange={() => onCheck(item.id)}
+          className="w-4 h-4 rounded cursor-pointer" />
+      </div>
+      {/* Drag */}
+      <div className="flex items-center justify-center">
+        <button {...attributes} {...listeners}
+          className="p-1 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation">
+          <GripVertical className="w-4 h-4" />
+        </button>
+      </div>
+      {/* Name */}
+      <div className="border-r">
+        <InlineText
+          value={item.name}
+          onSave={v => v && onSaveField(item.id, 'name', v)}
+          placeholder="Item name"
         />
       </div>
-      <button {...attributes} {...listeners}
-        className="p-1.5 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation shrink-0">
-        <GripVertical className="w-4 h-4" />
-      </button>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-medium truncate">{item.name}</span>
-          <span className="text-xs text-muted-foreground shrink-0">{item.unit}</span>
-          {showPrices && item.price != null && (
-            <span className="text-xs text-muted-foreground shrink-0">£{Number(item.price).toFixed(2)}</span>
-          )}
-          {item.category_name && (
-            <span className="text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 shrink-0">
-              {item.category_name}
-            </span>
-          )}
-        </div>
-        {suggestedSummary && (
-          <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{suggestedSummary}</p>
-        )}
+      {/* Unit */}
+      <div className="border-r">
+        <InlineText
+          value={item.unit}
+          onSave={v => v && onSaveField(item.id, 'unit', v)}
+          placeholder="Unit"
+        />
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <button onClick={() => onEdit(item)}
-          className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation" title="Edit">
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
+      {/* Price */}
+      {showPrices && (
+        <div className="border-r">
+          <InlineText
+            type="number"
+            inputMode="decimal"
+            value={item.price != null ? String(item.price) : ''}
+            onSave={v => onSaveField(item.id, 'price', v)}
+            placeholder="—"
+          />
+        </div>
+      )}
+      {/* Category */}
+      <div className="border-r">
+        <InlineSelect
+          value={item.category_id}
+          onSave={v => onSaveField(item.id, 'category_id', v)}
+          options={categories.map(c => ({ value: c.id, label: c.name }))}
+        />
+      </div>
+      {/* Sug qty per venue */}
+      {assignedVenues.map(v => (
+        <div key={v.id} className="border-r last:border-r-0">
+          <SugQtyCell
+            value={suggestedQtys[item.id]?.[v.id] ?? ''}
+            onSave={(qty) => onSaveSugQty(item.id, v.id, qty)}
+          />
+        </div>
+      ))}
+      {/* Delete */}
+      <div className="flex items-center justify-center">
         <button onClick={() => onDelete(item.id)}
-          className="p-2 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 touch-manipulation" title="Delete">
+          className="p-1.5 text-muted-foreground hover:text-red-600 touch-manipulation opacity-0 group-hover:opacity-100 transition-opacity">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -169,119 +209,240 @@ function SortableItemRow({ item, showPrices, suggestedByVenue, assignedVenues, o
   )
 }
 
-// ── Merge Dialog ───────────────────────────────────────────────────────────────
+// ── Draft new item row ────────────────────────────────────────────────────────
 
-function MergeDialog({ selectedTemplates, onClose, onMerged }) {
-  const api = useApi()
-  const queryClient = useQueryClient()
-  const [primaryId, setPrimaryId] = useState(selectedTemplates[0]?.id ?? '')
-  const [mergeName, setMergeName] = useState(selectedTemplates[0]?.name ?? '')
-  const [error, setError] = useState('')
+function DraftItemRow({ showPrices, assignedVenues, categories, onSave, onCancel, colTemplate }) {
+  const [name, setName]           = useState('')
+  const [unit, setUnit]           = useState('')
+  const [price, setPrice]         = useState('')
+  const [categoryId, setCategoryId] = useState('')
 
-  useEffect(() => {
-    const t = selectedTemplates.find(t => t.id === primaryId)
-    if (t) setMergeName(t.name)
-  }, [primaryId]) // eslint-disable-line react-hooks/exhaustive-deps
+  function handleSave() {
+    if (!name.trim() || !unit.trim()) return
+    onSave({ name: name.trim(), unit: unit.trim(), price: price !== '' ? Number(price) : null, category_id: categoryId || null })
+  }
 
-  const mergeMutation = useMutation({
-    mutationFn: () => api.post('/order-sheets/templates/merge', {
-      primary_id:    primaryId,
-      secondary_ids: selectedTemplates.filter(t => t.id !== primaryId).map(t => t.id),
-      name:          mergeName.trim() || undefined,
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['order-sheets', 'templates'])
-      onMerged(primaryId)
-    },
-    onError: (err) => setError(err?.message ?? 'Merge failed'),
-  })
+  const cellInput = 'w-full min-h-[36px] px-2 bg-transparent outline-none text-sm border-b border-primary'
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="bg-background rounded-xl shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-base font-semibold">Merge Templates</h2>
-          <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation">
-            <X className="w-4 h-4" />
-          </button>
+    <div style={{ display: 'grid', gridTemplateColumns: colTemplate, alignItems: 'stretch' }}
+      className="border-b bg-primary/5">
+      <div className="flex items-center justify-center px-1">
+        <div className="w-4 h-4" /> {/* spacer */}
+      </div>
+      <div className="flex items-center justify-center">
+        <div className="w-4 h-4" /> {/* spacer */}
+      </div>
+      <div className="border-r">
+        <input
+          type="text"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') onCancel() }}
+          placeholder="Item name *"
+          autoFocus
+          className={cellInput}
+        />
+      </div>
+      <div className="border-r">
+        <input
+          type="text"
+          value={unit}
+          onChange={e => setUnit(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') onCancel() }}
+          placeholder="Unit *"
+          className={cellInput}
+        />
+      </div>
+      {showPrices && (
+        <div className="border-r">
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            value={price}
+            onChange={e => setPrice(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') onCancel() }}
+            placeholder="Price"
+            className={cellInput}
+          />
         </div>
-        <div className="p-5 space-y-4">
-          <p className="text-sm text-muted-foreground">
-            Select the primary template to keep. All items from the other templates will be copied into it, then those templates deleted.
-          </p>
+      )}
+      <div className="border-r">
+        <select value={categoryId} onChange={e => setCategoryId(e.target.value)}
+          className="w-full min-h-[36px] px-2 bg-transparent outline-none text-sm border-b border-primary">
+          <option value="">No category</option>
+          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+      {assignedVenues.map(v => <div key={v.id} className="border-r last:border-r-0" />)}
+      <div className="flex items-center gap-1 justify-center px-1">
+        <button onClick={handleSave} disabled={!name.trim() || !unit.trim()}
+          className="p-1.5 text-primary touch-manipulation disabled:opacity-30">
+          <Check className="w-4 h-4" />
+        </button>
+        <button onClick={onCancel} className="p-1.5 text-muted-foreground touch-manipulation">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  )
+}
 
-          <div className="space-y-2">
-            {selectedTemplates.map(t => (
-              <label
-                key={t.id}
-                className={cn(
-                  'flex items-center gap-3 cursor-pointer p-3 rounded-lg border transition-colors touch-manipulation min-h-[52px] hover:bg-accent/50',
-                  primaryId === t.id && 'border-primary bg-primary/5',
-                )}
-              >
-                <input
-                  type="radio" name="primary" value={t.id}
-                  checked={primaryId === t.id}
-                  onChange={() => setPrimaryId(t.id)}
-                  className="w-4 h-4"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate">{t.name}</p>
-                  <p className="text-xs text-muted-foreground">{t.item_count ?? 0} items</p>
-                </div>
-                {primaryId === t.id && (
-                  <span className="text-xs text-primary font-medium shrink-0">Primary</span>
-                )}
-              </label>
+// ── Settings panel ────────────────────────────────────────────────────────────
+
+function SettingsPanel({ template, allVenues, onClose }) {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  const [name, setName]                 = useState(template.name ?? '')
+  const [showPrices, setShowPrices]     = useState(template.show_prices ?? false)
+  const [isActive, setIsActive]         = useState(template.is_active ?? true)
+  const [deliveryDays, setDeliveryDays] = useState(template.delivery_days ?? [])
+  const [venueIds, setVenueIds]         = useState(template.venue_ids ?? [])
+  const [error, setError]               = useState('')
+  const [saved, setSaved]               = useState(false)
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      await api.patch(`/order-sheets/templates/${template.id}`, {
+        name: name.trim() || template.name,
+        show_prices:   showPrices,
+        is_active:     isActive,
+        delivery_days: deliveryDays,
+      })
+      await api.put(`/order-sheets/templates/${template.id}/venues`, { venue_ids: venueIds })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['order-sheets', 'templates'])
+      queryClient.invalidateQueries(['order-sheets', 'templates', template.id])
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    },
+    onError: (err) => setError(err?.message ?? 'Save failed'),
+  })
+
+  function Toggle({ checked, onChange }) {
+    return (
+      <div onClick={() => onChange(!checked)}
+        className={cn('relative w-9 h-5 rounded-full cursor-pointer touch-manipulation shrink-0 transition-colors',
+          checked ? 'bg-primary' : 'bg-muted')}>
+        <span className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
+          checked ? 'translate-x-4' : 'translate-x-0.5')} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="border-b bg-muted/20 px-4 py-3 space-y-3">
+      <div className="flex flex-wrap gap-x-6 gap-y-3 items-end">
+        {/* Name */}
+        <div className="flex flex-col gap-1 min-w-[160px]">
+          <label className="text-xs font-medium text-muted-foreground">Name</label>
+          <input type="text" value={name} onChange={e => setName(e.target.value)}
+            className="border rounded px-2 py-1.5 text-sm touch-manipulation min-h-[36px] bg-background min-w-[160px]" />
+        </div>
+        {/* Toggles */}
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 cursor-pointer touch-manipulation">
+            <Toggle checked={isActive} onChange={setIsActive} />
+            <span className="text-sm">Active</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer touch-manipulation">
+            <Toggle checked={showPrices} onChange={setShowPrices} />
+            <span className="text-sm">Show prices</span>
+          </label>
+        </div>
+        {/* Delivery days */}
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-muted-foreground">Delivery days</label>
+          <div className="flex gap-1.5 flex-wrap">
+            {DAY_ORDER.map(day => (
+              <button key={day} type="button"
+                onClick={() => setDeliveryDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])}
+                className={cn('px-2 py-1 rounded text-xs font-medium border touch-manipulation min-h-[32px] transition-colors',
+                  deliveryDays.includes(day)
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-background text-muted-foreground border-border'
+                )}>
+                {DAY_LABELS[day]}
+              </button>
             ))}
           </div>
-
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Name for merged template</label>
-            <input
-              type="text"
-              value={mergeName}
-              onChange={e => setMergeName(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2.5 text-sm touch-manipulation min-h-[44px]"
-            />
+        </div>
+        {/* Venues */}
+        {allVenues.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-muted-foreground">Venues</label>
+            <div className="flex gap-3 flex-wrap">
+              {allVenues.map(v => (
+                <label key={v.id} className="flex items-center gap-1.5 cursor-pointer touch-manipulation min-h-[32px]">
+                  <input type="checkbox" checked={venueIds.includes(v.id)}
+                    onChange={e => setVenueIds(prev => e.target.checked ? [...prev, v.id] : prev.filter(id => id !== v.id))}
+                    className="w-3.5 h-3.5 rounded" />
+                  <span className="text-sm">{v.name}</span>
+                </label>
+              ))}
+            </div>
           </div>
-
-          {error && <p className="text-sm text-red-600">{error}</p>}
-
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={onClose}
-              className="flex-1 border rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]">
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => mergeMutation.mutate()}
-              disabled={mergeMutation.isPending}
-              className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px] disabled:opacity-50"
-            >
-              {mergeMutation.isPending ? 'Merging…' : `Merge ${selectedTemplates.length} templates`}
-            </button>
-          </div>
+        )}
+        {/* Save */}
+        <div className="flex items-end gap-2">
+          {error && <p className="text-xs text-red-600">{error}</p>}
+          <button
+            onClick={() => { setError(''); saveMutation.mutate() }}
+            disabled={saveMutation.isPending}
+            className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded px-3 py-1.5 text-sm font-medium touch-manipulation min-h-[36px] disabled:opacity-50"
+          >
+            {saveMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <Check className="w-3.5 h-3.5" /> : null}
+            Save settings
+          </button>
+          <button onClick={onClose}
+            className="p-2 text-muted-foreground hover:text-foreground touch-manipulation" title="Close settings">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Template Editor ────────────────────────────────────────────────────────────
+// ── Main page ─────────────────────────────────────────────────────────────────
 
-function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
+export default function OrderSheetTemplates() {
   const api = useApi()
   const queryClient = useQueryClient()
-  const isNew = templateId === '__new__'
 
-  const { data: template, isLoading } = useQuery({
-    queryKey: ['order-sheets', 'templates', templateId],
-    queryFn:  () => api.get(`/order-sheets/templates/${templateId}`),
-    enabled:  !!templateId && !isNew,
+  const [selectedId, setSelectedId] = useState(null)
+  const [showSettings, setShowSettings]   = useState(false)
+  const [newTemplateName, setNewTemplateName] = useState('')
+  const [showNewInput, setShowNewInput]   = useState(false)
+  const [items, setItems]             = useState([])
+  const [suggestedQtys, setSuggestedQtys] = useState({})
+  const [checkedItemIds, setCheckedItemIds] = useState(new Set())
+  const [bulkCatDeleteConfirm, setBulkCatDeleteConfirm] = useState(false)
+  const [bulkError, setBulkError]     = useState('')
+  const [showDraft, setShowDraft]     = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const selectAllRef = useRef(null)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor),
+  )
+
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
+  const isAdmin = me?.role === 'admin' || me?.role === 'owner'
+
+  const { data: templates = [], isLoading: templatesLoading } = useQuery({
+    queryKey: ['order-sheets', 'templates'],
+    queryFn:  () => api.get('/order-sheets/templates'),
+  })
+
+  const { data: template, isLoading: tmplLoading } = useQuery({
+    queryKey: ['order-sheets', 'templates', selectedId],
+    queryFn:  () => api.get(`/order-sheets/templates/${selectedId}`),
+    enabled:  !!selectedId,
   })
 
   const { data: allVenues = [] } = useQuery({
@@ -289,58 +450,9 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     queryFn:  () => api.get('/venues'),
   })
 
-  // ── Basic info state ─────────────────────────────────────────────────────────
-  const [name, setName]                 = useState('')
-  const [showPrices, setShowPrices]     = useState(false)
-  const [isActive, setIsActive]         = useState(true)
-  const [deliveryDays, setDeliveryDays] = useState([])
-  const [basicError, setBasicError]     = useState('')
-  const [basicSaved, setBasicSaved]     = useState(false)
-
-  const [venueIds, setVenueIds]     = useState([])
-  const [venueError, setVenueError] = useState('')
-  const [venueSaved, setVenueSaved] = useState(false)
-
-  // ── Categories state ─────────────────────────────────────────────────────────
-  const [categories, setCategories]   = useState([])
-  const [newCatName, setNewCatName]   = useState('')
-  const [catError, setCatError]       = useState('')
-
-  // ── Items state ──────────────────────────────────────────────────────────────
-  const [items, setItems]                       = useState([])
-  const [editingItem, setEditingItem]           = useState(null)
-  const [newItemName, setNewItemName]           = useState('')
-  const [newItemUnit, setNewItemUnit]           = useState('')
-  const [newItemPrice, setNewItemPrice]         = useState('')
-  const [newItemCategoryId, setNewItemCategoryId] = useState('')
-  const [itemError, setItemError]               = useState('')
-  const [deleteItemId, setDeleteItemId]         = useState(null)
-
-  const [suggestedQtys, setSuggestedQtys] = useState({})
-
-  // ── Bulk item actions state ──────────────────────────────────────────────────
-  const [checkedItemIds, setCheckedItemIds]         = useState(new Set())
-  const [bulkItemDeleteConfirm, setBulkItemDeleteConfirm] = useState(false)
-  const [bulkItemError, setBulkItemError]           = useState('')
-  const selectAllRef = useRef(null)
-
-  const [deleteConfirm, setDeleteConfirm] = useState(false)
-  const [deleteError, setDeleteError]     = useState('')
-
-  // Sync select-all indeterminate state
-  useEffect(() => {
-    if (!selectAllRef.current) return
-    selectAllRef.current.indeterminate = checkedItemIds.size > 0 && checkedItemIds.size < items.length
-  }, [checkedItemIds.size, items.length])
-
+  // Initialise local state from template fetch
   useEffect(() => {
     if (!template) return
-    setName(template.name ?? '')
-    setShowPrices(template.show_prices ?? false)
-    setIsActive(template.is_active ?? true)
-    setDeliveryDays(template.delivery_days ?? [])
-    setVenueIds(template.venue_ids ?? [])
-    setCategories(template.categories ?? [])
     setItems(template.items ?? [])
     const sqMap = {}
     for (const item of template.items ?? []) {
@@ -352,157 +464,112 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
       }
     }
     setSuggestedQtys(sqMap)
+    setCheckedItemIds(new Set())
+    setShowDraft(false)
+    setBulkCatDeleteConfirm(false)
+    setBulkError('')
   }, [template?.id, template?.updated_at]) // eslint-disable-line
 
-  const sensors = useSensors(useSensor(PointerSensor), useSensor(TouchSensor))
+  // Sync select-all indeterminate state
+  useEffect(() => {
+    if (!selectAllRef.current) return
+    selectAllRef.current.indeterminate = checkedItemIds.size > 0 && checkedItemIds.size < items.length
+  }, [checkedItemIds.size, items.length])
 
-  // ── Category drag ────────────────────────────────────────────────────────────
-  function handleCategoryDragEnd({ active, over }) {
-    if (!over || active.id === over.id) return
-    const reordered = arrayMove(
-      categories,
-      categories.findIndex(c => c.id === active.id),
-      categories.findIndex(c => c.id === over.id),
-    )
-    setCategories(reordered)
-    api.patch(`/order-sheets/templates/${templateId}/category-order`, { ids: reordered.map(c => c.id) })
-      .then(() => queryClient.invalidateQueries(['order-sheets', 'templates']))
-      .catch(() => {})
-  }
+  // Select first template on load
+  useEffect(() => {
+    if (templates.length > 0 && !selectedId) setSelectedId(templates[0].id)
+  }, [templates.length]) // eslint-disable-line
 
-  // ── Item drag ────────────────────────────────────────────────────────────────
-  function handleDragEnd({ active, over }) {
-    if (!over || active.id === over.id) return
-    const reordered = arrayMove(items, items.findIndex(i => i.id === active.id), items.findIndex(i => i.id === over.id))
-    setItems(reordered)
-    api.patch(`/order-sheets/templates/${templateId}/item-order`, { ids: reordered.map(i => i.id) })
-      .then(() => queryClient.invalidateQueries(['order-sheets', 'templates']))
-      .catch(() => {})
-  }
+  const categories  = template?.categories ?? []
+  const assignedVenues = useMemo(() => allVenues.filter(v => (template?.venue_ids ?? []).includes(v.id)), [allVenues, template?.venue_ids])
+  const showPrices = template?.show_prices ?? false
 
-  // ── Category mutations ───────────────────────────────────────────────────────
-  const addCategoryMutation = useMutation({
-    mutationFn: () => api.post(`/order-sheets/templates/${templateId}/categories`, { name: newCatName.trim() }),
-    onSuccess: (cat) => {
-      setCategories(prev => [...prev, cat])
-      setNewCatName('')
-      setCatError('')
-      queryClient.invalidateQueries(['order-sheets', 'templates', templateId])
-    },
-    onError: (err) => setCatError(err?.message ?? 'Add failed'),
-  })
+  // Grid column template
+  const colTemplate = useMemo(() => [
+    '40px',             // checkbox
+    '40px',             // drag
+    '1fr',              // name (flex)
+    '80px',             // unit
+    showPrices ? '80px' : null,  // price
+    '160px',            // category
+    ...assignedVenues.map(() => '80px'),  // sug qty
+    '44px',             // delete
+  ].filter(Boolean).join(' '), [showPrices, assignedVenues])
 
-  const editCategoryMutation = useMutation({
-    mutationFn: ({ id, name }) => api.patch(`/order-sheets/templates/${templateId}/categories/${id}`, { name }),
-    onSuccess: (cat) => {
-      setCategories(prev => prev.map(c => c.id === cat.id ? cat : c))
-      queryClient.invalidateQueries(['order-sheets', 'templates', templateId])
-    },
-  })
+  // ── Mutations ──────────────────────────────────────────────────────────────
 
-  const deleteCategoryMutation = useMutation({
-    mutationFn: (catId) => api.delete(`/order-sheets/templates/${templateId}/categories/${catId}`),
-    onSuccess: (_, catId) => {
-      setCategories(prev => prev.filter(c => c.id !== catId))
-      setItems(prev => prev.map(i => i.category_id === catId ? { ...i, category_id: null, category_name: null } : i))
-      queryClient.invalidateQueries(['order-sheets', 'templates', templateId])
-    },
-  })
-
-  // ── Basic / venue mutations ──────────────────────────────────────────────────
-  const saveBasicMutation = useMutation({
-    mutationFn: () => isNew
-      ? api.post('/order-sheets/templates', { name, show_prices: showPrices, venue_ids: venueIds })
-      : api.patch(`/order-sheets/templates/${templateId}`, { name, show_prices: showPrices, is_active: isActive, delivery_days: deliveryDays }),
-    onSuccess: (result) => {
+  const createTemplateMutation = useMutation({
+    mutationFn: () => api.post('/order-sheets/templates', { name: newTemplateName.trim() || 'New Template' }),
+    onSuccess: (tmpl) => {
       queryClient.invalidateQueries(['order-sheets', 'templates'])
-      setBasicSaved(true); setTimeout(() => setBasicSaved(false), 2000)
-      if (isNew) onSaved?.(result)
+      queryClient.setQueryData(['order-sheets', 'templates', tmpl.id], tmpl)
+      setSelectedId(tmpl.id)
+      setShowNewInput(false)
+      setNewTemplateName('')
+      setShowSettings(true)
     },
-    onError: (err) => setBasicError(err?.message ?? 'Save failed'),
   })
 
-  const saveVenuesMutation = useMutation({
-    mutationFn: () => api.put(`/order-sheets/templates/${templateId}/venues`, { venue_ids: venueIds }),
+  const deleteTemplateMutation = useMutation({
+    mutationFn: () => api.delete(`/order-sheets/templates/${selectedId}`),
     onSuccess: () => {
       queryClient.invalidateQueries(['order-sheets', 'templates'])
-      setVenueSaved(true); setTimeout(() => setVenueSaved(false), 2000)
+      setSelectedId(templates.find(t => t.id !== selectedId)?.id ?? null)
+      setDeleteConfirm(false)
     },
-    onError: (err) => setVenueError(err?.message ?? 'Save failed'),
+    onError: (err) => setDeleteError(err?.message ?? 'Delete failed'),
   })
 
-  // ── Item mutations ───────────────────────────────────────────────────────────
   const addItemMutation = useMutation({
-    mutationFn: () => api.post(`/order-sheets/templates/${templateId}/items`, {
-      name:        newItemName.trim(),
-      unit:        newItemUnit.trim(),
-      price:       newItemPrice !== '' ? Number(newItemPrice) : null,
-      category_id: newItemCategoryId || null,
-    }),
+    mutationFn: (body) => api.post(`/order-sheets/templates/${selectedId}/items`, body),
     onSuccess: (item) => {
       setItems(prev => [...prev, item])
       setSuggestedQtys(prev => ({ ...prev, [item.id]: {} }))
-      setNewItemName(''); setNewItemUnit(''); setNewItemPrice(''); setNewItemCategoryId(''); setItemError('')
+      setShowDraft(false)
       queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
-    onError: (err) => setItemError(err?.message ?? 'Add failed'),
   })
 
-  const editItemMutation = useMutation({
-    mutationFn: async (item) => {
-      const updated = await api.patch(`/order-sheets/templates/${templateId}/items/${item.id}`, {
-        name:        item.name,
-        unit:        item.unit,
-        price:       item.price ?? null,
-        category_id: item.category_id ?? null,
-      })
-      if (assignedVenues.length > 0) {
-        const venueQtys = assignedVenues.map(v => ({
-          venue_id: v.id,
-          qty: Number((suggestedQtys[item.id] ?? {})[v.id] ?? 0) || 0,
-        }))
-        await api.put(`/order-sheets/templates/${templateId}/items/${item.id}/suggested`, { venue_qtys: venueQtys })
-      }
-      return updated
-    },
+  const saveFieldMutation = useMutation({
+    mutationFn: ({ itemId, field, value }) =>
+      api.patch(`/order-sheets/templates/${selectedId}/items/${itemId}`, { [field]: value }),
     onSuccess: (updated) => {
       setItems(prev => prev.map(i => i.id === updated.id ? updated : i))
-      setEditingItem(null)
-      queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
+  })
+
+  const sugQtyMutation = useMutation({
+    mutationFn: ({ itemId, venueQtys }) =>
+      api.put(`/order-sheets/templates/${selectedId}/items/${itemId}/suggested`, { venue_qtys: venueQtys }),
   })
 
   const deleteItemMutation = useMutation({
-    mutationFn: (itemId) => api.delete(`/order-sheets/templates/${templateId}/items/${itemId}`),
+    mutationFn: (itemId) => api.delete(`/order-sheets/templates/${selectedId}/items/${itemId}`),
     onSuccess: (_, itemId) => {
       setItems(prev => prev.filter(i => i.id !== itemId))
-      setSuggestedQtys(prev => { const next = { ...prev }; delete next[itemId]; return next })
-      setDeleteItemId(null)
+      setSuggestedQtys(prev => { const n = { ...prev }; delete n[itemId]; return n })
+      setCheckedItemIds(prev => { const n = new Set(prev); n.delete(itemId); return n })
       queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
   })
 
-  // ── Bulk item mutations ──────────────────────────────────────────────────────
-  const bulkDeleteItemsMutation = useMutation({
-    mutationFn: () => api.delete(`/order-sheets/templates/${templateId}/items/bulk`, { ids: [...checkedItemIds] }),
+  const bulkDeleteMutation = useMutation({
+    mutationFn: () => api.delete(`/order-sheets/templates/${selectedId}/items/bulk`, { ids: [...checkedItemIds] }),
     onSuccess: () => {
       const deleted = new Set(checkedItemIds)
       setItems(prev => prev.filter(i => !deleted.has(i.id)))
-      setSuggestedQtys(prev => {
-        const next = { ...prev }
-        for (const id of deleted) delete next[id]
-        return next
-      })
+      setSuggestedQtys(prev => { const n = { ...prev }; for (const id of deleted) delete n[id]; return n })
       setCheckedItemIds(new Set())
-      setBulkItemDeleteConfirm(false)
-      setBulkItemError('')
+      setBulkCatDeleteConfirm(false)
+      setBulkError('')
       queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
-    onError: (err) => setBulkItemError(err?.message ?? 'Delete failed'),
+    onError: (err) => setBulkError(err?.message ?? 'Delete failed'),
   })
 
-  const bulkAssignCategoryMutation = useMutation({
-    mutationFn: (category_id) => api.patch(`/order-sheets/templates/${templateId}/items/bulk-category`, {
+  const bulkCategoryMutation = useMutation({
+    mutationFn: (category_id) => api.patch(`/order-sheets/templates/${selectedId}/items/bulk-category`, {
       ids: [...checkedItemIds],
       category_id: category_id || null,
     }),
@@ -513,659 +580,333 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
           ? { ...i, category_id: category_id || null, category_name: cat?.name ?? null }
           : i
       ))
-      queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
   })
 
-  const deleteTemplateMutation = useMutation({
-    mutationFn: () => api.delete(`/order-sheets/templates/${templateId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['order-sheets', 'templates'])
-      onDeleted?.()
-    },
-    onError: (err) => setDeleteError(err?.message ?? 'Delete failed'),
-  })
+  function handleDragEnd({ active, over }) {
+    if (!over || active.id === over.id) return
+    const reordered = arrayMove(items, items.findIndex(i => i.id === active.id), items.findIndex(i => i.id === over.id))
+    setItems(reordered)
+    api.patch(`/order-sheets/templates/${selectedId}/item-order`, { ids: reordered.map(i => i.id) })
+      .catch(() => queryClient.invalidateQueries(['order-sheets', 'templates', selectedId]))
+  }
 
-  function toggleDeliveryDay(day) {
-    setDeliveryDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+  function saveItemField(itemId, field, value) {
+    if (field !== 'category_id') {
+      setItems(prev => prev.map(i => i.id === itemId ? { ...i, [field]: value } : i))
+    }
+    saveFieldMutation.mutate({ itemId, field, value })
+  }
+
+  function saveSugQty(itemId, venueId, qty) {
+    setSuggestedQtys(prev => ({
+      ...prev,
+      [itemId]: { ...(prev[itemId] ?? {}), [venueId]: qty == null ? '' : String(qty) },
+    }))
+    const currentQtys = { ...(suggestedQtys[itemId] ?? {}), [venueId]: qty == null ? '' : String(qty) }
+    const venueQtys = assignedVenues.map(v => ({
+      venue_id: v.id,
+      qty: Math.max(0, Number(currentQtys[v.id]) || 0),
+    }))
+    sugQtyMutation.mutate({ itemId, venueQtys })
   }
 
   function toggleItemCheck(id) {
     setCheckedItemIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id); else n.add(id)
+      return n
     })
   }
 
-  const assignedVenues = allVenues.filter(v => venueIds.includes(v.id))
+  const selectedTemplate = templates.find(t => t.id === selectedId)
 
-  if (!isNew && isLoading) {
-    return <div className="flex-1 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
-  }
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
-        <h2 className="font-semibold text-sm truncate">{isNew ? 'New Template' : (template?.name ?? 'Template')}</h2>
-        <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation">
-          <X className="w-4 h-4" />
-        </button>
-      </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-5">
+      {/* ── Header bar ── */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b shrink-0 bg-background">
+        <ClipboardList className="w-4 h-4 text-muted-foreground shrink-0" />
 
-        {/* Basic info */}
-        <SectionCard title="Basic info">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Name <span className="text-red-500">*</span></label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)}
-                placeholder="e.g. Weekly Produce Order"
-                className="w-full border rounded-lg px-3 py-2.5 text-sm touch-manipulation min-h-[44px]" />
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Show prices</p>
-                <p className="text-xs text-muted-foreground">Show unit price column in order forms</p>
-              </div>
-              <Toggle checked={showPrices} onChange={setShowPrices} />
-            </div>
-
-            {!isNew && (
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Active</p>
-                  <p className="text-xs text-muted-foreground">Inactive templates are hidden from new orders</p>
-                </div>
-                <Toggle checked={isActive} onChange={setIsActive} />
-              </div>
-            )}
-
-            {/* Delivery days */}
-            <div>
-              <p className="text-sm font-medium mb-1">Delivery days</p>
-              <p className="text-xs text-muted-foreground mb-2">The date picker defaults to the nearest upcoming delivery day</p>
-              <div className="flex gap-2 flex-wrap">
-                {DAY_ORDER.map(day => (
-                  <button
-                    key={day}
-                    type="button"
-                    onClick={() => toggleDeliveryDay(day)}
-                    className={cn(
-                      'px-3 py-1.5 rounded-full text-xs font-medium border touch-manipulation min-h-[36px] transition-colors',
-                      deliveryDays.includes(day)
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-background text-muted-foreground border-border hover:border-primary/50',
-                    )}
-                  >
-                    {DAY_LABELS[day]}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {basicError && <p className="text-sm text-red-600">{basicError}</p>}
-            <button
-              onClick={() => { setBasicError(''); saveBasicMutation.mutate() }}
-              disabled={saveBasicMutation.isPending || !name.trim()}
-              className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium touch-manipulation min-h-[44px] disabled:opacity-50"
+        {/* Template selector */}
+        {templatesLoading ? (
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        ) : templates.length === 0 ? (
+          <span className="text-sm text-muted-foreground">No templates</span>
+        ) : (
+          <div className="relative flex-1 max-w-xs">
+            <select
+              value={selectedId ?? ''}
+              onChange={e => { setSelectedId(e.target.value || null); setShowSettings(false); setDeleteConfirm(false) }}
+              className="w-full appearance-none border rounded-lg px-3 py-1.5 text-sm font-medium bg-background touch-manipulation min-h-[36px] pr-8"
             >
-              {saveBasicMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : basicSaved ? <Check className="w-3.5 h-3.5" /> : null}
-              {isNew ? 'Create template' : 'Save basic info'}
+              {templates.map(t => (
+                <option key={t.id} value={t.id}>
+                  {t.name}{!t.is_active ? ' (inactive)' : ''}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          </div>
+        )}
+
+        {/* New template */}
+        {isAdmin && !showNewInput && (
+          <button
+            onClick={() => setShowNewInput(true)}
+            className="flex items-center gap-1 border rounded-lg px-2.5 py-1.5 text-xs font-medium touch-manipulation min-h-[36px] hover:bg-accent whitespace-nowrap"
+          >
+            <Plus className="w-3.5 h-3.5" />New
+          </button>
+        )}
+
+        {showNewInput && (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={newTemplateName}
+              onChange={e => setNewTemplateName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') createTemplateMutation.mutate(); if (e.key === 'Escape') { setShowNewInput(false); setNewTemplateName('') } }}
+              placeholder="Template name"
+              autoFocus
+              className="border rounded px-2 py-1.5 text-sm touch-manipulation min-h-[36px] w-40"
+            />
+            <button onClick={() => createTemplateMutation.mutate()} disabled={createTemplateMutation.isPending}
+              className="p-2 text-primary touch-manipulation disabled:opacity-50">
+              {createTemplateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            </button>
+            <button onClick={() => { setShowNewInput(false); setNewTemplateName('') }}
+              className="p-2 text-muted-foreground touch-manipulation">
+              <X className="w-4 h-4" />
             </button>
           </div>
-        </SectionCard>
-
-        {/* Assigned venues */}
-        {!isNew && (
-          <SectionCard title="Assigned venues">
-            <div className="space-y-3">
-              {allVenues.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No venues found</p>
-              ) : (
-                <div className="space-y-2">
-                  {allVenues.map(venue => (
-                    <label key={venue.id} className="flex items-center gap-3 cursor-pointer touch-manipulation min-h-[44px]">
-                      <input type="checkbox" checked={venueIds.includes(venue.id)}
-                        onChange={e => setVenueIds(prev => e.target.checked ? [...prev, venue.id] : prev.filter(id => id !== venue.id))}
-                        className="w-4 h-4 rounded" />
-                      <span className="text-sm">{venue.name}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-              {venueError && <p className="text-sm text-red-600">{venueError}</p>}
-              <button
-                onClick={() => { setVenueError(''); saveVenuesMutation.mutate() }}
-                disabled={saveVenuesMutation.isPending}
-                className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium touch-manipulation min-h-[44px] disabled:opacity-50"
-              >
-                {saveVenuesMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : venueSaved ? <Check className="w-3.5 h-3.5" /> : null}
-                Save venues
-              </button>
-            </div>
-          </SectionCard>
         )}
 
-        {/* Categories */}
-        {!isNew && (
-          <SectionCard title="Categories">
-            <div className="space-y-1">
-              {categories.length > 0 ? (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleCategoryDragEnd}>
-                  <SortableContext items={categories.map(c => c.id)} strategy={verticalListSortingStrategy}>
-                    {categories.map(cat => (
-                      <SortableCategoryRow
-                        key={cat.id}
-                        category={cat}
-                        onSave={(id, name) => editCategoryMutation.mutate({ id, name })}
-                        onDelete={(id) => deleteCategoryMutation.mutate(id)}
-                      />
-                    ))}
-                  </SortableContext>
-                </DndContext>
-              ) : (
-                <p className="text-sm text-muted-foreground py-1 mb-2">No categories yet — items will be ungrouped.</p>
-              )}
+        <div className="flex-1" />
 
-              {/* Add category */}
-              <div className={cn('flex gap-2', categories.length > 0 && 'pt-3 border-t mt-1')}>
-                <input
-                  type="text"
-                  value={newCatName}
-                  onChange={e => setNewCatName(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && newCatName.trim() && addCategoryMutation.mutate()}
-                  placeholder="Category name"
-                  className="flex-1 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[40px]"
-                />
-                <button
-                  onClick={() => { if (!newCatName.trim()) return; addCategoryMutation.mutate() }}
-                  disabled={addCategoryMutation.isPending || !newCatName.trim()}
-                  className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px] disabled:opacity-50"
-                >
-                  {addCategoryMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  Add
-                </button>
-              </div>
-              {catError && <p className="text-sm text-red-600 mt-1">{catError}</p>}
-            </div>
-          </SectionCard>
+        {/* Settings toggle */}
+        {selectedId && (
+          <button
+            onClick={() => { setShowSettings(s => !s); setDeleteConfirm(false) }}
+            className={cn('flex items-center gap-1 border rounded-lg px-2.5 py-1.5 text-xs touch-manipulation min-h-[36px] hover:bg-accent',
+              showSettings && 'bg-accent')}
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Settings</span>
+          </button>
         )}
 
-        {/* Items */}
-        {!isNew && (
-          <SectionCard title="Items">
-            <div className="space-y-3">
+        {/* Manage categories */}
+        <Link
+          to="/order-sheets/categories"
+          className="flex items-center gap-1 border rounded-lg px-2.5 py-1.5 text-xs touch-manipulation min-h-[36px] hover:bg-accent whitespace-nowrap"
+        >
+          <Tag className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Categories</span>
+        </Link>
+      </div>
 
-              {/* Bulk action bar */}
-              {checkedItemIds.size > 0 && (
-                <div className="flex items-center gap-2 flex-wrap px-3 py-2.5 bg-primary/5 rounded-lg">
-                  {!bulkItemDeleteConfirm ? (
-                    <>
-                      <span className="text-xs font-medium text-muted-foreground">{checkedItemIds.size} selected</span>
-                      {categories.length > 0 && (
-                        <select
-                          disabled={bulkAssignCategoryMutation.isPending}
-                          onChange={e => {
-                            const v = e.target.value
-                            if (v === '__placeholder__') return
-                            bulkAssignCategoryMutation.mutate(v === '__none__' ? null : v)
-                            e.target.value = '__placeholder__'
-                          }}
-                          defaultValue="__placeholder__"
-                          className="text-xs border rounded-lg px-2 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-50"
-                        >
-                          <option value="__placeholder__" disabled>Category…</option>
-                          <option value="__none__">— No category</option>
-                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      )}
-                      <button
-                        onClick={() => setBulkItemDeleteConfirm(true)}
-                        className="text-xs bg-red-600 text-white rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px]"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        onClick={() => setCheckedItemIds(new Set())}
-                        className="text-xs border rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] text-muted-foreground"
-                      >
-                        Clear
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-xs text-red-600 font-medium flex-1">
-                        Delete {checkedItemIds.size} item{checkedItemIds.size !== 1 ? 's' : ''}?
-                      </span>
-                      {bulkItemError && <span className="text-xs text-red-600">{bulkItemError}</span>}
-                      <button
-                        onClick={() => bulkDeleteItemsMutation.mutate()}
-                        disabled={bulkDeleteItemsMutation.isPending}
-                        className="text-xs bg-red-600 text-white rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-50"
-                      >
-                        {bulkDeleteItemsMutation.isPending ? 'Deleting…' : 'Yes, delete'}
-                      </button>
-                      <button
-                        onClick={() => { setBulkItemDeleteConfirm(false); setBulkItemError('') }}
-                        className="text-xs border rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px]"
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
+      {/* ── Settings panel ── */}
+      {showSettings && selectedId && template && (
+        <SettingsPanel
+          key={template.id}
+          template={template}
+          allVenues={allVenues}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
 
-              {/* Select all */}
-              {items.length > 0 && (
-                <div className="flex items-center gap-2 px-1">
-                  <input
-                    ref={selectAllRef}
-                    type="checkbox"
-                    checked={checkedItemIds.size === items.length && items.length > 0}
-                    onChange={e => setCheckedItemIds(e.target.checked ? new Set(items.map(i => i.id)) : new Set())}
-                    className="w-4 h-4 rounded cursor-pointer"
-                  />
-                  <span className="text-xs text-muted-foreground">Select all</span>
-                </div>
-              )}
+      {/* ── No template selected ── */}
+      {!selectedId && !templatesLoading && (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-4">
+          <ClipboardList className="w-10 h-10 text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">No templates yet.</p>
+          {isAdmin && (
+            <button
+              onClick={() => setShowNewInput(true)}
+              className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium touch-manipulation"
+            >
+              <Plus className="w-4 h-4" />Create first template
+            </button>
+          )}
+        </div>
+      )}
 
-              {/* Item list */}
-              {items.length > 0 && (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
-                    {items.map(item => (
-                      editingItem?.id === item.id ? (
-                        <div key={item.id} className="py-2.5 border-b last:border-0 space-y-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <div className="p-1.5 shrink-0"><GripVertical className="w-4 h-4 text-muted-foreground opacity-30" /></div>
-                            <input type="text" value={editingItem.name} onChange={e => setEditingItem(p => ({ ...p, name: e.target.value }))}
-                              className="flex-1 min-w-[100px] border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Item name" autoFocus />
-                            <input type="text" value={editingItem.unit} onChange={e => setEditingItem(p => ({ ...p, unit: e.target.value }))}
-                              className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Unit" />
-                            {showPrices && (
-                              <input type="number" inputMode="decimal" min="0" step="0.01" value={editingItem.price ?? ''}
-                                onChange={e => setEditingItem(p => ({ ...p, price: e.target.value !== '' ? Number(e.target.value) : null }))}
-                                className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Price" />
-                            )}
-                            {categories.length > 0 && (
-                              <select
-                                value={editingItem.category_id ?? ''}
-                                onChange={e => setEditingItem(p => ({ ...p, category_id: e.target.value || null }))}
-                                className="w-32 border rounded px-2 py-1.5 text-sm touch-manipulation"
-                              >
-                                <option value="">No category</option>
-                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                              </select>
-                            )}
-                            <button onClick={() => editItemMutation.mutate(editingItem)} disabled={editItemMutation.isPending}
-                              className="p-2 text-primary touch-manipulation disabled:opacity-50">
-                              {editItemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                            </button>
-                            <button onClick={() => setEditingItem(null)} className="p-2 text-muted-foreground touch-manipulation"><X className="w-4 h-4" /></button>
-                          </div>
-                          {assignedVenues.length > 0 && (
-                            <div className="ml-8 flex flex-wrap gap-x-4 gap-y-1.5 items-center pb-1">
-                              <span className="text-xs text-muted-foreground font-medium shrink-0">Suggested qty:</span>
-                              {assignedVenues.map(v => (
-                                <div key={v.id} className="flex items-center gap-1.5">
-                                  <span className="text-xs text-muted-foreground">{v.name}</span>
-                                  <input type="number" inputMode="decimal" min="0" step="1"
-                                    value={(suggestedQtys[item.id] ?? {})[v.id] ?? ''}
-                                    onChange={e => setSuggestedQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [v.id]: e.target.value } }))}
-                                    className="w-16 h-8 text-center text-sm border rounded px-1 touch-manipulation" placeholder="0" />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : deleteItemId === item.id ? (
-                        <div key={item.id} className="flex items-center gap-2 py-2.5 border-b last:border-0">
-                          <span className="text-sm text-red-600 flex-1">Delete "{item.name}"?</span>
-                          <button onClick={() => deleteItemMutation.mutate(item.id)} disabled={deleteItemMutation.isPending}
-                            className="text-xs bg-red-600 text-white rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Delete</button>
-                          <button onClick={() => setDeleteItemId(null)}
-                            className="text-xs border rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Cancel</button>
-                        </div>
-                      ) : (
-                        <SortableItemRow key={item.id} item={item} showPrices={showPrices}
-                          suggestedByVenue={suggestedQtys[item.id] ?? {}} assignedVenues={assignedVenues}
-                          onEdit={setEditingItem} onDelete={setDeleteItemId}
-                          checked={checkedItemIds.has(item.id)} onCheck={toggleItemCheck} />
-                      )
-                    ))}
-                  </SortableContext>
-                </DndContext>
-              )}
-              {items.length === 0 && <p className="text-sm text-muted-foreground py-2">No items yet — add one below.</p>}
+      {/* ── Loading template detail ── */}
+      {selectedId && tmplLoading && (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
 
-              {/* Add item */}
-              <div className="pt-3 border-t">
-                <p className="text-xs font-medium text-muted-foreground mb-2">Add item</p>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <input type="text" value={newItemName} onChange={e => setNewItemName(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addItemMutation.mutate()}
-                    placeholder="Item name *" className="flex-1 min-w-[120px] border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]" />
-                  <input type="text" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addItemMutation.mutate()}
-                    placeholder="Unit *" className="w-24 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]" />
-                  {showPrices && (
-                    <input type="number" inputMode="decimal" min="0" step="0.01" value={newItemPrice}
-                      onChange={e => setNewItemPrice(e.target.value)}
-                      placeholder="Price" className="w-24 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]" />
-                  )}
+      {/* ── Items table ── */}
+      {selectedId && template && !tmplLoading && (
+        <div className="flex-1 overflow-auto">
+
+          {/* Toolbar */}
+          <div className="sticky top-0 z-20 bg-background border-b flex items-center gap-2 px-3 py-1.5 min-h-[44px]">
+            {/* Select all */}
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              checked={checkedItemIds.size === items.length && items.length > 0}
+              onChange={e => setCheckedItemIds(e.target.checked ? new Set(items.map(i => i.id)) : new Set())}
+              className="w-4 h-4 rounded cursor-pointer"
+            />
+
+            {/* Bulk actions */}
+            {checkedItemIds.size > 0 ? (
+              !bulkCatDeleteConfirm ? (
+                <>
+                  <span className="text-xs text-muted-foreground">{checkedItemIds.size} selected</span>
                   {categories.length > 0 && (
                     <select
-                      value={newItemCategoryId}
-                      onChange={e => setNewItemCategoryId(e.target.value)}
-                      className="w-36 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]"
+                      disabled={bulkCategoryMutation.isPending}
+                      onChange={e => {
+                        const v = e.target.value
+                        if (v === '__p') return
+                        bulkCategoryMutation.mutate(v === '__none' ? null : v)
+                        e.target.value = '__p'
+                      }}
+                      defaultValue="__p"
+                      className="text-xs border rounded px-2 py-1 touch-manipulation min-h-[32px] disabled:opacity-50"
                     >
-                      <option value="">No category</option>
+                      <option value="__p" disabled>Category…</option>
+                      <option value="__none">— Clear</option>
                       {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   )}
-                  <button
-                    onClick={() => {
-                      if (!newItemName.trim()) return setItemError('Name required')
-                      if (!newItemUnit.trim()) return setItemError('Unit required')
-                      addItemMutation.mutate()
-                    }}
-                    disabled={addItemMutation.isPending}
-                    className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px] disabled:opacity-50"
-                  >
-                    {addItemMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                    Add
+                  <button onClick={() => setBulkCatDeleteConfirm(true)}
+                    className="text-xs bg-red-600 text-white rounded px-2.5 py-1 touch-manipulation min-h-[32px]">
+                    Delete
                   </button>
-                </div>
-                {itemError && <p className="text-sm text-red-600 mt-1.5">{itemError}</p>}
-              </div>
-            </div>
-          </SectionCard>
-        )}
-
-        {/* Delete template */}
-        {!isNew && isAdmin && (
-          <div className="pt-2 border-t">
-            {!deleteConfirm ? (
-              <button onClick={() => setDeleteConfirm(true)}
-                className="text-sm text-red-600 underline-offset-2 hover:underline touch-manipulation py-2">
-                Delete template
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-sm text-red-600 font-medium">Delete "{template?.name}"? This cannot be undone.</p>
-                {deleteError && <p className="text-xs text-red-600">{deleteError}</p>}
-                <div className="flex gap-3">
-                  <button onClick={() => deleteTemplateMutation.mutate()} disabled={deleteTemplateMutation.isPending}
-                    className="bg-red-600 text-white text-sm rounded-lg px-4 py-2.5 touch-manipulation min-h-[44px] disabled:opacity-50">
-                    {deleteTemplateMutation.isPending ? 'Deleting…' : 'Yes, delete template'}
+                  <button onClick={() => setCheckedItemIds(new Set())}
+                    className="text-xs border rounded px-2.5 py-1 touch-manipulation min-h-[32px] text-muted-foreground">
+                    Clear
                   </button>
-                  <button onClick={() => { setDeleteConfirm(false); setDeleteError('') }}
-                    className="text-sm border rounded-lg px-4 py-2.5 touch-manipulation min-h-[44px]">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── Template Card ──────────────────────────────────────────────────────────────
-
-function TemplateCard({ template, isSelected, onClick, checked, onCheck }) {
-  return (
-    <div className={cn('border-b last:border-0 transition-colors', isSelected && 'bg-accent')}>
-      <div className="flex items-stretch">
-        {/* Checkbox */}
-        <div
-          className="flex items-center px-3 cursor-pointer touch-manipulation"
-          onClick={e => { e.stopPropagation(); onCheck(template.id) }}
-        >
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={() => onCheck(template.id)}
-            onClick={e => e.stopPropagation()}
-            className="w-4 h-4 rounded cursor-pointer"
-          />
-        </div>
-        {/* Card body */}
-        <button
-          onClick={onClick}
-          className="flex-1 text-left py-4 pr-4 hover:bg-accent/50 transition-colors touch-manipulation"
-        >
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-sm truncate">{template.name}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {template.item_count} item{template.item_count !== 1 ? 's' : ''} · {(template.venue_ids ?? []).length} venue{(template.venue_ids ?? []).length !== 1 ? 's' : ''}
-              </p>
-              {(template.delivery_days ?? []).length > 0 && (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {DAY_ORDER.filter(d => (template.delivery_days ?? []).includes(d)).map(d => DAY_LABELS[d]).join(', ')}
-                </p>
-              )}
-            </div>
-            <div className="shrink-0 flex flex-col items-end gap-1">
-              {template.show_prices && <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5">Prices</span>}
-              <span className={cn('text-[10px] rounded-full px-2 py-0.5', template.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')}>
-                {template.is_active ? 'Active' : 'Inactive'}
-              </span>
-            </div>
-          </div>
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ── Main Page ──────────────────────────────────────────────────────────────────
-
-export default function OrderSheetTemplates() {
-  const api = useApi()
-  const queryClient = useQueryClient()
-  const [selectedId, setSelectedId] = useState(null)
-  const [panelWidth, setPanelWidth] = useState(500)
-
-  const [checkedIds, setCheckedIds]               = useState(new Set())
-  const [showMergeDialog, setShowMergeDialog]     = useState(false)
-  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
-  const [bulkError, setBulkError]                 = useState('')
-
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
-  const isAdmin = me?.role === 'admin' || me?.role === 'owner'
-
-  const { data: templates = [], isLoading } = useQuery({
-    queryKey: ['order-sheets', 'templates'],
-    queryFn:  () => api.get('/order-sheets/templates'),
-  })
-
-  const handleResizeStart = useCallback((e) => {
-    e.preventDefault()
-    const startX = e.clientX; const startWidth = panelWidth
-    function onMove(e2) { setPanelWidth(Math.min(700, Math.max(320, startWidth - (e2.clientX - startX)))) }
-    function onUp() { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
-  }, [panelWidth])
-
-  function toggleCheck(id) {
-    setCheckedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id); else next.add(id)
-      return next
-    })
-  }
-
-  const bulkDeleteMutation = useMutation({
-    mutationFn: () => api.delete('/order-sheets/templates/bulk', { ids: [...checkedIds] }),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['order-sheets', 'templates'])
-      if (checkedIds.has(selectedId)) setSelectedId(null)
-      setCheckedIds(new Set())
-      setBulkDeleteConfirm(false)
-      setBulkError('')
-    },
-    onError: (err) => setBulkError(err?.message ?? 'Delete failed'),
-  })
-
-  function handleSaved(newTemplate) {
-    queryClient.invalidateQueries(['order-sheets', 'templates'])
-    if (newTemplate?.id) setSelectedId(newTemplate.id)
-  }
-
-  function handleDeleted() {
-    queryClient.invalidateQueries(['order-sheets', 'templates'])
-    setSelectedId(null)
-  }
-
-  function handleMerged(primaryId) {
-    setShowMergeDialog(false)
-    setCheckedIds(new Set())
-    setSelectedId(primaryId)
-  }
-
-  const checkedTemplates = templates.filter(t => checkedIds.has(t.id))
-
-  return (
-    <div className="flex h-full overflow-hidden">
-
-      {/* Left column */}
-      <div className={cn('flex flex-col border-r bg-background overflow-hidden', selectedId ? 'hidden md:flex md:w-72 lg:w-80 shrink-0' : 'flex-1')}>
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
-          <div className="flex items-center gap-2">
-            <ClipboardList className="w-4 h-4 text-muted-foreground" />
-            <h1 className="font-semibold text-sm">Order Sheet Templates</h1>
-          </div>
-          {isAdmin && (
-            <button
-              onClick={() => setSelectedId('__new__')}
-              className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px]"
-            >
-              <Plus className="w-3.5 h-3.5" />New
-            </button>
-          )}
-        </div>
-
-        {/* Bulk action bar */}
-        {checkedIds.size > 0 && isAdmin && (
-          <div className="px-3 py-2.5 border-b bg-primary/5 shrink-0">
-            {!bulkDeleteConfirm ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {checkedIds.size} selected
-                </span>
-                <button
-                  onClick={() => setShowMergeDialog(true)}
-                  disabled={checkedIds.size < 2}
-                  className="text-xs bg-primary text-primary-foreground rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-40"
-                >
-                  Merge
-                </button>
-                <button
-                  onClick={() => { setBulkError(''); setBulkDeleteConfirm(true) }}
-                  className="text-xs bg-red-600 text-white rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px]"
-                >
-                  Delete
-                </button>
-                <button
-                  onClick={() => setCheckedIds(new Set())}
-                  className="text-xs border rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] text-muted-foreground"
-                >
-                  Clear
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-red-600">
-                  Delete {checkedIds.size} template{checkedIds.size !== 1 ? 's' : ''}? This cannot be undone.
-                </p>
-                {bulkError && <p className="text-xs text-red-600">{bulkError}</p>}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => bulkDeleteMutation.mutate()}
-                    disabled={bulkDeleteMutation.isPending}
-                    className="text-xs bg-red-600 text-white rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-50"
-                  >
+                </>
+              ) : (
+                <>
+                  <span className="text-xs text-red-600 font-medium">
+                    Delete {checkedItemIds.size} item{checkedItemIds.size !== 1 ? 's' : ''}?
+                  </span>
+                  {bulkError && <span className="text-xs text-red-600">{bulkError}</span>}
+                  <button onClick={() => bulkDeleteMutation.mutate()} disabled={bulkDeleteMutation.isPending}
+                    className="text-xs bg-red-600 text-white rounded px-2.5 py-1 touch-manipulation min-h-[32px] disabled:opacity-50">
                     {bulkDeleteMutation.isPending ? 'Deleting…' : 'Yes, delete'}
                   </button>
-                  <button
-                    onClick={() => { setBulkDeleteConfirm(false); setBulkError('') }}
-                    className="text-xs border rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px]"
-                  >
+                  <button onClick={() => { setBulkCatDeleteConfirm(false); setBulkError('') }}
+                    className="text-xs border rounded px-2.5 py-1 touch-manipulation min-h-[32px]">
+                    Cancel
+                  </button>
+                </>
+              )
+            ) : (
+              <span className="text-xs text-muted-foreground hidden sm:inline">
+                {items.length} item{items.length !== 1 ? 's' : ''}
+                {assignedVenues.length > 0 && ` · ${assignedVenues.length} venue${assignedVenues.length !== 1 ? 's' : ''}`}
+              </span>
+            )}
+
+            <div className="flex-1" />
+
+            {isAdmin && !showDraft && (
+              <button
+                onClick={() => setShowDraft(true)}
+                className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium touch-manipulation min-h-[36px]"
+              >
+                <Plus className="w-3.5 h-3.5" />Add item
+              </button>
+            )}
+          </div>
+
+          {/* Column header */}
+          <div
+            className="sticky top-[45px] z-10 bg-muted/60 border-b text-xs font-medium text-muted-foreground"
+            style={{ display: 'grid', gridTemplateColumns: colTemplate }}
+          >
+            <div />
+            <div />
+            <div className="px-2 py-2 border-r">Item name</div>
+            <div className="px-2 py-2 border-r">Unit</div>
+            {showPrices && <div className="px-2 py-2 border-r">Price</div>}
+            <div className="px-2 py-2 border-r">Category</div>
+            {assignedVenues.map(v => (
+              <div key={v.id} className="px-2 py-2 border-r last:border-r-0 truncate text-right" title={v.name}>
+                {v.name}
+              </div>
+            ))}
+            <div />
+          </div>
+
+          {/* Item rows */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
+              {items.map(item => (
+                <SortableItemRow
+                  key={item.id}
+                  item={item}
+                  showPrices={showPrices}
+                  assignedVenues={assignedVenues}
+                  categories={categories}
+                  suggestedQtys={suggestedQtys}
+                  checked={checkedItemIds.has(item.id)}
+                  onCheck={toggleItemCheck}
+                  onSaveField={saveItemField}
+                  onSaveSugQty={saveSugQty}
+                  onDelete={(id) => deleteItemMutation.mutate(id)}
+                  colTemplate={colTemplate}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+
+          {/* Draft new item row */}
+          {showDraft && (
+            <DraftItemRow
+              showPrices={showPrices}
+              assignedVenues={assignedVenues}
+              categories={categories}
+              onSave={(body) => addItemMutation.mutate(body)}
+              onCancel={() => setShowDraft(false)}
+              colTemplate={colTemplate}
+            />
+          )}
+
+          {items.length === 0 && !showDraft && (
+            <div className="py-16 text-center text-sm text-muted-foreground">
+              No items yet — click <strong>Add item</strong> to get started.
+            </div>
+          )}
+
+          {/* Delete template */}
+          {isAdmin && (
+            <div className="px-4 py-4 border-t mt-4">
+              {!deleteConfirm ? (
+                <button onClick={() => setDeleteConfirm(true)}
+                  className="text-xs text-red-600 hover:underline touch-manipulation py-1">
+                  Delete template "{selectedTemplate?.name}"
+                </button>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span className="text-sm text-red-600 font-medium">Delete this template? Cannot be undone.</span>
+                  {deleteError && <span className="text-xs text-red-600">{deleteError}</span>}
+                  <button onClick={() => deleteTemplateMutation.mutate()} disabled={deleteTemplateMutation.isPending}
+                    className="text-xs bg-red-600 text-white rounded px-3 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-50">
+                    {deleteTemplateMutation.isPending ? 'Deleting…' : 'Yes, delete'}
+                  </button>
+                  <button onClick={() => { setDeleteConfirm(false); setDeleteError('') }}
+                    className="text-xs border rounded px-3 py-1.5 touch-manipulation min-h-[32px]">
                     Cancel
                   </button>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Template list */}
-        <div className="flex-1 overflow-y-auto">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
-          ) : templates.length === 0 && !selectedId ? (
-            <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-              <ClipboardList className="w-8 h-8 text-muted-foreground mb-3" />
-              <p className="text-sm text-muted-foreground">No templates yet</p>
-              {isAdmin && <p className="text-xs text-muted-foreground mt-1">Create a template to get started</p>}
-            </div>
-          ) : (
-            <>
-              {selectedId === '__new__' && (
-                <div className="px-4 py-3 border-b bg-primary/5 text-xs font-medium text-primary">New template (unsaved)</div>
               )}
-              {templates.map(t => (
-                <TemplateCard
-                  key={t.id}
-                  template={t}
-                  isSelected={t.id === selectedId}
-                  onClick={() => setSelectedId(t.id)}
-                  checked={checkedIds.has(t.id)}
-                  onCheck={toggleCheck}
-                />
-              ))}
-            </>
+            </div>
           )}
         </div>
-      </div>
-
-      {/* Editor panel */}
-      {selectedId && (
-        <>
-          <div onMouseDown={handleResizeStart} className="hidden md:block w-1 cursor-col-resize bg-border hover:bg-primary/30 transition-colors shrink-0" />
-          <div
-            className="flex-1 md:flex-none flex flex-col bg-background overflow-hidden"
-            style={{ width: typeof window !== 'undefined' && window.innerWidth >= 768 ? panelWidth : undefined }}
-          >
-            <TemplateEditor
-              key={selectedId}
-              templateId={selectedId}
-              isAdmin={isAdmin}
-              onClose={() => setSelectedId(null)}
-              onSaved={handleSaved}
-              onDeleted={handleDeleted}
-            />
-          </div>
-        </>
-      )}
-
-      {/* Merge dialog */}
-      {showMergeDialog && checkedTemplates.length >= 2 && (
-        <MergeDialog
-          selectedTemplates={checkedTemplates}
-          onClose={() => setShowMergeDialog(false)}
-          onMerged={handleMerged}
-        />
       )}
     </div>
   )

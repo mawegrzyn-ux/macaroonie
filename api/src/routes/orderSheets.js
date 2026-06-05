@@ -115,7 +115,7 @@ const ADMIN_TRANSITIONS = new Set([
 async function resolveCategoryName(tenantId, categoryId) {
   if (!categoryId) return null
   const [cat] = await withTenant(tenantId, tx => tx`
-    SELECT name FROM order_sheet_template_categories WHERE id = ${categoryId}
+    SELECT name FROM order_sheet_categories WHERE id = ${categoryId}
   `)
   return cat?.name ?? null
 }
@@ -124,6 +124,61 @@ async function resolveCategoryName(tenantId, categoryId) {
 
 export default async function orderSheetsRoutes(app) {
   app.addHook('preHandler', requireAuth)
+
+  // ── GET /categories ─────────────────────────────────────────
+  app.get('/categories', async (req) => {
+    return withTenant(req.tenantId, tx => tx`
+      SELECT id, name, sort_order, created_at
+      FROM order_sheet_categories
+      ORDER BY sort_order, name
+    `)
+  })
+
+  // ── POST /categories ────────────────────────────────────────
+  app.post('/categories', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { name } = CategoryBody.parse(req.body)
+    const [maxRow] = await withTenant(req.tenantId, tx => tx`
+      SELECT COALESCE(MAX(sort_order), -1) AS m FROM order_sheet_categories
+    `)
+    const [cat] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO order_sheet_categories (tenant_id, name, sort_order)
+      VALUES (${req.tenantId}, ${name}, ${(maxRow?.m ?? -1) + 1})
+      RETURNING *
+    `)
+    return cat
+  })
+
+  // ── PATCH /categories/reorder ───────────────────────────────
+  // Must be before /:id
+  app.patch('/categories/reorder', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { ids } = CategoryOrderBody.parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      for (let i = 0; i < ids.length; i++) {
+        await tx`UPDATE order_sheet_categories SET sort_order = ${i} WHERE id = ${ids[i]}`
+      }
+    })
+    return { ok: true }
+  })
+
+  // ── PATCH /categories/:id ───────────────────────────────────
+  app.patch('/categories/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { id } = req.params
+    const { name } = CategoryBody.parse(req.body)
+    const [cat] = await withTenant(req.tenantId, tx => tx`
+      UPDATE order_sheet_categories SET name = ${name} WHERE id = ${id} RETURNING *
+    `)
+    if (!cat) throw httpError(404, 'Category not found')
+    return cat
+  })
+
+  // ── DELETE /categories/:id ──────────────────────────────────
+  app.delete('/categories/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { id } = req.params
+    await withTenant(req.tenantId, tx => tx`
+      DELETE FROM order_sheet_categories WHERE id = ${id}
+    `)
+    return { ok: true }
+  })
 
   // ── GET /templates ──────────────────────────────────────────
   app.get('/templates', async (req) => {
@@ -174,11 +229,11 @@ export default async function orderSheetsRoutes(app) {
     `)
     if (!tmpl) throw httpError(404, 'Template not found')
 
+    // All tenant categories (shared across templates)
     const categories = await withTenant(req.tenantId, tx => tx`
       SELECT id, name, sort_order
-      FROM order_sheet_template_categories
-      WHERE template_id = ${id}
-      ORDER BY sort_order, created_at
+      FROM order_sheet_categories
+      ORDER BY sort_order, name
     `)
 
     const items = await withTenant(req.tenantId, tx => tx`
@@ -196,11 +251,11 @@ export default async function orderSheetsRoutes(app) {
           '{}'::json
         ) AS suggested_qty
       FROM order_sheet_items i
-      LEFT JOIN order_sheet_template_categories c ON c.id = i.category_id
+      LEFT JOIN order_sheet_categories c ON c.id = i.category_id
       LEFT JOIN order_sheet_suggested_qty sq ON sq.item_id = i.id
       WHERE i.template_id = ${id}
       GROUP BY i.id, c.name
-      ORDER BY i.sort_order, i.created_at
+      ORDER BY COALESCE(c.sort_order, 999999), i.sort_order, i.created_at
     `)
 
     return { ...tmpl, categories, items }
@@ -224,7 +279,11 @@ export default async function orderSheetsRoutes(app) {
       `)
     }
 
-    return { ...tmpl, venue_ids: body.venue_ids, item_count: 0, categories: [], items: [] }
+    // Return all tenant categories so the editor can populate the category dropdown
+    const categories = await withTenant(req.tenantId, tx => tx`
+      SELECT id, name, sort_order FROM order_sheet_categories ORDER BY sort_order, name
+    `)
+    return { ...tmpl, venue_ids: body.venue_ids, item_count: 0, categories, items: [] }
   })
 
   // ── POST /templates/merge ────────────────────────────────────
@@ -247,58 +306,24 @@ export default async function orderSheetsRoutes(app) {
         await tx`UPDATE order_sheet_templates SET name = ${name}, updated_at = now() WHERE id = ${primary_id}`
       }
 
-      // Load primary's categories (name → id map for dedup)
-      const primaryCats = await tx`
-        SELECT id, name FROM order_sheet_template_categories WHERE template_id = ${primary_id}
-      `
-      const catByName = new Map(primaryCats.map(c => [c.name.toLowerCase(), c.id]))
-
-      const [catMaxRow] = await tx`
-        SELECT COALESCE(MAX(sort_order), -1) AS m FROM order_sheet_template_categories WHERE template_id = ${primary_id}
-      `
-      let nextCatOrder = (catMaxRow?.m ?? -1) + 1
-
       const [maxRow] = await tx`
         SELECT COALESCE(MAX(sort_order), -1) AS m FROM order_sheet_items WHERE template_id = ${primary_id}
       `
       let nextOrder = (maxRow?.m ?? -1) + 1
 
       for (const secId of secondary_ids) {
-        // Map secondary category ids → primary category ids
-        const secCats = await tx`
-          SELECT id, name FROM order_sheet_template_categories
-          WHERE template_id = ${secId}
-          ORDER BY sort_order
-        `
-        const catIdMap = new Map()
-        for (const sc of secCats) {
-          const key = sc.name.toLowerCase()
-          if (catByName.has(key)) {
-            catIdMap.set(sc.id, catByName.get(key))
-          } else {
-            const [newCat] = await tx`
-              INSERT INTO order_sheet_template_categories (tenant_id, template_id, name, sort_order)
-              VALUES (${req.tenantId}, ${primary_id}, ${sc.name}, ${nextCatOrder++})
-              RETURNING id, name
-            `
-            catByName.set(key, newCat.id)
-            catIdMap.set(sc.id, newCat.id)
-          }
-        }
-
+        // Categories are shared across templates — no remapping needed.
         const secItems = await tx`
           SELECT name, unit, price, category_id FROM order_sheet_items
           WHERE template_id = ${secId}
           ORDER BY sort_order, created_at
         `
         for (const item of secItems) {
-          const newCatId = item.category_id ? (catIdMap.get(item.category_id) ?? null) : null
           await tx`
             INSERT INTO order_sheet_items (template_id, name, unit, price, category_id, sort_order)
-            VALUES (${primary_id}, ${item.name}, ${item.unit}, ${item.price ?? null}, ${newCatId ?? null}, ${nextOrder++})
+            VALUES (${primary_id}, ${item.name}, ${item.unit}, ${item.price ?? null}, ${item.category_id ?? null}, ${nextOrder++})
           `
         }
-
         await tx`DELETE FROM order_sheet_templates WHERE id = ${secId}`
       }
     })
@@ -362,82 +387,6 @@ export default async function orderSheetsRoutes(app) {
     })
 
     return { ok: true, venue_ids }
-  })
-
-  // ── GET /templates/:id/categories ──────────────────────────
-  app.get('/templates/:id/categories', async (req) => {
-    const { id } = req.params
-    return withTenant(req.tenantId, tx => tx`
-      SELECT id, name, sort_order, created_at
-      FROM order_sheet_template_categories
-      WHERE template_id = ${id}
-      ORDER BY sort_order, created_at
-    `)
-  })
-
-  // ── POST /templates/:id/categories ─────────────────────────
-  app.post('/templates/:id/categories', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const { id } = req.params
-    const { name } = CategoryBody.parse(req.body)
-
-    const [tmpl] = await withTenant(req.tenantId, tx => tx`
-      SELECT id FROM order_sheet_templates WHERE id = ${id}
-    `)
-    if (!tmpl) throw httpError(404, 'Template not found')
-
-    const [maxRow] = await withTenant(req.tenantId, tx => tx`
-      SELECT COALESCE(MAX(sort_order), -1) AS m
-      FROM order_sheet_template_categories WHERE template_id = ${id}
-    `)
-
-    const [cat] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO order_sheet_template_categories (tenant_id, template_id, name, sort_order)
-      VALUES (${req.tenantId}, ${id}, ${name}, ${(maxRow?.m ?? -1) + 1})
-      RETURNING *
-    `)
-    return cat
-  })
-
-  // ── PATCH /templates/:id/categories/:catId ─────────────────
-  app.patch('/templates/:id/categories/:catId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const { id, catId } = req.params
-    const { name } = CategoryBody.parse(req.body)
-
-    const [cat] = await withTenant(req.tenantId, tx => tx`
-      UPDATE order_sheet_template_categories
-      SET name = ${name}
-      WHERE id = ${catId} AND template_id = ${id}
-      RETURNING *
-    `)
-    if (!cat) throw httpError(404, 'Category not found')
-    return cat
-  })
-
-  // ── DELETE /templates/:id/categories/:catId ────────────────
-  app.delete('/templates/:id/categories/:catId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const { id, catId } = req.params
-    // Items with this category get category_id = NULL (ON DELETE SET NULL)
-    await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheet_template_categories WHERE id = ${catId} AND template_id = ${id}
-    `)
-    return { ok: true }
-  })
-
-  // ── PATCH /templates/:id/category-order ────────────────────
-  app.patch('/templates/:id/category-order', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const { id } = req.params
-    const { ids } = CategoryOrderBody.parse(req.body)
-
-    await withTenant(req.tenantId, async tx => {
-      for (let i = 0; i < ids.length; i++) {
-        await tx`
-          UPDATE order_sheet_template_categories
-          SET sort_order = ${i}
-          WHERE id = ${ids[i]} AND template_id = ${id}
-        `
-      }
-    })
-    return { ok: true }
   })
 
   // ── DELETE /templates/:id/items/bulk ───────────────────────
@@ -634,7 +583,7 @@ export default async function orderSheetsRoutes(app) {
         oi.unit_price,
         COALESCE(sq.qty, NULL) AS suggested_qty
       FROM order_sheet_items i
-      LEFT JOIN order_sheet_template_categories c ON c.id = i.category_id
+      LEFT JOIN order_sheet_categories c ON c.id = i.category_id
       LEFT JOIN order_sheet_order_items oi ON oi.order_id = ${id} AND oi.item_id = i.id
       LEFT JOIN order_sheet_suggested_qty sq ON sq.item_id = i.id AND sq.venue_id = ${order.venue_id}
       WHERE i.template_id = ${order.template_id}
