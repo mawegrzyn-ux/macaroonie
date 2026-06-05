@@ -347,7 +347,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-start justify-between p-4 border-b shrink-0 gap-3">
+      <div className="flex items-start justify-between p-4 pl-14 lg:pl-4 border-b shrink-0 gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="font-semibold text-base truncate">{order.template_name}</h2>
           <p className="text-sm text-muted-foreground truncate">{order.venue_name} · {fmtDate(order.delivery_date)}</p>
@@ -427,8 +427,9 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
               const filtered = searchQuery
                 ? allItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()))
                 : allItems
-              // Group by category; use template name as fallback for uncategorised items
-              const fallbackCat = order.template_name
+              // Group by category. Items arrive pre-sorted by category sort_order
+              // (uncategorised last) from the API; the Map preserves that order.
+              const fallbackCat = 'Uncategorised'
               const groups = []
               const seen = new Map()
               for (const item of filtered) {
@@ -436,7 +437,10 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                 if (!seen.has(cat)) { const g = { name: cat, items: [] }; seen.set(cat, g); groups.push(g) }
                 seen.get(cat).items.push(item)
               }
-              const showGroupHeaders = groups.length > 1 || (groups.length === 1 && groups[0].items.some(i => i.category_name))
+              // Show headers whenever any item has a real category (so mixed
+              // categorised/uncategorised orders are clearly grouped). A fully
+              // uncategorised order stays a flat list.
+              const showGroupHeaders = filtered.some(i => i.category_name)
               const colCount = 4 + (order.show_prices ? 1 : 0) + histCols.length
               return (
                 <table className="w-full text-sm border-collapse min-w-[500px]">
@@ -466,9 +470,10 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                     ) : groups.map(group => (
                       <Fragment key={group.name}>
                         {showGroupHeaders && (
-                          <tr className="bg-muted/40">
-                            <td colSpan={colCount} className="py-1.5 px-3 text-xs font-semibold text-muted-foreground">
+                          <tr className="bg-primary/10">
+                            <td colSpan={colCount} className="py-2 px-3 text-xs font-bold text-primary uppercase tracking-wide border-y">
                               {group.name}
+                              <span className="font-normal text-muted-foreground normal-case"> · {group.items.length}</span>
                             </td>
                           </tr>
                         )}
@@ -756,7 +761,7 @@ export default function OrderSheets() {
       >
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 pl-14 lg:pl-4">
           <div className="flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-muted-foreground" />
             <h1 className="font-semibold text-sm">Order Sheets</h1>
