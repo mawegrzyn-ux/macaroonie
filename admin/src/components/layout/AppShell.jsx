@@ -10,7 +10,7 @@ import {
   BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
   Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand, MessageSquare,
-  AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList,
+  AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList, Tag,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -56,8 +56,9 @@ const NAV = [
   { label: 'Menus',       to: '/menus',       icon: ChefHat,            module: 'menus' },
   { label: 'Media',       to: '/media',       icon: FolderOpen,         module: 'website' },
   { label: 'Reviews',     to: '/reviews',     icon: MessageSquare,      module: 'website' },
-  { label: 'Order sheets',          to: '/order-sheets',           icon: ClipboardList, module: 'order_sheets' },
-  { label: 'Order sheet templates', to: '/order-sheets/templates', icon: ClipboardList, module: 'order_sheets' },
+  { label: 'Order sheets',            to: '/order-sheets',             icon: ClipboardList, module: 'order_sheets' },
+  { label: 'Order sheet templates',  to: '/order-sheets/templates',  icon: ClipboardList, module: 'order_sheets' },
+  { label: 'Order sheet categories', to: '/order-sheets/categories', icon: Tag,           module: 'order_sheets' },
   { label: 'Cash Recon',  to: '/cash-recon',       icon: Wallet,        module: 'cash_recon' },
   { label: 'Emails',      to: '/email-templates', icon: Mail,           module: 'email_templates' },
   { label: 'Email monitor', to: '/email-monitoring', icon: Activity,    module: 'email_templates' },
