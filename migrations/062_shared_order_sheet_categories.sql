@@ -6,9 +6,14 @@
 -- 1. Drop per-template categories (CASCADE removes FK from order_sheet_items)
 DROP TABLE IF EXISTS order_sheet_template_categories CASCADE;
 
--- 2. Clear test data (safe: pre-prod, no real orders)
-DELETE FROM order_sheet_items;
-DELETE FROM order_sheet_templates;
+-- 2. Clear test data (safe: pre-prod, no real orders).
+-- TRUNCATE bypasses RLS; DELETE is silently blocked when app.tenant_id is unset.
+TRUNCATE order_sheet_order_items;
+TRUNCATE order_sheets;
+TRUNCATE order_sheet_suggested_qty;
+TRUNCATE order_sheet_items;
+TRUNCATE order_sheet_template_venues;
+TRUNCATE order_sheet_templates;
 
 -- 3. Create tenant-level shared categories table
 CREATE TABLE order_sheet_categories (
