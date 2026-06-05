@@ -295,12 +295,12 @@ async function runSeeds() {
 
   for (const { id: tenantId } of tenants) {
     // Read categories inside a tenant-scoped transaction so RLS allows the SELECT.
-    // Without SET LOCAL app.tenant_id the USING policy filters to tenant_id = NULL
+    // Without tenant context the USING policy filters to tenant_id = NULL
     // which matches nothing — catMap would always be empty.
     let catMap = {}
     if (hasCategories) {
       const cats = await sql.begin(async tx => {
-        await tx`SET LOCAL app.tenant_id = ${tenantId}`
+        await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`
         return tx`SELECT id, name FROM order_sheet_categories`
       })
       catMap = Object.fromEntries(cats.map(c => [c.name, c.id]))
@@ -311,7 +311,7 @@ async function runSeeds() {
       // Also fetch item_count so we can force-recreate templates that exist but
       // have 0 items (leftover from previous broken runSeeds calls).
       const [existing] = await sql.begin(async tx => {
-        await tx`SET LOCAL app.tenant_id = ${tenantId}`
+        await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`
         return tx`
           SELECT t.id, COUNT(i.id)::int AS item_count
           FROM order_sheet_templates t
@@ -332,7 +332,7 @@ async function runSeeds() {
         await sql`DELETE FROM order_sheet_items WHERE template_id = ${existing.id}`
         await sql`DELETE FROM order_sheet_template_venues WHERE template_id = ${existing.id}`
         await sql.begin(async tx => {
-          await tx`SET LOCAL app.tenant_id = ${tenantId}`
+          await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`
           await tx`DELETE FROM order_sheet_templates WHERE id = ${existing.id}`
         })
       }
