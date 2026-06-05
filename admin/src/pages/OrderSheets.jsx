@@ -703,7 +703,11 @@ export default function OrderSheets() {
     queryFn:  () => api.get('/me'),
     staleTime: 120_000,
   })
-  const isAdmin = me?.role === 'admin' || me?.role === 'owner'
+  // isAdmin gates admin-only status transitions (unlock placed → ordering, delete).
+  // canCreate gates creating brand-new orders — order_sheets:manage.
+  // Both fall through for platform admins and owner/admin via the permission map.
+  const isAdmin   = me?.is_platform_admin || me?.role === 'admin' || me?.role === 'owner'
+  const canCreate = me?.is_platform_admin || me?.permissions?.order_sheets === 'manage'
 
   // Venues for filter dropdown
   const { data: venues = [] } = useQuery({
@@ -761,18 +765,20 @@ export default function OrderSheets() {
       >
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b shrink-0 pl-14 lg:pl-4">
+        <div className="flex items-center justify-between px-4 py-3 pl-14 lg:pl-4 border-b shrink-0">
           <div className="flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-muted-foreground" />
             <h1 className="font-semibold text-sm">Order Sheets</h1>
           </div>
-          <button
-            onClick={() => setShowNewModal(true)}
-            className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px]"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New order
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => setShowNewModal(true)}
+              className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px]"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New order
+            </button>
+          )}
         </div>
 
         {/* Active orders toolbar — quick-access pills for orders in "ordering" state */}
