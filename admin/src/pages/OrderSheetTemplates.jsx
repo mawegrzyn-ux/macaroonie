@@ -1,5 +1,5 @@
 // src/pages/OrderSheetTemplates.jsx
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo, Fragment } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -10,13 +10,12 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   GripVertical, Plus, Trash2, X, ClipboardList, Loader2,
-  Check, ChevronRight,
+  Check, ChevronRight, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-// Display order: Mon–Sun
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
 
 function Toggle({ checked, onChange }) {
@@ -86,6 +85,110 @@ function SortableItemRow({ item, showPrices, suggestedByVenue, assignedVenues, o
   )
 }
 
+// ── Merge Dialog ───────────────────────────────────────────────────────────────
+
+function MergeDialog({ selectedTemplates, onClose, onMerged }) {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  const [primaryId, setPrimaryId] = useState(selectedTemplates[0]?.id ?? '')
+  const [mergeName, setMergeName] = useState(selectedTemplates[0]?.name ?? '')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const t = selectedTemplates.find(t => t.id === primaryId)
+    if (t) setMergeName(t.name)
+  }, [primaryId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mergeMutation = useMutation({
+    mutationFn: () => api.post('/order-sheets/templates/merge', {
+      primary_id:    primaryId,
+      secondary_ids: selectedTemplates.filter(t => t.id !== primaryId).map(t => t.id),
+      name:          mergeName.trim() || undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['order-sheets', 'templates'])
+      onMerged(primaryId)
+    },
+    onError: (err) => setError(err?.message ?? 'Merge failed'),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-background rounded-xl shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b">
+          <h2 className="text-base font-semibold">Merge Templates</h2>
+          <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Select the primary template to keep. All items from the other templates will be copied into it, then those templates deleted.
+          </p>
+
+          <div className="space-y-2">
+            {selectedTemplates.map(t => (
+              <label
+                key={t.id}
+                className={cn(
+                  'flex items-center gap-3 cursor-pointer p-3 rounded-lg border transition-colors touch-manipulation min-h-[52px] hover:bg-accent/50',
+                  primaryId === t.id && 'border-primary bg-primary/5',
+                )}
+              >
+                <input
+                  type="radio" name="primary" value={t.id}
+                  checked={primaryId === t.id}
+                  onChange={() => setPrimaryId(t.id)}
+                  className="w-4 h-4"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">{t.name}</p>
+                  <p className="text-xs text-muted-foreground">{t.item_count ?? 0} items</p>
+                </div>
+                {primaryId === t.id && (
+                  <span className="text-xs text-primary font-medium shrink-0">Primary</span>
+                )}
+              </label>
+            ))}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1.5">Name for merged template</label>
+            <input
+              type="text"
+              value={mergeName}
+              onChange={e => setMergeName(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2.5 text-sm touch-manipulation min-h-[44px]"
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 border rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => mergeMutation.mutate()}
+              disabled={mergeMutation.isPending}
+              className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px] disabled:opacity-50"
+            >
+              {mergeMutation.isPending ? 'Merging…' : `Merge ${selectedTemplates.length} templates`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Template Editor ────────────────────────────────────────────────────────────
+
 function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
   const api = useApi()
   const queryClient = useQueryClient()
@@ -109,16 +212,17 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
   const [basicError, setBasicError]     = useState('')
   const [basicSaved, setBasicSaved]     = useState(false)
 
-  const [venueIds, setVenueIds]   = useState([])
+  const [venueIds, setVenueIds]     = useState([])
   const [venueError, setVenueError] = useState('')
   const [venueSaved, setVenueSaved] = useState(false)
 
-  const [items, setItems]             = useState([])
-  const [editingItem, setEditingItem] = useState(null)
-  const [newItemName, setNewItemName] = useState('')
-  const [newItemUnit, setNewItemUnit] = useState('')
+  const [items, setItems]               = useState([])
+  const [editingItem, setEditingItem]   = useState(null)
+  const [newItemName, setNewItemName]   = useState('')
+  const [newItemUnit, setNewItemUnit]   = useState('')
   const [newItemPrice, setNewItemPrice] = useState('')
-  const [itemError, setItemError]     = useState('')
+  const [newItemCategory, setNewItemCategory] = useState('')
+  const [itemError, setItemError]       = useState('')
   const [deleteItemId, setDeleteItemId] = useState(null)
 
   const [suggestedQtys, setSuggestedQtys] = useState({})
@@ -146,6 +250,32 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     setSuggestedQtys(sqMap)
   }, [template?.id, template?.updated_at]) // eslint-disable-line
 
+  // Unique categories from existing items (for datalist autocomplete)
+  const existingCategories = useMemo(() => {
+    const cats = new Set()
+    for (const item of items) if (item.category) cats.add(item.category)
+    return [...cats].sort()
+  }, [items])
+
+  // Items grouped by category (preserving item order within groups)
+  const categoryGroups = useMemo(() => {
+    const groups = []
+    const seen = new Map()
+    for (const item of items) {
+      const key = item.category ?? '__none__'
+      if (!seen.has(key)) {
+        const g = { name: item.category ?? null, items: [] }
+        seen.set(key, g)
+        groups.push(g)
+      }
+      seen.get(key).items.push(item)
+    }
+    return groups
+  }, [items])
+
+  // Show category headers only when at least one item has a category set
+  const showCategoryHeaders = items.some(i => i.category)
+
   const sensors = useSensors(useSensor(PointerSensor), useSensor(TouchSensor))
 
   function handleDragEnd({ active, over }) {
@@ -153,6 +283,21 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     const reordered = arrayMove(items, items.findIndex(i => i.id === active.id), items.findIndex(i => i.id === over.id))
     setItems(reordered)
     api.patch(`/order-sheets/templates/${templateId}/item-order`, { ids: reordered.map(i => i.id) })
+      .then(() => queryClient.invalidateQueries(['order-sheets', 'templates']))
+      .catch(() => {})
+  }
+
+  function moveCategoryGroup(catName, dir) {
+    const idx = categoryGroups.findIndex(g => g.name === catName)
+    if (idx < 0) return
+    if (dir === 'up' && idx === 0) return
+    if (dir === 'down' && idx === categoryGroups.length - 1) return
+    const swapIdx = dir === 'up' ? idx - 1 : idx + 1
+    const newGroups = [...categoryGroups]
+    ;[newGroups[idx], newGroups[swapIdx]] = [newGroups[swapIdx], newGroups[idx]]
+    const newItems = newGroups.flatMap(g => g.items)
+    setItems(newItems)
+    api.patch(`/order-sheets/templates/${templateId}/item-order`, { ids: newItems.map(i => i.id) })
       .then(() => queryClient.invalidateQueries(['order-sheets', 'templates']))
       .catch(() => {})
   }
@@ -180,13 +325,15 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
 
   const addItemMutation = useMutation({
     mutationFn: () => api.post(`/order-sheets/templates/${templateId}/items`, {
-      name: newItemName.trim(), unit: newItemUnit.trim(),
-      price: newItemPrice !== '' ? Number(newItemPrice) : null,
+      name:     newItemName.trim(),
+      unit:     newItemUnit.trim(),
+      price:    newItemPrice !== '' ? Number(newItemPrice) : null,
+      category: newItemCategory.trim() || null,
     }),
     onSuccess: (item) => {
       setItems(prev => [...prev, item])
       setSuggestedQtys(prev => ({ ...prev, [item.id]: {} }))
-      setNewItemName(''); setNewItemUnit(''); setNewItemPrice(''); setItemError('')
+      setNewItemName(''); setNewItemUnit(''); setNewItemPrice(''); setNewItemCategory(''); setItemError('')
       queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
     onError: (err) => setItemError(err?.message ?? 'Add failed'),
@@ -195,7 +342,10 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
   const editItemMutation = useMutation({
     mutationFn: async (item) => {
       const updated = await api.patch(`/order-sheets/templates/${templateId}/items/${item.id}`, {
-        name: item.name, unit: item.unit, price: item.price ?? null,
+        name:     item.name,
+        unit:     item.unit,
+        price:    item.price ?? null,
+        category: item.category ?? null,
       })
       if (assignedVenues.length > 0) {
         const venueQtys = assignedVenues.map(v => ({
@@ -351,63 +501,110 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
         {!isNew && (
           <SectionCard title="Items">
             <div className="space-y-3">
+
+              {/* Datalists for category autocomplete (hidden) */}
+              <datalist id="new-cat-list">
+                {existingCategories.map(c => <option key={c} value={c} />)}
+              </datalist>
+              <datalist id="edit-cat-list">
+                {existingCategories.map(c => <option key={c} value={c} />)}
+              </datalist>
+
               {items.length > 0 && (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
-                    {items.map(item => (
-                      editingItem?.id === item.id ? (
-                        <div key={item.id} className="py-2.5 border-b last:border-0 space-y-2">
-                          <div className="flex items-center gap-2">
-                            <div className="p-1.5 shrink-0"><GripVertical className="w-4 h-4 text-muted-foreground opacity-30" /></div>
-                            <input type="text" value={editingItem.name} onChange={e => setEditingItem(p => ({ ...p, name: e.target.value }))}
-                              className="flex-1 border rounded px-2 py-1.5 text-sm min-w-0 touch-manipulation" placeholder="Item name" autoFocus />
-                            <input type="text" value={editingItem.unit} onChange={e => setEditingItem(p => ({ ...p, unit: e.target.value }))}
-                              className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Unit" />
-                            {showPrices && (
-                              <input type="number" inputMode="decimal" min="0" step="0.01" value={editingItem.price ?? ''}
-                                onChange={e => setEditingItem(p => ({ ...p, price: e.target.value !== '' ? Number(e.target.value) : null }))}
-                                className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Price" />
-                            )}
-                            <button onClick={() => editItemMutation.mutate(editingItem)} disabled={editItemMutation.isPending}
-                              className="p-2 text-primary touch-manipulation disabled:opacity-50">
-                              {editItemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    {categoryGroups.map((group, groupIdx) => (
+                      <Fragment key={group.name ?? '__none__'}>
+                        {showCategoryHeaders && (
+                          <div className="flex items-center gap-1 mt-3 first:mt-0 px-1 py-1 bg-muted/40 rounded-md">
+                            <span className="text-xs font-semibold text-muted-foreground flex-1 truncate pl-1">
+                              {group.name ?? 'Uncategorised'}
+                            </span>
+                            <button
+                              type="button"
+                              disabled={groupIdx === 0}
+                              onClick={() => moveCategoryGroup(group.name, 'up')}
+                              className="p-1 rounded hover:bg-accent text-muted-foreground touch-manipulation disabled:opacity-30"
+                              title="Move category up"
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => setEditingItem(null)} className="p-2 text-muted-foreground touch-manipulation"><X className="w-4 h-4" /></button>
+                            <button
+                              type="button"
+                              disabled={groupIdx === categoryGroups.length - 1}
+                              onClick={() => moveCategoryGroup(group.name, 'down')}
+                              className="p-1 rounded hover:bg-accent text-muted-foreground touch-manipulation disabled:opacity-30"
+                              title="Move category down"
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
                           </div>
-                          {assignedVenues.length > 0 && (
-                            <div className="ml-8 flex flex-wrap gap-x-4 gap-y-1.5 items-center pb-1">
-                              <span className="text-xs text-muted-foreground font-medium shrink-0">Suggested qty:</span>
-                              {assignedVenues.map(v => (
-                                <div key={v.id} className="flex items-center gap-1.5">
-                                  <span className="text-xs text-muted-foreground">{v.name}</span>
-                                  <input type="number" inputMode="decimal" min="0" step="1"
-                                    value={(suggestedQtys[item.id] ?? {})[v.id] ?? ''}
-                                    onChange={e => setSuggestedQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [v.id]: e.target.value } }))}
-                                    className="w-16 h-8 text-center text-sm border rounded px-1 touch-manipulation" placeholder="0" />
+                        )}
+                        {group.items.map(item => (
+                          editingItem?.id === item.id ? (
+                            <div key={item.id} className="py-2.5 border-b last:border-0 space-y-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <div className="p-1.5 shrink-0"><GripVertical className="w-4 h-4 text-muted-foreground opacity-30" /></div>
+                                <input type="text" value={editingItem.name} onChange={e => setEditingItem(p => ({ ...p, name: e.target.value }))}
+                                  className="flex-1 min-w-[100px] border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Item name" autoFocus />
+                                <input type="text" value={editingItem.unit} onChange={e => setEditingItem(p => ({ ...p, unit: e.target.value }))}
+                                  className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Unit" />
+                                {showPrices && (
+                                  <input type="number" inputMode="decimal" min="0" step="0.01" value={editingItem.price ?? ''}
+                                    onChange={e => setEditingItem(p => ({ ...p, price: e.target.value !== '' ? Number(e.target.value) : null }))}
+                                    className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Price" />
+                                )}
+                                <input
+                                  type="text"
+                                  list="edit-cat-list"
+                                  value={editingItem.category ?? ''}
+                                  onChange={e => setEditingItem(p => ({ ...p, category: e.target.value.trim() || null }))}
+                                  className="w-28 border rounded px-2 py-1.5 text-sm touch-manipulation"
+                                  placeholder="Category"
+                                />
+                                <button onClick={() => editItemMutation.mutate(editingItem)} disabled={editItemMutation.isPending}
+                                  className="p-2 text-primary touch-manipulation disabled:opacity-50">
+                                  {editItemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                </button>
+                                <button onClick={() => setEditingItem(null)} className="p-2 text-muted-foreground touch-manipulation"><X className="w-4 h-4" /></button>
+                              </div>
+                              {assignedVenues.length > 0 && (
+                                <div className="ml-8 flex flex-wrap gap-x-4 gap-y-1.5 items-center pb-1">
+                                  <span className="text-xs text-muted-foreground font-medium shrink-0">Suggested qty:</span>
+                                  {assignedVenues.map(v => (
+                                    <div key={v.id} className="flex items-center gap-1.5">
+                                      <span className="text-xs text-muted-foreground">{v.name}</span>
+                                      <input type="number" inputMode="decimal" min="0" step="1"
+                                        value={(suggestedQtys[item.id] ?? {})[v.id] ?? ''}
+                                        onChange={e => setSuggestedQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [v.id]: e.target.value } }))}
+                                        className="w-16 h-8 text-center text-sm border rounded px-1 touch-manipulation" placeholder="0" />
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ) : deleteItemId === item.id ? (
-                        <div key={item.id} className="flex items-center gap-2 py-2.5 border-b last:border-0">
-                          <span className="text-sm text-red-600 flex-1">Delete "{item.name}"?</span>
-                          <button onClick={() => deleteItemMutation.mutate(item.id)} disabled={deleteItemMutation.isPending}
-                            className="text-xs bg-red-600 text-white rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Delete</button>
-                          <button onClick={() => setDeleteItemId(null)}
-                            className="text-xs border rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Cancel</button>
-                        </div>
-                      ) : (
-                        <SortableItemRow key={item.id} item={item} showPrices={showPrices}
-                          suggestedByVenue={suggestedQtys[item.id] ?? {}} assignedVenues={assignedVenues}
-                          onEdit={setEditingItem} onDelete={setDeleteItemId} />
-                      )
+                          ) : deleteItemId === item.id ? (
+                            <div key={item.id} className="flex items-center gap-2 py-2.5 border-b last:border-0">
+                              <span className="text-sm text-red-600 flex-1">Delete "{item.name}"?</span>
+                              <button onClick={() => deleteItemMutation.mutate(item.id)} disabled={deleteItemMutation.isPending}
+                                className="text-xs bg-red-600 text-white rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Delete</button>
+                              <button onClick={() => setDeleteItemId(null)}
+                                className="text-xs border rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Cancel</button>
+                            </div>
+                          ) : (
+                            <SortableItemRow key={item.id} item={item} showPrices={showPrices}
+                              suggestedByVenue={suggestedQtys[item.id] ?? {}} assignedVenues={assignedVenues}
+                              onEdit={setEditingItem} onDelete={setDeleteItemId} />
+                          )
+                        ))}
+                      </Fragment>
                     ))}
                   </SortableContext>
                 </DndContext>
               )}
               {items.length === 0 && <p className="text-sm text-muted-foreground py-2">No items yet — add one below.</p>}
 
+              {/* Add item */}
               <div className="pt-3 border-t">
                 <p className="text-xs font-medium text-muted-foreground mb-2">Add item</p>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -422,9 +619,23 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
                       onChange={e => setNewItemPrice(e.target.value)}
                       placeholder="Price" className="w-24 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]" />
                   )}
-                  <button onClick={() => { if (!newItemName.trim()) return setItemError('Name required'); if (!newItemUnit.trim()) return setItemError('Unit required'); addItemMutation.mutate() }}
+                  <input
+                    type="text"
+                    list="new-cat-list"
+                    value={newItemCategory}
+                    onChange={e => setNewItemCategory(e.target.value)}
+                    placeholder="Category"
+                    className="w-32 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]"
+                  />
+                  <button
+                    onClick={() => {
+                      if (!newItemName.trim()) return setItemError('Name required')
+                      if (!newItemUnit.trim()) return setItemError('Unit required')
+                      addItemMutation.mutate()
+                    }}
                     disabled={addItemMutation.isPending}
-                    className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px] disabled:opacity-50">
+                    className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px] disabled:opacity-50"
+                  >
                     {addItemMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                     Add
                   </button>
@@ -466,38 +677,67 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
   )
 }
 
-function TemplateCard({ template, isSelected, onClick }) {
+// ── Template Card ──────────────────────────────────────────────────────────────
+
+function TemplateCard({ template, isSelected, onClick, checked, onCheck }) {
   return (
-    <button onClick={onClick}
-      className={cn('w-full text-left p-4 border-b last:border-0 hover:bg-accent/50 transition-colors touch-manipulation', isSelected && 'bg-accent')}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="font-medium text-sm truncate">{template.name}</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {template.item_count} item{template.item_count !== 1 ? 's' : ''} · {(template.venue_ids ?? []).length} venue{(template.venue_ids ?? []).length !== 1 ? 's' : ''}
-          </p>
-          {(template.delivery_days ?? []).length > 0 && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {DAY_ORDER.filter(d => (template.delivery_days ?? []).includes(d)).map(d => DAY_LABELS[d]).join(', ')}
-            </p>
-          )}
+    <div className={cn('border-b last:border-0 transition-colors', isSelected && 'bg-accent')}>
+      <div className="flex items-stretch">
+        {/* Checkbox */}
+        <div
+          className="flex items-center px-3 cursor-pointer touch-manipulation"
+          onClick={e => { e.stopPropagation(); onCheck(template.id) }}
+        >
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={() => onCheck(template.id)}
+            onClick={e => e.stopPropagation()}
+            className="w-4 h-4 rounded cursor-pointer"
+          />
         </div>
-        <div className="shrink-0 flex flex-col items-end gap-1">
-          {template.show_prices && <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5">Prices</span>}
-          <span className={cn('text-[10px] rounded-full px-2 py-0.5', template.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')}>
-            {template.is_active ? 'Active' : 'Inactive'}
-          </span>
-        </div>
+        {/* Card body */}
+        <button
+          onClick={onClick}
+          className="flex-1 text-left py-4 pr-4 hover:bg-accent/50 transition-colors touch-manipulation"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-sm truncate">{template.name}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {template.item_count} item{template.item_count !== 1 ? 's' : ''} · {(template.venue_ids ?? []).length} venue{(template.venue_ids ?? []).length !== 1 ? 's' : ''}
+              </p>
+              {(template.delivery_days ?? []).length > 0 && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {DAY_ORDER.filter(d => (template.delivery_days ?? []).includes(d)).map(d => DAY_LABELS[d]).join(', ')}
+                </p>
+              )}
+            </div>
+            <div className="shrink-0 flex flex-col items-end gap-1">
+              {template.show_prices && <span className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-2 py-0.5">Prices</span>}
+              <span className={cn('text-[10px] rounded-full px-2 py-0.5', template.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500')}>
+                {template.is_active ? 'Active' : 'Inactive'}
+              </span>
+            </div>
+          </div>
+        </button>
       </div>
-    </button>
+    </div>
   )
 }
+
+// ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function OrderSheetTemplates() {
   const api = useApi()
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState(null)
   const [panelWidth, setPanelWidth] = useState(500)
+
+  const [checkedIds, setCheckedIds]             = useState(new Set())
+  const [showMergeDialog, setShowMergeDialog]   = useState(false)
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
+  const [bulkError, setBulkError]               = useState('')
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
   const isAdmin = me?.role === 'admin' || me?.role === 'owner'
@@ -515,6 +755,26 @@ export default function OrderSheetTemplates() {
     window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
   }, [panelWidth])
 
+  function toggleCheck(id) {
+    setCheckedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: () => api.delete('/order-sheets/templates/bulk', { ids: [...checkedIds] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries(['order-sheets', 'templates'])
+      if (checkedIds.has(selectedId)) setSelectedId(null)
+      setCheckedIds(new Set())
+      setBulkDeleteConfirm(false)
+      setBulkError('')
+    },
+    onError: (err) => setBulkError(err?.message ?? 'Delete failed'),
+  })
+
   function handleSaved(newTemplate) {
     queryClient.invalidateQueries(['order-sheets', 'templates'])
     if (newTemplate?.id) setSelectedId(newTemplate.id)
@@ -525,22 +785,91 @@ export default function OrderSheetTemplates() {
     setSelectedId(null)
   }
 
+  function handleMerged(primaryId) {
+    setShowMergeDialog(false)
+    setCheckedIds(new Set())
+    setSelectedId(primaryId)
+  }
+
+  const checkedTemplates = templates.filter(t => checkedIds.has(t.id))
+
   return (
     <div className="flex h-full overflow-hidden">
+
+      {/* Left column */}
       <div className={cn('flex flex-col border-r bg-background overflow-hidden', selectedId ? 'hidden md:flex md:w-72 lg:w-80 shrink-0' : 'flex-1')}>
+
+        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
           <div className="flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-muted-foreground" />
             <h1 className="font-semibold text-sm">Order Sheet Templates</h1>
           </div>
           {isAdmin && (
-            <button onClick={() => setSelectedId('__new__')}
-              className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px]">
+            <button
+              onClick={() => setSelectedId('__new__')}
+              className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px]"
+            >
               <Plus className="w-3.5 h-3.5" />New
             </button>
           )}
         </div>
 
+        {/* Bulk action bar */}
+        {checkedIds.size > 0 && isAdmin && (
+          <div className="px-3 py-2.5 border-b bg-primary/5 shrink-0">
+            {!bulkDeleteConfirm ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-medium text-muted-foreground">
+                  {checkedIds.size} selected
+                </span>
+                <button
+                  onClick={() => setShowMergeDialog(true)}
+                  disabled={checkedIds.size < 2}
+                  className="text-xs bg-primary text-primary-foreground rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-40"
+                >
+                  Merge
+                </button>
+                <button
+                  onClick={() => { setBulkError(''); setBulkDeleteConfirm(true) }}
+                  className="text-xs bg-red-600 text-white rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px]"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setCheckedIds(new Set())}
+                  className="text-xs border rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] text-muted-foreground"
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-red-600">
+                  Delete {checkedIds.size} template{checkedIds.size !== 1 ? 's' : ''}? This cannot be undone.
+                </p>
+                {bulkError && <p className="text-xs text-red-600">{bulkError}</p>}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => bulkDeleteMutation.mutate()}
+                    disabled={bulkDeleteMutation.isPending}
+                    className="text-xs bg-red-600 text-white rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-50"
+                  >
+                    {bulkDeleteMutation.isPending ? 'Deleting…' : 'Yes, delete'}
+                  </button>
+                  <button
+                    onClick={() => { setBulkDeleteConfirm(false); setBulkError('') }}
+                    className="text-xs border rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Template list */}
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
@@ -556,18 +885,28 @@ export default function OrderSheetTemplates() {
                 <div className="px-4 py-3 border-b bg-primary/5 text-xs font-medium text-primary">New template (unsaved)</div>
               )}
               {templates.map(t => (
-                <TemplateCard key={t.id} template={t} isSelected={t.id === selectedId} onClick={() => setSelectedId(t.id)} />
+                <TemplateCard
+                  key={t.id}
+                  template={t}
+                  isSelected={t.id === selectedId}
+                  onClick={() => setSelectedId(t.id)}
+                  checked={checkedIds.has(t.id)}
+                  onCheck={toggleCheck}
+                />
               ))}
             </>
           )}
         </div>
       </div>
 
+      {/* Editor panel */}
       {selectedId && (
         <>
           <div onMouseDown={handleResizeStart} className="hidden md:block w-1 cursor-col-resize bg-border hover:bg-primary/30 transition-colors shrink-0" />
-          <div className="flex-1 md:flex-none flex flex-col bg-background overflow-hidden"
-            style={{ width: typeof window !== 'undefined' && window.innerWidth >= 768 ? panelWidth : undefined }}>
+          <div
+            className="flex-1 md:flex-none flex flex-col bg-background overflow-hidden"
+            style={{ width: typeof window !== 'undefined' && window.innerWidth >= 768 ? panelWidth : undefined }}
+          >
             <TemplateEditor
               key={selectedId}
               templateId={selectedId}
@@ -578,6 +917,15 @@ export default function OrderSheetTemplates() {
             />
           </div>
         </>
+      )}
+
+      {/* Merge dialog */}
+      {showMergeDialog && checkedTemplates.length >= 2 && (
+        <MergeDialog
+          selectedTemplates={checkedTemplates}
+          onClose={() => setShowMergeDialog(false)}
+          onMerged={handleMerged}
+        />
       )}
     </div>
   )

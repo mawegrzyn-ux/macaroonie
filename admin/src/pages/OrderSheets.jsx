@@ -1,11 +1,11 @@
 // src/pages/OrderSheets.jsx
 // Order Sheets management page — order list + order detail panel.
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo, Fragment } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
   X, Plus, Minus, ChevronDown, Package, ClipboardList,
-  CheckCircle, AlertCircle, Loader2
+  CheckCircle, AlertCircle, Loader2, Search
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
@@ -226,6 +226,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   const [showSaved, setShowSaved]       = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [searchQuery, setSearchQuery]   = useState('')
 
   const autosaveTimerRef = useRef(null)
   const savedTimerRef    = useRef(null)
@@ -402,91 +403,128 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
             </div>
           )}
 
+          {/* Search bar */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search items…"
+              className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm bg-background touch-manipulation min-h-[40px]"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground touch-manipulation">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
           {/* Items table — overflow-y-clip keeps sticky thead working inside x-scroll */}
           <div className="overflow-x-auto overflow-y-clip -mx-4 px-4">
-            <table className="w-full text-sm border-collapse min-w-[500px]">
-              <thead className="sticky top-0 z-10 bg-background">
-                <tr className="border-b">
-                  <th className="text-left py-2 pr-3 font-medium text-muted-foreground text-xs">Item</th>
-                  <th className="text-left py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Unit</th>
-                  {order.show_prices && (
-                    <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Price</th>
-                  )}
-                  <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Qty</th>
-                  <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Suggested</th>
-                  {histCols.map((h, i) => (
-                    <th key={i} className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">
-                      {h ? fmtDateShort(h.delivery_date) : '—'}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(order.items ?? []).map(item => (
-                  <tr key={item.id} className="border-b last:border-0">
-                    <td className="py-2.5 pr-3 font-medium">{item.name}</td>
-                    <td className="py-2.5 pr-3 text-muted-foreground text-xs">{item.unit}</td>
-                    {order.show_prices && (
-                      <td className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
-                        {item.price != null ? `£${Number(item.price).toFixed(2)}` : '—'}
-                      </td>
-                    )}
-                    <td className="py-2 pr-3 text-right">
-                      {isOrdering ? (
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setQty(item.id, String(Math.max(0, (Number(qtys[item.id]) || 0) - 1)))}
-                            className="w-8 h-10 flex items-center justify-center border rounded-lg hover:bg-accent text-muted-foreground touch-manipulation shrink-0"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                          <input
-                            type="number"
-                            inputMode="numeric"
-                            min="0"
-                            step="1"
-                            value={qtys[item.id] ?? ''}
-                            onChange={e => setQty(item.id, e.target.value)}
-                            className="w-14 h-10 text-center text-sm border rounded-lg px-1 touch-manipulation"
-                            placeholder="0"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setQty(item.id, String((Number(qtys[item.id]) || 0) + 1))}
-                            className="w-8 h-10 flex items-center justify-center border rounded-lg hover:bg-accent text-muted-foreground touch-manipulation shrink-0"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-sm font-medium">
-                          {qtys[item.id] !== '' && qtys[item.id] != null ? Number(qtys[item.id]) : '—'}
-                        </span>
+            {(() => {
+              const allItems = order.items ?? []
+              const filtered = searchQuery
+                ? allItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                : allItems
+              // Group by category; use template name as fallback for uncategorised items
+              const fallbackCat = order.template_name
+              const groups = []
+              const seen = new Map()
+              for (const item of filtered) {
+                const cat = item.category || fallbackCat
+                if (!seen.has(cat)) { const g = { name: cat, items: [] }; seen.set(cat, g); groups.push(g) }
+                seen.get(cat).items.push(item)
+              }
+              const showGroupHeaders = groups.length > 1 || (groups.length === 1 && groups[0].items.some(i => i.category))
+              const colCount = 4 + (order.show_prices ? 1 : 0) + histCols.length
+              return (
+                <table className="w-full text-sm border-collapse min-w-[500px]">
+                  <thead className="sticky top-0 z-10 bg-background">
+                    <tr className="border-b">
+                      <th className="text-left py-2 pr-3 font-medium text-muted-foreground text-xs">Item</th>
+                      <th className="text-left py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Unit</th>
+                      {order.show_prices && (
+                        <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Price</th>
                       )}
-                    </td>
-                    <td className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
-                      {item.suggested_qty != null ? Number(item.suggested_qty) : '—'}
-                    </td>
-                    {histCols.map((h, i) => {
-                      const hQty = h ? (h.item_qtys ?? {})[item.id] : null
-                      return (
-                        <td key={i} className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
-                          {hQty != null ? Number(hQty) : '—'}
+                      <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Qty</th>
+                      <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Suggested</th>
+                      {histCols.map((h, i) => (
+                        <th key={i} className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">
+                          {h ? fmtDateShort(h.delivery_date) : '—'}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={colCount} className="py-8 text-center text-sm text-muted-foreground">
+                          {searchQuery ? 'No items match your search' : 'No items in this template'}
                         </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-                {(order.items ?? []).length === 0 && (
-                  <tr>
-                    <td colSpan={6 + (order.show_prices ? 1 : 0)} className="py-8 text-center text-sm text-muted-foreground">
-                      No items in this template
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                      </tr>
+                    ) : groups.map(group => (
+                      <Fragment key={group.name}>
+                        {showGroupHeaders && (
+                          <tr className="bg-muted/40">
+                            <td colSpan={colCount} className="py-1.5 px-3 text-xs font-semibold text-muted-foreground">
+                              {group.name}
+                            </td>
+                          </tr>
+                        )}
+                        {group.items.map(item => (
+                          <tr key={item.id} className="border-b last:border-0">
+                            <td className="py-2.5 pr-3 font-medium">{item.name}</td>
+                            <td className="py-2.5 pr-3 text-muted-foreground text-xs">{item.unit}</td>
+                            {order.show_prices && (
+                              <td className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
+                                {item.price != null ? `£${Number(item.price).toFixed(2)}` : '—'}
+                              </td>
+                            )}
+                            <td className="py-2 pr-3 text-right">
+                              {isOrdering ? (
+                                <div className="flex items-center justify-end gap-1">
+                                  <button type="button"
+                                    onClick={() => setQty(item.id, String(Math.max(0, (Number(qtys[item.id]) || 0) - 1)))}
+                                    className="w-8 h-10 flex items-center justify-center border rounded-lg hover:bg-accent text-muted-foreground touch-manipulation shrink-0">
+                                    <Minus className="w-3.5 h-3.5" />
+                                  </button>
+                                  <input type="number" inputMode="numeric" min="0" step="1"
+                                    value={qtys[item.id] ?? ''}
+                                    onChange={e => setQty(item.id, e.target.value)}
+                                    className="w-14 h-10 text-center text-sm border rounded-lg px-1 touch-manipulation"
+                                    placeholder="0" />
+                                  <button type="button"
+                                    onClick={() => setQty(item.id, String((Number(qtys[item.id]) || 0) + 1))}
+                                    className="w-8 h-10 flex items-center justify-center border rounded-lg hover:bg-accent text-muted-foreground touch-manipulation shrink-0">
+                                    <Plus className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-sm font-medium">
+                                  {qtys[item.id] !== '' && qtys[item.id] != null ? Number(qtys[item.id]) : '—'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
+                              {item.suggested_qty != null ? Number(item.suggested_qty) : '—'}
+                            </td>
+                            {histCols.map((h, i) => {
+                              const hQty = h ? (h.item_qtys ?? {})[item.id] : null
+                              return (
+                                <td key={i} className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
+                                  {hQty != null ? Number(hQty) : '—'}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ))}
+                  </tbody>
+                </table>
+              )
+            })()}
           </div>
 
           {/* Notes */}
