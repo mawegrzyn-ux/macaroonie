@@ -26,7 +26,7 @@
 //   GET    /api/team/auth0-status             — feature flags for the UI
 
 import { z } from 'zod'
-import { withTenant } from '../config/db.js'
+import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import {
@@ -52,6 +52,14 @@ const UpdateBody = z.object({
   full_name: z.string().max(200).nullable().optional(),
   is_active: z.boolean().optional(),
 })
+
+// Fetches the tenant's own auth0_org_id from the DB.
+// Must NOT use req.auth0OrgId — that reflects the calling user's JWT org
+// (e.g. the platform admin's macaroonie org), not the target tenant's org.
+async function getTenantAuth0OrgId(tenantId) {
+  const [row] = await sql`SELECT auth0_org_id FROM tenants WHERE id = ${tenantId} LIMIT 1`
+  return row?.auth0_org_id ?? null
+}
 
 export default async function teamRoutes(app) {
 
@@ -123,8 +131,9 @@ export default async function teamRoutes(app) {
   app.post('/invite', {
     preHandler: requireRole('owner'),
   }, async (req, reply) => {
-    if (!req.tenantId)    throw httpError(400, 'No tenant context')
-    if (!req.auth0OrgId)  throw httpError(400, 'Tenant has no Auth0 org configured')
+    if (!req.tenantId) throw httpError(400, 'No tenant context')
+    const tenantAuth0OrgId = await getTenantAuth0OrgId(req.tenantId)
+    if (!tenantAuth0OrgId) throw httpError(400, 'Tenant has no Auth0 org configured')
     const body = InviteBody.parse(req.body)
     const email = body.email.trim().toLowerCase()
 
@@ -183,7 +192,7 @@ export default async function teamRoutes(app) {
     if (auth0CanInvite()) {
       try {
         invitation = await inviteUserToOrg({
-          orgId:       req.auth0OrgId,
+          orgId:       tenantAuth0OrgId,
           email,
           role:        isCustomRole ? 'operator' : body.role,
           inviterName,
@@ -314,14 +323,14 @@ export default async function teamRoutes(app) {
        WHERE id = ${req.params.userId} AND tenant_id = ${req.tenantId}
     `)
 
-    if (target.auth0_user_id && req.auth0OrgId && auth0IsConfigured()) {
-      try {
-        await removeUserFromOrg({
-          orgId:       req.auth0OrgId,
-          auth0UserId: target.auth0_user_id,
-        })
-      } catch (err) {
-        req.log.warn({ err: err.message, userId: target.id }, 'Auth0 org-removal failed')
+    if (target.auth0_user_id && auth0IsConfigured()) {
+      const orgId = await getTenantAuth0OrgId(req.tenantId)
+      if (orgId) {
+        try {
+          await removeUserFromOrg({ orgId, auth0UserId: target.auth0_user_id })
+        } catch (err) {
+          req.log.warn({ err: err.message, userId: target.id }, 'Auth0 org-removal failed')
+        }
       }
     }
 
@@ -349,11 +358,14 @@ export default async function teamRoutes(app) {
       DELETE FROM users WHERE id = ${req.params.userId} AND tenant_id = ${req.tenantId}
     `)
 
-    if (target.auth0_user_id && req.auth0OrgId && auth0IsConfigured()) {
-      try {
-        await removeUserFromOrg({ orgId: req.auth0OrgId, auth0UserId: target.auth0_user_id })
-      } catch (err) {
-        req.log.warn({ err: err.message, userId: target.id }, 'Auth0 org-removal failed on hard delete')
+    if (target.auth0_user_id && auth0IsConfigured()) {
+      const orgId = await getTenantAuth0OrgId(req.tenantId)
+      if (orgId) {
+        try {
+          await removeUserFromOrg({ orgId, auth0UserId: target.auth0_user_id })
+        } catch (err) {
+          req.log.warn({ err: err.message, userId: target.id }, 'Auth0 org-removal failed on hard delete')
+        }
       }
     }
 
@@ -367,9 +379,10 @@ export default async function teamRoutes(app) {
   app.post('/:userId/resend-invite', {
     preHandler: requireRole('owner'),
   }, async (req, reply) => {
-    if (!req.tenantId)   throw httpError(400, 'No tenant context')
-    if (!req.auth0OrgId) throw httpError(400, 'Tenant has no Auth0 org configured')
+    if (!req.tenantId) throw httpError(400, 'No tenant context')
     if (!auth0CanInvite()) throw httpError(503, 'Auth0 invitations not configured')
+    const tenantAuth0OrgId = await getTenantAuth0OrgId(req.tenantId)
+    if (!tenantAuth0OrgId) throw httpError(400, 'Tenant has no Auth0 org configured')
 
     const [target] = await withTenant(req.tenantId, tx => tx`
       SELECT email, full_name, role FROM users
@@ -388,7 +401,7 @@ export default async function teamRoutes(app) {
 
     try {
       const invitation = await inviteUserToOrg({
-        orgId:       req.auth0OrgId,
+        orgId:       tenantAuth0OrgId,
         email:       target.email,
         role:        target.role,
         inviterName,
