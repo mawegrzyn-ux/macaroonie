@@ -254,7 +254,7 @@ export default async function orderSheetsRoutes(app) {
       LEFT JOIN order_sheet_categories c ON c.id = i.category_id
       LEFT JOIN order_sheet_suggested_qty sq ON sq.item_id = i.id
       WHERE i.template_id = ${id}
-      GROUP BY i.id, c.name
+      GROUP BY i.id, c.name, c.sort_order
       ORDER BY COALESCE(c.sort_order, 999999), i.sort_order, i.created_at
     `)
 
