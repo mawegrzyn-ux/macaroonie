@@ -432,11 +432,11 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
               const groups = []
               const seen = new Map()
               for (const item of filtered) {
-                const cat = item.category || fallbackCat
+                const cat = item.category_name || fallbackCat
                 if (!seen.has(cat)) { const g = { name: cat, items: [] }; seen.set(cat, g); groups.push(g) }
                 seen.get(cat).items.push(item)
               }
-              const showGroupHeaders = groups.length > 1 || (groups.length === 1 && groups[0].items.some(i => i.category))
+              const showGroupHeaders = groups.length > 1 || (groups.length === 1 && groups[0].items.some(i => i.category_name))
               const colCount = 4 + (order.show_prices ? 1 : 0) + histCols.length
               return (
                 <table className="w-full text-sm border-collapse min-w-[500px]">

@@ -1,5 +1,5 @@
 // src/pages/OrderSheetTemplates.jsx
-import { useState, useCallback, useEffect, useMemo, Fragment } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -10,7 +10,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   GripVertical, Plus, Trash2, X, ClipboardList, Loader2,
-  Check, ChevronRight, ArrowUp, ArrowDown,
+  Check, ChevronRight, Pencil,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
@@ -47,7 +47,71 @@ function SectionCard({ title, children, action }) {
   )
 }
 
-function SortableItemRow({ item, showPrices, suggestedByVenue, assignedVenues, onEdit, onDelete }) {
+// ── Category row (sortable) ────────────────────────────────────────────────────
+
+function SortableCategoryRow({ category, onSave, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id })
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState(category.name)
+
+  function handleSave() {
+    const trimmed = editName.trim()
+    if (!trimmed) return
+    onSave(category.id, trimmed)
+    setEditing(false)
+  }
+
+  function handleCancel() {
+    setEditName(category.name)
+    setEditing(false)
+  }
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2 py-2 border-b last:border-0">
+      <button {...attributes} {...listeners}
+        className="p-1.5 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation shrink-0">
+        <GripVertical className="w-4 h-4" />
+      </button>
+      {editing ? (
+        <>
+          <input
+            type="text"
+            value={editName}
+            onChange={e => setEditName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleSave(); if (e.key === 'Escape') handleCancel() }}
+            className="flex-1 border rounded px-2 py-1 text-sm touch-manipulation min-h-[36px]"
+            autoFocus
+          />
+          <button onClick={handleSave}
+            className="p-1.5 text-primary touch-manipulation" title="Save">
+            <Check className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={handleCancel}
+            className="p-1.5 text-muted-foreground touch-manipulation" title="Cancel">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </>
+      ) : (
+        <>
+          <span className="flex-1 text-sm">{category.name}</span>
+          <button onClick={() => setEditing(true)}
+            className="p-1.5 text-muted-foreground hover:text-foreground touch-manipulation" title="Rename">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={() => onDelete(category.id)}
+            className="p-1.5 text-muted-foreground hover:text-red-600 touch-manipulation" title="Delete">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Item row (sortable) ────────────────────────────────────────────────────────
+
+function SortableItemRow({ item, showPrices, suggestedByVenue, assignedVenues, onEdit, onDelete, checked, onCheck }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
 
@@ -58,15 +122,33 @@ function SortableItemRow({ item, showPrices, suggestedByVenue, assignedVenues, o
 
   return (
     <div ref={setNodeRef} style={style} className="flex items-center gap-2 py-2.5 border-b last:border-0">
-      <button {...attributes} {...listeners} className="p-1.5 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation shrink-0">
+      <div
+        className="flex items-center px-1 cursor-pointer touch-manipulation shrink-0"
+        onClick={e => { e.stopPropagation(); onCheck(item.id) }}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={() => onCheck(item.id)}
+          onClick={e => e.stopPropagation()}
+          className="w-4 h-4 rounded cursor-pointer"
+        />
+      </div>
+      <button {...attributes} {...listeners}
+        className="p-1.5 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation shrink-0">
         <GripVertical className="w-4 h-4" />
       </button>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium truncate flex-1">{item.name}</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium truncate">{item.name}</span>
           <span className="text-xs text-muted-foreground shrink-0">{item.unit}</span>
           {showPrices && item.price != null && (
             <span className="text-xs text-muted-foreground shrink-0">£{Number(item.price).toFixed(2)}</span>
+          )}
+          {item.category_name && (
+            <span className="text-[10px] bg-primary/10 text-primary rounded-full px-2 py-0.5 shrink-0">
+              {item.category_name}
+            </span>
           )}
         </div>
         {suggestedSummary && (
@@ -74,10 +156,12 @@ function SortableItemRow({ item, showPrices, suggestedByVenue, assignedVenues, o
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <button onClick={() => onEdit(item)} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation" title="Edit">
+        <button onClick={() => onEdit(item)}
+          className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation" title="Edit">
           <ChevronRight className="w-3.5 h-3.5" />
         </button>
-        <button onClick={() => onDelete(item.id)} className="p-2 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 touch-manipulation" title="Delete">
+        <button onClick={() => onDelete(item.id)}
+          className="p-2 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 touch-manipulation" title="Delete">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -205,6 +289,7 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     queryFn:  () => api.get('/venues'),
   })
 
+  // ── Basic info state ─────────────────────────────────────────────────────────
   const [name, setName]                 = useState('')
   const [showPrices, setShowPrices]     = useState(false)
   const [isActive, setIsActive]         = useState(true)
@@ -216,19 +301,37 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
   const [venueError, setVenueError] = useState('')
   const [venueSaved, setVenueSaved] = useState(false)
 
-  const [items, setItems]               = useState([])
-  const [editingItem, setEditingItem]   = useState(null)
-  const [newItemName, setNewItemName]   = useState('')
-  const [newItemUnit, setNewItemUnit]   = useState('')
-  const [newItemPrice, setNewItemPrice] = useState('')
-  const [newItemCategory, setNewItemCategory] = useState('')
-  const [itemError, setItemError]       = useState('')
-  const [deleteItemId, setDeleteItemId] = useState(null)
+  // ── Categories state ─────────────────────────────────────────────────────────
+  const [categories, setCategories]   = useState([])
+  const [newCatName, setNewCatName]   = useState('')
+  const [catError, setCatError]       = useState('')
+
+  // ── Items state ──────────────────────────────────────────────────────────────
+  const [items, setItems]                       = useState([])
+  const [editingItem, setEditingItem]           = useState(null)
+  const [newItemName, setNewItemName]           = useState('')
+  const [newItemUnit, setNewItemUnit]           = useState('')
+  const [newItemPrice, setNewItemPrice]         = useState('')
+  const [newItemCategoryId, setNewItemCategoryId] = useState('')
+  const [itemError, setItemError]               = useState('')
+  const [deleteItemId, setDeleteItemId]         = useState(null)
 
   const [suggestedQtys, setSuggestedQtys] = useState({})
 
+  // ── Bulk item actions state ──────────────────────────────────────────────────
+  const [checkedItemIds, setCheckedItemIds]         = useState(new Set())
+  const [bulkItemDeleteConfirm, setBulkItemDeleteConfirm] = useState(false)
+  const [bulkItemError, setBulkItemError]           = useState('')
+  const selectAllRef = useRef(null)
+
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError]     = useState('')
+
+  // Sync select-all indeterminate state
+  useEffect(() => {
+    if (!selectAllRef.current) return
+    selectAllRef.current.indeterminate = checkedItemIds.size > 0 && checkedItemIds.size < items.length
+  }, [checkedItemIds.size, items.length])
 
   useEffect(() => {
     if (!template) return
@@ -237,6 +340,7 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     setIsActive(template.is_active ?? true)
     setDeliveryDays(template.delivery_days ?? [])
     setVenueIds(template.venue_ids ?? [])
+    setCategories(template.categories ?? [])
     setItems(template.items ?? [])
     const sqMap = {}
     for (const item of template.items ?? []) {
@@ -250,34 +354,23 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     setSuggestedQtys(sqMap)
   }, [template?.id, template?.updated_at]) // eslint-disable-line
 
-  // Unique categories from existing items (for datalist autocomplete)
-  const existingCategories = useMemo(() => {
-    const cats = new Set()
-    for (const item of items) if (item.category) cats.add(item.category)
-    return [...cats].sort()
-  }, [items])
-
-  // Items grouped by category (preserving item order within groups)
-  const categoryGroups = useMemo(() => {
-    const groups = []
-    const seen = new Map()
-    for (const item of items) {
-      const key = item.category ?? '__none__'
-      if (!seen.has(key)) {
-        const g = { name: item.category ?? null, items: [] }
-        seen.set(key, g)
-        groups.push(g)
-      }
-      seen.get(key).items.push(item)
-    }
-    return groups
-  }, [items])
-
-  // Show category headers only when at least one item has a category set
-  const showCategoryHeaders = items.some(i => i.category)
-
   const sensors = useSensors(useSensor(PointerSensor), useSensor(TouchSensor))
 
+  // ── Category drag ────────────────────────────────────────────────────────────
+  function handleCategoryDragEnd({ active, over }) {
+    if (!over || active.id === over.id) return
+    const reordered = arrayMove(
+      categories,
+      categories.findIndex(c => c.id === active.id),
+      categories.findIndex(c => c.id === over.id),
+    )
+    setCategories(reordered)
+    api.patch(`/order-sheets/templates/${templateId}/category-order`, { ids: reordered.map(c => c.id) })
+      .then(() => queryClient.invalidateQueries(['order-sheets', 'templates']))
+      .catch(() => {})
+  }
+
+  // ── Item drag ────────────────────────────────────────────────────────────────
   function handleDragEnd({ active, over }) {
     if (!over || active.id === over.id) return
     const reordered = arrayMove(items, items.findIndex(i => i.id === active.id), items.findIndex(i => i.id === over.id))
@@ -287,21 +380,36 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
       .catch(() => {})
   }
 
-  function moveCategoryGroup(catName, dir) {
-    const idx = categoryGroups.findIndex(g => g.name === catName)
-    if (idx < 0) return
-    if (dir === 'up' && idx === 0) return
-    if (dir === 'down' && idx === categoryGroups.length - 1) return
-    const swapIdx = dir === 'up' ? idx - 1 : idx + 1
-    const newGroups = [...categoryGroups]
-    ;[newGroups[idx], newGroups[swapIdx]] = [newGroups[swapIdx], newGroups[idx]]
-    const newItems = newGroups.flatMap(g => g.items)
-    setItems(newItems)
-    api.patch(`/order-sheets/templates/${templateId}/item-order`, { ids: newItems.map(i => i.id) })
-      .then(() => queryClient.invalidateQueries(['order-sheets', 'templates']))
-      .catch(() => {})
-  }
+  // ── Category mutations ───────────────────────────────────────────────────────
+  const addCategoryMutation = useMutation({
+    mutationFn: () => api.post(`/order-sheets/templates/${templateId}/categories`, { name: newCatName.trim() }),
+    onSuccess: (cat) => {
+      setCategories(prev => [...prev, cat])
+      setNewCatName('')
+      setCatError('')
+      queryClient.invalidateQueries(['order-sheets', 'templates', templateId])
+    },
+    onError: (err) => setCatError(err?.message ?? 'Add failed'),
+  })
 
+  const editCategoryMutation = useMutation({
+    mutationFn: ({ id, name }) => api.patch(`/order-sheets/templates/${templateId}/categories/${id}`, { name }),
+    onSuccess: (cat) => {
+      setCategories(prev => prev.map(c => c.id === cat.id ? cat : c))
+      queryClient.invalidateQueries(['order-sheets', 'templates', templateId])
+    },
+  })
+
+  const deleteCategoryMutation = useMutation({
+    mutationFn: (catId) => api.delete(`/order-sheets/templates/${templateId}/categories/${catId}`),
+    onSuccess: (_, catId) => {
+      setCategories(prev => prev.filter(c => c.id !== catId))
+      setItems(prev => prev.map(i => i.category_id === catId ? { ...i, category_id: null, category_name: null } : i))
+      queryClient.invalidateQueries(['order-sheets', 'templates', templateId])
+    },
+  })
+
+  // ── Basic / venue mutations ──────────────────────────────────────────────────
   const saveBasicMutation = useMutation({
     mutationFn: () => isNew
       ? api.post('/order-sheets/templates', { name, show_prices: showPrices, venue_ids: venueIds })
@@ -323,17 +431,18 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     onError: (err) => setVenueError(err?.message ?? 'Save failed'),
   })
 
+  // ── Item mutations ───────────────────────────────────────────────────────────
   const addItemMutation = useMutation({
     mutationFn: () => api.post(`/order-sheets/templates/${templateId}/items`, {
-      name:     newItemName.trim(),
-      unit:     newItemUnit.trim(),
-      price:    newItemPrice !== '' ? Number(newItemPrice) : null,
-      category: newItemCategory.trim() || null,
+      name:        newItemName.trim(),
+      unit:        newItemUnit.trim(),
+      price:       newItemPrice !== '' ? Number(newItemPrice) : null,
+      category_id: newItemCategoryId || null,
     }),
     onSuccess: (item) => {
       setItems(prev => [...prev, item])
       setSuggestedQtys(prev => ({ ...prev, [item.id]: {} }))
-      setNewItemName(''); setNewItemUnit(''); setNewItemPrice(''); setNewItemCategory(''); setItemError('')
+      setNewItemName(''); setNewItemUnit(''); setNewItemPrice(''); setNewItemCategoryId(''); setItemError('')
       queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
     onError: (err) => setItemError(err?.message ?? 'Add failed'),
@@ -342,10 +451,10 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
   const editItemMutation = useMutation({
     mutationFn: async (item) => {
       const updated = await api.patch(`/order-sheets/templates/${templateId}/items/${item.id}`, {
-        name:     item.name,
-        unit:     item.unit,
-        price:    item.price ?? null,
-        category: item.category ?? null,
+        name:        item.name,
+        unit:        item.unit,
+        price:       item.price ?? null,
+        category_id: item.category_id ?? null,
       })
       if (assignedVenues.length > 0) {
         const venueQtys = assignedVenues.map(v => ({
@@ -373,6 +482,41 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
     },
   })
 
+  // ── Bulk item mutations ──────────────────────────────────────────────────────
+  const bulkDeleteItemsMutation = useMutation({
+    mutationFn: () => api.delete(`/order-sheets/templates/${templateId}/items/bulk`, { ids: [...checkedItemIds] }),
+    onSuccess: () => {
+      const deleted = new Set(checkedItemIds)
+      setItems(prev => prev.filter(i => !deleted.has(i.id)))
+      setSuggestedQtys(prev => {
+        const next = { ...prev }
+        for (const id of deleted) delete next[id]
+        return next
+      })
+      setCheckedItemIds(new Set())
+      setBulkItemDeleteConfirm(false)
+      setBulkItemError('')
+      queryClient.invalidateQueries(['order-sheets', 'templates'])
+    },
+    onError: (err) => setBulkItemError(err?.message ?? 'Delete failed'),
+  })
+
+  const bulkAssignCategoryMutation = useMutation({
+    mutationFn: (category_id) => api.patch(`/order-sheets/templates/${templateId}/items/bulk-category`, {
+      ids: [...checkedItemIds],
+      category_id: category_id || null,
+    }),
+    onSuccess: (_, category_id) => {
+      const cat = categories.find(c => c.id === category_id) ?? null
+      setItems(prev => prev.map(i =>
+        checkedItemIds.has(i.id)
+          ? { ...i, category_id: category_id || null, category_name: cat?.name ?? null }
+          : i
+      ))
+      queryClient.invalidateQueries(['order-sheets', 'templates'])
+    },
+  })
+
   const deleteTemplateMutation = useMutation({
     mutationFn: () => api.delete(`/order-sheets/templates/${templateId}`),
     onSuccess: () => {
@@ -384,6 +528,14 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
 
   function toggleDeliveryDay(day) {
     setDeliveryDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day])
+  }
+
+  function toggleItemCheck(id) {
+    setCheckedItemIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
   }
 
   const assignedVenues = allVenues.filter(v => venueIds.includes(v.id))
@@ -497,107 +649,193 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
           </SectionCard>
         )}
 
+        {/* Categories */}
+        {!isNew && (
+          <SectionCard title="Categories">
+            <div className="space-y-1">
+              {categories.length > 0 ? (
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleCategoryDragEnd}>
+                  <SortableContext items={categories.map(c => c.id)} strategy={verticalListSortingStrategy}>
+                    {categories.map(cat => (
+                      <SortableCategoryRow
+                        key={cat.id}
+                        category={cat}
+                        onSave={(id, name) => editCategoryMutation.mutate({ id, name })}
+                        onDelete={(id) => deleteCategoryMutation.mutate(id)}
+                      />
+                    ))}
+                  </SortableContext>
+                </DndContext>
+              ) : (
+                <p className="text-sm text-muted-foreground py-1 mb-2">No categories yet — items will be ungrouped.</p>
+              )}
+
+              {/* Add category */}
+              <div className={cn('flex gap-2', categories.length > 0 && 'pt-3 border-t mt-1')}>
+                <input
+                  type="text"
+                  value={newCatName}
+                  onChange={e => setNewCatName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && newCatName.trim() && addCategoryMutation.mutate()}
+                  placeholder="Category name"
+                  className="flex-1 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[40px]"
+                />
+                <button
+                  onClick={() => { if (!newCatName.trim()) return; addCategoryMutation.mutate() }}
+                  disabled={addCategoryMutation.isPending || !newCatName.trim()}
+                  className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px] disabled:opacity-50"
+                >
+                  {addCategoryMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  Add
+                </button>
+              </div>
+              {catError && <p className="text-sm text-red-600 mt-1">{catError}</p>}
+            </div>
+          </SectionCard>
+        )}
+
         {/* Items */}
         {!isNew && (
           <SectionCard title="Items">
             <div className="space-y-3">
 
-              {/* Datalists for category autocomplete (hidden) */}
-              <datalist id="new-cat-list">
-                {existingCategories.map(c => <option key={c} value={c} />)}
-              </datalist>
-              <datalist id="edit-cat-list">
-                {existingCategories.map(c => <option key={c} value={c} />)}
-              </datalist>
+              {/* Bulk action bar */}
+              {checkedItemIds.size > 0 && (
+                <div className="flex items-center gap-2 flex-wrap px-3 py-2.5 bg-primary/5 rounded-lg">
+                  {!bulkItemDeleteConfirm ? (
+                    <>
+                      <span className="text-xs font-medium text-muted-foreground">{checkedItemIds.size} selected</span>
+                      {categories.length > 0 && (
+                        <select
+                          disabled={bulkAssignCategoryMutation.isPending}
+                          onChange={e => {
+                            const v = e.target.value
+                            if (v === '__placeholder__') return
+                            bulkAssignCategoryMutation.mutate(v === '__none__' ? null : v)
+                            e.target.value = '__placeholder__'
+                          }}
+                          defaultValue="__placeholder__"
+                          className="text-xs border rounded-lg px-2 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-50"
+                        >
+                          <option value="__placeholder__" disabled>Category…</option>
+                          <option value="__none__">— No category</option>
+                          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      )}
+                      <button
+                        onClick={() => setBulkItemDeleteConfirm(true)}
+                        className="text-xs bg-red-600 text-white rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px]"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => setCheckedItemIds(new Set())}
+                        className="text-xs border rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] text-muted-foreground"
+                      >
+                        Clear
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-xs text-red-600 font-medium flex-1">
+                        Delete {checkedItemIds.size} item{checkedItemIds.size !== 1 ? 's' : ''}?
+                      </span>
+                      {bulkItemError && <span className="text-xs text-red-600">{bulkItemError}</span>}
+                      <button
+                        onClick={() => bulkDeleteItemsMutation.mutate()}
+                        disabled={bulkDeleteItemsMutation.isPending}
+                        className="text-xs bg-red-600 text-white rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px] disabled:opacity-50"
+                      >
+                        {bulkDeleteItemsMutation.isPending ? 'Deleting…' : 'Yes, delete'}
+                      </button>
+                      <button
+                        onClick={() => { setBulkItemDeleteConfirm(false); setBulkItemError('') }}
+                        className="text-xs border rounded-lg px-3 py-1.5 touch-manipulation min-h-[32px]"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
+              {/* Select all */}
+              {items.length > 0 && (
+                <div className="flex items-center gap-2 px-1">
+                  <input
+                    ref={selectAllRef}
+                    type="checkbox"
+                    checked={checkedItemIds.size === items.length && items.length > 0}
+                    onChange={e => setCheckedItemIds(e.target.checked ? new Set(items.map(i => i.id)) : new Set())}
+                    className="w-4 h-4 rounded cursor-pointer"
+                  />
+                  <span className="text-xs text-muted-foreground">Select all</span>
+                </div>
+              )}
+
+              {/* Item list */}
               {items.length > 0 && (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
-                    {categoryGroups.map((group, groupIdx) => (
-                      <Fragment key={group.name ?? '__none__'}>
-                        {showCategoryHeaders && (
-                          <div className="flex items-center gap-1 mt-3 first:mt-0 px-1 py-1 bg-muted/40 rounded-md">
-                            <span className="text-xs font-semibold text-muted-foreground flex-1 truncate pl-1">
-                              {group.name ?? 'Uncategorised'}
-                            </span>
-                            <button
-                              type="button"
-                              disabled={groupIdx === 0}
-                              onClick={() => moveCategoryGroup(group.name, 'up')}
-                              className="p-1 rounded hover:bg-accent text-muted-foreground touch-manipulation disabled:opacity-30"
-                              title="Move category up"
-                            >
-                              <ArrowUp className="w-3.5 h-3.5" />
+                    {items.map(item => (
+                      editingItem?.id === item.id ? (
+                        <div key={item.id} className="py-2.5 border-b last:border-0 space-y-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div className="p-1.5 shrink-0"><GripVertical className="w-4 h-4 text-muted-foreground opacity-30" /></div>
+                            <input type="text" value={editingItem.name} onChange={e => setEditingItem(p => ({ ...p, name: e.target.value }))}
+                              className="flex-1 min-w-[100px] border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Item name" autoFocus />
+                            <input type="text" value={editingItem.unit} onChange={e => setEditingItem(p => ({ ...p, unit: e.target.value }))}
+                              className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Unit" />
+                            {showPrices && (
+                              <input type="number" inputMode="decimal" min="0" step="0.01" value={editingItem.price ?? ''}
+                                onChange={e => setEditingItem(p => ({ ...p, price: e.target.value !== '' ? Number(e.target.value) : null }))}
+                                className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Price" />
+                            )}
+                            {categories.length > 0 && (
+                              <select
+                                value={editingItem.category_id ?? ''}
+                                onChange={e => setEditingItem(p => ({ ...p, category_id: e.target.value || null }))}
+                                className="w-32 border rounded px-2 py-1.5 text-sm touch-manipulation"
+                              >
+                                <option value="">No category</option>
+                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                              </select>
+                            )}
+                            <button onClick={() => editItemMutation.mutate(editingItem)} disabled={editItemMutation.isPending}
+                              className="p-2 text-primary touch-manipulation disabled:opacity-50">
+                              {editItemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                             </button>
-                            <button
-                              type="button"
-                              disabled={groupIdx === categoryGroups.length - 1}
-                              onClick={() => moveCategoryGroup(group.name, 'down')}
-                              className="p-1 rounded hover:bg-accent text-muted-foreground touch-manipulation disabled:opacity-30"
-                              title="Move category down"
-                            >
-                              <ArrowDown className="w-3.5 h-3.5" />
-                            </button>
+                            <button onClick={() => setEditingItem(null)} className="p-2 text-muted-foreground touch-manipulation"><X className="w-4 h-4" /></button>
                           </div>
-                        )}
-                        {group.items.map(item => (
-                          editingItem?.id === item.id ? (
-                            <div key={item.id} className="py-2.5 border-b last:border-0 space-y-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <div className="p-1.5 shrink-0"><GripVertical className="w-4 h-4 text-muted-foreground opacity-30" /></div>
-                                <input type="text" value={editingItem.name} onChange={e => setEditingItem(p => ({ ...p, name: e.target.value }))}
-                                  className="flex-1 min-w-[100px] border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Item name" autoFocus />
-                                <input type="text" value={editingItem.unit} onChange={e => setEditingItem(p => ({ ...p, unit: e.target.value }))}
-                                  className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Unit" />
-                                {showPrices && (
-                                  <input type="number" inputMode="decimal" min="0" step="0.01" value={editingItem.price ?? ''}
-                                    onChange={e => setEditingItem(p => ({ ...p, price: e.target.value !== '' ? Number(e.target.value) : null }))}
-                                    className="w-20 border rounded px-2 py-1.5 text-sm touch-manipulation" placeholder="Price" />
-                                )}
-                                <input
-                                  type="text"
-                                  list="edit-cat-list"
-                                  value={editingItem.category ?? ''}
-                                  onChange={e => setEditingItem(p => ({ ...p, category: e.target.value.trim() || null }))}
-                                  className="w-28 border rounded px-2 py-1.5 text-sm touch-manipulation"
-                                  placeholder="Category"
-                                />
-                                <button onClick={() => editItemMutation.mutate(editingItem)} disabled={editItemMutation.isPending}
-                                  className="p-2 text-primary touch-manipulation disabled:opacity-50">
-                                  {editItemMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                                </button>
-                                <button onClick={() => setEditingItem(null)} className="p-2 text-muted-foreground touch-manipulation"><X className="w-4 h-4" /></button>
-                              </div>
-                              {assignedVenues.length > 0 && (
-                                <div className="ml-8 flex flex-wrap gap-x-4 gap-y-1.5 items-center pb-1">
-                                  <span className="text-xs text-muted-foreground font-medium shrink-0">Suggested qty:</span>
-                                  {assignedVenues.map(v => (
-                                    <div key={v.id} className="flex items-center gap-1.5">
-                                      <span className="text-xs text-muted-foreground">{v.name}</span>
-                                      <input type="number" inputMode="decimal" min="0" step="1"
-                                        value={(suggestedQtys[item.id] ?? {})[v.id] ?? ''}
-                                        onChange={e => setSuggestedQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [v.id]: e.target.value } }))}
-                                        className="w-16 h-8 text-center text-sm border rounded px-1 touch-manipulation" placeholder="0" />
-                                    </div>
-                                  ))}
+                          {assignedVenues.length > 0 && (
+                            <div className="ml-8 flex flex-wrap gap-x-4 gap-y-1.5 items-center pb-1">
+                              <span className="text-xs text-muted-foreground font-medium shrink-0">Suggested qty:</span>
+                              {assignedVenues.map(v => (
+                                <div key={v.id} className="flex items-center gap-1.5">
+                                  <span className="text-xs text-muted-foreground">{v.name}</span>
+                                  <input type="number" inputMode="decimal" min="0" step="1"
+                                    value={(suggestedQtys[item.id] ?? {})[v.id] ?? ''}
+                                    onChange={e => setSuggestedQtys(prev => ({ ...prev, [item.id]: { ...(prev[item.id] ?? {}), [v.id]: e.target.value } }))}
+                                    className="w-16 h-8 text-center text-sm border rounded px-1 touch-manipulation" placeholder="0" />
                                 </div>
-                              )}
+                              ))}
                             </div>
-                          ) : deleteItemId === item.id ? (
-                            <div key={item.id} className="flex items-center gap-2 py-2.5 border-b last:border-0">
-                              <span className="text-sm text-red-600 flex-1">Delete "{item.name}"?</span>
-                              <button onClick={() => deleteItemMutation.mutate(item.id)} disabled={deleteItemMutation.isPending}
-                                className="text-xs bg-red-600 text-white rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Delete</button>
-                              <button onClick={() => setDeleteItemId(null)}
-                                className="text-xs border rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Cancel</button>
-                            </div>
-                          ) : (
-                            <SortableItemRow key={item.id} item={item} showPrices={showPrices}
-                              suggestedByVenue={suggestedQtys[item.id] ?? {}} assignedVenues={assignedVenues}
-                              onEdit={setEditingItem} onDelete={setDeleteItemId} />
-                          )
-                        ))}
-                      </Fragment>
+                          )}
+                        </div>
+                      ) : deleteItemId === item.id ? (
+                        <div key={item.id} className="flex items-center gap-2 py-2.5 border-b last:border-0">
+                          <span className="text-sm text-red-600 flex-1">Delete "{item.name}"?</span>
+                          <button onClick={() => deleteItemMutation.mutate(item.id)} disabled={deleteItemMutation.isPending}
+                            className="text-xs bg-red-600 text-white rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Delete</button>
+                          <button onClick={() => setDeleteItemId(null)}
+                            className="text-xs border rounded px-3 py-1.5 touch-manipulation min-h-[36px]">Cancel</button>
+                        </div>
+                      ) : (
+                        <SortableItemRow key={item.id} item={item} showPrices={showPrices}
+                          suggestedByVenue={suggestedQtys[item.id] ?? {}} assignedVenues={assignedVenues}
+                          onEdit={setEditingItem} onDelete={setDeleteItemId}
+                          checked={checkedItemIds.has(item.id)} onCheck={toggleItemCheck} />
+                      )
                     ))}
                   </SortableContext>
                 </DndContext>
@@ -619,14 +857,16 @@ function TemplateEditor({ templateId, isAdmin, onClose, onSaved, onDeleted }) {
                       onChange={e => setNewItemPrice(e.target.value)}
                       placeholder="Price" className="w-24 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]" />
                   )}
-                  <input
-                    type="text"
-                    list="new-cat-list"
-                    value={newItemCategory}
-                    onChange={e => setNewItemCategory(e.target.value)}
-                    placeholder="Category"
-                    className="w-32 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]"
-                  />
+                  {categories.length > 0 && (
+                    <select
+                      value={newItemCategoryId}
+                      onChange={e => setNewItemCategoryId(e.target.value)}
+                      className="w-36 border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]"
+                    >
+                      <option value="">No category</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  )}
                   <button
                     onClick={() => {
                       if (!newItemName.trim()) return setItemError('Name required')
@@ -734,10 +974,10 @@ export default function OrderSheetTemplates() {
   const [selectedId, setSelectedId] = useState(null)
   const [panelWidth, setPanelWidth] = useState(500)
 
-  const [checkedIds, setCheckedIds]             = useState(new Set())
-  const [showMergeDialog, setShowMergeDialog]   = useState(false)
+  const [checkedIds, setCheckedIds]               = useState(new Set())
+  const [showMergeDialog, setShowMergeDialog]     = useState(false)
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false)
-  const [bulkError, setBulkError]               = useState('')
+  const [bulkError, setBulkError]                 = useState('')
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
   const isAdmin = me?.role === 'admin' || me?.role === 'owner'
