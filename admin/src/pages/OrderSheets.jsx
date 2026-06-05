@@ -412,13 +412,13 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                   {order.show_prices && (
                     <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Price</th>
                   )}
+                  <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Qty</th>
                   <th className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">Suggested</th>
                   {histCols.map((h, i) => (
                     <th key={i} className="text-right py-2 pr-3 font-medium text-muted-foreground text-xs whitespace-nowrap">
                       {h ? fmtDateShort(h.delivery_date) : '—'}
                     </th>
                   ))}
-                  <th className="text-right py-2 font-medium text-muted-foreground text-xs whitespace-nowrap">Qty</th>
                 </tr>
               </thead>
               <tbody>
@@ -431,18 +431,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                         {item.price != null ? `£${Number(item.price).toFixed(2)}` : '—'}
                       </td>
                     )}
-                    <td className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
-                      {item.suggested_qty != null ? Number(item.suggested_qty) : '—'}
-                    </td>
-                    {histCols.map((h, i) => {
-                      const hQty = h ? (h.item_qtys ?? {})[item.id] : null
-                      return (
-                        <td key={i} className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
-                          {hQty != null ? Number(hQty) : '—'}
-                        </td>
-                      )
-                    })}
-                    <td className="py-2 text-right">
+                    <td className="py-2 pr-3 text-right">
                       {isOrdering ? (
                         <div className="flex items-center justify-end gap-1">
                           <button
@@ -476,6 +465,17 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                         </span>
                       )}
                     </td>
+                    <td className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
+                      {item.suggested_qty != null ? Number(item.suggested_qty) : '—'}
+                    </td>
+                    {histCols.map((h, i) => {
+                      const hQty = h ? (h.item_qtys ?? {})[item.id] : null
+                      return (
+                        <td key={i} className="py-2.5 pr-3 text-right text-xs text-muted-foreground">
+                          {hQty != null ? Number(hQty) : '—'}
+                        </td>
+                      )
+                    })}
                   </tr>
                 ))}
                 {(order.items ?? []).length === 0 && (
