@@ -286,6 +286,15 @@ const ORDER_SHEET_SEEDS = [
   },
 ]
 
+async function tableExists(name) {
+  const [row] = await sql`
+    SELECT 1 AS present FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = ${name}
+     LIMIT 1
+  `
+  return !!row
+}
+
 async function runSeeds() {
   if (!(await tableExists('order_sheet_templates'))) return
   const hasCategories = await tableExists('order_sheet_categories')
