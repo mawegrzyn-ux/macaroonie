@@ -18,6 +18,7 @@ import jwksClient from 'jwks-rsa'
 import { createVerifier } from 'fast-jwt'   // fast-jwt ships with fastify/jwt, no extra dep
 import { env } from '../config/env.js'
 import { sql, withTenant } from '../config/db.js'
+import { resolvePermission } from '../config/modules.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
 
@@ -272,7 +273,8 @@ export function requirePermission(moduleKey, requiredLevel = 'view') {
 
     // Lookup permissions: prefer custom_role_id, fall back to built-in matching users.role.
     const [permRow] = await sql`
-      SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions
+      SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions,
+             COALESCE(r_custom.key, r_builtin.key) AS role_key
         FROM users u
    LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
    LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
@@ -283,7 +285,10 @@ export function requirePermission(moduleKey, requiredLevel = 'view') {
          AND u.is_active     = true
        LIMIT 1
     `
-    const actual = permRow?.permissions?.[moduleKey] ?? 'none'
+    // Fall back to the module registry default for the role's key when the
+    // role has no explicit entry (e.g. a module added after the role existed,
+    // before its data migration ran).
+    const actual = resolvePermission(moduleKey, permRow?.permissions, permRow?.role_key)
     if (PERMISSION_RANK[actual] < PERMISSION_RANK[requiredLevel]) {
       return reply.code(403).send({ error: `Insufficient permission for ${moduleKey} (have: ${actual}, need: ${requiredLevel})` })
     }
