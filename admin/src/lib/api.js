@@ -99,7 +99,7 @@ export function useApi() {
     post:     (path, body)  => call('POST',   path, body),
     patch:    (path, body)  => call('PATCH',  path, body),
     put:      (path, body)  => call('PUT',    path, body),
-    delete:   (path)        => call('DELETE', path),
+    delete:   (path, body)  => call('DELETE', path, body),
     download,
     upload,
   }

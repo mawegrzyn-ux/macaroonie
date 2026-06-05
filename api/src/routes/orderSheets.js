@@ -29,9 +29,10 @@ const VenueIdsBody = z.object({
 })
 
 const ItemBody = z.object({
-  name:  z.string().min(1).max(200),
-  unit:  z.string().min(1).max(100),
-  price: z.number().positive().nullable().optional(),
+  name:     z.string().min(1).max(200),
+  unit:     z.string().min(1).max(100),
+  price:    z.number().positive().nullable().optional(),
+  category: z.string().max(100).nullable().optional(),
 })
 
 const ItemPatch = z.object({
@@ -39,6 +40,7 @@ const ItemPatch = z.object({
   unit:       z.string().min(1).max(100).optional(),
   price:      z.number().positive().nullable().optional(),
   sort_order: z.number().int().optional(),
+  category:   z.string().max(100).nullable().optional(),
 })
 
 const ItemOrderBody = z.object({
@@ -152,6 +154,7 @@ export default async function orderSheetsRoutes(app) {
         i.name,
         i.unit,
         i.price,
+        i.category,
         i.sort_order,
         i.created_at,
         COALESCE(
@@ -257,8 +260,8 @@ export default async function orderSheetsRoutes(app) {
     const sortOrder = (maxRow?.max_order ?? -1) + 1
 
     const [item] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO order_sheet_items (template_id, name, unit, price, sort_order)
-      VALUES (${id}, ${body.name}, ${body.unit}, ${body.price ?? null}, ${sortOrder})
+      INSERT INTO order_sheet_items (template_id, name, unit, price, category, sort_order)
+      VALUES (${id}, ${body.name}, ${body.unit}, ${body.price ?? null}, ${body.category ?? null}, ${sortOrder})
       RETURNING *
     `)
     return item
@@ -331,6 +334,62 @@ export default async function orderSheetsRoutes(app) {
     return { ok: true }
   })
 
+  // ── POST /templates/merge ────────────────────────────────────
+  // Copies all items from secondary templates into the primary template,
+  // optionally renames the primary, then deletes the secondary templates.
+  app.post('/templates/merge', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { primary_id, secondary_ids, name } = z.object({
+      primary_id:    z.string().uuid(),
+      secondary_ids: z.array(z.string().uuid()).min(1),
+      name:          z.string().min(1).max(200).optional(),
+    }).parse(req.body)
+
+    const [primary] = await withTenant(req.tenantId, tx => tx`
+      SELECT id FROM order_sheet_templates WHERE id = ${primary_id}
+    `)
+    if (!primary) throw httpError(404, 'Primary template not found')
+
+    await withTenant(req.tenantId, async tx => {
+      // Rename primary if requested
+      if (name) {
+        await tx`UPDATE order_sheet_templates SET name = ${name}, updated_at = now() WHERE id = ${primary_id}`
+      }
+
+      // Find next sort_order in primary
+      const [maxRow] = await tx`
+        SELECT COALESCE(MAX(sort_order), -1) AS m FROM order_sheet_items WHERE template_id = ${primary_id}
+      `
+      let nextOrder = (maxRow?.m ?? -1) + 1
+
+      // Copy items from each secondary into primary
+      for (const secId of secondary_ids) {
+        const secItems = await tx`
+          SELECT name, unit, price, category FROM order_sheet_items
+          WHERE template_id = ${secId}
+          ORDER BY sort_order, created_at
+        `
+        for (const item of secItems) {
+          await tx`
+            INSERT INTO order_sheet_items (template_id, name, unit, price, category, sort_order)
+            VALUES (${primary_id}, ${item.name}, ${item.unit}, ${item.price ?? null}, ${item.category ?? null}, ${nextOrder++})
+          `
+        }
+        await tx`DELETE FROM order_sheet_templates WHERE id = ${secId}`
+      }
+    })
+
+    return { ok: true, primary_id }
+  })
+
+  // ── DELETE /templates/bulk ────────────────────────────────────
+  app.delete('/templates/bulk', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
+    await withTenant(req.tenantId, tx => tx`
+      DELETE FROM order_sheet_templates WHERE id = ANY(${ids})
+    `)
+    return { ok: true, deleted: ids.length }
+  })
+
   // ── GET /orders ──────────────────────────────────────────────
   app.get('/orders', async (req) => {
     const { status, venue_id, template_id } = req.query
@@ -401,6 +460,7 @@ export default async function orderSheetsRoutes(app) {
         i.name,
         i.unit,
         i.price,
+        i.category,
         i.sort_order,
         oi.qty,
         oi.unit_price,
