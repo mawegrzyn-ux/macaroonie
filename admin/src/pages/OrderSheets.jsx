@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
   X, Plus, Minus, ChevronDown, Package, ClipboardList,
-  CheckCircle, AlertCircle, Loader2, Search, Filter
+  CheckCircle, AlertCircle, Loader2, Search, Filter,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
@@ -56,6 +56,106 @@ function StatusBadge({ status }) {
     <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium', STATUS_BADGE[status] ?? 'bg-gray-100 text-gray-700')}>
       {STATUS_LABEL[status] ?? status}
     </span>
+  )
+}
+
+// ── Filter Modal ───────────────────────────────────────────────────────────────
+
+const ALL_STATUSES    = ['ordering', 'ready', 'placed']
+const DEFAULT_STATUSES = ['ordering', 'ready']
+
+function FilterModal({ onClose, venues, currentStatuses, currentVenueId, onApply }) {
+  const [statuses, setStatuses] = useState(currentStatuses)
+  const [venueId, setVenueId]   = useState(currentVenueId)
+
+  function toggleStatus(s) {
+    setStatuses(prev =>
+      prev.includes(s)
+        ? prev.length > 1 ? prev.filter(x => x !== s) : prev
+        : [...prev, s]
+    )
+  }
+
+  function handleReset() {
+    setStatuses(DEFAULT_STATUSES)
+    setVenueId('')
+  }
+
+  function handleApply() {
+    onApply({ statuses, venueId })
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-background rounded-xl shadow-xl w-full max-w-sm max-h-[85vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <h2 className="text-sm font-semibold">Filter orders</h2>
+          <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-5">
+          {/* Status filter */}
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Status</p>
+            <div className="flex flex-wrap gap-2">
+              {ALL_STATUSES.map(s => (
+                <button
+                  key={s}
+                  onClick={() => toggleStatus(s)}
+                  className={cn(
+                    'px-3 py-1.5 rounded-full text-xs font-medium border transition-colors touch-manipulation min-h-[36px]',
+                    statuses.includes(s)
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-muted-foreground border-border hover:bg-accent',
+                  )}
+                >
+                  {STATUS_LABEL[s]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Venue filter */}
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2">Venue</p>
+            <div className="relative">
+              <select
+                value={venueId}
+                onChange={e => setVenueId(e.target.value)}
+                className="w-full border rounded-lg px-3 pr-8 py-2 text-sm bg-background touch-manipulation min-h-[44px] appearance-none"
+              >
+                <option value="">All venues</option>
+                {venues.map(v => (
+                  <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 p-4 border-t">
+          <button
+            onClick={handleReset}
+            className="flex-1 border rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]"
+          >
+            Reset
+          </button>
+          <button
+            onClick={handleApply}
+            className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -347,7 +447,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-start justify-between p-4 pl-14 lg:pl-4 border-b shrink-0 gap-3">
+      <div className="flex items-start justify-between p-4 border-b shrink-0 gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="font-semibold text-base truncate">{order.template_name}</h2>
           <p className="text-sm text-muted-foreground truncate">{order.venue_name} · {fmtDate(order.delivery_date)}</p>
@@ -427,9 +527,8 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
               const filtered = searchQuery
                 ? allItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()))
                 : allItems
-              // Group by category. Items arrive pre-sorted by category sort_order
-              // (uncategorised last) from the API; the Map preserves that order.
-              const fallbackCat = 'Uncategorised'
+              // Group by category; use template name as fallback for uncategorised items
+              const fallbackCat = order.template_name
               const groups = []
               const seen = new Map()
               for (const item of filtered) {
@@ -437,10 +536,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                 if (!seen.has(cat)) { const g = { name: cat, items: [] }; seen.set(cat, g); groups.push(g) }
                 seen.get(cat).items.push(item)
               }
-              // Show headers whenever any item has a real category (so mixed
-              // categorised/uncategorised orders are clearly grouped). A fully
-              // uncategorised order stays a flat list.
-              const showGroupHeaders = filtered.some(i => i.category_name)
+              const showGroupHeaders = groups.length > 1 || (groups.length === 1 && groups[0].items.some(i => i.category_name))
               const colCount = 4 + (order.show_prices ? 1 : 0) + histCols.length
               return (
                 <table className="w-full text-sm border-collapse min-w-[500px]">
@@ -470,10 +566,9 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                     ) : groups.map(group => (
                       <Fragment key={group.name}>
                         {showGroupHeaders && (
-                          <tr className="bg-primary/10">
-                            <td colSpan={colCount} className="py-2 px-3 text-xs font-bold text-primary uppercase tracking-wide border-y">
+                          <tr className="bg-muted/40">
+                            <td colSpan={colCount} className="py-1.5 px-3 text-xs font-semibold text-muted-foreground">
                               {group.name}
-                              <span className="font-normal text-muted-foreground normal-case"> · {group.items.length}</span>
                             </td>
                           </tr>
                         )}
@@ -665,109 +760,7 @@ function OrderCard({ order, isSelected, onClick }) {
   )
 }
 
-// ── Filter Modal ───────────────────────────────────────────────────────────────
-
-function FilterModal({ statuses, venueId, venues, onApply, onClose }) {
-  const [localStatuses, setLocalStatuses] = useState(statuses)
-  const [localVenue, setLocalVenue]       = useState(venueId)
-
-  function toggle(s) {
-    setLocalStatuses(prev =>
-      prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
-    )
-  }
-
-  function apply() {
-    // Never apply an empty status set — fall back to the default view.
-    onApply({
-      statuses: localStatuses.length > 0 ? localStatuses : DEFAULT_STATUSES,
-      venueId:  localVenue,
-    })
-  }
-
-  function reset() {
-    setLocalStatuses(DEFAULT_STATUSES)
-    setLocalVenue('')
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="bg-background rounded-xl shadow-xl w-full max-w-sm max-h-[85vh] overflow-y-auto"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-5 border-b">
-          <h2 className="text-base font-semibold">Filter orders</h2>
-          <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-5 space-y-5">
-          {/* Status */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Status</label>
-            <div className="space-y-2">
-              {ALL_STATUSES.map(s => (
-                <label
-                  key={s}
-                  className="flex items-center gap-3 px-3 py-2.5 border rounded-lg cursor-pointer touch-manipulation min-h-[44px] hover:bg-accent"
-                >
-                  <input
-                    type="checkbox"
-                    checked={localStatuses.includes(s)}
-                    onChange={() => toggle(s)}
-                    className="w-4 h-4 rounded cursor-pointer"
-                  />
-                  <StatusBadge status={s} />
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Venue */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Venue</label>
-            <div className="relative">
-              <select
-                value={localVenue}
-                onChange={e => setLocalVenue(e.target.value)}
-                className="w-full border rounded-lg px-3 pr-8 py-2.5 text-sm bg-background touch-manipulation min-h-[44px] appearance-none"
-              >
-                <option value="">All venues</option>
-                {venues.map(v => (
-                  <option key={v.id} value={v.id}>{v.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex gap-3 p-5 border-t">
-          <button
-            onClick={reset}
-            className="flex-1 border rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]"
-          >
-            Reset
-          </button>
-          <button
-            onClick={apply}
-            className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]"
-          >
-            Apply
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Main Page ──────────────────────────────────────────────────────────────────
-
-const ALL_STATUSES = ['ordering', 'ready', 'placed']
-// Default list view: pending (ordering) + ready only — placed is hidden until filtered in.
-const DEFAULT_STATUSES = ['ordering', 'ready']
 
 export default function OrderSheets() {
   const api = useApi()
@@ -798,16 +791,13 @@ export default function OrderSheets() {
     window.addEventListener('mouseup', onUp)
   }, [listWidth])
 
-  // Me query for admin check
+  // Me query for RBAC checks
   const { data: me } = useQuery({
     queryKey: ['me'],
     queryFn:  () => api.get('/me'),
     staleTime: 120_000,
   })
-  // isAdmin gates admin-only status transitions (unlock placed → ordering, delete).
-  // canCreate gates creating brand-new orders — order_sheets:manage.
-  // Both fall through for platform admins and owner/admin via the permission map.
-  const isAdmin   = me?.is_platform_admin || me?.role === 'admin' || me?.role === 'owner'
+  const isAdmin   = me?.is_platform_admin || me?.permissions?.order_sheets === 'manage'
   const canCreate = me?.is_platform_admin || me?.permissions?.order_sheets === 'manage'
 
   // Venues for filter dropdown
@@ -815,13 +805,6 @@ export default function OrderSheets() {
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
     staleTime: 300_000,
-  })
-
-  // Always-on active orders (ordering status) — drives the toolbar
-  const { data: activeOrders = [] } = useQuery({
-    queryKey: ['order-sheets', 'orders', 'active'],
-    queryFn:  () => api.get('/order-sheets/orders?status=ordering'),
-    staleTime: 0,
   })
 
   // Orders list — respects status filter + venue filter
@@ -832,22 +815,22 @@ export default function OrderSheets() {
     queryFn:  () => api.get(`/order-sheets/orders?status=${encodeURIComponent(statusParam)}${venueParam}`),
   })
 
+  const filtersActive = useMemo(() => {
+    const defaultSet = new Set(DEFAULT_STATUSES)
+    const currentSet = new Set(selectedStatuses)
+    const sameStatuses = defaultSet.size === currentSet.size && [...defaultSet].every(s => currentSet.has(s))
+    return !sameStatuses || !!filterVenueId
+  }, [selectedStatuses, filterVenueId])
+
   function applyFilters({ statuses, venueId }) {
     setSelectedStatuses(statuses)
     setFilterVenueId(venueId)
     setSelectedOrderId(null)
-    setShowFilterModal(false)
   }
-
-  // Filters differ from the default view (used to show the active-filter dot).
-  const filtersActive =
-    filterVenueId !== '' ||
-    selectedStatuses.length !== DEFAULT_STATUSES.length ||
-    !DEFAULT_STATUSES.every(s => selectedStatuses.includes(s))
 
   function handleCreated(order) {
     setShowNewModal(false)
-    setSelectedStatuses(DEFAULT_STATUSES)
+    setSelectedStatuses(ALL_STATUSES)
     setSelectedOrderId(order.id)
     queryClient.invalidateQueries(['order-sheets'])
   }
@@ -856,6 +839,18 @@ export default function OrderSheets() {
     setSelectedOrderId(null)
     queryClient.invalidateQueries(['order-sheets'])
   }
+
+  const filterSummary = useMemo(() => {
+    const parts = []
+    if (selectedStatuses.length < ALL_STATUSES.length) {
+      parts.push(selectedStatuses.map(s => STATUS_LABEL[s]).join(', '))
+    }
+    if (filterVenueId) {
+      const v = venues.find(v => v.id === filterVenueId)
+      if (v) parts.push(v.name)
+    }
+    return parts.join(' · ')
+  }, [selectedStatuses, filterVenueId, venues])
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -876,66 +871,42 @@ export default function OrderSheets() {
             <h1 className="font-semibold text-sm">Order Sheets</h1>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowFilterModal(true)}
-              className="relative flex items-center gap-1.5 border rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px] hover:bg-accent"
-            >
-              <Filter className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Filter</span>
+            <div className="relative">
+              <button
+                onClick={() => setShowFilterModal(true)}
+                className="flex items-center gap-1.5 border rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px] hover:bg-accent"
+              >
+                <Filter className="w-3.5 h-3.5" />
+                Filter
+              </button>
               {filtersActive && (
-                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full border-2 border-background" />
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-primary" />
               )}
-            </button>
+            </div>
             {canCreate && (
               <button
                 onClick={() => setShowNewModal(true)}
                 className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px]"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">New order</span>
+                New order
               </button>
             )}
           </div>
         </div>
 
-        {/* Active orders toolbar — quick-access pills for orders in "ordering" state */}
-        {activeOrders.length > 0 && (
-          <div className="px-3 pt-2.5 pb-2 border-b bg-muted/30 shrink-0">
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5">Active</p>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {activeOrders.map(order => (
-                <button
-                  key={order.id}
-                  onClick={() => setSelectedOrderId(order.id)}
-                  className={cn(
-                    'flex-none inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors touch-manipulation whitespace-nowrap min-h-[32px]',
-                    selectedOrderId === order.id
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-background text-foreground border-border hover:bg-accent',
-                  )}
-                >
-                  <span className="font-semibold">{order.template_name}</span>
-                  <span className="opacity-60">· {order.venue_name} · {fmtDateShort(order.delivery_date)}</span>
-                </button>
-              ))}
-            </div>
+        {/* Active filter summary */}
+        {filtersActive && filterSummary && (
+          <div className="px-3 py-1.5 border-b bg-muted/30 shrink-0 flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground truncate">{filterSummary}</p>
+            <button
+              onClick={() => applyFilters({ statuses: DEFAULT_STATUSES, venueId: '' })}
+              className="text-xs text-primary shrink-0 touch-manipulation"
+            >
+              Reset
+            </button>
           </div>
         )}
-
-        {/* Active filter summary — also opens the filter modal */}
-        <button
-          onClick={() => setShowFilterModal(true)}
-          className="flex items-center gap-1.5 px-4 py-2 border-b shrink-0 text-xs text-muted-foreground hover:bg-accent touch-manipulation text-left min-h-[36px]"
-        >
-          <Filter className="w-3 h-3 shrink-0" />
-          <span className="truncate">
-            {selectedStatuses.map(s => STATUS_LABEL[s]).join(', ') || 'All statuses'}
-            {' · '}
-            {filterVenueId
-              ? (venues.find(v => v.id === filterVenueId)?.name ?? 'Venue')
-              : 'All venues'}
-          </span>
-        </button>
 
         {/* Orders list */}
         <div className="flex-1 overflow-y-auto">
@@ -948,8 +919,8 @@ export default function OrderSheets() {
               <Package className="w-8 h-8 text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground">No orders found</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {filterVenueId
-                  ? 'No orders for this venue with the selected filters'
+                {filtersActive
+                  ? 'Try adjusting your filters'
                   : 'Create a new order to get started'}
               </p>
             </div>
@@ -998,11 +969,11 @@ export default function OrderSheets() {
       {/* Filter modal */}
       {showFilterModal && (
         <FilterModal
-          statuses={selectedStatuses}
-          venueId={filterVenueId}
-          venues={venues}
-          onApply={applyFilters}
           onClose={() => setShowFilterModal(false)}
+          venues={venues}
+          currentStatuses={selectedStatuses}
+          currentVenueId={filterVenueId}
+          onApply={applyFilters}
         />
       )}
     </div>
