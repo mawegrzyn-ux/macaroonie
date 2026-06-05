@@ -147,157 +147,172 @@ async function autoBaselineIfNeeded(files) {
 // Data seeds — run after every migrate pass (idempotent, skips existing rows)
 // ---------------------------------------------------------------------------
 
+// Each item carries a `category` matching a name seeded into
+// order_sheet_categories (migration 063). runSeeds() resolves it to a
+// category_id per tenant. A null/unknown category just leaves the item
+// uncategorised.
 const ORDER_SHEET_SEEDS = [
   {
     name: 'JJ Foods',
     show_prices: false,
     items: [
-      { name: 'Chicken breast',          unit: '2x5 kg.' },
-      { name: 'Chicken inner',           unit: '2x5kg.' },
-      { name: 'Top side beef',           unit: '21kg.' },
-      { name: 'Prawns 26/30',            unit: 'box (6)' },
-      { name: 'Mussel',                  unit: 'box' },
-      { name: 'Tilapia',                 unit: 'box (5 kg.)' },
-      { name: 'Pangus fish',             unit: '5kg.' },
-      { name: 'Squid ring',              unit: '1 kg.' },
-      { name: 'Ribs',                    unit: 'box (10 kg.)' },
-      { name: 'Frozen wing',             unit: '10 kg.' },
-      { name: 'Frozen corn',             unit: '2.5kg.' },
-      { name: 'Loin pork',               unit: '6kg.' },
-      { name: 'Plain flour',             unit: '16kg.' },
-      { name: 'Egg',                     unit: 'box' },
-      { name: 'Sugar',                   unit: 'pack (15kg)' },
-      { name: 'Oil',                     unit: '20 Ltr' },
-      { name: 'Ketchup',                 unit: 'box (2 tub)' },
-      { name: 'White vinegar',           unit: 'box (4 gal)' },
-      { name: 'Salt',                    unit: '5kg.' },
-      { name: 'Onion',                   unit: '4kg.' },
-      { name: 'Peeled garlic',           unit: '5 kg.' },
-      { name: 'Red pepper',              unit: '5 kg.' },
-      { name: 'Spring onion',            unit: 'box' },
-      { name: 'Carrot',                  unit: '10kg.' },
-      { name: 'Coffee bean',             unit: 'box' },
-      { name: 'Courgette',               unit: '10kg' },
-      { name: 'Flat cabbage',            unit: '5 heads' },
-      { name: 'Blue roll',               unit: 'pack (6)' },
-      { name: 'Scour/sponge',            unit: 'pack (6)' },
-      { name: 'Scourer',                 unit: 'pack (12)' },
-      { name: 'Metal scourer',           unit: 'pack (10)' },
-      { name: 'Prep glove',              unit: 'box (50)' },
-      { name: 'Yellow glove',            unit: 'pack (6)' },
-      { name: 'Heavy duty bin liner',    unit: 'box (200)' },
-      { name: 'Cling film 30mm',         unit: 'box' },
-      { name: 'Cleaning cloth',          unit: 'pack' },
-      { name: 'Container 500',           unit: 'box' },
-      { name: 'Container 600',           unit: 'box' },
-      { name: '2oz container with lid',  unit: 'box' },
-      { name: 'PC bag',                  unit: 'box' },
-      { name: 'Washing up liquid',       unit: 'box (2)' },
-      { name: 'Bleach',                  unit: 'box (2)' },
-      { name: 'Degreaser',               unit: 'box (2)' },
-      { name: 'Coke',                    unit: 'pack (24)' },
-      { name: 'Diet Coke',               unit: 'pack (24)' },
-      { name: '7 Up',                    unit: 'pack (24)' },
-      { name: 'Still water',             unit: 'box (24)' },
-      { name: 'Sparkling water',         unit: 'box (24)' },
-      { name: 'Coke Zero',               unit: 'pack (24)' },
-      { name: 'Orange juice',            unit: '12x Ltr' },
+      { name: 'Chicken breast',          unit: '2x5 kg.',      category: 'Meat & Poultry' },
+      { name: 'Chicken inner',           unit: '2x5kg.',       category: 'Meat & Poultry' },
+      { name: 'Top side beef',           unit: '21kg.',        category: 'Meat & Poultry' },
+      { name: 'Prawns 26/30',            unit: 'box (6)',      category: 'Fish & Seafood' },
+      { name: 'Mussel',                  unit: 'box',          category: 'Fish & Seafood' },
+      { name: 'Tilapia',                 unit: 'box (5 kg.)',  category: 'Fish & Seafood' },
+      { name: 'Pangus fish',             unit: '5kg.',         category: 'Fish & Seafood' },
+      { name: 'Squid ring',              unit: '1 kg.',        category: 'Fish & Seafood' },
+      { name: 'Ribs',                    unit: 'box (10 kg.)', category: 'Meat & Poultry' },
+      { name: 'Frozen wing',             unit: '10 kg.',       category: 'Meat & Poultry' },
+      { name: 'Frozen corn',             unit: '2.5kg.',       category: 'Vegetables' },
+      { name: 'Loin pork',               unit: '6kg.',         category: 'Meat & Poultry' },
+      { name: 'Plain flour',             unit: '16kg.',        category: 'Dry Goods' },
+      { name: 'Egg',                     unit: 'box',          category: 'Dairy & Eggs' },
+      { name: 'Sugar',                   unit: 'pack (15kg)',  category: 'Dry Goods' },
+      { name: 'Oil',                     unit: '20 Ltr',       category: 'Oils, Sauces & Condiments' },
+      { name: 'Ketchup',                 unit: 'box (2 tub)',  category: 'Oils, Sauces & Condiments' },
+      { name: 'White vinegar',           unit: 'box (4 gal)',  category: 'Oils, Sauces & Condiments' },
+      { name: 'Salt',                    unit: '5kg.',         category: 'Dry Goods' },
+      { name: 'Onion',                   unit: '4kg.',         category: 'Vegetables' },
+      { name: 'Peeled garlic',           unit: '5 kg.',        category: 'Vegetables' },
+      { name: 'Red pepper',              unit: '5 kg.',        category: 'Vegetables' },
+      { name: 'Spring onion',            unit: 'box',          category: 'Vegetables' },
+      { name: 'Carrot',                  unit: '10kg.',        category: 'Vegetables' },
+      { name: 'Coffee bean',             unit: 'box',          category: 'Beverages' },
+      { name: 'Courgette',               unit: '10kg',         category: 'Vegetables' },
+      { name: 'Flat cabbage',            unit: '5 heads',      category: 'Vegetables' },
+      { name: 'Blue roll',               unit: 'pack (6)',     category: 'Cleaning Supplies' },
+      { name: 'Scour/sponge',            unit: 'pack (6)',     category: 'Cleaning Supplies' },
+      { name: 'Scourer',                 unit: 'pack (12)',    category: 'Cleaning Supplies' },
+      { name: 'Metal scourer',           unit: 'pack (10)',    category: 'Cleaning Supplies' },
+      { name: 'Prep glove',              unit: 'box (50)',     category: 'Cleaning Supplies' },
+      { name: 'Yellow glove',            unit: 'pack (6)',     category: 'Cleaning Supplies' },
+      { name: 'Heavy duty bin liner',    unit: 'box (200)',    category: 'Cleaning Supplies' },
+      { name: 'Cling film 30mm',         unit: 'box',          category: 'Packaging' },
+      { name: 'Cleaning cloth',          unit: 'pack',         category: 'Cleaning Supplies' },
+      { name: 'Container 500',           unit: 'box',          category: 'Packaging' },
+      { name: 'Container 600',           unit: 'box',          category: 'Packaging' },
+      { name: '2oz container with lid',  unit: 'box',          category: 'Packaging' },
+      { name: 'PC bag',                  unit: 'box',          category: 'Packaging' },
+      { name: 'Washing up liquid',       unit: 'box (2)',      category: 'Cleaning Supplies' },
+      { name: 'Bleach',                  unit: 'box (2)',      category: 'Cleaning Supplies' },
+      { name: 'Degreaser',               unit: 'box (2)',      category: 'Cleaning Supplies' },
+      { name: 'Coke',                    unit: 'pack (24)',    category: 'Beverages' },
+      { name: 'Diet Coke',               unit: 'pack (24)',    category: 'Beverages' },
+      { name: '7 Up',                    unit: 'pack (24)',    category: 'Beverages' },
+      { name: 'Still water',             unit: 'box (24)',     category: 'Beverages' },
+      { name: 'Sparkling water',         unit: 'box (24)',     category: 'Beverages' },
+      { name: 'Coke Zero',               unit: 'pack (24)',    category: 'Beverages' },
+      { name: 'Orange juice',            unit: '12x Ltr',      category: 'Beverages' },
     ],
   },
   {
     name: 'JJ Oriental',
     show_prices: false,
     items: [
-      { name: 'Lucky boat egg noodles No.1',     unit: 'box' },
-      { name: '3mm rice noodles',                unit: 'box' },
-      { name: '6" spring roll pastry',           unit: 'box' },
-      { name: 'Panda oyster sauce',              unit: 'box' },
-      { name: 'Baby corn small tin',             unit: 'box' },
-      { name: 'Pineapple pieces small tin',      unit: 'box' },
-      { name: 'Healthy boy soya sauce',          unit: 'box 5lt' },
-      { name: 'Seasoning sauce golden mountain', unit: 'box' },
-      { name: 'Squid fish sauce plastic',        unit: 'box' },
-      { name: 'Golden panko breadcrumb',         unit: 'pack' },
-      { name: 'Mae ploy panang',                 unit: 'tub' },
-      { name: 'Mae ploy massaman',               unit: 'tub' },
-      { name: 'Mae ploy green',                  unit: 'box' },
-      { name: 'Mae ploy red',                    unit: 'box' },
-      { name: 'Nittaya Kaeng Pa',                unit: 'pack' },
-      { name: 'Mae ploy Tom yum',                unit: 'tub' },
-      { name: 'Mae ploy chilli oil',             unit: 'tub' },
-      { name: 'Crispy onion',                    unit: 'tub' },
-      { name: 'Sriraja hot sauce',               unit: 'bottle' },
-      { name: 'Hoisin sauce Amoy small tin',     unit: 'box' },
-      { name: 'Choa koh small tin',              unit: 'box' },
-      { name: 'Choa koh big tin',                unit: 'box' },
-      { name: 'Bamboo shot sliced big tin',      unit: 'box' },
-      { name: 'Yellow bean',                     unit: 'bottle' },
-      { name: 'Dark soya sauce',                 unit: 'bottle' },
-      { name: 'Manarah PC',                      unit: 'box' },
-      { name: 'Corn flour',                      unit: '3kg.' },
-      { name: 'Chang tamarind seedless',         unit: 'pack' },
-      { name: 'Chopped sweet radish',            unit: 'pack' },
-      { name: 'Glass noodle',                    unit: '500g.' },
-      { name: 'Coarse pepper',                   unit: '500g.' },
-      { name: 'White pepper powder',             unit: '500g.' },
-      { name: 'Turmeric powder',                 unit: '500g.' },
-      { name: 'Curry powder',                    unit: '500g.' },
-      { name: 'Cashew nut',                      unit: '10kg.' },
-      { name: 'Sesame seed',                     unit: '1 kg.' },
-      { name: 'Dried red big chilli',            unit: 'bag' },
-      { name: 'Star anise / cinnamon wood',      unit: 'bag' },
-      { name: 'Dried red small chilli',          unit: 'bag' },
-      { name: 'Bamboo stick 6"',                 unit: 'pack (10 bg)' },
-      { name: 'Plastic bag S3',                  unit: 'box' },
-      { name: 'Plastic bag S4',                  unit: 'box' },
-      { name: 'Riceberry rice',                  unit: 'box' },
-      { name: 'Jasmin rice',                     unit: '20kg.' },
-      { name: 'Long grain rice',                 unit: '20kg.' },
-      { name: 'Glutinous rice',                  unit: '10 kg.' },
-      { name: 'Dried chilli flakes',             unit: 'bag' },
-      { name: 'Sesame seed oil',                 unit: 'bottle' },
-      { name: 'Glutinous rice flour BS',         unit: 'bag' },
-      { name: 'Desiccated coconut BS',           unit: 'bag' },
+      { name: 'Lucky boat egg noodles No.1',     unit: 'box',         category: 'Dry Goods' },
+      { name: '3mm rice noodles',                unit: 'box',         category: 'Dry Goods' },
+      { name: '6" spring roll pastry',           unit: 'box',         category: 'Dry Goods' },
+      { name: 'Panda oyster sauce',              unit: 'box',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Baby corn small tin',             unit: 'box',         category: 'Dry Goods' },
+      { name: 'Pineapple pieces small tin',      unit: 'box',         category: 'Dry Goods' },
+      { name: 'Healthy boy soya sauce',          unit: 'box 5lt',     category: 'Oils, Sauces & Condiments' },
+      { name: 'Seasoning sauce golden mountain', unit: 'box',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Squid fish sauce plastic',        unit: 'box',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Golden panko breadcrumb',         unit: 'pack',        category: 'Dry Goods' },
+      { name: 'Mae ploy panang',                 unit: 'tub',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Mae ploy massaman',               unit: 'tub',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Mae ploy green',                  unit: 'box',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Mae ploy red',                    unit: 'box',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Nittaya Kaeng Pa',                unit: 'pack',        category: 'Oils, Sauces & Condiments' },
+      { name: 'Mae ploy Tom yum',                unit: 'tub',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Mae ploy chilli oil',             unit: 'tub',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Crispy onion',                    unit: 'tub',         category: 'Dry Goods' },
+      { name: 'Sriraja hot sauce',               unit: 'bottle',      category: 'Oils, Sauces & Condiments' },
+      { name: 'Hoisin sauce Amoy small tin',     unit: 'box',         category: 'Oils, Sauces & Condiments' },
+      { name: 'Choa koh small tin',              unit: 'box',         category: 'Dry Goods' },
+      { name: 'Choa koh big tin',                unit: 'box',         category: 'Dry Goods' },
+      { name: 'Bamboo shot sliced big tin',      unit: 'box',         category: 'Dry Goods' },
+      { name: 'Yellow bean',                     unit: 'bottle',      category: 'Oils, Sauces & Condiments' },
+      { name: 'Dark soya sauce',                 unit: 'bottle',      category: 'Oils, Sauces & Condiments' },
+      { name: 'Manarah PC',                      unit: 'box',         category: 'Packaging' },
+      { name: 'Corn flour',                      unit: '3kg.',        category: 'Dry Goods' },
+      { name: 'Chang tamarind seedless',         unit: 'pack',        category: 'Dry Goods' },
+      { name: 'Chopped sweet radish',            unit: 'pack',        category: 'Dry Goods' },
+      { name: 'Glass noodle',                    unit: '500g.',       category: 'Dry Goods' },
+      { name: 'Coarse pepper',                   unit: '500g.',       category: 'Dry Goods' },
+      { name: 'White pepper powder',             unit: '500g.',       category: 'Dry Goods' },
+      { name: 'Turmeric powder',                 unit: '500g.',       category: 'Dry Goods' },
+      { name: 'Curry powder',                    unit: '500g.',       category: 'Dry Goods' },
+      { name: 'Cashew nut',                      unit: '10kg.',       category: 'Dry Goods' },
+      { name: 'Sesame seed',                     unit: '1 kg.',       category: 'Dry Goods' },
+      { name: 'Dried red big chilli',            unit: 'bag',         category: 'Dry Goods' },
+      { name: 'Star anise / cinnamon wood',      unit: 'bag',         category: 'Dry Goods' },
+      { name: 'Dried red small chilli',          unit: 'bag',         category: 'Dry Goods' },
+      { name: 'Bamboo stick 6"',                 unit: 'pack (10 bg)',category: 'Packaging' },
+      { name: 'Plastic bag S3',                  unit: 'box',         category: 'Packaging' },
+      { name: 'Plastic bag S4',                  unit: 'box',         category: 'Packaging' },
+      { name: 'Riceberry rice',                  unit: 'box',         category: 'Dry Goods' },
+      { name: 'Jasmin rice',                     unit: '20kg.',       category: 'Dry Goods' },
+      { name: 'Long grain rice',                 unit: '20kg.',       category: 'Dry Goods' },
+      { name: 'Glutinous rice',                  unit: '10 kg.',      category: 'Dry Goods' },
+      { name: 'Dried chilli flakes',             unit: 'bag',         category: 'Dry Goods' },
+      { name: 'Sesame seed oil',                 unit: 'bottle',      category: 'Oils, Sauces & Condiments' },
+      { name: 'Glutinous rice flour BS',         unit: 'bag',         category: 'Dry Goods' },
+      { name: 'Desiccated coconut BS',           unit: 'bag',         category: 'Dry Goods' },
     ],
   },
   {
     name: 'JP Fresh',
     show_prices: false,
     items: [
-      { name: 'Small white cabbage',   unit: 'sack' },
-      { name: 'Beansprouts',           unit: '4kg.' },
-      { name: 'Bird eye chilli',       unit: 'box' },
-      { name: 'Long red chilli',       unit: '3kg' },
-      { name: 'Coriander',             unit: 'bunch' },
-      { name: 'Ginger',                unit: 'kg.' },
-      { name: 'Krachai',               unit: 'kg.' },
-      { name: 'Young peppercorn',      unit: '100g.' },
-      { name: 'Lemongrass',            unit: '12x90g' },
-      { name: 'Galangal',              unit: 'kg.' },
-      { name: 'Fried tofu',            unit: 'kg.' },
-      { name: 'FZ medal roasted duck', unit: 'box (20)' },
-      { name: 'Fz fishcake paste',     unit: 'box (20)' },
-      { name: 'Fz lime leaf',          unit: '100g.' },
+      { name: 'Small white cabbage',   unit: 'sack',     category: 'Vegetables' },
+      { name: 'Beansprouts',           unit: '4kg.',     category: 'Vegetables' },
+      { name: 'Bird eye chilli',       unit: 'box',      category: 'Vegetables' },
+      { name: 'Long red chilli',       unit: '3kg',      category: 'Vegetables' },
+      { name: 'Coriander',             unit: 'bunch',    category: 'Herbs & Garnish' },
+      { name: 'Ginger',                unit: 'kg.',      category: 'Vegetables' },
+      { name: 'Krachai',               unit: 'kg.',      category: 'Herbs & Garnish' },
+      { name: 'Young peppercorn',      unit: '100g.',    category: 'Herbs & Garnish' },
+      { name: 'Lemongrass',            unit: '12x90g',   category: 'Herbs & Garnish' },
+      { name: 'Galangal',              unit: 'kg.',      category: 'Herbs & Garnish' },
+      { name: 'Fried tofu',            unit: 'kg.',      category: 'Vegetables' },
+      { name: 'FZ medal roasted duck', unit: 'box (20)', category: 'Meat & Poultry' },
+      { name: 'Fz fishcake paste',     unit: 'box (20)', category: 'Fish & Seafood' },
+      { name: 'Fz lime leaf',          unit: '100g.',    category: 'Herbs & Garnish' },
     ],
   },
 ]
 
-async function orderSheetTemplatesTableExists() {
+async function tableExists(name) {
   const [row] = await sql`
     SELECT 1 AS present FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = 'order_sheet_templates'
+     WHERE table_schema = 'public' AND table_name = ${name}
      LIMIT 1
   `
   return !!row
 }
 
 async function runSeeds() {
-  if (!(await orderSheetTemplatesTableExists())) return
+  if (!(await tableExists('order_sheet_templates'))) return
+
+  const hasCategories = await tableExists('order_sheet_categories')
 
   const tenants = await sql`SELECT id FROM tenants WHERE is_active = true`
   if (!tenants.length) return
 
   for (const { id: tenantId } of tenants) {
+    // Resolve shared category names → ids for this tenant.
+    let catMap = {}
+    if (hasCategories) {
+      const cats = await sql`
+        SELECT id, name FROM order_sheet_categories WHERE tenant_id = ${tenantId}
+      `
+      catMap = Object.fromEntries(cats.map(c => [c.name, c.id]))
+    }
+
     for (const tpl of ORDER_SHEET_SEEDS) {
       const [existing] = await sql`
         SELECT id FROM order_sheet_templates
@@ -314,10 +329,18 @@ async function runSeeds() {
       `
       for (let i = 0; i < tpl.items.length; i++) {
         const item = tpl.items[i]
-        await sql`
-          INSERT INTO order_sheet_items (template_id, name, unit, sort_order)
-          VALUES (${created.id}, ${item.name}, ${item.unit}, ${i + 1})
-        `
+        if (hasCategories) {
+          const categoryId = item.category ? (catMap[item.category] ?? null) : null
+          await sql`
+            INSERT INTO order_sheet_items (template_id, name, unit, category_id, sort_order)
+            VALUES (${created.id}, ${item.name}, ${item.unit}, ${categoryId}, ${i + 1})
+          `
+        } else {
+          await sql`
+            INSERT INTO order_sheet_items (template_id, name, unit, sort_order)
+            VALUES (${created.id}, ${item.name}, ${item.unit}, ${i + 1})
+          `
+        }
       }
       ok(`seeded   order template "${tpl.name}" (${tpl.items.length} items)`)
     }
