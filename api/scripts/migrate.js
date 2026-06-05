@@ -286,39 +286,56 @@ const ORDER_SHEET_SEEDS = [
   },
 ]
 
-async function tableExists(name) {
-  const [row] = await sql`
-    SELECT 1 AS present FROM information_schema.tables
-     WHERE table_schema = 'public' AND table_name = ${name}
-     LIMIT 1
-  `
-  return !!row
-}
-
 async function runSeeds() {
   if (!(await tableExists('order_sheet_templates'))) return
-
   const hasCategories = await tableExists('order_sheet_categories')
 
   const tenants = await sql`SELECT id FROM tenants WHERE is_active = true`
   if (!tenants.length) return
 
   for (const { id: tenantId } of tenants) {
-    // Resolve shared category names → ids for this tenant.
+    // Read categories inside a tenant-scoped transaction so RLS allows the SELECT.
+    // Without SET LOCAL app.tenant_id the USING policy filters to tenant_id = NULL
+    // which matches nothing — catMap would always be empty.
     let catMap = {}
     if (hasCategories) {
-      const cats = await sql`
-        SELECT id, name FROM order_sheet_categories WHERE tenant_id = ${tenantId}
-      `
+      const cats = await sql.begin(async tx => {
+        await tx`SET LOCAL app.tenant_id = ${tenantId}`
+        return tx`SELECT id, name FROM order_sheet_categories`
+      })
       catMap = Object.fromEntries(cats.map(c => [c.name, c.id]))
     }
 
     for (const tpl of ORDER_SHEET_SEEDS) {
-      const [existing] = await sql`
-        SELECT id FROM order_sheet_templates
-         WHERE tenant_id = ${tenantId} AND name = ${tpl.name} LIMIT 1
-      `
-      if (existing) continue
+      // Check for existing template (with tenant context so RLS allows the SELECT).
+      // Also fetch item_count so we can force-recreate templates that exist but
+      // have 0 items (leftover from previous broken runSeeds calls).
+      const [existing] = await sql.begin(async tx => {
+        await tx`SET LOCAL app.tenant_id = ${tenantId}`
+        return tx`
+          SELECT t.id, COUNT(i.id)::int AS item_count
+          FROM order_sheet_templates t
+          LEFT JOIN order_sheet_items i ON i.template_id = t.id
+          WHERE t.name = ${tpl.name}
+          GROUP BY t.id
+          LIMIT 1
+        `
+      })
+
+      if (existing?.item_count > 0) {
+        // Template exists and already has items — leave it alone.
+        continue
+      }
+
+      if (existing) {
+        // Template exists but has no items — delete and recreate with categories.
+        await sql`DELETE FROM order_sheet_items WHERE template_id = ${existing.id}`
+        await sql`DELETE FROM order_sheet_template_venues WHERE template_id = ${existing.id}`
+        await sql.begin(async tx => {
+          await tx`SET LOCAL app.tenant_id = ${tenantId}`
+          await tx`DELETE FROM order_sheet_templates WHERE id = ${existing.id}`
+        })
+      }
 
       const [created] = await sql`
         INSERT INTO order_sheet_templates (tenant_id, name, show_prices, is_active, sort_order)
@@ -329,8 +346,8 @@ async function runSeeds() {
       `
       for (let i = 0; i < tpl.items.length; i++) {
         const item = tpl.items[i]
+        const categoryId = item.category ? (catMap[item.category] ?? null) : null
         if (hasCategories) {
-          const categoryId = item.category ? (catMap[item.category] ?? null) : null
           await sql`
             INSERT INTO order_sheet_items (template_id, name, unit, category_id, sort_order)
             VALUES (${created.id}, ${item.name}, ${item.unit}, ${categoryId}, ${i + 1})
