@@ -1,18 +1,8 @@
--- 063_seed_order_sheet_items.sql
--- Clean-slate reseed of order sheet categories + templates.
--- Pre-prod: safe to wipe.
---
--- Why this exists:
---  * Migration 062 left 4 generic placeholder templates AND its category
---    seed had been duplicated on some environments.
---  * The 3 REAL supplier templates (JJ Foods, JJ Oriental, JP Fresh) are
---    seeded by scripts/migrate.js runSeeds() WITH category assignments — so
---    here we only need to (a) clear templates/items so runSeeds recreates
---    them cleanly, and (b) dedupe categories to exactly 12 per tenant.
+-- 064_fix_order_sheet_data.sql
+-- Fixes category triplication and empty templates caused by migrations 062/063
+-- using DELETE which is silently blocked by RLS when app.tenant_id is unset.
+-- TRUNCATE bypasses RLS. Run in FK-safe order (no CASCADE needed).
 
--- 1. Clear all templates + items (removes 062's generic placeholders too).
---    runSeeds() recreates the 3 supplier templates after migrations finish.
--- TRUNCATE bypasses RLS; DELETE is silently blocked when app.tenant_id is unset.
 TRUNCATE order_sheet_order_items;
 TRUNCATE order_sheets;
 TRUNCATE order_sheet_suggested_qty;
@@ -21,6 +11,7 @@ TRUNCATE order_sheet_template_venues;
 TRUNCATE order_sheet_templates;
 TRUNCATE order_sheet_categories;
 
+-- Reseed exactly 12 categories per tenant
 INSERT INTO order_sheet_categories (tenant_id, name, sort_order)
 SELECT t.id, c.name, c.so
 FROM tenants t
@@ -38,3 +29,7 @@ CROSS JOIN (VALUES
   ('Cleaning Supplies',         10),
   ('Packaging',                 11)
 ) AS c(name, so);
+
+-- Templates + items are seeded by scripts/migrate.js runSeeds() after
+-- this migration runs. With templates truncated, runSeeds will recreate
+-- all 3 supplier sheets with category assignments.
