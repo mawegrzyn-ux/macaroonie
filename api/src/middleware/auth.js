@@ -69,6 +69,10 @@ export async function requireAuth(req, reply) {
     const auth0OrgId = payload[`${CLAIM_NS}tenant_id`] ?? payload.org_id ?? null
     const role       = payload[`${CLAIM_NS}role`] ?? 'operator'
     const auth0Sub   = payload.sub
+    // Auth0 access tokens (RS256, custom API audience) don't include `email`
+    // as a standard claim — it must be injected by the Login Action. Fall back
+    // to the standard claim in case a future Auth0 config change adds it back.
+    const email      = payload[`${CLAIM_NS}email`] ?? payload.email ?? null
 
     // Check platform admin status (global — not tenant-scoped). 3s race timeout
     // so a stuck DB query can never produce ERR_EMPTY_RESPONSE upstream.
@@ -150,13 +154,13 @@ export async function requireAuth(req, reply) {
           2000, 'user lookup',
         )
         let resolved = localUser
-        if (!resolved && payload.email) {
+        if (!resolved && email) {
           const [linked] = await withTimeout(
             withTenant(tenantId, tx => tx`
               UPDATE users
                  SET auth0_user_id = ${auth0Sub}, last_login_at = now()
                WHERE tenant_id = ${tenantId}
-                 AND lower(email) = lower(${payload.email})
+                 AND lower(email) = lower(${email})
                  AND auth0_user_id IS NULL
               RETURNING id, role, is_active`),
             2000, 'invite link',
@@ -192,7 +196,7 @@ export async function requireAuth(req, reply) {
 
     req.user = {
       sub:             auth0Sub,
-      email:           payload.email,
+      email,
       role:            isPlatformAdmin ? 'owner' : (dbRole ?? role),
       isPlatformAdmin,
     }
