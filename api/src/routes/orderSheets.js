@@ -287,8 +287,13 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── POST /templates/merge ────────────────────────────────────
-  // Copies categories + items from secondary templates into the primary,
-  // optionally renames the primary, then deletes the secondary templates.
+  // Re-points items + orders from the secondary templates onto the primary,
+  // optionally renames the primary, then deletes the now-empty secondaries.
+  // Re-pointing (rather than copy + delete) preserves item ids — so existing
+  // orders' filled quantities stay valid — and keeps order history intact.
+  // The secondary templates are referenced by order_sheets (ON DELETE RESTRICT)
+  // and their filled items by order_sheet_order_items (ON DELETE RESTRICT), so
+  // a copy-then-delete would fail the moment any secondary has an order.
   app.post('/templates/merge', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { primary_id, secondary_ids, name } = z.object({
       primary_id:    z.string().uuid(),
@@ -312,18 +317,31 @@ export default async function orderSheetsRoutes(app) {
       let nextOrder = (maxRow?.m ?? -1) + 1
 
       for (const secId of secondary_ids) {
-        // Categories are shared across templates — no remapping needed.
+        if (secId === primary_id) continue
+
+        // Re-point items onto the primary (preserves their ids, and with them
+        // any filled order_sheet_order_items + suggested-qty rows).
         const secItems = await tx`
-          SELECT name, unit, price, category_id FROM order_sheet_items
+          SELECT id FROM order_sheet_items
           WHERE template_id = ${secId}
           ORDER BY sort_order, created_at
         `
         for (const item of secItems) {
           await tx`
-            INSERT INTO order_sheet_items (template_id, name, unit, price, category_id, sort_order)
-            VALUES (${primary_id}, ${item.name}, ${item.unit}, ${item.price ?? null}, ${item.category_id ?? null}, ${nextOrder++})
+            UPDATE order_sheet_items
+            SET template_id = ${primary_id}, sort_order = ${nextOrder++}
+            WHERE id = ${item.id}
           `
         }
+
+        // Re-point orders raised against the secondary onto the primary so
+        // history is preserved (no unique constraint on template/venue/date).
+        await tx`
+          UPDATE order_sheets SET template_id = ${primary_id} WHERE template_id = ${secId}
+        `
+
+        // Nothing references the secondary now except its venue assignments,
+        // which cascade-delete with the template row.
         await tx`DELETE FROM order_sheet_templates WHERE id = ${secId}`
       }
     })
