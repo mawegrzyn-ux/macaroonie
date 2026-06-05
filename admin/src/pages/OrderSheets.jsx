@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
   X, Plus, Minus, ChevronDown, Package, ClipboardList,
-  CheckCircle, AlertCircle, Loader2, Search
+  CheckCircle, AlertCircle, Loader2, Search, Filter
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
@@ -665,17 +665,118 @@ function OrderCard({ order, isSelected, onClick }) {
   )
 }
 
+// ── Filter Modal ───────────────────────────────────────────────────────────────
+
+function FilterModal({ statuses, venueId, venues, onApply, onClose }) {
+  const [localStatuses, setLocalStatuses] = useState(statuses)
+  const [localVenue, setLocalVenue]       = useState(venueId)
+
+  function toggle(s) {
+    setLocalStatuses(prev =>
+      prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
+    )
+  }
+
+  function apply() {
+    // Never apply an empty status set — fall back to the default view.
+    onApply({
+      statuses: localStatuses.length > 0 ? localStatuses : DEFAULT_STATUSES,
+      venueId:  localVenue,
+    })
+  }
+
+  function reset() {
+    setLocalStatuses(DEFAULT_STATUSES)
+    setLocalVenue('')
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-background rounded-xl shadow-xl w-full max-w-sm max-h-[85vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-5 border-b">
+          <h2 className="text-base font-semibold">Filter orders</h2>
+          <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Status */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Status</label>
+            <div className="space-y-2">
+              {ALL_STATUSES.map(s => (
+                <label
+                  key={s}
+                  className="flex items-center gap-3 px-3 py-2.5 border rounded-lg cursor-pointer touch-manipulation min-h-[44px] hover:bg-accent"
+                >
+                  <input
+                    type="checkbox"
+                    checked={localStatuses.includes(s)}
+                    onChange={() => toggle(s)}
+                    className="w-4 h-4 rounded cursor-pointer"
+                  />
+                  <StatusBadge status={s} />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Venue */}
+          <div>
+            <label className="block text-sm font-medium mb-2">Venue</label>
+            <div className="relative">
+              <select
+                value={localVenue}
+                onChange={e => setLocalVenue(e.target.value)}
+                className="w-full border rounded-lg px-3 pr-8 py-2.5 text-sm bg-background touch-manipulation min-h-[44px] appearance-none"
+              >
+                <option value="">All venues</option>
+                {venues.map(v => (
+                  <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 p-5 border-t">
+          <button
+            onClick={reset}
+            className="flex-1 border rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]"
+          >
+            Reset
+          </button>
+          <button
+            onClick={apply}
+            className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 const ALL_STATUSES = ['ordering', 'ready', 'placed']
+// Default list view: pending (ordering) + ready only — placed is hidden until filtered in.
+const DEFAULT_STATUSES = ['ordering', 'ready']
 
 export default function OrderSheets() {
   const api = useApi()
   const queryClient = useQueryClient()
 
-  const [selectedStatuses, setSelectedStatuses] = useState(['ordering', 'ready', 'placed'])
+  const [selectedStatuses, setSelectedStatuses] = useState(DEFAULT_STATUSES)
   const [selectedOrderId, setSelectedOrderId]   = useState(null)
   const [showNewModal, setShowNewModal]          = useState(false)
+  const [showFilterModal, setShowFilterModal]    = useState(false)
   const [filterVenueId, setFilterVenueId]        = useState('')
 
   // Resizable list panel (left side)
@@ -731,18 +832,22 @@ export default function OrderSheets() {
     queryFn:  () => api.get(`/order-sheets/orders?status=${encodeURIComponent(statusParam)}${venueParam}`),
   })
 
-  function toggleStatus(s) {
-    setSelectedStatuses(prev =>
-      prev.includes(s)
-        ? prev.length > 1 ? prev.filter(x => x !== s) : prev  // keep at least one
-        : [...prev, s]
-    )
+  function applyFilters({ statuses, venueId }) {
+    setSelectedStatuses(statuses)
+    setFilterVenueId(venueId)
     setSelectedOrderId(null)
+    setShowFilterModal(false)
   }
+
+  // Filters differ from the default view (used to show the active-filter dot).
+  const filtersActive =
+    filterVenueId !== '' ||
+    selectedStatuses.length !== DEFAULT_STATUSES.length ||
+    !DEFAULT_STATUSES.every(s => selectedStatuses.includes(s))
 
   function handleCreated(order) {
     setShowNewModal(false)
-    setSelectedStatuses(['ordering', 'ready', 'placed'])
+    setSelectedStatuses(DEFAULT_STATUSES)
     setSelectedOrderId(order.id)
     queryClient.invalidateQueries(['order-sheets'])
   }
@@ -770,15 +875,27 @@ export default function OrderSheets() {
             <ClipboardList className="w-4 h-4 text-muted-foreground" />
             <h1 className="font-semibold text-sm">Order Sheets</h1>
           </div>
-          {canCreate && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowNewModal(true)}
-              className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px]"
+              onClick={() => setShowFilterModal(true)}
+              className="relative flex items-center gap-1.5 border rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px] hover:bg-accent"
             >
-              <Plus className="w-3.5 h-3.5" />
-              New order
+              <Filter className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Filter</span>
+              {filtersActive && (
+                <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-primary rounded-full border-2 border-background" />
+              )}
             </button>
-          )}
+            {canCreate && (
+              <button
+                onClick={() => setShowNewModal(true)}
+                className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium touch-manipulation min-h-[40px]"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">New order</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Active orders toolbar — quick-access pills for orders in "ordering" state */}
@@ -805,40 +922,20 @@ export default function OrderSheets() {
           </div>
         )}
 
-        {/* Venue filter */}
-        <div className="px-3 py-2 border-b shrink-0">
-          <div className="relative">
-            <select
-              value={filterVenueId}
-              onChange={e => { setFilterVenueId(e.target.value); setSelectedOrderId(null) }}
-              className="w-full border rounded-lg px-3 pr-8 py-2 text-xs bg-background touch-manipulation min-h-[36px] appearance-none"
-            >
-              <option value="">All venues</option>
-              {venues.map(v => (
-                <option key={v.id} value={v.id}>{v.name}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-          </div>
-        </div>
-
-        {/* Status filter tabs */}
-        <div className="flex border-b shrink-0 px-2 pt-2 gap-1">
-          {ALL_STATUSES.map(s => (
-            <button
-              key={s}
-              onClick={() => toggleStatus(s)}
-              className={cn(
-                'px-3 py-2 text-xs font-medium rounded-t border-b-2 transition-colors touch-manipulation min-h-[40px]',
-                selectedStatuses.includes(s)
-                  ? 'border-primary text-primary bg-primary/5'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent',
-              )}
-            >
-              {STATUS_LABEL[s]}
-            </button>
-          ))}
-        </div>
+        {/* Active filter summary — also opens the filter modal */}
+        <button
+          onClick={() => setShowFilterModal(true)}
+          className="flex items-center gap-1.5 px-4 py-2 border-b shrink-0 text-xs text-muted-foreground hover:bg-accent touch-manipulation text-left min-h-[36px]"
+        >
+          <Filter className="w-3 h-3 shrink-0" />
+          <span className="truncate">
+            {selectedStatuses.map(s => STATUS_LABEL[s]).join(', ') || 'All statuses'}
+            {' · '}
+            {filterVenueId
+              ? (venues.find(v => v.id === filterVenueId)?.name ?? 'Venue')
+              : 'All venues'}
+          </span>
+        </button>
 
         {/* Orders list */}
         <div className="flex-1 overflow-y-auto">
@@ -895,6 +992,17 @@ export default function OrderSheets() {
         <NewOrderModal
           onClose={() => setShowNewModal(false)}
           onCreated={handleCreated}
+        />
+      )}
+
+      {/* Filter modal */}
+      {showFilterModal && (
+        <FilterModal
+          statuses={selectedStatuses}
+          venueId={filterVenueId}
+          venues={venues}
+          onApply={applyFilters}
+          onClose={() => setShowFilterModal(false)}
         />
       )}
     </div>
