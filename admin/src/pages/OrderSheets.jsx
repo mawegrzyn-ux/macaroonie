@@ -353,7 +353,9 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   }
 
   function setQty(itemId, val) {
-    setQtys(prev => ({ ...prev, [itemId]: val }))
+    // Strip decimals — qty is always a whole number
+    const intVal = val === '' ? '' : String(Math.max(0, Math.floor(Number(val) || 0)))
+    setQtys(prev => ({ ...prev, [itemId]: intVal }))
     setDirty(true)
     scheduleAutosave()
   }
