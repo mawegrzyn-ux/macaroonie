@@ -105,6 +105,14 @@ function NavItem({ item, open }) {
 export default function AppShell() {
   const { user, logout } = useAuth0()
   const location         = useLocation()
+
+  // Clear the persisted org hint on sign-out so the next login on this
+  // browser (possibly a different user) gets fresh org routing from Auth0
+  // instead of being forced into the previous user's org.
+  function handleLogout() {
+    try { localStorage.removeItem('maca_auth0_org_hint') } catch {}
+    logout({ logoutParams: { returnTo: window.location.origin } })
+  }
   const api              = useApi()
   const tlSettings       = useTimelineSettings()
   const { sidebarExpandedDefault } = useSettings()
@@ -488,7 +496,7 @@ export default function AppShell() {
                 )}
               </div>
               <button
-                onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+                onClick={handleLogout}
                 className="p-1.5 rounded hover:bg-accent text-muted-foreground shrink-0"
                 title="Sign out"
               >
@@ -497,7 +505,7 @@ export default function AppShell() {
             </div>
           ) : (
             <button
-              onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+              onClick={handleLogout}
               className="w-full flex justify-center p-2 rounded hover:bg-accent text-muted-foreground"
               title={`Sign out${currentTenant ? ` (${currentTenant.name})` : ''}`}
             >
