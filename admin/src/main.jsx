@@ -52,7 +52,15 @@ const queryClient = new QueryClient({
 const ORG_HINT_KEY = 'maca_auth0_org_hint'
 
 function RequireAuth({ children }) {
-  const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
+  const { isAuthenticated, isLoading, loginWithRedirect, user } = useAuth0()
+
+  // After every successful login, persist the org so future incognito /
+  // new-device sessions reuse it without needing a fresh invite link.
+  React.useEffect(() => {
+    if (isAuthenticated && user?.org_id) {
+      try { localStorage.setItem(ORG_HINT_KEY, user.org_id) } catch {}
+    }
+  }, [isAuthenticated, user?.org_id])
 
   // Detect Auth0 organization invitation params on the current URL.
   // When a user clicks the invitation email link Auth0 redirects them
