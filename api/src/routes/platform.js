@@ -10,7 +10,7 @@
 //   GET  /api/platform/tenants/:id/stats  — tenant stats (platform admin)
 
 import { z } from 'zod'
-import { sql } from '../config/db.js'
+import { sql, withTenant } from '../config/db.js'
 import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import {
@@ -58,10 +58,11 @@ export default async function platformRoutes(app) {
 
     // Local user + custom_role (if any). Fall back to a built-in
     // role keyed by users.role enum when custom_role_id is NULL.
+    // Must use withTenant() — users and tenant_roles both have RLS.
     let localUser = null
     let effectiveRole = null
     if (req.tenantId) {
-      [localUser] = await sql`
+      [localUser] = await withTenant(req.tenantId, tx => tx`
         SELECT u.id, u.full_name, u.role, u.is_active, u.custom_role_id,
                r_custom.id          AS r_id,
                r_custom.key         AS r_key,
@@ -77,7 +78,7 @@ export default async function platformRoutes(app) {
                                      AND r_builtin.key       = u.role::text
                                      AND r_builtin.is_builtin = true
          WHERE u.auth0_user_id = ${sub} AND u.tenant_id = ${req.tenantId}
-      `
+      `)
       if (localUser) {
         if (localUser.r_id) {
           effectiveRole = { id: localUser.r_id, key: localUser.r_key, label: localUser.r_label, permissions: localUser.r_permissions }
@@ -87,12 +88,12 @@ export default async function platformRoutes(app) {
       }
     }
 
-    // Tenant module enablement
+    // Tenant module enablement — must use withTenant() (tenant_modules has RLS)
     let enabledModules = MODULE_KEYS
     if (req.tenantId) {
-      const rows = await sql`
+      const rows = await withTenant(req.tenantId, tx => tx`
         SELECT module_key, is_enabled FROM tenant_modules WHERE tenant_id = ${req.tenantId}
-      `
+      `)
       const map = Object.fromEntries(rows.map(r => [r.module_key, r.is_enabled]))
       enabledModules = MODULE_KEYS.filter(k => map[k] !== false)
     }
@@ -119,14 +120,18 @@ export default async function platformRoutes(app) {
          ORDER BY name
       `
     } else {
-      availableTenants = await sql`
-        SELECT t.id, t.name, t.slug, t.plan, t.auth0_org_id, t.is_active, u.role
-          FROM users u
-          JOIN tenants t ON t.id = u.tenant_id AND t.is_active = true
-         WHERE u.auth0_user_id = ${sub}
-           AND u.is_active = true
-         ORDER BY t.name
-      `
+      // Must use withTenant() — users has RLS. This returns the current tenant only,
+      // which is correct for single-tenant users.
+      availableTenants = req.tenantId
+        ? await withTenant(req.tenantId, tx => tx`
+            SELECT t.id, t.name, t.slug, t.plan, t.auth0_org_id, t.is_active, u.role
+              FROM users u
+              JOIN tenants t ON t.id = u.tenant_id AND t.is_active = true
+             WHERE u.auth0_user_id = ${sub}
+               AND u.is_active = true
+             ORDER BY t.name
+          `)
+        : []
     }
 
     return {
