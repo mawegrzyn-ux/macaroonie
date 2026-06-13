@@ -106,7 +106,12 @@ export async function requireAuth(req, reply) {
         new Promise((_, rej) => setTimeout(() => rej(new Error('tenants lookup timeout')), 3000)),
       ])
       if (!tenant && !isPlatformAdmin) {
-        return reply.code(401).send({ error: 'Tenant not found or inactive' })
+        // Include the offending org id — the #1 cause is the user's Auth0
+        // membership pointing at the wrong org (e.g. invited to the platform
+        // org before the team.js getTenantAuth0OrgId fix). Surfacing the id
+        // makes this diagnosable from the browser network tab alone.
+        req.log.warn({ auth0OrgId, sub: auth0Sub }, 'Tenant lookup failed for org claim')
+        return reply.code(401).send({ error: `Tenant not found or inactive (org: ${auth0OrgId})` })
       }
       tenantId = tenant?.id ?? null
     }

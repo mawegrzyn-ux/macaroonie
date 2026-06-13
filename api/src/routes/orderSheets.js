@@ -58,7 +58,7 @@ const ItemOrderBody = z.object({
 const SuggestedBody = z.object({
   venue_qtys: z.array(z.object({
     venue_id: z.string().uuid(),
-    qty:      z.number().min(0),
+    qty:      z.number().int().min(0),
   })),
 })
 
@@ -86,7 +86,7 @@ const OrderPatch = z.object({
 const OrderItemsBody = z.object({
   items: z.array(z.object({
     item_id:    z.string().uuid(),
-    qty:        z.number().min(0).nullable().optional(),
+    qty:        z.number().int().min(0).nullable().optional(),
     unit_price: z.number().positive().nullable().optional(),
   })),
 })

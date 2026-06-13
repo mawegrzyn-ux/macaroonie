@@ -52,7 +52,15 @@ const queryClient = new QueryClient({
 const ORG_HINT_KEY = 'maca_auth0_org_hint'
 
 function RequireAuth({ children }) {
-  const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
+  const { isAuthenticated, isLoading, loginWithRedirect, user } = useAuth0()
+
+  // After every successful login, persist the org so future incognito /
+  // new-device sessions reuse it without needing a fresh invite link.
+  React.useEffect(() => {
+    if (isAuthenticated && user?.org_id) {
+      try { localStorage.setItem(ORG_HINT_KEY, user.org_id) } catch {}
+    }
+  }, [isAuthenticated, user?.org_id])
 
   // Detect Auth0 organization invitation params on the current URL.
   // When a user clicks the invitation email link Auth0 redirects them
@@ -84,12 +92,14 @@ function RequireAuth({ children }) {
   }
 
   if (!isAuthenticated) {
-    // localStorage hint (written when following an invite link) takes priority
-    // over the env-var default — prevents VITE_AUTH0_ORG_ID (usually the
-    // platform/macaroonie org) from overriding the invited user's tenant org.
+    // Org hint is written on every successful login and cleared on logout.
+    // When present, log straight into that org. When absent (first visit,
+    // incognito, or after an intentional sign-out) pass NO organization so
+    // Auth0 prompts the user to select their tenant. We deliberately do NOT
+    // fall back to VITE_AUTH0_ORG_ID — that forced every fresh session into
+    // one fixed org (usually the platform org) and broke tenant users.
     const orgHint =
-      (() => { try { return localStorage.getItem(ORG_HINT_KEY) } catch { return null } })() ||
-      import.meta.env.VITE_AUTH0_ORG_ID
+      (() => { try { return localStorage.getItem(ORG_HINT_KEY) } catch { return null } })()
     loginWithRedirect(orgHint ? { authorizationParams: { organization: orgHint } } : {})
     return null
   }
