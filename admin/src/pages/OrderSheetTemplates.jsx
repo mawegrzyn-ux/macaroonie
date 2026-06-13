@@ -20,6 +20,43 @@ import { useApi } from '@/lib/api'
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DAY_ORDER  = [1, 2, 3, 4, 5, 6, 0]
 
+// Adjustable column widths (persisted per browser). The checkbox / drag /
+// delete utility columns stay fixed; everything else is user-resizable.
+const COL_WIDTHS_KEY     = 'maca_ordersheet_col_widths'
+const DEFAULT_COL_WIDTHS = { name: 260, unit: 90, price: 90, category: 160, venues: {} }
+const VENUE_DEFAULT_W    = 90
+const COL_MIN_W          = 50
+
+// Thin drag handle on the right edge of a resizable header cell.
+function ColResizeHandle({ width, min = COL_MIN_W, onChange }) {
+  function handleDown(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startW = width
+    function move(ev) { onChange(Math.max(min, Math.round(startW + (ev.clientX - startX)))) }
+    function up() {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+  return (
+    <div
+      onPointerDown={handleDown}
+      title="Drag to resize"
+      className="absolute -right-1 top-0 h-full w-2 cursor-col-resize touch-none z-10 flex items-center justify-center group/resize"
+    >
+      <span className="w-0.5 h-1/2 bg-border group-hover/resize:bg-primary rounded" />
+    </div>
+  )
+}
+
 // ── Inline cell components ────────────────────────────────────────────────────
 
 function InlineText({ value, onSave, placeholder = '—', className, type = 'text', inputMode, required }) {
@@ -534,7 +571,21 @@ export default function OrderSheetTemplates() {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [showMerge, setShowMerge] = useState(false)
+  const [colWidths, setColWidths] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COL_WIDTHS_KEY)
+      if (raw) return { ...DEFAULT_COL_WIDTHS, ...JSON.parse(raw), venues: { ...JSON.parse(raw).venues } }
+    } catch {}
+    return { ...DEFAULT_COL_WIDTHS, venues: {} }
+  })
   const selectAllRef = useRef(null)
+
+  useEffect(() => {
+    try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths)) } catch {}
+  }, [colWidths])
+
+  const setColWidth   = useCallback((key, val) => setColWidths(prev => ({ ...prev, [key]: val })), [])
+  const setVenueWidth = useCallback((id, val)  => setColWidths(prev => ({ ...prev, venues: { ...prev.venues, [id]: val } })), [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -595,17 +646,17 @@ export default function OrderSheetTemplates() {
   const assignedVenues = useMemo(() => allVenues.filter(v => (template?.venue_ids ?? []).includes(v.id)), [allVenues, template?.venue_ids])
   const showPrices = template?.show_prices ?? false
 
-  // Grid column template
+  // Grid column template — utility columns fixed, content columns user-resizable
   const colTemplate = useMemo(() => [
     '40px',             // checkbox
     '40px',             // drag
-    '1fr',              // name (flex)
-    '80px',             // unit
-    showPrices ? '80px' : null,  // price
-    '160px',            // category
-    ...assignedVenues.map(() => '80px'),  // sug qty
+    `${colWidths.name}px`,      // name
+    `${colWidths.unit}px`,      // unit
+    showPrices ? `${colWidths.price}px` : null,  // price
+    `${colWidths.category}px`,  // category
+    ...assignedVenues.map(v => `${colWidths.venues[v.id] ?? VENUE_DEFAULT_W}px`),  // sug qty
     '44px',             // delete
-  ].filter(Boolean).join(' '), [showPrices, assignedVenues])
+  ].filter(Boolean).join(' '), [showPrices, assignedVenues, colWidths])
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
@@ -965,13 +1016,31 @@ export default function OrderSheetTemplates() {
           >
             <div />
             <div />
-            <div className="px-2 py-2 border-r">Item name</div>
-            <div className="px-2 py-2 border-r">Unit</div>
-            {showPrices && <div className="px-2 py-2 border-r">Price</div>}
-            <div className="px-2 py-2 border-r">Category</div>
+            <div className="px-2 py-2 border-r relative">
+              Item name
+              <ColResizeHandle width={colWidths.name} onChange={w => setColWidth('name', w)} />
+            </div>
+            <div className="px-2 py-2 border-r relative">
+              Unit
+              <ColResizeHandle width={colWidths.unit} onChange={w => setColWidth('unit', w)} />
+            </div>
+            {showPrices && (
+              <div className="px-2 py-2 border-r relative">
+                Price
+                <ColResizeHandle width={colWidths.price} onChange={w => setColWidth('price', w)} />
+              </div>
+            )}
+            <div className="px-2 py-2 border-r relative">
+              Category
+              <ColResizeHandle width={colWidths.category} onChange={w => setColWidth('category', w)} />
+            </div>
             {assignedVenues.map(v => (
-              <div key={v.id} className="px-2 py-2 border-r last:border-r-0 truncate text-right" title={v.name}>
+              <div key={v.id} className="px-2 py-2 border-r last:border-r-0 truncate text-right relative" title={v.name}>
                 {v.name}
+                <ColResizeHandle
+                  width={colWidths.venues[v.id] ?? VENUE_DEFAULT_W}
+                  onChange={w => setVenueWidth(v.id, w)}
+                />
               </div>
             ))}
             <div />
