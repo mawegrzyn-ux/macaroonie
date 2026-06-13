@@ -11,7 +11,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import {
   GripVertical, Plus, Trash2, X, ClipboardList, Loader2,
-  Check, Settings, Tag, ChevronDown, AlertCircle,
+  Check, Settings, Tag, ChevronDown, AlertCircle, Merge,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
@@ -289,6 +289,115 @@ function DraftItemRow({ showPrices, assignedVenues, categories, onSave, onCancel
   )
 }
 
+// ── Merge modal ───────────────────────────────────────────────────────────────
+
+function MergeModal({ primaryTemplate, allTemplates, onClose, onMerged }) {
+  const api = useApi()
+  const [secondaryIds, setSecondaryIds] = useState([])
+  const [newName, setNewName]           = useState(primaryTemplate.name)
+  const [error, setError]               = useState('')
+  const [pending, setPending]           = useState(false)
+
+  const candidates = allTemplates.filter(t => t.id !== primaryTemplate.id)
+
+  function toggle(id) {
+    setSecondaryIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
+  async function handleMerge() {
+    if (secondaryIds.length === 0) return
+    setPending(true)
+    setError('')
+    try {
+      await api.post('/order-sheets/templates/merge', {
+        primary_id:    primaryTemplate.id,
+        secondary_ids: secondaryIds,
+        name:          newName.trim() || primaryTemplate.name,
+      })
+      onMerged()
+    } catch (e) {
+      setError(e?.message ?? 'Merge failed')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="bg-background rounded-xl shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b">
+          <h2 className="text-sm font-semibold">Merge into "{primaryTemplate.name}"</h2>
+          <button onClick={onClose} className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          {/* New name for the primary */}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Merged template name</label>
+            <input
+              type="text"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              className="w-full border rounded-lg px-3 py-2 text-sm touch-manipulation min-h-[44px]"
+            />
+          </div>
+
+          {/* Secondary templates to absorb */}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-2">
+              Templates to merge in (will be deleted after merge)
+            </label>
+            {candidates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No other templates to merge.</p>
+            ) : (
+              <div className="space-y-1">
+                {candidates.map(t => (
+                  <label key={t.id}
+                    className="flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer hover:bg-accent touch-manipulation min-h-[44px]">
+                    <input type="checkbox" checked={secondaryIds.includes(t.id)} onChange={() => toggle(t.id)}
+                      className="w-4 h-4 rounded shrink-0" />
+                    <span className="text-sm">{t.name}{!t.is_active ? ' (inactive)' : ''}</span>
+                    <span className="text-xs text-muted-foreground ml-auto shrink-0">{t.item_count} items</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {secondaryIds.length > 0 && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Items from the selected templates will be added to "{newName.trim() || primaryTemplate.name}".
+              Their order history is preserved. The selected templates will be permanently deleted.
+            </p>
+          )}
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+        </div>
+
+        <div className="flex gap-3 p-4 border-t">
+          <button onClick={onClose}
+            className="flex-1 border rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px]">
+            Cancel
+          </button>
+          <button
+            onClick={handleMerge}
+            disabled={secondaryIds.length === 0 || pending}
+            className="flex-1 bg-primary text-primary-foreground rounded-lg py-2.5 text-sm font-medium touch-manipulation min-h-[48px] disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Merge className="w-4 h-4" />}
+            Merge {secondaryIds.length > 0 ? `(${secondaryIds.length})` : ''}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Settings panel ────────────────────────────────────────────────────────────
 
 function SettingsPanel({ template, allVenues, onClose }) {
@@ -424,6 +533,7 @@ export default function OrderSheetTemplates() {
   const [showDraft, setShowDraft]     = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [showMerge, setShowMerge] = useState(false)
   const selectAllRef = useRef(null)
 
   const sensors = useSensors(
@@ -623,8 +733,23 @@ export default function OrderSheetTemplates() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
+  function handleMerged() {
+    setShowMerge(false)
+    queryClient.invalidateQueries(['order-sheets', 'templates'])
+    queryClient.invalidateQueries(['order-sheets', 'templates', selectedId])
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
+
+      {showMerge && selectedTemplate && (
+        <MergeModal
+          primaryTemplate={selectedTemplate}
+          allTemplates={templates}
+          onClose={() => setShowMerge(false)}
+          onMerged={handleMerged}
+        />
+      )}
 
       {/* ── Header bar ── */}
       <div className="flex items-center gap-2 px-3 py-2 pl-14 lg:pl-3 border-b shrink-0 bg-background">
@@ -686,10 +811,21 @@ export default function OrderSheetTemplates() {
 
         <div className="flex-1" />
 
+        {/* Merge templates */}
+        {isAdmin && selectedId && templates.length > 1 && (
+          <button
+            onClick={() => { setShowMerge(true); setShowSettings(false); setDeleteConfirm(false) }}
+            className="flex items-center gap-1 border rounded-lg px-2.5 py-1.5 text-xs touch-manipulation min-h-[36px] hover:bg-accent whitespace-nowrap"
+          >
+            <Merge className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Merge</span>
+          </button>
+        )}
+
         {/* Settings toggle */}
         {selectedId && (
           <button
-            onClick={() => { setShowSettings(s => !s); setDeleteConfirm(false) }}
+            onClick={() => { setShowSettings(s => !s); setDeleteConfirm(false); setShowMerge(false) }}
             className={cn('flex items-center gap-1 border rounded-lg px-2.5 py-1.5 text-xs touch-manipulation min-h-[36px] hover:bg-accent',
               showSettings && 'bg-accent')}
           >
