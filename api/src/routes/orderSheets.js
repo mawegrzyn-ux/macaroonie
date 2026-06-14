@@ -49,6 +49,7 @@ const ItemPatch = z.object({
   price:       z.number().positive().nullable().optional(),
   sort_order:  z.number().int().optional(),
   category_id: z.string().uuid().nullable().optional(),
+  is_active:   z.boolean().optional(),
 })
 
 const ItemOrderBody = z.object({
@@ -69,6 +70,11 @@ const BulkItemIdsBody = z.object({
 const BulkItemCategoryBody = z.object({
   ids:         z.array(z.string().uuid()).min(1),
   category_id: z.string().uuid().nullable(),
+})
+
+const BulkItemArchiveBody = z.object({
+  ids:       z.array(z.string().uuid()).min(1),
+  is_active: z.boolean(),
 })
 
 const OrderBody = z.object({
@@ -196,7 +202,7 @@ export default async function orderSheetsRoutes(app) {
           array_agg(DISTINCT tv.venue_id) FILTER (WHERE tv.venue_id IS NOT NULL),
           '{}'
         ) AS venue_ids,
-        COUNT(DISTINCT i.id)::int AS item_count
+        COUNT(DISTINCT i.id) FILTER (WHERE i.is_active)::int AS item_count
       FROM order_sheet_templates t
       LEFT JOIN order_sheet_template_venues tv ON tv.template_id = t.id
       LEFT JOIN order_sheet_items i ON i.template_id = t.id
@@ -245,6 +251,7 @@ export default async function orderSheetsRoutes(app) {
         i.category_id,
         c.name AS category_name,
         i.sort_order,
+        i.is_active,
         i.created_at,
         COALESCE(
           json_object_agg(sq.venue_id::text, sq.qty) FILTER (WHERE sq.venue_id IS NOT NULL),
@@ -439,6 +446,21 @@ export default async function orderSheetsRoutes(app) {
     return { ok: true }
   })
 
+  // ── PATCH /templates/:id/items/bulk-archive ────────────────
+  // Archive (is_active=false) or restore (is_active=true) multiple items.
+  // Archiving keeps the rows and their order history; it only hides them from
+  // the editor and excludes them from new orders.
+  app.patch('/templates/:id/items/bulk-archive', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
+    const { id } = req.params
+    const { ids, is_active } = BulkItemArchiveBody.parse(req.body)
+    await withTenant(req.tenantId, tx => tx`
+      UPDATE order_sheet_items
+      SET is_active = ${is_active}
+      WHERE id = ANY(${ids}) AND template_id = ${id}
+    `)
+    return { ok: true }
+  })
+
   // ── POST /templates/:id/items ───────────────────────────────
   app.post('/templates/:id/items', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
@@ -619,6 +641,7 @@ export default async function orderSheetsRoutes(app) {
       LEFT JOIN order_sheet_order_items oi ON oi.order_id = ${id} AND oi.item_id = i.id
       LEFT JOIN order_sheet_suggested_qty sq ON sq.item_id = i.id AND sq.venue_id = ${order.venue_id}
       WHERE i.template_id = ${order.template_id}
+        AND (i.is_active = true OR oi.id IS NOT NULL)
       ORDER BY COALESCE(c.sort_order, 999999), i.sort_order, i.created_at
     `)
 
