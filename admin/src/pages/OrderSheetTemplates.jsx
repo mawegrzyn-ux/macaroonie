@@ -10,8 +10,9 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
-  GripVertical, Plus, Trash2, X, ClipboardList, Loader2,
+  GripVertical, Plus, X, ClipboardList, Loader2,
   Check, Settings, Tag, ChevronDown, AlertCircle, Merge,
+  Archive, ArchiveRestore,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,43 @@ import { useApi } from '@/lib/api'
 
 const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const DAY_ORDER  = [1, 2, 3, 4, 5, 6, 0]
+
+// Adjustable column widths (persisted per browser). The checkbox / drag /
+// delete utility columns stay fixed; everything else is user-resizable.
+const COL_WIDTHS_KEY     = 'maca_ordersheet_col_widths'
+const DEFAULT_COL_WIDTHS = { name: 260, unit: 90, price: 90, category: 160, venues: {} }
+const VENUE_DEFAULT_W    = 90
+const COL_MIN_W          = 50
+
+// Thin drag handle on the right edge of a resizable header cell.
+function ColResizeHandle({ width, min = COL_MIN_W, onChange }) {
+  function handleDown(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startW = width
+    function move(ev) { onChange(Math.max(min, Math.round(startW + (ev.clientX - startX)))) }
+    function up() {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+  return (
+    <div
+      onPointerDown={handleDown}
+      title="Drag to resize"
+      className="absolute -right-1 top-0 h-full w-2 cursor-col-resize touch-none z-10 flex items-center justify-center group/resize"
+    >
+      <span className="w-0.5 h-1/2 bg-border group-hover/resize:bg-primary rounded" />
+    </div>
+  )
+}
 
 // ── Inline cell components ────────────────────────────────────────────────────
 
@@ -127,7 +165,7 @@ function SugQtyCell({ value, onSave }) {
 
 function SortableItemRow({
   item, showPrices, assignedVenues, categories, suggestedQtys,
-  checked, onCheck, onSaveField, onSaveSugQty, onDelete, colTemplate,
+  checked, onCheck, onSaveField, onSaveSugQty, onArchive, archivedView, colTemplate,
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const style = {
@@ -198,12 +236,21 @@ function SortableItemRow({
           />
         </div>
       ))}
-      {/* Delete */}
+      {/* Archive / restore */}
       <div className="flex items-center justify-center">
-        <button onClick={() => onDelete(item.id)}
-          className="p-1.5 text-muted-foreground hover:text-red-600 touch-manipulation opacity-0 group-hover:opacity-100 transition-opacity">
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {archivedView ? (
+          <button onClick={() => onArchive(item.id, true)}
+            title="Restore to template"
+            className="p-1.5 text-muted-foreground hover:text-primary touch-manipulation">
+            <ArchiveRestore className="w-3.5 h-3.5" />
+          </button>
+        ) : (
+          <button onClick={() => onArchive(item.id, false)}
+            title="Archive — hide from future orders"
+            className="p-1.5 text-muted-foreground hover:text-amber-600 touch-manipulation opacity-0 group-hover:opacity-100 transition-opacity">
+            <Archive className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -528,13 +575,28 @@ export default function OrderSheetTemplates() {
   const [items, setItems]             = useState([])
   const [suggestedQtys, setSuggestedQtys] = useState({})
   const [checkedItemIds, setCheckedItemIds] = useState(new Set())
-  const [bulkCatDeleteConfirm, setBulkCatDeleteConfirm] = useState(false)
   const [bulkError, setBulkError]     = useState('')
   const [showDraft, setShowDraft]     = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [itemActionError, setItemActionError] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
   const [showMerge, setShowMerge] = useState(false)
+  const [colWidths, setColWidths] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COL_WIDTHS_KEY)
+      if (raw) return { ...DEFAULT_COL_WIDTHS, ...JSON.parse(raw), venues: { ...JSON.parse(raw).venues } }
+    } catch {}
+    return { ...DEFAULT_COL_WIDTHS, venues: {} }
+  })
   const selectAllRef = useRef(null)
+
+  useEffect(() => {
+    try { localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(colWidths)) } catch {}
+  }, [colWidths])
+
+  const setColWidth   = useCallback((key, val) => setColWidths(prev => ({ ...prev, [key]: val })), [])
+  const setVenueWidth = useCallback((id, val)  => setColWidths(prev => ({ ...prev, venues: { ...prev.venues, [id]: val } })), [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -576,15 +638,16 @@ export default function OrderSheetTemplates() {
     setSuggestedQtys(sqMap)
     setCheckedItemIds(new Set())
     setShowDraft(false)
-    setBulkCatDeleteConfirm(false)
+    setShowArchived(false)
     setBulkError('')
+    setItemActionError('')
   }, [template?.id, template?.updated_at]) // eslint-disable-line
 
   // Sync select-all indeterminate state
   useEffect(() => {
     if (!selectAllRef.current) return
-    selectAllRef.current.indeterminate = checkedItemIds.size > 0 && checkedItemIds.size < items.length
-  }, [checkedItemIds.size, items.length])
+    selectAllRef.current.indeterminate = checkedItemIds.size > 0 && checkedItemIds.size < visibleItems.length
+  }, [checkedItemIds.size, visibleItems.length])
 
   // Select first template on load
   useEffect(() => {
@@ -595,17 +658,25 @@ export default function OrderSheetTemplates() {
   const assignedVenues = useMemo(() => allVenues.filter(v => (template?.venue_ids ?? []).includes(v.id)), [allVenues, template?.venue_ids])
   const showPrices = template?.show_prices ?? false
 
-  // Grid column template
+  // Active vs archived split. Archived items stay hidden from the editor and
+  // from new orders, but are kept so existing orders keep their history.
+  const archivedCount = useMemo(() => items.filter(i => i.is_active === false).length, [items])
+  const visibleItems  = useMemo(
+    () => items.filter(i => showArchived ? i.is_active === false : i.is_active !== false),
+    [items, showArchived],
+  )
+
+  // Grid column template — utility columns fixed, content columns user-resizable
   const colTemplate = useMemo(() => [
     '40px',             // checkbox
     '40px',             // drag
-    '1fr',              // name (flex)
-    '80px',             // unit
-    showPrices ? '80px' : null,  // price
-    '160px',            // category
-    ...assignedVenues.map(() => '80px'),  // sug qty
+    `${colWidths.name}px`,      // name
+    `${colWidths.unit}px`,      // unit
+    showPrices ? `${colWidths.price}px` : null,  // price
+    `${colWidths.category}px`,  // category
+    ...assignedVenues.map(v => `${colWidths.venues[v.id] ?? VENUE_DEFAULT_W}px`),  // sug qty
     '44px',             // delete
-  ].filter(Boolean).join(' '), [showPrices, assignedVenues])
+  ].filter(Boolean).join(' '), [showPrices, assignedVenues, colWidths])
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
@@ -647,6 +718,7 @@ export default function OrderSheetTemplates() {
     onSuccess: (updated) => {
       setItems(prev => prev.map(i => i.id === updated.id ? updated : i))
     },
+    onError: (err) => setItemActionError(err?.message ?? 'Save failed'),
   })
 
   const sugQtyMutation = useMutation({
@@ -654,29 +726,38 @@ export default function OrderSheetTemplates() {
       api.put(`/order-sheets/templates/${selectedId}/items/${itemId}/suggested`, { venue_qtys: venueQtys }),
   })
 
-  const deleteItemMutation = useMutation({
-    mutationFn: (itemId) => api.delete(`/order-sheets/templates/${selectedId}/items/${itemId}`),
-    onSuccess: (_, itemId) => {
-      setItems(prev => prev.filter(i => i.id !== itemId))
-      setSuggestedQtys(prev => { const n = { ...prev }; delete n[itemId]; return n })
-      setCheckedItemIds(prev => { const n = new Set(prev); n.delete(itemId); return n })
+  // Archive (is_active=false) / restore (is_active=true) a single item.
+  const archiveItemMutation = useMutation({
+    mutationFn: ({ itemId, is_active }) =>
+      api.patch(`/order-sheets/templates/${selectedId}/items/${itemId}`, { is_active }),
+    onSuccess: (updated) => {
+      setItemActionError('')
+      setItems(prev => prev.map(i => i.id === updated.id ? { ...i, ...updated } : i))
+      setCheckedItemIds(prev => { const n = new Set(prev); n.delete(updated.id); return n })
       queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
+    onError: (err) => setItemActionError(err?.message ?? 'Archive failed'),
   })
 
-  const bulkDeleteMutation = useMutation({
-    mutationFn: () => api.delete(`/order-sheets/templates/${selectedId}/items/bulk`, { ids: [...checkedItemIds] }),
-    onSuccess: () => {
-      const deleted = new Set(checkedItemIds)
-      setItems(prev => prev.filter(i => !deleted.has(i.id)))
-      setSuggestedQtys(prev => { const n = { ...prev }; for (const id of deleted) delete n[id]; return n })
+  const bulkArchiveMutation = useMutation({
+    mutationFn: (is_active) => api.patch(`/order-sheets/templates/${selectedId}/items/bulk-archive`, {
+      ids: [...checkedItemIds],
+      is_active,
+    }),
+    onSuccess: (_, is_active) => {
+      const affected = new Set(checkedItemIds)
+      setItems(prev => prev.map(i => affected.has(i.id) ? { ...i, is_active } : i))
       setCheckedItemIds(new Set())
-      setBulkCatDeleteConfirm(false)
       setBulkError('')
       queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
-    onError: (err) => setBulkError(err?.message ?? 'Delete failed'),
+    onError: (err) => setBulkError(err?.message ?? 'Failed'),
   })
+
+  function archiveItem(itemId, is_active) {
+    setItemActionError('')
+    archiveItemMutation.mutate({ itemId, is_active })
+  }
 
   const bulkCategoryMutation = useMutation({
     mutationFn: (category_id) => api.patch(`/order-sheets/templates/${selectedId}/items/bulk-category`, {
@@ -695,8 +776,9 @@ export default function OrderSheetTemplates() {
 
   function handleDragEnd({ active, over }) {
     if (!over || active.id === over.id) return
-    const reordered = arrayMove(items, items.findIndex(i => i.id === active.id), items.findIndex(i => i.id === over.id))
-    setItems(reordered)
+    const reordered = arrayMove(visibleItems, visibleItems.findIndex(i => i.id === active.id), visibleItems.findIndex(i => i.id === over.id))
+    const others = items.filter(i => !visibleItems.includes(i))
+    setItems([...reordered, ...others])
     api.patch(`/order-sheets/templates/${selectedId}/item-order`, { ids: reordered.map(i => i.id) })
       .catch(() => queryClient.invalidateQueries(['order-sheets', 'templates', selectedId]))
   }
@@ -887,68 +969,82 @@ export default function OrderSheetTemplates() {
             <input
               ref={selectAllRef}
               type="checkbox"
-              checked={checkedItemIds.size === items.length && items.length > 0}
-              onChange={e => setCheckedItemIds(e.target.checked ? new Set(items.map(i => i.id)) : new Set())}
+              checked={checkedItemIds.size === visibleItems.length && visibleItems.length > 0}
+              onChange={e => setCheckedItemIds(e.target.checked ? new Set(visibleItems.map(i => i.id)) : new Set())}
               className="w-4 h-4 rounded cursor-pointer"
             />
 
             {/* Bulk actions */}
             {checkedItemIds.size > 0 ? (
-              !bulkCatDeleteConfirm ? (
-                <>
-                  <span className="text-xs text-muted-foreground">{checkedItemIds.size} selected</span>
-                  {categories.length > 0 && (
-                    <select
-                      disabled={bulkCategoryMutation.isPending}
-                      onChange={e => {
-                        const v = e.target.value
-                        if (v === '__p') return
-                        bulkCategoryMutation.mutate(v === '__none' ? null : v)
-                        e.target.value = '__p'
-                      }}
-                      defaultValue="__p"
-                      className="text-xs border rounded px-2 py-1 touch-manipulation min-h-[32px] disabled:opacity-50"
-                    >
-                      <option value="__p" disabled>Category…</option>
-                      <option value="__none">— Clear</option>
-                      {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  )}
-                  <button onClick={() => setBulkCatDeleteConfirm(true)}
-                    className="text-xs bg-red-600 text-white rounded px-2.5 py-1 touch-manipulation min-h-[32px]">
-                    Delete
+              <>
+                <span className="text-xs text-muted-foreground">{checkedItemIds.size} selected</span>
+                {!showArchived && categories.length > 0 && (
+                  <select
+                    disabled={bulkCategoryMutation.isPending}
+                    onChange={e => {
+                      const v = e.target.value
+                      if (v === '__p') return
+                      bulkCategoryMutation.mutate(v === '__none' ? null : v)
+                      e.target.value = '__p'
+                    }}
+                    defaultValue="__p"
+                    className="text-xs border rounded px-2 py-1 touch-manipulation min-h-[32px] disabled:opacity-50"
+                  >
+                    <option value="__p" disabled>Category…</option>
+                    <option value="__none">— Clear</option>
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                )}
+                {showArchived ? (
+                  <button onClick={() => bulkArchiveMutation.mutate(true)} disabled={bulkArchiveMutation.isPending}
+                    className="text-xs flex items-center gap-1 border rounded px-2.5 py-1 touch-manipulation min-h-[32px] hover:bg-accent disabled:opacity-50">
+                    <ArchiveRestore className="w-3.5 h-3.5" />Restore
                   </button>
-                  <button onClick={() => setCheckedItemIds(new Set())}
-                    className="text-xs border rounded px-2.5 py-1 touch-manipulation min-h-[32px] text-muted-foreground">
-                    Clear
+                ) : (
+                  <button onClick={() => bulkArchiveMutation.mutate(false)} disabled={bulkArchiveMutation.isPending}
+                    className="text-xs flex items-center gap-1 bg-amber-600 text-white rounded px-2.5 py-1 touch-manipulation min-h-[32px] disabled:opacity-50">
+                    <Archive className="w-3.5 h-3.5" />Archive
                   </button>
-                </>
-              ) : (
-                <>
-                  <span className="text-xs text-red-600 font-medium">
-                    Delete {checkedItemIds.size} item{checkedItemIds.size !== 1 ? 's' : ''}?
-                  </span>
-                  {bulkError && <span className="text-xs text-red-600">{bulkError}</span>}
-                  <button onClick={() => bulkDeleteMutation.mutate()} disabled={bulkDeleteMutation.isPending}
-                    className="text-xs bg-red-600 text-white rounded px-2.5 py-1 touch-manipulation min-h-[32px] disabled:opacity-50">
-                    {bulkDeleteMutation.isPending ? 'Deleting…' : 'Yes, delete'}
-                  </button>
-                  <button onClick={() => { setBulkCatDeleteConfirm(false); setBulkError('') }}
-                    className="text-xs border rounded px-2.5 py-1 touch-manipulation min-h-[32px]">
-                    Cancel
-                  </button>
-                </>
-              )
+                )}
+                {bulkError && <span className="text-xs text-red-600">{bulkError}</span>}
+                <button onClick={() => setCheckedItemIds(new Set())}
+                  className="text-xs border rounded px-2.5 py-1 touch-manipulation min-h-[32px] text-muted-foreground">
+                  Clear
+                </button>
+              </>
             ) : (
-              <span className="text-xs text-muted-foreground hidden sm:inline">
-                {items.length} item{items.length !== 1 ? 's' : ''}
-                {assignedVenues.length > 0 && ` · ${assignedVenues.length} venue${assignedVenues.length !== 1 ? 's' : ''}`}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  {visibleItems.length} {showArchived ? 'archived' : 'item'}{visibleItems.length !== 1 ? 's' : ''}
+                  {!showArchived && assignedVenues.length > 0 && ` · ${assignedVenues.length} venue${assignedVenues.length !== 1 ? 's' : ''}`}
+                </span>
+                {itemActionError && (
+                  <span className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    {itemActionError}
+                    <button onClick={() => setItemActionError('')} className="ml-1 text-muted-foreground hover:text-foreground">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
             )}
 
             <div className="flex-1" />
 
-            {isAdmin && !showDraft && (
+            {/* Archived view toggle */}
+            {archivedCount > 0 && (
+              <button
+                onClick={() => { setShowArchived(s => !s); setCheckedItemIds(new Set()) }}
+                className={cn('flex items-center gap-1 border rounded-lg px-2.5 py-1.5 text-xs touch-manipulation min-h-[36px] hover:bg-accent whitespace-nowrap',
+                  showArchived && 'bg-accent')}
+              >
+                <Archive className="w-3.5 h-3.5" />
+                {showArchived ? 'Active items' : `Archived (${archivedCount})`}
+              </button>
+            )}
+
+            {isAdmin && !showDraft && !showArchived && (
               <button
                 onClick={() => setShowDraft(true)}
                 className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-1.5 text-xs font-medium touch-manipulation min-h-[36px]"
@@ -965,13 +1061,31 @@ export default function OrderSheetTemplates() {
           >
             <div />
             <div />
-            <div className="px-2 py-2 border-r">Item name</div>
-            <div className="px-2 py-2 border-r">Unit</div>
-            {showPrices && <div className="px-2 py-2 border-r">Price</div>}
-            <div className="px-2 py-2 border-r">Category</div>
+            <div className="px-2 py-2 border-r relative">
+              Item name
+              <ColResizeHandle width={colWidths.name} onChange={w => setColWidth('name', w)} />
+            </div>
+            <div className="px-2 py-2 border-r relative">
+              Unit
+              <ColResizeHandle width={colWidths.unit} onChange={w => setColWidth('unit', w)} />
+            </div>
+            {showPrices && (
+              <div className="px-2 py-2 border-r relative">
+                Price
+                <ColResizeHandle width={colWidths.price} onChange={w => setColWidth('price', w)} />
+              </div>
+            )}
+            <div className="px-2 py-2 border-r relative">
+              Category
+              <ColResizeHandle width={colWidths.category} onChange={w => setColWidth('category', w)} />
+            </div>
             {assignedVenues.map(v => (
-              <div key={v.id} className="px-2 py-2 border-r last:border-r-0 truncate text-right" title={v.name}>
+              <div key={v.id} className="px-2 py-2 border-r last:border-r-0 truncate text-right relative" title={v.name}>
                 {v.name}
+                <ColResizeHandle
+                  width={colWidths.venues[v.id] ?? VENUE_DEFAULT_W}
+                  onChange={w => setVenueWidth(v.id, w)}
+                />
               </div>
             ))}
             <div />
@@ -979,8 +1093,8 @@ export default function OrderSheetTemplates() {
 
           {/* Item rows */}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
-              {items.map(item => (
+            <SortableContext items={visibleItems.map(i => i.id)} strategy={verticalListSortingStrategy}>
+              {visibleItems.map(item => (
                 <SortableItemRow
                   key={item.id}
                   item={item}
@@ -992,7 +1106,8 @@ export default function OrderSheetTemplates() {
                   onCheck={toggleItemCheck}
                   onSaveField={saveItemField}
                   onSaveSugQty={saveSugQty}
-                  onDelete={(id) => deleteItemMutation.mutate(id)}
+                  onArchive={archiveItem}
+                  archivedView={showArchived}
                   colTemplate={colTemplate}
                 />
               ))}
@@ -1000,7 +1115,7 @@ export default function OrderSheetTemplates() {
           </DndContext>
 
           {/* Draft new item row */}
-          {showDraft && (
+          {showDraft && !showArchived && (
             <DraftItemRow
               showPrices={showPrices}
               assignedVenues={assignedVenues}
@@ -1011,9 +1126,11 @@ export default function OrderSheetTemplates() {
             />
           )}
 
-          {items.length === 0 && !showDraft && (
+          {visibleItems.length === 0 && !showDraft && (
             <div className="py-16 text-center text-sm text-muted-foreground">
-              No items yet — click <strong>Add item</strong> to get started.
+              {showArchived
+                ? 'No archived items.'
+                : <>No items yet — click <strong>Add item</strong> to get started.</>}
             </div>
           )}
 
