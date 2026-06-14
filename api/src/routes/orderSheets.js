@@ -412,6 +412,14 @@ export default async function orderSheetsRoutes(app) {
   app.delete('/templates/:id/items/bulk', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { ids } = BulkItemIdsBody.parse(req.body)
+
+    const used = await withTenant(req.tenantId, tx => tx`
+      SELECT DISTINCT item_id FROM order_sheet_order_items WHERE item_id = ANY(${ids})
+    `)
+    if (used.length > 0) {
+      throw httpError(422, `${used.length} item${used.length !== 1 ? 's' : ''} cannot be deleted — they have been used in existing orders`)
+    }
+
     await withTenant(req.tenantId, tx => tx`
       DELETE FROM order_sheet_items WHERE id = ANY(${ids}) AND template_id = ${id}
     `)
@@ -479,6 +487,12 @@ export default async function orderSheetsRoutes(app) {
   // ── DELETE /templates/:id/items/:itemId ─────────────────────
   app.delete('/templates/:id/items/:itemId', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id, itemId } = req.params
+
+    const [used] = await withTenant(req.tenantId, tx => tx`
+      SELECT 1 FROM order_sheet_order_items WHERE item_id = ${itemId} LIMIT 1
+    `)
+    if (used) throw httpError(422, 'Cannot delete — this item has been used in existing orders')
+
     await withTenant(req.tenantId, tx => tx`
       DELETE FROM order_sheet_items WHERE id = ${itemId} AND template_id = ${id}
     `)

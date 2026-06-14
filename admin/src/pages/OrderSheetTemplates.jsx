@@ -570,6 +570,7 @@ export default function OrderSheetTemplates() {
   const [showDraft, setShowDraft]     = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [deleteError, setDeleteError] = useState('')
+  const [itemDeleteError, setItemDeleteError] = useState('')
   const [showMerge, setShowMerge] = useState(false)
   const [colWidths, setColWidths] = useState(() => {
     try {
@@ -629,6 +630,7 @@ export default function OrderSheetTemplates() {
     setShowDraft(false)
     setBulkCatDeleteConfirm(false)
     setBulkError('')
+    setItemDeleteError('')
   }, [template?.id, template?.updated_at]) // eslint-disable-line
 
   // Sync select-all indeterminate state
@@ -708,11 +710,13 @@ export default function OrderSheetTemplates() {
   const deleteItemMutation = useMutation({
     mutationFn: (itemId) => api.delete(`/order-sheets/templates/${selectedId}/items/${itemId}`),
     onSuccess: (_, itemId) => {
+      setItemDeleteError('')
       setItems(prev => prev.filter(i => i.id !== itemId))
       setSuggestedQtys(prev => { const n = { ...prev }; delete n[itemId]; return n })
       setCheckedItemIds(prev => { const n = new Set(prev); n.delete(itemId); return n })
       queryClient.invalidateQueries(['order-sheets', 'templates'])
     },
+    onError: (err) => setItemDeleteError(err?.message ?? 'Delete failed'),
   })
 
   const bulkDeleteMutation = useMutation({
@@ -991,10 +995,21 @@ export default function OrderSheetTemplates() {
                 </>
               )
             ) : (
-              <span className="text-xs text-muted-foreground hidden sm:inline">
-                {items.length} item{items.length !== 1 ? 's' : ''}
-                {assignedVenues.length > 0 && ` · ${assignedVenues.length} venue${assignedVenues.length !== 1 ? 's' : ''}`}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground hidden sm:inline">
+                  {items.length} item{items.length !== 1 ? 's' : ''}
+                  {assignedVenues.length > 0 && ` · ${assignedVenues.length} venue${assignedVenues.length !== 1 ? 's' : ''}`}
+                </span>
+                {itemDeleteError && (
+                  <span className="text-xs text-red-600 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    {itemDeleteError}
+                    <button onClick={() => setItemDeleteError('')} className="ml-1 text-muted-foreground hover:text-foreground">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                )}
+              </div>
             )}
 
             <div className="flex-1" />
