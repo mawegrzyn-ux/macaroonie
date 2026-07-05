@@ -26,7 +26,6 @@ export default function WidgetTest() {
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
-    onSuccess: d => { if (d.length && !venueId) setVenueId(d[0].id) },
   })
 
   const selectedVenue = venues.find(v => v.id === venueId)

@@ -33,14 +33,15 @@ const STATUS_DOT = {
 export default function EmailMonitoring() {
   const api = useApi()
   const qc  = useQueryClient()
-  const [venueId, setVenueId] = useState('')
+  const [selectedVenueId, setSelectedVenueId] = useState('')
   const [days,    setDays]    = useState(30)
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
-    onSuccess: v => { if (v.length && !venueId) setVenueId(v[0].id) },
   })
+
+  const venueId = selectedVenueId || venues[0]?.id || ''
 
   const { data: summary, isLoading: summaryLoading, refetch: refetchSummary } = useQuery({
     queryKey: ['email-monitoring', 'summary', venueId, days],
@@ -90,7 +91,7 @@ export default function EmailMonitoring() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <select value={venueId} onChange={e => setVenueId(e.target.value)}
+          <select value={venueId} onChange={e => setSelectedVenueId(e.target.value)}
             className="text-sm border rounded-md px-3 py-2 bg-background min-h-[40px] touch-manipulation">
             {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
