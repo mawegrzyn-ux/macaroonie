@@ -550,7 +550,7 @@ function EmailSettings({ venueId }) {
           description={provider === 'sendgrid' ? 'Optional — falls back to the platform SENDGRID_API_KEY.'
                      : provider === 'postmark' ? 'Required. Use the Server Token from Postmark → Servers → your server → API Tokens.'
                      : 'Required for this provider.'}>
-          <FormRow label={provider === 'postmark' ? 'Server token' : 'API key'}>
+          <FormRow label={provider === 'postmark' ? 'Server token' : provider === 'ses' ? 'Access key ID' : 'API key'}>
             <TextInput type="password" value={state.provider_api_key} onChange={set('provider_api_key')}
               placeholder={provider === 'sendgrid' ? 'Leave blank to use platform key' : 'Required'} />
           </FormRow>
@@ -574,9 +574,14 @@ function EmailSettings({ venueId }) {
             </>
           )}
           {provider === 'ses' && (
-            <FormRow label="AWS region" hint="e.g. eu-west-1">
-              <TextInput value={state.provider_region} onChange={set('provider_region')} placeholder="eu-west-1" />
-            </FormRow>
+            <>
+              <FormRow label="Secret access key">
+                <TextInput type="password" value={state.provider_domain} onChange={set('provider_domain')} placeholder="Required" />
+              </FormRow>
+              <FormRow label="AWS region" hint="e.g. eu-west-1">
+                <TextInput value={state.provider_region} onChange={set('provider_region')} placeholder="eu-west-1" />
+              </FormRow>
+            </>
           )}
         </SectionCard>
       )}
