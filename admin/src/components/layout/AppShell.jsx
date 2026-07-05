@@ -10,7 +10,7 @@ import {
   BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
   Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand, MessageSquare,
-  AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList, Tag,
+  AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList, Tag, FlaskConical,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -64,6 +64,7 @@ const NAV = [
   { label: 'Email monitor', to: '/email-monitoring', icon: Activity,    module: 'email_templates' },
   { label: 'Settings',    to: '/settings',         icon: SlidersHorizontal, module: 'settings' },
   { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate,     module: 'widget_test' },
+  { label: 'Test data',   to: '/test-data',   icon: FlaskConical,       module: 'test_data' },
   null,
   { label: 'Team',          to: '/team',   icon: Users,                 module: 'team' },
   { label: 'Access',        to: '/access', icon: Shield,                module: 'team' },

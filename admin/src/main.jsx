@@ -38,6 +38,7 @@ import Changelog       from '@/pages/Changelog'
 import OrderSheets           from '@/pages/OrderSheets'
 import OrderSheetTemplates  from '@/pages/OrderSheetTemplates'
 import OrderSheetCategories from '@/pages/OrderSheetCategories'
+import TestData        from '@/pages/TestData'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -152,6 +153,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="reviews"         element={<Reviews />} />
                 <Route path="menus"            element={<Menus />} />
                 <Route path="widget-test" element={<WidgetTest />} />
+                <Route path="test-data"   element={<TestData />} />
                 <Route path="team"        element={<Team />} />
                 <Route path="access"      element={<Access />} />
                 <Route path="platform"           element={<Platform />} />

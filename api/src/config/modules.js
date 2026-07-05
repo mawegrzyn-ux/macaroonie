@@ -80,6 +80,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
   },
   {
+    key:    'test_data',
+    label:  'Test data',
+    group:  'bookings',
+    description: 'Generate or clear dummy bookings for pre-prod testing.',
+    default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
+  },
+  {
     key:    'website',
     label:  'Website CMS',
     group:  'website',
@@ -190,7 +197,7 @@ export const MODULE_GROUPS = [
     key:    'bookings',
     label:  'Bookings',
     description: 'Reservations, table management, schedule, rules — the core product.',
-    moduleKeys: ['bookings', 'venues', 'tables', 'schedule', 'rules', 'customers', 'widget_test'],
+    moduleKeys: ['bookings', 'venues', 'tables', 'schedule', 'rules', 'customers', 'widget_test', 'test_data'],
   },
   {
     key:    'email_templates',
