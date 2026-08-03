@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Macaroonie — Booking, website &amp; ordering platform for restaurant groups</title>
+<meta name="description" content="Macaroonie is an all-in-one platform for restaurant groups: table booking, your own branded website, and online ordering — with food safety tools on the way. Currently in beta.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --maroon:   #630812;
+    --maroon-d: #47060d;
+    --pink:     #f4a7b9;
+    --pink-d:   #e8829a;
+    --cream:    #fdf3c8;
+    --ink:      #1a1a1a;
+    --muted:    #6b6b6b;
+    --border:   #eee0e0;
+    --bg:       #fffaf7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; overflow-x: hidden; max-width: 100vw; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.5;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  /* ── Header ─────────────────────────────────────────── */
+  header.site {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 24px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.15rem; }
+  .brand svg { width: 32px; height: 32px; flex-shrink: 0; }
+  .beta-pill {
+    display: inline-block; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--maroon); background: var(--pink);
+    padding: 3px 10px; border-radius: 999px; margin-left: 10px;
+  }
+  header.site nav a {
+    text-decoration: none; font-size: 0.95rem; font-weight: 600;
+    background: var(--maroon); color: #fff; padding: 10px 20px; border-radius: 8px;
+    min-height: 44px; display: inline-flex; align-items: center;
+  }
+
+  /* ── Hero ───────────────────────────────────────────── */
+  .hero {
+    background: linear-gradient(180deg, var(--pink) 0%, var(--bg) 100%);
+    text-align: center;
+    padding: 64px 24px 56px;
+  }
+  .hero h1 {
+    font-size: clamp(1.9rem, 4.5vw, 3rem);
+    line-height: 1.15;
+    margin: 0 0 16px;
+    color: var(--maroon-d);
+  }
+  .hero p.lede {
+    font-size: clamp(1rem, 2vw, 1.2rem);
+    color: #4a2b30;
+    max-width: 640px;
+    margin: 0 auto 28px;
+  }
+  .hero .cta {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--maroon); color: #fff; text-decoration: none;
+    font-weight: 700; font-size: 1rem; padding: 14px 30px; border-radius: 10px;
+    min-height: 48px; box-shadow: 0 6px 18px rgba(99, 8, 18, 0.25);
+  }
+
+  /* ── Beta note ──────────────────────────────────────── */
+  .beta-note {
+    max-width: 720px; margin: 0 auto; padding: 18px 22px;
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    font-size: 0.95rem; color: var(--muted); text-align: center;
+    transform: translateY(-28px);
+  }
+  .beta-note strong { color: var(--maroon); }
+
+  /* ── Features ───────────────────────────────────────── */
+  section.features { padding: 40px 24px 8px; }
+  section.features h2 {
+    text-align: center; font-size: 1.6rem; margin: 0 0 8px; color: var(--maroon-d);
+  }
+  section.features > .wrap > p.sub {
+    text-align: center; color: var(--muted); margin: 0 0 36px;
+  }
+  .grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;
+  }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    border: 1px solid var(--border); border-radius: 14px; padding: 24px;
+    background: #fff;
+  }
+  .card .icon {
+    width: 44px; height: 44px; border-radius: 10px; background: var(--pink);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem; margin-bottom: 14px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 1.1rem; }
+  .card p { margin: 0; color: var(--muted); font-size: 0.94rem; }
+  .card.soon {
+    background: #fbfbfb; border-style: dashed; border-color: #d8c9c9;
+  }
+  .card.soon .icon { background: #ece7e7; }
+  .soon-pill {
+    display: inline-block; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--muted); background: #ece7e7;
+    padding: 2px 9px; border-radius: 999px; margin-left: 8px; vertical-align: middle;
+  }
+
+  /* ── Register interest ──────────────────────────────── */
+  section.register { padding: 56px 24px; }
+  .register-card {
+    max-width: 560px; margin: 0 auto; background: #fff;
+    border: 1px solid var(--border); border-radius: 16px; padding: 32px;
+  }
+  .register-card h2 { margin: 0 0 6px; font-size: 1.4rem; color: var(--maroon-d); text-align: center; }
+  .register-card p.sub { margin: 0 0 24px; text-align: center; color: var(--muted); font-size: 0.94rem; }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 5px; }
+  .field input, .field textarea {
+    width: 100%; font-size: 0.95rem; padding: 12px 14px; min-height: 46px;
+    border: 1px solid #ddd; border-radius: 8px; font-family: inherit;
+    touch-action: manipulation;
+  }
+  .field textarea { min-height: 90px; resize: vertical; }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .submit-btn {
+    width: 100%; background: var(--maroon); color: #fff; border: none;
+    font-weight: 700; font-size: 1rem; padding: 14px; border-radius: 8px;
+    min-height: 48px; cursor: pointer; touch-action: manipulation;
+  }
+  .submit-btn:disabled { opacity: 0.6; cursor: default; }
+  .form-msg { margin-top: 14px; text-align: center; font-size: 0.9rem; }
+  .form-msg.ok { color: #166534; }
+  .form-msg.err { color: #b91c1c; }
+
+  footer.site {
+    text-align: center; padding: 32px 24px 40px; color: var(--muted); font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="brand">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <ellipse cx="32" cy="42" rx="22" ry="10" fill="#f4a7b9"/>
+      <circle cx="22" cy="41" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="32" cy="43" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="42" cy="41" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="27" cy="39" r="1.4" fill="#e8829a" opacity="0.5"/>
+      <circle cx="37" cy="39" r="1.4" fill="#e8829a" opacity="0.5"/>
+      <ellipse cx="32" cy="34" rx="22" ry="5" fill="#fdf3c8"/>
+      <ellipse cx="32" cy="26" rx="22" ry="10" fill="#f4a7b9"/>
+      <circle cx="22" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="32" cy="27" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="42" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
+      <circle cx="27" cy="23" r="1.4" fill="#e8829a" opacity="0.5"/>
+      <circle cx="37" cy="23" r="1.4" fill="#e8829a" opacity="0.5"/>
+      <ellipse cx="28" cy="20" rx="8" ry="4" fill="white" opacity="0.25"/>
+    </svg>
+    Macaroonie <span class="beta-pill">Beta</span>
+  </div>
+  <nav><a href="#register">Register interest</a></nav>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Run bookings, your website, and ordering — from one platform.</h1>
+    <p class="lede">
+      Macaroonie is built for restaurant groups: table booking your host stand will
+      actually enjoy using, a branded website for every location, and a straight
+      line to your online ordering — all under one roof.
+    </p>
+    <a class="cta" href="#register">Register your interest</a>
+  </div>
+</section>
+
+<div class="wrap">
+  <div class="beta-note">
+    <strong>Macaroonie is currently in beta.</strong> We're onboarding a small number
+    of restaurant groups as we refine the product. Register your interest below and
+    we'll reach out about early access.
+  </div>
+</div>
+
+<section class="features">
+  <div class="wrap">
+    <h2>What you get</h2>
+    <p class="sub">Four pillars, one login.</p>
+    <div class="grid">
+      <div class="card">
+        <div class="icon">📅</div>
+        <h3>Table booking</h3>
+        <p>A live timeline for your host stand, an embeddable booking widget for
+           your site, smart table allocation, and automatic confirmation, reminder
+           and cancellation emails to guests.</p>
+      </div>
+      <div class="card">
+        <div class="icon">🌐</div>
+        <h3>Your website</h3>
+        <p>A branded site for every location — menus, galleries, opening hours,
+           allergen information and SEO — built in, with your own domain.</p>
+      </div>
+      <div class="card">
+        <div class="icon">🛎️</div>
+        <h3>Online ordering</h3>
+        <p>Point guests straight to your ordering and delivery providers from
+           your Macaroonie site, so booking and ordering live in the same place
+           for your guests.</p>
+      </div>
+      <div class="card soon">
+        <div class="icon">🧼</div>
+        <h3>HACCP &amp; food safety <span class="soon-pill">Coming soon</span></h3>
+        <p>Digital food safety checks and compliance logs, built for the same
+           day-to-day teams already running bookings and the website in
+           Macaroonie. On our roadmap.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="register" id="register">
+  <div class="register-card">
+    <h2>Register your interest</h2>
+    <p class="sub">Tell us a bit about your venue and we'll be in touch about beta access.</p>
+
+    <form id="lead-form">
+      <div class="field">
+        <label for="name">Your name</label>
+        <input id="name" name="name" type="text" required autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" required autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="venue_name">Venue / group name (optional)</label>
+        <input id="venue_name" name="venue_name" type="text" autocomplete="organization">
+      </div>
+      <div class="field">
+        <label for="message">Anything else? (optional)</label>
+        <textarea id="message" name="message"></textarea>
+      </div>
+      <!-- Honeypot — left blank by real visitors, tabIndex/aria hidden from AT -->
+      <div class="hp" aria-hidden="true">
+        <label for="company">Company</label>
+        <input id="company" name="company" type="text" tabindex="-1" autocomplete="off">
+      </div>
+
+      <button class="submit-btn" type="submit">Register interest</button>
+      <div id="form-msg" class="form-msg" role="status" aria-live="polite"></div>
+    </form>
+  </div>
+</section>
+
+<footer class="site">
+  &copy; <span id="year"></span> Macaroonie. Currently in beta.
+</footer>
+
+<script>
+  document.getElementById('year').textContent = new Date().getFullYear();
+
+  var form = document.getElementById('lead-form');
+  var msg  = document.getElementById('form-msg');
+  var btn  = form.querySelector('.submit-btn');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    btn.disabled = true;
+    msg.textContent = '';
+    msg.className = 'form-msg';
+
+    var payload = {
+      name:       form.name.value.trim(),
+      email:      form.email.value.trim(),
+      venue_name: form.venue_name.value.trim() || null,
+      message:    form.message.value.trim() || null,
+      company:    form.company.value,
+    };
+
+    fetch('/api/leads', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload),
+    }).then(function (res) {
+      if (!res.ok) throw new Error('request failed');
+      return res.json();
+    }).then(function () {
+      msg.textContent = "Thanks — we've got your details and will be in touch.";
+      msg.className = 'form-msg ok';
+      form.reset();
+    }).catch(function () {
+      msg.textContent = 'Something went wrong — please try again in a moment.';
+      msg.className = 'form-msg err';
+    }).finally(function () {
+      btn.disabled = false;
+    });
+  });
+</script>
+
+</body>
+</html>

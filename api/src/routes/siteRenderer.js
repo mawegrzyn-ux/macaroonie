@@ -27,7 +27,7 @@ import { env }            from '../config/env.js'
 
 const RESERVED_SUBDOMAINS = new Set([
   'www', 'api', 'admin', 'app', 'mail', 'static', 'assets',
-  'cdn', 'ws', 'stripe', 'webhook', 'webhooks',
+  'cdn', 'ws', 'stripe', 'webhook', 'webhooks', 'office',
 ])
 
 /* Theme-role → hex resolution for widget settings. Operators pick role

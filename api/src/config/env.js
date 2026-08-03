@@ -30,6 +30,10 @@ const schema = z.object({
   SENDGRID_API_KEY:      z.string().optional(),
   EMAIL_FROM:            z.string().email().default('noreply@macaroonie.com'),
 
+  // Marketing site "register interest" form — where new-lead notifications go.
+  // Optional: if unset, leads are still saved to the DB, just no email is sent.
+  LEADS_NOTIFY_EMAIL:    z.string().email().optional(),
+
   // Website CMS — file uploads + subdomain serving
   UPLOAD_DIR:            z.string().default('/home/ubuntu/app/uploads'),
   PUBLIC_ROOT_DOMAIN:    z.string().default('macaroonie.com'),

@@ -272,14 +272,16 @@ server {
 
   location /.well-known/acme-challenge/ { root /var/www/html; }
 
+  # Apex serves the static marketing / "register interest" page — the
+  # admin portal lives at office.${DOMAIN} (separate server block below).
   location / {
-    root ${APP_DIR}/admin/dist;
-    try_files \$uri \$uri/ /index.html;
+    root ${APP_DIR}/marketing;
+    try_files \$uri \$uri/ =404;
     expires 1h;
   }
 
   location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)$ {
-    root ${APP_DIR}/admin/dist;
+    root ${APP_DIR}/marketing;
     expires 1y;
     add_header Cache-Control "public, immutable";
     access_log off;
@@ -344,6 +346,76 @@ server {
     proxy_set_header   X-Real-IP \$remote_addr;
     proxy_read_timeout 30s;
   }
+
+  # Guest booking-management links (manageBaseUrl in emailSvc.js points at
+  # PUBLIC_ROOT_DOMAIN, i.e. the apex) — SSR'd by manageBooking.js, not the
+  # admin SPA, which has no client route for this path.
+  location /manage {
+    proxy_pass         http://booking_api;
+    proxy_http_version 1.1;
+    proxy_set_header   Host \$host;
+    proxy_set_header   X-Real-IP \$remote_addr;
+    proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 30s;
+  }
+}
+
+# ── Admin portal, moved off the apex ─────────────────────
+# The apex now serves the marketing page; office.${DOMAIN} serves the
+# admin/ops portal. Doesn't need /reservations or /widget-api — the
+# page-builder's widget preview iframe uses an absolute URL to the
+# tenant's own subdomain (see widgetOrigin in dataBlocks.jsx), never a
+# relative path against whatever host is serving the admin app.
+server {
+  listen 80;
+  server_name office.${DOMAIN};
+
+  client_max_body_size 30M;
+
+  add_header X-Frame-Options "SAMEORIGIN" always;
+  add_header X-Content-Type-Options "nosniff" always;
+  add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+  location /.well-known/acme-challenge/ { root /var/www/html; }
+
+  location / {
+    root ${APP_DIR}/admin/dist;
+    try_files \$uri \$uri/ /index.html;
+    expires 1h;
+  }
+
+  location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)$ {
+    root ${APP_DIR}/admin/dist;
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+    access_log off;
+  }
+
+  location /api/ {
+    limit_req zone=api_limit burst=50 nodelay;
+    proxy_pass         http://booking_api;
+    proxy_http_version 1.1;
+    proxy_set_header   Upgrade \$http_upgrade;
+    proxy_set_header   Connection "upgrade";
+    proxy_set_header   Host \$host;
+    proxy_set_header   X-Real-IP \$remote_addr;
+    proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 60s;
+    proxy_buffering    off;
+  }
+
+  # Realtime timeline updates (useRealtimeBookings hook connects here directly).
+  location /ws {
+    proxy_pass         http://booking_api;
+    proxy_http_version 1.1;
+    proxy_set_header   Upgrade \$http_upgrade;
+    proxy_set_header   Connection "Upgrade";
+    proxy_set_header   Host \$host;
+    proxy_set_header   X-Real-IP \$remote_addr;
+    proxy_read_timeout 3600s;
+  }
 }
 NGINX
 
@@ -360,13 +432,13 @@ snap install --classic certbot 2>/dev/null || true
 ln -sf /snap/bin/certbot /usr/bin/certbot 2>/dev/null || true
 
 if [[ -n "$ADMIN_EMAIL" ]]; then
-  certbot --nginx -d "$DOMAIN" \
+  certbot --nginx -d "$DOMAIN" -d "office.$DOMAIN" \
     --email "$ADMIN_EMAIL" --agree-tos --non-interactive --redirect
   systemctl reload nginx
   log "SSL certificate installed — HTTPS active"
 else
   warn "ADMIN_EMAIL not set — running HTTP only. To add SSL later:"
-  warn "  certbot --nginx -d ${DOMAIN} --email you@example.com --agree-tos"
+  warn "  certbot --nginx -d ${DOMAIN} -d office.${DOMAIN} --email you@example.com --agree-tos"
 fi
 
 # ═══════════════════════════════════════════════════════════

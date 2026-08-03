@@ -538,13 +538,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <li>
                 <strong>Application Login URI on the SPA app.</strong>
                 Applications → Macaroonie Admin → Settings → Application URIs →
-                <strong> Application Login URI</strong> = <Mono>https://macaroonie.com</Mono>.
+                <strong> Application Login URI</strong> = <Mono>https://office.macaroonie.com</Mono> (the
+                admin portal's own domain — separate from the public marketing site at the apex).
                 Without this, every <Mono>POST /api/v2/organizations/.../invitations</Mono> returns 400
                 "A default login route is required to generate the invitation url".
               </li>
               <li>
                 <strong>Allowed Callback / Logout / Web Origins on the SPA app.</strong>
-                Same Settings page → ensure all three include <Mono>https://macaroonie.com</Mono>.
+                Same Settings page → ensure all three include <Mono>https://office.macaroonie.com</Mono>.
               </li>
               <li>
                 <strong>Connections enabled at the application level.</strong>
