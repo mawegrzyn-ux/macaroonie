@@ -68,42 +68,12 @@ export default async function slotsRoutes(app) {
                AND t.is_unallocated = false
                AND t.max_covers >= ${covers}
                AND t.min_covers <= ${covers}
-               -- No direct booking on this table
-               AND NOT EXISTS (
-                 SELECT 1 FROM bookings b
-                  WHERE b.table_id  = t.id
-                    AND b.status NOT IN ('cancelled')
-                    AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                    AND b.ends_at   > s.slot_time
-               )
-               -- No direct hold on this table
-               AND NOT EXISTS (
-                 SELECT 1 FROM booking_holds h
-                  WHERE h.table_id  = t.id
-                    AND h.expires_at > now()
-                    AND h.starts_at  < s.slot_time + (${windowMins} || ' minutes')::interval
-                    AND h.ends_at    > s.slot_time
-               )
-               -- No combination booking that includes this table
-               AND NOT EXISTS (
-                 SELECT 1 FROM bookings bc
-                  JOIN table_combination_members m ON m.combination_id = bc.combination_id
-                  WHERE m.table_id = t.id
-                    AND bc.combination_id IS NOT NULL
-                    AND bc.status NOT IN ('cancelled')
-                    AND bc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                    AND bc.ends_at   > s.slot_time
-               )
-               -- No combination hold that includes this table
-               AND NOT EXISTS (
-                 SELECT 1 FROM booking_holds hc
-                  JOIN table_combination_members m ON m.combination_id = hc.combination_id
-                  WHERE m.table_id = t.id
-                    AND hc.combination_id IS NOT NULL
-                    AND hc.expires_at > now()
-                    AND hc.starts_at  < s.slot_time + (${windowMins} || ' minutes')::interval
-                    AND hc.ends_at    > s.slot_time
-               )
+               AND table_is_free(
+                     t.id,
+                     s.slot_time,
+                     s.slot_time + (${windowMins} || ' minutes')::interval,
+                     NULL::uuid, NULL::uuid, false
+                   )
              ORDER BY t.sort_order, t.label
              LIMIT 1
           ) AS table_id,
@@ -115,47 +85,12 @@ export default async function slotsRoutes(app) {
                AND c.is_active = true
                AND c.max_covers >= ${covers}
                AND c.min_covers <= ${covers}
-               -- All member tables must be free
-               AND NOT EXISTS (
-                 SELECT 1 FROM table_combination_members m
-                  JOIN tables mt ON mt.id = m.table_id
-                  WHERE m.combination_id = c.id
-                    AND (
-                      NOT mt.is_active
-                      OR EXISTS (
-                        SELECT 1 FROM bookings b
-                         WHERE b.table_id = mt.id
-                           AND b.status NOT IN ('cancelled')
-                           AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                           AND b.ends_at > s.slot_time
-                      )
-                      OR EXISTS (
-                        SELECT 1 FROM booking_holds h
-                         WHERE h.table_id = mt.id
-                           AND h.expires_at > now()
-                           AND h.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                           AND h.ends_at > s.slot_time
-                      )
-                      OR EXISTS (
-                        SELECT 1 FROM bookings bc
-                         JOIN table_combination_members m2 ON m2.combination_id = bc.combination_id
-                         WHERE m2.table_id = mt.id
-                           AND bc.combination_id IS NOT NULL
-                           AND bc.status NOT IN ('cancelled')
-                           AND bc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                           AND bc.ends_at > s.slot_time
-                      )
-                      OR EXISTS (
-                        SELECT 1 FROM booking_holds hc
-                         JOIN table_combination_members m2 ON m2.combination_id = hc.combination_id
-                         WHERE m2.table_id = mt.id
-                           AND hc.combination_id IS NOT NULL
-                           AND hc.expires_at > now()
-                           AND hc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                           AND hc.ends_at > s.slot_time
-                      )
-                    )
-               )
+               AND combination_is_free(
+                     c.id,
+                     s.slot_time,
+                     s.slot_time + (${windowMins} || ' minutes')::interval,
+                     NULL::uuid, NULL::uuid, false
+                   )
              ORDER BY c.max_covers  -- prefer smallest fitting combination
              LIMIT 1
           ) AS combination_id,
@@ -248,7 +183,7 @@ export default async function slotsRoutes(app) {
       const allowPastDoors = doorRule?.allow_widget_bookings_after_doors_close ?? false
 
       if (!allowPastDoors) {
-        const dayOfWeek = new Date(date).getDay() // 0=Sun, 6=Sat
+        const dayOfWeek = new Date(date + 'T12:00:00Z').getUTCDay()
         let sittings = []
 
         // Mirror the same priority chain the PG slot resolver uses:
@@ -305,8 +240,11 @@ export default async function slotsRoutes(app) {
 
         if (sittings.some(s => s.doors_close_time)) {
           filtered = enriched.filter(slot => {
-            const d = new Date(slot.slot_time)
-            const slotHHMM = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+            const d = slot.slot_time instanceof Date ? slot.slot_time : new Date(slot.slot_time)
+            const slotHHMM = new Intl.DateTimeFormat('en-GB', {
+              timeZone: venue.timezone || 'UTC',
+              hour: '2-digit', minute: '2-digit', hour12: false,
+            }).format(d)
 
             const sitting = sittings.find(s => {
               const opHHMM = String(s.opens_at).slice(0, 5)

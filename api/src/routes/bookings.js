@@ -15,6 +15,7 @@ import { httpError } from '../middleware/error.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
 import { upsertCustomer } from './customers.js'
+import { assertAllocationFree } from '../services/occupancySvc.js'
 
 // Schedule a reminder email as a delayed BullMQ job.
 // Fires `reminder_hours_before` hours before `starts_at`.
@@ -135,7 +136,15 @@ export default async function bookingsRoutes(app) {
         tableId = firstMember.table_id
       }
 
-      // Insert hold — UNIQUE (table_id, starts_at) guards races at DB level
+      await assertAllocationFree(tx, {
+        tableId,
+        combinationId: body.combination_id ?? null,
+        startsAt,
+        endsAt,
+        lock: true,
+      })
+
+      // Insert hold — UNIQUE (table_id, starts_at) + table_occupancy GiST guard races
       const [newHold] = await tx`
         INSERT INTO booking_holds
           (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
@@ -260,6 +269,7 @@ export default async function bookingsRoutes(app) {
     notificationQueue.add('booking_email', {
       bookingId: booking.id, tenantId: req.tenantId,
       venueId: booking.venue_id, type: 'confirmation',
+      guestEmail: booking.guest_email,
     }).catch(e => req.log.warn({ err: e }, 'notification queue unavailable — confirmation email skipped'))
 
     // Schedule reminder email (delayed job)
@@ -533,6 +543,7 @@ export default async function bookingsRoutes(app) {
     notificationQueue.add('booking_email', {
       bookingId: booking.id, tenantId: req.tenantId,
       venueId: booking.venue_id, type: 'confirmation',
+      guestEmail: booking.guest_email,
     }).catch(e => req.log.warn({ err: e }, 'notification queue unavailable — booking created but confirmation email skipped'))
     scheduleReminder(req, booking).catch(() => {})
     broadcastBooking('booking.created', booking)
@@ -672,28 +683,13 @@ export default async function bookingsRoutes(app) {
       const newStart = new Date(starts_at)
       const newEnd   = new Date(newStart.getTime() + originalDurationMs)
 
-      const [conflict] = await tx`
-        SELECT id FROM bookings
-         WHERE table_id  = ${table_id}
-           AND tenant_id = ${req.tenantId}
-           AND id       != ${req.params.id}
-           AND status NOT IN ('cancelled')
-           AND starts_at < ${newEnd.toISOString()}
-           AND ends_at   > ${newStart.toISOString()}
-        LIMIT 1
-      `
-      if (conflict) throw httpError(409, 'Slot conflict — another booking exists at the target time')
-
-      const [holdConflict] = await tx`
-        SELECT id FROM booking_holds
-         WHERE table_id  = ${table_id}
-           AND tenant_id = ${req.tenantId}
-           AND expires_at > now()
-           AND starts_at  < ${newEnd.toISOString()}
-           AND ends_at    > ${newStart.toISOString()}
-        LIMIT 1
-      `
-      if (holdConflict) throw httpError(409, 'Slot conflict — a hold exists at the target time')
+      await assertAllocationFree(tx, {
+        tableId: table_id,
+        startsAt: newStart,
+        endsAt: newEnd,
+        excludeBookingId: req.params.id,
+        lock: true,
+      })
 
       const [row] = await tx`
         UPDATE bookings
@@ -740,11 +736,19 @@ export default async function bookingsRoutes(app) {
 
     const booking = await withTenant(req.tenantId, async tx => {
       const [b] = await tx`
-        SELECT starts_at FROM bookings
+        SELECT starts_at, table_id, combination_id FROM bookings
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
       `
       if (!b) throw httpError(404, 'Booking not found')
       if (new Date(ends_at) <= new Date(b.starts_at)) throw httpError(422, 'ends_at must be after starts_at')
+      await assertAllocationFree(tx, {
+        tableId: b.table_id,
+        combinationId: b.combination_id,
+        startsAt: b.starts_at,
+        endsAt: ends_at,
+        excludeBookingId: req.params.id,
+        lock: true,
+      })
       const [row] = await tx`
         UPDATE bookings SET ends_at = ${ends_at}, updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
@@ -859,6 +863,20 @@ export default async function bookingsRoutes(app) {
         if (!first) throw httpError(404, 'Combination not found')
         tableId = first.table_id
       }
+
+      const [current] = await tx`
+        SELECT starts_at, ends_at FROM bookings
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      `
+      if (!current) throw httpError(404, 'Booking not found')
+      await assertAllocationFree(tx, {
+        tableId,
+        combinationId: comboId,
+        startsAt: current.starts_at,
+        endsAt: current.ends_at,
+        excludeBookingId: req.params.id,
+        lock: true,
+      })
 
       const [row] = await tx`
         UPDATE bookings

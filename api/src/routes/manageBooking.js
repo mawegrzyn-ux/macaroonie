@@ -13,6 +13,8 @@ import { z }                from 'zod'
 import { sql, withTenant }  from '../config/db.js'
 import { env }              from '../config/env.js'
 import { httpError }        from '../middleware/error.js'
+import { broadcastBooking } from '../services/broadcastSvc.js'
+import { allocateBestFit, combinationIsFree, tableIsFree } from '../services/occupancySvc.js'
 
 async function loadBookingByToken(token) {
   if (!token || typeof token !== 'string') return null
@@ -104,30 +106,108 @@ export default async function manageBookingRoutes(app) {
     }
 
     await withTenant(booking.t_tenant_id, async tx => {
-      // Build the new starts_at if date or time changed
-      if (body.date || body.time) {
-        const oldStart = new Date(booking.starts_at)
-        const newDate  = body.date || oldStart.toISOString().slice(0, 10)
-        const newTime  = body.time || oldStart.toTimeString().slice(0, 5)
-        const newStartsAt = new Date(`${newDate}T${newTime}:00`)
+      const timezone = booking.venue_timezone || 'UTC'
+      const durationMs = new Date(booking.ends_at).getTime() - new Date(booking.starts_at).getTime()
 
-        await tx`
-          UPDATE bookings
-             SET starts_at = ${newStartsAt},
-                 updated_at = now()
-           WHERE id = ${booking.id}
-        `
+      const [{ local_date, local_time }] = await tx`
+        SELECT
+          to_char(${booking.starts_at}::timestamptz AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS local_date,
+          to_char(${booking.starts_at}::timestamptz AT TIME ZONE ${timezone}, 'HH24:MI')     AS local_time
+      `
+      const newDate = body.date  || local_date
+      const newTime = body.time  || local_time
+      const covers  = body.covers ?? booking.covers
+
+      const localStr = newDate + ' ' + newTime + ':00'
+      const [{ ts: startsAt }] = await tx`
+        SELECT (${localStr}::timestamp AT TIME ZONE ${timezone}) AS ts
+      `
+      const endsAt = new Date(startsAt.getTime() + durationMs)
+
+      const [rules] = await tx`
+        SELECT min_covers, max_covers, cutoff_before_mins
+          FROM booking_rules WHERE venue_id = ${booking.t_venue_id}
+      `
+      if (rules && (covers < rules.min_covers || covers > rules.max_covers)) {
+        throw httpError(422, `Party size must be between ${rules.min_covers} and ${rules.max_covers}`)
+      }
+      const cutoffMs = (rules?.cutoff_before_mins ?? 60) * 60_000
+      if (Date.now() > startsAt.getTime() - cutoffMs) {
+        throw httpError(422, 'Booking cutoff has passed for this slot')
       }
 
-      if (body.covers) {
-        await tx`
-          UPDATE bookings SET covers = ${body.covers}, updated_at = now()
-           WHERE id = ${booking.id}
-        `
+      const daySlots = await tx`
+        SELECT 1 FROM get_available_slots(${booking.t_venue_id}::uuid, ${newDate}::date, 1)
+         LIMIT 1
+      `
+      if (!daySlots.length) {
+        throw httpError(422, 'The venue is closed or outside the booking window on that date')
       }
+
+      const [onGrid] = await tx`
+        SELECT 1 FROM get_available_slots(${booking.t_venue_id}::uuid, ${newDate}::date, 1) s
+         WHERE s.slot_time = ${startsAt.toISOString()}::timestamptz
+         LIMIT 1
+      `
+      if (!onGrid) throw httpError(422, 'That time is not a bookable slot')
+
+      let tableId       = booking.table_id
+      let combinationId = booking.combination_id
+      let keep          = false
+
+      if (combinationId) {
+        const [combo] = await tx`
+          SELECT min_covers, max_covers, is_active
+            FROM table_combinations WHERE id = ${combinationId}
+        `
+        if (combo?.is_active && covers >= combo.min_covers && covers <= combo.max_covers) {
+          keep = await combinationIsFree(tx, combinationId, startsAt, endsAt, {
+            excludeBookingId: booking.id, lock: true,
+          })
+        }
+      } else if (tableId) {
+        const [tbl] = await tx`
+          SELECT min_covers, max_covers, is_unallocated, is_active
+            FROM tables WHERE id = ${tableId}
+        `
+        if (tbl && !tbl.is_unallocated && tbl.is_active
+            && covers >= tbl.min_covers && covers <= tbl.max_covers) {
+          keep = await tableIsFree(tx, tableId, startsAt, endsAt, {
+            excludeBookingId: booking.id, lock: true,
+          })
+        }
+      }
+
+      if (!keep) {
+        const alloc = await allocateBestFit(tx, {
+          venueId: booking.t_venue_id,
+          covers,
+          startsAt,
+          windowEnd: endsAt,
+          excludeBookingId: booking.id,
+          allowDisplace: false,
+        })
+        if (!alloc) {
+          throw httpError(409, 'No tables available for the new time — please pick another slot')
+        }
+        tableId       = alloc.tableId
+        combinationId = alloc.combinationId
+      }
+
+      const [updated] = await tx`
+        UPDATE bookings
+           SET starts_at      = ${startsAt.toISOString()},
+               ends_at        = ${endsAt.toISOString()},
+               covers         = ${covers},
+               table_id       = ${tableId},
+               combination_id = ${combinationId},
+               updated_at     = now()
+         WHERE id = ${booking.id}
+        RETURNING *
+      `
+      broadcastBooking('booking.updated', updated)
     })
 
-    // Queue modification email
     try {
       const { notificationQueue } = await import('../jobs/queues.js')
       await notificationQueue.add('booking_email', {
@@ -135,6 +215,7 @@ export default async function manageBookingRoutes(app) {
         tenantId:      booking.t_tenant_id,
         venueId:       booking.t_venue_id,
         type:          'modification',
+        guestEmail:    booking.guest_email,
         manageBaseUrl: `${env.PUBLIC_SITE_SCHEME}://${env.PUBLIC_ROOT_DOMAIN}`,
       })
     } catch { /* best-effort */ }

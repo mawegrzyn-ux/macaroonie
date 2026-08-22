@@ -80,7 +80,7 @@ export async function processEmailJob(job) {
   const { booking, venue, customer, tpl, settings } = data
 
   // Skip if no email address
-  const recipientEmail = customer?.email || booking.email
+  const recipientEmail = job.data.guestEmail || customer?.email || booking.guest_email
   if (!recipientEmail || recipientEmail === 'walkin@walkin.com') {
     job.log(`No email for booking ${bookingId} — skipping`)
     return { status: 'skipped', reason: 'no_email' }
