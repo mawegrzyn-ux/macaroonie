@@ -18,6 +18,11 @@ export function errorHandler(err, req, reply) {
     return reply.code(409).send({ error: 'Conflict — resource already exists' })
   }
 
+  // PostgreSQL exclusion constraint (overlapping hold occupancy)
+  if (err.code === '23P01') {
+    return reply.code(409).send({ error: 'Slot conflict — table already occupied' })
+  }
+
   // PostgreSQL lock not available (FOR UPDATE NOWAIT)
   if (err.code === '55P03') {
     return reply.code(409).send({ error: 'Slot conflict — please try again' })

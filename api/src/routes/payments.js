@@ -14,6 +14,7 @@ import { httpError } from '../middleware/error.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
 import { env } from '../config/env.js'
+import { allocateBestFit } from '../services/occupancySvc.js'
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: '2024-04-10' })
 
@@ -157,65 +158,127 @@ export async function webhookRoutes(app) {
 
 // ── Webhook handlers ──────────────────────────────────────────
 
+async function refundSucceededIntent(pi, log) {
+  try {
+    const tenantId = pi.metadata?.tenant_id
+    const [tenant] = tenantId
+      ? await sql`SELECT stripe_account_id FROM tenants WHERE id = ${tenantId}`
+      : [null]
+    const opts = tenant?.stripe_account_id ? { stripeAccount: tenant.stripe_account_id } : {}
+    await stripe.refunds.create({ payment_intent: pi.id }, opts)
+    log.warn({ pi_id: pi.id }, 'Refunded PI after failed booking confirm')
+  } catch (err) {
+    log.error({ err, pi_id: pi.id }, 'Failed to auto-refund PI after confirm failure — manual refund needed')
+  }
+}
+
 async function handlePaymentSucceeded(pi, log) {
   const { hold_id, tenant_id } = pi.metadata
   if (!hold_id || !tenant_id) return log.warn({ pi_id: pi.id }, 'PI missing metadata')
 
-  await withTenant(tenant_id, async tx => {
-    // confirm_hold() — FOR UPDATE NOWAIT, re-validates conflict.
-    // Only select is_valid + reason — composite type column would be unparseable.
-    const [result] = await tx`
-      SELECT is_valid, reason FROM confirm_hold(${hold_id}::uuid, ${tenant_id}::uuid)
-    `
+  try {
+    await withTenant(tenant_id, async tx => {
+      const [result] = await tx`
+        SELECT is_valid, reason FROM confirm_hold(${hold_id}::uuid, ${tenant_id}::uuid)
+      `
 
-    if (!result.is_valid) {
-      log.error({ hold_id, reason: result.reason }, 'Hold invalid at webhook confirm — refund needed')
-      // In production: trigger automatic refund here
+      if (!result.is_valid) {
+        log.error({ hold_id, reason: result.reason }, 'Hold invalid at webhook confirm — refunding')
+        throw Object.assign(new Error('hold_invalid'), { refund: true, reason: result.reason })
+      }
+
+      const [h] = await tx`SELECT * FROM booking_holds WHERE id = ${hold_id}`
+      if (!h) {
+        log.error({ hold_id }, 'Hold missing after confirmation')
+        throw Object.assign(new Error('hold_missing'), { refund: true })
+      }
+
+      let tableId = h.table_id
+      let combinationId = h.combination_id ?? null
+
+      if (!tableId) {
+        const [rules] = await tx`
+          SELECT slot_duration_mins, buffer_after_mins
+            FROM booking_rules WHERE venue_id = ${h.venue_id}
+        `
+        const durationMins = rules?.slot_duration_mins ?? 90
+        const bufferMins   = rules?.buffer_after_mins ?? 0
+        const startsAt     = new Date(h.starts_at)
+        const windowEnd    = new Date(startsAt.getTime() + (durationMins + bufferMins) * 60_000)
+        const alloc = await allocateBestFit(tx, {
+          venueId: h.venue_id,
+          covers: h.covers,
+          startsAt,
+          windowEnd,
+          allowDisplace: true,
+        })
+        if (!alloc) {
+          throw Object.assign(new Error('no_table'), { refund: true })
+        }
+        tableId = alloc.tableId
+        combinationId = alloc.combinationId
+        await tx`
+          UPDATE booking_holds
+             SET table_id = ${tableId}, combination_id = ${combinationId}
+           WHERE id = ${hold_id}
+        `
+      }
+
+      const [bookingRules] = await tx`
+        SELECT enable_unconfirmed_flow FROM booking_rules WHERE venue_id = ${h.venue_id}
+      `
+      const initialStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
+
+      const [booking] = await tx`
+        INSERT INTO bookings
+          (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
+           guest_name, guest_email, guest_phone, guest_notes, status)
+        VALUES
+          (${h.venue_id}, ${tableId}, ${combinationId}, ${tenant_id},
+           ${h.starts_at}, ${h.ends_at}, ${h.covers},
+           ${h.guest_name}, ${h.guest_email}, ${h.guest_phone}, ${h.guest_notes ?? null},
+           ${initialStatus}::booking_status)
+        RETURNING *
+      `
+
+      await tx`
+        INSERT INTO payments (booking_id, tenant_id, stripe_pi_id, amount, currency, status)
+        VALUES (
+          ${booking.id}, ${tenant_id}, ${pi.id},
+          ${pi.amount / 100}, ${pi.currency.toUpperCase()}, 'succeeded'
+        )
+      `
+
+      await tx`DELETE FROM booking_holds WHERE id = ${hold_id}`
+      broadcastBooking('booking.created', booking)
+
+      await notificationQueue.add('booking_email', {
+        bookingId: booking.id,
+        tenantId: tenant_id,
+        venueId: h.venue_id,
+        type: 'confirmation',
+        guestEmail: booking.guest_email,
+      })
+      const reminderDelay = Math.max(0, new Date(h.starts_at).getTime() - 24 * 60 * 60 * 1000 - Date.now())
+      await notificationQueue.add('booking_email', {
+        bookingId: booking.id,
+        tenantId: tenant_id,
+        venueId: h.venue_id,
+        type: 'reminder',
+        guestEmail: booking.guest_email,
+      }, {
+        delay: reminderDelay,
+        jobId: `reminder-${booking.id}`,
+        removeOnComplete: true,
+      })
+    })
+  } catch (err) {
+    if (err?.refund) {
+      await refundSucceededIntent(pi, log)
       return
     }
-
-    // Fetch hold as a plain row (composite type from confirm_hold is unparseable)
-    const [h] = await tx`SELECT * FROM booking_holds WHERE id = ${hold_id}`
-    if (!h) { log.error({ hold_id }, 'Hold missing after confirmation'); return }
-
-    // Determine initial status: unconfirmed when the venue has the call-to-confirm flow enabled
-    const [bookingRules] = await tx`
-      SELECT enable_unconfirmed_flow FROM booking_rules WHERE venue_id = ${h.venue_id}
-    `
-    const initialStatus = bookingRules?.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
-
-    const [booking] = await tx`
-      INSERT INTO bookings
-        (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
-         guest_name, guest_email, guest_phone, guest_notes, status)
-      VALUES
-        (${h.venue_id}, ${h.table_id}, ${h.combination_id ?? null}, ${tenant_id},
-         ${h.starts_at}, ${h.ends_at}, ${h.covers},
-         ${h.guest_name}, ${h.guest_email}, ${h.guest_phone}, ${h.guest_notes ?? null},
-         ${initialStatus}::booking_status)
-      RETURNING *
-    `
-
-    await tx`
-      INSERT INTO payments (booking_id, tenant_id, stripe_pi_id, amount, currency, status)
-      VALUES (
-        ${booking.id}, ${tenant_id}, ${pi.id},
-        ${pi.amount / 100}, ${pi.currency.toUpperCase()}, 'succeeded'
-      )
-    `
-
-    await tx`DELETE FROM booking_holds WHERE id = ${hold_id}`
-    broadcastBooking('booking.created', booking)
-
-    // Enqueue confirmation email + reminders
-    await notificationQueue.add('confirmation', { bookingId: booking.id, tenantId: tenant_id, type: 'confirmation' })
-    await notificationQueue.add('reminder', {
-      bookingId:   booking.id,
-      tenantId:    tenant_id,
-      type:        'reminder_24h',
-      runAt:       new Date(new Date(h.starts_at).getTime() - 24 * 60 * 60 * 1000).toISOString(),
-    }, { delay: Math.max(0, new Date(h.starts_at).getTime() - 24 * 60 * 60 * 1000 - Date.now()) })
-  })
+    throw err
+  }
 }
 
 async function handlePaymentFailed(pi, log) {

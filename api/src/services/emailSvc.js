@@ -282,8 +282,8 @@ export function buildMergeFields({ booking, venue, customer, manageBaseUrl }) {
 
   return {
     guest_name:        customer?.name || booking.guest_name || 'Guest',
-    guest_email:       customer?.email || booking.email || '',
-    guest_phone:       customer?.phone || booking.phone || '',
+    guest_email:       customer?.email || booking.guest_email || '',
+    guest_phone:       customer?.phone || booking.guest_phone || '',
     venue_name:        venue?.name || '',
     venue_address:     [venue?.address_line1, venue?.city, venue?.postcode].filter(Boolean).join(', '),
     booking_date:      startDate.toLocaleDateString('en-GB', dateOpts),

@@ -25,6 +25,11 @@ import { broadcastBooking } from '../services/broadcastSvc.js'
 import { upsertCustomer } from '../routes/customers.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { env } from '../config/env.js'
+import {
+  allocateBestFit,
+  assertAllocationFree,
+  tryDisplaceCombo,
+} from '../services/occupancySvc.js'
 
 const HoldBody = z.object({
   starts_at:     z.string(),                // ISO 8601
@@ -64,190 +69,6 @@ async function resolveTenant(venueId) {
      LIMIT 1
   `
   return venue ?? null
-}
-
-// Auto-displace conflicting bookings to free the best-fit combination.
-// Returns { tableId, combinationId, displacedIds } or null if impossible.
-// Constraints: only individual table destinations (no Unallocated, no new combos).
-// Locked and arrived/seated bookings are never displaced.
-async function tryWidgetDisplace(tx, venueId, covers, startsAt, windowEnd) {
-  // Find combinations that fit the party and have only displaceable conflicts
-  const combos = await tx`
-    SELECT c.id
-      FROM table_combinations c
-     WHERE c.venue_id   = ${venueId}
-       AND c.is_active  = true
-       AND c.min_covers <= ${covers}
-       AND c.max_covers >= ${covers}
-       AND EXISTS (
-         SELECT 1 FROM table_combination_members m
-          JOIN bookings b ON b.table_id = m.table_id
-         WHERE m.combination_id = c.id
-           AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
-           AND b.starts_at < ${windowEnd.toISOString()}
-           AND b.ends_at   > ${startsAt.toISOString()}
-       )
-       AND NOT EXISTS (
-         SELECT 1 FROM table_combination_members m
-          JOIN bookings b ON b.table_id = m.table_id
-         WHERE m.combination_id = c.id
-           AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
-           AND (b.table_locked = true OR b.status IN ('arrived', 'seated'))
-           AND b.starts_at < ${windowEnd.toISOString()}
-           AND b.ends_at   > ${startsAt.toISOString()}
-       )
-     ORDER BY c.max_covers
-     LIMIT 5
-  `
-
-  for (const combo of combos) {
-    const result = await tryDisplaceCombo(tx, venueId, combo.id, startsAt, windowEnd)
-    if (result) return result
-  }
-  return null
-}
-
-// Try to displace all conflicts on a specific combination.
-// Returns { tableId, combinationId, displacedIds } or null.
-// Destinations tried in order: free individual table, then free combination.
-async function tryDisplaceCombo(tx, venueId, combinationId, startsAt, windowEnd) {
-  const members = await tx`
-    SELECT m.table_id FROM table_combination_members m
-      JOIN tables t ON t.id = m.table_id
-     WHERE m.combination_id = ${combinationId}
-     ORDER BY t.sort_order, t.label
-  `
-  if (!members.length) return null
-  const memberIds = members.map(m => m.table_id)
-
-  const conflicts = await tx`
-    SELECT b.id, b.covers, b.starts_at, b.ends_at
-      FROM bookings b
-      JOIN table_combination_members m ON m.table_id = b.table_id
-     WHERE m.combination_id = ${combinationId}
-       AND b.status NOT IN ('cancelled', 'no_show', 'checked_out', 'arrived', 'seated')
-       AND b.table_locked = false
-       AND b.starts_at < ${windowEnd.toISOString()}
-       AND b.ends_at   > ${startsAt.toISOString()}
-  `
-  if (!conflicts.length) return null
-
-  // Greedy allocation: claim tables/combos one conflict at a time.
-  // claimedTableIds starts with the combo's own members (those need to be freed).
-  const claimedTableIds = new Set(memberIds)
-  const displacements   = []
-
-  for (const conflict of conflicts) {
-    const claimedArr = [...claimedTableIds]
-    const cStart = new Date(conflict.starts_at).toISOString()
-    const cEnd   = new Date(conflict.ends_at).toISOString()
-
-    // 1. Try a free individual table first (cheapest option).
-    const [freeTable] = await tx`
-      SELECT t.id FROM tables t
-       WHERE t.venue_id       = ${venueId}
-         AND t.is_active      = true
-         AND t.is_unallocated = false
-         AND t.min_covers    <= ${conflict.covers}
-         AND t.max_covers    >= ${conflict.covers}
-         AND t.id != ALL(${claimedArr}::uuid[])
-         AND NOT EXISTS (
-           SELECT 1 FROM bookings b2
-            WHERE b2.table_id = t.id
-              AND b2.status NOT IN ('cancelled', 'no_show', 'checked_out')
-              AND b2.starts_at < ${cEnd}
-              AND b2.ends_at   > ${cStart}
-         )
-         AND NOT EXISTS (
-           SELECT 1 FROM booking_holds bh
-            WHERE bh.table_id = t.id
-              AND bh.expires_at > now()
-              AND bh.starts_at  < ${cEnd}
-              AND bh.ends_at    > ${cStart}
-         )
-       ORDER BY t.max_covers ASC
-       LIMIT 1
-    `
-    if (freeTable) {
-      claimedTableIds.add(freeTable.id)
-      displacements.push({ bookingId: conflict.id, newTableId: freeTable.id, newComboId: null })
-      continue
-    }
-
-    // 2. No individual table — try a free existing combination as destination.
-    const memberIdsArr = Array.from(memberIds)
-    const [freeCombo] = await tx`
-      SELECT c.id,
-             (SELECT m2.table_id FROM table_combination_members m2
-                JOIN tables t2 ON t2.id = m2.table_id
-               WHERE m2.combination_id = c.id
-               ORDER BY t2.sort_order, t2.label LIMIT 1) AS first_table_id
-        FROM table_combinations c
-       WHERE c.venue_id   = ${venueId}
-         AND c.is_active  = true
-         AND c.min_covers <= ${conflict.covers}
-         AND c.max_covers >= ${conflict.covers}
-         -- Must not share any tables with the combination we are freeing
-         AND NOT EXISTS (
-           SELECT 1 FROM table_combination_members mcx
-            WHERE mcx.combination_id = c.id
-              AND mcx.table_id = ANY(${memberIdsArr}::uuid[])
-         )
-         -- All member tables of the destination combo must be free (not claimed,
-         -- not booked/held) during the conflict booking's own time window.
-         AND NOT EXISTS (
-           SELECT 1 FROM table_combination_members mc2
-            JOIN tables mt2 ON mt2.id = mc2.table_id
-           WHERE mc2.combination_id = c.id
-             AND (
-               NOT mt2.is_active
-               OR mt2.id = ANY(${claimedArr}::uuid[])
-               OR EXISTS (
-                 SELECT 1 FROM bookings b2
-                  WHERE b2.table_id = mt2.id
-                    AND b2.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                    AND b2.starts_at < ${cEnd}
-                    AND b2.ends_at   > ${cStart}
-               )
-               OR EXISTS (
-                 SELECT 1 FROM booking_holds bh2
-                  WHERE bh2.table_id = mt2.id
-                    AND bh2.expires_at > now()
-                    AND bh2.starts_at  < ${cEnd}
-                    AND bh2.ends_at    > ${cStart}
-               )
-             )
-         )
-       ORDER BY c.max_covers
-       LIMIT 1
-    `
-    if (!freeCombo) return null  // This conflict has nowhere to go — give up
-
-    // Claim all member tables of the destination combo so no subsequent
-    // conflict in this loop can also target them.
-    const comboMembers = await tx`
-      SELECT table_id FROM table_combination_members WHERE combination_id = ${freeCombo.id}
-    `
-    for (const m of comboMembers) claimedTableIds.add(m.table_id)
-    displacements.push({ bookingId: conflict.id, newTableId: freeCombo.first_table_id, newComboId: freeCombo.id })
-  }
-
-  // All conflicts can be displaced — apply
-  for (const { bookingId, newTableId, newComboId } of displacements) {
-    await tx`
-      UPDATE bookings
-         SET table_id       = ${newTableId},
-             combination_id = ${newComboId ?? null},
-             updated_at     = now()
-       WHERE id = ${bookingId}
-    `
-  }
-
-  return {
-    tableId:      members[0].table_id,
-    combinationId,
-    displacedIds: displacements.map(d => d.bookingId),
-  }
 }
 
 export default async function widgetApiRoutes(app) {
@@ -601,38 +422,12 @@ export default async function widgetApiRoutes(app) {
                AND t.is_unallocated = false
                AND t.max_covers    >= ${covers}
                AND t.min_covers    <= ${covers}
-               AND NOT EXISTS (
-                 SELECT 1 FROM bookings b
-                  WHERE b.table_id = t.id
-                    AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                    AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                    AND b.ends_at   > s.slot_time
-               )
-               AND NOT EXISTS (
-                 SELECT 1 FROM booking_holds h
-                  WHERE h.table_id = t.id
-                    AND h.expires_at > now()
-                    AND h.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                    AND h.ends_at   > s.slot_time
-               )
-               AND NOT EXISTS (
-                 SELECT 1 FROM bookings bc
-                  JOIN table_combination_members m ON m.combination_id = bc.combination_id
-                 WHERE m.table_id = t.id
-                   AND bc.combination_id IS NOT NULL
-                   AND bc.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                   AND bc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                   AND bc.ends_at   > s.slot_time
-               )
-               AND NOT EXISTS (
-                 SELECT 1 FROM booking_holds hc
-                  JOIN table_combination_members m ON m.combination_id = hc.combination_id
-                 WHERE m.table_id = t.id
-                   AND hc.combination_id IS NOT NULL
-                   AND hc.expires_at > now()
-                   AND hc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                   AND hc.ends_at   > s.slot_time
-               )
+               AND table_is_free(
+                     t.id,
+                     s.slot_time,
+                     s.slot_time + (${windowMins} || ' minutes')::interval,
+                     NULL::uuid, NULL::uuid, false
+                   )
              ORDER BY t.sort_order, t.label
              LIMIT 1
           ) AS table_id,
@@ -643,46 +438,12 @@ export default async function widgetApiRoutes(app) {
                AND c.is_active  = true
                AND c.max_covers >= ${covers}
                AND c.min_covers <= ${covers}
-               AND NOT EXISTS (
-                 SELECT 1 FROM table_combination_members m
-                  JOIN tables mt ON mt.id = m.table_id
-                 WHERE m.combination_id = c.id
-                   AND (
-                     NOT mt.is_active
-                     OR EXISTS (
-                       SELECT 1 FROM bookings b
-                        WHERE b.table_id = mt.id
-                          AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                          AND b.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                          AND b.ends_at   > s.slot_time
-                     )
-                     OR EXISTS (
-                       SELECT 1 FROM booking_holds h
-                        WHERE h.table_id = mt.id
-                          AND h.expires_at > now()
-                          AND h.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                          AND h.ends_at   > s.slot_time
-                     )
-                     OR EXISTS (
-                       SELECT 1 FROM bookings bc
-                        JOIN table_combination_members m2 ON m2.combination_id = bc.combination_id
-                       WHERE m2.table_id = mt.id
-                         AND bc.combination_id IS NOT NULL
-                         AND bc.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                         AND bc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                         AND bc.ends_at   > s.slot_time
-                     )
-                     OR EXISTS (
-                       SELECT 1 FROM booking_holds hc
-                        JOIN table_combination_members m2 ON m2.combination_id = hc.combination_id
-                       WHERE m2.table_id = mt.id
-                         AND hc.combination_id IS NOT NULL
-                         AND hc.expires_at > now()
-                         AND hc.starts_at < s.slot_time + (${windowMins} || ' minutes')::interval
-                         AND hc.ends_at   > s.slot_time
-                     )
+               AND combination_is_free(
+                     c.id,
+                     s.slot_time,
+                     s.slot_time + (${windowMins} || ' minutes')::interval,
+                     NULL::uuid, NULL::uuid, false
                    )
-               )
              ORDER BY c.max_covers
              LIMIT 1
           ) AS combination_id,
@@ -891,7 +652,7 @@ export default async function widgetApiRoutes(app) {
     if (!venue) throw httpError(404, 'Venue not found')
     const body = BookBody.parse(req.body)
 
-    const { booking: bk, tableLabel } = await withTenant(venue.tenant_id, async tx => {
+    const { booking: bk, tableLabel, displaced } = await withTenant(venue.tenant_id, async tx => {
       const [rules] = await tx`
         SELECT slot_duration_mins, buffer_after_mins, min_covers, max_covers,
                cutoff_before_mins, enable_unconfirmed_flow
@@ -922,133 +683,16 @@ export default async function widgetApiRoutes(app) {
         throw httpError(422, 'Booking cutoff has passed for this slot')
       }
 
-      // Auto-allocate: try individual table first, then combination.
-      let allocTableId      = null
-      let allocCombinationId = null
-      let allocLabel        = null
-
-      const [autoTable] = await tx`
-        SELECT t.id, t.label
-          FROM tables t
-         WHERE t.venue_id       = ${venue.id}
-           AND t.is_active      = true
-           AND t.is_unallocated = false
-           AND t.min_covers    <= ${body.covers}
-           AND t.max_covers    >= ${body.covers}
-           AND NOT EXISTS (
-             SELECT 1 FROM bookings b
-              WHERE b.table_id = t.id
-                AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                AND b.starts_at < ${windowEnd.toISOString()}
-                AND b.ends_at   > ${startsAt.toISOString()}
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM booking_holds bh
-              WHERE bh.table_id = t.id
-                AND bh.expires_at > now()
-                AND bh.starts_at  < ${windowEnd.toISOString()}
-                AND bh.ends_at    > ${startsAt.toISOString()}
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM bookings bc
-              JOIN table_combination_members m ON m.combination_id = bc.combination_id
-             WHERE m.table_id = t.id
-               AND bc.combination_id IS NOT NULL
-               AND bc.status NOT IN ('cancelled', 'no_show', 'checked_out')
-               AND bc.starts_at < ${windowEnd.toISOString()}
-               AND bc.ends_at   > ${startsAt.toISOString()}
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM booking_holds hc
-              JOIN table_combination_members m ON m.combination_id = hc.combination_id
-             WHERE m.table_id = t.id
-               AND hc.combination_id IS NOT NULL
-               AND hc.expires_at > now()
-               AND hc.starts_at  < ${windowEnd.toISOString()}
-               AND hc.ends_at    > ${startsAt.toISOString()}
-           )
-         ORDER BY t.sort_order, t.max_covers
-         LIMIT 1
-      `
-      if (autoTable) {
-        allocTableId = autoTable.id
-        allocLabel   = autoTable.label
-      } else {
-        const [autoCombo] = await tx`
-          SELECT c.id, c.name,
-                 (SELECT m.table_id FROM table_combination_members m
-                    JOIN tables t ON t.id = m.table_id
-                   WHERE m.combination_id = c.id
-                   ORDER BY t.sort_order, t.label LIMIT 1) AS first_table_id
-            FROM table_combinations c
-           WHERE c.venue_id   = ${venue.id}
-             AND c.is_active  = true
-             AND c.min_covers <= ${body.covers}
-             AND c.max_covers >= ${body.covers}
-             AND NOT EXISTS (
-               SELECT 1 FROM table_combination_members m
-                JOIN tables mt ON mt.id = m.table_id
-               WHERE m.combination_id = c.id
-                 AND (
-                   NOT mt.is_active
-                   OR EXISTS (
-                     SELECT 1 FROM bookings b
-                      WHERE b.table_id = mt.id
-                        AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                        AND b.starts_at < ${windowEnd.toISOString()}
-                        AND b.ends_at   > ${startsAt.toISOString()}
-                   )
-                   OR EXISTS (
-                     SELECT 1 FROM booking_holds bh
-                      WHERE bh.table_id = mt.id
-                        AND bh.expires_at > now()
-                        AND bh.starts_at  < ${windowEnd.toISOString()}
-                        AND bh.ends_at    > ${startsAt.toISOString()}
-                   )
-                   OR EXISTS (
-                     SELECT 1 FROM bookings bc
-                      JOIN table_combination_members m2 ON m2.combination_id = bc.combination_id
-                     WHERE m2.table_id = mt.id
-                       AND bc.combination_id IS NOT NULL
-                       AND bc.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                       AND bc.starts_at < ${windowEnd.toISOString()}
-                       AND bc.ends_at   > ${startsAt.toISOString()}
-                   )
-                   OR EXISTS (
-                     SELECT 1 FROM booking_holds hc
-                      JOIN table_combination_members m2 ON m2.combination_id = hc.combination_id
-                     WHERE m2.table_id = mt.id
-                       AND hc.combination_id IS NOT NULL
-                       AND hc.expires_at > now()
-                       AND hc.starts_at  < ${windowEnd.toISOString()}
-                       AND hc.ends_at    > ${startsAt.toISOString()}
-                   )
-                 )
-             )
-           ORDER BY c.max_covers
-           LIMIT 1
-        `
-        if (autoCombo) {
-          allocTableId       = autoCombo.first_table_id
-          allocCombinationId = autoCombo.id
-          allocLabel         = autoCombo.name
-        } else {
-          // Displacement fallback
-          const disp = await tryWidgetDisplace(tx, venue.id, body.covers, startsAt, windowEnd)
-          if (!disp) {
-            throw httpError(409, 'No tables available for this time — please suggest an alternative slot to the guest')
-          }
-          // Fetch the combination name for the response label
-          const [comboRow] = await tx`SELECT name FROM table_combinations WHERE id = ${disp.combinationId}`
-          allocTableId       = disp.tableId
-          allocCombinationId = disp.combinationId
-          allocLabel         = comboRow?.name ?? 'Combined table'
-          // Broadcast displaced bookings (fire-and-forget)
-          ;(async () => {
-            const rows = await tx`SELECT * FROM bookings WHERE id = ANY(${disp.displacedIds}::uuid[])`
-            for (const row of rows) broadcastBooking('booking.updated', row)
-          })().catch(() => {})
-        }
+      // Auto-allocate: free table → free combo → displace combo.
+      const alloc = await allocateBestFit(tx, {
+        venueId: venue.id,
+        covers: body.covers,
+        startsAt,
+        windowEnd,
+        allowDisplace: true,
+      })
+      if (!alloc) {
+        throw httpError(409, 'No tables available for this time — please suggest an alternative slot to the guest')
       }
 
       const initialStatus = rules.enable_unconfirmed_flow ? 'unconfirmed' : 'confirmed'
@@ -1058,13 +702,13 @@ export default async function widgetApiRoutes(app) {
           (venue_id, table_id, combination_id, tenant_id, starts_at, ends_at, covers,
            guest_name, guest_email, guest_phone, guest_notes, status)
         VALUES
-          (${venue.id}, ${allocTableId}, ${allocCombinationId}, ${venue.tenant_id},
+          (${venue.id}, ${alloc.tableId}, ${alloc.combinationId}, ${venue.tenant_id},
            ${startsAt.toISOString()}, ${endsAt.toISOString()}, ${body.covers},
            ${body.guest_name}, ${body.guest_email ?? null}, ${body.guest_phone ?? null},
            ${body.notes ?? null}, ${initialStatus}::booking_status)
         RETURNING *
       `
-      return { booking, tableLabel: allocLabel }
+      return { booking, tableLabel: alloc.label, displaced: alloc.displaced }
     })
 
     const reference = bk.id.slice(0, 8).toUpperCase()
@@ -1086,9 +730,11 @@ export default async function widgetApiRoutes(app) {
     notificationQueue.add('booking_email', {
       bookingId: bk.id, tenantId: venue.tenant_id,
       venueId:   bk.venue_id, type: 'confirmation',
+      guestEmail: bk.guest_email,
     }).catch(() => {})
 
     broadcastBooking('booking.created', bk)
+    for (const row of displaced || []) broadcastBooking('booking.updated', row)
 
     const dateLabel = new Intl.DateTimeFormat('en-GB', {
       timeZone: venue.timezone, dateStyle: 'full', timeStyle: 'short',
@@ -1143,25 +789,23 @@ export default async function widgetApiRoutes(app) {
 
       let tableId          = body.table_id ?? null
       let combinationId    = body.combination_id ?? null
-      let displacedHoldIds = []
+      let displaced        = []
 
       if (tableId) {
-        // Explicit table_id from a free slot — use as-is.
+        await assertAllocationFree(tx, {
+          tableId, combinationId: null, startsAt, endsAt: windowEnd, lock: true,
+        })
 
       } else if (combinationId) {
-        // Combination from slot selection. Could be genuinely free or a
-        // displacement candidate; detect by checking for active conflicts.
-        const conflicts = await tx`
-          SELECT b.id FROM bookings b
-           JOIN table_combination_members m ON m.table_id = b.table_id
-          WHERE m.combination_id = ${combinationId}
-            AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
-            AND b.starts_at < ${windowEnd.toISOString()}
-            AND b.ends_at   > ${startsAt.toISOString()}
-          LIMIT 1
+        const comboFree = await tx`
+          SELECT combination_is_free(
+            ${combinationId}::uuid,
+            ${startsAt.toISOString()}::timestamptz,
+            ${windowEnd.toISOString()}::timestamptz,
+            NULL::uuid, NULL::uuid, true
+          ) AS free
         `
-        if (!conflicts.length) {
-          // Free — resolve first member table
+        if (comboFree[0]?.free) {
           const [firstMember] = await tx`
             SELECT m.table_id FROM table_combination_members m
               JOIN tables t ON t.id = m.table_id
@@ -1171,101 +815,27 @@ export default async function widgetApiRoutes(app) {
           if (!firstMember) throw httpError(404, 'Combination not found or has no tables')
           tableId = firstMember.table_id
         } else {
-          // Conflicts exist — try displacement
           const disp = await tryDisplaceCombo(tx, venue.id, combinationId, startsAt, windowEnd)
           if (!disp) throw httpError(409, 'No tables available for this time — please choose another slot')
-          tableId          = disp.tableId
-          displacedHoldIds = disp.displacedIds
+          tableId   = disp.tableId
+          displaced = disp.displaced
         }
 
       } else {
-        // Auto-allocate: free individual table → free combination → displace combination.
-        const [autoTable] = await tx`
-          SELECT t.id
-            FROM tables t
-           WHERE t.venue_id       = ${venue.id}
-             AND t.is_active      = true
-             AND t.is_unallocated = false
-             AND t.min_covers    <= ${body.covers}
-             AND t.max_covers    >= ${body.covers}
-             AND NOT EXISTS (
-               SELECT 1 FROM bookings b
-                WHERE b.table_id = t.id
-                  AND b.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                  AND b.starts_at < ${windowEnd.toISOString()}
-                  AND b.ends_at   > ${startsAt.toISOString()}
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM booking_holds bh
-                WHERE bh.table_id = t.id
-                  AND bh.expires_at > now()
-                  AND bh.starts_at  < ${windowEnd.toISOString()}
-                  AND bh.ends_at    > ${startsAt.toISOString()}
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM bookings bc
-                JOIN table_combination_members m ON m.combination_id = bc.combination_id
-               WHERE m.table_id = t.id
-                 AND bc.combination_id IS NOT NULL
-                 AND bc.status NOT IN ('cancelled', 'no_show', 'checked_out')
-                 AND bc.starts_at < ${windowEnd.toISOString()}
-                 AND bc.ends_at   > ${startsAt.toISOString()}
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM booking_holds hc
-                JOIN table_combination_members m ON m.combination_id = hc.combination_id
-               WHERE m.table_id = t.id
-                 AND hc.combination_id IS NOT NULL
-                 AND hc.expires_at > now()
-                 AND hc.starts_at  < ${windowEnd.toISOString()}
-                 AND hc.ends_at    > ${startsAt.toISOString()}
-             )
-           ORDER BY t.sort_order, t.max_covers
-           LIMIT 1
-        `
-        if (autoTable) {
-          tableId = autoTable.id
-        } else {
-          // Free combination
-          const [autoCombo] = await tx`
-            SELECT c.id,
-                   (SELECT m.table_id FROM table_combination_members m
-                      JOIN tables t ON t.id = m.table_id
-                     WHERE m.combination_id = c.id
-                     ORDER BY t.sort_order, t.label LIMIT 1) AS first_table_id
-              FROM table_combinations c
-             WHERE c.venue_id   = ${venue.id}
-               AND c.is_active  = true
-               AND c.min_covers <= ${body.covers}
-               AND c.max_covers >= ${body.covers}
-               AND NOT EXISTS (
-                 SELECT 1 FROM table_combination_members m
-                  JOIN tables mt ON mt.id = m.table_id
-                 WHERE m.combination_id = c.id
-                   AND (
-                     NOT mt.is_active
-                     OR EXISTS (SELECT 1 FROM bookings b WHERE b.table_id = mt.id AND b.status NOT IN ('cancelled', 'no_show', 'checked_out') AND b.starts_at < ${windowEnd.toISOString()} AND b.ends_at > ${startsAt.toISOString()})
-                     OR EXISTS (SELECT 1 FROM booking_holds bh WHERE bh.table_id = mt.id AND bh.expires_at > now() AND bh.starts_at < ${windowEnd.toISOString()} AND bh.ends_at > ${startsAt.toISOString()})
-                     OR EXISTS (SELECT 1 FROM bookings bc JOIN table_combination_members m2 ON m2.combination_id = bc.combination_id WHERE m2.table_id = mt.id AND bc.combination_id IS NOT NULL AND bc.status NOT IN ('cancelled', 'no_show', 'checked_out') AND bc.starts_at < ${windowEnd.toISOString()} AND bc.ends_at > ${startsAt.toISOString()})
-                     OR EXISTS (SELECT 1 FROM booking_holds hc JOIN table_combination_members m2 ON m2.combination_id = hc.combination_id WHERE m2.table_id = mt.id AND hc.combination_id IS NOT NULL AND hc.expires_at > now() AND hc.starts_at < ${windowEnd.toISOString()} AND hc.ends_at > ${startsAt.toISOString()})
-                   )
-               )
-             ORDER BY c.max_covers
-             LIMIT 1
-          `
-          if (autoCombo) {
-            tableId       = autoCombo.first_table_id
-            combinationId = autoCombo.id
-          } else {
-            // Displacement fallback
-            const disp = await tryWidgetDisplace(tx, venue.id, body.covers, startsAt, windowEnd)
-            if (!disp) throw httpError(409, 'No tables available for this time — please choose another slot')
-            tableId          = disp.tableId
-            combinationId    = disp.combinationId
-            displacedHoldIds = disp.displacedIds
-          }
-        }
+        const alloc = await allocateBestFit(tx, {
+          venueId: venue.id,
+          covers: body.covers,
+          startsAt,
+          windowEnd,
+          allowDisplace: true,
+        })
+        if (!alloc) throw httpError(409, 'No tables available for this time — please choose another slot')
+        tableId       = alloc.tableId
+        combinationId = alloc.combinationId
+        displaced     = alloc.displaced
       }
+
+      if (!tableId) throw httpError(409, 'No tables available for this time — please choose another slot')
 
       const [newHold] = await tx`
         INSERT INTO booking_holds
@@ -1278,18 +848,11 @@ export default async function widgetApiRoutes(app) {
            ${expiresAt.toISOString()})
         RETURNING *
       `
-      return { hold: newHold, displacedIds: displacedHoldIds }
+      return { hold: newHold, displaced }
     })
 
-    const { hold, displacedIds } = holdResult
-
-    // Broadcast displaced bookings so the Timeline updates immediately.
-    if (displacedIds.length) {
-      withTenant(venue.tenant_id, async tx => {
-        const rows = await tx`SELECT * FROM bookings WHERE id = ANY(${displacedIds}::uuid[])`
-        for (const row of rows) broadcastBooking('booking.updated', row)
-      }).catch(() => {})
-    }
+    const { hold, displaced } = holdResult
+    for (const row of displaced || []) broadcastBooking('booking.updated', row)
 
     return reply.code(201).send(hold)
   })
@@ -1378,6 +941,7 @@ export default async function widgetApiRoutes(app) {
     notificationQueue.add('booking_email', {
       bookingId: booking.id, tenantId: venue.tenant_id,
       venueId:   booking.venue_id, type: 'confirmation',
+      guestEmail: booking.guest_email,
     }).catch(() => {})
 
     broadcastBooking('booking.created', booking)
