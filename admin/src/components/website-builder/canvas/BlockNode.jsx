@@ -9,7 +9,7 @@
 
 import { BlockShell }   from './BlockShell'
 import { getCanvasComponent } from './canvasRegistry'
-import { BLOCK_BY_KEY } from '../blockRegistry'
+import { BLOCK_BY_KEY, resolveBlockAnchor } from '../blockRegistry'
 
 export function BlockNode({
   block, parent, index, siblingCount,
@@ -34,6 +34,7 @@ export function BlockNode({
       canMoveDown={index < siblingCount - 1}
       onOpenInspector={() => onOpenInspector(block.id)}
       label={def?.label || block.type}
+      anchorId={resolveBlockAnchor(block.type, block.data)}
     >
       {Canvas ? (
         <Canvas
