@@ -14,7 +14,7 @@ import {
 } from '../blockRegistry'
 import { FormRow } from '../shared'
 
-export function BlockInspector({ block, onChange, onClose }) {
+export function BlockInspector({ block, onChange, onClose, onJumpTo }) {
   useEffect(() => {
     function onKey(e) { if (e.key === 'Escape') onClose?.() }
     window.addEventListener('keydown', onKey)
@@ -73,6 +73,7 @@ export function BlockInspector({ block, onChange, onClose }) {
               data={block.data}
               onChange={(data) => onChange({ ...block, data })}
               blockType={block.type}
+              onJumpTo={onJumpTo}
             />
           </section>
         ) : (
