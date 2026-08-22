@@ -71,6 +71,21 @@ export async function buildApp() {
     timeWindow: '1 minute',
   })
 
+  // Guest /manage forms POST as application/x-www-form-urlencoded.
+  // Fastify 4 only parses JSON by default — without this, Save changes
+  // returns 415 Unsupported Media Type.
+  app.addContentTypeParser(
+    'application/x-www-form-urlencoded',
+    { parseAs: 'string' },
+    (req, body, done) => {
+      try {
+        done(null, Object.fromEntries(new URLSearchParams(body)))
+      } catch (err) {
+        done(err)
+      }
+    },
+  )
+
   // ── Multipart uploads (website builder) ─────────────────
   await app.register(multipart, {
     limits: {

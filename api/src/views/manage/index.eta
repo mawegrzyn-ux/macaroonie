@@ -46,6 +46,7 @@
     }
     .flash-modified  { background: #dbeafe; color: #1e40af; }
     .flash-cancelled { background: #fee2e2; color: #991b1b; }
+    .flash-error     { background: #fef3c7; color: #92400e; }
     .actions { display: flex; gap: 12px; margin-top: 8px; }
     .btn {
       flex: 1; display: block; padding: 14px; border: none; border-radius: 8px;
@@ -90,6 +91,9 @@
     <div class="flash flash-modified">Your booking has been updated.</div>
   <% } else if (it.flash === 'cancelled') { %>
     <div class="flash flash-cancelled">Your booking has been cancelled.</div>
+  <% } %>
+  <% if (it.error) { %>
+    <div class="flash flash-error"><%= it.error %></div>
   <% } %>
 
   <div class="card">
@@ -143,19 +147,21 @@
 
       <% if (it.canModify) { %>
         <div class="modify-form" id="modify-form">
-          <form method="POST" action="/manage/<%= it.token %>/modify">
+          <form method="POST" action="/manage/<%= it.token %>/modify" id="modify-form-el">
             <label>Date</label>
-            <input type="date" name="date"
-              value="<%= it.startDate.toISOString().slice(0,10) %>"
+            <input type="date" name="date" id="modify-date"
+              value="<%= it.localDate %>"
               min="<%= new Date().toISOString().slice(0,10) %>"/>
             <label>Time</label>
-            <input type="time" name="time"
-              value="<%= it.startDate.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:false }) %>"/>
+            <select name="time" id="modify-time" required>
+              <option value="<%= it.localTime %>" selected><%= it.localTime %></option>
+            </select>
+            <p id="modify-hint" style="font-size:13px; color:#888; margin:8px 0 0;"></p>
             <label>Guests</label>
-            <input type="number" name="covers" min="1" max="50"
+            <input type="number" name="covers" id="modify-covers" min="1" max="50"
               value="<%= it.booking.covers %>" inputmode="numeric"/>
             <div style="margin-top:16px;">
-              <button type="submit" class="btn btn-primary" style="width:100%;">Save changes</button>
+              <button type="submit" class="btn btn-primary" id="modify-save" style="width:100%;">Save changes</button>
             </div>
           </form>
         </div>
@@ -183,6 +189,7 @@
     if (el) el.classList.toggle('open');
     var c = document.getElementById('cancel-confirm');
     if (c) c.classList.remove('open');
+    if (el && el.classList.contains('open')) refreshSlots();
   }
   function toggleCancel() {
     var el = document.getElementById('cancel-confirm');
@@ -190,6 +197,73 @@
     var m = document.getElementById('modify-form');
     if (m) m.classList.remove('open');
   }
+
+  var VENUE_ID = <%~ JSON.stringify(it.booking.t_venue_id) %>;
+  var TIMEZONE = <%~ JSON.stringify(it.booking.venue_timezone || 'UTC') %>;
+  var CURRENT_TIME = <%~ JSON.stringify(it.localTime) %>;
+
+  function hhmm(iso) {
+    try {
+      return new Intl.DateTimeFormat('en-GB', {
+        timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false
+      }).format(new Date(iso));
+    } catch (e) {
+      return '';
+    }
+  }
+
+  async function refreshSlots() {
+    var dateEl = document.getElementById('modify-date');
+    var coversEl = document.getElementById('modify-covers');
+    var timeEl = document.getElementById('modify-time');
+    var hint = document.getElementById('modify-hint');
+    var save = document.getElementById('modify-save');
+    if (!dateEl || !timeEl) return;
+    var date = dateEl.value;
+    var covers = coversEl ? coversEl.value : '1';
+    var keep = timeEl.value || CURRENT_TIME;
+    timeEl.innerHTML = '<option value="">Loading…</option>';
+    if (hint) hint.textContent = '';
+    try {
+      var res = await fetch('/api/venues/' + VENUE_ID + '/slots?date=' + encodeURIComponent(date) + '&covers=' + encodeURIComponent(covers));
+      var slots = await res.json();
+      if (!Array.isArray(slots)) throw new Error('bad slots');
+      var open = slots.filter(function (s) { return s.available; });
+      var seen = {};
+      var html = '';
+      open.forEach(function (s) {
+        var t = hhmm(s.slot_time);
+        if (!t || seen[t]) return;
+        seen[t] = true;
+        html += '<option value="' + t + '"' + (t === keep ? ' selected' : '') + '>' + t + '</option>';
+      });
+      if (!seen[keep] && keep) {
+        html = '<option value="' + keep + '" selected>' + keep + ' (current)</option>' + html;
+        seen[keep] = true;
+      }
+      if (!html) {
+        timeEl.innerHTML = '<option value="">No times available</option>';
+        if (save) save.disabled = true;
+        if (hint) hint.textContent = 'No tables free on this date for that party size. Try another date or fewer guests.';
+        return;
+      }
+      timeEl.innerHTML = html;
+      if (save) save.disabled = false;
+    } catch (e) {
+      timeEl.innerHTML = '<option value="' + keep + '" selected>' + keep + '</option>';
+      if (save) save.disabled = false;
+    }
+  }
+
+  var dateEl = document.getElementById('modify-date');
+  var coversEl = document.getElementById('modify-covers');
+  if (dateEl) dateEl.addEventListener('change', refreshSlots);
+  if (coversEl) coversEl.addEventListener('change', refreshSlots);
+  <% if (it.error) { %>
+  var mf = document.getElementById('modify-form');
+  if (mf) mf.classList.add('open');
+  refreshSlots();
+  <% } %>
 </script>
 </body>
 </html>
