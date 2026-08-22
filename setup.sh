@@ -275,7 +275,17 @@ server {
   location / {
     root ${APP_DIR}/admin/dist;
     try_files \$uri \$uri/ /index.html;
-    expires 1h;
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
+    expires off;
+  }
+
+  # sw.js / workbox MUST revalidate. Caching them immutable froze
+  # operators on an old PWA build through hard refresh.
+  location ~* (?:^|/)(sw\\.js|registerSW\\.js|workbox-.*\\.js)\$ {
+    root ${APP_DIR}/admin/dist;
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
+    expires off;
+    etag on;
   }
 
   location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2)$ {

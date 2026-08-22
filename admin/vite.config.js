@@ -41,8 +41,14 @@ export default defineConfig({
         ],
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        // Do not precache index.html — a stale HTML shell is what made
+        // hard-refresh still boot the previous deploy.
+        globPatterns: ['**/*.{js,css,ico,png,svg,woff,woff2}'],
         navigateFallback: '/index.html',
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        navigateFallbackDenylist: [/^\/api/, /^\/manage/, /^\/reservations/, /^\/widget-api/, /^\/uploads/, /^\/ws/],
         runtimeCaching: [
           {
             // Never cache API or webhook calls — auth-protected and always dynamic
