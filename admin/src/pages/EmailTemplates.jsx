@@ -9,7 +9,6 @@ import {
   Mail, Eye, Save, RotateCcw, Plus, Trash2, Loader2, Check,
   Settings, Send, Clock, Shield, ChevronDown, Copy,
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
-  Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   AlignLeft, AlignCenter, AlignRight, Link2, Image as ImageIcon,
   Type, Heading1, Heading2, Minus, Code,
 } from 'lucide-react'
