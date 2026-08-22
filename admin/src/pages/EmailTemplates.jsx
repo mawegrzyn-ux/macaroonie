@@ -3,11 +3,12 @@
 // Admin page for customising booking email templates + venue email settings.
 // Route: /email-templates
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Mail, Eye, Save, RotateCcw, Plus, Trash2, Loader2, Check,
-  Settings, Send, Clock, Shield, ChevronDown,
+  Settings, Send, Clock, Shield, ChevronDown, Copy,
+  Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   Bold, Italic, Underline as UnderlineIcon, List, ListOrdered,
   AlignLeft, AlignCenter, AlignRight, Link2, Image as ImageIcon,
   Type, Heading1, Heading2, Minus, Code,
@@ -474,6 +475,107 @@ function ToolbarSep() {
 
 // ── Email settings ──────────────────────────────────────────
 
+function InboxLogoCard({ fromEmail }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const fileRef = useRef(null)
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState(null)
+
+  const { data: tenantSite } = useQuery({
+    queryKey: ['tenant-site'],
+    queryFn:  () => api.get('/website/tenant-site'),
+  })
+
+  const host = tenantSite?.custom_domain && tenantSite.custom_domain_verified
+    ? tenantSite.custom_domain
+    : tenantSite?.subdomain_slug
+      ? `${tenantSite.subdomain_slug}.macaroonie.com`
+      : null
+  const logoUrl = host ? `https://${host}/bimi.svg` : null
+  const fromDomain = (fromEmail || '').split('@')[1] || host || 'yourdomain.com'
+  const dnsValue = logoUrl ? `v=BIMI1; l=${logoUrl};` : ''
+
+  const save = useMutation({
+    mutationFn: (bimi_svg) => api.patch('/website/tenant-site', { bimi_svg }),
+    onSuccess: (row) => {
+      qc.setQueryData(['tenant-site'], row)
+      setError(null)
+    },
+    onError: (e) => setError(e?.body?.error || e.message || 'Upload failed'),
+  })
+
+  function onFile(file) {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => save.mutate(String(reader.result || ''))
+    reader.readAsText(file)
+  }
+
+  async function copyDns() {
+    if (!dnsValue) return
+    try {
+      await navigator.clipboard.writeText(dnsValue)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <SectionCard title="Inbox logo (BIMI)"
+      description="The picture next to your name in Gmail, Apple Mail, Yahoo and Fastmail. It is not set inside the email — mail clients look up a DNS record on the From domain.">
+      <ol className="list-decimal ml-5 space-y-1 text-xs text-muted-foreground">
+        <li>Authenticate the From domain (SPF + DKIM) and set DMARC to <code>p=quarantine</code> or <code>p=reject</code>.</li>
+        <li>Upload a square SVG logo (solid background, no photos, no transparency).</li>
+        <li>Add the TXT record below at your DNS host. Gmail and Apple Mail also need a Verified Mark Certificate (VMC) from DigiCert or Entrust — about £1k/year. Yahoo and Fastmail show the logo without one.</li>
+      </ol>
+
+      <div className="flex items-center gap-4">
+        <div className="w-16 h-16 rounded-md border bg-muted/40 overflow-hidden flex items-center justify-center shrink-0">
+          {tenantSite?.bimi_svg
+            ? <img src={`data:image/svg+xml;utf8,${encodeURIComponent(tenantSite.bimi_svg)}`} alt="" className="w-full h-full object-contain" />
+            : <Mail className="w-6 h-6 text-muted-foreground" />}
+        </div>
+        <div className="space-y-1.5">
+          <input ref={fileRef} type="file" accept=".svg,image/svg+xml" hidden
+            onChange={e => { onFile(e.target.files?.[0]); e.target.value = '' }} />
+          <button type="button" onClick={() => fileRef.current?.click()}
+            disabled={save.isPending}
+            className="inline-flex items-center gap-1.5 border rounded-md px-3 py-2 text-sm hover:bg-accent min-h-[40px]">
+            {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageIcon className="w-4 h-4" />}
+            {tenantSite?.bimi_svg ? 'Replace SVG' : 'Upload SVG'}
+          </button>
+          {tenantSite?.bimi_svg && (
+            <button type="button" onClick={() => save.mutate(null)}
+              className="block text-xs text-destructive hover:underline">Remove</button>
+          )}
+        </div>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+
+      {logoUrl && (
+        <FormRow label="Public logo URL">
+          <code className="text-xs break-all">{logoUrl}</code>
+        </FormRow>
+      )}
+
+      <FormRow label={`DNS TXT on ${fromDomain}`}
+        hint="Host name: default._bimi  — add this at the registrar for the From domain, not Macaroonie.">
+        <div className="flex items-start gap-2">
+          <pre className="flex-1 text-xs bg-muted/50 border rounded-md px-3 py-2 overflow-x-auto whitespace-pre-wrap break-all">
+            {dnsValue || 'Upload a logo and set From email first.'}
+          </pre>
+          <button type="button" onClick={copyDns} disabled={!dnsValue}
+            className="inline-flex items-center gap-1 border rounded-md px-2 py-2 text-xs hover:bg-accent min-h-[36px] shrink-0 disabled:opacity-40">
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      </FormRow>
+    </SectionCard>
+  )
+}
+
 function EmailSettings({ venueId }) {
   const api = useApi()
   const qc  = useQueryClient()
@@ -625,6 +727,8 @@ function EmailSettings({ venueId }) {
           <TextInput type="email" value={state.reply_to} onChange={set('reply_to')} />
         </FormRow>
       </SectionCard>
+
+      <InboxLogoCard fromEmail={state.from_email} />
 
       {/* Reminder */}
       <SectionCard title="Reminders">

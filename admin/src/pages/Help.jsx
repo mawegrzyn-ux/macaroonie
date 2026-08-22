@@ -1703,6 +1703,17 @@ export default function Help() {
                   Check your provider's domain authentication docs.
                 </p>
               </div>
+              <div className="space-y-1.5 border rounded-xl px-4 py-3">
+                <p className="text-sm font-semibold">Logo next to the sender in Gmail / Apple Mail</p>
+                <p className="text-sm text-muted-foreground">
+                  Inbox avatars use <strong>BIMI</strong>, not an image inside the email.
+                  Go to <strong>Emails → Settings → Inbox logo</strong>, upload a square SVG
+                  (solid background), then add the TXT record it shows at the DNS host for your
+                  From domain. You also need DMARC at <Mono>p=quarantine</Mono> or <Mono>p=reject</Mono>.
+                  Gmail and Apple Mail additionally require a Verified Mark Certificate (VMC)
+                  from DigiCert or Entrust. Yahoo and Fastmail show the logo without a VMC.
+                </p>
+              </div>
             </div>
           </section>
 
