@@ -273,7 +273,7 @@ export function OpeningHoursCanvas({ data, onChange, config }) {
           ) : hours.length === 0 ? (
             <EmptyPanel Icon={Clock} title="Opening hours"
               hint="No hours set yet."
-              where="Set in Opening hours section of this venue" />
+              where="Set on the Schedule page, or pick Manual in Opening hours" />
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 15 }}>
               <tbody>
