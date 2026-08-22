@@ -1,15 +1,20 @@
 // src/middleware/auth.js
 //
 // Validates Auth0 JWTs using JWKS.
-// Extracts tenant_id from the custom claim injected by an Auth0 Action.
+// Identity comes from the JWT (sub / email). The restaurant is chosen in
+// the app after login and sent as `X-Tenant-Id` — it is NOT required to
+// live in the token as an Auth0 Organization. Membership is checked via
+// list_memberships_for_identity() (migration 071).
 //
-// Auth0 Action (add to Login flow):
+// Auth0 Action (add to Login flow) — still recommended so the access
+// token carries email without a userinfo round-trip:
 // ─────────────────────────────────
 // exports.onExecutePostLogin = async (event, api) => {
 //   const ns = 'https://macaroonie.com/claims/'
 //   api.idToken.setCustomClaim(ns + 'tenant_id', event.organization?.id ?? null)
 //   api.accessToken.setCustomClaim(ns + 'tenant_id', event.organization?.id ?? null)
 //   api.accessToken.setCustomClaim(ns + 'role', event.user.app_metadata?.role ?? 'operator')
+//   api.accessToken.setCustomClaim(ns + 'email', event.user.email ?? null)
 // }
 //
 // The claim namespace matches AUTH0_CLAIM_NAMESPACE below.
@@ -19,8 +24,10 @@ import { createVerifier } from 'fast-jwt'   // fast-jwt ships with fastify/jwt, 
 import { env } from '../config/env.js'
 import { sql, withTenant } from '../config/db.js'
 import { resolvePermission } from '../config/modules.js'
+import { isMember } from '../services/membershipSvc.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
+const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const jwks = jwksClient({
   jwksUri: `https://${env.AUTH0_DOMAIN}/.well-known/jwks.json`,
@@ -39,16 +46,50 @@ const verify = createVerifier({
   },
 })
 
-// Role hierarchy — higher index = more privilege
-const ROLE_HIERARCHY = ['viewer', 'operator', 'admin', 'owner']
+function requestedTenantHeader(req) {
+  const raw = req.headers['x-tenant-id'] || req.headers['x-platform-tenant']
+  if (typeof raw !== 'string' || !UUID_RE.test(raw)) return null
+  return raw
+}
+
+// Access tokens often omit `email`. Cache userinfo lookups per sub so we
+// don't hit Auth0 on every API call after the first.
+const emailCache = new Map() // sub -> { email, exp }
+
+async function emailFromUserinfo(accessToken) {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), 2000)
+  try {
+    const res = await fetch(`https://${env.AUTH0_DOMAIN}/userinfo`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: ac.signal,
+    })
+    if (!res.ok) return null
+    const body = await res.json()
+    return body.email || null
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function resolveEmail(sub, tokenEmail, accessToken) {
+  if (tokenEmail) return tokenEmail
+  const hit = emailCache.get(sub)
+  if (hit && hit.exp > Date.now()) return hit.email
+  const email = await emailFromUserinfo(accessToken)
+  emailCache.set(sub, { email, exp: Date.now() + 5 * 60_000 })
+  return email
+}
 
 /**
  * Fastify preHandler — validates JWT, resolves tenant, attaches to request.
  *
  * Attaches:
  *   req.user            = { sub, email, role, isPlatformAdmin }
- *   req.tenantId        = uuid from our tenants table (null for platform admin without org)
- *   req.auth0OrgId      = Auth0 org ID (used to resolve tenant)
+ *   req.tenantId        = uuid from our tenants table (null until a restaurant is picked)
+ *   req.auth0OrgId      = Auth0 org ID if the token has one (invites / old sessions)
  *   req.isPlatformAdmin = true if the user is in platform_admins
  */
 export async function requireAuth(req, reply) {
@@ -65,15 +106,12 @@ export async function requireAuth(req, reply) {
 
     // Try the custom claim first (injected by Auth0 Login Action).
     // Fall back to the standard `org_id` claim that Auth0 always includes
-    // when a user logs in within an organisation — this means tenant
-    // resolution works even when the Login Action is not deployed.
+    // when a user logs in within an organisation — used for invite
+    // acceptance and as a fallback when no X-Tenant-Id header is sent.
     const auth0OrgId = payload[`${CLAIM_NS}tenant_id`] ?? payload.org_id ?? null
     const role       = payload[`${CLAIM_NS}role`] ?? 'operator'
     const auth0Sub   = payload.sub
-    // Auth0 access tokens (RS256, custom API audience) don't include `email`
-    // as a standard claim — it must be injected by the Login Action. Fall back
-    // to the standard claim in case a future Auth0 config change adds it back.
-    const email      = payload[`${CLAIM_NS}email`] ?? payload.email ?? null
+    let email        = payload[`${CLAIM_NS}email`] ?? payload.email ?? null
 
     // Check platform admin status (global — not tenant-scoped). 3s race timeout
     // so a stuck DB query can never produce ERR_EMPTY_RESPONSE upstream.
@@ -88,14 +126,36 @@ export async function requireAuth(req, reply) {
     ])
     const isPlatformAdmin = !!platformAdmin
 
-    // Platform admins may operate without an org (for tenant management).
-    // Normal users must always have an org claim.
-    if (!auth0OrgId && !isPlatformAdmin) {
-      return reply.code(401).send({ error: 'Token missing tenant claim — ensure user belongs to an organization' })
+    if (!email && auth0Sub && !isPlatformAdmin) {
+      email = await resolveEmail(auth0Sub, email, token)
     }
 
+    // Resolve restaurant:
+    //   1. X-Tenant-Id (or legacy X-Platform-Tenant) if the caller is a
+    //      member of that tenant — or a platform admin.
+    //   2. Else Auth0 org claim (invite links / leftover org sessions).
+    // A stale/foreign header is ignored rather than 401, so a leftover
+    // localStorage pick cannot bounce the user into a login loop.
     let tenantId = null
-    if (auth0OrgId) {
+    const requestedId = requestedTenantHeader(req)
+
+    if (requestedId) {
+      const [tenant] = await Promise.race([
+        sql`
+          SELECT id FROM tenants
+           WHERE id = ${requestedId} AND is_active = true
+           LIMIT 1
+        `,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('tenants lookup timeout')), 3000)),
+      ])
+      if (tenant && (isPlatformAdmin || await isMember(auth0Sub, email, tenant.id))) {
+        tenantId = tenant.id
+      } else if (tenant && !isPlatformAdmin) {
+        req.log.warn({ requestedId, sub: auth0Sub }, 'Ignoring X-Tenant-Id — not a member')
+      }
+    }
+
+    if (!tenantId && auth0OrgId) {
       const [tenant] = await Promise.race([
         sql`
           SELECT id FROM tenants
@@ -105,27 +165,9 @@ export async function requireAuth(req, reply) {
         `,
         new Promise((_, rej) => setTimeout(() => rej(new Error('tenants lookup timeout')), 3000)),
       ])
-      if (!tenant && !isPlatformAdmin) {
-        // Include the offending org id — the #1 cause is the user's Auth0
-        // membership pointing at the wrong org (e.g. invited to the platform
-        // org before the team.js getTenantAuth0OrgId fix). Surfacing the id
-        // makes this diagnosable from the browser network tab alone.
+      if (tenant) tenantId = tenant.id
+      else if (!isPlatformAdmin) {
         req.log.warn({ auth0OrgId, sub: auth0Sub }, 'Tenant lookup failed for org claim')
-        return reply.code(401).send({ error: `Tenant not found or inactive (org: ${auth0OrgId})` })
-      }
-      tenantId = tenant?.id ?? null
-    }
-
-    // Platform admin tenant override — allows a platform admin to work in a
-    // specific tenant without re-authenticating through that tenant's Auth0 org.
-    // Only honoured when the caller IS a platform admin and has no org claim.
-    if (isPlatformAdmin && !tenantId) {
-      const overrideId = req.headers['x-platform-tenant']
-      if (overrideId) {
-        const [overrideTenant] = await sql`
-          SELECT id FROM tenants WHERE id = ${overrideId} AND is_active = true LIMIT 1
-        `.catch(() => [null])
-        if (overrideTenant) tenantId = overrideTenant.id
       }
     }
 

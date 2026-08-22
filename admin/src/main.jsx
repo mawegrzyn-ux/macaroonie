@@ -6,6 +6,7 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import AppShell    from '@/components/layout/AppShell'
+import TenantGate  from '@/components/TenantGate'
 import { TimelineSettingsProvider } from '@/contexts/TimelineSettingsContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
 import Dashboard   from '@/pages/Dashboard'
@@ -47,28 +48,12 @@ const queryClient = new QueryClient({
   },
 })
 
-// Persisted so that after Auth0 redirects back from an invitation acceptance
-// (without the original ?invitation=...&organization=... params), the fallback
-// loginWithRedirect still scopes the login to the correct org.
-const ORG_HINT_KEY = 'maca_auth0_org_hint'
-
+// Invitation links still need the Auth0 organization param so the invite
+// can be accepted. Everyday login does NOT pass an organization — after
+// identity is established, TenantGate lets the user pick a restaurant.
 function RequireAuth({ children }) {
-  const { isAuthenticated, isLoading, loginWithRedirect, user } = useAuth0()
+  const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
 
-  // After every successful login, persist the org so future incognito /
-  // new-device sessions reuse it without needing a fresh invite link.
-  React.useEffect(() => {
-    if (isAuthenticated && user?.org_id) {
-      try { localStorage.setItem(ORG_HINT_KEY, user.org_id) } catch {}
-    }
-  }, [isAuthenticated, user?.org_id])
-
-  // Detect Auth0 organization invitation params on the current URL.
-  // When a user clicks the invitation email link Auth0 redirects them
-  // here with `?invitation=...&organization=...`. We must forward those
-  // to /authorize so the invitation is accepted; otherwise Auth0 just
-  // sees a non-member trying to log into the org and rejects with
-  // "user X is not part of org_Y".
   const params = new URLSearchParams(window.location.search)
   const invitation   = params.get('invitation')
   const organization = params.get('organization')
@@ -85,23 +70,12 @@ function RequireAuth({ children }) {
   // Handle invitation links even if a session already exists — the
   // invitation acceptance must run regardless of current auth state.
   if (hasInviteParams) {
-    // Persist so the fallback loginWithRedirect below uses this org if
-    // Auth0 comes back without establishing a session in the first trip.
-    try { localStorage.setItem(ORG_HINT_KEY, organization) } catch {}
     loginWithRedirect({ authorizationParams: { invitation, organization } })
     return null
   }
 
   if (!isAuthenticated) {
-    // Org hint is written on every successful login and cleared on logout.
-    // When present, log straight into that org. When absent (first visit,
-    // incognito, or after an intentional sign-out) pass NO organization so
-    // Auth0 prompts the user to select their tenant. We deliberately do NOT
-    // fall back to VITE_AUTH0_ORG_ID — that forced every fresh session into
-    // one fixed org (usually the platform org) and broke tenant users.
-    const orgHint =
-      (() => { try { return localStorage.getItem(ORG_HINT_KEY) } catch { return null } })()
-    loginWithRedirect(orgHint ? { authorizationParams: { organization: orgHint } } : {})
+    loginWithRedirect()
     return null
   }
   return children
@@ -122,9 +96,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         redirect_uri: window.location.origin,
         audience:     import.meta.env.VITE_AUTH0_AUDIENCE,
         scope:        'openid profile email',
-        // Do NOT set organization here — it would force ALL token refreshes
-        // (including tenant users) into the platform org. The loginWithRedirect
-        // call in RequireAuth handles org selection per-user via localStorage hint.
+        // Do NOT set organization here — login is identity-only. The restaurant
+        // is picked in TenantGate and sent as X-Tenant-Id. Invitation links
+        // still pass organization via loginWithRedirect in RequireAuth.
       }}
       useRefreshTokens
       cacheLocation="localstorage"
@@ -134,6 +108,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <TimelineSettingsProvider>
         <BrowserRouter>
           <RequireAuth>
+            <TenantGate>
             <Routes>
               <Route element={<AppShell />}>
                 <Route index          element={<Dashboard />} />
@@ -169,6 +144,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="settings"    element={<Settings />} />
               </Route>
             </Routes>
+            </TenantGate>
           </RequireAuth>
         </BrowserRouter>
         </TimelineSettingsProvider>

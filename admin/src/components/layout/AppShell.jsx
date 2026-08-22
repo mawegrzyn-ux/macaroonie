@@ -35,7 +35,7 @@ function MacaroonIcon({ className = 'w-5 h-5' }) {
   )
 }
 import { cn } from '@/lib/utils'
-import { useApi, setPlatformTenantOverride } from '@/lib/api'
+import { useApi, setSelectedTenant } from '@/lib/api'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings } from '@/contexts/SettingsContext'
 
@@ -107,9 +107,9 @@ export default function AppShell() {
   const { user, logout } = useAuth0()
   const location         = useLocation()
 
-  // Clear the persisted org hint on sign-out so the next login on this
-  // browser (possibly a different user) gets fresh org routing from Auth0
-  // instead of being forced into the previous user's org.
+  // Keep the restaurant pick across sign-out so the next login lands
+  // back in the same place. Clear only the leftover Auth0 org hint from
+  // the old org-scoped login flow.
   function handleLogout() {
     try { localStorage.removeItem('maca_auth0_org_hint') } catch {}
     logout({ logoutParams: { returnTo: window.location.origin } })
@@ -160,27 +160,11 @@ export default function AppShell() {
   const currentTenant     = me?.current_tenant
   const hasTenants        = availableTenants.length > 0
 
-  // Org switch
-  const { loginWithRedirect } = useAuth0()
+  // Tenant switch — in-app only. JWT is identity; X-Tenant-Id is the restaurant.
   function switchTenant(tenantId) {
     if (!tenantId) return
-    if (isPlatformAdmin) {
-      // Platform admins don't need to re-authenticate via Auth0 org —
-      // we store the chosen tenant in localStorage and inject it as a
-      // header (X-Platform-Tenant) on every API request.
-      // The API only honours this for verified platform admins.
-      setPlatformTenantOverride(tenantId)
-      window.location.reload()
-      return
-    }
-    const tenant = availableTenants.find(t => t.id === tenantId)
-    if (!tenant) return
-    loginWithRedirect({
-      authorizationParams: {
-        organization: tenant.auth0_org_id || undefined,
-        prompt: 'login',
-      },
-    })
+    setSelectedTenant(tenantId)
+    window.location.reload()
   }
 
   return (
