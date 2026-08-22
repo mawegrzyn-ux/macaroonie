@@ -28,6 +28,8 @@ import { env } from '../config/env.js'
 import {
   allocateBestFit,
   assertAllocationFree,
+  canWidgetDisplace,
+  tryDisplaceCombo,
 } from '../services/occupancySvc.js'
 
 const HoldBody = z.object({
@@ -450,22 +452,39 @@ export default async function widgetApiRoutes(app) {
         ORDER BY s.slot_time
       `
 
-      // Public widget: a slot is bookable only when sitting cap allows it
-      // AND a table or combo is actually free. Displacement candidates are
-      // operator-only (admin NewBookingModal) — offering them here made
-      // full times look open, then confirm 409'd when displace failed.
-      let available = rawSlots.map(s => {
+      // A slot is bookable when sitting cap allows it AND either a table/combo
+      // is free, or we can free a combo by moving unlocked bookings onto
+      // other tables (same engine as confirm). Dry-run only — no writes.
+      const available = []
+      for (const s of rawSlots) {
         const sittingOk = s.available === true || s.reason === 'available'
-        const freeTable = !!(s.table_id || s.combination_id)
-        return {
-          slot_time:        toLocalHHMM(s.slot_time),
-          available:        sittingOk && freeTable,
-          available_covers: s.available_covers,
-          table_id:         s.table_id ?? null,
-          combination_id:   s.table_id ? null : (s.combination_id ?? null),
-          reason:           sittingOk && !freeTable ? 'no_table' : s.reason,
+        let tableId       = s.table_id ?? null
+        let combinationId = tableId ? null : (s.combination_id ?? null)
+        let free          = !!(tableId || combinationId)
+        let reason        = sittingOk && !free ? 'no_table' : s.reason
+
+        if (sittingOk && !free) {
+          const windowEnd = new Date(new Date(s.slot_time).getTime() + windowMins * 60_000)
+          const plan = await canWidgetDisplace(tx, venue.id, covers, s.slot_time, windowEnd)
+          if (plan) {
+            combinationId = plan.combinationId
+            tableId       = null
+            free          = true
+            reason        = 'available'
+          }
         }
-      })
+
+        available.push({
+          slot_time:        toLocalHHMM(s.slot_time),
+          available:        sittingOk && free,
+          available_covers: s.available_covers,
+          table_id:         tableId,
+          combination_id:   combinationId,
+          reason,
+        })
+      }
+
+      let filtered = available
 
       // Doors-close filtering — same 3-level priority chain as the admin endpoint.
       if (!allowPastDoors) {
@@ -521,7 +540,7 @@ export default async function widgetApiRoutes(app) {
         }
 
         if (sittings.some(s => s.doors_close_time)) {
-          available = available.filter(slot => {
+          filtered = filtered.filter(slot => {
             const sitting = sittings.find(s => {
               const op = String(s.opens_at).slice(0, 5)
               const cl = String(s.closes_at).slice(0, 5)
@@ -533,7 +552,7 @@ export default async function widgetApiRoutes(app) {
         }
       }
 
-      return available
+      return filtered
     })
   })
 
@@ -578,13 +597,13 @@ export default async function widgetApiRoutes(app) {
         throw httpError(422, 'Booking cutoff has passed for this slot')
       }
 
-      // Auto-allocate: free table → free combo. Guests never displace.
+      // Auto-allocate: free table → free combo → move others to free a combo.
       const alloc = await allocateBestFit(tx, {
         venueId: venue.id,
         covers: body.covers,
         startsAt,
         windowEnd,
-        allowDisplace: false,
+        allowDisplace: true,
       })
       if (!alloc) {
         throw httpError(409, 'No tables available for this time — please suggest an alternative slot to the guest')
@@ -684,6 +703,7 @@ export default async function widgetApiRoutes(app) {
 
       let tableId          = body.table_id ?? null
       let combinationId    = body.combination_id ?? null
+      let displaced        = []
 
       if (tableId) {
         await assertAllocationFree(tx, {
@@ -709,7 +729,10 @@ export default async function widgetApiRoutes(app) {
           if (!firstMember) throw httpError(404, 'Combination not found or has no tables')
           tableId = firstMember.table_id
         } else {
-          throw httpError(409, 'No tables available for this time — please choose another slot')
+          const disp = await tryDisplaceCombo(tx, venue.id, combinationId, startsAt, windowEnd)
+          if (!disp) throw httpError(409, 'No tables available for this time — please choose another slot')
+          tableId   = disp.tableId
+          displaced = disp.displaced
         }
 
       } else {
@@ -718,11 +741,12 @@ export default async function widgetApiRoutes(app) {
           covers: body.covers,
           startsAt,
           windowEnd,
-          allowDisplace: false,
+          allowDisplace: true,
         })
         if (!alloc) throw httpError(409, 'No tables available for this time — please choose another slot')
         tableId       = alloc.tableId
         combinationId = alloc.combinationId
+        displaced     = alloc.displaced || []
       }
 
       if (!tableId) throw httpError(409, 'No tables available for this time — please choose another slot')
@@ -738,10 +762,11 @@ export default async function widgetApiRoutes(app) {
            ${expiresAt.toISOString()})
         RETURNING *
       `
-      return { hold: newHold }
+      return { hold: newHold, displaced }
     })
 
-    const { hold } = holdResult
+    const { hold, displaced } = holdResult
+    for (const row of displaced || []) broadcastBooking('booking.updated', row)
 
     return reply.code(201).send(hold)
   })
