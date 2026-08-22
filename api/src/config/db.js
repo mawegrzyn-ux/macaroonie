@@ -24,6 +24,11 @@ export const sql = postgres(env.DATABASE_URL, {
  * )
  */
 export async function withTenant(tenantId, fn) {
+  if (!tenantId) {
+    const err = new Error('No tenant selected')
+    err.statusCode = 400
+    throw err
+  }
   return sql.begin(async tx => {
     await tx`SELECT set_config('app.tenant_id', ${tenantId}, true)`
     return fn(tx)

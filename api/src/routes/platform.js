@@ -18,6 +18,7 @@ import {
   provisionTenantOrg,
 } from '../services/auth0MgmtSvc.js'
 import { MODULES, MODULE_KEYS, resolvePermission } from '../config/modules.js'
+import { listMemberships } from '../services/membershipSvc.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -111,7 +112,8 @@ export default async function platformRoutes(app) {
     }
 
     // Available tenants — for platform admins, all active tenants.
-    // For normal users, only tenants they're members of (via users table).
+    // For everyone else, every restaurant they have a users row in
+    // (matched by Auth0 sub and/or email). Bypasses RLS via 071.
     let availableTenants
     if (isPlatformAdmin) {
       availableTenants = await sql`
@@ -120,18 +122,7 @@ export default async function platformRoutes(app) {
          ORDER BY name
       `
     } else {
-      // Must use withTenant() — users has RLS. This returns the current tenant only,
-      // which is correct for single-tenant users.
-      availableTenants = req.tenantId
-        ? await withTenant(req.tenantId, tx => tx`
-            SELECT t.id, t.name, t.slug, t.plan, t.auth0_org_id, t.is_active, u.role
-              FROM users u
-              JOIN tenants t ON t.id = u.tenant_id AND t.is_active = true
-             WHERE u.auth0_user_id = ${sub}
-               AND u.is_active = true
-             ORDER BY t.name
-          `)
-        : []
+      availableTenants = await listMemberships(sub, email)
     }
 
     return {

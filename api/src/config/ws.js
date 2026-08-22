@@ -10,7 +10,9 @@
 
 import { WebSocketServer } from 'ws'
 import { sql } from './db.js'
-import { env } from './env.js'
+import { isMember } from '../services/membershipSvc.js'
+
+const CLAIM_NS = 'https://macaroonie.com/claims/'
 
 // Map<venueId, Set<WebSocket>>
 const rooms = new Map()
@@ -34,18 +36,26 @@ export function attachWss(httpServer, jwtVerify) {
       return
     }
 
-    // Verify JWT + resolve tenant
+    // Verify JWT + that this identity may see this venue's restaurant
     try {
       const payload = await jwtVerify(token)
+      const sub     = payload.sub
+      const email   = payload[`${CLAIM_NS}email`] ?? payload.email ?? null
 
-      // Verify tenant owns this venue
       const [venue] = await sql`
-        SELECT v.id FROM venues v
-          JOIN tenants t ON t.id = v.tenant_id
-         WHERE v.id = ${venueId}
-           AND t.auth0_org_id = ${payload['https://' + env.AUTH0_DOMAIN + '/claims/tenant_id']}
+        SELECT v.id, v.tenant_id FROM venues v WHERE v.id = ${venueId} LIMIT 1
       `
       if (!venue) { ws.close(4003, 'Forbidden'); return }
+
+      const [platformAdmin] = await sql`
+        SELECT id FROM platform_admins
+         WHERE auth0_user_id = ${sub} AND is_active = true
+         LIMIT 1
+      `
+      if (!platformAdmin) {
+        const member = await isMember(sub, email, venue.tenant_id)
+        if (!member) { ws.close(4003, 'Forbidden'); return }
+      }
 
     } catch {
       ws.close(4001, 'Invalid token')
@@ -78,12 +88,10 @@ export function attachWss(httpServer, jwtVerify) {
  * Safe to call even when no clients are connected.
  */
 export function broadcast(venueId, message) {
-  const room = rooms.get(venueId)
-  if (!room || room.size === 0) return
+  const clients = rooms.get(venueId)
+  if (!clients) return
   const payload = JSON.stringify(message)
-  for (const client of room) {
-    if (client.readyState === 1 /* OPEN */) {
-      client.send(payload)
-    }
+  for (const ws of clients) {
+    if (ws.readyState === ws.OPEN) ws.send(payload)
   }
 }

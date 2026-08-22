@@ -7,22 +7,37 @@ import { useCallback } from 'react'
 
 const BASE = '/api'
 
-// Platform admin tenant override — lets a platform admin work in a specific
-// tenant context without re-authenticating via Auth0 org.
-// Stored in localStorage; injected as X-Platform-Tenant header on every request.
-// The API only honours this header for requests from authenticated platform admins.
-const PLATFORM_TENANT_KEY = 'maca_platform_tenant'
+// Selected restaurant — identity is the Auth0 JWT, tenant is this pick.
+// Sent as X-Tenant-Id on every request. The API only honours it when the
+// caller is a member of that tenant (or a platform admin).
+const SELECTED_TENANT_KEY = 'maca_selected_tenant'
+const LEGACY_PLATFORM_KEY = 'maca_platform_tenant'
 
-export function getPlatformTenantOverride() {
-  try { return localStorage.getItem(PLATFORM_TENANT_KEY) ?? null } catch { return null }
+export function getSelectedTenant() {
+  try {
+    return localStorage.getItem(SELECTED_TENANT_KEY)
+      ?? localStorage.getItem(LEGACY_PLATFORM_KEY)
+      ?? null
+  } catch {
+    return null
+  }
 }
 
-export function setPlatformTenantOverride(id) {
+export function setSelectedTenant(id) {
   try {
-    if (id) localStorage.setItem(PLATFORM_TENANT_KEY, id)
-    else localStorage.removeItem(PLATFORM_TENANT_KEY)
+    if (id) {
+      localStorage.setItem(SELECTED_TENANT_KEY, id)
+      localStorage.removeItem(LEGACY_PLATFORM_KEY)
+    } else {
+      localStorage.removeItem(SELECTED_TENANT_KEY)
+      localStorage.removeItem(LEGACY_PLATFORM_KEY)
+    }
   } catch {}
 }
+
+// Back-compat aliases — older sidebar code used the platform-admin names.
+export function getPlatformTenantOverride() { return getSelectedTenant() }
+export function setPlatformTenantOverride(id) { setSelectedTenant(id) }
 
 class ApiError extends Error {
   constructor(status, body) {
@@ -32,16 +47,20 @@ class ApiError extends Error {
   }
 }
 
+function authHeaders(token, extra = {}) {
+  const tenantId = getSelectedTenant()
+  return {
+    'Authorization': `Bearer ${token}`,
+    ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
+    ...extra,
+  }
+}
+
 async function request(token, method, path, body) {
   const hasBody = body != null
-  const platformTenant = getPlatformTenantOverride()
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: {
-      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-      'Authorization': `Bearer ${token}`,
-      ...(platformTenant ? { 'X-Platform-Tenant': platformTenant } : {}),
-    },
+    headers: authHeaders(token, hasBody ? { 'Content-Type': 'application/json' } : {}),
     ...(hasBody ? { body: JSON.stringify(body) } : {}),
   })
 
@@ -62,7 +81,7 @@ export function useApi() {
   const download = useCallback(async (path, filename) => {
     const token = await getAccessTokenSilently()
     const res   = await fetch(`${BASE}${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(token),
     })
     if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null))
     const blob = await res.blob()
@@ -86,7 +105,7 @@ export function useApi() {
     }
     const res = await fetch(`${BASE}${path}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },   // do NOT set Content-Type; fetch handles the boundary
+      headers: authHeaders(token),   // do NOT set Content-Type; fetch handles the boundary
       body: fd,
     })
     const data = res.status !== 204 ? await res.json().catch(() => null) : null
