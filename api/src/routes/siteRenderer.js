@@ -111,7 +111,7 @@ export default async function siteRendererRoutes(app) {
 
   const renderSite = async (reply, view, data) => {
     const tpl = templateOf(data.config)
-    reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
+    reply.header('Cache-Control', 'public, max-age=0, must-revalidate')
     reply.header('X-Frame-Options', 'SAMEORIGIN')
     return reply.view(`site/templates/${tpl}/${view}.eta`, data)
   }

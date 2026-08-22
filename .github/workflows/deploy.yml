@@ -67,8 +67,10 @@ jobs:
             if sudo -n true 2>/dev/null; then
               sudo bash $APP/scripts/ensure-nginx-manage.sh \
                 || echo "WARN: nginx /manage patch failed (guest links on apex may still hit Auth0)"
+              sudo bash $APP/scripts/ensure-nginx-spa-cache.sh \
+                || echo "WARN: nginx SPA cache-header patch failed"
             else
-              echo "WARN: no passwordless sudo — skipped nginx /manage patch"
+              echo "WARN: no passwordless sudo — skipped nginx patches"
             fi
 
             echo "── health check ─────────────────────────"
