@@ -642,8 +642,18 @@ export function MenuInlineCanvas({ data, onChange }) {
                       {s.subtitle && <span style={{ fontSize: '0.78rem', fontWeight: 400, color: 'var(--c-muted)', fontStyle: 'italic' }}>{s.subtitle}</span>}
                     </h3>
                   )}
-                  {(s.items || []).map(item => (
+                  {(s.items || []).map(item => {
+                    const groups = item.variant_groups || []
+                    const adhoc  = item.variants || []
+                    const hasVar = adhoc.length > 0 || groups.some(g => g.options?.length)
+                    return (
                     <div key={item.id} style={{ padding: '10px 0', borderBottom: '1px dotted var(--c-border)' }}>
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        {item.image_url && (
+                          <img src={item.image_url} alt=""
+                            style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, flexShrink: 0, background: 'var(--c-surface)' }} />
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
                         <div>
                           <span style={{ fontFamily: 'var(--f-heading)', fontSize: '1rem', fontWeight: 500 }}>
@@ -667,7 +677,7 @@ export function MenuInlineCanvas({ data, onChange }) {
                             )
                           })}
                         </div>
-                        {!hidePrices && item.price_pence != null && (!item.variants || item.variants.length === 0) && (
+                        {!hidePrices && item.price_pence != null && !hasVar && (
                           <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
                             {formatPrice(item.price_pence)}
                           </span>
@@ -676,10 +686,37 @@ export function MenuInlineCanvas({ data, onChange }) {
                       {item.description && (
                         <p style={{ fontSize: '0.88rem', color: 'var(--c-muted)', margin: '4px 0 0', lineHeight: 1.45 }}>{item.description}</p>
                       )}
-                      {item.variants && item.variants.length > 0 && (
+                      {groups.map(g => (
+                        <div key={g.group_id || g.name}>
+                          {g.name && (
+                            <div style={{ fontSize: '0.72rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--c-muted)', marginTop: 8 }}>
+                              {g.name}
+                            </div>
+                          )}
+                          {g.options?.length > 0 && (
+                            !hidePrices ? (
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0 8px', marginTop: 2, fontSize: '0.88rem' }}>
+                                {g.options.map((v, i) => (
+                                  <div key={v.option_id || i} style={{ display: 'contents' }}>
+                                    <span>{v.label}</span>
+                                    <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+                                      {formatPrice(v.price_pence)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div style={{ marginTop: 2, fontSize: '0.88rem' }}>
+                                {g.options.map(v => v.label).join(' · ')}
+                              </div>
+                            )
+                          )}
+                        </div>
+                      ))}
+                      {adhoc.length > 0 && (
                         !hidePrices ? (
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '0 8px', marginTop: 6, fontSize: '0.88rem' }}>
-                            {item.variants.map((v, i) => (
+                            {adhoc.map((v, i) => (
                               <div key={i} style={{ display: 'contents' }}>
                                 <span>{v.label}</span>
                                 <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
@@ -690,12 +727,15 @@ export function MenuInlineCanvas({ data, onChange }) {
                           </div>
                         ) : (
                           <div style={{ marginTop: 6, fontSize: '0.88rem' }}>
-                            {item.variants.map(v => v.label).join(' · ')}
+                            {adhoc.map(v => v.label).join(' · ')}
                           </div>
                         )
                       )}
+                        </div>
+                      </div>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ))}
             </div>

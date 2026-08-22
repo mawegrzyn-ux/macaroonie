@@ -22,6 +22,7 @@
 //   3. website_config (when rendering a location, or the sole venue on home)
 
 import { sql, withTenant } from '../config/db.js'
+import { attachVariantGroupsToItems } from '../routes/menus.js'
 
 const BRAND_INHERITABLE = [
   'logo_url', 'favicon_url', 'primary_colour', 'secondary_colour',
@@ -359,7 +360,8 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
                SELECT json_agg(jsonb_build_object(
                  'id', i.id, 'name', i.name, 'native_name', i.native_name,
                  'description', i.description, 'price_pence', i.price_pence,
-                 'notes', i.notes, 'is_featured', i.is_featured, 'sort_order', i.sort_order,
+                 'notes', i.notes, 'is_featured', i.is_featured, 'image_url', i.image_url,
+                 'sort_order', i.sort_order,
                  'variants', COALESCE((
                    SELECT json_agg(jsonb_build_object('label', v.label, 'price_pence', v.price_pence) ORDER BY v.sort_order)
                      FROM menu_item_variants v WHERE v.item_id = i.id
@@ -381,6 +383,8 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
     const byMenu = {}
     for (const m of menus) byMenu[m.id] = { ...m, sections: [] }
     for (const s of sections) byMenu[s.menu_id]?.sections.push(s)
+    const allItems = sections.flatMap(s => s.items || [])
+    await attachVariantGroupsToItems(tx, allItems)
     return byMenu
   })
 }

@@ -101,47 +101,76 @@ function _keepItem(item) {
               </h3>
             <% } %>
             <% _mitems.forEach(function(item){ %>
+              <% const _groups = item.variant_groups || [] %>
+              <% const _adhoc  = item.variants || [] %>
+              <% const _hasVar = (_adhoc.length > 0) || _groups.some(function(g){ return g.options && g.options.length }) %>
               <div style="padding:10px 0; border-bottom:1px dotted var(--c-border);">
-                <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
-                  <div>
-                    <span style="font-family:var(--f-heading); font-size:1rem; font-weight:500; color:var(--c-text);">
-                      <%= item.name %>
-                    </span>
-                    <% if (item.native_name) { %>
-                      <span style="font-style:italic; font-weight:300; color:var(--c-muted); font-size:0.85rem; margin-left:6px;"><%= item.native_name %></span>
-                    <% } %>
-                    <% const _diet = item.dietary || [] %>
-                    <% _diet.forEach(function(code){ %>
-                      <% const tag = tagsByCode[code] %>
-                      <% if (tag) { %>
-                        <span style="display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; padding:0 4px; border-radius:3px; color:#fff; font-size:9px; font-weight:700; margin-left:3px; background:<%= tag.colour %>;" title="<%= tag.label %>">
-                          <%= tag.glyph %>
+                <div style="display:flex; gap:10px; align-items:flex-start;">
+                  <% if (item.image_url) { %>
+                    <img src="<%= item.image_url %>" alt=""
+                         style="width:52px; height:52px; object-fit:cover; border-radius:8px; flex-shrink:0; background:var(--c-surface);" />
+                  <% } %>
+                  <div style="flex:1; min-width:0;">
+                    <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
+                      <div>
+                        <span style="font-family:var(--f-heading); font-size:1rem; font-weight:500; color:var(--c-text);">
+                          <%= item.name %>
+                        </span>
+                        <% if (item.native_name) { %>
+                          <span style="font-style:italic; font-weight:300; color:var(--c-muted); font-size:0.85rem; margin-left:6px;"><%= item.native_name %></span>
+                        <% } %>
+                        <% const _diet = item.dietary || [] %>
+                        <% _diet.forEach(function(code){ %>
+                          <% const tag = tagsByCode[code] %>
+                          <% if (tag) { %>
+                            <span style="display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; padding:0 4px; border-radius:3px; color:#fff; font-size:9px; font-weight:700; margin-left:3px; background:<%= tag.colour %>;" title="<%= tag.label %>">
+                              <%= tag.glyph %>
+                            </span>
+                          <% } %>
+                        <% }) %>
+                      </div>
+                      <% if (!_hidePrices && item.price_pence != null && !_hasVar) { %>
+                        <span style="font-family:var(--f-heading); color:var(--c-primary); font-weight:500; font-variant-numeric:tabular-nums; white-space:nowrap;">
+                          <%= fmtPrice(item.price_pence) %>
                         </span>
                       <% } %>
+                    </div>
+                    <% if (item.description) { %>
+                      <p style="font-size:0.88rem; color:var(--c-muted); margin:4px 0 0; line-height:1.45;"><%= item.description %></p>
+                    <% } %>
+                    <% _groups.forEach(function(g){ %>
+                      <% if (g.name) { %>
+                        <div style="font-size:0.72rem; letter-spacing:0.06em; text-transform:uppercase; color:var(--c-muted); margin-top:8px;"><%= g.name %></div>
+                      <% } %>
+                      <% if (!_hidePrices && g.options && g.options.length) { %>
+                        <div style="display:grid; grid-template-columns:1fr auto; gap:0 8px; margin-top:2px; font-size:0.88rem;">
+                          <% g.options.forEach(function(v){ %>
+                            <span style="color:var(--c-text);"><%= v.label %></span>
+                            <span style="font-family:var(--f-heading); color:var(--c-primary); font-variant-numeric:tabular-nums; text-align:right;"><%= fmtPrice(v.price_pence) %></span>
+                          <% }) %>
+                        </div>
+                      <% } else if (g.options && g.options.length) { %>
+                        <div style="margin-top:2px; font-size:0.88rem; color:var(--c-text);">
+                          <%= g.options.map(function(v){ return v.label }).join(' · ') %>
+                        </div>
+                      <% } %>
                     <% }) %>
+                    <% if (_adhoc.length) { %>
+                      <% if (!_hidePrices) { %>
+                        <div style="display:grid; grid-template-columns:1fr auto; gap:0 8px; margin-top:6px; font-size:0.88rem;">
+                          <% _adhoc.forEach(function(v){ %>
+                            <span style="color:var(--c-text);"><%= v.label %></span>
+                            <span style="font-family:var(--f-heading); color:var(--c-primary); font-variant-numeric:tabular-nums; text-align:right;"><%= fmtPrice(v.price_pence) %></span>
+                          <% }) %>
+                        </div>
+                      <% } else { %>
+                        <div style="margin-top:6px; font-size:0.88rem; color:var(--c-text);">
+                          <%= _adhoc.map(function(v){ return v.label }).join(' · ') %>
+                        </div>
+                      <% } %>
+                    <% } %>
                   </div>
-                  <% if (!_hidePrices && item.price_pence != null && (!item.variants || item.variants.length === 0)) { %>
-                    <span style="font-family:var(--f-heading); color:var(--c-primary); font-weight:500; font-variant-numeric:tabular-nums; white-space:nowrap;">
-                      <%= fmtPrice(item.price_pence) %>
-                    </span>
-                  <% } %>
                 </div>
-                <% if (item.description) { %>
-                  <p style="font-size:0.88rem; color:var(--c-muted); margin:4px 0 0; line-height:1.45;"><%= item.description %></p>
-                <% } %>
-                <% if (!_hidePrices && item.variants && item.variants.length) { %>
-                  <div style="display:grid; grid-template-columns:1fr auto; gap:0 8px; margin-top:6px; font-size:0.88rem;">
-                    <% item.variants.forEach(function(v){ %>
-                      <span style="color:var(--c-text);"><%= v.label %></span>
-                      <span style="font-family:var(--f-heading); color:var(--c-primary); font-variant-numeric:tabular-nums; text-align:right;"><%= fmtPrice(v.price_pence) %></span>
-                    <% }) %>
-                  </div>
-                <% } else if (item.variants && item.variants.length) { %>
-                  <div style="margin-top:6px; font-size:0.88rem; color:var(--c-text);">
-                    <% const _vlabels = item.variants.map(function(v){ return v.label }).join(' · ') %>
-                    <%= _vlabels %>
-                  </div>
-                <% } %>
               </div>
             <% }) %>
           </div>

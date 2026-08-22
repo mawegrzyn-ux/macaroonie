@@ -26,19 +26,30 @@ const VariantBody = z.object({
   sort_order:  z.number().int().default(0),
 })
 
+const ItemGroupAttach = z.object({
+  group_id:   z.string().uuid(),
+  sort_order: z.number().int().default(0),
+  overrides:  z.array(z.object({
+    option_id:    z.string().uuid(),
+    price_pence:  z.number().int().min(0),
+  })).default([]),
+})
+
 const ItemBody = z.object({
-  id:          z.string().uuid().optional(),
-  name:        z.string().min(1).max(200),
-  native_name: z.string().max(200).nullable().optional(),
-  description: z.string().nullable().optional(),
-  price_pence: z.number().int().min(0).nullable().optional(),
-  notes:       z.string().max(200).nullable().optional(),
-  is_featured: z.boolean().default(false),
-  sort_order:  z.number().int().default(0),
-  variants:    z.array(VariantBody).default([]),
+  id:             z.string().uuid().optional(),
+  name:           z.string().min(1).max(200),
+  native_name:    z.string().max(200).nullable().optional(),
+  description:    z.string().nullable().optional(),
+  price_pence:    z.number().int().min(0).nullable().optional(),
+  notes:          z.string().max(200).nullable().optional(),
+  is_featured:    z.boolean().default(false),
+  image_url:      z.string().max(2000).nullable().optional(),
+  sort_order:     z.number().int().default(0),
+  variants:       z.array(VariantBody).default([]),
+  variant_groups: z.array(ItemGroupAttach).default([]),
   // M:N to dietary tags — array of dietary tag CODES (e.g. ['gf', 'spicy'])
   // resolved to ids server-side.
-  dietary:     z.array(z.string().max(32)).default([]),
+  dietary:        z.array(z.string().max(32)).default([]),
 })
 
 const SectionBody = z.object({
@@ -83,7 +94,77 @@ const DietaryBody = z.object({
   sort_order: z.number().int().default(0),
 })
 
+const VariantOptionBody = z.object({
+  id:          z.string().uuid().optional(),
+  label:       z.string().min(1).max(60),
+  price_pence: z.number().int().min(0).default(0),
+  sort_order:  z.number().int().default(0),
+})
+
+const VariantGroupBody = z.object({
+  name:       z.string().min(1).max(80),
+  sort_order: z.number().int().default(0),
+  options:    z.array(VariantOptionBody).default([]),
+})
+
 // ── Loaders ──────────────────────────────────────────────────
+
+/** Attach resolved variant groups (with effective prices) onto item objects. */
+export async function attachVariantGroupsToItems(tx, items) {
+  const ids = (items || []).map(i => i.id).filter(Boolean)
+  if (!ids.length) return items
+  const rows = await tx`
+    SELECT ig.item_id, ig.group_id, ig.sort_order AS group_sort,
+           g.name AS group_name,
+           o.id AS option_id, o.label, o.price_pence AS default_pence,
+           o.sort_order AS option_sort,
+           p.price_pence AS override_pence
+      FROM menu_item_variant_groups ig
+      JOIN menu_variant_groups g ON g.id = ig.group_id
+      JOIN menu_variant_options o ON o.group_id = g.id
+      LEFT JOIN menu_item_variant_prices p
+             ON p.item_id = ig.item_id AND p.option_id = o.id
+     WHERE ig.item_id = ANY(${ids}::uuid[])
+     ORDER BY ig.sort_order, o.sort_order, o.label
+  `
+  const byItem = {}
+  for (const r of rows) {
+    const list = (byItem[r.item_id] ||= [])
+    let g = list.find(x => x.group_id === r.group_id)
+    if (!g) {
+      g = { group_id: r.group_id, name: r.group_name, sort_order: r.group_sort, options: [] }
+      list.push(g)
+    }
+    const overridden = r.override_pence != null
+    g.options.push({
+      option_id:     r.option_id,
+      label:         r.label,
+      default_pence: r.default_pence,
+      price_pence:   overridden ? r.override_pence : r.default_pence,
+      overridden,
+    })
+  }
+  for (const item of items) {
+    item.variant_groups = byItem[item.id] || []
+  }
+  return items
+}
+
+async function loadVariantGroups(tx, tenantId) {
+  const groups = await tx`
+    SELECT g.*,
+           COALESCE(json_agg(jsonb_build_object(
+             'id', o.id, 'label', o.label,
+             'price_pence', o.price_pence, 'sort_order', o.sort_order
+           ) ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]'::json) AS options
+      FROM menu_variant_groups g
+      LEFT JOIN menu_variant_options o ON o.group_id = g.id
+     WHERE g.tenant_id = ${tenantId}
+     GROUP BY g.id
+     ORDER BY g.sort_order, g.name
+  `
+  return groups
+}
 
 async function loadMenuFull(tx, menuId, tenantId) {
   const [menu] = await tx`
@@ -97,7 +178,8 @@ async function loadMenuFull(tx, menuId, tenantId) {
              COALESCE(json_agg(DISTINCT jsonb_build_object(
                'id', i.id, 'name', i.name, 'native_name', i.native_name,
                'description', i.description, 'price_pence', i.price_pence,
-               'notes', i.notes, 'is_featured', i.is_featured, 'sort_order', i.sort_order,
+               'notes', i.notes, 'is_featured', i.is_featured, 'image_url', i.image_url,
+               'sort_order', i.sort_order,
                'variants', COALESCE((
                  SELECT json_agg(jsonb_build_object('id', v.id, 'label', v.label, 'price_pence', v.price_pence, 'sort_order', v.sort_order) ORDER BY v.sort_order)
                    FROM menu_item_variants v WHERE v.item_id = i.id
@@ -133,6 +215,8 @@ async function loadMenuFull(tx, menuId, tenantId) {
     }
   }
 
+  await attachVariantGroupsToItems(tx, sections.flatMap(s => s.items || []))
+
   return {
     ...menu,
     sections,
@@ -165,19 +249,37 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
     `
     for (const [ii, item] of (section.items || []).entries()) {
       const [it] = await tx`
-        INSERT INTO menu_items (section_id, tenant_id, name, native_name, description, price_pence, notes, is_featured, sort_order)
+        INSERT INTO menu_items (section_id, tenant_id, name, native_name, description, price_pence, notes, is_featured, image_url, sort_order)
         VALUES (${s.id}, ${tenantId}, ${item.name},
                 ${item.native_name ?? null}, ${item.description ?? null},
                 ${item.price_pence ?? null}, ${item.notes ?? null},
-                ${item.is_featured ?? false}, ${item.sort_order ?? ii})
+                ${item.is_featured ?? false}, ${item.image_url ?? null},
+                ${item.sort_order ?? ii})
         RETURNING id
       `
-      // Variants
+      // Variants (ad-hoc, per-item)
       for (const [vi, variant] of (item.variants || []).entries()) {
         await tx`
           INSERT INTO menu_item_variants (item_id, tenant_id, label, price_pence, sort_order)
           VALUES (${it.id}, ${tenantId}, ${variant.label}, ${variant.price_pence}, ${variant.sort_order ?? vi})
         `
+      }
+      // Attached variant groups + optional price overrides
+      for (const [gi, g] of (item.variant_groups || []).entries()) {
+        if (!g?.group_id) continue
+        await tx`
+          INSERT INTO menu_item_variant_groups (item_id, group_id, tenant_id, sort_order)
+          VALUES (${it.id}, ${g.group_id}, ${tenantId}, ${g.sort_order ?? gi})
+          ON CONFLICT DO NOTHING
+        `
+        for (const ov of (g.overrides || [])) {
+          if (!ov?.option_id || ov.price_pence == null) continue
+          await tx`
+            INSERT INTO menu_item_variant_prices (item_id, option_id, tenant_id, price_pence)
+            VALUES (${it.id}, ${ov.option_id}, ${tenantId}, ${ov.price_pence})
+            ON CONFLICT (item_id, option_id) DO UPDATE SET price_pence = EXCLUDED.price_pence
+          `
+        }
       }
       // Dietary tag links
       for (const code of (item.dietary || [])) {
@@ -313,6 +415,7 @@ export default async function menusRoutes(app) {
   })
 
   app.get('/:id', async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
     const data = await withTenant(req.tenantId, tx => loadMenuFull(tx, req.params.id, req.tenantId))
     if (!data) throw httpError(404, 'Menu not found')
     return data
@@ -403,6 +506,90 @@ export default async function menusRoutes(app) {
       RETURNING id
     `)
     if (!row) throw httpError(404, 'Dietary tag not found')
+    return { ok: true }
+  })
+
+  // ════════════════════════════════════════════════════════════
+  //   VARIANT GROUPS — tenant-wide reusable option sets
+  // ════════════════════════════════════════════════════════════
+
+  app.get('/variant-groups', async (req) => {
+    return withTenant(req.tenantId, tx => loadVariantGroups(tx, req.tenantId))
+  })
+
+  app.post('/variant-groups', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const body = VariantGroupBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const [g] = await tx`
+        INSERT INTO menu_variant_groups (tenant_id, name, sort_order)
+        VALUES (${req.tenantId}, ${body.name}, ${body.sort_order})
+        RETURNING *
+      `
+      const options = []
+      for (const [i, o] of (body.options || []).entries()) {
+        const [opt] = await tx`
+          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order)
+          VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${o.sort_order ?? i})
+          RETURNING *
+        `
+        options.push(opt)
+      }
+      return { ...g, options }
+    })
+    return reply.code(201).send(row)
+  })
+
+  app.patch('/variant-groups/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = VariantGroupBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      const [g] = await tx`
+        UPDATE menu_variant_groups
+           SET name = ${body.name}, sort_order = ${body.sort_order}, updated_at = now()
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+         RETURNING *
+      `
+      if (!g) throw httpError(404, 'Variant group not found')
+
+      const keepIds = []
+      const options = []
+      for (const [i, o] of (body.options || []).entries()) {
+        if (o.id) {
+          const [opt] = await tx`
+            UPDATE menu_variant_options
+               SET label = ${o.label}, price_pence = ${o.price_pence}, sort_order = ${i}
+             WHERE id = ${o.id} AND group_id = ${g.id} AND tenant_id = ${req.tenantId}
+             RETURNING *
+          `
+          if (opt) { keepIds.push(opt.id); options.push(opt) }
+        } else {
+          const [opt] = await tx`
+            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order)
+            VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${i})
+            RETURNING *
+          `
+          keepIds.push(opt.id)
+          options.push(opt)
+        }
+      }
+      if (keepIds.length) {
+        await tx`
+          DELETE FROM menu_variant_options
+           WHERE group_id = ${g.id} AND tenant_id = ${req.tenantId}
+             AND NOT (id = ANY(${keepIds}::uuid[]))
+        `
+      } else {
+        await tx`DELETE FROM menu_variant_options WHERE group_id = ${g.id} AND tenant_id = ${req.tenantId}`
+      }
+      return { ...g, options }
+    })
+  })
+
+  app.delete('/variant-groups/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM menu_variant_groups WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      RETURNING id
+    `)
+    if (!row) throw httpError(404, 'Variant group not found')
     return { ok: true }
   })
 
