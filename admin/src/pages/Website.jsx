@@ -2278,11 +2278,11 @@ const WEEK = [
 function HoursSection({ config }) {
   const api = useApi()
   const qc  = useQueryClient()
-  const source = config?.opening_hours_source || 'manual'
+  const source = config?.opening_hours_source || 'venue'
   const { data = [], isLoading } = useQuery({
-    queryKey: ['website-hours', config?.venue_id],
+    queryKey: ['website-hours', config?.venue_id, source],
     queryFn:  () => api.get(`/website/opening-hours?venue_id=${config.venue_id}`),
-    enabled:  source === 'manual' && !!config?.venue_id,
+    enabled:  !!config?.venue_id,
   })
 
   const setSource = useMutation({
@@ -2353,7 +2353,7 @@ function HoursSection({ config }) {
     }))
   }
 
-  if (isLoading && source === 'manual') {
+  if (isLoading) {
     return <div className="flex items-center justify-center py-8 text-muted-foreground">
       <Loader2 className="w-5 h-5 animate-spin" />
     </div>
@@ -2393,13 +2393,14 @@ function HoursSection({ config }) {
           </p>
           <div className="border rounded-md divide-y bg-background">
             {WEEK.map(d => {
-              const sessions = state[d.i] || []
-              const open  = sessions.find(s => !s.is_closed)
+              const sessions = (data || []).filter(h => Number(h.day_of_week) === d.i && !h.is_closed)
               return (
                 <div key={d.i} className="flex justify-between items-center px-4 py-2 text-sm">
                   <span className="font-medium">{d.name}</span>
-                  <span className="text-muted-foreground">
-                    {open ? `${open.opens_at} – ${open.closes_at}` : 'Closed'}
+                  <span className="text-muted-foreground text-right">
+                    {sessions.length
+                      ? sessions.map(s => `${(s.opens_at || '').slice(0, 5)} – ${(s.closes_at || '').slice(0, 5)}${s.label ? ` (${s.label})` : ''}`).join(', ')
+                      : 'Closed'}
                   </span>
                 </div>
               )

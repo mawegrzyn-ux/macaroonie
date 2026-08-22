@@ -18,6 +18,7 @@ import { env }    from '../config/env.js'
 import { getStorage } from '../services/storageSvc.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+import { loadOpeningHours } from '../services/siteDataSvc.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -840,13 +841,10 @@ export default async function websiteRoutes(app) {
   // ── Opening hours (bulk upsert) ─────────────────────────
 
   app.get('/opening-hours', async (req) => withTenant(req.tenantId, async tx => {
-    const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
-    if (!cfg) return []
-    return tx`
-      SELECT * FROM website_opening_hours
-       WHERE website_config_id = ${cfg.id}
-       ORDER BY day_of_week, sort_order
-    `
+    const venueId = req.query.venue_id
+    if (!venueId) return []
+    const cfg = await ensureVenueConfig(tx, req.tenantId, venueId)
+    return loadOpeningHours(tx, venueId, cfg)
   }))
 
   app.post('/opening-hours', { preHandler: requireRole('admin', 'owner') }, async (req) => {

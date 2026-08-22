@@ -6,7 +6,7 @@ import { ExternalLink } from 'lucide-react'
 
 const SOURCE_HINT = {
   gallery:        'Manage images on the dedicated Gallery section. Layout style + size are set there too.',
-  opening_hours:  'Manage hours on the Opening hours section. Toggle between manual and venue-derived there.',
+  opening_hours:  'Hours come from the venue Schedule by default. Switch to Manual on the Opening hours section if the website should advertise different times.',
   find_us:        'Address + map embed live in the Find us section.',
   contact:        'Phone, email, social links live in the Contact section.',
   reservations_widget: 'Pick which venue\'s widget to embed in the Reservations widget section.',

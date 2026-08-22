@@ -523,7 +523,7 @@ function ColumnDropZone({ containerId, isEmpty, children }) {
 
 const DATA_BLOCK_LABELS = {
   gallery:        { title: 'Gallery',          hint: 'Pulls from images uploaded in the Gallery section.' },
-  opening_hours:  { title: 'Opening hours',    hint: 'Pulls from manual hours or your venue schedule.' },
+  opening_hours:  { title: 'Opening hours',    hint: 'Pulled from your venue schedule. Switch to Manual in Opening hours if needed.' },
   find_us:        { title: 'Find us',          hint: 'Pulls from address + map fields in Find us.' },
   contact:        { title: 'Contact',          hint: 'Pulls from phone, email, and social links.' },
   reservations_widget: { title: 'Reservations widget', hint: 'Embeds the live reservations widget for this venue.' },

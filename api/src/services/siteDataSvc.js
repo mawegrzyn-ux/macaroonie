@@ -127,36 +127,53 @@ async function resolveTenantSite(lookup, { includeUnpublished = false } = {}) {
   return row
 }
 
+function toHhmm(t) {
+  if (t == null) return null
+  return String(t).slice(0, 5)
+}
+
+/** Weekly hours from the venue sitting schedule — one row per sitting. */
+async function loadHoursFromSchedule(tx, venueId) {
+  if (!venueId) return []
+  const sittingRows = await tx`
+    SELECT t.day_of_week, t.is_open,
+           s.opens_at, s.closes_at, s.name, s.sort_order
+      FROM venue_schedule_templates t
+      LEFT JOIN venue_sittings s ON s.template_id = t.id
+     WHERE t.venue_id = ${venueId}
+     ORDER BY t.day_of_week, s.sort_order, s.opens_at
+  `
+  return sittingRows.map(r => ({
+    day_of_week: Number(r.day_of_week),
+    opens_at:    toHhmm(r.opens_at),
+    closes_at:   toHhmm(r.closes_at),
+    is_closed:   !r.is_open || !r.opens_at || !r.closes_at,
+    label:       r.name || null,
+    sort_order:  r.sort_order ?? 0,
+  }))
+}
+
 /** Manual hours rows, or derived from the venue sitting schedule. */
-async function loadOpeningHours(tx, venueId, venueConfig) {
-  if (venueConfig?.opening_hours_source === 'venue') {
-    const sittingRows = await tx`
-      SELECT t.day_of_week, t.is_open,
-             MIN(s.opens_at)  AS opens_at,
-             MAX(s.closes_at) AS closes_at
-        FROM venue_schedule_templates t
-        LEFT JOIN venue_sittings s ON s.template_id = t.id
-       WHERE t.venue_id = ${venueId}
-       GROUP BY t.day_of_week, t.is_open
-       ORDER BY t.day_of_week
+export async function loadOpeningHours(tx, venueId, venueConfig) {
+  if (venueConfig?.opening_hours_source === 'manual' && venueConfig?.id) {
+    const rows = await tx`
+      SELECT day_of_week, opens_at, closes_at, is_closed, label, sort_order
+        FROM website_opening_hours
+       WHERE website_config_id = ${venueConfig.id}
+       ORDER BY day_of_week, sort_order
     `
-    return sittingRows.map(r => ({
-      day_of_week: r.day_of_week,
-      opens_at:    r.opens_at  ? r.opens_at.slice(0, 5)  : null,
-      closes_at:   r.closes_at ? r.closes_at.slice(0, 5) : null,
-      is_closed:   !r.is_open || !r.opens_at || !r.closes_at,
-      label:       null,
-      sort_order:  0,
+    return rows.map(r => ({
+      day_of_week: Number(r.day_of_week),
+      opens_at:    toHhmm(r.opens_at),
+      closes_at:   toHhmm(r.closes_at),
+      is_closed:   !!r.is_closed,
+      label:       r.label || null,
+      sort_order:  r.sort_order ?? 0,
     }))
   }
-  if (!venueConfig?.id) return []
-  return tx`
-    SELECT day_of_week, opens_at, closes_at, is_closed, label, sort_order
-      FROM website_opening_hours
-     WHERE website_config_id = ${venueConfig.id}
-     ORDER BY day_of_week, sort_order
-  `
+  return loadHoursFromSchedule(tx, venueId)
 }
+
 
 /**
  * Per-venue public extras (hours, PDF menus, allergens, address config).
