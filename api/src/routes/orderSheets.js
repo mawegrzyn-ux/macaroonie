@@ -372,7 +372,7 @@ export default async function orderSheetsRoutes(app) {
   app.delete('/templates/bulk', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
     await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheet_templates WHERE id = ANY(${ids})
+      DELETE FROM order_sheet_templates WHERE id = ANY(${ids}::uuid[])
     `)
     return { ok: true, deleted: ids.length }
   })
@@ -413,7 +413,7 @@ export default async function orderSheetsRoutes(app) {
     const { id } = req.params
     const { ids } = BulkItemIdsBody.parse(req.body)
     await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheet_items WHERE id = ANY(${ids}) AND template_id = ${id}
+      DELETE FROM order_sheet_items WHERE id = ANY(${ids}::uuid[]) AND template_id = ${id}
     `)
     return { ok: true }
   })
@@ -426,7 +426,7 @@ export default async function orderSheetsRoutes(app) {
     await withTenant(req.tenantId, tx => tx`
       UPDATE order_sheet_items
       SET category_id = ${category_id ?? null}
-      WHERE id = ANY(${ids}) AND template_id = ${id}
+      WHERE id = ANY(${ids}::uuid[]) AND template_id = ${id}
     `)
     return { ok: true }
   })
