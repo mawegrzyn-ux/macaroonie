@@ -28,6 +28,7 @@ export function BlockShell({
   canMoveDown = true,
   children,
   label,
+  anchorId,
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: blockId })
 
@@ -47,6 +48,7 @@ export function BlockShell({
   return (
     <div
       ref={setNodeRef}
+      id={anchorId || undefined}
       style={wrapperStyle}
       data-selected={selected ? 'true' : 'false'}
       className="pcf-block group"

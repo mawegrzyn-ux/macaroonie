@@ -3,7 +3,16 @@
 // Receives `it.block`, `it.config`, `it.venue`, `it.gallery`, `it.menus`,
 // `it.opening_hours`, `it.allergens`, `it.tenant_site`, `it.venues`, `it.pages`.
 const t = it.block.type
+const d = it.block.data || {}
+const _rawAnchor = String((d && d.anchor_id) || '').replace(/^#/, '')
+const _cleanAnchor = _rawAnchor.replace(/[^A-Za-z0-9_-]/g, '-').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+const _fallbackAnchor = t === 'reservations_widget' ? 'reservations'
+  : t === 'opening_hours' ? 'hours'
+  : t === 'find_us' ? 'find-us'
+  : ''
+const _aid = _cleanAnchor || _fallbackAnchor
 %>
+<% if (_aid) { %><div id="<%= _aid %>" class="block-anchor" style="scroll-margin-top: 5.5rem;"><% } %>
 <% if (t === 'header') { %>
   <%~ include('./header', it) %>
 <% } else if (t === 'footer') { %>
@@ -49,3 +58,4 @@ const t = it.block.type
 <% } else if (t === 'columns') { %>
   <%~ include('./columns', it) %>
 <% } %>
+<% if (_aid) { %></div><% } %>

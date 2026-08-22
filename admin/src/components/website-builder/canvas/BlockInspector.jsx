@@ -11,6 +11,7 @@ import { useEffect } from 'react'
 import { X } from 'lucide-react'
 import {
   BLOCK_BY_KEY, CONTAINER_OPTIONS, NO_CONTAINER_BLOCKS, DEFAULT_CONTAINER,
+  sanitizeAnchorId, ANCHOR_FALLBACK,
 } from '../blockRegistry'
 import { FormRow } from '../shared'
 
@@ -31,6 +32,12 @@ export function BlockInspector({ block, onChange, onClose, onJumpTo }) {
   function setContainer(v) {
     onChange({ ...block, data: { ...block.data, container: v } })
   }
+
+  function setAnchor(raw) {
+    onChange({ ...block, data: { ...block.data, anchor_id: sanitizeAnchorId(raw) } })
+  }
+
+  const fallbackAnchor = ANCHOR_FALLBACK[block.type] || ''
 
   return (
     <aside className="border-l bg-background flex flex-col w-[340px] shrink-0 max-h-[calc(100vh-180px)] sticky top-0">
@@ -63,6 +70,23 @@ export function BlockInspector({ block, onChange, onClose, onJumpTo }) {
             </FormRow>
           </section>
         )}
+
+        <section>
+          {!showContainer && (
+            <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide mb-2">Layout</p>
+          )}
+          <FormRow label="Anchor ID"
+            hint={fallbackAnchor
+              ? `Link here with #${fallbackAnchor} (default) or a custom id. Header buttons use this.`
+              : 'Link to this block with e.g. #menu. Used by header nav, hero buttons, and in-page links.'}>
+            <input
+              value={block.data?.anchor_id || ''}
+              onChange={e => setAnchor(e.target.value)}
+              placeholder={fallbackAnchor || 'e.g. menu'}
+              className="w-full text-sm border rounded-md px-2 py-1.5 font-mono min-h-[36px]"
+            />
+          </FormRow>
+        </section>
 
         {Editor ? (
           <section>

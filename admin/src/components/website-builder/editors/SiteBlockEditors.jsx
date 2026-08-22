@@ -1165,6 +1165,22 @@ export function ReservationsWidgetEditor({ data, onChange, config }) {
               }}
               placeholder="e.g. book-now" />
           </FormRow>
+          <FormRow label="Anchor ID"
+            hint='Lets you link to this block from anywhere with e.g. <a href="#book-now">. Blank = "reservations".'>
+            <Input
+              value={data.anchor_id}
+              onChange={v => {
+                // Strip a leading '#' so paste from CSS / link text works,
+                // and constrain to safe URL-fragment chars.
+                const clean = String(v || '')
+                  .replace(/^#/, '')
+                  .replace(/[^A-Za-z0-9_-]/g, '-')
+                  .replace(/-{2,}/g, '-')
+                  .slice(0, 60)
+                set('anchor_id')(clean)
+              }}
+              placeholder="e.g. book-now" />
+          </FormRow>
           <FormRow label="Target venue"
             hint="Leave blank to use the page's venue (location pages) or the tenant default.">
             <Select value={data.venue_id || ''} onChange={v => set('venue_id')(v || null)}>

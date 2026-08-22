@@ -503,10 +503,32 @@ export const BLOCKS = [
 
 export const BLOCK_BY_KEY = Object.fromEntries(BLOCKS.map(b => [b.key, b]))
 
+/** HTML id used for in-page links (`#menu`). Empty unless the operator set one,
+ *  except a few blocks that already shipped with a well-known fallback. */
+export const ANCHOR_FALLBACK = {
+  reservations_widget: 'reservations',
+  opening_hours:       'hours',
+  find_us:             'find-us',
+}
+
+export function sanitizeAnchorId(raw) {
+  return String(raw || '')
+    .replace(/^#/, '')
+    .replace(/[^A-Za-z0-9_-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+}
+
+export function resolveBlockAnchor(type, data) {
+  return sanitizeAnchorId(data?.anchor_id) || ANCHOR_FALLBACK[type] || ''
+}
+
 export function newBlock(key) {
   const def = BLOCK_BY_KEY[key]
   if (!def) throw new Error(`Unknown block type: ${key}`)
   const data = structuredClone(def.defaultData)
+  if (!('anchor_id' in data)) data.anchor_id = ''
   // Container blocks need their child columns to get fresh ids too.
   if (def.isContainer && Array.isArray(data.columns)) {
     data.columns = data.columns.map(c => ({ ...c, id: crypto.randomUUID() }))

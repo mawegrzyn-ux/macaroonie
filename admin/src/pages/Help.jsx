@@ -1213,7 +1213,7 @@ export default function Help() {
                 ['Contact',          'Phone, email, Instagram, Facebook, X, TikTok, YouTube.'],
                 ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
                 ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
-                ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours, anchor ID.'],
+                ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours. Every block also has an Anchor ID in the inspector for in-page links.'],
                 ['Custom pages',     'Standalone pages (e.g. Private Dining). Each appears at /p/{slug}.'],
                 ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
                 ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
