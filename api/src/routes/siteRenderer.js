@@ -109,6 +109,26 @@ export default async function siteRendererRoutes(app) {
     req.siteHost = resolveSiteHost(req.hostname || req.headers.host)
   })
 
+  async function serveBimi(req, reply) {
+    if (!req.siteHost) return reply.callNotFound()
+    const { slug, customDomain } = req.siteHost
+    const [row] = slug
+      ? await sql`SELECT bimi_svg FROM tenant_site WHERE subdomain_slug = ${slug} LIMIT 1`
+      : await sql`SELECT bimi_svg FROM tenant_site WHERE lower(custom_domain) = ${customDomain} AND custom_domain_verified = true LIMIT 1`
+    if (!row?.bimi_svg) {
+      reply.code(404).type('text/plain')
+      return 'Not found'
+    }
+    reply
+      .header('Content-Type', 'image/svg+xml; charset=utf-8')
+      .header('Cache-Control', 'public, max-age=3600')
+      .header('Access-Control-Allow-Origin', '*')
+    return row.bimi_svg
+  }
+
+  app.get('/bimi.svg', serveBimi)
+  app.get('/.well-known/bimi.svg', serveBimi)
+
   const renderSite = async (reply, view, data) => {
     const tpl = templateOf(data.config)
     reply.header('Cache-Control', 'public, max-age=0, must-revalidate')

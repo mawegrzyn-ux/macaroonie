@@ -18,6 +18,7 @@ import { env }    from '../config/env.js'
 import { getStorage } from '../services/storageSvc.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+import { normalizeBimiSvg } from '../services/bimiSvg.js'
 import { loadOpeningHours } from '../services/siteDataSvc.js'
 
 // ── Schemas ──────────────────────────────────────────────────
@@ -103,6 +104,7 @@ const TenantSiteBody = z.object({
   tagline:          z.string().max(300).nullable().optional(),
   logo_url:         z.string().nullable().optional(),
   favicon_url:      z.string().nullable().optional(),
+  bimi_svg:         z.string().max(65536).nullable().optional(),
   primary_colour:   z.string().regex(HEX_COLOUR).optional(),
   secondary_colour: z.string().regex(HEX_COLOUR).nullable().optional(),
   font_family:      z.string().max(100).optional(),
@@ -425,6 +427,13 @@ export default async function websiteRoutes(app) {
   app.patch('/tenant-site', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const body = TenantSiteBody.parse(req.body)
     if ('custom_domain' in body) body.custom_domain_verified = false
+    if ('bimi_svg' in body) {
+      try {
+        body.bimi_svg = normalizeBimiSvg(body.bimi_svg)
+      } catch (e) {
+        throw httpError(e.statusCode || 422, e.message)
+      }
+    }
 
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
