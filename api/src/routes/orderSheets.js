@@ -49,6 +49,7 @@ const ItemPatch = z.object({
   price:       z.number().positive().nullable().optional(),
   sort_order:  z.number().int().optional(),
   category_id: z.string().uuid().nullable().optional(),
+  is_active:   z.boolean().optional(),
 })
 
 const ItemOrderBody = z.object({
@@ -118,6 +119,45 @@ async function resolveCategoryName(tenantId, categoryId) {
     SELECT name FROM order_sheet_categories WHERE id = ${categoryId}
   `)
   return cat?.name ?? null
+}
+
+// order_sheet_order_items.item_id and order_sheets.template_id are both
+// ON DELETE RESTRICT — deleting an item/template with real order history
+// would 500 (FK 23503). Archive (is_active = false) instead of deleting
+// whichever of `ids` actually have history; hard-delete the rest.
+
+async function deleteOrArchiveItems(tx, templateId, ids) {
+  const referenced = await tx`
+    SELECT DISTINCT item_id FROM order_sheet_order_items WHERE item_id = ANY(${ids}::uuid[])
+  `
+  const hasHistory = new Set(referenced.map(r => r.item_id))
+  const toArchive  = ids.filter(itemId => hasHistory.has(itemId))
+  const toDelete   = ids.filter(itemId => !hasHistory.has(itemId))
+
+  if (toDelete.length > 0) {
+    await tx`DELETE FROM order_sheet_items WHERE id = ANY(${toDelete}::uuid[]) AND template_id = ${templateId}`
+  }
+  if (toArchive.length > 0) {
+    await tx`UPDATE order_sheet_items SET is_active = false WHERE id = ANY(${toArchive}::uuid[]) AND template_id = ${templateId}`
+  }
+  return { deleted: toDelete.length, archived: toArchive.length }
+}
+
+async function deleteOrArchiveTemplates(tx, ids) {
+  const referenced = await tx`
+    SELECT DISTINCT template_id FROM order_sheets WHERE template_id = ANY(${ids}::uuid[])
+  `
+  const hasHistory = new Set(referenced.map(r => r.template_id))
+  const toArchive  = ids.filter(tid => hasHistory.has(tid))
+  const toDelete   = ids.filter(tid => !hasHistory.has(tid))
+
+  if (toDelete.length > 0) {
+    await tx`DELETE FROM order_sheet_templates WHERE id = ANY(${toDelete}::uuid[])`
+  }
+  if (toArchive.length > 0) {
+    await tx`UPDATE order_sheet_templates SET is_active = false, updated_at = now() WHERE id = ANY(${toArchive}::uuid[])`
+  }
+  return { deleted: toDelete.length, archived: toArchive.length }
 }
 
 // ── Plugin ────────────────────────────────────────────────────
@@ -196,7 +236,7 @@ export default async function orderSheetsRoutes(app) {
           array_agg(DISTINCT tv.venue_id) FILTER (WHERE tv.venue_id IS NOT NULL),
           '{}'
         ) AS venue_ids,
-        COUNT(DISTINCT i.id)::int AS item_count
+        COUNT(DISTINCT i.id) FILTER (WHERE i.is_active)::int AS item_count
       FROM order_sheet_templates t
       LEFT JOIN order_sheet_template_venues tv ON tv.template_id = t.id
       LEFT JOIN order_sheet_items i ON i.template_id = t.id
@@ -253,7 +293,7 @@ export default async function orderSheetsRoutes(app) {
       FROM order_sheet_items i
       LEFT JOIN order_sheet_categories c ON c.id = i.category_id
       LEFT JOIN order_sheet_suggested_qty sq ON sq.item_id = i.id
-      WHERE i.template_id = ${id}
+      WHERE i.template_id = ${id} AND i.is_active = true
       GROUP BY i.id, c.name, c.sort_order
       ORDER BY COALESCE(c.sort_order, 999999), i.sort_order, i.created_at
     `)
@@ -369,21 +409,19 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── DELETE /templates/bulk ────────────────────────────────────
+  // Templates with real order history are archived (is_active = false)
+  // instead of deleted — order_sheets.template_id is ON DELETE RESTRICT.
   app.delete('/templates/bulk', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
-    await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheet_templates WHERE id = ANY(${ids}::uuid[])
-    `)
-    return { ok: true, deleted: ids.length }
+    const result = await withTenant(req.tenantId, tx => deleteOrArchiveTemplates(tx, ids))
+    return { ok: true, ...result }
   })
 
   // ── DELETE /templates/:id ───────────────────────────────────
   app.delete('/templates/:id', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
-    await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheet_templates WHERE id = ${id}
-    `)
-    return { ok: true }
+    const result = await withTenant(req.tenantId, tx => deleteOrArchiveTemplates(tx, [id]))
+    return { ok: true, archived: result.archived > 0 }
   })
 
   // ── PUT /templates/:id/venues ───────────────────────────────
@@ -409,13 +447,13 @@ export default async function orderSheetsRoutes(app) {
 
   // ── DELETE /templates/:id/items/bulk ───────────────────────
   // (registered before /:itemId so static "bulk" takes routing priority)
+  // Items with real order history are archived (is_active = false) instead
+  // of deleted — order_sheet_order_items.item_id is ON DELETE RESTRICT.
   app.delete('/templates/:id/items/bulk', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { ids } = BulkItemIdsBody.parse(req.body)
-    await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheet_items WHERE id = ANY(${ids}::uuid[]) AND template_id = ${id}
-    `)
-    return { ok: true }
+    const result = await withTenant(req.tenantId, tx => deleteOrArchiveItems(tx, id, ids))
+    return { ok: true, ...result }
   })
 
   // ── PATCH /templates/:id/items/bulk-category ───────────────
@@ -479,10 +517,8 @@ export default async function orderSheetsRoutes(app) {
   // ── DELETE /templates/:id/items/:itemId ─────────────────────
   app.delete('/templates/:id/items/:itemId', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id, itemId } = req.params
-    await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheet_items WHERE id = ${itemId} AND template_id = ${id}
-    `)
-    return { ok: true }
+    const result = await withTenant(req.tenantId, tx => deleteOrArchiveItems(tx, id, [itemId]))
+    return { ok: true, archived: result.archived > 0 }
   })
 
   // ── PATCH /templates/:id/item-order ─────────────────────────
@@ -605,6 +641,7 @@ export default async function orderSheetsRoutes(app) {
       LEFT JOIN order_sheet_order_items oi ON oi.order_id = ${id} AND oi.item_id = i.id
       LEFT JOIN order_sheet_suggested_qty sq ON sq.item_id = i.id AND sq.venue_id = ${order.venue_id}
       WHERE i.template_id = ${order.template_id}
+        AND (i.is_active = true OR oi.id IS NOT NULL)
       ORDER BY COALESCE(c.sort_order, 999999), i.sort_order, i.created_at
     `)
 
