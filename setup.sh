@@ -299,6 +299,20 @@ server {
     proxy_buffering    off;
   }
 
+  # Guest booking manage page (email "modify / cancel" links).
+  # Same ^~ trap as /reservations — without it, location / serves the
+  # admin SPA and guests get bounced to Auth0.
+  location ^~ /manage {
+    limit_req zone=widget_limit burst=20 nodelay;
+    proxy_pass         http://booking_api;
+    proxy_http_version 1.1;
+    proxy_set_header   Host \$host;
+    proxy_set_header   X-Real-IP \$remote_addr;
+    proxy_set_header   X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-Proto \$scheme;
+    proxy_read_timeout 60s;
+    proxy_buffering    off;
+  }
   # Reservations widget iframe + widget public API. The page-builder canvas
   # embeds the real /reservations/{id} iframe so what operators see in the
   # editor matches the live site exactly. ^~ defeats the file-extension
