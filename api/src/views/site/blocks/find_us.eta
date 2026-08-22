@@ -7,7 +7,7 @@ const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
 %>
-<section class="block" style="padding:48px 0; background:var(--c-surface);">
+<section class="block" id="find-us" style="padding:48px 0; background:var(--c-surface);">
   <div style="<%= containerStyle %>">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:stretch;">

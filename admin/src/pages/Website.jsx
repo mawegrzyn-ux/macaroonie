@@ -474,7 +474,7 @@ function TenantLocationsSection({ tenantSite }) {
   return (
     <div className="space-y-5">
       <SectionCard title="Locations index"
-        description="The /locations page lists every venue. Hide it for single-location tenants.">
+        description="The /locations page lists every venue. Hidden automatically when you only have one location (visitors go straight to that page). Toggle this for multi-location tenants who still want to skip the index.">
         <FormRow label="Heading">
           <TextInput value={heading} onChange={e => setHeading(e.target.value)}
             placeholder="Our locations" />
@@ -487,7 +487,7 @@ function TenantLocationsSection({ tenantSite }) {
           <div className="flex-1">
             <p className="text-sm font-medium">Hide /locations index</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Useful for single-venue tenants. Visitors going to /locations get a 404.
+              Multi-venue only. Single-venue sites already skip the picker — Menu and Locations links go to the one restaurant.
             </p>
           </div>
           <Toggle value={hide} onChange={setHide} label="Hide locations index" />
@@ -1386,9 +1386,9 @@ function useConfigFields(config, fields) {
       for (const [k, v] of Object.entries(values)) {
         body[k] = v === '' ? null : v
       }
-      return api.patch('/website/config', body)
+      return api.patch(`/website/config?venue_id=${config.venue_id}`, body)
     },
-    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+    onSuccess: (cfg) => qc.setQueryData(['website-config', config.venue_id], cfg),
   })
 
   const set = (k) => (v) =>
@@ -2280,14 +2280,14 @@ function HoursSection({ config }) {
   const qc  = useQueryClient()
   const source = config?.opening_hours_source || 'manual'
   const { data = [], isLoading } = useQuery({
-    queryKey: ['website-hours'],
-    queryFn:  () => api.get('/website/opening-hours'),
-    enabled:  source === 'manual',
+    queryKey: ['website-hours', config?.venue_id],
+    queryFn:  () => api.get(`/website/opening-hours?venue_id=${config.venue_id}`),
+    enabled:  source === 'manual' && !!config?.venue_id,
   })
 
   const setSource = useMutation({
-    mutationFn: (next) => api.patch('/website/config', { opening_hours_source: next }),
-    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+    mutationFn: (next) => api.patch(`/website/config?venue_id=${config.venue_id}`, { opening_hours_source: next }),
+    onSuccess: (cfg) => qc.setQueryData(['website-config', config.venue_id], cfg),
   })
 
   // Group rows by day_of_week so UI is per-day with N sessions each.
@@ -2329,9 +2329,9 @@ function HoursSection({ config }) {
           })
         }
       }
-      return api.post('/website/opening-hours', rows)
+      return api.post(`/website/opening-hours?venue_id=${config.venue_id}`, rows)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-hours'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-hours', config.venue_id] }),
   })
 
   function updateSession(dayI, sessionI, next) {

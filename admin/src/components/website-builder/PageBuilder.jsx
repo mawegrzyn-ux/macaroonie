@@ -6,7 +6,7 @@
 // recursive node renderer (./canvas/BlockNode).
 
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext, closestCorners, PointerSensor, TouchSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
@@ -56,6 +56,31 @@ export function PageBuilder({
   const api = useApi()
   const qc  = useQueryClient()
   const effectiveTenantSite = tenantSite || (blocksField === 'home_blocks' ? config : null)
+
+  // Sole-venue home: merge that venue's website_config into the canvas
+  // so hours / find-us / contact / PDF menus preview the live data instead
+  // of "add this to a location page".
+  const soleVenue = (blocksField === 'home_blocks' && venues.length === 1) ? venues[0] : null
+  const { data: soleVenueConfig } = useQuery({
+    queryKey: ['website-config', soleVenue?.id],
+    queryFn:  () => api.get(`/website/config?venue_id=${soleVenue.id}`),
+    enabled:  !!soleVenue?.id,
+    staleTime: 30_000,
+  })
+  const canvasConfig = useMemo(() => {
+    if (config?.venue_id) return config
+    if (!soleVenue) return config
+    return {
+      ...(config || {}),
+      ...(soleVenueConfig || {}),
+      home_blocks:    config?.home_blocks,
+      subdomain_slug: config?.subdomain_slug,
+      custom_domain:  config?.custom_domain,
+      is_published:   config?.is_published,
+      tenant_id:      config?.tenant_id,
+      venue_id:       soleVenue.id,
+    }
+  }, [config, soleVenue, soleVenueConfig])
 
   const initial = useMemo(() => Array.isArray(config?.[blocksField]) ? config[blocksField] : [], [config, blocksField])
   const [blocks, setBlocks] = useState(initial)
@@ -237,7 +262,7 @@ export function PageBuilder({
     onMove:          move,
     onOpenInspector: (id) => { setSelectedId(id); setInspectorOpen(true) },
     onAddInColumn:   addInColumn,
-    config,
+    config: canvasConfig,
   }
 
   // The current style pack — picked via "Templates" button. Drives the

@@ -80,10 +80,9 @@ export const BLOCKS = [
       show_logo: true,
       sticky:    true,
       links: [
-        { label: 'Locations', url: '/locations' },
-        { label: 'Menu',      url: '/menu' },
+        { label: 'Menu', url: '/menu' },
       ],
-      cta: { show: true, text: 'Book a Table', url: '/locations' },
+      cta: { show: true, text: 'Book a Table', url: '#reservations' },
       // Mobile-only visibility flags (≤ mobile_breakpoint px)
       mobile_show_logo:     true,
       mobile_show_brand:    true,
@@ -328,7 +327,7 @@ export const BLOCKS = [
     category:    'content',
     defaultData: {
       heading: 'Hungry?', subheading: '',
-      cta_text: 'Book a table', cta_link: '#booking',
+      cta_text: 'Book a table', cta_link: '#reservations',
       bg_style: 'primary',        // primary | accent | dark | light
       container: 'boxed',
     },
@@ -549,7 +548,7 @@ export const PAGE_TEMPLATES = [
     description: 'Warm, traditional layout. Hero, story, gallery, menu PDFs, opening hours, contact.',
     style_pack:  'classic',
     blocks: [
-      { type: 'hero',          data: { heading: 'Welcome', subheading: 'Seasonal food, served all day.', cta_text: 'Book a table', cta_link: '#booking', height: 'large' } },
+      { type: 'hero',          data: { heading: 'Welcome', subheading: 'Seasonal food, served all day.', cta_text: 'Book a table', cta_link: '#reservations', height: 'large' } },
       { type: 'text',          data: { html: '<h2>Our story</h2><p>Tell your guests what makes you different. Keep it warm, keep it short.</p>', max_width: 'narrow' } },
       { type: 'gallery',       data: { heading: 'Gallery' } },
       { type: 'menu_pdfs',     data: { heading: 'Menus' } },
@@ -563,9 +562,9 @@ export const PAGE_TEMPLATES = [
     description: 'Editorial, full-bleed hero, transparent header. Two-column about, CTA strip, booking widget.',
     style_pack:  'modern',
     blocks: [
-      { type: 'hero',           data: { heading: 'Tonight, well-fed.', subheading: 'Modern bistro in the heart of town.', cta_text: 'Reserve →', cta_link: '#booking', height: 'medium', align: 'left' } },
+      { type: 'hero',           data: { heading: 'Tonight, well-fed.', subheading: 'Modern bistro in the heart of town.', cta_text: 'Reserve →', cta_link: '#reservations', height: 'medium', align: 'left' } },
       { type: 'story_with_stamp', data: { heading: 'A small kitchen, big ambitions.', body_html: '<p>Family-run since the 90s, serving honest food in a modern setting.</p>', stamp_show: false, image_side: 'right', image_url: null, container: 'boxed' } },
-      { type: 'cta_strip',      data: { heading: 'Bring the team.', subheading: 'Group bookings up to 30 — book online or call us.', cta_text: 'Make a reservation', cta_link: '#booking', bg_style: 'primary' } },
+      { type: 'cta_strip',      data: { heading: 'Bring the team.', subheading: 'Group bookings up to 30 — book online or call us.', cta_text: 'Make a reservation', cta_link: '#reservations', bg_style: 'primary' } },
       { type: 'gallery',        data: { heading: 'In the kitchen' } },
       { type: 'reservations_widget', data: { heading: 'Book a table' } },
       { type: 'find_us',        data: { heading: 'Find us' } },
@@ -613,11 +612,10 @@ export const PAGE_TEMPLATES = [
       { type: 'header',           data: {
         brand_text: '', brand_subtitle: '', show_logo: true, sticky: true,
         links: [
-          { label: 'Locations', url: '/locations' },
-          { label: 'Menu',      url: '/menu' },
-          { label: 'Visit',     url: '#find-us' },
+          { label: 'Menu',  url: '/menu' },
+          { label: 'Visit', url: '#find-us' },
         ],
-        cta: { show: true, text: 'Book a Table', url: '#booking' },
+        cta: { show: true, text: 'Book a Table', url: '#reservations' },
       }},
       { type: 'hero',             data: {
         bg_style: 'transparent',
@@ -630,7 +628,7 @@ export const PAGE_TEMPLATES = [
         heading_html: 'A small Thai cafe<br />with <em>very loyal</em> regulars.',
         subheading: 'Tucked away in our neighbourhood, cooking the dishes we grew up on for years.',
         ctas: [
-          { text: 'Book a table',  link: '#booking', style: 'primary' },
+          { text: 'Book a table',  link: '#reservations', style: 'primary' },
           { text: 'See the menu',  link: '#menu',    style: 'secondary' },
         ],
         height: 'large', align: 'center', container: 'boxed',
