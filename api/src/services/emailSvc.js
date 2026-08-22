@@ -35,6 +35,12 @@ async function sendViaSendGrid({ credentials, from, to, replyTo, subject, html }
     from: { email: from.email, name: from.name },
     subject,
     content: [{ type: 'text/html', value: html }],
+    // Booking emails must not wrap {{manage_link}} in a click-tracking
+    // redirect (http://urlNNNN.brand.com/ls/click?upn=…). Those branded
+    // tracking hosts are often HTTP-only and trip "not a secure domain".
+    tracking_settings: {
+      click_tracking: { enable: false, enable_text: false },
+    },
   }
   if (replyTo) body.reply_to = { email: replyTo }
 
