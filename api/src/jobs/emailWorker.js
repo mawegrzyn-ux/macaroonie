@@ -21,13 +21,26 @@ import { env }             from '../config/env.js'
 import { sendEmail, renderTemplate, buildMergeFields } from '../services/emailSvc.js'
 import { DEFAULT_TEMPLATES } from '../services/emailTemplateDefaults.js'
 
+function guestManageOrigin(site) {
+  const scheme = env.PUBLIC_SITE_SCHEME
+  const root   = env.PUBLIC_ROOT_DOMAIN
+  // Prefer the tenant's public site: *.macaroonie.com (and verified custom
+  // domains) are fully proxied to Fastify, so /manage/:token works there
+  // even if the apex nginx still serves the admin SPA at /.
+  if (site?.custom_domain && site.custom_domain_verified) {
+    return `${scheme}://${site.custom_domain}`
+  }
+  if (site?.subdomain_slug) {
+    return `${scheme}://${site.subdomain_slug}.${root}`
+  }
+  return `${scheme}://${root}`
+}
+
 export async function processEmailJob(job) {
   const { bookingId, tenantId, venueId, type, manageBaseUrl } = job.data
   if (!bookingId || !tenantId || !type) {
     throw new Error('Email job missing required fields: bookingId, tenantId, type')
   }
-
-  const baseUrl = manageBaseUrl || `${env.PUBLIC_SITE_SCHEME}://${env.PUBLIC_ROOT_DOMAIN}`
 
   // 1. Load data inside tenant context
   const data = await withTenant(tenantId, async tx => {
@@ -69,7 +82,14 @@ export async function processEmailJob(job) {
          AND tenant_id = ${tenantId}
     `
 
-    return { booking, venue, customer, tpl, settings }
+    const [site] = await tx`
+      SELECT subdomain_slug, custom_domain, custom_domain_verified
+        FROM tenant_site
+       WHERE tenant_id = ${tenantId}
+       LIMIT 1
+    `
+
+    return { booking, venue, customer, tpl, settings, site }
   })
 
   if (!data?.booking) {
@@ -77,7 +97,8 @@ export async function processEmailJob(job) {
     return { status: 'skipped', reason: 'booking_not_found' }
   }
 
-  const { booking, venue, customer, tpl, settings } = data
+  const { booking, venue, customer, tpl, settings, site } = data
+  const baseUrl = manageBaseUrl || guestManageOrigin(site)
 
   // Skip if no email address
   const recipientEmail = job.data.guestEmail || customer?.email || booking.guest_email

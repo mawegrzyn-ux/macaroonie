@@ -211,12 +211,11 @@ export default async function manageBookingRoutes(app) {
     try {
       const { notificationQueue } = await import('../jobs/queues.js')
       await notificationQueue.add('booking_email', {
-        bookingId:     booking.id,
-        tenantId:      booking.t_tenant_id,
-        venueId:       booking.t_venue_id,
-        type:          'modification',
-        guestEmail:    booking.guest_email,
-        manageBaseUrl: `${env.PUBLIC_SITE_SCHEME}://${env.PUBLIC_ROOT_DOMAIN}`,
+        bookingId:  booking.id,
+        tenantId:   booking.t_tenant_id,
+        venueId:    booking.t_venue_id,
+        type:       'modification',
+        guestEmail: booking.guest_email,
       })
     } catch { /* best-effort */ }
 
@@ -240,11 +239,11 @@ export default async function manageBookingRoutes(app) {
     try {
       const { notificationQueue } = await import('../jobs/queues.js')
       await notificationQueue.add('booking_email', {
-        bookingId:     booking.id,
-        tenantId:      booking.t_tenant_id,
-        venueId:       booking.t_venue_id,
-        type:          'cancellation',
-        manageBaseUrl: `${env.PUBLIC_SITE_SCHEME}://${env.PUBLIC_ROOT_DOMAIN}`,
+        bookingId:  booking.id,
+        tenantId:   booking.t_tenant_id,
+        venueId:    booking.t_venue_id,
+        type:       'cancellation',
+        guestEmail: booking.guest_email,
       })
     } catch { /* best-effort */ }
 

@@ -60,6 +60,17 @@ jobs:
             echo "── restart api ──────────────────────────"
             pm2 restart macaroonie-api && pm2 save
 
+            echo "── nginx: guest /manage ─────────────────"
+            # Apex used to send /manage/:token to the admin SPA (Auth0).
+            # Idempotent; no-op once the location exists. Non-fatal if this
+            # user cannot sudo — new emails still use the tenant subdomain.
+            if sudo -n true 2>/dev/null; then
+              sudo bash $APP/scripts/ensure-nginx-manage.sh \
+                || echo "WARN: nginx /manage patch failed (guest links on apex may still hit Auth0)"
+            else
+              echo "WARN: no passwordless sudo — skipped nginx /manage patch"
+            fi
+
             echo "── health check ─────────────────────────"
             sleep 3
             curl -sf http://localhost:3000/api/health \
