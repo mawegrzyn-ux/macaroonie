@@ -367,6 +367,7 @@ export function PageBuilder({
             block={selectedBlock}
             onChange={(next) => replace(selectedBlock.id, next)}
             onClose={() => setInspectorOpen(false)}
+            onJumpTo={onJumpTo}
           />
         )}
       </div>

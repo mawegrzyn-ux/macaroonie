@@ -2275,19 +2275,47 @@ const WEEK = [
   { i: 6, name: 'Saturday' }, { i: 0, name: 'Sunday' },
 ]
 
-function HoursSection({ config }) {
+function HoursSection({ config, venueId: venueIdProp }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const venueId = config?.venue_id || venueIdProp
   const source = config?.opening_hours_source || 'venue'
   const { data = [], isLoading } = useQuery({
-    queryKey: ['website-hours', config?.venue_id, source],
-    queryFn:  () => api.get(`/website/opening-hours?venue_id=${config.venue_id}`),
-    enabled:  !!config?.venue_id,
+    queryKey: ['website-hours', venueId, source],
+    queryFn:  () => api.get(`/website/opening-hours?venue_id=${venueId}`),
+    enabled:  !!venueId,
   })
 
   const setSource = useMutation({
-    mutationFn: (next) => api.patch(`/website/config?venue_id=${config.venue_id}`, { opening_hours_source: next }),
-    onSuccess: (cfg) => qc.setQueryData(['website-config', config.venue_id], cfg),
+    mutationFn: async (next) => {
+      if (!config?.id && venueId) {
+        await api.post('/website/config', { venue_id: venueId })
+      }
+      const cfg = await api.patch(`/website/config?venue_id=${venueId}`, { opening_hours_source: next })
+      // Switching to Manual with an empty form: seed from the schedule
+      // rows currently on screen so the operator edits real hours, not a
+      // blank Closed week.
+      if (next === 'manual' && data.length) {
+        const existing = await api.get(`/website/opening-hours?venue_id=${venueId}`)
+        const hasSaved = existing.some(h => !h.is_closed && h.opens_at)
+        if (!hasSaved) {
+          await api.post(`/website/opening-hours?venue_id=${venueId}`, data.map((h, i) => ({
+            day_of_week: Number(h.day_of_week),
+            opens_at:  h.is_closed ? null : (h.opens_at  || '').slice(0, 5) || null,
+            closes_at: h.is_closed ? null : (h.closes_at || '').slice(0, 5) || null,
+            is_closed: !!h.is_closed,
+            label:     h.label || null,
+            sort_order: h.sort_order ?? i,
+          })))
+        }
+      }
+      return cfg
+    },
+    onSuccess: (cfg) => {
+      qc.setQueryData(['website-config', venueId], cfg)
+      qc.invalidateQueries({ queryKey: ['website-hours', venueId] })
+      qc.invalidateQueries({ queryKey: ['website-configs'] })
+    },
   })
 
   // Group rows by day_of_week so UI is per-day with N sessions each.
@@ -2329,9 +2357,9 @@ function HoursSection({ config }) {
           })
         }
       }
-      return api.post(`/website/opening-hours?venue_id=${config.venue_id}`, rows)
+      return api.post(`/website/opening-hours?venue_id=${venueId}`, rows)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-hours', config.venue_id] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-hours', venueId] }),
   })
 
   function updateSession(dayI, sessionI, next) {
@@ -2351,6 +2379,10 @@ function HoursSection({ config }) {
       ...s,
       [dayI]: s[dayI].length > 1 ? s[dayI].filter((_, j) => j !== sessionI) : s[dayI],
     }))
+  }
+
+  if (!venueId) {
+    return <p className="text-sm text-muted-foreground">Select a venue first.</p>
   }
 
   if (isLoading) {
@@ -2380,14 +2412,14 @@ function HoursSection({ config }) {
               source === 'manual' ? 'border-primary bg-primary/5' : ''
             )}>
             <p className="font-medium">Manual</p>
-            <p className="text-xs text-muted-foreground">Edit hours independently here. Useful when the website should advertise different hours from the booking schedule.</p>
+            <p className="text-xs text-muted-foreground">Edit hours here. Starts from your schedule; changes stay on the website only.</p>
           </button>
         </div>
       </SectionCard>
 
       {source === 'venue' && (
         <SectionCard title="Live preview"
-          description="Computed from the venue's schedule template — earliest opens / latest closes per day.">
+          description="From the venue's weekly sittings. Switch to Manual above to advertise different hours.">
           <p className="text-xs text-muted-foreground mb-2">
             To change these hours, edit the venue's <strong>Schedule</strong> page.
           </p>
@@ -2411,7 +2443,7 @@ function HoursSection({ config }) {
 
       {source === 'manual' && <>
       <SectionCard title="Opening hours"
-        description="Displayed in the Find us section. Add multiple sessions per day (e.g. Lunch + Dinner).">
+        description="Shown on the public site. Add multiple sessions per day (e.g. Lunch + Dinner).">
         <div className="space-y-4">
           {WEEK.map(d => (
             <div key={d.i} className="grid grid-cols-[110px_1fr] gap-3 items-start">
@@ -3089,7 +3121,7 @@ export default function Website() {
   const { data: config, isLoading } = useQuery({
     queryKey: ['website-config', venueId],
     queryFn:  () => api.get(`/website/config?venue_id=${venueId}`),
-    enabled:  !!venueId && mode === 'venue',
+    enabled:  !!venueId,
   })
 
   const hasConfig = !!config?.id
@@ -3103,8 +3135,27 @@ export default function Website() {
   }
 
   const currentVenue = venues.find(v => v.id === venueId)
-  const sections     = mode === 'tenant' ? TENANT_SECTIONS : VENUE_SECTIONS
+  const soleVenue    = venues.length === 1
+  const sections     = mode === 'tenant'
+    ? (soleVenue
+        ? [TENANT_SECTIONS[0], { key: 'hours', label: 'Opening hours', icon: Clock }, ...TENANT_SECTIONS.slice(1)]
+        : TENANT_SECTIONS)
+    : VENUE_SECTIONS
   const sectionLabel = sections.find(s => s.key === active)?.label
+
+  function jumpTo(key) {
+    if (key === 'hours') {
+      setMode(soleVenue ? 'tenant' : 'venue')
+      setActive('hours')
+      return
+    }
+    if (String(key).startsWith('tenant-')) {
+      setMode('tenant')
+      setActive(key)
+      return
+    }
+    setActive(key)
+  }
 
   const liveHost = tenantSite?.subdomain_slug ? `${tenantSite.subdomain_slug}.macaroonie.com` : null
 
@@ -3202,7 +3253,8 @@ export default function Website() {
             tenantSite
               ? <TenantActiveSection active={active} tenantSite={tenantSite}
                   pages={tenantPages} venues={venues} tenantName={tenantName}
-                  onJumpTo={setActive} />
+                  config={config} venueId={venueId}
+                  onJumpTo={jumpTo} />
               : <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                 </div>
@@ -3228,7 +3280,7 @@ export default function Website() {
   )
 }
 
-function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, onJumpTo }) {
+function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, onJumpTo, config, venueId }) {
   switch (active) {
     case 'tenant-page':
       return (
@@ -3244,6 +3296,8 @@ function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, on
           onJumpTo={onJumpTo}
         />
       )
+    case 'hours':
+      return <HoursSection config={config?.id ? config : { venue_id: venueId }} venueId={venueId} />
     case 'tenant-domain':    return <TenantDomainSection    tenantSite={tenantSite} />
     case 'tenant-brand':     return (
       <div className="space-y-6">
@@ -3278,14 +3332,14 @@ function VenueActiveSection({ active, config, venueId, tenantSite, pages, venues
           pages={pages}
           venues={venues}
           tenantName={tenantName}
-          onJumpTo={jumpToTenant}
+          onJumpTo={(key) => key === 'hours' ? setActive('hours') : jumpToTenant(key)}
         />
       )
     case 'branding':  return <BrandingSection  config={config} />
     case 'gallery':   return <GallerySection   config={config} />
     case 'menu':      return <MenuSection      config={config} />
     case 'allergens': return <AllergensSection config={config} />
-    case 'hours':     return <HoursSection     config={config} />
+    case 'hours':     return <HoursSection     config={config} venueId={venueId} />
     case 'find':      return <FindUsSection    config={config} />
     case 'contact':   return <ContactSection   config={config} />
     case 'booking':   return <BookingSection   config={config} />
