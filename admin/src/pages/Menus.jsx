@@ -15,10 +15,11 @@ import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Trash2, ExternalLink, Loader2, X, ChevronDown, ChevronRight,
-  Sparkles, Printer, Tag,
+  Sparkles, Printer, Tag, Image as ImageIcon, Layers,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 
 // ── Tiny primitives ─────────────────────────────────────────
 
@@ -287,6 +288,10 @@ function MenuEditor({ id, onBack }) {
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
   })
+  const { data: variantGroups = [] } = useQuery({
+    queryKey: ['menu-variant-groups'],
+    queryFn:  () => api.get('/menus/variant-groups'),
+  })
 
   const [draft, setDraft] = useState(null)
   useEffect(() => {
@@ -311,8 +316,24 @@ function MenuEditor({ id, onBack }) {
         sections: (draft.sections || []).map((s, si) => ({
           ...s, sort_order: si,
           items: (s.items || []).map((it, ii) => ({
-            ...it, sort_order: ii,
-            variants: (it.variants || []).map((v, vi) => ({ ...v, sort_order: vi })),
+            name: it.name,
+            native_name: it.native_name || null,
+            description: it.description || null,
+            price_pence: it.price_pence ?? null,
+            notes: it.notes || null,
+            is_featured: !!it.is_featured,
+            image_url: it.image_url || null,
+            sort_order: ii,
+            variants: (it.variants || []).map((v, vi) => ({
+              label: v.label, price_pence: v.price_pence ?? 0, sort_order: vi,
+            })),
+            variant_groups: (it.variant_groups || []).map((g, gi) => ({
+              group_id: g.group_id,
+              sort_order: gi,
+              overrides: g.overrides || (g.options || [])
+                .filter(o => o.overridden)
+                .map(o => ({ option_id: o.option_id, price_pence: o.price_pence })),
+            })),
             dietary: it.dietary || [],
           })),
         })),
@@ -411,10 +432,13 @@ function MenuEditor({ id, onBack }) {
       {/* Dietary tags */}
       <DietaryPanel allTags={draft.dietary_tags || []} />
 
+      <VariantGroupsPanel />
+
       {/* Sections */}
       <SectionsPanel
         sections={draft.sections || []}
         dietaryTags={draft.dietary_tags || []}
+        variantGroups={variantGroups}
         onChange={(sections) => set('sections', sections)} />
 
       {/* Callouts */}
@@ -529,9 +553,164 @@ function DietaryPanel({ allTags }) {
   )
 }
 
+// ── Variant groups (tenant-wide reusable option sets) ───────
+
+function emptyGroup() {
+  return { name: '', options: [{ label: '', price_pence: 0 }] }
+}
+
+function VariantGroupsPanel() {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const { data: groups = [] } = useQuery({
+    queryKey: ['menu-variant-groups'],
+    queryFn:  () => api.get('/menus/variant-groups'),
+  })
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(null) // null | { id?: uuid, name, options }
+
+  const save = useMutation({
+    mutationFn: () => {
+      const payload = {
+        name: draft.name.trim(),
+        sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
+        options: (draft.options || [])
+          .filter(o => o.label.trim())
+          .map((o, i) => ({
+            id: o.id,
+            label: o.label.trim(),
+            price_pence: o.price_pence ?? 0,
+            sort_order: i,
+          })),
+      }
+      return draft.id
+        ? api.patch(`/menus/variant-groups/${draft.id}`, payload)
+        : api.post('/menus/variant-groups', payload)
+    },
+    onSuccess: () => {
+      setDraft(null)
+      qc.invalidateQueries({ queryKey: ['menu-variant-groups'] })
+      qc.invalidateQueries({ queryKey: ['menu'] })
+    },
+  })
+  const del = useMutation({
+    mutationFn: (id) => api.delete(`/menus/variant-groups/${id}`),
+    onSuccess: () => {
+      setDraft(null)
+      qc.invalidateQueries({ queryKey: ['menu-variant-groups'] })
+      qc.invalidateQueries({ queryKey: ['menu'] })
+    },
+  })
+
+  function editGroup(g) {
+    setDraft({
+      id: g.id,
+      name: g.name,
+      options: (g.options || []).map(o => ({ ...o })),
+    })
+  }
+
+  return (
+    <Card title="Variant groups"
+      description="Reusable option sets (Protein, Size…) you can attach to any dish. Default prices can be overridden per item."
+      action={
+        <button onClick={() => setOpen(o => !o)}
+          className="text-xs text-primary hover:underline inline-flex items-center gap-1">
+          {open ? 'Hide' : 'Manage'} {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        </button>
+      }>
+      <div className="flex flex-wrap gap-2">
+        {groups.map(g => (
+          <span key={g.id}
+            className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-violet-100 text-violet-800">
+            <Layers className="w-3 h-3" />
+            {g.name}
+            <span className="text-violet-500">· {(g.options || []).length}</span>
+          </span>
+        ))}
+        {groups.length === 0 && (
+          <span className="text-xs text-muted-foreground">No variant groups yet. Create “Protein” or “Size” and attach them to dishes.</span>
+        )}
+      </div>
+      {open && (
+        <div className="space-y-3 mt-3">
+          <div className="border rounded-md divide-y">
+            {groups.map(g => (
+              <div key={g.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                <Layers className="w-4 h-4 text-violet-600 shrink-0" />
+                <span className="font-medium flex-1">{g.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {(g.options || []).map(o => o.label).join(', ') || 'No options'}
+                </span>
+                <button onClick={() => editGroup(g)} className="text-xs text-primary hover:underline">Edit</button>
+                <button onClick={() => { if (window.confirm(`Delete group "${g.name}"? Dishes will lose this group.`)) del.mutate(g.id) }}
+                  className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {draft ? (
+            <div className="border rounded-lg p-3 bg-violet-50/60 space-y-3">
+              <Field label="Group name">
+                <Input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+                  placeholder="e.g. Protein" autoFocus />
+              </Field>
+              <div className="space-y-1.5">
+                <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Options + default price</p>
+                {(draft.options || []).map((o, i) => (
+                  <div key={o.id || i} className="flex items-center gap-2">
+                    <Input value={o.label}
+                      onChange={e => setDraft(d => {
+                        const options = d.options.slice(); options[i] = { ...options[i], label: e.target.value }
+                        return { ...d, options }
+                      })}
+                      placeholder="Label (e.g. Chicken)" className="flex-1" />
+                    <Input
+                      value={o.price_pence == null ? '' : (o.price_pence / 100).toFixed(2)}
+                      onChange={e => setDraft(d => {
+                        const options = d.options.slice()
+                        options[i] = { ...options[i], price_pence: parsePrice(e.target.value) ?? 0 }
+                        return { ...d, options }
+                      })}
+                      placeholder="£0.00" className="w-28 font-mono" />
+                    <button onClick={() => setDraft(d => ({ ...d, options: d.options.filter((_, j) => j !== i) }))}
+                      className="text-destructive hover:bg-destructive/10 p-1 rounded">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <button onClick={() => setDraft(d => ({ ...d, options: [...d.options, { label: '', price_pence: 0 }] }))}
+                  className="text-xs text-primary hover:underline inline-flex items-center gap-1">
+                  <Plus className="w-3 h-3" /> Add option
+                </button>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Btn variant="secondary" onClick={() => setDraft(null)}>Cancel</Btn>
+                <Btn disabled={!draft.name.trim() || save.isPending} onClick={() => save.mutate()}>
+                  {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  {draft.id ? 'Save group' : 'Create group'}
+                </Btn>
+              </div>
+              {save.isError && (
+                <p className="text-xs text-destructive">{save.error?.body?.error || 'Save failed'}</p>
+              )}
+            </div>
+          ) : (
+            <Btn variant="secondary" onClick={() => setDraft(emptyGroup())}>
+              <Plus className="w-3.5 h-3.5" /> New variant group
+            </Btn>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ── Sections + items panel ──────────────────────────────────
 
-function SectionsPanel({ sections, dietaryTags, onChange }) {
+function SectionsPanel({ sections, dietaryTags, variantGroups, onChange }) {
   const set = (i, patch) => {
     const next = sections.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
   }
@@ -555,6 +734,7 @@ function SectionsPanel({ sections, dietaryTags, onChange }) {
               <SectionEditor key={i} section={s}
                 index={i} total={sections.length}
                 dietaryTags={dietaryTags}
+                variantGroups={variantGroups}
                 onChange={(patch) => set(i, patch)}
                 onRemove={() => { if (window.confirm(`Remove section "${s.title}"?`)) removeSection(i) }}
                 onMoveUp={() => moveSection(i, -1)}
@@ -567,18 +747,18 @@ function SectionsPanel({ sections, dietaryTags, onChange }) {
   )
 }
 
-function SectionEditor({ section, index, total, dietaryTags, onChange, onRemove, onMoveUp, onMoveDown, onItemsChange }) {
+function SectionEditor({ section, index, total, dietaryTags, variantGroups, onChange, onRemove, onMoveUp, onMoveDown, onItemsChange }) {
   const [open, setOpen] = useState(true)
   return (
-    <div className="border rounded-lg overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 bg-muted/40">
+    <div className="border border-sky-200 rounded-lg overflow-hidden bg-sky-50">
+      <div className="flex items-center gap-2 px-3 py-2 bg-sky-100">
         <button onClick={() => setOpen(o => !o)} className="p-1">
           {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </button>
         <Input value={section.title} onChange={e => onChange({ title: e.target.value })}
-          placeholder="Section title (e.g. Starters)" className="flex-1 font-medium" />
+          placeholder="Section title (e.g. Starters)" className="flex-1 font-medium bg-white" />
         <Input value={section.subtitle || ''} onChange={e => onChange({ subtitle: e.target.value })}
-          placeholder="Subtitle (optional)" className="flex-1 max-w-[260px]" />
+          placeholder="Subtitle (optional)" className="flex-1 max-w-[260px] bg-white" />
         <label className="inline-flex items-center gap-1 text-xs">
           <input type="checkbox" checked={!!section.highlight}
             onChange={e => onChange({ highlight: e.target.checked })} />
@@ -594,6 +774,7 @@ function SectionEditor({ section, index, total, dietaryTags, onChange, onRemove,
         <div className="p-3 space-y-2">
           <ItemsEditor items={section.items || []}
             dietaryTags={dietaryTags}
+            variantGroups={variantGroups}
             onChange={onItemsChange} />
         </div>
       )}
@@ -601,14 +782,14 @@ function SectionEditor({ section, index, total, dietaryTags, onChange, onRemove,
   )
 }
 
-function ItemsEditor({ items, dietaryTags, onChange }) {
+function ItemsEditor({ items, dietaryTags, variantGroups, onChange }) {
   const set = (i, patch) => {
     const next = items.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
   }
   const addItem = () => onChange([...items, {
     name: 'New dish', native_name: '', description: '',
-    price_pence: null, notes: '', is_featured: false,
-    variants: [], dietary: [],
+    price_pence: null, notes: '', is_featured: false, image_url: null,
+    variants: [], variant_groups: [], dietary: [],
   }])
   const removeItem = (i) => onChange(items.filter((_, j) => j !== i))
   const moveItem = (i, dir) => {
@@ -624,6 +805,7 @@ function ItemsEditor({ items, dietaryTags, onChange }) {
           <ItemEditor key={i} item={it}
             index={i} total={items.length}
             dietaryTags={dietaryTags}
+            variantGroups={variantGroups}
             onChange={(patch) => set(i, patch)}
             onRemove={() => removeItem(i)}
             onMoveUp={() => moveItem(i, -1)}
@@ -631,14 +813,76 @@ function ItemsEditor({ items, dietaryTags, onChange }) {
         ))}
       </div>
       <button onClick={addItem}
-        className="w-full text-xs border-2 border-dashed rounded-md py-2 text-muted-foreground hover:bg-accent hover:text-foreground">
+        className="w-full text-xs border-2 border-dashed border-amber-300 rounded-md py-2 text-amber-800/70 hover:bg-amber-100 hover:text-amber-900 bg-amber-50/40">
         + Add dish
       </button>
     </>
   )
 }
 
-function ItemEditor({ item, index, total, dietaryTags, onChange, onRemove, onMoveUp, onMoveDown }) {
+function ItemImagePicker({ url, onChange }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <div className="relative shrink-0">
+        <button type="button" onClick={() => setOpen(true)}
+          className="w-14 h-14 rounded-md border border-amber-300 overflow-hidden bg-white flex items-center justify-center hover:border-primary">
+          {url
+            ? <img src={url} alt="" className="w-full h-full object-cover" />
+            : <ImageIcon className="w-4 h-4 text-muted-foreground" />}
+        </button>
+        {url && (
+          <button type="button" onClick={() => onChange(null)}
+            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-background border text-destructive flex items-center justify-center shadow-sm"
+            title="Remove image">
+            <X className="w-3 h-3" />
+          </button>
+        )}
+      </div>
+      <MediaLibraryModal
+        open={open}
+        onClose={() => setOpen(false)}
+        mode="picker"
+        scope="menu:item"
+        onPick={(pickedUrl) => { onChange(pickedUrl); setOpen(false) }}
+      />
+    </>
+  )
+}
+
+function mergeAttachedGroup(attached, library) {
+  const lib = (library || []).find(g => g.id === attached.group_id)
+  const ovMap = {}
+  for (const o of attached.overrides || []) ovMap[o.option_id] = o.price_pence
+  for (const o of attached.options || []) {
+    if (o.overridden) ovMap[o.option_id] = o.price_pence
+  }
+  if (!lib) {
+    return {
+      group_id: attached.group_id,
+      name: attached.name || 'Removed group',
+      missing: true,
+      options: attached.options || [],
+    }
+  }
+  return {
+    group_id: lib.id,
+    name: lib.name,
+    missing: false,
+    options: (lib.options || []).map(o => {
+      const hasOv = Object.prototype.hasOwnProperty.call(ovMap, o.id)
+      return {
+        option_id: o.id,
+        label: o.label,
+        default_pence: o.price_pence,
+        price_pence: hasOv ? ovMap[o.id] : o.price_pence,
+        overridden: hasOv && Number(ovMap[o.id]) !== Number(o.price_pence),
+      }
+    }),
+  }
+}
+
+function ItemEditor({ item, index, total, dietaryTags, variantGroups = [], onChange, onRemove, onMoveUp, onMoveDown }) {
   const setVariants = (variants) => onChange({ variants })
   const toggleDietary = (code) => {
     const set = new Set(item.dietary || [])
@@ -651,19 +895,44 @@ function ItemEditor({ item, index, total, dietaryTags, onChange, onRemove, onMov
   }
   const removeVariant = (i) => setVariants((item.variants || []).filter((_, j) => j !== i))
 
+  const attached = item.variant_groups || []
+  const attachedIds = new Set(attached.map(g => g.group_id))
+  const availableGroups = variantGroups.filter(g => !attachedIds.has(g.id))
+
+  function attachGroup(groupId) {
+    if (!groupId || attachedIds.has(groupId)) return
+    onChange({ variant_groups: [...attached, { group_id: groupId, overrides: [] }] })
+  }
+  function detachGroup(groupId) {
+    onChange({ variant_groups: attached.filter(g => g.group_id !== groupId) })
+  }
+  function setOverride(groupId, optionId, pence, defaultPence) {
+    onChange({
+      variant_groups: attached.map(g => {
+        if (g.group_id !== groupId) return g
+        const overrides = (g.overrides || []).filter(o => o.option_id !== optionId)
+        if (pence != null && Number(pence) !== Number(defaultPence)) {
+          overrides.push({ option_id: optionId, price_pence: Number(pence) })
+        }
+        return { group_id: g.group_id, overrides }
+      }),
+    })
+  }
+
   return (
-    <div className="border rounded-md p-3 bg-background space-y-2">
+    <div className="border border-amber-200 rounded-md p-3 bg-amber-50 space-y-2">
       <div className="flex items-start gap-2">
+        <ItemImagePicker url={item.image_url || null} onChange={(image_url) => onChange({ image_url })} />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-1">
           <Input value={item.name} onChange={e => onChange({ name: e.target.value })}
-            placeholder="Dish name" className="font-medium" />
+            placeholder="Dish name" className="font-medium bg-white" />
           <Input value={item.native_name || ''} onChange={e => onChange({ native_name: e.target.value })}
-            placeholder="Native script (optional)" />
+            placeholder="Native script (optional)" className="bg-white" />
           <Input
             value={item.price_pence == null ? '' : (item.price_pence / 100).toFixed(2)}
             onChange={e => onChange({ price_pence: parsePrice(e.target.value) })}
             placeholder="£0.00 (single price)"
-            className="font-mono" />
+            className="font-mono bg-white" />
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 disabled:opacity-30">↑</button>
@@ -674,7 +943,7 @@ function ItemEditor({ item, index, total, dietaryTags, onChange, onRemove, onMov
         </div>
       </div>
       <TextArea value={item.description || ''} onChange={e => onChange({ description: e.target.value })}
-        rows={2} placeholder="Description" />
+        rows={2} placeholder="Description" className="bg-white" />
       <div className="flex flex-wrap items-center gap-3">
         <label className="inline-flex items-center gap-1 text-xs">
           <input type="checkbox" checked={!!item.is_featured}
@@ -682,9 +951,8 @@ function ItemEditor({ item, index, total, dietaryTags, onChange, onRemove, onMov
           House favourite
         </label>
         <Input value={item.notes || ''} onChange={e => onChange({ notes: e.target.value })}
-          placeholder="Notes (e.g. 'Min 2', 'pp')" className="max-w-[220px]" />
+          placeholder="Notes (e.g. 'Min 2', 'pp')" className="max-w-[220px] bg-white" />
 
-        {/* Dietary toggles */}
         <div className="flex flex-wrap gap-1.5 ml-auto">
           {dietaryTags.map(t => {
             const active = (item.dietary || []).includes(t.code)
@@ -693,7 +961,7 @@ function ItemEditor({ item, index, total, dietaryTags, onChange, onRemove, onMov
                 title={t.label}
                 className={cn(
                   'text-[11px] px-2 py-1 rounded-full font-bold border',
-                  active ? 'border-transparent text-white' : 'border-muted text-muted-foreground hover:border-primary',
+                  active ? 'border-transparent text-white' : 'border-muted text-muted-foreground hover:border-primary bg-white',
                 )}
                 style={active ? { background: t.colour } : {}}>
                 {t.glyph}
@@ -703,11 +971,72 @@ function ItemEditor({ item, index, total, dietaryTags, onChange, onRemove, onMov
         </div>
       </div>
 
-      {/* Variants */}
-      <div className="border-t pt-2">
+      {/* Attached variant groups */}
+      <div className="border-t border-amber-200/80 pt-2 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] uppercase font-semibold text-amber-900/70 tracking-wide">
+            Variant groups
+          </span>
+          {availableGroups.length > 0 && (
+            <select
+              value=""
+              onChange={e => { attachGroup(e.target.value); e.target.value = '' }}
+              className="text-xs border rounded-md px-2 py-1 bg-white min-h-[28px]">
+              <option value="">Attach group…</option>
+              {availableGroups.map(g => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        {attached.length === 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            {variantGroups.length
+              ? 'No groups on this dish. Attach Protein / Size from the dropdown, or add a one-off variant below.'
+              : 'Create a variant group above, then attach it here.'}
+          </p>
+        )}
+        {attached.map(raw => {
+          const g = mergeAttachedGroup(raw, variantGroups)
+          return (
+            <div key={g.group_id} className="rounded-md border border-violet-200 bg-violet-50/70 p-2 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-violet-900 inline-flex items-center gap-1">
+                  <Layers className="w-3 h-3" /> {g.name}
+                  {g.missing && <span className="font-normal text-destructive"> (deleted)</span>}
+                </span>
+                <button onClick={() => detachGroup(g.group_id)}
+                  className="text-[11px] text-destructive hover:underline">Detach</button>
+              </div>
+              {g.options.map(o => (
+                <div key={o.option_id} className="flex items-center gap-2">
+                  <span className="text-xs flex-1">{o.label}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">
+                    default {formatPrice(o.default_pence)}
+                  </span>
+                  <Input
+                    value={(o.price_pence ?? 0) / 100}
+                    type="number" step="0.10"
+                    onChange={e => setOverride(g.group_id, o.option_id, parsePrice(e.target.value) ?? 0, o.default_pence)}
+                    className={cn('w-24 font-mono bg-white text-xs', o.overridden && 'border-violet-400')}
+                  />
+                  {o.overridden && (
+                    <button type="button"
+                      onClick={() => setOverride(g.group_id, o.option_id, o.default_pence, o.default_pence)}
+                      className="text-[10px] text-violet-700 hover:underline">Reset</button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Ad-hoc variants */}
+      <div className="border-t border-amber-200/80 pt-2">
         <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">
-            Variants {item.variants?.length ? `· ${item.variants.length}` : '(optional)'}
+          <span className="text-[10px] uppercase font-semibold text-amber-900/70 tracking-wide">
+            One-off variants {item.variants?.length ? `· ${item.variants.length}` : '(optional)'}
           </span>
           <button onClick={addVariant} className="text-xs text-primary hover:underline inline-flex items-center gap-1">
             <Plus className="w-3 h-3" /> Add variant
@@ -716,10 +1045,10 @@ function ItemEditor({ item, index, total, dietaryTags, onChange, onRemove, onMov
         {(item.variants || []).map((v, i) => (
           <div key={i} className="flex items-center gap-2 py-1">
             <Input value={v.label} onChange={e => setVariant(i, { label: e.target.value })}
-              placeholder="Label (e.g. Chicken)" className="flex-1" />
+              placeholder="Label (e.g. Extra chilli)" className="flex-1 bg-white" />
             <Input value={(v.price_pence ?? 0) / 100} type="number" step="0.10"
               onChange={e => setVariant(i, { price_pence: parsePrice(e.target.value) ?? 0 })}
-              className="w-28 font-mono" />
+              className="w-28 font-mono bg-white" />
             <button onClick={() => removeVariant(i)}
               className="text-destructive hover:bg-destructive/10 p-1 rounded">
               <X className="w-3.5 h-3.5" />
