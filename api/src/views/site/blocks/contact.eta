@@ -8,7 +8,7 @@ const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 24px;'
   : 'max-width:' + innerMax + '; margin:0 auto; padding:0 24px;'
 %>
-<section class="block" style="padding:48px 0;">
+<section class="block" id="contact" style="padding:48px 0;">
   <div style="<%= containerStyle %> text-align:center;">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 16px;"><%= d.heading %></h2><% } %>
     <% if (c.phone) { %><p style="font-size:17px;"><a href="tel:<%= c.phone %>" style="color:var(--c-primary);"><%= c.phone %></a></p><% } %>

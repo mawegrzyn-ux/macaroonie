@@ -10,13 +10,16 @@
 // Two loader entry points:
 //   loadTenantBundle({ slug, customDomain }) → tenant home, locations
 //     index, custom pages, sitemap. Includes a `venues` summary array.
+//     When the tenant has exactly one active venue, the home bundle is
+//     also hydrated with that venue's hours / address / PDF menus /
+//     allergens so data blocks on `/` render without a location page.
 //   loadLocationBundle(tenantBundle, venueSlug) → per-venue location
 //     page (gallery, menus, hours, allergens, address, contact, etc.)
 //
 // Field inheritance (transparent to templates):
 //   1. Hard-coded DEFAULTS                        (in shared/head.eta)
 //   2. tenant_site                                (franchise identity)
-//   3. website_config (when rendering a location) (per-venue overrides)
+//   3. website_config (when rendering a location, or the sole venue on home)
 
 import { sql, withTenant } from '../config/db.js'
 
@@ -25,6 +28,10 @@ const BRAND_INHERITABLE = [
   'font_family', 'template_key', 'og_image_url',
   'ga4_measurement_id', 'fb_pixel_id',
 ]
+
+export function soleVenueOf(venues) {
+  return Array.isArray(venues) && venues.length === 1 ? venues[0] : null
+}
 
 function deepMerge(base, layer) {
   if (!layer || typeof layer !== 'object') return base
@@ -120,12 +127,102 @@ async function resolveTenantSite(lookup, { includeUnpublished = false } = {}) {
   return row
 }
 
+/** Manual hours rows, or derived from the venue sitting schedule. */
+async function loadOpeningHours(tx, venueId, venueConfig) {
+  if (venueConfig?.opening_hours_source === 'venue') {
+    const sittingRows = await tx`
+      SELECT t.day_of_week, t.is_open,
+             MIN(s.opens_at)  AS opens_at,
+             MAX(s.closes_at) AS closes_at
+        FROM venue_schedule_templates t
+        LEFT JOIN venue_sittings s ON s.template_id = t.id
+       WHERE t.venue_id = ${venueId}
+       GROUP BY t.day_of_week, t.is_open
+       ORDER BY t.day_of_week
+    `
+    return sittingRows.map(r => ({
+      day_of_week: r.day_of_week,
+      opens_at:    r.opens_at  ? r.opens_at.slice(0, 5)  : null,
+      closes_at:   r.closes_at ? r.closes_at.slice(0, 5) : null,
+      is_closed:   !r.is_open || !r.opens_at || !r.closes_at,
+      label:       null,
+      sort_order:  0,
+    }))
+  }
+  if (!venueConfig?.id) return []
+  return tx`
+    SELECT day_of_week, opens_at, closes_at, is_closed, label, sort_order
+      FROM website_opening_hours
+     WHERE website_config_id = ${venueConfig.id}
+     ORDER BY day_of_week, sort_order
+  `
+}
+
+/**
+ * Per-venue public extras (hours, PDF menus, allergens, address config).
+ * Used by location pages and by the sole-venue home hydration.
+ */
+async function loadVenuePublicExtras(tx, tenantId, venue, { includePages = false, includeUnpublished = false } = {}) {
+  const [cfgRow] = await tx`
+    SELECT * FROM website_config
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id}
+     LIMIT 1
+  `
+  const venueConfig = cfgRow ?? {}
+
+  const [gallery, menus, openingHours, allergensRow, pages] = await Promise.all([
+    venueConfig.show_gallery !== false && venueConfig.id ? tx`
+      SELECT id, image_url, caption, sort_order
+        FROM website_gallery_images
+       WHERE website_config_id = ${venueConfig.id}
+       ORDER BY sort_order, created_at
+    ` : Promise.resolve([]),
+
+    venueConfig.show_menu !== false && venueConfig.id ? tx`
+      SELECT id, label, file_url, sort_order
+        FROM website_menu_documents
+       WHERE website_config_id = ${venueConfig.id}
+       ORDER BY sort_order, created_at
+    ` : Promise.resolve([]),
+
+    loadOpeningHours(tx, venue.id, venueConfig),
+
+    venueConfig.show_allergens !== false && venueConfig.id ? tx`
+      SELECT info_type, document_url, structured_data
+        FROM website_allergen_info
+       WHERE website_config_id = ${venueConfig.id}
+       LIMIT 1
+    ` : Promise.resolve([]),
+
+    includePages ? tx`
+      SELECT id, slug, title, content, blocks, is_published, sort_order
+        FROM website_pages
+       WHERE tenant_id = ${tenantId}
+         AND venue_id  = ${venue.id}
+         AND (${includeUnpublished} OR is_published = true)
+       ORDER BY sort_order, title
+    ` : Promise.resolve([]),
+  ])
+
+  return {
+    venueConfig,
+    gallery,
+    menus,
+    openingHours,
+    allergens: allergensRow[0] ?? null,
+    pages,
+  }
+}
+
 /**
  * Load the tenant-level public bundle: brand identity, home page blocks,
  * the locations summary, custom pages, and any tenant-wide menus pulled
- * up from venues. Does NOT include per-venue location-page details
- * (gallery, opening hours etc.) — those are loaded on-demand by
- * loadLocationBundle when rendering /locations/:slug.
+ * up from venues.
+ *
+ * Single-venue tenants: also merge that venue's website_config (address,
+ * phone, hours source) and attach opening_hours / menus / allergens so
+ * data blocks on the home page have something to render. Multi-venue
+ * homes stay brand-only — location details live on /locations/:slug.
  */
 export async function loadTenantBundle(lookup, { includeUnpublished = false } = {}) {
   if (typeof lookup === 'string') lookup = { slug: lookup }
@@ -169,14 +266,36 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
   // Pre-resolve DB-backed reviews_band blocks
   const reviewsByBlock = await loadReviewsForBlocks(ts.tenant_id, ts.home_blocks)
 
+  const sole = soleVenueOf(bundle.venues)
+  let config = ts
+  let venue = null
+  let opening_hours = undefined
+  let menus = undefined
+  let allergens = undefined
+
+  if (sole) {
+    const extras = await withTenant(ts.tenant_id, tx =>
+      loadVenuePublicExtras(tx, ts.tenant_id, sole, { includePages: false, includeUnpublished }),
+    )
+    config = mergeLocationConfig(ts, extras.venueConfig)
+    venue = { id: sole.id, slug: sole.slug, name: sole.name, timezone: sole.timezone, currency: sole.currency }
+    opening_hours = extras.openingHours
+    menus = extras.menus
+    allergens = extras.allergens
+  }
+
   return {
     tenant_site: ts,
-    config:      ts,            // alias: templates read `it.config`
+    config,
     brand:       ts,            // alias: emergency banner reads `it.brand`
     tenant_name: ts.tenant_name,
     tenant_slug: ts.tenant_slug,
     venues:      bundle.venues,
     pages:       bundle.pages,
+    venue,
+    opening_hours,
+    menus,
+    allergens,
     menus_by_id: menusById,
     gallery_items_by_block: galleryByBlock,
     reviews_by_block:       reviewsByBlock,
@@ -375,81 +494,17 @@ export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpub
   if (!venue) return null
 
   const result = await withTenant(tenantId, async tx => {
-    const [cfgRow] = await tx`
-      SELECT * FROM website_config
-       WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id}
-       LIMIT 1
-    `
-    const venueConfig = cfgRow ?? {}
-
-    const [gallery, menus, openingHours, allergensRow, pages] = await Promise.all([
-      venueConfig.show_gallery !== false ? tx`
-        SELECT id, image_url, caption, sort_order
-          FROM website_gallery_images
-         WHERE website_config_id = ${venueConfig.id ?? null}
-         ORDER BY sort_order, created_at
-      ` : Promise.resolve([]),
-
-      venueConfig.show_menu !== false ? tx`
-        SELECT id, label, file_url, sort_order
-          FROM website_menu_documents
-         WHERE website_config_id = ${venueConfig.id ?? null}
-         ORDER BY sort_order, created_at
-      ` : Promise.resolve([]),
-
-      (venueConfig.show_find_us !== false && venueConfig.opening_hours_source !== 'venue') ? tx`
-        SELECT day_of_week, opens_at, closes_at, is_closed, label, sort_order
-          FROM website_opening_hours
-         WHERE website_config_id = ${venueConfig.id ?? null}
-         ORDER BY day_of_week, sort_order
-      ` : Promise.resolve([]),
-
-      venueConfig.show_allergens !== false ? tx`
-        SELECT info_type, document_url, structured_data
-          FROM website_allergen_info
-         WHERE website_config_id = ${venueConfig.id ?? null}
-         LIMIT 1
-      ` : Promise.resolve([]),
-
-      tx`
-        SELECT id, slug, title, content, blocks, is_published, sort_order
-          FROM website_pages
-         WHERE tenant_id = ${tenantId}
-           AND venue_id  = ${venue.id}
-           AND (${includeUnpublished} OR is_published = true)
-         ORDER BY sort_order, title
-      `,
-    ])
-
-    let derivedHours = openingHours
-    if (venueConfig.show_find_us !== false && venueConfig.opening_hours_source === 'venue') {
-      const sittingRows = await tx`
-        SELECT t.day_of_week, t.is_open,
-               MIN(s.opens_at)  AS opens_at,
-               MAX(s.closes_at) AS closes_at
-          FROM venue_schedule_templates t
-          LEFT JOIN venue_sittings s ON s.template_id = t.id
-         WHERE t.venue_id = ${venue.id}
-         GROUP BY t.day_of_week, t.is_open
-         ORDER BY t.day_of_week
-      `
-      derivedHours = sittingRows.map(r => ({
-        day_of_week: r.day_of_week,
-        opens_at:    r.opens_at  ? r.opens_at.slice(0, 5)  : null,
-        closes_at:   r.closes_at ? r.closes_at.slice(0, 5) : null,
-        is_closed:   !r.is_open || !r.opens_at || !r.closes_at,
-        label:       null,
-        sort_order:  0,
-      }))
-    }
-
+    const extras = await loadVenuePublicExtras(tx, tenantId, venue, {
+      includePages: true,
+      includeUnpublished,
+    })
     return {
-      mergedConfig:  mergeLocationConfig(ts, venueConfig),
-      gallery,
-      menus,
-      openingHours:  derivedHours,
-      allergens:     allergensRow[0] ?? null,
-      pages,
+      mergedConfig: mergeLocationConfig(ts, extras.venueConfig),
+      gallery:      extras.gallery,
+      menus:        extras.menus,
+      openingHours: extras.openingHours,
+      allergens:    extras.allergens,
+      pages:        extras.pages,
     }
   })
 
@@ -536,7 +591,4 @@ async function loadReviewsForBlocks(tenantId, ...blockArrays) {
 }
 
 // Back-compat alias: a few callers still import `loadSiteBundle`.
-// The new architecture has no equivalent of "the site for this slug" since
-// /locations/:slug is what actually corresponds to a venue. We keep the
-// export as the tenant bundle so old imports don't 500.
 export const loadSiteBundle = loadTenantBundle

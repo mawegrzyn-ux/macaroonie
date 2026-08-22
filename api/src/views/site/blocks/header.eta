@@ -1,6 +1,8 @@
 <%
 const d = it.block.data || {}
 const ts = it.tenant_site || {}
+const venues = it.venues || []
+const sole   = venues.length === 1
 const onLocation = !!it.venue
 const venueSlug  = it.venue?.slug
 
@@ -10,9 +12,32 @@ const subtitle = d.brand_subtitle || ts.tagline || ''
 const logoUrl  = ts.logo_url
 const sticky   = d.sticky !== false
 const showLogo = d.show_logo !== false
-const links    = Array.isArray(d.links) ? d.links : []
 const cta      = d.cta || {}
 const showCta  = cta.show !== false
+
+/* Single-venue sites: drop the Locations nav item (it would 302 to the
+   only location or home) and point an unset /locations Book CTA at the
+   reservations widget instead of a location picker. */
+function rewriteNavUrl(url, isCta) {
+  if (!url) return isCta ? (sole ? '#reservations' : '/locations') : url
+  if (!sole) return url
+  const path = String(url).split('?')[0]
+  if (path === '/locations' || path === '/locations/') {
+    return isCta ? '#reservations' : '/'
+  }
+  return url
+}
+const rawLinks = Array.isArray(d.links) ? d.links : []
+const links = rawLinks.filter(function(link) {
+  if (!sole) return true
+  const path = String(link.url || '').split('?')[0]
+  if (path === '/locations' || path === '/locations/') return false
+  if (String(link.label || '').toLowerCase() === 'locations' && path.indexOf('/locations') === 0) return false
+  return true
+}).map(function(link) {
+  return { label: link.label, url: rewriteNavUrl(link.url, false) }
+})
+const ctaUrl = rewriteNavUrl(cta.url, true)
 
 /* Mobile visibility controls — default to a reasonable mobile UX:
    logo + brand name visible, subtitle + nav links hidden, CTA visible.
@@ -66,7 +91,7 @@ const _mobileBp     = d.mobile_breakpoint || 768
         <a href="<%= link.url %>"><%= link.label %></a>
       <% }) %>
       <% if (showCta) { %>
-        <a href="<%= cta.url || '/locations' %>" class="cta"><%= cta.text || 'Book a Table' %></a>
+        <a href="<%= ctaUrl %>" class="cta"><%= cta.text || 'Book a Table' %></a>
       <% } %>
     </nav>
   </div>

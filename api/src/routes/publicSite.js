@@ -38,7 +38,7 @@ export default async function publicSiteRoutes(app) {
     const base = `${env.PUBLIC_SITE_SCHEME}://${req.params.slug}.${env.PUBLIC_ROOT_DOMAIN}`
     const urls = [
       `${base}/`,
-      ...(bundle.tenant_site.hide_locations_index ? [] : [`${base}/locations`]),
+      ...((bundle.venues.length > 1 && !bundle.tenant_site.hide_locations_index) ? [`${base}/locations`] : []),
       ...bundle.venues.map(v => `${base}/locations/${v.slug}`),
       ...bundle.pages.map(p => `${base}/p/${p.slug}`),
     ]
@@ -91,7 +91,7 @@ export default async function publicSiteRoutes(app) {
       lines.push('')
     }
 
-    if (!ts.hide_locations_index) {
+    if (bundle.venues.length > 1 && !ts.hide_locations_index) {
       lines.push('## Browse All Locations')
       lines.push('')
       lines.push(`- ${base}/locations`)

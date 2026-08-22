@@ -8,11 +8,11 @@
 //
 // Routes (relative to the matched host):
 //   GET /                          — tenant home page (home_blocks)
-//   GET /locations                 — index of all venues
+//   GET /locations                 — index of all venues (302 to the sole venue when N=1)
 //   GET /locations/:venueSlug      — venue location page
 //   GET /locations/:venueSlug/menu — venue menu list
 //   GET /locations/:venueSlug/menu/:id — single menu PDF viewer
-//   GET /menu                      — tenant-level menu hub (lists per-venue menus)
+//   GET /menu                      — tenant-level menu hub (302 to the sole venue's menu when N=1)
 //   GET /p/:pageSlug               — tenant-level custom CMS page
 //   GET /locations/:venueSlug/p/:pageSlug — venue-level custom CMS page
 //   GET /sitemap.xml, /robots.txt
@@ -21,7 +21,7 @@
 //   GET /widget/:venueId           — venue-direct widget (deep-link)
 //   GET /widget/tenant/:tenantId   — tenant widget (location picker step 0)
 
-import { loadTenantBundle, loadLocationBundle } from '../services/siteDataSvc.js'
+import { loadTenantBundle, loadLocationBundle, soleVenueOf } from '../services/siteDataSvc.js'
 import { sql }            from '../config/db.js'
 import { env }            from '../config/env.js'
 
@@ -160,6 +160,8 @@ export default async function siteRendererRoutes(app) {
     if (!req.siteHost) return reply.callNotFound()
     const bundle = await loadOrRender404(req, reply)
     if (!bundle) return
+    const sole = soleVenueOf(bundle.venues)
+    if (sole) return reply.redirect(`/locations/${sole.slug}`, 302)
     if (bundle.tenant_site.hide_locations_index) {
       return renderNotFound(reply, 'Locations index disabled')
     }
@@ -215,11 +217,13 @@ export default async function siteRendererRoutes(app) {
   })
 
   // ── Tenant menu hub ────────────────────────────────────
-  // Lists every venue with menus so visitors can pick a location first.
+  // Multi-venue: pick a location. Single-venue: skip the picker.
   app.get('/menu', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()
     const bundle = await loadOrRender404(req, reply)
     if (!bundle) return
+    const sole = soleVenueOf(bundle.venues)
+    if (sole) return reply.redirect(`/locations/${sole.slug}/menu`, 302)
     return renderSite(reply, 'menu_hub', {
       ...baseCtx(req, bundle),
       page: { kind: 'menu_hub' },
@@ -263,7 +267,7 @@ export default async function siteRendererRoutes(app) {
     const base = `${env.PUBLIC_SITE_SCHEME}://${host}`
     const urls = [
       `${base}/`,
-      ...(bundle.tenant_site.hide_locations_index ? [] : [`${base}/locations`]),
+      ...((bundle.venues.length > 1 && !bundle.tenant_site.hide_locations_index) ? [`${base}/locations`] : []),
       ...bundle.venues.map(v => `${base}/locations/${v.slug}`),
       ...bundle.pages.map(p => `${base}/p/${p.slug}`),
     ]
@@ -321,7 +325,7 @@ export default async function siteRendererRoutes(app) {
       lines.push('')
     }
 
-    if (!ts.hide_locations_index) {
+    if (bundle.venues.length > 1 && !ts.hide_locations_index) {
       lines.push('## Browse All Locations')
       lines.push('')
       lines.push('- ' + base + '/locations')

@@ -100,7 +100,7 @@ export function FindUsCanvas({ data, onChange, config }) {
         ) : (
           <EmptyPanel Icon={MapPin} title="Find us"
             hint="No address yet."
-            where="Set in Find us section of this venue's location page" />
+            where="Set in Find us on this venue" />
         )}
       </div>
     </section>
@@ -265,7 +265,7 @@ export function OpeningHoursCanvas({ data, onChange, config }) {
           {!venueId ? (
             <EmptyPanel Icon={Clock} title="Opening hours"
               hint="Hours live per-location."
-              where="Add to a venue's location page" />
+              where="Add a venue, or set hours on the location page" />
           ) : isLoading ? (
             <div style={{ display: 'flex', justifyContent: 'center', padding: 24, color: 'var(--c-muted)' }}>
               <Loader2 className="animate-spin" size={20} />
@@ -318,7 +318,7 @@ export function MenuPdfsCanvas({ data, onChange, config }) {
         {!venueId ? (
           <EmptyPanel Icon={BookOpen} title="Menus (PDFs)"
             hint="PDF menus live per-location."
-            where="Upload via Menus (PDF) section of this venue" />
+            where="Upload via Menus (PDF) on this venue" />
         ) : isLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 24, color: 'var(--c-muted)' }}>
             <Loader2 className="animate-spin" size={20} />
