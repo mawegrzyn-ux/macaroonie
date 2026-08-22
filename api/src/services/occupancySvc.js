@@ -160,7 +160,29 @@ export async function tryWidgetDisplace(tx, venueId, covers, startsAt, windowEnd
   const startIso = iso(startsAt)
   const endIso   = iso(windowEnd)
 
-  const combos = await tx`
+  const combos = await displaceableCombos(tx, venueId, covers, startIso, endIso)
+
+  for (const combo of combos) {
+    const result = await tryDisplaceCombo(tx, venueId, combo.id, startsAt, windowEnd)
+    if (result) return result
+  }
+  return null
+}
+
+/** Dry-run: can we free a fitting combo by moving its occupants? Does not write. */
+export async function canWidgetDisplace(tx, venueId, covers, startsAt, windowEnd) {
+  const startIso = iso(startsAt)
+  const endIso   = iso(windowEnd)
+  const combos = await displaceableCombos(tx, venueId, covers, startIso, endIso)
+  for (const combo of combos) {
+    const plan = await planDisplaceCombo(tx, venueId, combo.id, startsAt, windowEnd)
+    if (plan) return { combinationId: combo.id, tableId: plan.tableId }
+  }
+  return null
+}
+
+async function displaceableCombos(tx, venueId, covers, startIso, endIso) {
+  return tx`
     SELECT c.id
       FROM table_combinations c
      WHERE c.venue_id   = ${venueId}
@@ -201,15 +223,13 @@ export async function tryWidgetDisplace(tx, venueId, covers, startsAt, windowEnd
      ORDER BY c.max_covers
      LIMIT 5
   `
-
-  for (const combo of combos) {
-    const result = await tryDisplaceCombo(tx, venueId, combo.id, startsAt, windowEnd)
-    if (result) return result
-  }
-  return null
 }
 
-export async function tryDisplaceCombo(tx, venueId, combinationId, startsAt, windowEnd) {
+/**
+ * Plan how to free `combinationId` by moving overlapping unlocked bookings.
+ * Returns null if any occupant cannot be placed elsewhere. Does not write.
+ */
+export async function planDisplaceCombo(tx, venueId, combinationId, startsAt, windowEnd) {
   const startIso = iso(startsAt)
   const endIso   = iso(windowEnd)
 
@@ -321,8 +341,19 @@ export async function tryDisplaceCombo(tx, venueId, combinationId, startsAt, win
     })
   }
 
+  return {
+    tableId: members[0].table_id,
+    combinationId,
+    displacements,
+  }
+}
+
+export async function tryDisplaceCombo(tx, venueId, combinationId, startsAt, windowEnd) {
+  const plan = await planDisplaceCombo(tx, venueId, combinationId, startsAt, windowEnd)
+  if (!plan) return null
+
   const displaced = []
-  for (const { bookingId, newTableId, newComboId } of displacements) {
+  for (const { bookingId, newTableId, newComboId } of plan.displacements) {
     const [updated] = await tx`
       UPDATE bookings
          SET table_id       = ${newTableId},
@@ -335,9 +366,10 @@ export async function tryDisplaceCombo(tx, venueId, combinationId, startsAt, win
   }
 
   return {
-    tableId:      members[0].table_id,
-    combinationId,
+    tableId:      plan.tableId,
+    combinationId: plan.combinationId,
     displacedIds: displaced.map(d => d.id),
     displaced,
   }
 }
+
