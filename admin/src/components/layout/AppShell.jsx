@@ -10,7 +10,7 @@ import {
   BookMarked, HelpCircle, SlidersHorizontal, Globe,
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
   Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand, MessageSquare,
-  AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList, Tag, FlaskConical,
+  AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList, Tag, FlaskConical, Thermometer,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -61,6 +61,7 @@ const NAV_SECTIONS = [
         ],
       },
       { label: 'Cash recon', to: '/cash-recon', icon: Wallet, module: 'cash_recon' },
+      { label: 'Food safety', to: '/food-safety', icon: Thermometer, module: 'food_safety' },
     ],
   },
   {
@@ -185,9 +186,6 @@ export default function AppShell() {
   const { user, logout } = useAuth0()
   const location         = useLocation()
 
-  // Keep the restaurant pick across sign-out so the next login lands
-  // back in the same place. Clear only the leftover Auth0 org hint from
-  // the old org-scoped login flow.
   function handleLogout() {
     try { localStorage.removeItem('maca_auth0_org_hint') } catch {}
     logout({ logoutParams: { returnTo: window.location.origin } })
@@ -197,14 +195,12 @@ export default function AppShell() {
   const { sidebarExpandedDefault } = useSettings()
   const isOnTimeline     = location.pathname === '/timeline'
 
-  // Default: on desktop use the saved preference, on mobile always start closed
   const [open, setOpen] = useState(
     () => typeof window !== 'undefined'
       ? window.innerWidth >= 1024 ? sidebarExpandedDefault : false
       : sidebarExpandedDefault
   )
 
-  // Fullscreen state — tracked here so the sidebar toggle can update its icon
   const [isFullscreen, setIsFullscreen] = useState(false)
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement)
@@ -216,18 +212,14 @@ export default function AppShell() {
     else document.exitFullscreen?.()
   }
 
-  // Venues list — only fetched when on timeline (TanStack Query caches so
-  // Timeline's own venues query reuses the same data with no extra request)
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
     enabled:  isOnTimeline,
   })
 
-  // Derived effective venueId (mirrors Timeline's own fallback logic)
   const effectiveVenueId = tlSettings.venueId ?? venues[0]?.id ?? ''
 
-  // /api/me — current user profile + available tenants for org switcher
   const { data: me } = useQuery({
     queryKey: ['me'],
     queryFn:  () => api.get('/me'),
@@ -238,7 +230,6 @@ export default function AppShell() {
   const currentTenant     = me?.current_tenant
   const hasTenants        = availableTenants.length > 0
 
-  // Tenant switch — in-app only. JWT is identity; X-Tenant-Id is the restaurant.
   function switchTenant(tenantId) {
     if (!tenantId) return
     setSelectedTenant(tenantId)
@@ -247,25 +238,17 @@ export default function AppShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-
-      {/* Mobile backdrop — tap to close */}
       {open && (
         <div
           className="fixed inset-0 bg-black/40 z-20 lg:hidden"
           onClick={() => setOpen(false)}
         />
       )}
-
-      {/* Sidebar
-          Mobile: fixed overlay (w-56 when open, w-0 when closed)
-          Desktop: in-flow (w-56 when open, w-14 icon-only when closed) */}
       <aside className={cn(
         'flex flex-col border-r bg-background z-30 transition-[width] duration-200 overflow-hidden shrink-0',
         'fixed inset-y-0 left-0 lg:relative',
         open ? 'w-56' : 'w-0 lg:w-14',
       )}>
-
-        {/* Logo row */}
         <div className={cn(
           'flex items-center h-14 border-b shrink-0',
           open ? 'px-4 gap-2' : 'justify-center px-0',
@@ -283,7 +266,6 @@ export default function AppShell() {
               </button>
             </>
           ) : (
-            // Desktop icon-only: clicking logo expands sidebar
             <button
               onClick={() => setOpen(true)}
               className="p-2 rounded hover:bg-accent text-primary"
@@ -293,8 +275,6 @@ export default function AppShell() {
             </button>
           )}
         </div>
-
-        {/* Org switcher — shown when user has at least one tenant available */}
         {open && hasTenants && (
           <div className="shrink-0 px-3 py-2 border-b">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
@@ -332,9 +312,6 @@ export default function AppShell() {
             </button>
           </div>
         )}
-
-        {/* Nav links — filter out modules where permission is 'none' (or
-             item module is unknown to /me, e.g. while loading). */}
         <nav className="flex-1 overflow-y-auto p-2 space-y-3">
           {(() => {
             const perms = me?.permissions ?? {}
@@ -370,8 +347,6 @@ export default function AppShell() {
             </>
           )}
         </nav>
-
-        {/* Timeline view settings — shown above logout when on the Timeline page */}
         {isOnTimeline && (
           <div className={cn('shrink-0 border-t', open ? 'p-2' : 'p-1')}>
             {open ? (
@@ -379,7 +354,6 @@ export default function AppShell() {
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1 mb-1.5">
                   Timeline
                 </p>
-                {/* Venue selector */}
                 {venues.length > 1 && (
                   <select
                     value={effectiveVenueId}
@@ -389,7 +363,6 @@ export default function AppShell() {
                     {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                   </select>
                 )}
-                {/* Toggle buttons */}
                 <div className="flex flex-wrap gap-1">
                   <button
                     onClick={() => tlSettings.setHideInactive(v => !v)}
@@ -445,7 +418,7 @@ export default function AppShell() {
                   </button>
                   <button
                     onClick={() => tlSettings.setManualMode(v => !v)}
-                    title={tlSettings.manualMode ? 'Manual mode on — drags move booking directly, overlaps allowed. Click to turn off.' : 'Manual mode off — smart cascade on drop. Click to enable direct control.'}
+                    title={tlSettings.manualMode ? 'Manual mode on' : 'Manual mode off'}
                     className={cn(
                       'flex items-center gap-1 px-2 py-1 rounded text-xs border touch-manipulation transition-colors',
                       tlSettings.manualMode
@@ -475,7 +448,6 @@ export default function AppShell() {
                 </div>
               </>
             ) : (
-              /* Icon-only mode */
               <div className="flex flex-col items-center gap-0.5">
                 <button
                   onClick={() => tlSettings.setHideInactive(v => !v)}
@@ -545,8 +517,6 @@ export default function AppShell() {
             )}
           </div>
         )}
-
-        {/* User footer */}
         <div className="shrink-0 p-2 border-t">
           {open ? (
             <div className="flex items-center gap-2 px-1 py-1">
@@ -582,13 +552,9 @@ export default function AppShell() {
           )}
         </div>
       </aside>
-
-      {/* Main content */}
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Outlet />
       </main>
-
-      {/* Mobile-only: floating burger button when sidebar is closed */}
       {!open && (
         <button
           className="fixed top-3.5 left-3.5 z-10 p-2 rounded-md bg-background border shadow-sm lg:hidden"

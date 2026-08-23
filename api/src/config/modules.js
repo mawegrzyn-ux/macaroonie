@@ -177,6 +177,13 @@ export const MODULES = [
     description: 'Manage order sheet templates and categories.',
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
+  {
+    key:    'food_safety',
+    label:  'Food safety logs',
+    group:  'food_safety',
+    description: 'SFBB temperature logs — fridge/freezer, delivery checks, hot/cold hold, cooking.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
 ]
 
 export const MODULE_KEYS = MODULES.map(m => m.key)
@@ -234,6 +241,12 @@ export const MODULE_GROUPS = [
     label:  'Order sheets',
     description: 'Build and manage supplier order sheets.',
     moduleKeys: ['order_sheets', 'order_sheet_setup'],
+  },
+  {
+    key:    'food_safety',
+    label:  'Food safety',
+    description: 'SFBB temperature and delivery logs per venue.',
+    moduleKeys: ['food_safety'],
   },
 ]
 
