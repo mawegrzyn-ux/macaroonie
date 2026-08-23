@@ -33,77 +33,66 @@ import { FontPicker } from '@/components/website-builder/FontPicker'
 
 // ── Section lists ────────────────────────────────────────────
 //
-// One site per TENANT. TENANT_NAV edits franchise-wide chrome (home,
-// brand, domain, SEO). VENUE_NAV edits the /locations/{slug} page.
-// A one-venue tenant sees SINGLE_VENUE_NAV: one list, no Tenant vs
-// Location split, and the locations index is hidden.
+// Grouped by operator job, not by table. TENANT_NAV = site chrome.
+// VENUE_NAV = /locations/{slug}. One-venue tenants get SINGLE_VENUE_NAV:
+// one list, no Tenant vs Location split, locations index hidden.
+
+const withMode = (items, mode) => items.map(i => ({ ...i, mode }))
+
+const PAGES_TENANT = [
+  { key: 'tenant-page',  label: 'Home',           icon: LayoutTemplate },
+  { key: 'tenant-pages', label: 'Pages & modals', icon: FileText },
+]
+const PAGES_VENUE = [
+  { key: 'page',     label: 'Location page',  icon: LayoutTemplate },
+  { key: 'pages',    label: 'Pages & modals', icon: FileText },
+  { key: 'branding', label: 'Hero',           icon: ImageIcon },
+]
+const RESTAURANT_ITEMS = [
+  { key: 'hours',     label: 'Opening hours', icon: Clock },
+  { key: 'find',      label: 'Find us',       icon: MapPin },
+  { key: 'contact',   label: 'Contact',       icon: Phone },
+  { key: 'gallery',   label: 'Gallery',       icon: ImageIcon },
+  { key: 'menu',      label: 'PDF menus',     icon: BookOpen },
+  { key: 'allergens', label: 'Allergens',     icon: AlertTriangle },
+]
+const GUEST_ITEMS = [
+  { key: 'booking',  label: 'Booking',         icon: Calendar },
+  { key: 'ordering', label: 'Online ordering', icon: ShoppingBag },
+  { key: 'delivery', label: 'Delivery',        icon: Truck },
+]
+const SITE_ITEMS = [
+  { key: 'tenant-brand',     label: 'Brand & theme',     icon: Palette },
+  { key: 'tenant-domain',    label: 'Domain & publish',  icon: Globe },
+  { key: 'tenant-seo',       label: 'SEO',               icon: Search },
+  { key: 'tenant-legal',     label: 'Legal & cookies',   icon: Shield },
+  { key: 'tenant-analytics', label: 'Analytics',         icon: BarChart3 },
+  { key: 'tenant-banner',    label: 'Emergency banner',  icon: Megaphone },
+]
+const LOCATIONS_ITEMS = [
+  { key: 'tenant-locations', label: 'Locations index', icon: MapPin },
+]
 
 const TENANT_NAV = [
-  { label: 'Build', items: [
-    { key: 'tenant-page',  label: 'Home',         icon: LayoutTemplate },
-    { key: 'tenant-pages', label: 'Extra pages',  icon: FileText },
-  ]},
-  { label: 'Look & feel', items: [
-    { key: 'tenant-brand', label: 'Brand & theme', icon: Palette },
-  ]},
-  { label: 'Locations', items: [
-    { key: 'tenant-locations', label: 'Locations index', icon: MapPin },
-  ]},
-  { label: 'Settings', items: [
-    { key: 'tenant-domain',    label: 'Domain & publish',  icon: Globe },
-    { key: 'tenant-seo',       label: 'SEO',               icon: Search },
-    { key: 'tenant-legal',     label: 'Legal & cookies',   icon: Shield },
-    { key: 'tenant-analytics', label: 'Analytics',         icon: BarChart3 },
-    { key: 'tenant-banner',    label: 'Emergency banner',  icon: Megaphone },
-  ]},
+  { label: 'Pages',     items: PAGES_TENANT },
+  { label: 'Locations', items: LOCATIONS_ITEMS },
+  { label: 'Site',      items: SITE_ITEMS },
 ]
 
 const VENUE_NAV = [
-  { label: 'Build', items: [
-    { key: 'page',     label: 'Venue page',  icon: LayoutTemplate },
-    { key: 'pages',    label: 'Extra pages', icon: FileText },
-    { key: 'branding', label: 'Hero',        icon: ImageIcon },
-  ]},
-  { label: 'Restaurant', items: [
-    { key: 'hours',     label: 'Opening hours',   icon: Clock },
-    { key: 'find',      label: 'Find us',         icon: MapPin },
-    { key: 'contact',   label: 'Contact',         icon: Phone },
-    { key: 'gallery',   label: 'Gallery',         icon: ImageIcon },
-    { key: 'menu',      label: 'Menus (PDF)',     icon: BookOpen },
-    { key: 'allergens', label: 'Allergens',       icon: AlertTriangle },
-    { key: 'booking',   label: 'Booking',         icon: Calendar },
-    { key: 'ordering',  label: 'Online ordering', icon: ShoppingBag },
-    { key: 'delivery',  label: 'Delivery',        icon: Truck },
-  ]},
+  { label: 'Pages',        items: PAGES_VENUE },
+  { label: 'Restaurant',   items: RESTAURANT_ITEMS },
+  { label: 'Book & order', items: GUEST_ITEMS },
 ]
 
 const SINGLE_VENUE_NAV = [
-  { label: 'Build', items: [
-    { key: 'tenant-page',  label: 'Home',        icon: LayoutTemplate, mode: 'tenant' },
-    { key: 'tenant-pages', label: 'Extra pages', icon: FileText,       mode: 'tenant' },
-    { key: 'page',         label: 'Venue page',  icon: LayoutTemplate, mode: 'venue'  },
+  { label: 'Pages', items: [
+    ...withMode(PAGES_TENANT, 'tenant'),
+    ...withMode(PAGES_VENUE.filter(i => i.key !== 'pages'), 'venue'),
   ]},
-  { label: 'Restaurant', items: [
-    { key: 'hours',     label: 'Opening hours',   icon: Clock,         mode: 'venue' },
-    { key: 'find',      label: 'Find us',         icon: MapPin,         mode: 'venue' },
-    { key: 'contact',   label: 'Contact',         icon: Phone,          mode: 'venue' },
-    { key: 'gallery',   label: 'Gallery',         icon: ImageIcon,      mode: 'venue' },
-    { key: 'menu',      label: 'Menus (PDF)',     icon: BookOpen,       mode: 'venue' },
-    { key: 'allergens', label: 'Allergens',       icon: AlertTriangle,  mode: 'venue' },
-    { key: 'booking',   label: 'Booking',         icon: Calendar,       mode: 'venue' },
-    { key: 'ordering',  label: 'Online ordering', icon: ShoppingBag,    mode: 'venue' },
-    { key: 'delivery',  label: 'Delivery',        icon: Truck,          mode: 'venue' },
-  ]},
-  { label: 'Look & feel', items: [
-    { key: 'tenant-brand', label: 'Brand & theme', icon: Palette, mode: 'tenant' },
-  ]},
-  { label: 'Settings', items: [
-    { key: 'tenant-domain',    label: 'Domain & publish', icon: Globe,     mode: 'tenant' },
-    { key: 'tenant-seo',       label: 'SEO',              icon: Search,    mode: 'tenant' },
-    { key: 'tenant-legal',     label: 'Legal & cookies',  icon: Shield,    mode: 'tenant' },
-    { key: 'tenant-analytics', label: 'Analytics',        icon: BarChart3, mode: 'tenant' },
-    { key: 'tenant-banner',    label: 'Emergency banner', icon: Megaphone, mode: 'tenant' },
-  ]},
+  { label: 'Restaurant',   items: withMode(RESTAURANT_ITEMS, 'venue') },
+  { label: 'Book & order', items: withMode(GUEST_ITEMS, 'venue') },
+  { label: 'Site',         items: withMode(SITE_ITEMS, 'tenant') },
 ]
 
 function flattenNav(groups) {
@@ -112,9 +101,9 @@ function flattenNav(groups) {
 
 function NavGroups({ groups, active, onSelect }) {
   return (
-    <nav className="space-y-4 px-1">
-      {groups.map(g => (
-        <div key={g.label}>
+    <nav className="px-1">
+      {groups.map((g, i) => (
+        <div key={g.label} className={cn(i > 0 && 'mt-3 pt-3 border-t')}>
           <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             {g.label}
           </p>
