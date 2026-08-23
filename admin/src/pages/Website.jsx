@@ -15,7 +15,7 @@ import {
   Globe, Palette, LayoutTemplate, Image as ImageIcon, FileText, BookOpen,
   AlertTriangle, Clock, MapPin, Phone, ShoppingBag, Truck, Calendar,
   Search, BarChart3, Eye, EyeOff, Check, X, Upload, Trash2, GripVertical,
-  Plus, ExternalLink, Loader2, HelpCircle, Copy,
+  Plus, ExternalLink, Loader2, HelpCircle, Copy, Shield, Megaphone,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -32,38 +32,114 @@ import { PageBuilder } from '@/components/website-builder/PageBuilder'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 
 // ── Section lists ────────────────────────────────────────────
+//
+// One site per TENANT. TENANT_NAV edits franchise-wide chrome (home,
+// brand, domain, SEO). VENUE_NAV edits the /locations/{slug} page.
+// A one-venue tenant sees SINGLE_VENUE_NAV: one list, no Tenant vs
+// Location split, and the locations index is hidden.
 
-// One site per TENANT. The TENANT_SECTIONS edit the franchise-wide site
-// (subdomain, brand, home page, SEO, analytics, banner). Each VENUE under
-// the tenant gets a /locations/{slug} page driven by VENUE_SECTIONS —
-// venue-specific content only (hero, gallery, hours, address, menus).
-
-const TENANT_SECTIONS = [
-  { key: 'tenant-page',     label: 'Home page',         icon: LayoutTemplate },
-  { key: 'tenant-pages',    label: 'Pages',             icon: FileText },
-  { key: 'tenant-domain',   label: 'Domain & publish',  icon: Globe },
-  { key: 'tenant-brand',    label: 'Brand & theme',     icon: Palette },
-  { key: 'tenant-locations',label: 'Locations index',   icon: MapPin },
-  { key: 'tenant-legal',    label: 'Legal & cookies',   icon: AlertTriangle },
-  { key: 'tenant-seo',      label: 'SEO',               icon: Search },
-  { key: 'tenant-analytics',label: 'Analytics',         icon: BarChart3 },
-  { key: 'tenant-banner',   label: 'Emergency banner',  icon: AlertTriangle },
+const TENANT_NAV = [
+  { label: 'Build', items: [
+    { key: 'tenant-page',  label: 'Home',         icon: LayoutTemplate },
+    { key: 'tenant-pages', label: 'Extra pages',  icon: FileText },
+  ]},
+  { label: 'Look & feel', items: [
+    { key: 'tenant-brand', label: 'Brand & theme', icon: Palette },
+  ]},
+  { label: 'Locations', items: [
+    { key: 'tenant-locations', label: 'Locations index', icon: MapPin },
+  ]},
+  { label: 'Settings', items: [
+    { key: 'tenant-domain',    label: 'Domain & publish',  icon: Globe },
+    { key: 'tenant-seo',       label: 'SEO',               icon: Search },
+    { key: 'tenant-legal',     label: 'Legal & cookies',   icon: Shield },
+    { key: 'tenant-analytics', label: 'Analytics',         icon: BarChart3 },
+    { key: 'tenant-banner',    label: 'Emergency banner',  icon: Megaphone },
+  ]},
 ]
 
-const VENUE_SECTIONS = [
-  { key: 'page',      label: 'Page builder',   icon: LayoutTemplate },
-  { key: 'branding',  label: 'Hero',           icon: ImageIcon },
-  { key: 'gallery',   label: 'Gallery',        icon: ImageIcon },
-  { key: 'menu',      label: 'Menus (PDF)',    icon: BookOpen },
-  { key: 'allergens', label: 'Allergens',      icon: AlertTriangle },
-  { key: 'hours',     label: 'Opening hours',  icon: Clock },
-  { key: 'find',      label: 'Find us',        icon: MapPin },
-  { key: 'contact',   label: 'Contact',        icon: Phone },
-  { key: 'ordering',  label: 'Online ordering',icon: ShoppingBag },
-  { key: 'delivery',  label: 'Delivery',       icon: Truck },
-  { key: 'booking',   label: 'Booking widget', icon: Calendar },
-  { key: 'pages',     label: 'Pages',          icon: FileText },
+const VENUE_NAV = [
+  { label: 'Build', items: [
+    { key: 'page',     label: 'Venue page',  icon: LayoutTemplate },
+    { key: 'pages',    label: 'Extra pages', icon: FileText },
+    { key: 'branding', label: 'Hero',        icon: ImageIcon },
+  ]},
+  { label: 'Restaurant', items: [
+    { key: 'hours',     label: 'Opening hours',   icon: Clock },
+    { key: 'find',      label: 'Find us',         icon: MapPin },
+    { key: 'contact',   label: 'Contact',         icon: Phone },
+    { key: 'gallery',   label: 'Gallery',         icon: ImageIcon },
+    { key: 'menu',      label: 'Menus (PDF)',     icon: BookOpen },
+    { key: 'allergens', label: 'Allergens',       icon: AlertTriangle },
+    { key: 'booking',   label: 'Booking',         icon: Calendar },
+    { key: 'ordering',  label: 'Online ordering', icon: ShoppingBag },
+    { key: 'delivery',  label: 'Delivery',        icon: Truck },
+  ]},
 ]
+
+const SINGLE_VENUE_NAV = [
+  { label: 'Build', items: [
+    { key: 'tenant-page',  label: 'Home',        icon: LayoutTemplate, mode: 'tenant' },
+    { key: 'tenant-pages', label: 'Extra pages', icon: FileText,       mode: 'tenant' },
+    { key: 'page',         label: 'Venue page',  icon: LayoutTemplate, mode: 'venue'  },
+  ]},
+  { label: 'Restaurant', items: [
+    { key: 'hours',     label: 'Opening hours',   icon: Clock,         mode: 'venue' },
+    { key: 'find',      label: 'Find us',         icon: MapPin,         mode: 'venue' },
+    { key: 'contact',   label: 'Contact',         icon: Phone,          mode: 'venue' },
+    { key: 'gallery',   label: 'Gallery',         icon: ImageIcon,      mode: 'venue' },
+    { key: 'menu',      label: 'Menus (PDF)',     icon: BookOpen,       mode: 'venue' },
+    { key: 'allergens', label: 'Allergens',       icon: AlertTriangle,  mode: 'venue' },
+    { key: 'booking',   label: 'Booking',         icon: Calendar,       mode: 'venue' },
+    { key: 'ordering',  label: 'Online ordering', icon: ShoppingBag,    mode: 'venue' },
+    { key: 'delivery',  label: 'Delivery',        icon: Truck,          mode: 'venue' },
+  ]},
+  { label: 'Look & feel', items: [
+    { key: 'tenant-brand', label: 'Brand & theme', icon: Palette, mode: 'tenant' },
+  ]},
+  { label: 'Settings', items: [
+    { key: 'tenant-domain',    label: 'Domain & publish', icon: Globe,     mode: 'tenant' },
+    { key: 'tenant-seo',       label: 'SEO',              icon: Search,    mode: 'tenant' },
+    { key: 'tenant-legal',     label: 'Legal & cookies',  icon: Shield,    mode: 'tenant' },
+    { key: 'tenant-analytics', label: 'Analytics',        icon: BarChart3, mode: 'tenant' },
+    { key: 'tenant-banner',    label: 'Emergency banner', icon: Megaphone, mode: 'tenant' },
+  ]},
+]
+
+function flattenNav(groups) {
+  return groups.flatMap(g => g.items)
+}
+
+function NavGroups({ groups, active, onSelect }) {
+  return (
+    <nav className="space-y-4 px-1">
+      {groups.map(g => (
+        <div key={g.label}>
+          <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {g.label}
+          </p>
+          <div className="space-y-0.5">
+            {g.items.map(s => {
+              const Icon = s.icon
+              return (
+                <button key={s.key} type="button" onClick={() => onSelect(s)}
+                  className={cn(
+                    'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
+                    active === s.key
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}>
+                  <Icon className="w-4 h-4 shrink-0" />
+                  {s.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </nav>
+  )
+}
 
 // ── Shared layout primitives (matches Settings.jsx style) ───
 
@@ -3406,24 +3482,22 @@ export default function Website() {
 
   const currentVenue = venues.find(v => v.id === venueId)
   const soleVenue    = venues.length === 1
-  const sections     = mode === 'tenant'
-    ? (soleVenue
-        ? [TENANT_SECTIONS[0], { key: 'hours', label: 'Opening hours', icon: Clock }, ...TENANT_SECTIONS.slice(1)]
-        : TENANT_SECTIONS)
-    : VENUE_SECTIONS
-  const sectionLabel = sections.find(s => s.key === active)?.label
+  const navGroups    = soleVenue ? SINGLE_VENUE_NAV : (mode === 'tenant' ? TENANT_NAV : VENUE_NAV)
+  const navItems     = flattenNav(soleVenue ? SINGLE_VENUE_NAV : [...TENANT_NAV, ...VENUE_NAV])
+  const sectionLabel = navItems.find(s => s.key === active)?.label
+
+  function selectNav(item) {
+    if (item.mode) setMode(item.mode)
+    else if (String(item.key).startsWith('tenant-')) setMode('tenant')
+    else setMode('venue')
+    setActive(item.key)
+  }
 
   function jumpTo(key) {
-    if (key === 'hours') {
-      setMode(soleVenue ? 'tenant' : 'venue')
-      setActive('hours')
-      return
-    }
-    if (String(key).startsWith('tenant-')) {
-      setMode('tenant')
-      setActive(key)
-      return
-    }
+    const item = navItems.find(s => s.key === key)
+    if (item) { selectNav(item); return }
+    if (String(key).startsWith('tenant-')) { setMode('tenant'); setActive(key); return }
+    setMode('venue')
     setActive(key)
   }
 
@@ -3432,53 +3506,37 @@ export default function Website() {
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="w-56 shrink-0 border-r overflow-y-auto py-4 px-2">
-        {/* Mode tabs */}
-        <div className="px-2 mb-3 space-y-1">
-          <button onClick={() => { setMode('tenant'); setActive('tenant-page') }}
-            className={cn('w-full text-left px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wide',
-              mode === 'tenant' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent')}>
-            Tenant site
-          </button>
-
-          <div className="pt-1">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
-              Location pages
-            </p>
-            <select
-              value={venueId ?? ''}
-              onChange={e => { setVenueId(e.target.value); setMode('venue'); setActive('page') }}
-              className="w-full border rounded-md px-2 py-1.5 text-sm bg-background min-h-[36px]">
-              {venues.map(v => {
-                const hasPage = allConfigs.some(c => c.venue_id === v.id && c.config_id)
-                return <option key={v.id} value={v.id}>{v.name}{hasPage ? '' : ' (not set up)'}</option>
-              })}
-            </select>
+        {!soleVenue && (
+          <div className="px-2 mb-3 space-y-1">
+            <button type="button" onClick={() => { setMode('tenant'); setActive('tenant-page') }}
+              className={cn('w-full text-left px-3 py-2 rounded-md text-xs font-semibold uppercase tracking-wide',
+                mode === 'tenant' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent')}>
+              Site
+            </button>
+            <div className="pt-1">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-3 mb-1">
+                This location
+              </p>
+              <select
+                value={venueId ?? ''}
+                onChange={e => { setVenueId(e.target.value); setMode('venue'); setActive('page') }}
+                className="w-full border rounded-md px-2 py-1.5 text-sm bg-background min-h-[36px]">
+                {venues.map(v => {
+                  const hasPage = allConfigs.some(c => c.venue_id === v.id && c.config_id)
+                  return <option key={v.id} value={v.id}>{v.name}{hasPage ? '' : ' (not set up)'}</option>
+                })}
+              </select>
+            </div>
           </div>
-        </div>
+        )}
 
-        <nav className="space-y-0.5 px-1">
-          {sections.map(s => {
-            const Icon = s.icon
-            return (
-              <button key={s.key} onClick={() => setActive(s.key)}
-                className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors',
-                  active === s.key
-                    ? 'bg-primary/10 text-primary font-medium'
-                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                )}>
-                <Icon className="w-4 h-4 shrink-0" />
-                {s.label}
-              </button>
-            )
-          })}
-        </nav>
+        <NavGroups groups={navGroups} active={active} onSelect={selectNav} />
       </aside>
 
       <main className="flex-1 overflow-y-auto">
         <div className={cn('p-6', active !== 'page' && active !== 'tenant-page' && active !== 'tenant-pages' && active !== 'pages' && 'max-w-3xl mx-auto')}>
           <div className="mb-6">
-            {mode === 'tenant' ? (
+            {mode === 'tenant' || soleVenue ? (
               <>
                 <h1 className="text-xl font-semibold">{sectionLabel}</h1>
                 {liveHost && (
