@@ -33,7 +33,7 @@ const SHORTCUT_OPTIONS = [
   { to: '/schedule',             label: 'Schedule',             icon: Clock,           colour: 'bg-amber-100 text-amber-600' },
   { to: '/rules',                label: 'Rules',                icon: Settings,        colour: 'bg-yellow-100 text-yellow-600' },
   { to: '/website',              label: 'Website',              icon: Globe,           colour: 'bg-lime-100 text-lime-600' },
-  { to: '/reservations-widget',  label: 'Widget',               icon: LayoutTemplate,  colour: 'bg-green-100 text-green-600' },
+  { to: '/website?section=tenant-widget', label: 'Widget', icon: LayoutTemplate,  colour: 'bg-green-100 text-green-600' },
   { to: '/menus',                label: 'Menus',                icon: ChefHat,         colour: 'bg-fuchsia-100 text-fuchsia-600' },
   { to: '/media',                label: 'Media',                icon: FolderOpen,      colour: 'bg-pink-100 text-pink-600' },
   { to: '/reviews',              label: 'Reviews',              icon: MessageSquare,   colour: 'bg-red-100 text-red-600' },

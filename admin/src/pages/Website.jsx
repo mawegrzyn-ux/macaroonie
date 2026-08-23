@@ -10,6 +10,7 @@
 // for a subdomain slug then POSTs to create the row.
 
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Globe, Palette, LayoutTemplate, Image as ImageIcon, FileText, BookOpen,
@@ -30,6 +31,7 @@ import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { PageBuilder } from '@/components/website-builder/PageBuilder'
 import { FontPicker } from '@/components/website-builder/FontPicker'
+import ReservationsWidget from '@/pages/ReservationsWidget'
 
 // ── Section lists ────────────────────────────────────────────
 //
@@ -61,6 +63,9 @@ const GUEST_ITEMS = [
   { key: 'ordering', label: 'Online ordering', icon: ShoppingBag },
   { key: 'delivery', label: 'Delivery',        icon: Truck },
 ]
+const WIDGET_ITEMS = [
+  { key: 'tenant-widget', label: 'Reservations widget', icon: LayoutTemplate },
+]
 const SITE_ITEMS = [
   { key: 'tenant-brand',     label: 'Brand & theme',     icon: Palette },
   { key: 'tenant-domain',    label: 'Domain & publish',  icon: Globe },
@@ -74,9 +79,10 @@ const LOCATIONS_ITEMS = [
 ]
 
 const TENANT_NAV = [
-  { label: 'Pages',     items: PAGES_TENANT },
-  { label: 'Locations', items: LOCATIONS_ITEMS },
-  { label: 'Site',      items: SITE_ITEMS },
+  { label: 'Pages',        items: PAGES_TENANT },
+  { label: 'Locations',    items: LOCATIONS_ITEMS },
+  { label: 'Book & order', items: WIDGET_ITEMS },
+  { label: 'Site',         items: SITE_ITEMS },
 ]
 
 const VENUE_NAV = [
@@ -91,7 +97,10 @@ const SINGLE_VENUE_NAV = [
     ...withMode(PAGES_VENUE.filter(i => i.key !== 'pages'), 'venue'),
   ]},
   { label: 'Restaurant',   items: withMode(RESTAURANT_ITEMS, 'venue') },
-  { label: 'Book & order', items: withMode(GUEST_ITEMS, 'venue') },
+  { label: 'Book & order', items: [
+    ...withMode(WIDGET_ITEMS, 'tenant'),
+    ...withMode(GUEST_ITEMS, 'venue'),
+  ]},
   { label: 'Site',         items: withMode(SITE_ITEMS, 'tenant') },
 ]
 
@@ -3414,10 +3423,22 @@ function BrandBannerSection() {
 export default function Website() {
   const api = useApi()
   const qc  = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const sectionParam = searchParams.get('section')
   // 'tenant' edits the tenant_site row; 'venue' edits a venue's website_config.
-  const [mode, setMode] = useState('tenant')
-  const [active, setActive] = useState('tenant-page')
+  const [mode, setMode] = useState(() =>
+    sectionParam && !String(sectionParam).startsWith('tenant-') ? 'venue' : 'tenant')
+  const [active, setActive] = useState(() => sectionParam || 'tenant-page')
   const [venueId, setVenueId] = useState(null)
+
+  useEffect(() => {
+    if (!sectionParam) return
+    setActive(sectionParam)
+    setMode(String(sectionParam).startsWith('tenant-') ? 'tenant' : 'venue')
+    const next = new URLSearchParams(searchParams)
+    next.delete('section')
+    setSearchParams(next, { replace: true })
+  }, [sectionParam, searchParams, setSearchParams])
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -3628,6 +3649,7 @@ function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, on
     case 'tenant-seo':       return <TenantSeoSection       tenantSite={tenantSite} />
     case 'tenant-analytics': return <BrandAnalyticsSection />
     case 'tenant-banner':    return <BrandBannerSection />
+    case 'tenant-widget':    return <ReservationsWidget embedded />
     default: return null
   }
 }

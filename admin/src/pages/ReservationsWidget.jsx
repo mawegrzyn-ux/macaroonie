@@ -54,7 +54,7 @@ const DEFAULT_SETTINGS = {
   confirmation_ctas:      [],
 }
 
-export default function ReservationsWidget() {
+export default function ReservationsWidget({ embedded = false }) {
   const api = useApi()
   const qc  = useQueryClient()
 
@@ -116,7 +116,7 @@ export default function ReservationsWidget() {
   }
 
   if (isLoading) {
-    return <div className="h-full overflow-y-auto">
+    return <div className={embedded ? '' : 'h-full overflow-y-auto'}>
       <div className="p-8 flex items-center gap-2 text-muted-foreground">
         <Loader2 className="w-4 h-4 animate-spin" /> Loading…
       </div>
@@ -125,12 +125,13 @@ export default function ReservationsWidget() {
 
   // AppShell's <main> is overflow-hidden — the page needs its own scrolling
   // container or content past the fold gets stranded (CLAUDE.md gotcha).
+  // When embedded in the Website builder the parent already scrolls.
   return (
-    <div className="h-full overflow-y-auto">
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className={embedded ? '' : 'h-full overflow-y-auto'}>
+    <div className={embedded ? 'space-y-6' : 'p-6 max-w-3xl mx-auto space-y-6'}>
       <div>
-        <h1 className="text-2xl font-bold">Reservations widget</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        {!embedded && <h1 className="text-2xl font-bold">Reservations widget</h1>}
+        <p className={`text-sm text-muted-foreground${embedded ? '' : ' mt-1'}`}>
           These settings apply to every Reservations widget across all your venues unless
           overridden on a specific embed (page-builder block or external embed code).
           Live preview shows below — what you see here is what visitors see.
