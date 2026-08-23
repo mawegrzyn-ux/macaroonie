@@ -1,7 +1,9 @@
 // src/pages/Customers.jsx
 // Customer list with editing, manual add, CSV import, and GDPR functions.
 //
-// Layout: left list (search + results) | right detail panel
+// Layout: left list (search + results) | right detail panel (desktop)
+//         On mobile (<1024px) the list stays full-width; detail opens as a
+//         sliding overlay drawer with backdrop + close.
 //
 // Detail panel modes:
 //   view   — contact info + booking history + GDPR actions
@@ -64,6 +66,18 @@ function parseCSV(text) {
 }
 
 // ── Main page ─────────────────────────────────────────────────
+function useIsDesktop(minWidth = 1024) {
+  const [ok, setOk] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia(`(min-width: ${minWidth}px)`).matches)
+  useEffect(() => {
+    const m = window.matchMedia(`(min-width: ${minWidth}px)`)
+    const fn = () => setOk(m.matches)
+    m.addEventListener('change', fn)
+    return () => m.removeEventListener('change', fn)
+  }, [minWidth])
+  return ok
+}
+
 export default function Customers() {
   const api = useApi()
   const qc  = useQueryClient()
@@ -75,6 +89,7 @@ export default function Customers() {
   const [showAdd,    setShowAdd]    = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [sort,       setSort]       = useState({ col: 'updated_at', dir: 'desc' })
+  const isDesktop = useIsDesktop()
 
   const isResizing    = useRef(false)
   const debounceTimer = useRef(null)
@@ -94,7 +109,7 @@ export default function Customers() {
     return () => clearTimeout(debounceTimer.current)
   }, [search])
 
-  // ── Resizable panel ──────────────────────────────────────────
+  // Resize handle
   const onResizeStart = useCallback((e) => {
     e.preventDefault()
     isResizing.current = true
@@ -120,7 +135,6 @@ export default function Customers() {
     window.addEventListener('touchend',  onUp)
   }, [])
 
-  // ── Data — infinite-scroll paginated list ────────────────────
   const PAGE_SIZE = 50
   const {
     data:              infiniteData,
@@ -143,7 +157,7 @@ export default function Customers() {
   const customers  = useMemo(() => infiniteData?.pages.flatMap(p => p.rows) ?? [], [infiniteData])
   const totalCount = infiniteData?.pages[0]?.total ?? null
 
-  // Auto-load next page when sentinel scrolls into view
+  // Infinite scroll
   useEffect(() => {
     const el = sentinelRef.current
     if (!el) return
@@ -211,7 +225,7 @@ export default function Customers() {
           </div>
         </div>
 
-        {/* List */}
+        {/* Table */}
         <div className="flex-1 overflow-y-auto">
           {isLoading ? (
             <p className="text-sm text-muted-foreground p-6">Loading…</p>
@@ -274,37 +288,56 @@ export default function Customers() {
         </div>
       </div>
 
-      {/* ── Resize handle ──────────────────────────────────── */}
-      <div
-        onMouseDown={onResizeStart}
-        onTouchStart={onResizeStart}
-        className="relative w-3 shrink-0 cursor-col-resize group touch-manipulation select-none"
-      >
-        <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border group-hover:bg-primary/30 transition-colors" />
-        <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 flex flex-col gap-[3px]">
-          {[0,1,2,3,4].map(i => (
-            <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary/60 transition-colors" />
-          ))}
-        </div>
-      </div>
-
-      {/* ── Right: detail panel ────────────────────────────── */}
-      <div className="shrink-0 flex flex-col overflow-hidden border-l" style={{ width: panelWidth }}>
-        {selectedId && detail ? (
-          <CustomerDetail
-            key={selectedId}
-            customer={detail}
-            api={api}
-            onUpdated={() => qc.invalidateQueries({ queryKey: ['customers'] })}
-            onAnonymised={() => { qc.invalidateQueries({ queryKey: ['customers'] }); setSelectedId(null) }}
-          />
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-            <User className="w-8 h-8 opacity-30" />
-            <p className="text-sm">Select a customer to view details</p>
+      {/* Desktop: docked side panel */}
+      {isDesktop && (
+        <>
+          <div
+            onMouseDown={onResizeStart}
+            onTouchStart={onResizeStart}
+            className="relative w-3 shrink-0 cursor-col-resize group touch-manipulation select-none"
+          >
+            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border group-hover:bg-primary/30 transition-colors" />
+            <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 flex flex-col gap-[3px]">
+              {[0,1,2,3,4].map(i => (
+                <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary/60 transition-colors" />
+              ))}
+            </div>
           </div>
-        )}
-      </div>
+          <div className="shrink-0 flex flex-col overflow-hidden border-l" style={{ width: panelWidth }}>
+            {selectedId && detail ? (
+              <CustomerDetail
+                key={selectedId}
+                customer={detail}
+                api={api}
+                onUpdated={() => qc.invalidateQueries({ queryKey: ['customers'] })}
+                onAnonymised={() => { qc.invalidateQueries({ queryKey: ['customers'] }); setSelectedId(null) }}
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+                <User className="w-8 h-8 opacity-30" />
+                <p className="text-sm">Select a customer to view details</p>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Mobile: full-screen sliding drawer over the list */}
+      {!isDesktop && selectedId && detail && (
+        <>
+          <div className="fixed inset-0 bg-black/20 z-40" onClick={() => setSelectedId(null)} />
+          <div className="fixed right-0 top-0 bottom-0 w-full sm:w-[420px] z-50 bg-background border-l shadow-xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
+            <CustomerDetail
+              key={selectedId}
+              customer={detail}
+              api={api}
+              onClose={() => setSelectedId(null)}
+              onUpdated={() => qc.invalidateQueries({ queryKey: ['customers'] })}
+              onAnonymised={() => { qc.invalidateQueries({ queryKey: ['customers'] }); setSelectedId(null) }}
+            />
+          </div>
+        </>
+      )}
 
       {/* ── Add customer modal ──────────────────────────────── */}
       {showAdd && (
@@ -330,25 +363,26 @@ export default function Customers() {
 // ── Sortable column header ────────────────────────────────────
 function SortableHeader({ col, label, align = 'left', sort, onSort }) {
   const active = sort.col === col
-  const Icon   = active ? (sort.dir === 'asc' ? ChevronUp : ChevronDown) : ArrowUpDown
   return (
     <th
-      onClick={() => onSort(col)}
       className={cn(
-        'px-4 py-2.5 font-medium text-xs text-muted-foreground cursor-pointer hover:text-foreground select-none touch-manipulation whitespace-nowrap',
-        align === 'right' ? 'text-right' : 'text-left',
+        'px-4 py-2.5 text-xs font-medium text-muted-foreground cursor-pointer select-none touch-manipulation',
+        align === 'right' && 'text-right',
       )}
+      onClick={() => onSort(col)}
     >
       <span className={cn('inline-flex items-center gap-1', align === 'right' && 'flex-row-reverse')}>
         {label}
-        <Icon className={cn('w-3 h-3 shrink-0', active ? 'text-primary' : 'opacity-30')} />
+        {active
+          ? (sort.dir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />)
+          : <ArrowUpDown className="w-3 h-3 opacity-40" />}
       </span>
     </th>
   )
 }
 
-// ── Customer detail panel ─────────────────────────────────────
-function CustomerDetail({ customer, api, onUpdated, onAnonymised }) {
+// ── Detail panel ──────────────────────────────────────────────
+function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
   const qc = useQueryClient()
   const [editing,          setEditing]          = useState(false)
   const [confirmAnonymise, setConfirmAnonymise] = useState(false)
@@ -405,13 +439,23 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised }) {
     <div className="flex flex-col h-full overflow-hidden">
 
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0">
-        <div className="min-w-0">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b shrink-0 gap-2">
+        <div className="min-w-0 flex-1">
           <p className="font-semibold truncate">{customer.name}</p>
           <p className="text-xs text-muted-foreground">
             Customer since {format(parseISO(customer.created_at), 'dd MMM yyyy')}
           </p>
         </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-lg hover:bg-accent touch-manipulation shrink-0"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
         {/* Analytics stat pill */}
         {!customer.is_anonymised && !editing && (
           <div className="flex items-center gap-1.5 shrink-0 ml-3 px-2.5 py-1.5 rounded-lg bg-primary/8 text-primary">
@@ -420,316 +464,211 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised }) {
             <span className="text-xs opacity-70">visits</span>
           </div>
         )}
-        {!customer.is_anonymised && (
-          editing ? (
-            <div className="flex items-center gap-1.5 shrink-0 ml-2">
-              <button
-                onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || !form.name.trim()}
-                className="flex items-center gap-1 px-2.5 py-1.5 bg-primary text-primary-foreground text-xs rounded-lg disabled:opacity-50 touch-manipulation"
-              >
-                <Check className="w-3.5 h-3.5" />
-                {saveMutation.isPending ? 'Saving…' : 'Save'}
-              </button>
-              <button
-                onClick={() => { setEditing(false); setForm({ name: customer.name ?? '', email: customer.email ?? '', phone: customer.phone ?? '', notes: customer.notes ?? '' }) }}
-                className="p-1.5 rounded hover:bg-accent touch-manipulation"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
+        {editing ? (
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
             <button
-              onClick={() => setEditing(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs border rounded-lg hover:bg-accent touch-manipulation shrink-0 ml-2"
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || !form.name.trim()}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-primary text-primary-foreground text-xs rounded-lg disabled:opacity-50 touch-manipulation"
             >
-              <Pencil className="w-3 h-3" />
-              Edit
+              <Check className="w-3.5 h-3.5" />
+              {saveMutation.isPending ? 'Saving…' : 'Save'}
             </button>
-          )
+            <button
+              onClick={() => setEditing(false)}
+              className="px-2.5 py-1.5 text-xs border rounded-lg hover:bg-accent touch-manipulation"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : !customer.is_anonymised && (
+          <button
+            onClick={() => setEditing(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs border rounded-lg hover:bg-accent touch-manipulation shrink-0 ml-2"
+          >
+            <Pencil className="w-3.5 h-3.5" /> Edit
+          </button>
         )}
       </div>
 
-      {/* Body */}
       <div className="flex-1 overflow-y-auto p-5 space-y-6">
-
-        {/* Anonymised banner */}
         {customer.is_anonymised && (
           <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-            This customer's data has been anonymised under GDPR.
+            <ShieldAlert className="w-4 h-4 shrink-0" />
+            This record has been anonymised (GDPR).
           </div>
         )}
 
-        {/* Contact info — view or edit */}
-        <Section title="Contact">
-          {editing ? (
-            <div className="space-y-3">
-              <EditField label="Name *">
-                <input
-                  value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  className="field-input"
-                  placeholder="Full name"
-                  autoFocus
-                />
-              </EditField>
-              <EditField label="Email">
-                <input
-                  value={form.email}
-                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  type="email"
-                  inputMode="email"
-                  className="field-input"
-                  placeholder="email@example.com"
-                />
-              </EditField>
-              <EditField label="Phone">
-                <input
-                  value={form.phone}
-                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                  type="tel"
-                  inputMode="tel"
-                  className="field-input"
-                  placeholder="+44 7700 900000"
-                />
-              </EditField>
-              <EditField label="Notes">
-                <textarea
-                  value={form.notes}
-                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  className="field-input min-h-[72px] resize-none"
-                  placeholder="Internal notes…"
-                />
-              </EditField>
-              {/* Visit count adjustment stepper */}
-              <EditField label="Historical visit count adjustment">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setForm(f => ({ ...f, visit_count: Math.max(0, f.visit_count - 1) }))}
-                    className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent active:bg-accent/80 touch-manipulation select-none"
-                  ><Minus className="w-4 h-4" /></button>
-                  <span className="w-14 text-center text-sm font-semibold tabular-nums">{form.visit_count}</span>
-                  <button
-                    type="button"
-                    onClick={() => setForm(f => ({ ...f, visit_count: f.visit_count + 1 }))}
-                    className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent active:bg-accent/80 touch-manipulation select-none"
-                  >+</button>
-                  <span className="text-xs text-muted-foreground ml-1">
-                    + {systemBookings} system → <strong>{form.visit_count + systemBookings} total</strong>
-                  </span>
-                </div>
-              </EditField>
-              {saveMutation.isError && (
-                <p className="text-xs text-destructive">{saveMutation.error?.message ?? 'Save failed'}</p>
-              )}
-            </div>
-          ) : (
-            <>
-              {customer.email && <InfoRow icon={Mail}>{customer.email}</InfoRow>}
-              {customer.phone && <InfoRow icon={Phone}>{customer.phone}</InfoRow>}
+        {editing ? (
+          <div className="space-y-3">
+            <EditField label="Name">
+              <input className="field-input" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            </EditField>
+            <EditField label="Email">
+              <input className="field-input" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+            </EditField>
+            <EditField label="Phone">
+              <input className="field-input" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+            </EditField>
+            <EditField label="Notes">
+              <textarea className="field-input" rows={3} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+            </EditField>
+            <EditField label="Historical visit adjustment">
+              <input
+                className="field-input"
+                type="number"
+                min={0}
+                value={form.visit_count}
+                onChange={e => setForm(f => ({ ...f, visit_count: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+              />
+              <p className="text-xs text-muted-foreground mt-1">Added to system bookings for the total visits figure.</p>
+            </EditField>
+          </div>
+        ) : (
+          <>
+            <Section title="Contact">
+              <InfoRow icon={Mail}>{customer.email || '—'}</InfoRow>
+              <InfoRow icon={Phone}>{customer.phone || '—'}</InfoRow>
               {customer.notes && (
                 <InfoRow icon={FileText}>
-                  <span className="text-muted-foreground">{customer.notes}</span>
+                  <span className="whitespace-pre-wrap">{customer.notes}</span>
                 </InfoRow>
               )}
-              {!customer.email && !customer.phone && !customer.notes && (
-                <p className="text-sm text-muted-foreground">No contact details on record.</p>
-              )}
-            </>
-          )}
-        </Section>
+            </Section>
 
-        {/* Visit analytics */}
-        {!customer.is_anonymised && (
-          <Section title="Visit analytics">
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'Total visits',  value: totalVisits,    colour: 'text-primary bg-primary/8' },
-                { label: 'System bookings', value: systemBookings, colour: 'text-blue-700 bg-blue-50' },
-                { label: 'Prior history', value: customer.visit_count ?? 0, colour: 'text-muted-foreground bg-muted/40' },
-              ].map(({ label, value, colour }) => (
-                <div key={label} className={`rounded-lg p-3 text-center ${colour}`}>
-                  <p className="text-2xl font-bold tabular-nums">{value}</p>
-                  <p className="text-xs font-medium leading-tight mt-0.5">{label}</p>
+            <Section title="Visits">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-lg font-semibold tabular-nums">{totalVisits}</p>
+                  <p className="text-xs text-muted-foreground">Total</p>
                 </div>
-              ))}
-            </div>
-          </Section>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-lg font-semibold tabular-nums">{systemBookings}</p>
+                  <p className="text-xs text-muted-foreground">In system</p>
+                </div>
+                <div className="rounded-lg bg-muted/50 p-3">
+                  <p className="text-lg font-semibold tabular-nums">{customer.visit_count ?? 0}</p>
+                  <p className="text-xs text-muted-foreground">Adjusted</p>
+                </div>
+              </div>
+            </Section>
+
+            {customer.bookings?.length > 0 && (
+              <Section title="Recent bookings">
+                <div className="space-y-2">
+                  {customer.bookings.slice(0, 10).map(b => (
+                    <div key={b.id} className="flex items-center justify-between text-sm border rounded-lg px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{format(parseISO(b.starts_at), 'dd MMM yyyy · HH:mm')}</p>
+                        <p className="text-xs text-muted-foreground">{b.covers} covers · {b.venue_name || '—'}</p>
+                      </div>
+                      <span className={cn(
+                        'text-xs px-2 py-0.5 rounded-full shrink-0 ml-2',
+                        STATUS_COLOURS[b.status] || 'bg-muted text-muted-foreground',
+                      )}>
+                        {STATUS_LABELS[b.status] || b.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+          </>
         )}
-
-        {/* Booking history */}
-        <Section title={`Bookings (${customer.bookings?.length ?? 0})`}>
-          {!customer.bookings?.length ? (
-            <p className="text-sm text-muted-foreground">No bookings linked yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {customer.bookings.map(b => (
-                <div key={b.id} className="rounded-lg border p-3 space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium">
-                      {format(parseISO(b.starts_at), 'EEE d MMM yyyy, HH:mm')}
-                    </span>
-                    <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium shrink-0', STATUS_COLOURS[b.status])}>
-                      {STATUS_LABELS[b.status] ?? b.status}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {b.venue_name} · {b.table_label ?? 'Unallocated'} · {b.covers} covers
-                  </p>
-                  <p className="text-xs text-muted-foreground font-mono">#{b.reference}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </Section>
 
         {/* GDPR */}
         {!customer.is_anonymised && (
-          <Section title="GDPR">
-            <p className="text-xs text-muted-foreground mb-3">
-              Export all data held for this customer, or anonymise it in response to a Right
-              to Erasure request. Anonymisation replaces all personal data with placeholder
-              values and cannot be undone.
-            </p>
-
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-2 text-sm text-primary hover:text-primary/80 touch-manipulation mb-4"
-            >
-              <Download className="w-4 h-4" />
-              Export customer data (JSON)
-            </button>
-
-            {!confirmAnonymise ? (
+          <Section title="Privacy">
+            <div className="space-y-2">
               <button
-                onClick={() => setConfirmAnonymise(true)}
-                className="flex items-center gap-2 text-sm text-destructive hover:text-destructive/80 touch-manipulation"
+                onClick={handleExport}
+                className="w-full flex items-center justify-center gap-1.5 py-2 text-sm border rounded-lg hover:bg-accent touch-manipulation"
               >
-                <ShieldAlert className="w-4 h-4" />
-                Anonymise all personal data
+                <Download className="w-3.5 h-3.5" /> Export data
               </button>
-            ) : (
-              <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 space-y-3">
-                <p className="text-sm font-medium text-destructive">Anonymise {customer.name}?</p>
-                <p className="text-xs text-muted-foreground">
-                  Replaces name, email, phone, and notes with placeholder values and anonymises
-                  all linked booking records. Cannot be undone.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => anonymiseMutation.mutate()}
-                    disabled={anonymiseMutation.isPending}
-                    className="flex-1 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm font-medium disabled:opacity-50 touch-manipulation"
-                  >
-                    {anonymiseMutation.isPending ? 'Processing…' : 'Yes, anonymise'}
-                  </button>
-                  <button
-                    onClick={() => setConfirmAnonymise(false)}
-                    disabled={anonymiseMutation.isPending}
-                    className="flex-1 py-2 rounded-lg border text-sm touch-manipulation"
-                  >
-                    Cancel
-                  </button>
+              {!confirmAnonymise ? (
+                <button
+                  onClick={() => setConfirmAnonymise(true)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 text-sm border border-destructive/40 text-destructive rounded-lg hover:bg-destructive/5 touch-manipulation"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" /> Anonymise (GDPR)
+                </button>
+              ) : (
+                <div className="border border-destructive/40 rounded-lg p-3 space-y-2">
+                  <p className="text-xs text-destructive flex items-start gap-1.5">
+                    <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    This permanently replaces name, email and phone with placeholders. Bookings stay linked.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => anonymiseMutation.mutate()}
+                      disabled={anonymiseMutation.isPending}
+                      className="flex-1 py-1.5 text-sm bg-destructive text-destructive-foreground rounded-lg disabled:opacity-50 touch-manipulation"
+                    >
+                      {anonymiseMutation.isPending ? 'Working…' : 'Confirm anonymise'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmAnonymise(false)}
+                      className="flex-1 py-1.5 text-sm border rounded-lg hover:bg-accent touch-manipulation"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-                {anonymiseMutation.isError && (
-                  <p className="text-xs text-destructive">{anonymiseMutation.error?.message ?? 'Failed'}</p>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </Section>
         )}
       </div>
+      <style>{`.field-input{width:100%;border:1px solid hsl(var(--border));border-radius:.5rem;padding:.4rem .6rem;font-size:.875rem;background:hsl(var(--background));outline:none}.field-input:focus{border-color:hsl(var(--primary))}`}</style>
     </div>
   )
 }
 
 // ── Add customer modal ────────────────────────────────────────
 function AddCustomerModal({ api, onClose, onCreated }) {
-  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', visit_count: 0 })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '' })
   const [error, setError] = useState(null)
 
-  const createMutation = useMutation({
+  const mutation = useMutation({
     mutationFn: () => api.post('/customers', {
-      name:        form.name.trim(),
-      email:       form.email.trim() || null,
-      phone:       form.phone.trim() || null,
-      notes:       form.notes.trim() || null,
-      visit_count: form.visit_count,
+      name:  form.name.trim(),
+      email: form.email.trim() || null,
+      phone: form.phone.trim() || null,
+      notes: form.notes.trim() || null,
     }),
     onSuccess: (data) => onCreated(data.id),
-    onError:   (e)    => setError(e.message ?? 'Failed to create customer'),
+    onError:   (err) => setError(err?.message || 'Could not create customer'),
   })
 
   function handleSubmit(e) {
     e.preventDefault()
-    if (!form.name.trim()) return
+    if (!form.name.trim()) { setError('Name is required'); return }
     setError(null)
-    createMutation.mutate()
+    mutation.mutate()
   }
 
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-background rounded-xl shadow-2xl w-full max-w-sm flex flex-col">
-          <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
-            <p className="font-semibold text-sm">Add customer</p>
+        <div className="bg-background rounded-xl shadow-xl border w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-3.5 border-b">
+            <h2 className="font-semibold text-sm">Add customer</h2>
             <button onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
           </div>
-          <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <form onSubmit={handleSubmit} className="p-5 space-y-3">
             <EditField label="Name *">
-              <input
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                className="field-input"
-                placeholder="Full name"
-                autoFocus={false}
-                required
-              />
+              <input className="field-input" autoFocus value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </EditField>
             <EditField label="Email">
-              <input
-                value={form.email}
-                onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                type="email"
-                inputMode="email"
-                className="field-input"
-                placeholder="email@example.com"
-              />
+              <input className="field-input" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
             </EditField>
             <EditField label="Phone">
-              <input
-                value={form.phone}
-                onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                type="tel"
-                inputMode="tel"
-                className="field-input"
-                placeholder="+44 7700 900000"
-              />
+              <input className="field-input" type="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
             </EditField>
             <EditField label="Notes">
-              <textarea
-                value={form.notes}
-                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                className="field-input min-h-[60px] resize-none"
-                placeholder="Internal notes…"
-              />
-            </EditField>
-            <EditField label="Historical visit count">
-              <div className="flex items-center gap-2">
-                <button type="button"
-                  onClick={() => setForm(f => ({ ...f, visit_count: Math.max(0, f.visit_count - 1) }))}
-                  className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent touch-manipulation select-none"
-                ><Minus className="w-4 h-4" /></button>
-                <span className="w-12 text-center text-sm font-semibold tabular-nums">{form.visit_count}</span>
-                <button type="button"
-                  onClick={() => setForm(f => ({ ...f, visit_count: f.visit_count + 1 }))}
-                  className="w-9 h-9 rounded-lg border text-lg font-bold flex items-center justify-center hover:bg-accent touch-manipulation select-none"
-                >+</button>
-                <span className="text-xs text-muted-foreground">pre-system visits</span>
-              </div>
+              <textarea className="field-input" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             </EditField>
             {error && <p className="text-xs text-destructive">{error}</p>}
             <div className="flex gap-2 pt-1">
@@ -738,192 +677,126 @@ function AddCustomerModal({ api, onClose, onCreated }) {
               </button>
               <button
                 type="submit"
-                disabled={createMutation.isPending || !form.name.trim()}
+                disabled={mutation.isPending}
                 className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50 touch-manipulation"
               >
-                {createMutation.isPending ? 'Adding…' : 'Add customer'}
+                {mutation.isPending ? 'Saving…' : 'Add customer'}
               </button>
             </div>
           </form>
+          <style>{`.field-input{width:100%;border:1px solid hsl(var(--border));border-radius:.5rem;padding:.4rem .6rem;font-size:.875rem;background:hsl(var(--background));outline:none}.field-input:focus{border-color:hsl(var(--primary))}`}</style>
         </div>
       </div>
-      <style>{`.field-input{width:100%;border:1px solid hsl(var(--border));border-radius:.5rem;padding:.4rem .6rem;font-size:.875rem;background:hsl(var(--background));outline:none}.field-input:focus{border-color:hsl(var(--primary))}`}</style>
     </>
   )
 }
 
 // ── CSV import modal ──────────────────────────────────────────
 function ImportModal({ api, onClose, onImported }) {
-  const [rows,    setRows]    = useState(null)  // parsed preview rows
-  const [result,  setResult]  = useState(null)  // import result
-  const [error,   setError]   = useState(null)
-  const fileRef = useRef(null)
+  const [text, setText]     = useState('')
+  const [preview, setPreview] = useState(null)
+  const [result, setResult] = useState(null)
+  const [error, setError]   = useState(null)
 
-  const importMutation = useMutation({
-    mutationFn: () => api.post('/customers/import', { customers: rows }),
-    onSuccess:  (data) => setResult(data),
-    onError:    (e)    => setError(e.message ?? 'Import failed'),
+  const mutation = useMutation({
+    mutationFn: (rows) => api.post('/customers/import', { rows }),
+    onSuccess: (data) => setResult(data),
+    onError:   (err) => setError(err?.message || 'Import failed'),
   })
 
-  function handleFile(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
+  function handleParse() {
     setError(null)
     setResult(null)
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      const parsed = parseCSV(ev.target.result)
-      if (!parsed.length) {
-        setError('No valid rows found. Check your CSV format.')
-        setRows(null)
-      } else {
-        setRows(parsed)
-      }
+    try {
+      const rows = parseCSV(text)
+      if (!rows.length) { setError('No valid rows found'); setPreview(null); return }
+      setPreview(rows)
+    } catch (e) {
+      setError(e.message || 'Could not parse CSV')
+      setPreview(null)
     }
-    reader.readAsText(file)
+  }
+
+  function handleImport() {
+    if (!preview?.length) return
+    setError(null)
+    mutation.mutate(preview)
   }
 
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-40" onClick={result ? onImported : onClose} />
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg flex flex-col max-h-[85vh]">
-
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
-            <p className="font-semibold text-sm">Import customers from CSV</p>
+        <div className="bg-background rounded-xl shadow-xl border w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-3.5 border-b">
+            <h2 className="font-semibold text-sm">Import customers (CSV)</h2>
             <button onClick={result ? onImported : onClose} className="p-1.5 rounded hover:bg-accent">
               <X className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
-
-            {/* Format hint */}
-            {!rows && !result && (
-              <>
-                <p className="text-sm text-muted-foreground">
-                  Upload a CSV file with customer data. One row per customer.
-                </p>
-                <div className="rounded-lg border bg-muted/30 p-3 space-y-1.5">
-                  <p className="text-xs font-semibold">Column order (auto-detected from header):</p>
-                  <div className="space-y-0.5">
-                    <p className="text-xs"><code className="text-primary">name, email, phone, notes, visits</code> <span className="text-muted-foreground">— standard</span></p>
-                    <p className="text-xs"><code className="text-primary">name, phone, email, notes, visits</code> <span className="text-muted-foreground">— phone-first (CRM exports)</span></p>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Only <strong>name</strong> is required. Header row detected and skipped automatically (case-insensitive). Up to <strong>50,000 rows</strong> per import.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    <strong>visits</strong> — integer; sets historical visit count. On update, the higher value is kept.
-                    Existing customers matched by email.
-                  </p>
-                </div>
-
-                {/* File picker */}
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={handleFile}
-                  className="hidden"
-                />
+          {!result ? (
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Columns: <code className="text-xs">name, email, phone, notes, visits</code>
+                {' '}(or phone before email). Header row optional.
+              </p>
+              <textarea
+                className="field-input font-mono text-xs"
+                rows={8}
+                placeholder={"name,email,phone,notes,visits\nJane Doe,jane@example.com,+447700900123,,3"}
+                value={text}
+                onChange={e => { setText(e.target.value); setPreview(null) }}
+              />
+              {error && <p className="text-xs text-destructive">{error}</p>}
+              {preview && (
+                <p className="text-xs text-muted-foreground">{preview.length} row{preview.length !== 1 ? 's' : ''} ready to import</p>
+              )}
+              <div className="flex gap-2">
                 <button
-                  onClick={() => fileRef.current?.click()}
-                  className="flex items-center justify-center gap-2 w-full py-8 border-2 border-dashed rounded-xl hover:bg-accent transition-colors text-muted-foreground touch-manipulation"
+                  type="button"
+                  onClick={handleParse}
+                  className="flex-1 py-2 border rounded-lg text-sm touch-manipulation"
                 >
-                  <Upload className="w-5 h-5" />
-                  <span className="text-sm font-medium">Choose CSV file</span>
+                  Preview
                 </button>
-                {error && (
-                  <p className="text-xs text-destructive flex items-center gap-1.5">
-                    <TriangleAlert className="w-3.5 h-3.5 shrink-0" />{error}
-                  </p>
-                )}
-              </>
-            )}
-
-            {/* Preview */}
-            {rows && !result && (
-              <>
-                <p className="text-sm font-medium">{rows.length} row{rows.length !== 1 ? 's' : ''} to import</p>
-                <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-muted/40 sticky top-0">
-                      <tr>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Name</th>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Email</th>
-                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Phone</th>
-                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">Visits</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r, i) => (
-                        <tr key={i} className="border-t">
-                          <td className="px-3 py-2">{r.name || <span className="text-destructive">—</span>}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{r.email ?? '—'}</td>
-                          <td className="px-3 py-2 text-muted-foreground">{r.phone ?? '—'}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{r.visit_count || '—'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                {error && <p className="text-xs text-destructive">{error}</p>}
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setRows(null); setError(null); if (fileRef.current) fileRef.current.value = '' }}
-                    className="flex-1 py-2 border rounded-lg text-sm touch-manipulation"
-                  >
-                    Choose different file
-                  </button>
-                  <button
-                    onClick={() => importMutation.mutate()}
-                    disabled={importMutation.isPending}
-                    className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50 touch-manipulation"
-                  >
-                    {importMutation.isPending ? 'Importing…' : `Import ${rows.length} customers`}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* Result */}
-            {result && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { label: 'Created',  value: result.created,  colour: 'text-green-700 bg-green-50' },
-                    { label: 'Updated',  value: result.updated,  colour: 'text-blue-700 bg-blue-50' },
-                    { label: 'Skipped',  value: result.skipped,  colour: 'text-muted-foreground bg-muted/40' },
-                  ].map(({ label, value, colour }) => (
-                    <div key={label} className={`rounded-lg p-3 text-center ${colour}`}>
-                      <p className="text-2xl font-bold">{value}</p>
-                      <p className="text-xs font-medium">{label}</p>
-                    </div>
-                  ))}
-                </div>
-                {result.errors?.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-destructive mb-1">{result.errors.length} error{result.errors.length !== 1 ? 's' : ''}:</p>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {result.errors.map((e, i) => (
-                        <p key={i} className="text-xs text-destructive border border-destructive/20 rounded px-2 py-1">
-                          <strong>{e.name}</strong>: {e.error}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <button onClick={onImported} className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm touch-manipulation">
-                  Done
+                <button
+                  type="button"
+                  onClick={handleImport}
+                  disabled={!preview?.length || mutation.isPending}
+                  className="flex-1 py-2 bg-primary text-primary-foreground rounded-lg text-sm disabled:opacity-50 touch-manipulation"
+                >
+                  {mutation.isPending ? 'Importing…' : 'Import'}
                 </button>
               </div>
-            )}
-          </div>
+            </div>
+          ) : (
+            <div className="p-5 space-y-3">
+              <p className="text-sm">
+                Imported <strong>{result.created ?? 0}</strong> new,
+                {' '}updated <strong>{result.updated ?? 0}</strong>,
+                {' '}skipped <strong>{result.skipped ?? 0}</strong>.
+              </p>
+              {result.errors?.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-destructive mb-1">{result.errors.length} error{result.errors.length !== 1 ? 's' : ''}:</p>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {result.errors.map((e, i) => (
+                      <p key={i} className="text-xs text-destructive border border-destructive/20 rounded px-2 py-1">
+                        <strong>{e.name}</strong>: {e.error}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <button onClick={onImported} className="w-full py-2 bg-primary text-primary-foreground rounded-lg text-sm touch-manipulation">
+                Done
+              </button>
+            </div>
+          )}
+          <style>{`.field-input{width:100%;border:1px solid hsl(var(--border));border-radius:.5rem;padding:.4rem .6rem;font-size:.875rem;background:hsl(var(--background));outline:none}.field-input:focus{border-color:hsl(var(--primary))}`}</style>
         </div>
       </div>
-      <style>{`.field-input{width:100%;border:1px solid hsl(var(--border));border-radius:.5rem;padding:.4rem .6rem;font-size:.875rem;background:hsl(var(--background));outline:none}.field-input:focus{border-color:hsl(var(--primary))}`}</style>
     </>
   )
 }
