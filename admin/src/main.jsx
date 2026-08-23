@@ -39,6 +39,7 @@ import OrderSheets           from '@/pages/OrderSheets'
 import OrderSheetTemplates  from '@/pages/OrderSheetTemplates'
 import OrderSheetCategories from '@/pages/OrderSheetCategories'
 import TestData        from '@/pages/TestData'
+import FoodSafety      from '@/pages/FoodSafety'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -121,6 +122,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="website"     element={<Website />} />
                 <Route path="reservations-widget" element={<Navigate to="/website?section=tenant-widget" replace />} />
                 <Route path="cash-recon" element={<CashRecon />} />
+                <Route path="food-safety" element={<FoodSafety />} />
                 <Route path="email-templates" element={<EmailTemplates />} />
                 <Route path="email-monitoring" element={<EmailMonitoring />} />
                 <Route path="media"            element={<Media />} />
