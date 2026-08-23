@@ -1246,8 +1246,10 @@ export default function Help() {
 
             <H3>Custom domain</H3>
             <P>
-              You can point your own domain (e.g. <Mono>book.wingstop.co.uk</Mono>) at your
-              Macaroonie site. The flow is:
+              You can point your own domain (e.g. <Mono>www.yourrestaurant.com</Mono>) at your
+              Macaroonie site. Open <strong>Domain & publish → How to connect your domain</strong>
+              for the full walkthrough (including the exact DNS records to add at GoDaddy,
+              Cloudflare, Namecheap, and the rest). The short version:
             </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>In <strong>Setup &amp; domain</strong>, enter your full domain.</li>
