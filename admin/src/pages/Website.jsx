@@ -426,15 +426,13 @@ function CustomDomainGuideModal({ open, onClose, domain, slug, onVerify, verifyi
             <ol className="list-decimal ml-5 space-y-1 text-muted-foreground">
               <li>Save the DNS record. Changes are often live in a few minutes, sometimes up to 24 hours.</li>
               <li>Your <code className="text-xs">{cnameTarget}</code> site stays up the whole time.</li>
-              <li>Come back here and click <strong>Verify DNS</strong>. We look for a CNAME ending in {dns?.root_domain || 'macaroonie.com'}, or an A record matching our IPs.</li>
+              <li>Come back here and click <strong>Verify DNS</strong> next to the domain field (or the button below). We look for a CNAME ending in {dns?.root_domain || 'macaroonie.com'}, or an A record matching our IPs.</li>
             </ol>
-            {host && (
-              <button type="button" onClick={onVerify} disabled={verifying}
-                className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md px-3 py-2 min-h-[40px] disabled:opacity-50">
-                {verifying && <Loader2 className="w-4 h-4 animate-spin" />}
-                {verified ? 'Verified — check again' : verifying ? 'Checking…' : 'Verify DNS now'}
-              </button>
-            )}
+            <button type="button" onClick={onVerify} disabled={verifying || !host}
+              className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md px-3 py-2 min-h-[40px] disabled:opacity-50">
+              {verifying && <Loader2 className="w-4 h-4 animate-spin" />}
+              {verified ? 'Verified — check again' : verifying ? 'Checking…' : host ? 'Verify DNS now' : 'Enter a domain first'}
+            </button>
             {verified && (
               <p className="text-xs text-emerald-700 font-medium inline-flex items-center gap-1">
                 <Check className="w-3.5 h-3.5" /> DNS verified.
@@ -514,7 +512,18 @@ function TenantDomainSection({ tenantSite }) {
   })
 
   const verify = useMutation({
-    mutationFn: () => api.post('/website/tenant-site/verify-domain', {}),
+    mutationFn: async () => {
+      const next = (domain || '').trim().toLowerCase()
+      if (!next) throw Object.assign(new Error('Enter a custom domain first'), { body: { error: 'Enter a custom domain first' } })
+      if (next !== (tenantSite.custom_domain || '')) {
+        await api.patch('/website/tenant-site', {
+          subdomain_slug: slug,
+          custom_domain:  next,
+          is_published:   pubd,
+        })
+      }
+      return api.post('/website/tenant-site/verify-domain', {})
+    },
     onMutate:   () => setVerifying(true),
     onSettled:  () => setVerifying(false),
     onSuccess:  (r) => {
@@ -565,30 +574,41 @@ function TenantDomainSection({ tenantSite }) {
 
         <FormRow label="Custom domain (optional)"
           hint="e.g. www.yourrestaurant.com. SSL is issued after DNS verifies.">
-          <TextInput value={domain}
-            onChange={e => setDomain(e.target.value.toLowerCase().trim())}
-            placeholder="www.example.com" />
+          <div className="flex items-stretch gap-2">
+            <TextInput value={domain}
+              onChange={e => setDomain(e.target.value.toLowerCase().trim())}
+              placeholder="www.example.com" className="flex-1" />
+            <button
+              type="button"
+              onClick={() => verify.mutate()}
+              disabled={verifying || !domain}
+              className="shrink-0 inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md px-3 py-2 min-h-[44px] disabled:opacity-50"
+            >
+              {verifying && <Loader2 className="w-4 h-4 animate-spin" />}
+              {verifying ? 'Checking…' : 'Verify DNS'}
+            </button>
+          </div>
           <button type="button" onClick={() => setGuideOpen(true)}
             className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
             <HelpCircle className="w-3.5 h-3.5" />
             How to connect your domain
           </button>
-          {tenantSite.custom_domain && (
-            <div className="flex items-center justify-between mt-2 text-xs">
+          <div className="flex items-center justify-between mt-2 text-xs">
+            {tenantSite.custom_domain ? (
               <span className={cn(
                 'inline-flex items-center gap-1 font-medium',
                 tenantSite.custom_domain_verified ? 'text-emerald-600' : 'text-amber-600',
               )}>
                 {tenantSite.custom_domain_verified
                   ? <><Check className="w-3.5 h-3.5"/> DNS verified</>
-                  : <><AlertTriangle className="w-3.5 h-3.5"/> DNS not verified</>}
+                  : <><AlertTriangle className="w-3.5 h-3.5"/> DNS not verified yet — add the records, then click Verify DNS</>}
               </span>
-              <button
-                type="button" onClick={() => verify.mutate()} disabled={verifying}
-                className="text-xs text-primary hover:underline disabled:opacity-50"
-              >{verifying ? 'Checking…' : 'Verify DNS'}</button>
-            </div>
-          )}
+            ) : (
+              <span className="text-muted-foreground">
+                Type your domain, add the DNS records (see How to connect), then click Verify DNS.
+              </span>
+            )}
+          </div>
           {verifyResult && !verifyResult.verified && (
             <div className="mt-2 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
               <p className="font-medium mb-1">Verification failed</p>
