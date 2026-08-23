@@ -82,7 +82,7 @@ const gridCols = totalCols <= 1 ? '1fr'
       <% if (showLegal && legalPages.length) { %>
         <span class="legal">
           <% legalPages.forEach(function(p){ %>
-            <a href="/p/<%= p.slug %>"><%= p.title %></a>
+            <a href="<%= p.kind === 'modal' ? ('#modal/' + p.slug) : ('/p/' + p.slug) %>"><%= p.title %></a>
           <% }) %>
         </span>
       <% } %>

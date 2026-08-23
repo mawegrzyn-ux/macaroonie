@@ -1214,7 +1214,7 @@ export default function Help() {
                 ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
                 ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
                 ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours. Every block also has an Anchor ID in the inspector for in-page links.'],
-                ['Custom pages',     'Standalone pages (e.g. Private Dining). Each appears at /p/{slug}.'],
+                ['Pages',            'Standalone pages or modal overlays. Link picker lists them plus block anchors.'],
                 ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
                 ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
               ]}
@@ -1404,16 +1404,17 @@ export default function Help() {
               default 5 min) reserves the slot client-side; abandoning the form releases it.
             </InfoBox>
 
-            <H3>Custom pages</H3>
+            <H3>Pages & modals</H3>
             <P>
               For content that doesn't fit elsewhere — <em>Private Dining</em>, <em>Careers</em>,
               <em>Events</em>, <em>Terms &amp; Conditions</em>. Each page has:
             </P>
             <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
-              <li>A <strong>title</strong> (shown in the header nav).</li>
-              <li>A <strong>URL slug</strong> — the page appears at <Mono>/p/{'{slug}'}</Mono>.</li>
-              <li><strong>Content</strong> — HTML allowed; line breaks are preserved.</li>
-              <li><strong>Draft / Published</strong> toggle.</li>
+              <li>A <strong>title</strong>.</li>
+              <li>A <strong>URL slug</strong> — standalone pages live at <Mono>/p/{'{slug}'}</Mono>; modals also open from <Mono>#modal/{'{slug}'}</Mono>.</li>
+              <li><strong>Opens as</strong> — standalone page or modal overlay.</li>
+              <li>The same <strong>block builder</strong> as the home page. Set Anchor ID on a block to deep-link a section.</li>
+              <li>Every nav / button / footer link uses a <strong>link selector</strong>: this page (with or without an anchor), other pages, modals, or a custom URL.</li>
             </ul>
 
             <H3>SEO &amp; Analytics</H3>

@@ -1,5 +1,6 @@
 // Editor for the CTA strip block.
 import { FormRow } from '../shared'
+import { LinkPicker } from '../LinkPicker'
 
 export function CtaStripEditor({ data, onChange }) {
   const set = (k) => (v) => onChange({ ...data, [k]: v })
@@ -19,8 +20,7 @@ export function CtaStripEditor({ data, onChange }) {
             className="w-full text-sm border rounded-md px-2 py-1.5" />
         </FormRow>
         <FormRow label="Button link">
-          <input value={data.cta_link || ''} onChange={e => set('cta_link')(e.target.value)}
-            className="w-full text-sm border rounded-md px-2 py-1.5 font-mono" />
+          <LinkPicker value={data.cta_link || ''} onChange={set('cta_link')} />
         </FormRow>
       </div>
       <FormRow label="Background style">

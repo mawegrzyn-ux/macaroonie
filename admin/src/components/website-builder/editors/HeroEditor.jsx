@@ -8,6 +8,7 @@
 
 import { Plus, X } from 'lucide-react'
 import { ImageField, FormRow } from '../shared'
+import { LinkPicker } from '../LinkPicker'
 
 function Input({ value, onChange, placeholder = '', className = '' }) {
   return (
@@ -165,8 +166,7 @@ export function HeroEditor({ data, onChange, scope }) {
                 </button>
               </div>
               <div className="flex items-center gap-2">
-                <Input value={cta.link} onChange={v => patchCta(i, { link: v })}
-                  placeholder="/path or #anchor" className="font-mono" />
+                <LinkPicker value={cta.link} onChange={v => patchCta(i, { link: v })} className="flex-1" />
                 <select value={cta.style || 'primary'}
                   onChange={e => patchCta(i, { style: e.target.value })}
                   className="text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px] w-32">
