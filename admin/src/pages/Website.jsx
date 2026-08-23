@@ -15,7 +15,7 @@ import {
   Globe, Palette, LayoutTemplate, Image as ImageIcon, FileText, BookOpen,
   AlertTriangle, Clock, MapPin, Phone, ShoppingBag, Truck, Calendar,
   Search, BarChart3, Eye, EyeOff, Check, X, Upload, Trash2, GripVertical,
-  Plus, ExternalLink, Loader2,
+  Plus, ExternalLink, Loader2, HelpCircle, Copy,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -295,6 +295,183 @@ function OnboardingCard({ venueId, venueName, onCreated }) {
 
 // ── Tenant-level: domain + publish ───────────────────────────
 
+function CopyChip({ value, label }) {
+  const [copied, setCopied] = useState(false)
+  async function copy() {
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1400)
+    } catch { /* ignore */ }
+  }
+  return (
+    <button type="button" onClick={copy} disabled={!value}
+      className="inline-flex items-center gap-1.5 font-mono text-xs bg-muted border rounded-md px-2 py-1 min-h-[32px] hover:bg-accent disabled:opacity-40">
+      {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+      <span className="break-all text-left">{label || value || '—'}</span>
+    </button>
+  )
+}
+
+function DnsTable({ rows }) {
+  return (
+    <div className="border rounded-lg overflow-hidden text-xs">
+      <div className="grid grid-cols-[70px_1fr_1fr] bg-muted/60 px-3 py-1.5 font-semibold text-muted-foreground uppercase tracking-wide">
+        <span>Type</span><span>Name / Host</span><span>Value / Target</span>
+      </div>
+      {rows.map((r, i) => (
+        <div key={i} className="grid grid-cols-[70px_1fr_1fr] px-3 py-2 border-t items-center gap-2">
+          <span className="font-semibold">{r.type}</span>
+          <CopyChip value={r.name} />
+          <CopyChip value={r.value} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CustomDomainGuideModal({ open, onClose, domain, slug, onVerify, verifying, verifyResult, verified }) {
+  const api = useApi()
+  const { data: dns } = useQuery({
+    queryKey: ['tenant-dns-setup'],
+    queryFn:  () => api.get('/website/tenant-site/dns-setup'),
+    enabled:  open,
+  })
+  if (!open) return null
+
+  const host = (domain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+  const cnameTarget = dns?.cname_target || (slug ? `${slug}.macaroonie.com` : 'macaroonie.com')
+  const aRecords = dns?.a_records || []
+  const prefix = host.includes('.') ? host.split('.')[0] : ''
+  const looksSub = host.startsWith('www.') || (prefix && prefix !== 'www' && host.split('.').length > 2 && !host.endsWith('.co.uk') && !host.endsWith('.com.au'))
+  const cnameHost = host.startsWith('www.') ? 'www' : (looksSub ? prefix : 'www')
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-background sm:rounded-xl shadow-2xl w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 bg-background px-5 h-14 border-b flex items-center justify-between">
+          <h2 className="font-semibold text-sm">Connect a custom domain</h2>
+          <button type="button" onClick={onClose} className="p-1 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-5 space-y-5 text-sm">
+          <p className="text-muted-foreground">
+            Your site already works at{' '}
+            <code className="text-xs bg-muted px-1 py-0.5 rounded">{cnameTarget}</code>.
+            A custom domain is extra — guests visit <em>your</em> address instead.
+            Nothing here is automatic: you add a DNS record at the company that sold you the domain, then we check it.
+          </p>
+
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">1. Save the domain in Macaroonie</h3>
+            <ol className="list-decimal ml-5 space-y-1 text-muted-foreground">
+              <li>Type the exact hostname guests will use (e.g. <code className="text-xs">www.yourrestaurant.com</code> or <code className="text-xs">yourrestaurant.com</code> — they are different).</li>
+              <li>Click <strong>Save</strong> on this page. Status becomes “DNS not verified” until step 4.</li>
+              <li>Do not include <code className="text-xs">https://</code> or a trailing slash.</li>
+            </ol>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">2. Open DNS at your registrar</h3>
+            <p className="text-muted-foreground">
+              Log in where you <em>bought</em> the domain (or where nameservers point — often Cloudflare).
+              Find <strong>DNS</strong>, <strong>DNS management</strong>, or <strong>Advanced DNS</strong>.
+            </p>
+            <ul className="list-disc ml-5 space-y-1 text-muted-foreground">
+              <li><strong>Cloudflare</strong> — domain → DNS → Records → Add record. Proxy must be <strong>DNS only</strong> (grey cloud), not orange.</li>
+              <li><strong>GoDaddy</strong> — My Products → DNS / Manage DNS → Add New Record.</li>
+              <li><strong>Namecheap</strong> — Domain List → Manage → Advanced DNS → Add New Record.</li>
+              <li><strong>Google Domains / Squarespace</strong> — DNS → Custom records → Add.</li>
+              <li><strong>123-reg / Ionos / Cloudflare via the registrar</strong> — same idea: type, host, value, save.</li>
+            </ul>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">3. Add one of these records</h3>
+            <p className="text-muted-foreground">
+              Copy the values. TTL: Auto or 300 seconds. No <code className="text-xs">https://</code>, no trailing dot unless the form insists.
+            </p>
+
+            <div className={cn('space-y-2 rounded-lg border p-3', looksSub || !host ? 'border-primary/40 bg-primary/5' : 'border-border')}>
+              <p className="text-xs font-semibold">Option A — subdomain (<code>www</code>, <code>book</code>, …)</p>
+              <p className="text-xs text-muted-foreground">Use this if the custom domain has a prefix. CNAME is the right record.</p>
+              <DnsTable rows={[{ type: 'CNAME', name: cnameHost, value: cnameTarget }]} />
+            </div>
+
+            <div className={cn('space-y-2 rounded-lg border p-3', host && !looksSub ? 'border-primary/40 bg-primary/5' : 'border-border')}>
+              <p className="text-xs font-semibold">Option B — root / apex (<code>yourrestaurant.com</code>)</p>
+              <p className="text-xs text-muted-foreground">
+                Most registrars block a CNAME on <code className="text-xs">@</code>. Use A records instead.
+                Cloudflare can CNAME <code className="text-xs">@</code> to <CopyChip value={cnameTarget} /> (flattening) — still set proxy to DNS only.
+              </p>
+              {aRecords.length ? (
+                <DnsTable rows={aRecords.map(ip => ({ type: 'A', name: '@', value: ip }))} />
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Point an A record named <code className="text-xs">@</code> at the same IPs as{' '}
+                  <code className="text-xs">{dns?.root_domain || 'macaroonie.com'}</code>. Ask us if you cannot look those up.
+                </p>
+              )}
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Want both apex and www? Connect <em>one</em> of them here, then at the registrar add a redirect from the other (forwarding / URL redirect). Do not point two hostnames at us unless both are entered as separate custom domains — we only store one.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">4. Wait, then verify</h3>
+            <ol className="list-decimal ml-5 space-y-1 text-muted-foreground">
+              <li>Save the DNS record. Changes are often live in a few minutes, sometimes up to 24 hours.</li>
+              <li>Your <code className="text-xs">{cnameTarget}</code> site stays up the whole time.</li>
+              <li>Come back here and click <strong>Verify DNS</strong>. We look for a CNAME ending in {dns?.root_domain || 'macaroonie.com'}, or an A record matching our IPs.</li>
+            </ol>
+            {host && (
+              <button type="button" onClick={onVerify} disabled={verifying}
+                className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md px-3 py-2 min-h-[40px] disabled:opacity-50">
+                {verifying && <Loader2 className="w-4 h-4 animate-spin" />}
+                {verified ? 'Verified — check again' : verifying ? 'Checking…' : 'Verify DNS now'}
+              </button>
+            )}
+            {verified && (
+              <p className="text-xs text-emerald-700 font-medium inline-flex items-center gap-1">
+                <Check className="w-3.5 h-3.5" /> DNS verified.
+              </p>
+            )}
+            {verifyResult && !verifyResult.verified && (
+              <div className="text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
+                <p className="font-medium mb-1">Not verified yet</p>
+                <p>{verifyResult.hint || verifyResult.error}</p>
+                {!!verifyResult.cname_records?.length && (
+                  <p className="mt-1 font-mono">CNAME we saw: {verifyResult.cname_records.join(', ')}</p>
+                )}
+                {!!verifyResult.a_records?.length && (
+                  <p className="mt-1 font-mono">A we saw: {verifyResult.a_records.join(', ')}</p>
+                )}
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">5. HTTPS certificate</h3>
+            <p className="text-muted-foreground">
+              After a successful verify we issue an SSL certificate on our servers. That can take up to an hour.
+              Until it is ready, browsers may warn on <code className="text-xs">https://{host || 'your-domain'}</code>.
+              The Macaroonie subdomain stays on HTTPS throughout.
+            </p>
+          </section>
+
+          <section className="space-y-1 text-xs text-muted-foreground border-t pt-3">
+            <p><strong className="text-foreground">Changing the domain</strong> clears verification — you will need to save and verify again.</p>
+            <p><strong className="text-foreground">Cloudflare orange cloud</strong> hides our IPs and verification will fail. Grey cloud only.</p>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TenantDomainSection({ tenantSite }) {
   const api = useApi()
   const qc  = useQueryClient()
@@ -304,6 +481,7 @@ function TenantDomainSection({ tenantSite }) {
   const [slugCheck, setSlugCheck] = useState(null)
   const [verifying,  setVerifying]  = useState(false)
   const [verifyResult, setVerifyResult] = useState(null)
+  const [guideOpen, setGuideOpen] = useState(false)
 
   const dirty = slug !== (tenantSite.subdomain_slug || '') ||
                 domain !== (tenantSite.custom_domain || '') ||
@@ -385,10 +563,15 @@ function TenantDomainSection({ tenantSite }) {
         </FormRow>
 
         <FormRow label="Custom domain (optional)"
-          hint="e.g. wingstop.co.uk. SSL provisioning happens outside this app.">
+          hint="e.g. www.yourrestaurant.com. SSL is issued after DNS verifies.">
           <TextInput value={domain}
             onChange={e => setDomain(e.target.value.toLowerCase().trim())}
-            placeholder="example.com" />
+            placeholder="www.example.com" />
+          <button type="button" onClick={() => setGuideOpen(true)}
+            className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:underline">
+            <HelpCircle className="w-3.5 h-3.5" />
+            How to connect your domain
+          </button>
           {tenantSite.custom_domain && (
             <div className="flex items-center justify-between mt-2 text-xs">
               <span className={cn(
@@ -438,6 +621,17 @@ function TenantDomainSection({ tenantSite }) {
 
       <SaveBar dirty={dirty} saving={save.isPending}
         onReset={onReset} onSave={() => save.mutate()} />
+
+      <CustomDomainGuideModal
+        open={guideOpen}
+        onClose={() => setGuideOpen(false)}
+        domain={domain || tenantSite.custom_domain || ''}
+        slug={slug || tenantSite.subdomain_slug || ''}
+        onVerify={() => verify.mutate()}
+        verifying={verifying}
+        verifyResult={verifyResult}
+        verified={!!tenantSite.custom_domain_verified}
+      />
     </div>
   )
 }

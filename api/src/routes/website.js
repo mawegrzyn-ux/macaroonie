@@ -462,6 +462,25 @@ export default async function websiteRoutes(app) {
     })
   })
 
+  // ── GET /website/tenant-site/dns-setup ──────────────────
+  // Values the admin UI needs for the custom-domain how-to (CNAME target
+  // and public A records). Auth required; not a secret — these are public DNS.
+  app.get('/tenant-site/dns-setup', async (req) => {
+    const ts = await withTenant(req.tenantId, tx => ensureTenantSite(tx, req.tenantId))
+    const root = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
+    const slug = ts?.subdomain_slug || null
+    const ips = (process.env.APP_PUBLIC_IPS || '')
+      .split(',').map(s => s.trim()).filter(Boolean)
+    return {
+      root_domain:             root,
+      subdomain_slug:          slug,
+      custom_domain:           ts?.custom_domain || null,
+      custom_domain_verified:  !!ts?.custom_domain_verified,
+      cname_target:            slug ? `${slug}.${root}` : root,
+      a_records:               ips,
+    }
+  })
+
   // ── GET /website/tenant-site/slug-available?slug=foo ────
   // Global uniqueness check.
   app.get('/tenant-site/slug-available', async (req) => {
