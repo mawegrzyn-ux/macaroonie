@@ -41,40 +41,75 @@ import { useSettings } from '@/contexts/SettingsContext'
 
 // `module` keys map onto tenant_modules + tenant_roles permissions
 // loaded by /api/me. Entries with no module are always shown.
-const NAV = [
-  { label: 'Dashboard',   to: '/',            icon: LayoutDashboard,    module: 'dashboard' },
-  { label: 'Timeline',    to: '/timeline',    icon: CalendarDays,       module: 'bookings' },
-  { label: 'Bookings',    to: '/bookings',    icon: BookOpen,           module: 'bookings' },
-  { label: 'Customers',   to: '/customers',   icon: UserRound,          module: 'customers' },
-  null,
-  { label: 'Venues',      to: '/venues',      icon: Building2,          module: 'venues' },
-  { label: 'Tables',      to: '/tables',      icon: Table2,             module: 'tables' },
-  { label: 'Schedule',    to: '/schedule',    icon: Clock,              module: 'schedule' },
-  { label: 'Rules',       to: '/rules',       icon: Settings,           module: 'rules' },
-  { label: 'Website',     to: '/website',     icon: Globe,              module: 'website' },
-  { label: 'Reservations widget', to: '/reservations-widget', icon: LayoutTemplate, module: 'website' },
-  { label: 'Menus',       to: '/menus',       icon: ChefHat,            module: 'menus' },
-  { label: 'Media',       to: '/media',       icon: FolderOpen,         module: 'website' },
-  { label: 'Reviews',     to: '/reviews',     icon: MessageSquare,      module: 'website' },
-  { label: 'Order sheets',            to: '/order-sheets',             icon: ClipboardList, module: 'order_sheets',      end: true },
-  { label: 'Order sheet templates',  to: '/order-sheets/templates',  icon: ClipboardList, module: 'order_sheet_setup' },
-  { label: 'Order sheet categories', to: '/order-sheets/categories', icon: Tag,           module: 'order_sheet_setup' },
-  { label: 'Cash Recon',  to: '/cash-recon',       icon: Wallet,        module: 'cash_recon' },
-  { label: 'Emails',      to: '/email-templates', icon: Mail,           module: 'email_templates' },
-  { label: 'Email monitor', to: '/email-monitoring', icon: Activity,    module: 'email_templates' },
-  { label: 'Settings',    to: '/settings',         icon: SlidersHorizontal, module: 'settings' },
-  { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate,     module: 'widget_test' },
-  { label: 'Test data',   to: '/test-data',   icon: FlaskConical,       module: 'test_data' },
-  null,
-  { label: 'Team',          to: '/team',   icon: Users,                 module: 'team' },
-  { label: 'Access',        to: '/access', icon: Shield,                module: 'team' },
-  null,
-  { label: 'Issues',           to: '/issues',           icon: AlertCircle,  module: 'issue_log' },
-  { label: 'Feature requests', to: '/feature-requests', icon: Lightbulb,    module: 'feature_requests' },
-  { label: "What's new",       to: '/changelog',        icon: Newspaper,    module: 'changelog' },
-  null,
-  { label: 'Documentation', to: '/docs',   icon: BookMarked,            module: 'documentation' },
-  { label: 'Help',          to: '/help',   icon: HelpCircle,            module: 'documentation' },
+const NAV_SECTIONS = [
+  {
+    label: 'Service',
+    items: [
+      { label: 'Dashboard', to: '/',         icon: LayoutDashboard, module: 'dashboard' },
+      { label: 'Timeline',  to: '/timeline', icon: CalendarDays,    module: 'bookings' },
+      { label: 'Bookings',  to: '/bookings', icon: BookOpen,        module: 'bookings' },
+      { label: 'Customers', to: '/customers',icon: UserRound,       module: 'customers' },
+      {
+        label: 'Order sheets',
+        to: '/order-sheets',
+        icon: ClipboardList,
+        module: 'order_sheets',
+        end: true,
+        children: [
+          { label: 'Templates',  to: '/order-sheets/templates',  icon: ClipboardList, module: 'order_sheet_setup' },
+          { label: 'Categories', to: '/order-sheets/categories', icon: Tag,           module: 'order_sheet_setup' },
+        ],
+      },
+      { label: 'Cash recon', to: '/cash-recon', icon: Wallet, module: 'cash_recon' },
+    ],
+  },
+  {
+    label: 'Website',
+    items: [
+      { label: 'Website', to: '/website', icon: Globe,         module: 'website' },
+      { label: 'Menus',   to: '/menus',   icon: ChefHat,       module: 'menus' },
+      { label: 'Media',   to: '/media',   icon: FolderOpen,    module: 'website' },
+      { label: 'Reviews', to: '/reviews', icon: MessageSquare, module: 'website' },
+    ],
+  },
+  {
+    label: 'Setup',
+    items: [
+      { label: 'Venues',   to: '/venues',   icon: Building2, module: 'venues' },
+      { label: 'Tables',   to: '/tables',   icon: Table2,    module: 'tables' },
+      { label: 'Schedule', to: '/schedule', icon: Clock,     module: 'schedule' },
+      { label: 'Rules',    to: '/rules',    icon: Settings,  module: 'rules' },
+    ],
+  },
+  {
+    label: 'Account',
+    items: [
+      {
+        label: 'Emails',
+        to: '/email-templates',
+        icon: Mail,
+        module: 'email_templates',
+        children: [
+          { label: 'Monitor', to: '/email-monitoring', icon: Activity, module: 'email_templates' },
+        ],
+      },
+      { label: 'Team',     to: '/team',     icon: Users,             module: 'team' },
+      { label: 'Access',   to: '/access',   icon: Shield,            module: 'team' },
+      { label: 'Settings', to: '/settings', icon: SlidersHorizontal, module: 'settings' },
+      { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate, module: 'widget_test' },
+      { label: 'Test data',   to: '/test-data',   icon: FlaskConical,   module: 'test_data' },
+    ],
+  },
+  {
+    label: 'Help',
+    items: [
+      { label: 'Issues',           to: '/issues',           icon: AlertCircle,  module: 'issue_log' },
+      { label: 'Feature requests', to: '/feature-requests', icon: Lightbulb,    module: 'feature_requests' },
+      { label: "What's new",       to: '/changelog',        icon: Newspaper,    module: 'changelog' },
+      { label: 'Documentation',    to: '/docs',             icon: BookMarked,   module: 'documentation' },
+      { label: 'Help',             to: '/help',             icon: HelpCircle,   module: 'documentation' },
+    ],
+  },
 ]
 
 const PLATFORM_NAV = [
@@ -82,24 +117,67 @@ const PLATFORM_NAV = [
   { label: 'Backlog',   to: '/backlog',  icon: KanbanSquare },
 ]
 
+function allowed(item, perms) {
+  if (!item.module) return true
+  return (perms[item.module] ?? 'manage') !== 'none'
+}
+
+function filterNavItem(item, perms) {
+  const children = (item.children || []).filter(c => allowed(c, perms))
+  if (!allowed(item, perms) && children.length === 0) return null
+  return { ...item, children }
+}
+
 function NavItem({ item, open }) {
+  const location = useLocation()
   const Icon = item.icon
+  const children = item.children || []
+  const childActive = children.some(c =>
+    location.pathname === c.to || location.pathname.startsWith(c.to + '/'))
+  const parentActive = location.pathname === item.to
+  const [expanded, setExpanded] = useState(childActive || parentActive)
+
+  useEffect(() => {
+    if (childActive || parentActive) setExpanded(true)
+  }, [childActive, parentActive])
+
   return (
-    <NavLink
-      to={item.to}
-      end={item.end ?? item.to === '/'}
-      title={!open ? item.label : undefined}
-      className={({ isActive }) => cn(
-        'flex items-center gap-3 py-2 rounded-md text-sm font-medium transition-colors',
-        open ? 'px-3' : 'justify-center px-2',
-        isActive
-          ? 'bg-primary text-primary-foreground'
-          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+    <div>
+      <div className="flex items-center">
+        <NavLink
+          to={item.to}
+          end={item.end ?? item.to === '/'}
+          title={!open ? item.label : undefined}
+          className={({ isActive }) => cn(
+            'flex items-center gap-3 py-2 rounded-md text-sm font-medium transition-colors flex-1 min-w-0',
+            open ? 'px-3' : 'justify-center px-2',
+            (isActive)
+              ? 'bg-primary text-primary-foreground'
+              : childActive
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+          )}
+        >
+          <Icon className="w-4 h-4 shrink-0" />
+          {open && <span className="whitespace-nowrap truncate">{item.label}</span>}
+        </NavLink>
+        {open && children.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(v => !v)}
+            className="p-1.5 mr-1 rounded text-muted-foreground hover:bg-accent"
+            aria-label={expanded ? 'Collapse' : 'Expand'}
+          >
+            <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', expanded && 'rotate-180')} />
+          </button>
+        )}
+      </div>
+      {open && expanded && children.length > 0 && (
+        <div className="ml-4 mt-0.5 space-y-0.5 border-l pl-1">
+          {children.map(c => <NavItem key={c.to} item={c} open={open} />)}
+        </div>
       )}
-    >
-      <Icon className="w-4 h-4 shrink-0" />
-      {open && <span className="whitespace-nowrap">{item.label}</span>}
-    </NavLink>
+    </div>
   )
 }
 
@@ -257,33 +335,38 @@ export default function AppShell() {
 
         {/* Nav links — filter out modules where permission is 'none' (or
              item module is unknown to /me, e.g. while loading). */}
-        <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
+        <nav className="flex-1 overflow-y-auto p-2 space-y-3">
           {(() => {
             const perms = me?.permissions ?? {}
-            const visible = NAV.map(item => {
-              if (item === null) return item
-              if (!item.module) return item   // always-on entries (none currently)
-              const lvl = perms[item.module] ?? 'manage'  // before /me loads, show all to avoid flash
-              return lvl === 'none' ? null : item
+            return NAV_SECTIONS.map(section => {
+              const items = section.items.map(i => filterNavItem(i, perms)).filter(Boolean)
+              if (!items.length) return null
+              return (
+                <div key={section.label}>
+                  {open && (
+                    <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {section.label}
+                    </p>
+                  )}
+                  <div className="space-y-0.5">
+                    {items.map(item => <NavItem key={item.to} item={item} open={open} />)}
+                  </div>
+                </div>
+              )
             })
-            // collapse consecutive nulls so we don't render empty dividers
-            const cleaned = []
-            for (let i = 0; i < visible.length; i++) {
-              if (visible[i] === null && visible[i - 1] === null) continue
-              cleaned.push(visible[i])
-            }
-            return cleaned.map((item, i) =>
-              item === null
-                ? <div key={`sep-${i}`} className={cn('border-t', open ? 'my-2' : 'my-1')} />
-                : <NavItem key={item.to} item={item} open={open} />
-            )
           })()}
           {isPlatformAdmin && (
             <>
-              <div className={cn('border-t', open ? 'my-2' : 'my-1')} />
-              {PLATFORM_NAV.map(item => (
-                <NavItem key={item.to} item={item} open={open} />
-              ))}
+              {open && (
+                <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Platform
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {PLATFORM_NAV.map(item => (
+                  <NavItem key={item.to} item={item} open={open} />
+                ))}
+              </div>
             </>
           )}
         </nav>
