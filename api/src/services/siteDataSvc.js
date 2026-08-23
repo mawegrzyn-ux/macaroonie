@@ -23,6 +23,7 @@
 
 import { sql, withTenant } from '../config/db.js'
 import { attachVariantGroupsToItems } from '../routes/menus.js'
+import { mergeThemes } from './brandTheme.js'
 
 const BRAND_INHERITABLE = [
   'logo_url', 'favicon_url', 'primary_colour', 'secondary_colour',
@@ -62,7 +63,9 @@ function mergeLocationConfig(tenantSite, venueConfig) {
     ...(venueConfig.social_links || {}),
   }
 
-  merged.theme = deepMerge(tenantSite.theme || {}, venueConfig.theme || {})
+ merged.theme = mergeThemes(tenantSite.theme, venueConfig.theme)
+  if (tenantSite.template_key) merged.template_key = tenantSite.template_key
+  if (tenantSite.font_family)  merged.font_family  = tenantSite.font_family
 
   // Per-location fields — these have no tenant-level fallback because they
   // are fundamentally per-location (address, hero photo of THIS venue, etc.)
