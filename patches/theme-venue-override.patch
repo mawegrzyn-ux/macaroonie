@@ -1,0 +1,42 @@
+Apply on top of main (after brandTheme.js is present):
+
+--- a/api/src/services/siteDataSvc.js
++++ b/api/src/services/siteDataSvc.js
+@@ -24,6 +24,7 @@
+ import { sql, withTenant } from '../config/db.js'
+ import { attachVariantGroupsToItems } from '../routes/menus.js'
++import { mergeThemes } from './brandTheme.js'
+ 
+ const BRAND_INHERITABLE = [
+@@ -62,7 +63,9 @@
+     ...(venueConfig.social_links || {}),
+   }
+ 
+-  merged.theme = deepMerge(tenantSite.theme || {}, venueConfig.theme || {})
++  merged.theme = mergeThemes(tenantSite.theme, venueConfig.theme)
++  if (tenantSite.template_key) merged.template_key = tenantSite.template_key
++  if (tenantSite.font_family)  merged.font_family  = tenantSite.font_family
+ 
+   // Per-location fields
+
+And in api/src/routes/website.js, after each tenant_site UPDATE RETURNING in
+PATCH /tenant-site and brandDefaultsUpsert, add:
+
+      if (body.theme || body.template_key || body.font_family) {
+        await tx`
+          UPDATE website_config
+             SET theme = CASE
+                   WHEN theme IS NULL THEN NULL
+                   ELSE (theme - 'colors' - 'typography')
+                 END,
+                 updated_at = now()
+           WHERE tenant_id = ${req.tenantId}
+        `
+        if (body.template_key) {
+          await tx`
+            UPDATE website_config
+               SET template_key = NULL, updated_at = now()
+             WHERE tenant_id = ${req.tenantId}
+          `
+        }
+      }
