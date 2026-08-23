@@ -427,7 +427,7 @@ const _accentEffective = _btnBg || it.accent
       var state = {
         step: initialVenue ? 1 : 0,
         venue: initialVenue,
-        covers: 2,
+        covers: null,
         date: localToday(),
         slot: null,
         slots: [],
@@ -621,6 +621,7 @@ const _accentEffective = _btnBg || it.accent
         goto(4);
       }
       function loadSlots() {
+        if (!state.venue || !state.covers || !state.date) return;
         var url = '/venues/' + state.venue.id + '/slots?date=' + state.date + '&covers=' + state.covers;
         console.info('[rw] loadSlots →', API + url);
         dbgApi(API + url);
