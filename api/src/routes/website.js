@@ -458,7 +458,7 @@ export default async function websiteRoutes(app) {
            SET ${tx(body, ...fields)}, updated_at = now()
          WHERE tenant_id = ${req.tenantId}
         RETURNING *
-      `      if (body.theme || body.template_key || body.font_family) {
+           if (body.theme || body.template_key || body.font_family) {
         await tx`
           UPDATE website_config
              SET theme = CASE
@@ -570,7 +570,7 @@ export default async function websiteRoutes(app) {
            SET ${tx(body, ...fields)}, updated_at = now()
          WHERE tenant_id = ${req.tenantId}
         RETURNING *
-      `      if (body.theme || body.template_key || body.font_family) {
+            if (body.theme || body.template_key || body.font_family) {
         await tx`
           UPDATE website_config
              SET theme = CASE
