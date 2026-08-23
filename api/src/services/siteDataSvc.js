@@ -213,7 +213,7 @@ async function loadVenuePublicExtras(tx, tenantId, venue, { includePages = false
     ` : Promise.resolve([]),
 
     includePages ? tx`
-      SELECT id, slug, title, content, blocks, is_published, sort_order
+      SELECT id, slug, title, content, blocks, kind, is_published, sort_order
         FROM website_pages
        WHERE tenant_id = ${tenantId}
          AND venue_id  = ${venue.id}
@@ -260,7 +260,7 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
          ORDER BY v.name
       `,
       tx`
-        SELECT id, slug, title, content, blocks, is_published, is_legal, sort_order
+        SELECT id, slug, title, content, blocks, kind, is_published, is_legal, sort_order
           FROM website_pages
          WHERE tenant_id = ${ts.tenant_id}
            AND venue_id IS NULL

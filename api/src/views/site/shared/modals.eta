@@ -1,0 +1,91 @@
+<%
+/* Modal overlay for website_pages.kind = 'modal'.
+   Links use href="#modal/{slug}" or "#modal/{slug}:{anchor}". */
+const _allPages = [].concat(it.pages || []).concat(it.location_pages || [])
+const _modals = _allPages.filter(function(p){ return p && p.kind === 'modal' })
+%>
+<% if (_modals.length) { %>
+<style>
+  .mc-modal[hidden] { display: none !important; }
+  .mc-modal { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .mc-modal-backdrop { position: absolute; inset: 0; background: rgba(15,18,22,0.55); }
+  .mc-modal-card { position: relative; background: var(--c-bg, #fff); color: var(--c-text);
+    border-radius: 12px; max-width: 720px; width: 100%; max-height: 90vh; overflow: auto;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.28); }
+  .mc-modal-close { position: sticky; top: 12px; float: right; margin: 12px 12px 0 0;
+    width: 36px; height: 36px; border: 0; border-radius: 999px; cursor: pointer;
+    background: var(--c-surface, #f4f4f5); color: var(--c-text); font-size: 22px; line-height: 1; }
+  .mc-modal-body { padding: 8px 0 32px; clear: both; }
+  .mc-modal-body .block { padding-left: 8px; padding-right: 8px; }
+  body.mc-modal-open { overflow: hidden; }
+</style>
+<div id="mc-modal" class="mc-modal" hidden role="dialog" aria-modal="true">
+  <div class="mc-modal-backdrop" data-mc-modal-close></div>
+  <div class="mc-modal-card">
+    <button type="button" class="mc-modal-close" data-mc-modal-close aria-label="Close">×</button>
+    <div class="mc-modal-body" id="mc-modal-body"></div>
+  </div>
+</div>
+<% _modals.forEach(function(p){ %>
+<template id="mc-modal-src-<%= p.slug %>">
+  <%~ include('./page_body', { ...it, page: p, skipChrome: true, hidePageTitle: false }) %>
+</template>
+<% }) %>
+<script>
+(function(){
+  var overlay = document.getElementById('mc-modal');
+  var body = document.getElementById('mc-modal-body');
+  if (!overlay || !body) return;
+  function parseHash(h) {
+    if (!h || h.indexOf('#modal/') !== 0) return null;
+    var rest = h.slice('#modal/'.length);
+    var i = rest.indexOf(':');
+    if (i < 0) return { slug: rest, anchor: '' };
+    return { slug: rest.slice(0, i), anchor: rest.slice(i + 1) };
+  }
+  function close() {
+    overlay.hidden = true;
+    document.body.classList.remove('mc-modal-open');
+    body.innerHTML = '';
+    if (parseHash(location.hash)) {
+      if (history.replaceState) history.replaceState(null, '', location.pathname + location.search);
+    }
+  }
+  function openModal(slug, anchor) {
+    var tpl = document.getElementById('mc-modal-src-' + slug);
+    if (!tpl) return false;
+    body.innerHTML = '';
+    body.appendChild(tpl.content.cloneNode(true));
+    overlay.hidden = false;
+    document.body.classList.add('mc-modal-open');
+    if (anchor) {
+      var el = body.querySelector('[id="' + String(anchor).replace(/"/g, '') + '"]');
+      if (el) el.scrollIntoView({ block: 'start' });
+    } else {
+      body.scrollTop = 0;
+    }
+    return true;
+  }
+  document.addEventListener('click', function(e) {
+    var closeBtn = e.target.closest('[data-mc-modal-close]');
+    if (closeBtn) { e.preventDefault(); close(); return; }
+    var a = e.target.closest('a[href^="#modal/"]');
+    if (!a) return;
+    var parsed = parseHash(a.getAttribute('href') || '');
+    if (!parsed) return;
+    e.preventDefault();
+    if (openModal(parsed.slug, parsed.anchor) && history.replaceState) {
+      history.replaceState(null, '', a.getAttribute('href'));
+    }
+  });
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) close();
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && !overlay.hidden) close();
+  });
+  var initial = parseHash(location.hash || '');
+  if (initial) openModal(initial.slug, initial.anchor);
+})();
+</script>
+<% } %>

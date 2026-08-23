@@ -524,6 +524,28 @@ export function resolveBlockAnchor(type, data) {
   return sanitizeAnchorId(data?.anchor_id) || ANCHOR_FALLBACK[type] || ''
 }
 
+/** Walk a block tree (including nested columns) and return unique anchors. */
+export function collectAnchors(blocks) {
+  const out = []
+  const seen = new Set()
+  function walk(list) {
+    for (const b of list || []) {
+      const id = resolveBlockAnchor(b?.type, b?.data)
+      if (id && !seen.has(id)) {
+        seen.add(id)
+        const heading = (b.data?.heading || b.data?.brand_text || '').toString().trim()
+        const typeLabel = BLOCK_BY_KEY[b.type]?.label || b.type
+        out.push({ id, label: heading || typeLabel, type: b.type })
+      }
+      if (b?.type === 'columns') {
+        for (const col of b.data?.columns || []) walk(col.blocks)
+      }
+    }
+  }
+  walk(blocks)
+  return out
+}
+
 export function newBlock(key) {
   const def = BLOCK_BY_KEY[key]
   if (!def) throw new Error(`Unknown block type: ${key}`)

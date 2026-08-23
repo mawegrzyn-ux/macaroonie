@@ -40,6 +40,7 @@ import { FontPicker } from '@/components/website-builder/FontPicker'
 
 const TENANT_SECTIONS = [
   { key: 'tenant-page',     label: 'Home page',         icon: LayoutTemplate },
+  { key: 'tenant-pages',    label: 'Pages',             icon: FileText },
   { key: 'tenant-domain',   label: 'Domain & publish',  icon: Globe },
   { key: 'tenant-brand',    label: 'Brand & theme',     icon: Palette },
   { key: 'tenant-locations',label: 'Locations index',   icon: MapPin },
@@ -61,7 +62,7 @@ const VENUE_SECTIONS = [
   { key: 'ordering',  label: 'Online ordering',icon: ShoppingBag },
   { key: 'delivery',  label: 'Delivery',       icon: Truck },
   { key: 'booking',   label: 'Booking widget', icon: Calendar },
-  { key: 'pages',     label: 'Custom pages',   icon: FileText },
+  { key: 'pages',     label: 'Pages',          icon: FileText },
 ]
 
 // ── Shared layout primitives (matches Settings.jsx style) ───
@@ -807,7 +808,7 @@ function TenantLegalSection({ tenantSite }) {
     <div className="space-y-5">
       <SectionCard
         title="Legal pages"
-        description="Terms & Conditions, Privacy Policy, and Cookies Policy as standalone pages. Each lives at /p/{slug} on your site."
+        description="Terms & Conditions, Privacy Policy, and Cookies Policy. Generate them here, then edit under Pages — they can be standalone or modals."
         action={missingSlugs.length > 0 && (
           <button type="button" onClick={() => seed.mutate()}
             disabled={seed.isPending}
@@ -839,8 +840,8 @@ function TenantLegalSection({ tenantSite }) {
         )}
         {legalPages.length > 0 && (
           <p className="text-xs text-muted-foreground pt-2 border-t">
-            Edit page content under <em>Tenant site → ⋯ Custom pages</em> (per-page editor).
-            The cookie banner below links to <code>/p/cookies</code> automatically.
+            Edit each under <em>Pages</em>. Set Opens as → Modal if you want them as overlays.
+            The cookie banner links to the cookies page automatically.
           </p>
         )}
       </SectionCard>
@@ -2816,12 +2817,11 @@ function DeliverySection({ config }) {
   />
 }
 
-// ── Custom pages section ────────────────────────────────────
+// ── Extra pages (standalone or modal) ───────────────────────
 
-function PagesSection({ venueId }) {
+function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
   const api = useApi()
   const qc  = useQueryClient()
-  // venueId === undefined → tenant-level pages. Otherwise venue-level.
   const scope = venueId || 'tenant'
   const queryParam = `venue_id=${scope}`
   const { data: pages = [], isLoading } = useQuery({
@@ -2829,37 +2829,58 @@ function PagesSection({ venueId }) {
     queryFn:  () => api.get(`/website/pages?${queryParam}`),
   })
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ slug: '', title: '', content: '', is_published: true, sort_order: 0 })
+  const [form, setForm] = useState({
+    slug: '', title: '', content: '', kind: 'page', is_published: true, sort_order: 0,
+  })
 
-  const save = useMutation({
+  const editingPage = editing && editing !== 'new' ? pages.find(p => p.id === editing) : null
+
+  const saveMeta = useMutation({
     mutationFn: () => editing === 'new'
-      ? api.post(`/website/pages?${queryParam}`, form)
-      : api.patch(`/website/pages/${editing}`, form),
+      ? api.post(`/website/pages?${queryParam}`, {
+          ...form, blocks: [], content: form.content || null,
+        })
+      : api.patch(`/website/pages/${editing}`, {
+          slug: form.slug, title: form.title, kind: form.kind,
+          is_published: form.is_published, sort_order: form.sort_order,
+          content: form.content || null,
+        }),
+    onSuccess: (row) => {
+      qc.invalidateQueries({ queryKey: ['website-pages', scope] })
+      if (editing === 'new' && row?.id) {
+        setEditing(row.id)
+        setForm(f => ({ ...f, ...row, content: row.content || '', kind: row.kind || f.kind }))
+      }
+    },
+  })
+  const del = useMutation({
+    mutationFn: (id) => api.delete(`/website/pages/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['website-pages', scope] })
       setEditing(null)
     },
   })
-  const del = useMutation({
-    mutationFn: (id) => api.delete(`/website/pages/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-pages', scope] }),
-  })
 
   function edit(p) {
     setEditing(p.id)
     setForm({
-      slug:        p.slug,
-      title:       p.title,
-      content:     p.content || '',
+      slug:         p.slug,
+      title:        p.title,
+      content:      p.content || '',
+      kind:         p.kind === 'modal' ? 'modal' : 'page',
       is_published: !!p.is_published,
-      sort_order:  p.sort_order ?? 0,
+      sort_order:   p.sort_order ?? 0,
     })
   }
 
   function newPage() {
     setEditing('new')
-    setForm({ slug: '', title: '', content: '', is_published: true, sort_order: pages.length })
+    setForm({ slug: '', title: '', content: '', kind: 'page', is_published: true, sort_order: pages.length })
   }
+
+  const pathHint = form.kind === 'modal'
+    ? `Opens as an overlay via #modal/${form.slug || 'your-slug'} (also at /p/${form.slug || 'your-slug'})`
+    : `Lives at /p/${form.slug || 'your-slug'}`
 
   if (editing) {
     return (
@@ -2867,48 +2888,78 @@ function PagesSection({ venueId }) {
         <SectionCard title={editing === 'new' ? 'New page' : 'Edit page'}
           action={
             <button type="button" onClick={() => setEditing(null)}
-              className="text-xs text-muted-foreground hover:text-foreground">Cancel</button>
+              className="text-xs text-muted-foreground hover:text-foreground">Back to list</button>
           }>
           <FormRow label="Title">
             <TextInput value={form.title} autoFocus
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
           </FormRow>
-          <FormRow label="URL slug"
-            hint={`Will appear at /p/${form.slug || 'your-slug'}`}>
+          <FormRow label="URL slug" hint={pathHint}>
             <TextInput value={form.slug}
               onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))} />
           </FormRow>
-          <FormRow label="Content"
-            hint="HTML allowed. Line breaks are preserved.">
-            <TextArea value={form.content} className="min-h-[260px] font-mono text-xs"
-              onChange={e => setForm(f => ({ ...f, content: e.target.value }))} />
+          <FormRow label="Opens as"
+            hint="Standalone is a full page. Modal is an overlay on the current page — pick it in any link selector.">
+            <div className="grid grid-cols-2 gap-1.5">
+              {[
+                { value: 'page',  label: 'Standalone page' },
+                { value: 'modal', label: 'Modal overlay' },
+              ].map(opt => (
+                <button key={opt.value} type="button" onClick={() => setForm(f => ({ ...f, kind: opt.value }))}
+                  className={cn('text-sm border rounded-md py-2 min-h-[36px]',
+                    form.kind === opt.value
+                      ? 'bg-primary/10 border-primary text-primary font-medium'
+                      : 'hover:bg-accent')}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </FormRow>
-          <div className="flex items-center gap-3">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.is_published}
-                onChange={e => setForm(f => ({ ...f, is_published: e.target.checked }))} />
-              Published
-            </label>
-          </div>
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={form.is_published}
+              onChange={e => setForm(f => ({ ...f, is_published: e.target.checked }))} />
+            Published
+          </label>
+          {(!editingPage?.blocks || editingPage.blocks.length === 0) && (
+            <FormRow label="HTML fallback"
+              hint="Used only when the page has no blocks. Prefer the builder below after creating.">
+              <TextArea value={form.content} className="min-h-[120px] font-mono text-xs"
+                onChange={e => setForm(f => ({ ...f, content: e.target.value }))} />
+            </FormRow>
+          )}
           <div className="flex items-center justify-end gap-2 pt-2 border-t">
             <button type="button" onClick={() => setEditing(null)}
               className="text-xs text-muted-foreground px-3 py-1.5">Cancel</button>
-            <button type="button" onClick={() => save.mutate()}
-              disabled={save.isPending || !form.title || !form.slug}
+            <button type="button" onClick={() => saveMeta.mutate()}
+              disabled={saveMeta.isPending || !form.title || !form.slug}
               className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50">
-              {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              Save page
+              {saveMeta.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {editing === 'new' ? 'Create & build' : 'Save details'}
             </button>
           </div>
         </SectionCard>
+
+        {editingPage && (
+          <PageBuilder
+            config={{ ...editingPage, blocks: editingPage.blocks || [] }}
+            blocksField="blocks"
+            saveEndpoint={`/website/pages/${editingPage.id}`}
+            invalidateKey={['website-pages', scope]}
+            tenantSite={tenantSite}
+            venues={venues}
+            tenantName={tenantName}
+            showTemplates={false}
+            currentLabel={form.title || 'This page'}
+          />
+        )}
       </div>
     )
   }
 
   return (
     <div className="space-y-5">
-      <SectionCard title="Custom pages"
-        description="Standalone pages for things like Private Dining, Events, Contact forms."
+      <SectionCard title="Pages"
+        description="Extra pages and modals. Link to them (and their section anchors) from the header, buttons, and anywhere else that has a link selector."
         action={
           <button type="button" onClick={newPage}
             className="text-xs inline-flex items-center gap-1 bg-primary/10 text-primary rounded-md px-2.5 py-1.5 font-medium">
@@ -2920,16 +2971,21 @@ function PagesSection({ venueId }) {
             <Loader2 className="w-5 h-5 animate-spin" />
           </div>
         ) : pages.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-6">No custom pages yet.</p>
+          <p className="text-sm text-muted-foreground text-center py-6">No extra pages yet.</p>
         ) : (
           <div className="divide-y">
             {pages.map(p => (
               <div key={p.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0 gap-3">
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{p.title}</p>
-                  <p className="text-xs text-muted-foreground truncate">/p/{p.slug}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {p.kind === 'modal' ? `#modal/${p.slug}` : `/p/${p.slug}`}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase">
+                    {p.kind === 'modal' ? 'Modal' : 'Page'}
+                  </span>
                   {p.is_published ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">LIVE</span>
                   ) : (
@@ -3400,7 +3456,7 @@ export default function Website() {
       </aside>
 
       <main className="flex-1 overflow-y-auto">
-        <div className={cn('p-6', active !== 'page' && active !== 'tenant-page' && 'max-w-3xl mx-auto')}>
+        <div className={cn('p-6', active !== 'page' && active !== 'tenant-page' && active !== 'tenant-pages' && active !== 'pages' && 'max-w-3xl mx-auto')}>
           <div className="mb-6">
             {mode === 'tenant' ? (
               <>
@@ -3500,6 +3556,7 @@ function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, on
       </div>
     )
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />
+    case 'tenant-pages':     return <PagesSection venueId={null} tenantSite={tenantSite} venues={venues} tenantName={tenantName} />
     case 'tenant-legal':     return <TenantLegalSection     tenantSite={tenantSite} />
     case 'tenant-seo':       return <TenantSeoSection       tenantSite={tenantSite} />
     case 'tenant-analytics': return <BrandAnalyticsSection />
@@ -3539,7 +3596,7 @@ function VenueActiveSection({ active, config, venueId, tenantSite, pages, venues
     case 'booking':   return <BookingSection   config={config} />
     case 'ordering':  return <OrderingSection  config={config} />
     case 'delivery':  return <DeliverySection  config={config} />
-    case 'pages':     return <PagesSection venueId={venueId} />
+    case 'pages':     return <PagesSection venueId={venueId} tenantSite={tenantSite} venues={venues} tenantName={tenantName} />
     default:
       return (
         <div className="text-sm text-muted-foreground border rounded-xl p-8 text-center bg-background">

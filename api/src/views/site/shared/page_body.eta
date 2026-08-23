@@ -1,0 +1,28 @@
+<%
+const _pageBlocks = Array.isArray(it.page?.blocks) ? it.page.blocks : []
+const _skipChrome = it.skipChrome === true
+%>
+<% if (_pageBlocks.length) { %>
+  <% for (const block of _pageBlocks) { %>
+    <% if (_skipChrome && (block.type === 'header' || block.type === 'footer' || block.type === 'scrolling_text')) { continue } %>
+    <%~ include('../blocks/renderer', { ...it, block }) %>
+  <% } %>
+<% } else if (it.page && it.page.content) { %>
+  <section class="block" style="padding:48px 0;">
+    <div class="container" style="max-width: 780px;">
+      <% if (!it.hidePageTitle) { %>
+        <h1 style="font-family:var(--f-heading); margin:0 0 24px;"><%= it.page.title %></h1>
+      <% } %>
+      <article style="font-size:17px; line-height:1.7; color:var(--c-text); white-space: pre-wrap;">
+        <%~ it.page.content %>
+      </article>
+    </div>
+  </section>
+<% } else { %>
+  <section class="block" style="padding:48px 0;">
+    <div class="container" style="max-width: 780px;">
+      <h1 style="font-family:var(--f-heading);"><%= it.page && it.page.title %></h1>
+      <p style="color:var(--c-muted);">This page has no content yet.</p>
+    </div>
+  </section>
+<% } %>

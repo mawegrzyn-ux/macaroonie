@@ -11,6 +11,7 @@ import { Plus, X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { FormRow, ImageField } from '../shared'
+import { LinkPicker } from '../LinkPicker'
 import { FontPicker } from '../FontPicker'
 import { ThemeColourPicker, THEME_ROLES } from '../ThemeColourPicker'
 
@@ -137,7 +138,7 @@ export function HeaderBlockEditor({ data, onChange }) {
               {links.map((link, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Input value={link.label} onChange={v => set('links')(arrPatch(links, i, { label: v }))} placeholder="Label" />
-                  <Input value={link.url}   onChange={v => set('links')(arrPatch(links, i, { url: v }))}   placeholder="/path" />
+                  <LinkPicker value={link.url} onChange={v => set('links')(arrPatch(links, i, { url: v }))} className="flex-1" />
                   <RemoveButton onClick={() => set('links')(arrRemove(links, i))} />
                 </div>
               ))}
@@ -152,7 +153,7 @@ export function HeaderBlockEditor({ data, onChange }) {
             <Input value={cta.text} onChange={v => set('cta')({ ...cta, text: v })} placeholder="Book a Table" />
           </FormRow>
           <FormRow label="Button URL">
-            <Input value={cta.url} onChange={v => set('cta')({ ...cta, url: v })} placeholder="/locations" />
+            <LinkPicker value={cta.url} onChange={v => set('cta')({ ...cta, url: v })} />
           </FormRow>
         </div>
       </div>
@@ -214,7 +215,7 @@ export function FooterBlockEditor({ data, onChange }) {
                   {(col.items || []).map((it, ii) => (
                     <div key={ii} className="flex items-center gap-2 pl-3">
                       <Input value={it.label} onChange={v => set('columns')(arrPatch(cols, ci, { items: arrPatch(col.items, ii, { label: v }) }))} placeholder="Label" />
-                      <Input value={it.url}   onChange={v => set('columns')(arrPatch(cols, ci, { items: arrPatch(col.items, ii, { url:   v }) }))} placeholder="URL" />
+                      <LinkPicker value={it.url} onChange={v => set('columns')(arrPatch(cols, ci, { items: arrPatch(col.items, ii, { url: v }) }))} className="flex-1" />
                       <RemoveButton onClick={() => set('columns')(arrPatch(cols, ci, { items: arrRemove(col.items, ii) }))} />
                     </div>
                   ))}
@@ -621,8 +622,7 @@ export function OrderOptionsEditor({ data, onChange }) {
               <div className="flex items-center gap-2">
                 <Input value={card.cta_text} onChange={v => patchCard(i, { cta_text: v })}
                   placeholder="Button text" />
-                <Input value={card.cta_url} onChange={v => patchCard(i, { cta_url: v })}
-                  placeholder="https://… or /path" className="font-mono text-xs" />
+                <LinkPicker value={card.cta_url} onChange={v => patchCard(i, { cta_url: v })} />
               </div>
             </div>
           ))}
@@ -1096,7 +1096,7 @@ function BlockCtaEditor({ value, onChange }) {
             />
             <RemoveButton onClick={() => removeCta(i)} />
           </div>
-          <Input value={cta.url} onChange={v => update(i, 'url', v)} placeholder="https://..." />
+          <LinkPicker value={cta.url} onChange={v => update(i, 'url', v)} />
           <div className="grid grid-cols-2 gap-2">
             <div>
               <div className="text-[10px] text-muted-foreground mb-1">Background</div>

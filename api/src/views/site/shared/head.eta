@@ -384,7 +384,8 @@ const bannerText = _cookies.cookies_banner_text
   || 'We use cookies to make this site work and to understand how visitors use it.'
 const acceptText  = _cookies.cookies_banner_accept_text  || 'Accept'
 const declineText = _cookies.cookies_banner_decline_text || ''
-const cookiesPolicyHref = '/p/cookies'
+const cookiesPage = (it.pages || []).find(function(p){ return p.slug === 'cookies' })
+const cookiesPolicyHref = (cookiesPage && cookiesPage.kind === 'modal') ? '#modal/cookies' : '/p/cookies'
 %>
 <% if (_showCookies) { %>
   <div id="mc-cookie-banner" style="
@@ -481,3 +482,4 @@ const cookiesPolicyHref = '/p/cookies'
     <% } %>
   </div>
 <% } %>
+<%~ include('./modals', it) %>

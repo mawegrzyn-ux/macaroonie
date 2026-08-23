@@ -22,6 +22,7 @@ import { ThemeFrame }     from './canvas/ThemeFrame'
 import { BlockInserter }  from './canvas/BlockInserter'
 import { BlockInspector } from './canvas/BlockInspector'
 import { BlockNode }      from './canvas/BlockNode'
+import { LinkCatalogProvider } from './LinkPicker'
 // Header + footer + showpiece are now real block types in the canvas
 // (see canvas/siteBlocks.jsx). No separate preview components needed.
 import {
@@ -52,6 +53,8 @@ export function PageBuilder({
   venues          = [],
   tenantName      = '',
   onJumpTo,
+  showTemplates   = true,
+  currentLabel    = 'This page',
 }) {
   const api = useApi()
   const qc  = useQueryClient()
@@ -274,7 +277,18 @@ export function PageBuilder({
     ? `https://${config.subdomain_slug}.macaroonie.com`
     : null
 
+  const catalogValue = useMemo(() => ({
+    currentBlocks: blocks,
+    currentLabel,
+    homeBlocks:    effectiveTenantSite?.home_blocks || [],
+    venueSlug:     config?.venue_id
+      ? (venues.find(v => v.id === config.venue_id)?.slug || null)
+      : null,
+    venueId:       config?.venue_id || null,
+  }), [blocks, currentLabel, effectiveTenantSite, config, venues])
+
   return (
+    <LinkCatalogProvider value={catalogValue}>
     <div className="space-y-3">
       {/* Top toolbar */}
       <div className="flex items-center justify-between border rounded-lg bg-background px-4 py-3 sticky top-0 z-10">
@@ -298,10 +312,12 @@ export function PageBuilder({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setTemplatesOpen(true)}
-            className="inline-flex items-center gap-1.5 border rounded-md px-3 py-2 text-sm hover:bg-accent min-h-[36px]">
-            <Sparkles className="w-3.5 h-3.5" /> Templates
-          </button>
+          {showTemplates && (
+            <button type="button" onClick={() => setTemplatesOpen(true)}
+              className="inline-flex items-center gap-1.5 border rounded-md px-3 py-2 text-sm hover:bg-accent min-h-[36px]">
+              <Sparkles className="w-3.5 h-3.5" /> Templates
+            </button>
+          )}
           {dirty && (
             <button type="button" onClick={() => setBlocks(initial)}
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-2">
@@ -385,6 +401,7 @@ export function PageBuilder({
         <TemplatePickerModal onClose={() => setTemplatesOpen(false)} onApply={applyTemplate} />
       )}
     </div>
+    </LinkCatalogProvider>
   )
 }
 

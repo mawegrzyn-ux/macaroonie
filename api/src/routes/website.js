@@ -268,6 +268,7 @@ const PageBody = z.object({
   title:        z.string().min(1).max(200),
   content:      z.string().nullable().optional(),
   blocks:       z.array(BlockSchema).nullable().optional(),
+  kind:         z.enum(['page', 'modal']).default('page'),
   is_published: z.boolean().default(true),
   is_legal:     z.boolean().optional(),
   sort_order:   z.number().int().default(0),
@@ -743,11 +744,12 @@ export default async function websiteRoutes(app) {
     const venueId = pageVenueFilter(req)
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO website_pages
-        (tenant_id, venue_id, slug, title, content, blocks, is_published, sort_order)
+        (tenant_id, venue_id, slug, title, content, blocks, kind, is_published, sort_order)
       VALUES
         (${req.tenantId}, ${venueId}, ${body.slug}, ${body.title},
          ${body.content ?? null},
          ${body.blocks ? tx.json(body.blocks) : null},
+         ${body.kind || 'page'},
          ${body.is_published}, ${body.sort_order})
       RETURNING *
     `)
@@ -755,17 +757,24 @@ export default async function websiteRoutes(app) {
   })
 
   app.patch('/pages/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const body = PageBody.partial().parse(req.body)
-    const fields = Object.keys(body)
+    const parsed = PageBody.partial().parse(req.body)
+    // Only persist keys the client sent — Zod defaults must not overwrite
+    // kind / is_published when PageBuilder saves { blocks } alone.
+    const fields = Object.keys(req.body || {}).filter(k => k in parsed)
     if (!fields.length) throw httpError(400, 'No fields to update')
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE website_pages
-         SET ${tx(body, ...fields)}, updated_at = now()
-       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
-      RETURNING *
-    `)
-    if (!row) throw httpError(404, 'Page not found')
-    return row
+    const body = {}
+    for (const k of fields) body[k] = parsed[k]
+    return withTenant(req.tenantId, async tx => {
+      if ('blocks' in body) body.blocks = body.blocks == null ? null : tx.json(body.blocks)
+      const [row] = await tx`
+        UPDATE website_pages
+           SET ${tx(body, ...fields)}, updated_at = now()
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+        RETURNING *
+      `
+      if (!row) throw httpError(404, 'Page not found')
+      return row
+    })
   })
 
   app.delete('/pages/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
