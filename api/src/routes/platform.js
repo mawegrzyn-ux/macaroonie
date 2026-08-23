@@ -100,14 +100,16 @@ export default async function platformRoutes(app) {
     }
 
     // Effective permissions = role permissions intersected with module enablement.
-    // Platform admins get full 'manage' on everything regardless.
+    // Disabled modules are 'none' for everyone (including platform admins) so the
+    // Access → Modules toggles actually hide nav entries. Platform admins still
+    // bypass requirePermission on the API for support work via is_platform_admin.
     const permissions = {}
     for (const k of MODULE_KEYS) {
+      if (!enabledModules.includes(k)) { permissions[k] = 'none'; continue }
       if (isPlatformAdmin) {
         permissions[k] = 'manage'
         continue
       }
-      if (!enabledModules.includes(k)) { permissions[k] = 'none'; continue }
       permissions[k] = resolvePermission(k, effectiveRole?.permissions, effectiveRole?.key)
     }
 
