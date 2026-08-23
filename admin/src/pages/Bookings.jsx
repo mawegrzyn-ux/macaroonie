@@ -5,6 +5,7 @@
 // List row: covers · name · phone · Ends badge · table · section · status pill (clickable)
 // Clicking status pill opens an inline dropdown to change it.
 // Clicking a row opens BookingDrawer in panel mode on the right.
+// On viewports < 1024px the panel becomes a sliding overlay so the list stays full-width.
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -16,7 +17,6 @@ import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
-// All statuses the operator can manually set (pending_payment is Stripe-only)
 const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'no_show', 'cancelled']
 
 const STATUS_DOT = {
@@ -31,22 +31,33 @@ const STATUS_DOT = {
   no_show:         'bg-gray-400',
 }
 
+function useIsDesktop(minWidth = 1024) {
+  const [ok, setOk] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia(`(min-width: ${minWidth}px)`).matches)
+  useEffect(() => {
+    const m = window.matchMedia(`(min-width: ${minWidth}px)`)
+    const fn = () => setOk(m.matches)
+    m.addEventListener('change', fn)
+    return () => m.removeEventListener('change', fn)
+  }, [minWidth])
+  return ok
+}
+
 export default function Bookings() {
   const api         = useApi()
   const qc          = useQueryClient()
   const tlSettings  = useTimelineSettings()
 
-  // date / setDate — persisted in shared context so last-viewed date survives
-  // navigation between Bookings and Timeline pages
   const date    = tlSettings.selectedDate
   const setDate = tlSettings.setSelectedDate
   const [selectedVenueId,  setVenueId]      = useState(null)
   const [selected,         setSelected]     = useState(null)
   const [search,           setSearch]       = useState('')
   const [statusFilter,     setStatusFilter] = useState('')
-  const [statusDropdownId, setStatusDropdownId] = useState(null) // booking.id with open dropdown
-  const [panelWidth,       setPanelWidth]       = useState(420)  // px — draggable
-  const [hideInactive,     setHideInactive]     = useState(true) // hide cancelled/no_show/checked_out by default
+  const [statusDropdownId, setStatusDropdownId] = useState(null)
+  const [panelWidth,       setPanelWidth]       = useState(420)
+  const [hideInactive,     setHideInactive]     = useState(true)
+  const isDesktop = useIsDesktop()
   const [showNew,          setShowNew]          = useState(false)
   const [showCustSugg,     setShowCustSugg]     = useState(false)
   const isResizing        = useRef(false)
@@ -79,7 +90,6 @@ export default function Bookings() {
     window.addEventListener('touchend',  onUp)
   }, [])
 
-  // ── Data ────────────────────────────────────────────────────
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
@@ -87,7 +97,6 @@ export default function Bookings() {
 
   const venueId = selectedVenueId ?? venues[0]?.id ?? null
 
-  // Venue rules (for filtering selectable statuses in dropdown)
   const { data: rules } = useQuery({
     queryKey: ['rules', venueId],
     queryFn:  () => api.get(`/venues/${venueId}/rules`),
@@ -106,7 +115,6 @@ export default function Bookings() {
     enabled:  !!venueId,
   })
 
-  // ── Customer search suggestions (filter bar) ─────────────────
   const { data: custSuggestions = [] } = useQuery({
     queryKey: ['customers-search-bookings', search],
     queryFn:  () => api.get(`/customers?q=${encodeURIComponent(search)}&limit=6`),
@@ -114,13 +122,11 @@ export default function Bookings() {
     staleTime: 10_000,
   })
 
-  // ── Inline status mutation ───────────────────────────────────
   const statusMutation = useMutation({
     mutationFn: ({ id, status }) => api.patch(`/bookings/${id}/status`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] }),
   })
 
-  // ── Filter / sort ────────────────────────────────────────────
   const INACTIVE_STATUSES = new Set(['cancelled', 'no_show', 'checked_out'])
 
   const filtered = useMemo(() => {
@@ -140,7 +146,6 @@ export default function Bookings() {
     return list
   }, [bookings, statusFilter, search, hideInactive])
 
-  // ── Stats ────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const active = bookings.filter(b => !['cancelled', 'no_show'].includes(b.status))
     const tableSet = new Set(active.map(b => b.table_id).filter(Boolean))
@@ -162,7 +167,6 @@ export default function Bookings() {
     return { reservations: active.length, tables: tableSet.size, guests, bySitting }
   }, [bookings, sittingsForDate])
 
-  // ── Group filtered bookings by start time ────────────────────
   const grouped = useMemo(() => {
     const map = new Map()
     for (const b of filtered) {
@@ -173,7 +177,6 @@ export default function Bookings() {
     return [...map.entries()]
   }, [filtered])
 
-  // ── Selectable statuses for the inline dropdown ──────────────
   function selectableFor(booking) {
     return SELECTABLE_STATUSES.filter(s => {
       if (s === booking.status) return false
@@ -183,7 +186,6 @@ export default function Bookings() {
     })
   }
 
-  // ── CSV export ───────────────────────────────────────────────
   function exportCSV() {
     const headers = ['Guest', 'Phone', 'Email', 'Covers', 'Date', 'Start', 'End', 'Table', 'Section', 'Status']
     const rows = filtered.map(b => [
@@ -199,14 +201,12 @@ export default function Bookings() {
     URL.revokeObjectURL(url)
   }
 
-  // ── Date navigation ──────────────────────────────────────────
   const isToday = date === format(new Date(), 'yyyy-MM-dd')
   function goDay(delta) {
     setDate(format(delta > 0 ? addDays(parseISO(date), 1) : subDays(parseISO(date), 1), 'yyyy-MM-dd'))
     setSelected(null)
   }
 
-  // Close status dropdown on outside click
   const listRef = useRef(null)
   useEffect(() => {
     if (!statusDropdownId) return
@@ -217,7 +217,6 @@ export default function Bookings() {
     return () => document.removeEventListener('mousedown', handle)
   }, [statusDropdownId])
 
-  // Keep selected booking fresh after status update
   useEffect(() => {
     if (!selected) return
     const fresh = bookings.find(b => b.id === selected.id)
@@ -226,11 +225,7 @@ export default function Bookings() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-
-      {/* ── Top bar ───────────────────────────────────────────── */}
-      {/* pl-14 on mobile offsets past the floating burger button (fixed top-3.5 left-3.5). */}
       <div className="flex items-center gap-4 pl-14 pr-5 lg:pl-5 h-14 border-b shrink-0">
-        {/* Venue selector */}
         {venues.length > 1 && (
           <select
             value={venueId ?? ''}
@@ -241,12 +236,8 @@ export default function Bookings() {
           </select>
         )}
 
-        {/* Date navigation */}
         <div className="flex items-center gap-1">
-          <button
-            onClick={() => goDay(-1)}
-            className="p-1.5 rounded hover:bg-accent touch-manipulation"
-          >
+          <button onClick={() => goDay(-1)} className="p-1.5 rounded hover:bg-accent touch-manipulation">
             <ChevronLeft className="w-4 h-4" />
           </button>
           <div className="relative">
@@ -260,10 +251,7 @@ export default function Bookings() {
               className="absolute inset-0 opacity-0 cursor-pointer w-full"
             />
           </div>
-          <button
-            onClick={() => goDay(1)}
-            className="p-1.5 rounded hover:bg-accent touch-manipulation"
-          >
+          <button onClick={() => goDay(1)} className="p-1.5 rounded hover:bg-accent touch-manipulation">
             <ChevronRight className="w-4 h-4" />
           </button>
           {!isToday && (
@@ -276,7 +264,6 @@ export default function Bookings() {
           )}
         </div>
 
-        {/* Stats — hidden on mobile */}
         <div className="hidden sm:flex items-center gap-3 text-sm text-muted-foreground ml-2 flex-wrap">
           <span>
             <span className="font-semibold text-foreground">{stats.reservations}</span>
@@ -293,7 +280,6 @@ export default function Bookings() {
           ))}
         </div>
 
-        {/* Spacer + Export */}
         <div className="ml-auto flex items-center gap-2">
           <button
             onClick={exportCSV}
@@ -304,7 +290,6 @@ export default function Bookings() {
         </div>
       </div>
 
-      {/* ── Filter bar ────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-5 py-2.5 border-b bg-muted/20 shrink-0">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -321,7 +306,6 @@ export default function Bookings() {
             placeholder="Name, email or phone…"
             className="pl-8 pr-3 py-1.5 text-sm border rounded-lg w-52 bg-background focus:outline-none focus:border-primary"
           />
-          {/* Customer match suggestions */}
           {showCustSugg && custSuggestions.length > 0 && (
             <div className="absolute top-full left-0 mt-1 w-72 bg-background rounded-xl shadow-2xl border z-50 overflow-hidden">
               <p className="text-[10px] text-muted-foreground font-medium px-3 pt-2 pb-1 flex items-center gap-1">
@@ -363,7 +347,6 @@ export default function Bookings() {
           </button>
         )}
 
-        {/* Hide inactive toggle */}
         <button
           onClick={() => setHideInactive(v => !v)}
           title={hideInactive ? 'Show cancelled, no-show & checked-out' : 'Hide cancelled, no-show & checked-out'}
@@ -383,29 +366,19 @@ export default function Bookings() {
         </span>
       </div>
 
-      {/* ── Main content ──────────────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
-
-        {/* Booking list + FAB wrapper — relative so FAB is pinned to visible area, not scroll content */}
         <div className="flex-1 overflow-hidden relative">
         <div ref={listRef} className="h-full overflow-y-auto">
           {isLoading ? (
-            <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-              Loading…
-            </div>
+            <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">Loading…</div>
           ) : grouped.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
-              No bookings for this date
-            </div>
+            <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">No bookings for this date</div>
           ) : (
             grouped.map(([time, rows]) => (
               <div key={time}>
-                {/* Time header */}
                 <div className="px-5 py-2 bg-muted/30 border-b border-t sticky top-0 z-10">
                   <span className="text-sm font-semibold">{time}</span>
                 </div>
-
-                {/* Booking rows */}
                 {rows.map(b => (
                   <BookingRow
                     key={b.id}
@@ -430,7 +403,6 @@ export default function Bookings() {
           )}
         </div>
 
-        {/* New booking FAB */}
         <button
           onClick={() => setShowNew(true)}
           className="absolute bottom-6 right-6 z-30 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 active:scale-95 touch-manipulation transition-transform"
@@ -438,39 +410,47 @@ export default function Bookings() {
         >
           <Plus className="w-6 h-6" />
         </button>
-
-        </div>{/* end list+FAB wrapper */}
-
-        {/* Resize handle */}
-        <div
-          onMouseDown={onResizeStart}
-          onTouchStart={onResizeStart}
-          className="relative w-3 shrink-0 cursor-col-resize group touch-manipulation select-none"
-        >
-          <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border group-hover:bg-primary/30 transition-colors" />
-          <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 flex flex-col gap-[3px]">
-            {[0,1,2,3,4].map(i => (
-              <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary/60 transition-colors" />
-            ))}
-          </div>
         </div>
 
-        {/* Permanent right panel */}
-        <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: panelWidth }}>
-          {selected ? (
-            <BookingDrawer
-              booking={selected}
-              inlineMode
-              onClose={() => setSelected(null)}
-              onUpdated={() => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-              <p className="text-sm">Select a booking to view details</p>
+        {isDesktop && (
+          <>
+            <div
+              onMouseDown={onResizeStart}
+              onTouchStart={onResizeStart}
+              className="relative w-3 shrink-0 cursor-col-resize group touch-manipulation select-none"
+            >
+              <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border group-hover:bg-primary/30 transition-colors" />
+              <div className="absolute bottom-[20%] left-1/2 -translate-x-1/2 flex flex-col gap-[3px]">
+                {[0,1,2,3,4].map(i => (
+                  <div key={i} className="w-1 h-1 rounded-full bg-muted-foreground/40 group-hover:bg-primary/60 transition-colors" />
+                ))}
+              </div>
             </div>
-          )}
-        </div>
+            <div className="shrink-0 flex flex-col overflow-hidden" style={{ width: panelWidth }}>
+              {selected ? (
+                <BookingDrawer
+                  booking={selected}
+                  inlineMode
+                  onClose={() => setSelected(null)}
+                  onUpdated={() => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+                  <p className="text-sm">Select a booking to view details</p>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
+
+    {!isDesktop && selected && (
+      <BookingDrawer
+        booking={selected}
+        onClose={() => setSelected(null)}
+        onUpdated={() => qc.invalidateQueries({ queryKey: ['bookings', venueId, date] })}
+      />
+    )}
 
     {showNew && (
       <NewBookingModal
@@ -487,7 +467,6 @@ export default function Bookings() {
   )
 }
 
-// ── Booking row ───────────────────────────────────────────────
 function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStatuses, onRowClick, onStatusClick, onStatusSelect, onDropdownClose }) {
   const endTime = b.ends_at ? formatTime(b.ends_at) : null
   const maxCovers = b.combination_max_covers ?? b.table_max_covers ?? null
@@ -501,7 +480,6 @@ function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStat
         isSelected && 'bg-primary/5 border-l-2 border-l-primary',
       )}
     >
-      {/* Covers — orange if over capacity */}
       <div className="w-12 shrink-0 text-center relative">
         <span className={cn('text-base font-semibold', overCapacity && 'text-orange-600')}>{b.covers}</span>
         <span className="text-xs text-muted-foreground"> p.</span>
@@ -510,7 +488,6 @@ function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStat
         )}
       </div>
 
-      {/* Name + phone */}
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate">{b.guest_name}</p>
         {b.guest_phone && (
@@ -518,14 +495,12 @@ function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStat
         )}
       </div>
 
-      {/* Ends badge */}
       {endTime && (
         <span className="shrink-0 text-xs text-muted-foreground border rounded px-1.5 py-0.5 whitespace-nowrap">
           Ends: {endTime}
         </span>
       )}
 
-      {/* Table + section */}
       <div className="shrink-0 text-right hidden sm:block">
         <p className="text-sm font-medium flex items-center justify-end gap-1">
           {b.table_locked && (
@@ -538,7 +513,6 @@ function BookingRow({ booking: b, isSelected, statusDropdownOpen, selectableStat
         )}
       </div>
 
-      {/* Status pill — clickable dropdown */}
       <div className="shrink-0 relative" onClick={e => e.stopPropagation()}>
         <button
           onClick={onStatusClick}
