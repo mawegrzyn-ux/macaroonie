@@ -40,9 +40,21 @@ const EquipmentBody = z.object({
 
 const EquipmentPatch = EquipmentBody.partial().omit({ venue_id: true })
 
+const CaptureTimeBody = z.object({
+  venue_id:    z.string().uuid(),
+  label:       z.string().min(1).max(100),
+  time_of_day: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
+  sort_order:  z.number().int().optional(),
+})
+
+const CaptureTimePatch = CaptureTimeBody.partial().omit({ venue_id: true }).extend({
+  is_active: z.boolean().optional(),
+})
+
 const TempLogBody = z.object({
   venue_id:           z.string().uuid(),
   equipment_id:       z.string().uuid(),
+  capture_time_id:    z.string().uuid().nullable().optional(),
   log_date:           z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   temperature_c:      z.number(),
   corrective_action:  z.string().max(2000).nullable().optional(),
@@ -177,6 +189,74 @@ export default async function foodSafetyRoutes(app) {
     return row
   })
 
+  // ── Capture times ─────────────────────────────────────────
+  // Scheduled check times (e.g. "Morning check" 09:00) an operator sets up
+  // per venue, so the Today tab can prompt "which check is this?" instead
+  // of a single once-a-day reading.
+
+  app.get('/capture-times', {
+    preHandler: requirePermission('food_safety', 'view'),
+  }, async (req) => {
+    const { venue_id, active } = req.query
+    if (!venue_id) throw httpError(400, 'venue_id required')
+
+    return withTenant(req.tenantId, tx => {
+      const activeFilter = active === 'all' ? tx`` : tx`AND c.is_active = true`
+      return tx`
+        SELECT c.* FROM fs_capture_times c
+         WHERE c.tenant_id = ${req.tenantId}
+           AND c.venue_id  = ${venue_id}
+           ${activeFilter}
+         ORDER BY c.time_of_day, c.sort_order
+      `
+    })
+  })
+
+  app.post('/capture-times', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = CaptureTimeBody.parse(req.body)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO fs_capture_times (tenant_id, venue_id, label, time_of_day, sort_order)
+      VALUES (${req.tenantId}, ${body.venue_id}, ${body.label}, ${body.time_of_day}, ${body.sort_order ?? 0})
+      RETURNING *
+    `)
+    return row
+  })
+
+  app.patch('/capture-times/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = CaptureTimePatch.parse(req.body)
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_capture_times
+         SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
+             updated_at = now()
+       WHERE id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Capture time not found')
+    return row
+  })
+
+  app.delete('/capture-times/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_capture_times
+         SET is_active = false, updated_at = now()
+       WHERE id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Capture time not found')
+    return row
+  })
+
   // ── Temperature logs ──────────────────────────────────────
 
   app.get('/temp-logs', {
@@ -218,18 +298,39 @@ export default async function foodSafetyRoutes(app) {
     `)
     if (!eq) throw httpError(404, 'Equipment not found')
 
+    if (body.capture_time_id) {
+      const [ct] = await withTenant(req.tenantId, tx => tx`
+        SELECT id FROM fs_capture_times
+         WHERE id = ${body.capture_time_id} AND tenant_id = ${req.tenantId}
+           AND venue_id = ${body.venue_id}
+      `)
+      if (!ct) throw httpError(404, 'Capture time not found')
+    }
+
     const inRange = withinRange(body.temperature_c, eq.min_temp_c, eq.max_temp_c)
     const logDate = body.log_date || new Date().toISOString().slice(0, 10)
 
+    // Slot-linked readings upsert (re-logging the same equipment/slot/day
+    // corrects the existing row); ad-hoc readings (no capture_time_id)
+    // always insert a new row — the partial unique index only covers
+    // capture_time_id IS NOT NULL, so ON CONFLICT never fires for those.
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO fs_temp_logs
-        (tenant_id, venue_id, equipment_id, log_date, temperature_c,
+        (tenant_id, venue_id, equipment_id, capture_time_id, log_date, temperature_c,
          is_within_range, corrective_action, notes, recorded_by)
       VALUES
-        (${req.tenantId}, ${body.venue_id}, ${body.equipment_id}, ${logDate},
+        (${req.tenantId}, ${body.venue_id}, ${body.equipment_id}, ${body.capture_time_id ?? null}, ${logDate},
          ${body.temperature_c}, ${inRange},
          ${body.corrective_action ?? null}, ${body.notes ?? null},
          ${body.recorded_by ?? req.user?.email ?? null})
+      ON CONFLICT (equipment_id, log_date, capture_time_id) WHERE capture_time_id IS NOT NULL
+      DO UPDATE SET
+        temperature_c     = EXCLUDED.temperature_c,
+        is_within_range   = EXCLUDED.is_within_range,
+        corrective_action = EXCLUDED.corrective_action,
+        notes             = EXCLUDED.notes,
+        recorded_by       = EXCLUDED.recorded_by,
+        recorded_at       = now()
       RETURNING *
     `)
     return row
