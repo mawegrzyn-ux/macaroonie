@@ -65,6 +65,7 @@ const ThemeSchema = z.object({
   }).partial().optional(),
   spacing: z.object({
     container_max_px:     z.number().int().min(600).max(1600).optional(),
+    boxed_step:           z.number().int().min(1).max(5).optional(),
     section_y_px:         z.number().int().min(16).max(200).optional(),
     section_y_mobile_px:  z.number().int().min(12).max(160).optional(),
     gap_px:               z.number().int().min(4).max(60).optional(),
