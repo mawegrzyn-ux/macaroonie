@@ -176,12 +176,15 @@ export default async function siteRendererRoutes(app) {
   })
 
   // ── Locations index ────────────────────────────────────
+  // Single-venue tenants have no dedicated Location page at all — that
+  // venue's data (find us, hours, gallery, menus, allergens) already
+  // renders as blocks on the tenant home page, so both /locations and
+  // /locations/:slug just go home.
   app.get('/locations', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()
     const bundle = await loadOrRender404(req, reply)
     if (!bundle) return
-    const sole = soleVenueOf(bundle.venues)
-    if (sole) return reply.redirect(`/locations/${sole.slug}`, 302)
+    if (soleVenueOf(bundle.venues)) return reply.redirect('/', 302)
     if (bundle.tenant_site.hide_locations_index) {
       return renderNotFound(reply, 'Locations index disabled')
     }
@@ -196,6 +199,7 @@ export default async function siteRendererRoutes(app) {
     if (!req.siteHost) return reply.callNotFound()
     const tenantBundle = await loadOrRender404(req, reply)
     if (!tenantBundle) return
+    if (soleVenueOf(tenantBundle.venues)) return reply.redirect('/', 302)
     const bundle = await loadLocationBundle(tenantBundle, req.params.venueSlug)
     if (!bundle) return renderNotFound(reply, 'Location not found')
     return renderSite(reply, 'location', {
@@ -285,10 +289,11 @@ export default async function siteRendererRoutes(app) {
     if (!bundle) { reply.code(404); return 'Not found' }
     const host = (req.hostname || req.headers.host || '').split(':')[0]
     const base = `${env.PUBLIC_SITE_SCHEME}://${host}`
+    const multiVenue = bundle.venues.length > 1
     const urls = [
       `${base}/`,
-      ...((bundle.venues.length > 1 && !bundle.tenant_site.hide_locations_index) ? [`${base}/locations`] : []),
-      ...bundle.venues.map(v => `${base}/locations/${v.slug}`),
+      ...((multiVenue && !bundle.tenant_site.hide_locations_index) ? [`${base}/locations`] : []),
+      ...(multiVenue ? bundle.venues.map(v => `${base}/locations/${v.slug}`) : []),
       ...bundle.pages.map(p => `${base}/p/${p.slug}`),
     ]
     const body =
@@ -328,7 +333,7 @@ export default async function siteRendererRoutes(app) {
       lines.push('')
     }
 
-    if (bundle.venues.length) {
+    if (bundle.venues.length > 1) {
       lines.push('## Locations')
       lines.push('')
       for (const v of bundle.venues) {
@@ -336,7 +341,9 @@ export default async function siteRendererRoutes(app) {
         lines.push('- [' + v.name + '](' + base + '/locations/' + v.slug + ')' + (addr ? ': ' + addr : ''))
       }
       lines.push('')
+    }
 
+    if (bundle.venues.length) {
       lines.push('## Book a Table')
       lines.push('')
       for (const v of bundle.venues) {

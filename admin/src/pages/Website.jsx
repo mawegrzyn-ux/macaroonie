@@ -95,7 +95,10 @@ const VENUE_NAV = [
 const SINGLE_VENUE_NAV = [
   { label: 'Pages', items: [
     ...withMode(PAGES_TENANT, 'tenant'),
-    ...withMode(PAGES_VENUE.filter(i => i.key !== 'pages'), 'venue'),
+    // No separate "Location page" for single-venue tenants — the Home
+    // page (above) already gets this venue's data merged in, and the
+    // Restaurant-group blocks below can be dropped straight onto it.
+    ...withMode(PAGES_VENUE.filter(i => i.key !== 'pages' && i.key !== 'page'), 'venue'),
   ]},
   { label: 'Restaurant',   items: withMode(RESTAURANT_ITEMS, 'venue') },
   { label: 'Book & order', items: [
@@ -3605,7 +3608,11 @@ export default function Website() {
               onCreated={() => {
                 qc.invalidateQueries({ queryKey: ['website-configs'] })
                 qc.invalidateQueries({ queryKey: ['website-config', venueId] })
-                setActive('page')
+                // Single-venue tenants have no Location page to land on —
+                // send them to Home instead, where this venue's data
+                // already renders.
+                setMode(soleVenue ? 'tenant' : 'venue')
+                setActive(soleVenue ? 'tenant-page' : 'page')
               }} />
           ) : isLoading ? (
             <div className="flex items-center justify-center py-12">
