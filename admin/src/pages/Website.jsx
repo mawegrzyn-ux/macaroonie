@@ -32,6 +32,7 @@ import { RichTextEditor } from '@/components/RichTextEditor'
 import { PageBuilder } from '@/components/website-builder/PageBuilder'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 import ReservationsWidget from '@/pages/ReservationsWidget'
+import { BrandLayoutSection } from '@/components/website-builder/BrandLayoutSection'
 
 // ── Section lists ────────────────────────────────────────────
 //
@@ -3641,6 +3642,7 @@ function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, on
       <div className="space-y-6">
         <BrandIdentitySection />
         <BrandThemeSection />
+        <BrandLayoutSection />
       </div>
     )
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />

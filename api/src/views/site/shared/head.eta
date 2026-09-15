@@ -39,6 +39,11 @@ const sectionY     = spacing.section_y_px        || 72
 const sectionYMob  = spacing.section_y_mobile_px || 48
 const gap          = spacing.gap_px              || 24
 
+/* Boxed inset — 5-step scale, same mapping as per-block boxed_step overrides
+   (see api/src/views/site/blocks/hero.eta). Falls back to step 2 (24px). */
+const boxedPadMap = { 1: 16, 2: 24, 3: 40, 4: 64, 5: 96 }
+const boxedPad    = boxedPadMap[spacing.boxed_step] || 24
+
 const rSm = (radii.sm_px != null ? radii.sm_px :  4)
 const rMd = (radii.md_px != null ? radii.md_px :  8)
 const rLg = (radii.lg_px != null ? radii.lg_px : 16)
@@ -280,6 +285,7 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
 
       /* Spacing */
       --cw:         <%= containerMax %>px;
+      --boxed-pad:  <%= boxedPad %>px;
       --sy:         <%= sectionY %>px;
       --sy-m:       <%= sectionYMob %>px;
       --gap:        <%= gap %>px;
@@ -326,7 +332,7 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
     img { max-width: 100%; display: block; }
     a { color: var(--c-primary); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .container { max-width: var(--cw); margin: 0 auto; padding: 0 24px; }
+    .container { max-width: var(--cw); margin: 0 auto; padding: 0 var(--boxed-pad, 24px); }
     .btn {
       display: inline-block;
       padding: var(--btn-py) var(--btn-px);

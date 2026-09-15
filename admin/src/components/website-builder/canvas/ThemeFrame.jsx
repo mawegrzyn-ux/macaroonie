@@ -55,6 +55,7 @@ export function ThemeFrame({ config, children, className = '' }) {
       --ls:         ${t.letterSp};
 
       --cw:   ${t.containerMax}px;
+      --boxed-pad: ${t.boxedPad}px;
       --sy:   ${t.sectionY}px;
       --sy-m: ${t.sectionYMob}px;
       --gap:  ${t.gap}px;
@@ -97,7 +98,7 @@ export function ThemeFrame({ config, children, className = '' }) {
     .${scopeId} img { max-width: 100%; display: block; }
     .${scopeId} a { color: var(--c-primary); text-decoration: none; }
     .${scopeId} a:hover { text-decoration: underline; }
-    .${scopeId} .container { max-width: var(--cw); margin: 0 auto; padding: 0 24px; }
+    .${scopeId} .container { max-width: var(--cw); margin: 0 auto; padding: 0 var(--boxed-pad, 24px); }
     .${scopeId} .btn {
       display: inline-block;
       padding: var(--btn-py) var(--btn-px);
