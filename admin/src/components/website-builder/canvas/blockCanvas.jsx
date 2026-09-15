@@ -23,17 +23,7 @@ import { InlineText }      from './InlineText'
 import { InlineRichText }  from './InlineRichText'
 import { BlockInserter }   from './BlockInserter'
 import { parentKey }       from '../blockTree'
-
-// Inner container max-width based on the per-block `container` setting.
-// Mirror of the corresponding switch in each Eta partial.
-function innerContainerStyle(width) {
-  switch (width) {
-    case 'wide':  return { maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, width: '100%' }
-    case 'full':  return { maxWidth: 'none', width: '100%', paddingLeft: 24, paddingRight: 24 }
-    case 'boxed':
-    default:      return { maxWidth: 'var(--cw)', marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, width: '100%' }
-  }
-}
+import { innerContainerStyle } from '../boxedLayout'
 
 // ── Hero ─────────────────────────────────────────────────────
 //
@@ -101,7 +91,7 @@ export function HeroCanvas({ data, onChange, selected }) {
         <div style={{ position: 'absolute', inset: 0, background: `rgba(0,0,0,${overlay})` }} />
       )}
 
-      <div style={{ ...innerContainerStyle(data.container), position: 'relative', textAlign, paddingTop: 64, paddingBottom: 64 }}>
+      <div style={{ ...innerContainerStyle(data.container, data.boxed_step), position: 'relative', textAlign, paddingTop: 64, paddingBottom: 64 }}>
         {data.eyebrow_text && (
           <div style={{
             fontFamily: 'var(--f-body), sans-serif', textTransform: 'uppercase',
@@ -223,7 +213,7 @@ export function TextCanvas({ data, onChange }) {
 
   return (
     <section className="block" style={{ background: bg, color, paddingTop: 48, paddingBottom: 48 }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <div style={{ maxWidth: maxW, margin: '0 auto', textAlign: data.align || 'left' }}>
           <InlineRichText
             value={data.html}
@@ -247,7 +237,7 @@ export function ImageCanvas({ data, onChange, selected }) {
 
   return (
     <section className="block" style={{ paddingTop: 32, paddingBottom: 32 }}>
-      <div style={{ ...innerContainerStyle(data.container), display: 'flex', justifyContent: align }}>
+      <div style={{ ...innerContainerStyle(data.container, data.boxed_step), display: 'flex', justifyContent: align }}>
         <figure style={{ margin: 0, maxWidth: maxW || undefined, width: '100%' }}>
           {data.url ? (
             <img src={data.url} alt={data.alt || ''} style={{ width: '100%', height: 'auto', borderRadius: 'var(--r-md, 8px)', display: 'block' }} />
@@ -284,7 +274,7 @@ export function CtaStripCanvas({ data, onChange, selected }) {
 
   return (
     <section className="block" style={{ background: bg, color: fg, paddingTop: 48, paddingBottom: 48, textAlign: 'center' }}>
-      <div style={{ ...innerContainerStyle(data.container), maxWidth: data.container === 'full' ? 'none' : (data.container === 'wide' ? 1100 : 780) }}>
+      <div style={{ ...innerContainerStyle(data.container, data.boxed_step), maxWidth: data.container === 'full' ? 'none' : (data.container === 'wide' ? 1100 : 780) }}>
         <InlineText
           as="h2"
           value={data.heading}
@@ -360,7 +350,7 @@ export function FaqCanvas({ data, onChange, selected }) {
 
   return (
     <section className="block" style={{ paddingTop: 48, paddingBottom: 48 }}>
-      <div style={{ ...innerContainerStyle(data.container), maxWidth: data.container === 'full' ? 'none' : (data.container === 'wide' ? 1100 : 780) }}>
+      <div style={{ ...innerContainerStyle(data.container, data.boxed_step), maxWidth: data.container === 'full' ? 'none' : (data.container === 'wide' ? 1100 : 780) }}>
         <InlineText
           as="h2"
           value={data.heading}
@@ -453,7 +443,7 @@ export function ColumnsCanvas({
       background: bg, color: fg,
       paddingTop: 48, paddingBottom: 48,
     }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <div className="columns-grid" style={{
           display: 'grid',
           gridTemplateColumns: `repeat(${cols.length}, 1fr)`,
@@ -543,7 +533,7 @@ export function DataPlaceholderCanvas({ data, onChange, blockType }) {
       borderRadius: 'var(--r-md, 8px)',
       margin: '0 24px',
     }}>
-      <div style={{ ...innerContainerStyle(data.container), textAlign: 'center' }}>
+      <div style={{ ...innerContainerStyle(data.container, data.boxed_step), textAlign: 'center' }}>
         <InlineText
           as="h2"
           value={data.heading}

@@ -15,16 +15,9 @@ import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar } from 'lucide-react'
 import { InlineText } from './InlineText'
+import { innerContainerStyle } from '../boxedLayout'
 
 // ── Shared helpers ────────────────────────────────────────
-
-function innerContainerStyle(width) {
-  switch (width) {
-    case 'wide': return { maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, width: '100%' }
-    case 'full': return { maxWidth: 'none', width: '100%', paddingLeft: 24, paddingRight: 24 }
-    default:     return { maxWidth: 'var(--cw)', marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, width: '100%' }
-  }
-}
 
 // Generic dashed-border placeholder shown when a block has no data yet.
 function EmptyPanel({ Icon, title, hint, where }) {
@@ -75,7 +68,7 @@ export function FindUsCanvas({ data, onChange, config }) {
   const has = addressLines.length > 0 || c.google_maps_embed_url
   return (
     <section className="block" style={{ padding: '48px 0', background: 'var(--c-surface)' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <BlockHeading data={data} onChange={onChange} />
         {has ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
@@ -116,7 +109,7 @@ export function ContactCanvas({ data, onChange, config }) {
   const has = c.phone || c.email || Object.values(social).some(v => v)
   return (
     <section className="block" style={{ padding: '48px 0' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <div style={{ maxWidth: 640, margin: '0 auto', textAlign: 'center' }}>
           <BlockHeading data={data} onChange={onChange} />
           {has ? (
@@ -191,7 +184,7 @@ export function GalleryCanvas({ data, onChange }) {
 
   return (
     <section className="block" style={{ padding: '48px 0', background: 'var(--c-surface)' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <BlockHeading data={data} onChange={onChange} />
         {isLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 24, color: 'var(--c-muted)' }}>
@@ -259,7 +252,7 @@ export function OpeningHoursCanvas({ data, onChange, config }) {
   })
   return (
     <section className="block" style={{ padding: '48px 0', background: 'var(--c-surface)' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <div style={{ maxWidth: 480, margin: '0 auto' }}>
           <BlockHeading data={data} onChange={onChange} />
           {!venueId ? (
@@ -313,7 +306,7 @@ export function MenuPdfsCanvas({ data, onChange, config }) {
   })
   return (
     <section className="block" style={{ padding: '48px 0' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <BlockHeading data={data} onChange={onChange} />
         {!venueId ? (
           <EmptyPanel Icon={BookOpen} title="Menus (PDFs)"
@@ -362,7 +355,7 @@ export function AllergensCanvas({ data, onChange, config }) {
   const items = allergens?.structured_data || []
   return (
     <section className="block" style={{ padding: '48px 0' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <BlockHeading data={data} onChange={onChange} />
         {!venueId ? (
           <EmptyPanel Icon={AlertTriangle} title="Allergens"
@@ -528,7 +521,7 @@ export function ReservationsWidgetCanvas({ data, onChange, config }) {
 
   return (
     <section className="block" style={{ padding: '64px 0', background: 'var(--c-surface)' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <BlockHeading data={data} onChange={onChange} />
         {widgetSrc ? (
           <iframe
@@ -594,7 +587,7 @@ export function MenuInlineCanvas({ data, onChange }) {
 
   return (
     <section className="block" style={{ padding: '64px 0' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <BlockHeading data={data} onChange={onChange} />
         {!data.menu_id ? (
           <EmptyPanel Icon={BookOpen} title="Menu"
