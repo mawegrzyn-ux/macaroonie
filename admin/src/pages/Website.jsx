@@ -1466,7 +1466,7 @@ function ThemeSection({ config }) {
   const dirty = JSON.stringify(theme) !== JSON.stringify(baseline)
 
   const save = useMutation({
-    mutationFn: () => api.patch('/website/config', { theme }),
+    mutationFn: () => api.patch('/website/config', { venue_id: config.venue_id, theme }),
     onSuccess:  (cfg) => qc.setQueryData(['website-config'], cfg),
   })
 
@@ -1825,6 +1825,7 @@ function ContactSection({ config }) {
         if (v) social_links[k] = v
       }
       return api.patch('/website/config', {
+        venue_id:     config.venue_id,
         phone:        state.phone   || null,
         email:        state.email   || null,
         social_links,
@@ -1979,6 +1980,7 @@ function BookingSection({ config }) {
 
   const save = useMutation({
     mutationFn: () => api.patch('/website/config', {
+      venue_id:            config.venue_id,
       widget_venue_id:     state.widget_venue_id || null,
       widget_theme:        state.widget_theme,
       show_booking_widget: state.show_booking_widget,
@@ -2180,7 +2182,7 @@ function GallerySection({ config }) {
           </div>
           <Toggle
             value={!!config.show_gallery}
-            onChange={v => api.patch('/website/config', { show_gallery: v })
+            onChange={v => api.patch('/website/config', { venue_id: config.venue_id, show_gallery: v })
               .then(cfg => qc.setQueryData(['website-config'], cfg))}
             label="Show gallery"
           />
@@ -2196,7 +2198,7 @@ function GallerySection({ config }) {
               { v: 'horizontal', label: 'Horizontal', desc: 'Scrollable strip' },
             ].map(opt => (
               <button key={opt.v} type="button"
-                onClick={() => api.patch('/website/config', { gallery_style: opt.v })
+                onClick={() => api.patch('/website/config', { venue_id: config.venue_id, gallery_style: opt.v })
                   .then(cfg => qc.setQueryData(['website-config'], cfg))}
                 className={cn(
                   'border rounded-lg p-3 text-left text-sm hover:border-primary',
@@ -2216,7 +2218,7 @@ function GallerySection({ config }) {
               { v: 'large',  label: 'Large',  px: '320px' },
             ].map(opt => (
               <button key={opt.v} type="button"
-                onClick={() => api.patch('/website/config', { gallery_size: opt.v })
+                onClick={() => api.patch('/website/config', { venue_id: config.venue_id, gallery_size: opt.v })
                   .then(cfg => qc.setQueryData(['website-config'], cfg))}
                 className={cn(
                   'border rounded-lg px-3 py-2 text-sm',
@@ -2334,7 +2336,7 @@ function MenuSection({ config }) {
             <p className="text-sm font-medium">Show "Menus"</p>
           </div>
           <Toggle value={!!config.show_menu}
-            onChange={v => api.patch('/website/config', { show_menu: v })
+            onChange={v => api.patch('/website/config', { venue_id: config.venue_id, show_menu: v })
               .then(cfg => qc.setQueryData(['website-config'], cfg))}
             label="Show menus" />
         </div>
@@ -2469,7 +2471,7 @@ function AllergensSection({ config }) {
             <p className="text-sm font-medium">Show "Allergen information"</p>
           </div>
           <Toggle value={!!config.show_allergens}
-            onChange={v => api.patch('/website/config', { show_allergens: v })
+            onChange={v => api.patch('/website/config', { venue_id: config.venue_id, show_allergens: v })
               .then(cfg => qc.setQueryData(['website-config'], cfg))}
             label="Show allergens" />
         </div>
@@ -2799,6 +2801,7 @@ function RepeatableLinkSection({ title, description, configKey, showKey, emptyHi
 
   const save = useMutation({
     mutationFn: () => api.patch('/website/config', {
+      venue_id:    config.venue_id,
       [showKey]:   state.show,
       [configKey]: state.items,
     }),
