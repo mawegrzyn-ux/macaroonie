@@ -2,9 +2,11 @@
 const d = it.block.data || {}
 const menu = (it.menus_by_id || {})[d.menu_id]
 const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw, 1100px)'
+const padMap = { 1: '16px', 2: '24px', 3: '40px', 4: '64px', 5: '96px' }
+const pad = padMap[d.boxed_step] || 'var(--boxed-pad, 24px)'
 const containerStyle = d.container === 'full'
-  ? 'width:100%; padding:0 24px;'
-  : 'max-width:' + cw + '; margin:0 auto; padding:0 24px;'
+  ? 'width:100%; padding:0 ' + pad + ';'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 ' + pad + ';'
 function fmtPrice(p) { if (p == null) return ''; return '£' + (Number(p) / 100).toFixed(2) }
 const tagsByCode = menu ? Object.fromEntries((menu.dietary_tags || []).map(t => [t.code, t])) : {}
 

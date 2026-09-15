@@ -9,6 +9,7 @@
 import { useEffect } from 'react'
 import { InlineText }     from './InlineText'
 import { InlineRichText } from './InlineRichText'
+import { innerContainerStyle } from '../boxedLayout'
 
 const FONT_WEIGHTS = {
   'Inter': '300;400;500;600;700;800', 'Fraunces': '300;400;500;600;700;800',
@@ -39,15 +40,6 @@ function ensureGoogleFont(name) {
 }
 
 const ASSETS = '/template-assets/onethai'
-
-function innerContainerStyle(width) {
-  switch (width) {
-    case 'wide': return { maxWidth: 1400, marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, width: '100%' }
-    case 'full': return { maxWidth: 'none', width: '100%', paddingLeft: 24, paddingRight: 24 }
-    case 'boxed':
-    default:     return { maxWidth: 'var(--cw)', marginLeft: 'auto', marginRight: 'auto', paddingLeft: 24, paddingRight: 24, width: '100%' }
-  }
-}
 
 // Helper: pull tenant-site brand text + tagline + logo. Falls back to
 // auto-derive from `it.config.site_name` etc. — same logic Eta uses.
@@ -286,7 +278,7 @@ export function StoryWithStampCanvas({ data, onChange, selected }) {
 
   return (
     <section className="block" style={{ padding: '110px 0', position: 'relative' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 80, alignItems: 'start' }}>
           {showImage && (
             <div style={{ order: imageOrder }}>
@@ -343,7 +335,7 @@ export function DishListCanvas({ data, onChange }) {
 
   return (
     <section className="block" style={{ padding: '100px 0', background: 'var(--c-surface)' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         <div style={{ marginBottom: 48 }}>
           <InlineText as="h2"
             value={data.heading}
@@ -420,7 +412,7 @@ export function OrderOptionsCanvas({ data }) {
 
   return (
     <section className="block" style={{ padding: '100px 0', background: p.bg, color: p.fg, position: 'relative', overflow: 'hidden' }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         {data.eyebrow_text && (
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 10,
@@ -518,7 +510,7 @@ export function ReviewsBandCanvas({ data }) {
 
   return (
     <section className="block" style={{ padding: '90px 0', background: palette.bg, color: palette.fg }}>
-      <div style={innerContainerStyle(data.container)}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
         {data.heading && (
           <h2 style={{ fontFamily: 'var(--f-heading)', textAlign: 'center', marginBottom: 40, color: palette.fg }}>
             {data.heading}
