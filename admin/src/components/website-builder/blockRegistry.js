@@ -26,7 +26,7 @@ import {
   Image as ImageIcon, Type, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
-  ShoppingBag, BookOpen as MenuIcon,
+  ShoppingBag, BookOpen as MenuIcon, ExternalLink,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -37,6 +37,7 @@ import { DataBlockEditor }     from './editors/DataBlockEditor'
 import { DividerEditor }       from './editors/DividerEditor'
 import { FaqEditor }           from './editors/FaqEditor'
 import { ColumnsEditor }       from './editors/ColumnsEditor'
+import { GuestplanWidgetEditor } from './editors/GuestplanWidgetEditor'
 import {
   HeaderBlockEditor, FooterBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
@@ -436,6 +437,20 @@ export const BLOCKS = [
     },
     editor:      ReservationsWidgetEditor,
     pullsFromConfig: true,
+  },
+  {
+    key:         'guestplan_widget',
+    label:       'Guestplan booking widget',
+    description: 'Embeds a Guestplan reservations widget via their official loader script and access key. Third-party — look and feel is controlled by Guestplan, not this theme.',
+    icon:        ExternalLink,
+    category:    'data',
+    defaultData: {
+      heading:    '',
+      container:  'boxed',
+      access_key: '',
+      custom_css: '',
+    },
+    editor:      GuestplanWidgetEditor,
   },
   {
     key:         'menu_pdfs',

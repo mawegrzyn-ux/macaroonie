@@ -1,0 +1,51 @@
+<%
+/* ── guestplan_widget block ───────────────────────────────────────────
+ *
+ * Embeds a third-party Guestplan reservations widget via their official
+ * loader script (https://cdn.guestplan.com/widget.js). Guestplan's
+ * script self-mounts into the page — there's no iframe URL or container
+ * element we control, and no documented colour/theme API for the embed
+ * snippet itself, so this can't be wired to the site theme the way our
+ * own reservations_widget block is. Look and feel is whatever Guestplan
+ * configures against the access key on their side (check their
+ * dashboard for branding options), plus whatever the operator pastes
+ * into the optional custom CSS field as a manual, best-effort override.
+ *
+ * If two of these blocks somehow end up on the same page, the second
+ * one just re-sets the access key rather than loading the loader script
+ * twice.
+ */
+const d = it.block.data || {}
+const innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '900px' : '640px'
+const padMap = { 1: '16px', 2: '24px', 3: '40px', 4: '64px', 5: '96px' }
+const pad = padMap[d.boxed_step] || 'var(--boxed-pad, 24px)'
+const containerStyle = d.container === 'full'
+  ? 'width:100%; padding:0 ' + pad + ';'
+  : 'max-width:' + innerMax + '; margin:0 auto; padding:0 ' + pad + ';'
+const accessKey = String(d.access_key || '').trim()
+const accessKeyJs = JSON.stringify(accessKey)
+%>
+<section class="block" style="padding:48px 0;">
+  <div style="<%= containerStyle %> text-align:center;">
+    <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
+    <% if (accessKey) { %>
+      <% if (d.custom_css) { %>
+        <style><%~ d.custom_css %></style>
+      <% } %>
+      <script>
+      (function () {
+        if (!window._gstpln) {
+          (function(g,s,t,p,l,n){
+            g["_gstpln"]={};
+            (l=s.createElement(t)),(n=s.getElementsByTagName(t)[0]);
+            l.async=1;l.src=p;n.parentNode.insertBefore(l,n);
+          })(window,document,"script","https://cdn.guestplan.com/widget.js");
+        }
+        window._gstpln.accessKey = <%~ accessKeyJs %>;
+      })();
+      </script>
+    <% } else { %>
+      <p style="color:var(--c-muted);">Guestplan widget not configured &mdash; add your access key in the block editor.</p>
+    <% } %>
+  </div>
+</section>
