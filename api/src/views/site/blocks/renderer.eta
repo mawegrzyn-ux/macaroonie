@@ -47,6 +47,8 @@ const _aid = _cleanAnchor || _fallbackAnchor
   <%~ include('./contact', it) %>
 <% } else if (t === 'reservations_widget') { %>
   <%~ include('./reservations_widget', it) %>
+<% } else if (t === 'guestplan_widget') { %>
+  <%~ include('./guestplan_widget', it) %>
 <% } else if (t === 'menu_pdfs') { %>
   <%~ include('./menu_pdfs', it) %>
 <% } else if (t === 'allergens') { %>

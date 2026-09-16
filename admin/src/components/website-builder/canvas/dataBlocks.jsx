@@ -546,6 +546,38 @@ export function ReservationsWidgetCanvas({ data, onChange, config }) {
   )
 }
 
+// ── Guestplan booking widget (third-party embed) ──────────
+//
+// Guestplan's loader script self-mounts into the page (no iframe URL,
+// no container it renders into) and its colours are governed by their
+// own dashboard, not anything we can pass through the embed snippet —
+// so unlike our own reservations_widget, there is nothing faithful to
+// preview here. We deliberately do NOT load the real third-party script
+// inside the admin editor canvas (it would inject into the whole admin
+// app, not just this block, and pulls in code we don't control). This
+// is a static placeholder; the real widget only ever runs on the
+// published site.
+
+export function GuestplanWidgetCanvas({ data, onChange }) {
+  const hasKey = !!String(data.access_key || '').trim()
+  return (
+    <section className="block" style={{ padding: '48px 0' }}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
+        <BlockHeading data={data} onChange={onChange} />
+        {hasKey ? (
+          <EmptyPanel Icon={Calendar} title="Guestplan booking widget"
+            hint="Not previewable here — it's a third-party script that mounts itself on the live page."
+            where="Renders on the published site" />
+        ) : (
+          <EmptyPanel Icon={Calendar} title="Guestplan booking widget"
+            hint="No access key set."
+            where="Add your Guestplan access key on this block" />
+        )}
+      </div>
+    </section>
+  )
+}
+
 // ── Menu (inline) ────────────────────────────────────────
 
 export function MenuInlineCanvas({ data, onChange }) {
