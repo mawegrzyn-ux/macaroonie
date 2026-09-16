@@ -589,7 +589,7 @@ export const PAGE_TEMPLATES = [
   {
     key:         'restaurant-classic',
     label:       'Restaurant — Classic',
-    description: 'Warm, traditional layout. Hero, story, gallery, menu PDFs, opening hours, contact.',
+    description: 'Warm, traditional layout. Hero, story, gallery, menu PDFs, opening hours, find us, contact.',
     style_pack:  'classic',
     blocks: [
       { type: 'hero',          data: { heading: 'Welcome', subheading: 'Seasonal food, served all day.', cta_text: 'Book a table', cta_link: '#reservations', height: 'large' } },
@@ -597,6 +597,7 @@ export const PAGE_TEMPLATES = [
       { type: 'gallery',       data: { heading: 'Gallery' } },
       { type: 'menu_pdfs',     data: { heading: 'Menus' } },
       { type: 'opening_hours', data: { heading: 'Opening hours' } },
+      { type: 'find_us',       data: { heading: 'Find us' } },
       { type: 'contact',       data: { heading: 'Get in touch' } },
     ],
   },
@@ -617,11 +618,12 @@ export const PAGE_TEMPLATES = [
   {
     key:         'minimal-cafe',
     label:       'Minimal Café',
-    description: 'Clean and quick. Classic shell, minimal blocks: hero, hours, single image, contact.',
+    description: 'Clean and quick. Classic shell, minimal blocks: hero, hours, find us, single image, contact.',
     style_pack:  'classic',
     blocks: [
       { type: 'hero',          data: { heading: 'Coffee. Cake. Quiet.', subheading: '', cta_text: '', cta_link: '', height: 'small' } },
       { type: 'opening_hours', data: { heading: 'When we\'re open' } },
+      { type: 'find_us',       data: { heading: 'Find us' } },
       { type: 'image',         data: { url: null, alt: '', caption: '', max_width: 'wide', align: 'center' } },
       { type: 'contact',       data: { heading: 'Drop us a line' } },
     ],
