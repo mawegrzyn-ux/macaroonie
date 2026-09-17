@@ -8,7 +8,8 @@
 //   https://…               custom / external
 //   /menu  /  /locations    built-ins
 
-import { useContext, useMemo, useState, createContext } from 'react'
+import { useContext, useMemo, useState, useRef, useEffect, useLayoutEffect, createContext } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, Link2, X } from 'lucide-react'
 import { useApi } from '@/lib/api'
@@ -74,6 +75,51 @@ export function LinkPicker({ value, onChange, placeholder = '/path or #anchor', 
   const catalog = useContext(LinkCatalogContext)
   const [open, setOpen] = useState(false)
   const [custom, setCustom] = useState('')
+  const triggerRef = useRef(null)
+  const popRef     = useRef(null)
+  const [coords, setCoords] = useState({ left: 0, top: 0, width: 0 })
+
+  // The trigger usually lives inside a scrollable panel (BlockInspector's
+  // aside). A plain `absolute` dropdown gets clipped by that panel's
+  // overflow, which is the "dropdown doesn't show content well" bug —
+  // long lists were cut off a few rows in with no way to scroll to them.
+  // Portal to document.body + position:fixed from the trigger's own
+  // bounding rect escapes that clip entirely (same pattern as FontPicker).
+  useLayoutEffect(() => {
+    if (!open) return
+    function place() {
+      const r = triggerRef.current?.getBoundingClientRect()
+      if (!r) return
+      const width = Math.max(r.width, 320)
+      // Keep the panel on-screen if the trigger sits near the right edge
+      // (the inspector column is only 340px wide).
+      const left = Math.min(r.left, window.innerWidth - width - 8)
+      setCoords({ left: Math.max(8, left), top: r.bottom + 4, width })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true) // capture: catch any scrolling ancestor
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(e) {
+      if (triggerRef.current?.contains(e.target)) return
+      if (popRef.current?.contains(e.target))     return
+      setOpen(false)
+    }
+    function onKey(e) { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
   const { data: tenantPages = [] } = useQuery({
     queryKey: ['website-pages', 'tenant'],
@@ -119,7 +165,7 @@ export function LinkPicker({ value, onChange, placeholder = '/path or #anchor', 
 
   return (
     <div className={cn('relative', className)}>
-      <button type="button" onClick={() => setOpen(o => !o)}
+      <button ref={triggerRef} type="button" onClick={() => setOpen(o => !o)}
         className="w-full text-left text-sm border rounded-md px-2 py-1.5 min-h-[36px] bg-background inline-flex items-center gap-2 hover:bg-accent/40">
         <Link2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         <span className={cn('flex-1 truncate', value ? '' : 'text-muted-foreground')}>{value ? label : placeholder}</span>
@@ -133,77 +179,77 @@ export function LinkPicker({ value, onChange, placeholder = '/path or #anchor', 
           <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         )}
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute z-50 mt-1 w-[min(100%,22rem)] max-h-[min(70vh,28rem)] overflow-y-auto bg-background border rounded-lg shadow-xl p-2 text-sm">
-            <Group title={catalog.currentLabel || 'This page'}>
-              <Row label="Top of this page (no section)" hint="#" onClick={() => pick('#')} />
-              {currentAnchors.map(a => (
-                <Row key={a.id} label={a.label} hint={`#${a.id}`}
-                  onClick={() => pick(`#${a.id}`)} />
-              ))}
-              {currentAnchors.length === 0 && (
-                <p className="px-2 py-1 text-[11px] text-muted-foreground">No anchors on this page yet. Set Anchor ID on a block.</p>
-              )}
-            </Group>
+      {open && createPortal(
+        <div ref={popRef}
+          style={{ position: 'fixed', left: coords.left, top: coords.top, width: coords.width, zIndex: 9999 }}
+          className="max-h-[min(70vh,28rem)] overflow-y-auto bg-background border rounded-lg shadow-xl p-2 text-sm">
+          <Group title={catalog.currentLabel || 'This page'}>
+            <Row label="Top of this page (no section)" hint="#" onClick={() => pick('#')} />
+            {currentAnchors.map(a => (
+              <Row key={a.id} label={a.label} hint={`#${a.id}`}
+                onClick={() => pick(`#${a.id}`)} />
+            ))}
+            {currentAnchors.length === 0 && (
+              <p className="px-2 py-1 text-[11px] text-muted-foreground">No anchors on this page yet. Set Anchor ID on a block.</p>
+            )}
+          </Group>
 
-            <Group title="Site pages">
-              <Row label="Home" hint="/" onClick={() => pick('/')} />
-              {homeAnchors.length > 0 && catalog.currentLabel !== 'Home' && homeAnchors.map(a => (
-                <Row key={`home-${a.id}`} label={`Home · ${a.label}`} hint={`/#${a.id}`}
-                  indent onClick={() => pick(`/#${a.id}`)} />
-              ))}
-              <Row label="Menu" hint="/menu" onClick={() => pick('/menu')} />
-              <Row label="Locations" hint="/locations" onClick={() => pick('/locations')} />
-              {standalone.map(p => {
-                const href = pageHref(p, catalog.venueSlug)
-                const anchors = collectAnchors(p.blocks)
-                return (
-                  <div key={p.id}>
-                    <Row label={p.title} hint={href} onClick={() => pick(href)} />
-                    {anchors.map(a => (
-                      <Row key={`${p.id}-${a.id}`} label={a.label} hint={`${href}#${a.id}`}
-                        indent onClick={() => pick(`${href}#${a.id}`)} />
-                    ))}
-                  </div>
-                )
-              })}
-            </Group>
+          <Group title="Site pages">
+            <Row label="Home" hint="/" onClick={() => pick('/')} />
+            {homeAnchors.length > 0 && catalog.currentLabel !== 'Home' && homeAnchors.map(a => (
+              <Row key={`home-${a.id}`} label={`Home · ${a.label}`} hint={`/#${a.id}`}
+                indent onClick={() => pick(`/#${a.id}`)} />
+            ))}
+            <Row label="Menu" hint="/menu" onClick={() => pick('/menu')} />
+            <Row label="Locations" hint="/locations" onClick={() => pick('/locations')} />
+            {standalone.map(p => {
+              const href = pageHref(p, catalog.venueSlug)
+              const anchors = collectAnchors(p.blocks)
+              return (
+                <div key={p.id}>
+                  <Row label={p.title} hint={href} onClick={() => pick(href)} />
+                  {anchors.map(a => (
+                    <Row key={`${p.id}-${a.id}`} label={a.label} hint={`${href}#${a.id}`}
+                      indent onClick={() => pick(`${href}#${a.id}`)} />
+                  ))}
+                </div>
+              )
+            })}
+          </Group>
 
-            <Group title="Modals">
-              {modals.length === 0 ? (
-                <p className="px-2 py-1 text-[11px] text-muted-foreground">No modals yet. Create one under Pages.</p>
-              ) : modals.map(p => {
-                const href = pageHref(p, catalog.venueSlug)
-                const anchors = collectAnchors(p.blocks)
-                return (
-                  <div key={p.id}>
-                    <Row label={p.title} hint="opens as overlay" onClick={() => pick(href)} />
-                    {anchors.map(a => (
-                      <Row key={`${p.id}-${a.id}`} label={a.label} hint={`#modal/${p.slug}:${a.id}`}
-                        indent onClick={() => pick(`#modal/${p.slug}:${a.id}`)} />
-                    ))}
-                  </div>
-                )
-              })}
-            </Group>
+          <Group title="Modals">
+            {modals.length === 0 ? (
+              <p className="px-2 py-1 text-[11px] text-muted-foreground">No modals yet. Create one under Pages.</p>
+            ) : modals.map(p => {
+              const href = pageHref(p, catalog.venueSlug)
+              const anchors = collectAnchors(p.blocks)
+              return (
+                <div key={p.id}>
+                  <Row label={p.title} hint="opens as overlay" onClick={() => pick(href)} />
+                  {anchors.map(a => (
+                    <Row key={`${p.id}-${a.id}`} label={a.label} hint={`#modal/${p.slug}:${a.id}`}
+                      indent onClick={() => pick(`#modal/${p.slug}:${a.id}`)} />
+                  ))}
+                </div>
+              )
+            })}
+          </Group>
 
-            <Group title="Custom URL">
-              <div className="flex gap-1 px-1 pb-1">
-                <input
-                  value={custom}
-                  onChange={e => setCustom(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && custom.trim()) pick(custom.trim()) }}
-                  placeholder="https://…  or  /path"
-                  className="flex-1 text-xs border rounded-md px-2 py-1.5 font-mono min-h-[32px]"
-                />
-                <button type="button" onClick={() => { if (custom.trim()) pick(custom.trim()) }}
-                  className="text-xs px-2 rounded-md bg-primary text-primary-foreground">Use</button>
-              </div>
-            </Group>
-          </div>
-        </>
+          <Group title="Custom URL">
+            <div className="flex gap-1 px-1 pb-1">
+              <input
+                value={custom}
+                onChange={e => setCustom(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && custom.trim()) pick(custom.trim()) }}
+                placeholder="https://…  or  /path"
+                className="flex-1 text-xs border rounded-md px-2 py-1.5 font-mono min-h-[32px]"
+              />
+              <button type="button" onClick={() => { if (custom.trim()) pick(custom.trim()) }}
+                className="text-xs px-2 rounded-md bg-primary text-primary-foreground">Use</button>
+            </div>
+          </Group>
+        </div>,
+        document.body,
       )}
     </div>
   )
