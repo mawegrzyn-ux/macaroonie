@@ -1,0 +1,12 @@
+<%
+/* Mirror of chrome_header.eta for the footer. Precedence:
+     1. this page's own blocks array override — it.chromeBlocks
+     2. the shared tenant-wide default (it.tenant_site.footer_config)
+     3. block defaults (empty data) if neither is set
+   it.showFooter === false suppresses the footer entirely for this page. */
+const _own  = (Array.isArray(it.chromeBlocks) ? it.chromeBlocks : []).find(b => b.type === 'footer')
+const _data = _own ? (_own.data || {}) : ((it.tenant_site && it.tenant_site.footer_config) || {})
+%>
+<% if (it.showFooter !== false) { %>
+  <%~ include('../blocks/renderer', { ...it, block: { type: 'footer', data: _data } }) %>
+<% } %>

@@ -20,9 +20,19 @@ const totalCols = (showBrand ? 1 : 0) + cols.length + (showLocations && !onLocat
 const gridCols = totalCols <= 1 ? '1fr'
               : showBrand ? `2fr ${Array(totalCols - 1).fill('1fr').join(' ')}`
               : `repeat(${totalCols}, 1fr)`
+
+/* Background colour — a theme role name, same convention as every other
+   themed block (ThemeColourPicker). NOTE: the "background" role maps to
+   the --c-bg custom property, not --c-background (that var doesn't
+   exist) — head.eta only emits --c-bg for it. */
+const ROLE_VAR = {
+  primary: '--c-primary', accent: '--c-accent', background: '--c-bg',
+  surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border',
+}
+const footerBg = ROLE_VAR[d.bg_colour] ? ('var(' + ROLE_VAR[d.bg_colour] + ')') : 'var(--c-bg, #faf6ef)'
 %>
 <style>
-  .mc-footer { background:var(--c-bg, #faf6ef); padding:64px 24px 30px; border-top:1px solid var(--c-border); margin-top:48px; }
+  .mc-footer { background:<%= footerBg %>; padding:64px 24px 30px; border-top:1px solid var(--c-border); margin-top:48px; }
   .mc-footer .inner { max-width:var(--cw, 1240px); margin:0 auto; }
   .mc-footer .grid { display:grid; grid-template-columns: <%= gridCols %>; gap:48px; margin-bottom:48px; }
   .mc-footer .brand-block img { width:90px; height:90px; object-fit:contain; }

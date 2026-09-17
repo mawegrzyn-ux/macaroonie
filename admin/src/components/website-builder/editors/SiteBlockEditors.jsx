@@ -191,6 +191,13 @@ export function FooterBlockEditor({ data, onChange }) {
   return (
     <div className="space-y-5">
       <div>
+        <SectionHead label="Background" />
+        <FormRow label="Background colour" hint="Inherit uses the page background — pick a theme role to set the footer apart.">
+          <ThemeColourPicker value={data.bg_colour} onChange={set('bg_colour')} />
+        </FormRow>
+      </div>
+
+      <div>
         <SectionHead label="What to show" />
         <div className="space-y-2">
           <Toggle checked={data.show_brand_block !== false} onChange={set('show_brand_block')} label="Brand block (logo + tagline + socials)" />

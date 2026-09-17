@@ -1,4 +1,11 @@
 <%
-/* Shim — delegates to the new header block partial. */
+/* Shim — supporting pages (locations.eta, menu.eta, menu_hub.eta, page.eta)
+   still include ./partials/header for chrome. Resolves to the shared
+   site-wide header, or this page's own override block + show/hide flag
+   when it.page is a custom page (website_pages.blocks / show_header).
+   Pages with no editable blocks of their own (locations index, menu
+   views) always get the shared default — see shared/chrome_header.eta. */
+const chromeBlocks = it.page ? (it.page.blocks || []) : []
+const showHeader   = it.page ? it.page.show_header : true
 %>
-<%~ include('../../../blocks/renderer', { ...it, block: { type: 'header', data: {} } }) %>
+<%~ include('../../../shared/chrome_header', { ...it, chromeBlocks, showHeader }) %>

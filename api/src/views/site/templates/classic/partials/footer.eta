@@ -1,6 +1,8 @@
 <%
-/* Shim — delegates to the new footer block partial. */
+/* Shim — see partials/header.eta for the resolution rules. */
+const chromeBlocks = it.page ? (it.page.blocks || []) : []
+const showFooter   = it.page ? it.page.show_footer : true
 %>
-<%~ include('../../../blocks/renderer', { ...it, block: { type: 'footer', data: {} } }) %>
+<%~ include('../../../shared/chrome_footer', { ...it, chromeBlocks, showFooter }) %>
 </body>
 </html>

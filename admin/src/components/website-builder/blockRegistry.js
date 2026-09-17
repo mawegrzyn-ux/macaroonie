@@ -101,6 +101,7 @@ export const BLOCKS = [
     icon:        PanelBottom,
     category:    'shell',
     defaultData: {
+      bg_colour:        '',
       show_brand_block: true,
       show_legal_links: true,
       show_powered_by:  true,

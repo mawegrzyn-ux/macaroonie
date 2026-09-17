@@ -44,6 +44,12 @@ export function PageBuilder({
   blocksField     = 'home_blocks',
   saveEndpoint    = '/website/tenant-site',
   invalidateKey   = ['tenant-site'],
+  // Field names for the shared-header/shared-footer show/hide flags on
+  // `config`. The tenant home page uses home_show_header/home_show_footer
+  // (tenant_site); venue location pages and custom pages both use the
+  // plain show_header/show_footer names (website_config / website_pages).
+  showHeaderField = 'show_header',
+  showFooterField = 'show_footer',
   // Chrome data — passed by the parent so the canvas can render the
   // header / footer / showpiece preview the same way the live site does.
   // In tenant mode `config` IS tenant_site, so it's the same object.
@@ -98,13 +104,34 @@ export function PageBuilder({
   // preview — for that you'd need to render the canvas inside an iframe.
   const [previewMode, setPreviewMode] = useState('desktop')
 
+  // Shared header/footer show/hide — see showHeaderField/showFooterField.
+  // A block of that type in `blocks` means "custom for this page"; absent
+  // + flag true means "use the shared tenant default"; absent + flag
+  // false means "off entirely for this page". initialShowHeader/-Footer
+  // default to true so a page created before this feature existed (no
+  // flag persisted yet) keeps showing chrome.
+  const initialShowHeader = useMemo(() => config?.[showHeaderField] !== false, [config, showHeaderField])
+  const initialShowFooter = useMemo(() => config?.[showFooterField] !== false, [config, showFooterField])
+  const [showHeader, setShowHeader] = useState(initialShowHeader)
+  const [showFooter, setShowFooter] = useState(initialShowFooter)
+
   useEffect(() => {
     setBlocks(initial)
     setSelectedId(null)
     setInspectorOpen(false)
   }, [initial])
 
+  useEffect(() => {
+    setShowHeader(initialShowHeader)
+  }, [initialShowHeader])
+
+  useEffect(() => {
+    setShowFooter(initialShowFooter)
+  }, [initialShowFooter])
+
   const dirty = JSON.stringify(blocks) !== JSON.stringify(initial)
+    || showHeader !== initialShowHeader
+    || showFooter !== initialShowFooter
   const selectedBlock = selectedId ? findBlock(blocks, selectedId)?.block || null : null
   const blockCount    = flattenBlocks(blocks).length
 
@@ -114,7 +141,11 @@ export function PageBuilder({
   )
 
   const save = useMutation({
-    mutationFn: () => api.patch(saveEndpoint, { [blocksField]: blocks }),
+    mutationFn: () => api.patch(saveEndpoint, {
+      [blocksField]:     blocks,
+      [showHeaderField]: showHeader,
+      [showFooterField]: showFooter,
+    }),
     onSuccess:  () => qc.invalidateQueries({ queryKey: invalidateKey }),
   })
 
@@ -179,6 +210,50 @@ export function PageBuilder({
     setInspectorOpen(true)
   }
 
+  // ── Shared header / footer mode ──────────────────────────────
+  //
+  // 'default' — no header/footer block on this page; renders the shared
+  //             tenant-wide header_config/footer_config.
+  // 'custom'  — this page has its own header/footer block, overriding
+  //             the shared one just here.
+  // 'off'     — nothing renders, regardless of the shared default.
+  // Only 'custom' keeps a block in `blocks`; switching to 'default' or
+  // 'off' both strip it (they differ only in the show flag), so the
+  // canvas never shows a header/footer chip that the live site wouldn't
+  // actually render.
+  const headerMode = blocks.some(b => b.type === 'header') ? 'custom' : (showHeader ? 'default' : 'off')
+  const footerMode = blocks.some(b => b.type === 'footer') ? 'custom' : (showFooter ? 'default' : 'off')
+
+  function setHeaderMode(mode) {
+    if (mode === 'custom') {
+      setShowHeader(true)
+      if (!blocks.some(b => b.type === 'header')) {
+        const block = newBlock('header')
+        setBlocks(arr => [block, ...arr])
+        setSelectedId(block.id)
+        setInspectorOpen(true)
+      }
+    } else {
+      setShowHeader(mode !== 'off')
+      setBlocks(arr => arr.filter(b => b.type !== 'header'))
+    }
+  }
+
+  function setFooterMode(mode) {
+    if (mode === 'custom') {
+      setShowFooter(true)
+      if (!blocks.some(b => b.type === 'footer')) {
+        const block = newBlock('footer')
+        setBlocks(arr => [...arr, block])
+        setSelectedId(block.id)
+        setInspectorOpen(true)
+      }
+    } else {
+      setShowFooter(mode !== 'off')
+      setBlocks(arr => arr.filter(b => b.type !== 'footer'))
+    }
+  }
+
   // ── Tree-aware mutators (work on any block, top-level or nested) ─
 
   function patch(id, data) { setBlocks(arr => patchBlockData(arr, id, data)) }
@@ -213,7 +288,11 @@ export function PageBuilder({
 
   const applyTpl = useMutation({
     mutationFn: ({ newBlocks, styleKey, themeDefaults }) => {
-      const body = { [blocksField]: newBlocks }
+      const body = {
+        [blocksField]:     newBlocks,
+        [showHeaderField]: true,
+        [showFooterField]: true,
+      }
       // template_key + theme live on tenant_site, not on per-venue website_config,
       // so only patch them when we're saving the tenant home (blocksField === 'home_blocks').
       if (blocksField === 'home_blocks') {
@@ -238,6 +317,10 @@ export function PageBuilder({
     setBlocks(newBlocks)
     setSelectedId(null)
     setInspectorOpen(false)
+    // Templates assume chrome is on — a page previously set to "off"
+    // shouldn't silently stay hidden under the freshly seeded header/footer.
+    setShowHeader(true)
+    setShowFooter(true)
     applyTpl.mutate({
       newBlocks,
       styleKey:      tpl.template_key || tpl.style_pack || null,
@@ -340,7 +423,7 @@ export function PageBuilder({
             </button>
           )}
           {dirty && (
-            <button type="button" onClick={() => setBlocks(initial)}
+            <button type="button" onClick={() => { setBlocks(initial); setShowHeader(initialShowHeader); setShowFooter(initialShowFooter) }}
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-2 py-2">
               <RefreshCw className="w-3.5 h-3.5" /> Reset
             </button>
@@ -351,6 +434,13 @@ export function PageBuilder({
             Save
           </button>
         </div>
+      </div>
+
+      {/* Header/footer mode — shared default, custom for this page, or off.
+          See setHeaderMode/setFooterMode above. */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border rounded-lg bg-background px-4 py-2.5">
+        <ChromeModePicker label="Header" mode={headerMode} onChange={setHeaderMode} />
+        <ChromeModePicker label="Footer" mode={footerMode} onChange={setFooterMode} />
       </div>
 
       {/* Canvas + Inspector */}
@@ -466,6 +556,31 @@ function TemplatePickerModal({ onClose, onApply }) {
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Compact 3-way segmented control for header/footer mode. See
+// setHeaderMode/setFooterMode in PageBuilder for what each option does.
+const CHROME_MODES = [
+  { value: 'default', label: 'Site default' },
+  { value: 'custom',  label: 'Custom here' },
+  { value: 'off',     label: 'Off' },
+]
+
+function ChromeModePicker({ label, mode, onChange }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs font-medium text-muted-foreground w-12 shrink-0">{label}</span>
+      <div className="inline-flex items-center border rounded-md overflow-hidden">
+        {CHROME_MODES.map((m, i) => (
+          <button key={m.value} type="button" onClick={() => onChange(m.value)}
+            className={`text-xs px-2.5 py-1.5 min-h-[32px] touch-manipulation ${i > 0 ? 'border-l' : ''} ${
+              mode === m.value ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:bg-accent'}`}>
+            {m.label}
+          </button>
+        ))}
       </div>
     </div>
   )

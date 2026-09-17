@@ -1,6 +1,6 @@
 <%~ include('../../shared/head', it) %>
 <%~ include('./partials/header', it) %>
 <main>
-<%~ include('../../shared/page_body', it) %>
+<%~ include('../../shared/page_body', { ...it, skipChrome: true }) %>
 </main>
 <%~ include('./partials/footer', it) %>

@@ -1,12 +1,8 @@
 <%~ include('../../shared/head', it) %>
 <%
 const blocks = Array.isArray(it.config.page_blocks) ? it.config.page_blocks : []
-const hasHeader = blocks.some(b => b.type === 'header')
-const hasFooter = blocks.some(b => b.type === 'footer')
 %>
-<% if (!hasHeader) { %>
-  <%~ include('../../blocks/renderer', { ...it, block: { type: 'header', data: {} } }) %>
-<% } %>
+<%~ include('../../shared/chrome_header', { ...it, chromeBlocks: blocks, showHeader: it.config.show_header }) %>
 <main>
 <% if (blocks.length === 0) { %>
   <%~ include('../../blocks/empty_state', it) %>
@@ -16,8 +12,6 @@ const hasFooter = blocks.some(b => b.type === 'footer')
   <% } %>
 <% } %>
 </main>
-<% if (!hasFooter) { %>
-  <%~ include('../../blocks/renderer', { ...it, block: { type: 'footer', data: {} } }) %>
-<% } %>
+<%~ include('../../shared/chrome_footer', { ...it, chromeBlocks: blocks, showFooter: it.config.show_footer }) %>
 </body>
 </html>

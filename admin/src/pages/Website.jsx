@@ -3638,6 +3638,8 @@ function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, on
           blocksField="home_blocks"
           saveEndpoint="/website/tenant-site"
           invalidateKey={['tenant-site']}
+          showHeaderField="home_show_header"
+          showFooterField="home_show_footer"
           tenantSite={tenantSite}
           pages={pages}
           venues={venues}

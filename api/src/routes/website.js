@@ -183,8 +183,18 @@ const TenantSiteBody = z.object({
   banner_link_text: z.string().max(100).nullable().optional(),
   banner_severity:  z.enum(['info', 'warn', 'alert']).optional(),
 
-  // (Header / footer / nav / copyright now live as block types in the
-  // page builder — see api/src/views/site/blocks/{header,footer}.eta.)
+  // Shared site-wide header / footer — the default every page uses
+  // unless that specific page adds its own header/footer block (a
+  // page-level override) or turns header/footer off entirely via
+  // home_show_header / home_show_footer below. Same data shape as the
+  // header/footer block's `data` (see
+  // api/src/views/site/blocks/{header,footer}.eta) — kept as a loose
+  // record like BlockSchema.data rather than a strict schema so the two
+  // stay interchangeable without duplicating validation.
+  header_config:    z.record(z.string(), z.any()).nullable().optional(),
+  footer_config:    z.record(z.string(), z.any()).nullable().optional(),
+  home_show_header: z.boolean().optional(),
+  home_show_footer: z.boolean().optional(),
 
   // Cookie consent banner
   cookies_banner_enabled:     z.boolean().optional(),
@@ -256,6 +266,12 @@ const VenueConfigBody = z.object({
   show_ordering:      z.boolean().optional(),
   show_delivery:      z.boolean().optional(),
 
+  // Off entirely for this location page — leave true to use the shared
+  // tenant header_config/footer_config, or the location's own
+  // header/footer block in page_blocks if it has one.
+  show_header:        z.boolean().optional(),
+  show_footer:        z.boolean().optional(),
+
   page_blocks: z.array(BlockSchema).nullable().optional(),
 })
 
@@ -274,6 +290,10 @@ const PageBody = z.object({
   is_published: z.boolean().default(true),
   is_legal:     z.boolean().optional(),
   sort_order:   z.number().int().default(0),
+  // Ignored for kind:'modal' (modals render as an overlay inside the
+  // current page, not a standalone page with its own chrome).
+  show_header:  z.boolean().optional(),
+  show_footer:  z.boolean().optional(),
   // venue_id provided as query param, not in body
 })
 
