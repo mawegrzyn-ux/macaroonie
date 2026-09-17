@@ -14,7 +14,7 @@ import {
   SortableContext, verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import {
-  Save, RefreshCw, Layers, Loader2, Sparkles, X, ExternalLink,
+  Save, RefreshCw, Layers, Loader2, Sparkles, X, ExternalLink, Monitor, Smartphone,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { newBlock, PAGE_TEMPLATES } from './blockRegistry'
@@ -90,6 +90,13 @@ export function PageBuilder({
   const [selectedId, setSelectedId] = useState(null)
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [templatesOpen, setTemplatesOpen] = useState(false)
+  // Approximate mobile preview — narrows the canvas box to a phone-ish
+  // width. This does NOT change the browser's actual viewport, so CSS
+  // @media rules (Columns stacking, section padding, etc.) still evaluate
+  // against the real window width and won't retrigger here. It's a quick
+  // "does this still read OK narrow" check, not a pixel-accurate device
+  // preview — for that you'd need to render the canvas inside an iframe.
+  const [previewMode, setPreviewMode] = useState('desktop')
 
   useEffect(() => {
     setBlocks(initial)
@@ -312,6 +319,20 @@ export function PageBuilder({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="inline-flex items-center border rounded-md overflow-hidden">
+            <button type="button" onClick={() => setPreviewMode('desktop')}
+              title="Desktop preview"
+              className={`inline-flex items-center justify-center w-9 h-9 min-h-[36px] touch-manipulation ${
+                previewMode === 'desktop' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'}`}>
+              <Monitor className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => setPreviewMode('mobile')}
+              title="Mobile preview (approximate — narrows the box, doesn't change the browser viewport)"
+              className={`inline-flex items-center justify-center w-9 h-9 min-h-[36px] border-l touch-manipulation ${
+                previewMode === 'mobile' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'}`}>
+              <Smartphone className="w-4 h-4" />
+            </button>
+          </div>
           {showTemplates && (
             <button type="button" onClick={() => setTemplatesOpen(true)}
               className="inline-flex items-center gap-1.5 border rounded-md px-3 py-2 text-sm hover:bg-accent min-h-[36px]">
@@ -337,8 +358,11 @@ export function PageBuilder({
         <div className="flex-1 min-w-0 border rounded-lg bg-muted/30">
           <div
             onClick={() => { setSelectedId(null); setInspectorOpen(false) }}
-            className="px-12 py-6"
+            className={previewMode === 'mobile' ? 'px-4 py-6 flex justify-center' : 'px-12 py-6'}
           >
+            <div className={previewMode === 'mobile'
+              ? 'w-[390px] max-w-full bg-background rounded-[24px] border shadow-sm overflow-hidden'
+              : 'w-full'}>
             <ThemeFrame config={config}>
               {blocks.length === 0 ? (
                 <div className="py-12">
@@ -375,6 +399,7 @@ export function PageBuilder({
                 </>
               )}
             </ThemeFrame>
+            </div>
           </div>
         </div>
 
