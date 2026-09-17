@@ -4,6 +4,7 @@ import { BOXED_STEPS, DEFAULT_BOXED_STEP, DEFAULT_CONTAINER_MAX_PX } from './box
 export function BrandLayoutFields({ theme, setPath }) {
   const cw = theme?.spacing?.container_max_px ?? DEFAULT_CONTAINER_MAX_PX
   const step = theme?.spacing?.boxed_step ?? DEFAULT_BOXED_STEP
+  const mobileStep = theme?.spacing?.boxed_step_mobile ?? null
 
   return (
     <div className="space-y-5">
@@ -31,6 +32,36 @@ export function BrandLayoutFields({ theme, setPath }) {
               title={`${s.hint} — ${s.padPx}px each side`}
               className={`text-sm border rounded-md py-2 min-h-[40px] ${
                 Number(step) === s.value
+                  ? 'bg-primary/10 border-primary text-primary font-medium'
+                  : 'hover:bg-accent'}`}>
+              <span className="block leading-none">{s.label}</span>
+              <span className="block text-[10px] text-muted-foreground mt-0.5">{s.hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="text-sm font-medium mb-1">Boxed inset — mobile portrait override</p>
+        <p className="text-xs text-muted-foreground mb-2">
+          Optional. Applies only on narrow phone screens held upright (≤600px wide, portrait) — every
+          other size (desktop, tablet, phone landscape) keeps using the default above.
+        </p>
+        <div className="grid grid-cols-6 gap-1.5">
+          <button type="button"
+            onClick={() => setPath('spacing', 'boxed_step_mobile', null)}
+            title="Use the default above at every width"
+            className={`text-xs border rounded-md py-2 min-h-[40px] ${
+              mobileStep == null
+                ? 'bg-primary/10 border-primary text-primary font-medium'
+                : 'hover:bg-accent'}`}>
+            <span className="block leading-none">Default</span>
+          </button>
+          {BOXED_STEPS.map(s => (
+            <button key={s.value} type="button"
+              onClick={() => setPath('spacing', 'boxed_step_mobile', s.value)}
+              title={`${s.hint} — ${s.padPx}px each side`}
+              className={`text-sm border rounded-md py-2 min-h-[40px] ${
+                mobileStep === s.value
                   ? 'bg-primary/10 border-primary text-primary font-medium'
                   : 'hover:bg-accent'}`}>
               <span className="block leading-none">{s.label}</span>

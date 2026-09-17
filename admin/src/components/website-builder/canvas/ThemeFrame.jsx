@@ -141,6 +141,10 @@ export function ThemeFrame({ config, children, className = '' }) {
     @media (max-width: 700px) {
       .${scopeId} section.block { padding: var(--sy-m) 0; }
     }
+    ${t.boxedPadMobile != null ? `
+    @media (max-width: 600px) and (orientation: portrait) {
+      .${scopeId} { --boxed-pad: ${t.boxedPadMobile}px; }
+    }` : ''}
   `
 
   // Template-specific overlays — applied only when the active site template
