@@ -42,6 +42,10 @@ export function resolveTheme(config) {
   const containerMax = spacing.container_max_px    || DEFAULT_CONTAINER_MAX_PX
   const boxedStep    = spacing.boxed_step          || DEFAULT_BOXED_STEP
   const boxedPad     = boxedPadPx(boxedStep)
+  // Mobile-portrait override — null means "same as default" (no override
+  // emitted). Only the theme-level default has this override; per-block
+  // boxed_step overrides stay fixed at all sizes.
+  const boxedPadMobile = spacing.boxed_step_mobile ? boxedPadPx(spacing.boxed_step_mobile) : null
   const sectionY     = spacing.section_y_px        || 72
   const sectionYMob  = spacing.section_y_mobile_px || 48
   const gap          = spacing.gap_px              || 24
@@ -70,7 +74,7 @@ export function resolveTheme(config) {
   return {
     primary, accent, background, surface, textColor, mutedColor, border,
     headingFont, bodyFont, baseSize, hScale, hWeight, bWeight, lineHeight, letterSp,
-    containerMax, boxedStep, boxedPad, sectionY, sectionYMob, gap,
+    containerMax, boxedStep, boxedPad, boxedPadMobile, sectionY, sectionYMob, gap,
     rSm, rMd, rLg,
     logoH,
     btnR, btnPy, btnPx, btnW,

@@ -43,6 +43,11 @@ const gap          = spacing.gap_px              || 24
    (see api/src/views/site/blocks/hero.eta). Falls back to step 2 (24px). */
 const boxedPadMap = { 1: 16, 2: 24, 3: 40, 4: 64, 5: 96 }
 const boxedPad    = boxedPadMap[spacing.boxed_step] || 24
+/* Optional mobile-portrait-only override of the same setting. null means
+   "same as default" — no override rule is emitted. Only the theme-level
+   default has this override; per-block boxed_step overrides are fixed at
+   all sizes. */
+const boxedPadMobile = spacing.boxed_step_mobile ? (boxedPadMap[spacing.boxed_step_mobile] || null) : null
 
 const rSm = (radii.sm_px != null ? radii.sm_px :  4)
 const rMd = (radii.md_px != null ? radii.md_px :  8)
@@ -308,6 +313,11 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
       --hero-overlay: <%= heroOpacity %>;
       --hero-minh:    <%= heroMinH %>px;
     }
+    <% if (boxedPadMobile != null) { %>
+    @media (max-width: 600px) and (orientation: portrait) {
+      :root { --boxed-pad: <%= boxedPadMobile %>px; }
+    }
+    <% } %>
     * { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0;
