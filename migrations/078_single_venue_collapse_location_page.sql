@@ -22,7 +22,7 @@ BEGIN
   FOR rec IN
     SELECT sv.tenant_id, ts.home_blocks, wc.id AS config_id, wc.page_blocks
       FROM (
-        SELECT tenant_id, MIN(id) AS venue_id
+        SELECT tenant_id, (array_agg(id))[1] AS venue_id
           FROM venues
          WHERE is_active = true
          GROUP BY tenant_id
