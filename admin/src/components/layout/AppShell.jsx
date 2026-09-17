@@ -68,7 +68,17 @@ const NAV_SECTIONS = [
     label: 'Website',
     items: [
       { label: 'Website', to: '/website', icon: Globe,         module: 'website' },
-      { label: 'Menus',   to: '/menus',   icon: ChefHat,       module: 'menus' },
+      {
+        label: 'Menus',
+        to: '/menus',
+        icon: ChefHat,
+        module: 'menus',
+        end: true,
+        children: [
+          { label: 'Variant groups', to: '/menus/variant-groups', icon: Layers, module: 'menus' },
+          { label: 'Dietary groups', to: '/menus/dietary-groups', icon: Tag,    module: 'menus' },
+        ],
+      },
       { label: 'Media',   to: '/media',   icon: FolderOpen,    module: 'website' },
       { label: 'Reviews', to: '/reviews', icon: MessageSquare, module: 'website' },
     ],

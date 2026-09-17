@@ -1,89 +1,34 @@
 // src/pages/Menus.jsx
 //
 // Structured menu manager — list, create, edit, print.
-// One file. Two modes:
 //
 //   list  — table of all menus for the tenant + create + seed buttons
-//   edit  — full nested form for one menu: meta, sections, items,
-//           variants, dietary tag links, callouts. Single Save button
-//           that PATCHes the whole tree (server delete-and-reinserts).
+//   edit  — sections + dish list in the middle, a right-hand drawer for
+//           editing one dish's full details. Menu-level details (name,
+//           slug, tagline, scope…) are edited in a modal via the pencil
+//           button next to the menu name, not inline on the page.
 //
-// Dietary tags are tenant-wide; managed in a separate panel inside the
-// edit view.
+// Dietary tags and variant groups are tenant-wide and managed on their
+// own pages (see AppShell's Menus > Variant groups / Dietary groups)
+// rather than inline here — this page only ATTACHES them to dishes.
+//
+// Single Save button PATCHes the whole tree (server delete-and-reinserts).
 
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  BookOpen, Plus, Trash2, ExternalLink, Loader2, X, ChevronDown, ChevronRight,
-  Sparkles, Printer, Tag, Image as ImageIcon, Layers,
+  BookOpen, Plus, Trash2, Loader2, X, ChevronDown, ChevronRight,
+  Sparkles, Printer, Image as ImageIcon, Layers, Pencil, GripVertical,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
-
-// ── Tiny primitives ─────────────────────────────────────────
-
-function Card({ title, action, description, children }) {
-  return (
-    <div className="bg-background border rounded-xl overflow-hidden">
-      <div className="px-5 py-3 border-b bg-muted/40 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold">{title}</h2>
-          {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
-        </div>
-        {action}
-      </div>
-      <div className="p-5 space-y-4">{children}</div>
-    </div>
-  )
-}
-function Field({ label, hint, children }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-medium block mb-1">{label}</span>
-      {children}
-      {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
-    </label>
-  )
-}
-function Input(props) {
-  return <input {...props} className={cn('w-full text-sm border rounded-md px-2 py-1.5 min-h-[36px]', props.className)} />
-}
-function TextArea(props) {
-  return <textarea {...props} className={cn('w-full text-sm border rounded-md px-2 py-1.5', props.className)} />
-}
-function Btn({ variant = 'primary', children, ...props }) {
-  const cls = variant === 'primary'
-    ? 'bg-primary text-primary-foreground'
-    : variant === 'destructive'
-    ? 'bg-destructive/10 text-destructive hover:bg-destructive/20'
-    : 'border bg-background hover:bg-accent'
-  return (
-    <button {...props}
-      className={cn('inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium min-h-[36px] disabled:opacity-50', cls)}>
-      {children}
-    </button>
-  )
-}
+import { Card, Field, Input, TextArea, Btn, formatPrice, parsePrice } from '@/components/menus/shared'
 
 const SEEDS = [
   { slug: 'onethai-dinner', label: 'One Thai Dinner sample' },
   { slug: 'onethai-lunch',  label: 'One Thai Lunch sample'  },
 ]
-
-// Currency helper — converts £ pence → £ display string.
-function formatPrice(pence) {
-  if (pence == null || pence === '') return ''
-  const n = Number(pence) / 100
-  return `£${n.toFixed(2)}`
-}
-function parsePrice(str) {
-  if (str == null || str === '') return null
-  const cleaned = String(str).replace(/[£\s,]/g, '')
-  const f = parseFloat(cleaned)
-  if (Number.isNaN(f)) return null
-  return Math.round(f * 100)
-}
 
 // ════════════════════════════════════════════════════════════
 //  Top-level page
@@ -276,6 +221,21 @@ function NewMenuModal({ venues, onClose, onCreated }) {
 //  Edit view
 // ════════════════════════════════════════════════════════════
 
+function ensureIds(menu) {
+  // Existing sections/items carry a server id already. Anything without
+  // one (shouldn't happen from the API, but be defensive) gets a local
+  // id purely for React keys + drawer selection — never sent to the
+  // server (the save payload below reconstructs fields explicitly).
+  return {
+    ...menu,
+    sections: (menu.sections || []).map(s => ({
+      ...s,
+      id: s.id || crypto.randomUUID(),
+      items: (s.items || []).map(it => ({ ...it, id: it.id || crypto.randomUUID() })),
+    })),
+  }
+}
+
 function MenuEditor({ id, onBack }) {
   const api = useApi()
   const qc  = useQueryClient()
@@ -294,12 +254,15 @@ function MenuEditor({ id, onBack }) {
   })
 
   const [draft, setDraft] = useState(null)
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [selectedItemId, setSelectedItemId] = useState(null)
+
   useEffect(() => {
-    if (menu) setDraft(structuredClone(menu))
+    if (menu) setDraft(ensureIds(structuredClone(menu)))
   }, [menu])
 
   const dirty = useMemo(() => menu && draft &&
-    JSON.stringify(menu) !== JSON.stringify(draft),
+    JSON.stringify(ensureIds(structuredClone(menu))) !== JSON.stringify(draft),
     [menu, draft])
 
   const save = useMutation({
@@ -314,7 +277,8 @@ function MenuEditor({ id, onBack }) {
         sort_order: draft.sort_order ?? 0,
         print_columns: draft.print_columns ?? 4,
         sections: (draft.sections || []).map((s, si) => ({
-          ...s, sort_order: si,
+          title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
+          sort_order: si,
           items: (s.items || []).map((it, ii) => ({
             name: it.name,
             native_name: it.native_name || null,
@@ -324,9 +288,10 @@ function MenuEditor({ id, onBack }) {
             is_featured: !!it.is_featured,
             image_url: it.image_url || null,
             sort_order: ii,
-            variants: (it.variants || []).map((v, vi) => ({
-              label: v.label, price_pence: v.price_pence ?? 0, sort_order: vi,
-            })),
+            // One-off ad-hoc variants are retired — every variant must
+            // come from a predefined group (attached below). Price can
+            // still be overridden per item via variant_groups.overrides.
+            variants: [],
             variant_groups: (it.variant_groups || []).map((g, gi) => ({
               group_id: g.group_id,
               sort_order: gi,
@@ -358,9 +323,32 @@ function MenuEditor({ id, onBack }) {
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }))
   const printUrl = `/api/menus/${id}/print`
 
+  // ── Selected item lookup + mutators (by stable id, across sections) ──
+  let selectedItem = null
+  if (selectedItemId) {
+    outer: for (let si = 0; si < (draft.sections || []).length; si++) {
+      const items = draft.sections[si].items || []
+      for (let ii = 0; ii < items.length; ii++) {
+        if (items[ii].id === selectedItemId) { selectedItem = { si, ii, item: items[ii] }; break outer }
+      }
+    }
+  }
+  function patchItem(sectionIndex, itemIndex, patch) {
+    const sections = draft.sections.slice()
+    const items = sections[sectionIndex].items.slice()
+    items[itemIndex] = { ...items[itemIndex], ...patch }
+    sections[sectionIndex] = { ...sections[sectionIndex], items }
+    set('sections', sections)
+  }
+  function removeItemAt(sectionIndex, itemIndex) {
+    const sections = draft.sections.slice()
+    sections[sectionIndex] = { ...sections[sectionIndex], items: sections[sectionIndex].items.filter((_, j) => j !== itemIndex) }
+    set('sections', sections)
+  }
+
   return (
     <div className="h-full overflow-y-auto">
-    <div className="p-6 max-w-5xl mx-auto space-y-5 pb-24">
+    <div className="p-6 max-w-6xl mx-auto space-y-5 pb-24">
       {/* Top bar — sticks to the scroll container, not the viewport. */}
       <div className="flex items-center justify-between sticky top-0 z-10 bg-background/95 backdrop-blur py-3 -mx-6 px-6 border-b">
         <div className="flex items-center gap-3 min-w-0">
@@ -368,7 +356,13 @@ function MenuEditor({ id, onBack }) {
             ← All menus
           </button>
           <div className="min-w-0">
-            <p className="text-sm font-semibold truncate">{draft.name}</p>
+            <p className="text-sm font-semibold truncate inline-flex items-center gap-1.5">
+              {draft.name}
+              <button onClick={() => setDetailsOpen(true)}
+                className="text-muted-foreground hover:text-primary p-0.5 rounded shrink-0" title="Edit menu details">
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+            </p>
             <p className="text-xs text-muted-foreground truncate">/menus/{draft.slug}</p>
           </div>
         </div>
@@ -390,56 +384,26 @@ function MenuEditor({ id, onBack }) {
         </div>
       )}
 
-      {/* Meta */}
-      <Card title="Menu details">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field label="Name"><Input value={draft.name} onChange={e => set('name', e.target.value)} /></Field>
-          <Field label="URL slug">
-            <Input value={draft.slug} onChange={e => set('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} />
-          </Field>
-          <Field label="Tagline"><Input value={draft.tagline || ''} onChange={e => set('tagline', e.target.value)} /></Field>
-          <Field label="Service times" hint="e.g. 'Tue–Sat · Dinner 6 PM – 10 PM'">
-            <Input value={draft.service_times || ''} onChange={e => set('service_times', e.target.value)} />
-          </Field>
-          <Field label="Scope">
-            <select value={draft.venue_id || ''} onChange={e => set('venue_id', e.target.value || null)}
-              className="w-full text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px]">
-              <option value="">All venues (tenant-wide)</option>
-              {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
-          </Field>
-          <Field label="Print columns" hint="How many columns to use on the printable A4-landscape page.">
-            <select value={draft.print_columns ?? 4} onChange={e => set('print_columns', Number(e.target.value))}
-              className="w-full text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px]">
-              {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </Field>
-          <div className="sm:col-span-2">
-            <Field label="Intro line" hint="Short note shown at the top — e.g. 'Looking for starters? Our dinner menu is available all day…'">
-              <TextArea value={draft.intro_line || ''} onChange={e => set('intro_line', e.target.value)} rows={2} />
-            </Field>
-          </div>
-          <div className="sm:col-span-2">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={!!draft.is_published}
-                onChange={e => set('is_published', e.target.checked)} />
-              Published — make this menu visible on the website + printable
-            </label>
-          </div>
+      {/* Sections + dish list, with a right-hand drawer for the selected dish */}
+      <div className="flex gap-4 items-start">
+        <div className="flex-1 min-w-0">
+          <SectionsPanel
+            sections={draft.sections || []}
+            selectedItemId={selectedItemId}
+            onSelectItem={setSelectedItemId}
+            onChange={(sections) => set('sections', sections)} />
         </div>
-      </Card>
 
-      {/* Dietary tags */}
-      <DietaryPanel allTags={draft.dietary_tags || []} />
-
-      <VariantGroupsPanel />
-
-      {/* Sections */}
-      <SectionsPanel
-        sections={draft.sections || []}
-        dietaryTags={draft.dietary_tags || []}
-        variantGroups={variantGroups}
-        onChange={(sections) => set('sections', sections)} />
+        {selectedItem && (
+          <ItemDrawer
+            item={selectedItem.item}
+            dietaryTags={draft.dietary_tags || []}
+            variantGroups={variantGroups}
+            onChange={(patch) => patchItem(selectedItem.si, selectedItem.ii, patch)}
+            onRemove={() => { removeItemAt(selectedItem.si, selectedItem.ii); setSelectedItemId(null) }}
+            onClose={() => setSelectedItemId(null)} />
+        )}
+      </div>
 
       {/* Callouts */}
       <CalloutsPanel
@@ -449,7 +413,7 @@ function MenuEditor({ id, onBack }) {
       {/* Sticky bottom save bar (mirror of top, easier to reach when long) */}
       {dirty && (
         <div className="fixed bottom-0 left-0 right-0 bg-background border-t shadow-lg z-20">
-          <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-end gap-2">
+          <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-end gap-2">
             <span className="text-xs text-muted-foreground">Unsaved changes.</span>
             <Btn disabled={save.isPending} onClick={() => save.mutate()}>
               {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -459,263 +423,75 @@ function MenuEditor({ id, onBack }) {
         </div>
       )}
     </div>
+
+    {detailsOpen && (
+      <MenuDetailsModal draft={draft} venues={venues} onChange={set} onClose={() => setDetailsOpen(false)} />
+    )}
     </div>
   )
 }
 
-// ── Dietary tag panel (manages tenant's dietary tags) ──────
+// ── Menu details modal (name, slug, scope, print settings…) ─
 
-function DietaryPanel({ allTags }) {
-  const api = useApi()
-  const qc  = useQueryClient()
-  const [open, setOpen] = useState(false)
-  const [newTag, setNewTag] = useState({ code: '', label: '', glyph: '', colour: '#7a1a26' })
-
-  const create = useMutation({
-    mutationFn: () => api.post('/menus/dietary', { ...newTag, sort_order: allTags.length }),
-    onSuccess: () => {
-      setNewTag({ code: '', label: '', glyph: '', colour: '#7a1a26' })
-      // Re-fetch any menu we're editing (the GET shape includes dietary_tags)
-      qc.invalidateQueries({ queryKey: ['menu'] })
-    },
-  })
-  const del = useMutation({
-    mutationFn: (id) => api.delete(`/menus/dietary/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['menu'] }),
-  })
-
+function MenuDetailsModal({ draft, venues, onChange, onClose }) {
   return (
-    <Card title="Dietary tags"
-      description="Allergen / dietary badges shown next to dishes. Shared across all your menus."
-      action={
-        <button onClick={() => setOpen(o => !o)}
-          className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-          {open ? 'Hide' : 'Manage'} {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        </button>
-      }>
-      <div className="flex flex-wrap gap-2">
-        {allTags.map(t => (
-          <span key={t.id}
-            className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
-            style={{ background: t.colour, color: '#fff' }}>
-            <strong>{t.glyph}</strong>
-            <span>{t.label}</span>
-          </span>
-        ))}
-        {allTags.length === 0 && (
-          <span className="text-xs text-muted-foreground">No dietary tags yet.</span>
-        )}
-      </div>
-      {open && (
-        <>
-          <div className="border rounded-md divide-y mt-3">
-            {allTags.map(t => (
-              <div key={t.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <span className="inline-flex items-center justify-center text-xs font-bold w-7 h-7 rounded"
-                  style={{ background: t.colour, color: '#fff' }}>{t.glyph}</span>
-                <span className="font-medium flex-1">{t.label}</span>
-                <code className="text-xs text-muted-foreground">{t.code}</code>
-                <button onClick={() => { if (window.confirm(`Delete tag ${t.label}?`)) del.mutate(t.id) }}
-                  className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-            {allTags.length === 0 && (
-              <div className="px-3 py-3 text-xs text-muted-foreground text-center">No dietary tags yet.</div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
-            <Field label="Code" hint="e.g. 'gf'">
-              <Input value={newTag.code}
-                onChange={e => setNewTag(t => ({ ...t, code: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') }))} />
-            </Field>
-            <Field label="Glyph" hint="e.g. 'GF' or '🌶'">
-              <Input value={newTag.glyph} onChange={e => setNewTag(t => ({ ...t, glyph: e.target.value }))} />
-            </Field>
-            <Field label="Label">
-              <Input value={newTag.label} onChange={e => setNewTag(t => ({ ...t, label: e.target.value }))} />
-            </Field>
-            <Field label="Colour">
-              <input type="color" value={newTag.colour}
-                onChange={e => setNewTag(t => ({ ...t, colour: e.target.value }))}
-                className="w-full h-9 border rounded cursor-pointer" />
-            </Field>
-            <Btn variant="secondary" onClick={() => create.mutate()}
-              disabled={!newTag.code || !newTag.label || !newTag.glyph || create.isPending}>
-              <Plus className="w-3.5 h-3.5" /> Add tag
-            </Btn>
-          </div>
-        </>
-      )}
-    </Card>
-  )
-}
-
-// ── Variant groups (tenant-wide reusable option sets) ───────
-
-function emptyGroup() {
-  return { name: '', options: [{ label: '', price_pence: 0 }] }
-}
-
-function VariantGroupsPanel() {
-  const api = useApi()
-  const qc  = useQueryClient()
-  const { data: groups = [] } = useQuery({
-    queryKey: ['menu-variant-groups'],
-    queryFn:  () => api.get('/menus/variant-groups'),
-  })
-  const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState(null) // null | { id?: uuid, name, options }
-
-  const save = useMutation({
-    mutationFn: () => {
-      const payload = {
-        name: draft.name.trim(),
-        sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
-        options: (draft.options || [])
-          .filter(o => o.label.trim())
-          .map((o, i) => ({
-            id: o.id,
-            label: o.label.trim(),
-            price_pence: o.price_pence ?? 0,
-            sort_order: i,
-          })),
-      }
-      return draft.id
-        ? api.patch(`/menus/variant-groups/${draft.id}`, payload)
-        : api.post('/menus/variant-groups', payload)
-    },
-    onSuccess: () => {
-      setDraft(null)
-      qc.invalidateQueries({ queryKey: ['menu-variant-groups'] })
-      qc.invalidateQueries({ queryKey: ['menu'] })
-    },
-  })
-  const del = useMutation({
-    mutationFn: (id) => api.delete(`/menus/variant-groups/${id}`),
-    onSuccess: () => {
-      setDraft(null)
-      qc.invalidateQueries({ queryKey: ['menu-variant-groups'] })
-      qc.invalidateQueries({ queryKey: ['menu'] })
-    },
-  })
-
-  function editGroup(g) {
-    setDraft({
-      id: g.id,
-      name: g.name,
-      options: (g.options || []).map(o => ({ ...o })),
-    })
-  }
-
-  return (
-    <Card title="Variant groups"
-      description="Reusable option sets (Protein, Size…) you can attach to any dish. Default prices can be overridden per item."
-      action={
-        <button onClick={() => setOpen(o => !o)}
-          className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-          {open ? 'Hide' : 'Manage'} {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        </button>
-      }>
-      <div className="flex flex-wrap gap-2">
-        {groups.map(g => (
-          <span key={g.id}
-            className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-violet-100 text-violet-800">
-            <Layers className="w-3 h-3" />
-            {g.name}
-            <span className="text-violet-500">· {(g.options || []).length}</span>
-          </span>
-        ))}
-        {groups.length === 0 && (
-          <span className="text-xs text-muted-foreground">No variant groups yet. Create “Protein” or “Size” and attach them to dishes.</span>
-        )}
-      </div>
-      {open && (
-        <div className="space-y-3 mt-3">
-          <div className="border rounded-md divide-y">
-            {groups.map(g => (
-              <div key={g.id} className="flex items-center gap-3 px-3 py-2 text-sm">
-                <Layers className="w-4 h-4 text-violet-600 shrink-0" />
-                <span className="font-medium flex-1">{g.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {(g.options || []).map(o => o.label).join(', ') || 'No options'}
-                </span>
-                <button onClick={() => editGroup(g)} className="text-xs text-primary hover:underline">Edit</button>
-                <button onClick={() => { if (window.confirm(`Delete group "${g.name}"? Dishes will lose this group.`)) del.mutate(g.id) }}
-                  className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {draft ? (
-            <div className="border rounded-lg p-3 bg-violet-50/60 space-y-3">
-              <Field label="Group name">
-                <Input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
-                  placeholder="e.g. Protein" autoFocus />
-              </Field>
-              <div className="space-y-1.5">
-                <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Options + default price</p>
-                {(draft.options || []).map((o, i) => (
-                  <div key={o.id || i} className="flex items-center gap-2">
-                    <Input value={o.label}
-                      onChange={e => setDraft(d => {
-                        const options = d.options.slice(); options[i] = { ...options[i], label: e.target.value }
-                        return { ...d, options }
-                      })}
-                      placeholder="Label (e.g. Chicken)" className="flex-1" />
-                    <Input
-                      value={o.price_pence == null ? '' : (o.price_pence / 100).toFixed(2)}
-                      onChange={e => setDraft(d => {
-                        const options = d.options.slice()
-                        options[i] = { ...options[i], price_pence: parsePrice(e.target.value) ?? 0 }
-                        return { ...d, options }
-                      })}
-                      placeholder="£0.00" className="w-28 font-mono" />
-                    <button onClick={() => setDraft(d => ({ ...d, options: d.options.filter((_, j) => j !== i) }))}
-                      className="text-destructive hover:bg-destructive/10 p-1 rounded">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-                <button onClick={() => setDraft(d => ({ ...d, options: [...d.options, { label: '', price_pence: 0 }] }))}
-                  className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-                  <Plus className="w-3 h-3" /> Add option
-                </button>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Btn variant="secondary" onClick={() => setDraft(null)}>Cancel</Btn>
-                <Btn disabled={!draft.name.trim() || save.isPending} onClick={() => save.mutate()}>
-                  {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  {draft.id ? 'Save group' : 'Create group'}
-                </Btn>
-              </div>
-              {save.isError && (
-                <p className="text-xs text-destructive">{save.error?.body?.error || 'Save failed'}</p>
-              )}
-            </div>
-          ) : (
-            <Btn variant="secondary" onClick={() => setDraft(emptyGroup())}>
-              <Plus className="w-3.5 h-3.5" /> New variant group
-            </Btn>
-          )}
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-5 h-14 border-b flex items-center justify-between sticky top-0 bg-background">
+          <h2 className="font-semibold text-sm">Menu details</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
         </div>
-      )}
-    </Card>
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Name"><Input value={draft.name} onChange={e => onChange('name', e.target.value)} /></Field>
+          <Field label="URL slug">
+            <Input value={draft.slug} onChange={e => onChange('slug', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} />
+          </Field>
+          <Field label="Tagline"><Input value={draft.tagline || ''} onChange={e => onChange('tagline', e.target.value)} /></Field>
+          <Field label="Service times" hint="e.g. 'Tue–Sat · Dinner 6 PM – 10 PM'">
+            <Input value={draft.service_times || ''} onChange={e => onChange('service_times', e.target.value)} />
+          </Field>
+          <Field label="Scope">
+            <select value={draft.venue_id || ''} onChange={e => onChange('venue_id', e.target.value || null)}
+              className="w-full text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px]">
+              <option value="">All venues (tenant-wide)</option>
+              {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Print columns" hint="How many columns to use on the printable A4-landscape page.">
+            <select value={draft.print_columns ?? 4} onChange={e => onChange('print_columns', Number(e.target.value))}
+              className="w-full text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px]">
+              {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Intro line" hint="Short note shown at the top — e.g. 'Looking for starters? Our dinner menu is available all day…'">
+              <TextArea value={draft.intro_line || ''} onChange={e => onChange('intro_line', e.target.value)} rows={2} />
+            </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!draft.is_published}
+                onChange={e => onChange('is_published', e.target.checked)} />
+              Published — make this menu visible on the website + printable
+            </label>
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t flex items-center justify-end">
+          <Btn onClick={onClose}>Done</Btn>
+        </div>
+      </div>
+    </div>
   )
 }
 
-// ── Sections + items panel ──────────────────────────────────
+// ── Sections + dish list (compact rows, click to open the drawer) ──
 
-function SectionsPanel({ sections, dietaryTags, variantGroups, onChange }) {
+function SectionsPanel({ sections, selectedItemId, onSelectItem, onChange }) {
   const set = (i, patch) => {
     const next = sections.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
   }
   const setItems = (i, items) => set(i, { items })
-  const addSection = () => onChange([...sections, { title: 'New section', subtitle: '', highlight: false, items: [] }])
+  const addSection = () => onChange([...sections, { id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, items: [] }])
   const removeSection = (i) => onChange(sections.filter((_, j) => j !== i))
   const moveSection = (i, dir) => {
     const j = i + dir; if (j < 0 || j >= sections.length) return
@@ -731,10 +507,10 @@ function SectionsPanel({ sections, dietaryTags, variantGroups, onChange }) {
         : (
           <div className="space-y-3">
             {sections.map((s, i) => (
-              <SectionEditor key={i} section={s}
+              <SectionEditor key={s.id} section={s}
                 index={i} total={sections.length}
-                dietaryTags={dietaryTags}
-                variantGroups={variantGroups}
+                selectedItemId={selectedItemId}
+                onSelectItem={onSelectItem}
                 onChange={(patch) => set(i, patch)}
                 onRemove={() => { if (window.confirm(`Remove section "${s.title}"?`)) removeSection(i) }}
                 onMoveUp={() => moveSection(i, -1)}
@@ -747,8 +523,30 @@ function SectionsPanel({ sections, dietaryTags, variantGroups, onChange }) {
   )
 }
 
-function SectionEditor({ section, index, total, dietaryTags, variantGroups, onChange, onRemove, onMoveUp, onMoveDown, onItemsChange }) {
+function SectionEditor({ section, index, total, selectedItemId, onSelectItem, onChange, onRemove, onMoveUp, onMoveDown, onItemsChange }) {
   const [open, setOpen] = useState(true)
+  const items = section.items || []
+
+  const addItem = () => {
+    const item = {
+      id: crypto.randomUUID(), name: 'New dish', native_name: '', description: '',
+      price_pence: null, notes: '', is_featured: false, image_url: null,
+      variants: [], variant_groups: [], dietary: [],
+    }
+    onItemsChange([...items, item])
+    onSelectItem(item.id)
+  }
+  const removeItem = (i) => {
+    const removed = items[i]
+    onItemsChange(items.filter((_, j) => j !== i))
+    if (removed && removed.id === selectedItemId) onSelectItem(null)
+  }
+  const moveItem = (i, dir) => {
+    const j = i + dir; if (j < 0 || j >= items.length) return
+    const next = items.slice();[next[i], next[j]] = [next[j], next[i]]
+    onItemsChange(next)
+  }
+
   return (
     <div className="border border-sky-200 rounded-lg overflow-hidden bg-sky-50">
       <div className="flex items-center gap-2 px-3 py-2 bg-sky-100">
@@ -771,52 +569,59 @@ function SectionEditor({ section, index, total, dietaryTags, variantGroups, onCh
         </button>
       </div>
       {open && (
-        <div className="p-3 space-y-2">
-          <ItemsEditor items={section.items || []}
-            dietaryTags={dietaryTags}
-            variantGroups={variantGroups}
-            onChange={onItemsChange} />
+        <div className="p-2 space-y-1">
+          {items.map((it, i) => (
+            <ItemRow key={it.id} item={it}
+              index={i} total={items.length}
+              selected={it.id === selectedItemId}
+              onSelect={() => onSelectItem(it.id)}
+              onRemove={() => removeItem(i)}
+              onMoveUp={() => moveItem(i, -1)}
+              onMoveDown={() => moveItem(i, 1)} />
+          ))}
+          <button onClick={addItem}
+            className="w-full text-xs border-2 border-dashed border-amber-300 rounded-md py-2 text-amber-800/70 hover:bg-amber-100 hover:text-amber-900 bg-amber-50/40">
+            + Add dish
+          </button>
         </div>
       )}
     </div>
   )
 }
 
-function ItemsEditor({ items, dietaryTags, variantGroups, onChange }) {
-  const set = (i, patch) => {
-    const next = items.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
-  }
-  const addItem = () => onChange([...items, {
-    name: 'New dish', native_name: '', description: '',
-    price_pence: null, notes: '', is_featured: false, image_url: null,
-    variants: [], variant_groups: [], dietary: [],
-  }])
-  const removeItem = (i) => onChange(items.filter((_, j) => j !== i))
-  const moveItem = (i, dir) => {
-    const j = i + dir; if (j < 0 || j >= items.length) return
-    const next = items.slice();[next[i], next[j]] = [next[j], next[i]]
-    onChange(next)
-  }
-
+// Compact row — name, price, attached-group + dietary badges. Click
+// anywhere on the row to open it in the drawer.
+function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, onMoveDown }) {
+  const groupCount = (item.variant_groups || []).length
   return (
-    <>
-      <div className="space-y-2">
-        {items.map((it, i) => (
-          <ItemEditor key={i} item={it}
-            index={i} total={items.length}
-            dietaryTags={dietaryTags}
-            variantGroups={variantGroups}
-            onChange={(patch) => set(i, patch)}
-            onRemove={() => removeItem(i)}
-            onMoveUp={() => moveItem(i, -1)}
-            onMoveDown={() => moveItem(i, 1)} />
-        ))}
+    <div
+      onClick={onSelect}
+      className={cn(
+        'flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer bg-white hover:border-primary/50',
+        selected ? 'border-primary ring-1 ring-primary/30 bg-primary/5' : 'border-amber-200',
+      )}>
+      <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+      {item.image_url
+        ? <img src={item.image_url} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
+        : <ImageIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
+      <span className="text-sm font-medium truncate flex-1">{item.name || 'Untitled dish'}</span>
+      {groupCount > 0 && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-800 inline-flex items-center gap-1 shrink-0">
+          <Layers className="w-2.5 h-2.5" /> {groupCount}
+        </span>
+      )}
+      {(item.dietary || []).length > 0 && (
+        <span className="text-[10px] text-muted-foreground shrink-0">{item.dietary.length} tag{item.dietary.length === 1 ? '' : 's'}</span>
+      )}
+      <span className="text-xs font-mono text-muted-foreground shrink-0 w-16 text-right">{formatPrice(item.price_pence)}</span>
+      <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+        <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-1.5 disabled:opacity-30">↑</button>
+        <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-1.5 disabled:opacity-30">↓</button>
+        <button onClick={onRemove} className="text-destructive hover:bg-destructive/10 p-1 rounded">
+          <Trash2 className="w-3 h-3" />
+        </button>
       </div>
-      <button onClick={addItem}
-        className="w-full text-xs border-2 border-dashed border-amber-300 rounded-md py-2 text-amber-800/70 hover:bg-amber-100 hover:text-amber-900 bg-amber-50/40">
-        + Add dish
-      </button>
-    </>
+    </div>
   )
 }
 
@@ -826,10 +631,10 @@ function ItemImagePicker({ url, onChange }) {
     <>
       <div className="relative shrink-0">
         <button type="button" onClick={() => setOpen(true)}
-          className="w-14 h-14 rounded-md border border-amber-300 overflow-hidden bg-white flex items-center justify-center hover:border-primary">
+          className="w-16 h-16 rounded-md border overflow-hidden bg-muted/30 flex items-center justify-center hover:border-primary">
           {url
             ? <img src={url} alt="" className="w-full h-full object-cover" />
-            : <ImageIcon className="w-4 h-4 text-muted-foreground" />}
+            : <ImageIcon className="w-5 h-5 text-muted-foreground" />}
         </button>
         {url && (
           <button type="button" onClick={() => onChange(null)}
@@ -882,18 +687,14 @@ function mergeAttachedGroup(attached, library) {
   }
 }
 
-function ItemEditor({ item, index, total, dietaryTags, variantGroups = [], onChange, onRemove, onMoveUp, onMoveDown }) {
-  const setVariants = (variants) => onChange({ variants })
+// ── Item drawer — full dish editor, opened from a row in the middle list ──
+
+function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
   const toggleDietary = (code) => {
     const set = new Set(item.dietary || [])
     if (set.has(code)) set.delete(code); else set.add(code)
     onChange({ dietary: Array.from(set) })
   }
-  const addVariant = () => setVariants([...(item.variants || []), { label: '', price_pence: 0 }])
-  const setVariant = (i, patch) => {
-    const next = (item.variants || []).slice(); next[i] = { ...next[i], ...patch }; setVariants(next)
-  }
-  const removeVariant = (i) => setVariants((item.variants || []).filter((_, j) => j !== i))
 
   const attached = item.variant_groups || []
   const attachedIds = new Set(attached.map(g => g.group_id))
@@ -920,143 +721,133 @@ function ItemEditor({ item, index, total, dietaryTags, variantGroups = [], onCha
   }
 
   return (
-    <div className="border border-amber-200 rounded-md p-3 bg-amber-50 space-y-2">
-      <div className="flex items-start gap-2">
-        <ItemImagePicker url={item.image_url || null} onChange={(image_url) => onChange({ image_url })} />
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 flex-1">
-          <Input value={item.name} onChange={e => onChange({ name: e.target.value })}
-            placeholder="Dish name" className="font-medium bg-white" />
-          <Input value={item.native_name || ''} onChange={e => onChange({ native_name: e.target.value })}
-            placeholder="Native script (optional)" className="bg-white" />
+    <aside className="border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px]">
+      <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
+        <p className="text-sm font-semibold flex-1 truncate">Edit dish</p>
+        <button onClick={onRemove} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete dish">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={onClose} className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex items-start gap-3">
+          <ItemImagePicker url={item.image_url || null} onChange={(image_url) => onChange({ image_url })} />
+          <div className="flex-1 space-y-2">
+            <Input value={item.name} onChange={e => onChange({ name: e.target.value })} placeholder="Dish name" className="font-medium" />
+            <Input value={item.native_name || ''} onChange={e => onChange({ native_name: e.target.value })} placeholder="Native script (optional)" />
+          </div>
+        </div>
+
+        <Field label="Price">
           <Input
             value={item.price_pence == null ? '' : (item.price_pence / 100).toFixed(2)}
             onChange={e => onChange({ price_pence: parsePrice(e.target.value) })}
-            placeholder="£0.00 (single price)"
-            className="font-mono bg-white" />
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 disabled:opacity-30">↑</button>
-          <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-2 disabled:opacity-30">↓</button>
-          <button onClick={onRemove} className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-      <TextArea value={item.description || ''} onChange={e => onChange({ description: e.target.value })}
-        rows={2} placeholder="Description" className="bg-white" />
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="inline-flex items-center gap-1 text-xs">
+            placeholder="£0.00" className="font-mono" />
+        </Field>
+
+        <Field label="Description">
+          <TextArea value={item.description || ''} onChange={e => onChange({ description: e.target.value })} rows={3} />
+        </Field>
+
+        <Field label="Notes" hint="e.g. 'Min 2', 'pp'">
+          <Input value={item.notes || ''} onChange={e => onChange({ notes: e.target.value })} />
+        </Field>
+
+        <label className="inline-flex items-center gap-2 text-sm">
           <input type="checkbox" checked={!!item.is_featured}
             onChange={e => onChange({ is_featured: e.target.checked })} />
           House favourite
         </label>
-        <Input value={item.notes || ''} onChange={e => onChange({ notes: e.target.value })}
-          placeholder="Notes (e.g. 'Min 2', 'pp')" className="max-w-[220px] bg-white" />
 
-        <div className="flex flex-wrap gap-1.5 ml-auto">
-          {dietaryTags.map(t => {
-            const active = (item.dietary || []).includes(t.code)
+        <div>
+          <p className="text-xs font-medium mb-1.5">Dietary tags</p>
+          <div className="flex flex-wrap gap-1.5">
+            {dietaryTags.length === 0 && (
+              <p className="text-[11px] text-muted-foreground">No dietary tags yet — add some on Menus &gt; Dietary groups.</p>
+            )}
+            {dietaryTags.map(t => {
+              const active = (item.dietary || []).includes(t.code)
+              return (
+                <button key={t.id} type="button" onClick={() => toggleDietary(t.code)}
+                  title={t.label}
+                  className={cn(
+                    'text-[11px] px-2 py-1 rounded-full font-bold border',
+                    active ? 'border-transparent text-white' : 'border-muted text-muted-foreground hover:border-primary bg-white',
+                  )}
+                  style={active ? { background: t.colour } : {}}>
+                  {t.glyph}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Attached variant groups — the only source of variants. Every
+            option is predefined in the group (managed on Menus > Variant
+            groups); only its price can be overridden here, per item. */}
+        <div className="border-t pt-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">
+              Variant groups
+            </span>
+            {availableGroups.length > 0 && (
+              <select
+                value=""
+                onChange={e => { attachGroup(e.target.value); e.target.value = '' }}
+                className="text-xs border rounded-md px-2 py-1 bg-background min-h-[28px]">
+                <option value="">Attach group…</option>
+                {availableGroups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          {attached.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              {variantGroups.length
+                ? 'No groups on this dish yet — attach Protein / Size from the dropdown above.'
+                : 'No variant groups exist yet — create one under Menus > Variant groups, then attach it here.'}
+            </p>
+          )}
+          {attached.map(raw => {
+            const g = mergeAttachedGroup(raw, variantGroups)
             return (
-              <button key={t.id} type="button" onClick={() => toggleDietary(t.code)}
-                title={t.label}
-                className={cn(
-                  'text-[11px] px-2 py-1 rounded-full font-bold border',
-                  active ? 'border-transparent text-white' : 'border-muted text-muted-foreground hover:border-primary bg-white',
-                )}
-                style={active ? { background: t.colour } : {}}>
-                {t.glyph}
-              </button>
+              <div key={g.group_id} className="rounded-md border border-violet-200 bg-violet-50/70 p-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-violet-900 inline-flex items-center gap-1">
+                    <Layers className="w-3 h-3" /> {g.name}
+                    {g.missing && <span className="font-normal text-destructive"> (deleted)</span>}
+                  </span>
+                  <button onClick={() => detachGroup(g.group_id)}
+                    className="text-[11px] text-destructive hover:underline">Detach</button>
+                </div>
+                {g.options.map(o => (
+                  <div key={o.option_id} className="flex items-center gap-2">
+                    <span className="text-xs flex-1">{o.label}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      default {formatPrice(o.default_pence)}
+                    </span>
+                    <Input
+                      value={(o.price_pence ?? 0) / 100}
+                      type="number" step="0.10"
+                      onChange={e => setOverride(g.group_id, o.option_id, parsePrice(e.target.value) ?? 0, o.default_pence)}
+                      className={cn('w-24 font-mono text-xs', o.overridden && 'border-violet-400')}
+                    />
+                    {o.overridden && (
+                      <button type="button"
+                        onClick={() => setOverride(g.group_id, o.option_id, o.default_pence, o.default_pence)}
+                        className="text-[10px] text-violet-700 hover:underline">Reset</button>
+                    )}
+                  </div>
+                ))}
+              </div>
             )
           })}
         </div>
       </div>
-
-      {/* Attached variant groups */}
-      <div className="border-t border-amber-200/80 pt-2 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] uppercase font-semibold text-amber-900/70 tracking-wide">
-            Variant groups
-          </span>
-          {availableGroups.length > 0 && (
-            <select
-              value=""
-              onChange={e => { attachGroup(e.target.value); e.target.value = '' }}
-              className="text-xs border rounded-md px-2 py-1 bg-white min-h-[28px]">
-              <option value="">Attach group…</option>
-              {availableGroups.map(g => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
-          )}
-        </div>
-        {attached.length === 0 && (
-          <p className="text-[11px] text-muted-foreground">
-            {variantGroups.length
-              ? 'No groups on this dish. Attach Protein / Size from the dropdown, or add a one-off variant below.'
-              : 'Create a variant group above, then attach it here.'}
-          </p>
-        )}
-        {attached.map(raw => {
-          const g = mergeAttachedGroup(raw, variantGroups)
-          return (
-            <div key={g.group_id} className="rounded-md border border-violet-200 bg-violet-50/70 p-2 space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-violet-900 inline-flex items-center gap-1">
-                  <Layers className="w-3 h-3" /> {g.name}
-                  {g.missing && <span className="font-normal text-destructive"> (deleted)</span>}
-                </span>
-                <button onClick={() => detachGroup(g.group_id)}
-                  className="text-[11px] text-destructive hover:underline">Detach</button>
-              </div>
-              {g.options.map(o => (
-                <div key={o.option_id} className="flex items-center gap-2">
-                  <span className="text-xs flex-1">{o.label}</span>
-                  <span className="text-[10px] text-muted-foreground font-mono">
-                    default {formatPrice(o.default_pence)}
-                  </span>
-                  <Input
-                    value={(o.price_pence ?? 0) / 100}
-                    type="number" step="0.10"
-                    onChange={e => setOverride(g.group_id, o.option_id, parsePrice(e.target.value) ?? 0, o.default_pence)}
-                    className={cn('w-24 font-mono bg-white text-xs', o.overridden && 'border-violet-400')}
-                  />
-                  {o.overridden && (
-                    <button type="button"
-                      onClick={() => setOverride(g.group_id, o.option_id, o.default_pence, o.default_pence)}
-                      className="text-[10px] text-violet-700 hover:underline">Reset</button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Ad-hoc variants */}
-      <div className="border-t border-amber-200/80 pt-2">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[10px] uppercase font-semibold text-amber-900/70 tracking-wide">
-            One-off variants {item.variants?.length ? `· ${item.variants.length}` : '(optional)'}
-          </span>
-          <button onClick={addVariant} className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-            <Plus className="w-3 h-3" /> Add variant
-          </button>
-        </div>
-        {(item.variants || []).map((v, i) => (
-          <div key={i} className="flex items-center gap-2 py-1">
-            <Input value={v.label} onChange={e => setVariant(i, { label: e.target.value })}
-              placeholder="Label (e.g. Extra chilli)" className="flex-1 bg-white" />
-            <Input value={(v.price_pence ?? 0) / 100} type="number" step="0.10"
-              onChange={e => setVariant(i, { price_pence: parsePrice(e.target.value) ?? 0 })}
-              className="w-28 font-mono bg-white" />
-            <button onClick={() => removeVariant(i)}
-              className="text-destructive hover:bg-destructive/10 p-1 rounded">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
+    </aside>
   )
 }
 
