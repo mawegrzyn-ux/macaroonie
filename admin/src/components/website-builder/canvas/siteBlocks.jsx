@@ -139,10 +139,17 @@ export function FooterCanvas({ data, onChange, config }) {
   const { siteName, subtitle, logoUrl } = brandFrom(data, config)
   const cols = data.columns || []
   const copyright = data.copyright_text || `© ${new Date().getFullYear()} ${siteName || 'Your brand'}.`
+  // Mirrors footer.eta's ROLE_VAR map — 'background' role is --c-bg, not
+  // --c-background (that var doesn't exist; head.eta only emits --c-bg).
+  const ROLE_VAR = {
+    primary: '--c-primary', accent: '--c-accent', background: '--c-bg',
+    surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border',
+  }
+  const footerBg = ROLE_VAR[data.bg_colour] ? `var(${ROLE_VAR[data.bg_colour]})` : 'var(--c-bg, #faf6ef)'
 
   return (
     <footer style={{
-      background: 'var(--c-bg, #faf6ef)',
+      background: footerBg,
       padding: '64px 32px 30px',
       borderTop: '1px solid var(--c-border)',
     }}>

@@ -1,0 +1,15 @@
+<%
+/* Resolves + renders the site header. Precedence:
+     1. this page's own blocks array override — caller passes it as
+        it.chromeBlocks (home_blocks / page_blocks / website_pages.blocks)
+     2. the shared tenant-wide default (it.tenant_site.header_config)
+     3. block defaults (empty data) if neither is set
+   it.showHeader === false suppresses the header entirely for this page —
+   callers resolve that from whichever row owns the page (tenant_site,
+   website_config, or website_pages). */
+const _own  = (Array.isArray(it.chromeBlocks) ? it.chromeBlocks : []).find(b => b.type === 'header')
+const _data = _own ? (_own.data || {}) : ((it.tenant_site && it.tenant_site.header_config) || {})
+%>
+<% if (it.showHeader !== false) { %>
+  <%~ include('../blocks/renderer', { ...it, block: { type: 'header', data: _data } }) %>
+<% } %>

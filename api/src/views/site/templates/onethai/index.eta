@@ -1,15 +1,13 @@
 <%~ include('../../shared/head', it) %>
 <%
-/* Block-only rendering. The header is auto-prepended if the operator hasn't
-   added one, and a footer is auto-appended if missing — so every page ships
-   with working chrome out of the box, and every part is editable as a block. */
+/* Block-only rendering. The header/footer render from the shared
+   tenant-wide default (or this page's own header/footer block, if it
+   added one, as a page-specific override) — see shared/chrome_header.eta
+   and chrome_footer.eta. Every part is editable as a block. */
 const blocks = Array.isArray(it.config.home_blocks) ? it.config.home_blocks : []
-const hasHeader = blocks.some(b => b.type === 'header')
-const hasFooter = blocks.some(b => b.type === 'footer')
+const ts     = it.tenant_site || {}
 %>
-<% if (!hasHeader) { %>
-  <%~ include('../../blocks/renderer', { ...it, block: { type: 'header', data: {} } }) %>
-<% } %>
+<%~ include('../../shared/chrome_header', { ...it, chromeBlocks: blocks, showHeader: ts.home_show_header }) %>
 <main>
 <% if (blocks.length === 0) { %>
   <%~ include('../../blocks/empty_state', it) %>
@@ -19,8 +17,6 @@ const hasFooter = blocks.some(b => b.type === 'footer')
   <% } %>
 <% } %>
 </main>
-<% if (!hasFooter) { %>
-  <%~ include('../../blocks/renderer', { ...it, block: { type: 'footer', data: {} } }) %>
-<% } %>
+<%~ include('../../shared/chrome_footer', { ...it, chromeBlocks: blocks, showFooter: ts.home_show_footer }) %>
 </body>
 </html>
