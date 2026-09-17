@@ -18,7 +18,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Trash2, Loader2, X, ChevronDown, ChevronRight,
-  Sparkles, Printer, Image as ImageIcon, Layers, Pencil, GripVertical,
+  Sparkles, Printer, Image as ImageIcon, Layers, Pencil, GripVertical, Copy,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -68,6 +68,13 @@ function MenuList({ onEdit }) {
   const del = useMutation({
     mutationFn: (id) => api.delete(`/menus/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['menus'] }),
+  })
+  const duplicate = useMutation({
+    mutationFn: (id) => api.post(`/menus/${id}/duplicate`),
+    onSuccess: (m) => {
+      qc.invalidateQueries({ queryKey: ['menus'] })
+      onEdit(m.id)
+    },
   })
 
   return (
@@ -137,6 +144,13 @@ function MenuList({ onEdit }) {
                     </a>
                     <button onClick={() => onEdit(m.id)}
                       className="text-xs text-primary hover:underline px-2 py-1.5">Edit</button>
+                    <button onClick={() => duplicate.mutate(m.id)} disabled={duplicate.isPending}
+                      title="Duplicate menu"
+                      className="text-muted-foreground hover:text-foreground hover:bg-accent p-1.5 rounded disabled:opacity-50">
+                      {duplicate.isPending && duplicate.variables === m.id
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : <Copy className="w-3.5 h-3.5" />}
+                    </button>
                     <button onClick={() => { if (window.confirm(`Delete menu "${m.name}"?`)) del.mutate(m.id) }}
                       className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
                       <Trash2 className="w-3.5 h-3.5" />

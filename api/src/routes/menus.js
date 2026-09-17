@@ -433,6 +433,62 @@ export default async function menusRoutes(app) {
     return reply.code(201).send(row)
   })
 
+  // ── Duplicate — full copy (meta + sections/items/variants/dietary/
+  // callouts) under a new menu row in the same scope. Unpublished by
+  // default so a copy doesn't go live before the operator reviews it.
+  app.post('/:id/duplicate', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
+    const created = await withTenant(req.tenantId, async tx => {
+      const full = await loadMenuFull(tx, req.params.id, req.tenantId)
+      if (!full) return null
+
+      // Free slug in the same (tenant, venue) scope: slug-copy, slug-copy-2, …
+      const existing = await tx`
+        SELECT slug FROM menus
+         WHERE tenant_id = ${req.tenantId}
+           AND venue_id IS NOT DISTINCT FROM ${full.venue_id}
+      `
+      const taken = new Set(existing.map(r => r.slug))
+      let slug = `${full.slug}-copy`
+      for (let n = 2; taken.has(slug); n++) slug = `${full.slug}-copy-${n}`
+
+      const [row] = await tx`
+        INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns)
+        VALUES (${req.tenantId}, ${full.venue_id ?? null}, ${full.name + ' (copy)'}, ${slug},
+                ${full.tagline ?? null}, ${full.service_times ?? null}, ${full.intro_line ?? null},
+                false, ${full.sort_order ?? 0}, ${full.print_columns ?? 4})
+        RETURNING *
+      `
+
+      const sections = (full.sections || []).map(s => ({
+        title: s.title, subtitle: s.subtitle ?? null, highlight: !!s.highlight, sort_order: s.sort_order,
+        items: (s.items || []).map(it => ({
+          name: it.name, native_name: it.native_name ?? null, description: it.description ?? null,
+          price_pence: it.price_pence ?? null, notes: it.notes ?? null, is_featured: !!it.is_featured,
+          image_url: it.image_url ?? null, sort_order: it.sort_order,
+          variants: (it.variants || []).map(v => ({ label: v.label, price_pence: v.price_pence, sort_order: v.sort_order })),
+          // loadMenuFull() shapes attached groups as { options: [{overridden, price_pence, option_id}] }
+          // (built for the UI) — upsertMenuTree() wants { overrides: [{option_id, price_pence}] }
+          // (only the overridden ones). Same conversion the frontend does on save.
+          variant_groups: (it.variant_groups || []).map(g => ({
+            group_id: g.group_id,
+            sort_order: g.sort_order,
+            overrides: (g.options || [])
+              .filter(o => o.overridden)
+              .map(o => ({ option_id: o.option_id, price_pence: o.price_pence })),
+          })),
+          dietary: it.dietary || [],
+        })),
+      }))
+      const callouts = (full.callouts || []).map(c => ({ kind: c.kind, title: c.title, body: c.body ?? null, sort_order: c.sort_order }))
+
+      await upsertMenuTree(tx, req.tenantId, row.id, { sections, callouts })
+      return row
+    })
+    if (!created) throw httpError(404, 'Menu not found')
+    return reply.code(201).send(created)
+  })
+
   app.patch('/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const body = MenuFullBody.parse(req.body)
     return withTenant(req.tenantId, async tx => {
