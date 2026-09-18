@@ -15,7 +15,7 @@ export function BlockNode({
   block, parent, index, siblingCount,
   selectedId,
   onSelect, onPatch, onRemove, onDuplicate, onMove, onOpenInspector,
-  onAddInColumn,
+  onAddInColumn, onInsertAfter,
   config,
 }) {
   const Canvas = getCanvasComponent(block.type)
@@ -33,6 +33,7 @@ export function BlockNode({
       canMoveUp={index > 0}
       canMoveDown={index < siblingCount - 1}
       onOpenInspector={() => onOpenInspector(block.id)}
+      onInsertAfter={onInsertAfter ? (key) => onInsertAfter(block.id, key) : undefined}
       label={def?.label || block.type}
       anchorId={resolveBlockAnchor(block.type, block.data)}
     >
@@ -61,6 +62,7 @@ export function BlockNode({
               onMove={onMove}
               onOpenInspector={onOpenInspector}
               onAddInColumn={onAddInColumn}
+              onInsertAfter={onInsertAfter}
               config={config}
             />
           )}

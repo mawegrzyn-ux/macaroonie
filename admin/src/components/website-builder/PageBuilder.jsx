@@ -277,6 +277,22 @@ export function PageBuilder({
     setInspectorOpen(true)
   }
 
+  // Insert a new block immediately after `afterId`, in whichever parent
+  // that block currently lives in — top-level or inside a Columns child.
+  // Used by BlockShell's per-block toolbar "add block after" button.
+  function insertAfter(afterId, key) {
+    const info = findBlock(blocks, afterId)
+    if (!info) return
+    const block = newBlock(key)
+    setBlocks(arr => {
+      const list = listForParent(arr, info.parent)
+      const idx  = list.findIndex(b => b.id === afterId)
+      return insertAt(arr, info.parent, idx === -1 ? list.length : idx + 1, block)
+    })
+    setSelectedId(block.id)
+    setInspectorOpen(true)
+  }
+
   // ── Templates ───────────────────────────────────────────────
   //
   // Applying a template is a SINGLE action that swaps both:
@@ -355,6 +371,7 @@ export function PageBuilder({
     onMove:          move,
     onOpenInspector: (id) => { setSelectedId(id); setInspectorOpen(true) },
     onAddInColumn:   addInColumn,
+    onInsertAfter:   insertAfter,
     config: canvasConfig,
   }
 
