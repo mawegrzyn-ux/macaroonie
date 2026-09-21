@@ -23,7 +23,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
-import { Card, Field, Input, TextArea, Btn, formatPrice, parsePrice } from '@/components/menus/shared'
+import { Card, Field, Input, TextArea, Btn, formatPrice, PriceInput } from '@/components/menus/shared'
 
 const SEEDS = [
   { slug: 'onethai-dinner', label: 'One Thai Dinner sample' },
@@ -290,6 +290,8 @@ function MenuEditor({ id, onBack }) {
         is_published: !!draft.is_published,
         sort_order: draft.sort_order ?? 0,
         print_columns: draft.print_columns ?? 4,
+        print_orientation: draft.print_orientation || 'landscape',
+        print_paper_size: draft.print_paper_size || 'A4',
         sections: (draft.sections || []).map((s, si) => ({
           title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
           sort_order: si,
@@ -471,7 +473,21 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
               {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           </Field>
-          <Field label="Print columns" hint="How many columns to use on the printable A4-landscape page.">
+          <Field label="Paper size">
+            <select value={draft.print_paper_size || 'A4'} onChange={e => onChange('print_paper_size', e.target.value)}
+              className="w-full text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px]">
+              <option value="A4">A4</option>
+              <option value="A3">A3</option>
+            </select>
+          </Field>
+          <Field label="Orientation">
+            <select value={draft.print_orientation || 'landscape'} onChange={e => onChange('print_orientation', e.target.value)}
+              className="w-full text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px]">
+              <option value="landscape">Landscape</option>
+              <option value="portrait">Portrait</option>
+            </select>
+          </Field>
+          <Field label="Print columns" hint="A3 or portrait leaves more/less room per column — adjust this to match.">
             <select value={draft.print_columns ?? 4} onChange={e => onChange('print_columns', Number(e.target.value))}
               className="w-full text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px]">
               {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
@@ -755,9 +771,9 @@ function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove,
         </div>
 
         <Field label="Price">
-          <Input
-            value={item.price_pence == null ? '' : (item.price_pence / 100).toFixed(2)}
-            onChange={e => onChange({ price_pence: parsePrice(e.target.value) })}
+          <PriceInput
+            pence={item.price_pence}
+            onChange={(pence) => onChange({ price_pence: pence })}
             placeholder="£0.00" className="font-mono" />
         </Field>
 
@@ -843,10 +859,9 @@ function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove,
                     <span className="text-[10px] text-muted-foreground font-mono">
                       default {formatPrice(o.default_pence)}
                     </span>
-                    <Input
-                      value={(o.price_pence ?? 0) / 100}
-                      type="number" step="0.10"
-                      onChange={e => setOverride(g.group_id, o.option_id, parsePrice(e.target.value) ?? 0, o.default_pence)}
+                    <PriceInput
+                      pence={o.price_pence ?? 0}
+                      onChange={(pence) => setOverride(g.group_id, o.option_id, pence ?? 0, o.default_pence)}
                       className={cn('w-24 font-mono text-xs', o.overridden && 'border-violet-400')}
                     />
                     {o.overridden && (

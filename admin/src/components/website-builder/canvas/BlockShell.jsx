@@ -9,11 +9,14 @@
 //
 // The actual block content is rendered as `children`.
 
+import { useEffect, useRef, useState } from 'react'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
-  GripVertical, Copy, Trash2, ChevronUp, ChevronDown, Settings,
+  GripVertical, Copy, Trash2, ChevronUp, ChevronDown, Settings, Plus,
 } from 'lucide-react'
+import { Popover } from './BlockInserter'
+import { BLOCKS } from '../blockRegistry'
 
 export function BlockShell({
   blockId,
@@ -24,6 +27,7 @@ export function BlockShell({
   onMoveUp,
   onMoveDown,
   onOpenInspector,
+  onInsertAfter,
   canMoveUp = true,
   canMoveDown = true,
   children,
@@ -111,6 +115,7 @@ export function BlockShell({
           )}
           <ToolbarBtn title="Move up"   disabled={!canMoveUp}   onClick={onMoveUp}><ChevronUp size={14}/></ToolbarBtn>
           <ToolbarBtn title="Move down" disabled={!canMoveDown} onClick={onMoveDown}><ChevronDown size={14}/></ToolbarBtn>
+          {onInsertAfter && <InsertAfterButton onPick={onInsertAfter} />}
           <ToolbarSep />
           <ToolbarBtn title="Settings"  onClick={onOpenInspector}><Settings size={14}/></ToolbarBtn>
           <ToolbarBtn title="Duplicate" onClick={onDuplicate}><Copy size={14}/></ToolbarBtn>
@@ -150,4 +155,42 @@ function ToolbarBtn({ title, onClick, disabled, danger, children }) {
 
 function ToolbarSep() {
   return <span style={{ width: 1, alignSelf: 'stretch', background: '#374151', margin: '0 2px' }} />
+}
+
+// Toolbar button that opens the same block-type picker as the between-block
+// "+" inserters, but inserts immediately after THIS block instead of at an
+// arbitrary index — handy when the hover strip below the block is easy to
+// miss or the block is nested inside a column.
+function InsertAfterButton({ onPick }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const wrapRef = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onDoc(e) { if (!wrapRef.current?.contains(e.target)) setOpen(false) }
+    function onKey(e) { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const filtered = query.trim()
+    ? BLOCKS.filter(b =>
+        b.label.toLowerCase().includes(query.toLowerCase()) ||
+        b.description.toLowerCase().includes(query.toLowerCase()))
+    : BLOCKS
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      <ToolbarBtn title="Add block after" onClick={() => setOpen(o => !o)}><Plus size={14}/></ToolbarBtn>
+      {open && (
+        <Popover onClose={() => setOpen(false)} onPick={(k) => { onPick(k); setOpen(false) }}
+          query={query} setQuery={setQuery} filtered={filtered} placement="below" />
+      )}
+    </div>
+  )
 }

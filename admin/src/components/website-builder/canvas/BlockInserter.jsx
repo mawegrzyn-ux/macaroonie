@@ -112,7 +112,7 @@ export function BlockInserter({ onPick, mode = 'between', label }) {
   )
 }
 
-function Popover({ onClose, onPick, query, setQuery, filtered, placement }) {
+export function Popover({ onClose, onPick, query, setQuery, filtered, placement }) {
   return (
     <div
       onClick={(e) => e.stopPropagation()}
