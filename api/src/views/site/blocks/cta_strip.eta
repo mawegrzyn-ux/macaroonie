@@ -7,14 +7,16 @@ const bgMap = {
   light:   'background:var(--c-surface); color:var(--c-text);',
 }
 const bg = bgMap[d.bg_style || 'primary']
-const btnBg  = (d.bg_style === 'light') ? 'var(--c-primary)' : '#fff'
-const btnFg  = (d.bg_style === 'light') ? '#fff' : 'var(--c-primary)'
+const fg = d.bg_style === 'light' ? 'var(--c-text)' : '#fff'
+const primaryBg = (d.bg_style === 'light') ? 'var(--c-primary)' : '#fff'
+const primaryFg = (d.bg_style === 'light') ? '#fff' : 'var(--c-primary)'
 const innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '1100px' : '780px'
 const padMap = { 1: '16px', 2: '24px', 3: '40px', 4: '64px', 5: '96px' }
 const pad = padMap[d.boxed_step] || 'var(--boxed-pad, 24px)'
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 ' + pad + ';'
   : 'max-width:' + innerMax + '; margin:0 auto; padding:0 ' + pad + ';'
+const ctas = Array.isArray(d.ctas) ? d.ctas : []
 %>
 <section class="block" style="<%= bg %> padding:48px 0; text-align:center;">
   <div style="<%= containerStyle %>">
@@ -26,14 +28,24 @@ const containerStyle = d.container === 'full'
     <% if (d.subheading) { %>
       <p style="font-size:17px; opacity:0.9; margin:0 0 20px;"><%= d.subheading %></p>
     <% } %>
-    <% if (d.cta_text) { %>
-      <a href="<%= d.cta_link || '#' %>"
-         style="display:inline-block;
-                background:<%= btnBg %>; color:<%= btnFg %>;
-                padding:14px 32px; border-radius:var(--btn-radius, 4px);
-                font-weight:600; text-decoration:none;">
-        <%= d.cta_text %>
-      </a>
+    <% if (ctas.length) { %>
+      <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+        <% ctas.forEach(function(cta){ %>
+          <% if (cta.text) { %>
+            <% const isPrimary = cta.style !== 'secondary' %>
+            <% const btnBg  = isPrimary ? primaryBg : 'transparent' %>
+            <% const btnFg  = isPrimary ? primaryFg : fg %>
+            <% const border = isPrimary ? 'none' : ('2px solid ' + fg) %>
+            <a href="<%= cta.link || '#' %>"
+               style="display:inline-block;
+                      background:<%= btnBg %>; color:<%= btnFg %>; border:<%= border %>;
+                      padding:14px 32px; border-radius:var(--btn-radius, 4px);
+                      font-weight:600; text-decoration:none;">
+              <%= cta.text %>
+            </a>
+          <% } %>
+        <% }) %>
+      </div>
     <% } %>
   </div>
 </section>
