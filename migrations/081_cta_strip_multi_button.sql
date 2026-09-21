@@ -21,7 +21,7 @@ BEGIN
            CASE WHEN b->>'type' = 'cta_strip' AND (b->'data') ? 'cta_text' THEN
              jsonb_set(
                b, '{data}',
-               (b->'data' - 'cta_text' - 'cta_link') || jsonb_build_object(
+               ((b->'data') - 'cta_text'::text - 'cta_link'::text) || jsonb_build_object(
                  'ctas',
                  CASE WHEN COALESCE(b->'data'->>'cta_text', '') <> ''
                       THEN jsonb_build_array(jsonb_build_object(
@@ -48,7 +48,7 @@ BEGIN
            CASE WHEN b->>'type' = 'cta_strip' AND (b->'data') ? 'cta_text' THEN
              jsonb_set(
                b, '{data}',
-               (b->'data' - 'cta_text' - 'cta_link') || jsonb_build_object(
+               ((b->'data') - 'cta_text'::text - 'cta_link'::text) || jsonb_build_object(
                  'ctas',
                  CASE WHEN COALESCE(b->'data'->>'cta_text', '') <> ''
                       THEN jsonb_build_array(jsonb_build_object(
@@ -75,7 +75,7 @@ BEGIN
            CASE WHEN b->>'type' = 'cta_strip' AND (b->'data') ? 'cta_text' THEN
              jsonb_set(
                b, '{data}',
-               (b->'data' - 'cta_text' - 'cta_link') || jsonb_build_object(
+               ((b->'data') - 'cta_text'::text - 'cta_link'::text) || jsonb_build_object(
                  'ctas',
                  CASE WHEN COALESCE(b->'data'->>'cta_text', '') <> ''
                       THEN jsonb_build_array(jsonb_build_object(
