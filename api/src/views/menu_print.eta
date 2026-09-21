@@ -77,7 +77,13 @@ const tenantName = m.tenant_name || ''
 
     /* Columns grid */
     .cols { column-count: <%= cols %>; column-gap: 6mm; column-fill: balance; }
-    @media (max-width: 800px) { .cols { column-count: 1 !important; } }
+    /* Screen-only collapse for narrow phone viewports. Without the
+       "screen and" qualifier this also matched during print — the printer's
+       selected paper width (e.g. portrait A4/Letter, ~794-816px) falls
+       under 800px, so it silently forced single-column print output even
+       though the on-screen preview (wider window) never triggered it and
+       @page below sets landscape. Never drop "screen and" here. */
+    @media screen and (max-width: 800px) { .cols { column-count: 1 !important; } }
     .section { break-inside: avoid; margin-bottom: 5mm; }
     .section.highlight { background: #fff7e6; padding: 4mm; border-radius: 4px; }
     .section h2 { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
