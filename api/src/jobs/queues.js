@@ -7,6 +7,7 @@ const connection = { url: env.REDIS_URL }
 export const notificationQueue  = new Queue('notifications',    { connection })
 export const holdSweepQueue     = new Queue('hold-sweep',       { connection })
 export const reviewScrapeQueue  = new Queue('review-scrape',    { connection })
+export const publishQueue       = new Queue('website-publish',  { connection })
 
 // ── Notification worker ───────────────────────────────────────
 // Routes booking emails through the new pluggable email system
