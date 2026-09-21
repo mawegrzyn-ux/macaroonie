@@ -10,6 +10,17 @@ function fmtPrice(p) {
 }
 const cols = m.print_columns || 4
 const tenantName = m.tenant_name || ''
+
+/* Paper size + orientation drive both the on-screen page box (.page)
+   and the @page print rule below. Keep these two in sync — .page is
+   what the operator sees while deciding layout, @page is what the
+   printer/PDF driver actually honours. */
+const paperSize = m.print_paper_size === 'A3' ? 'A3' : 'A4'
+const orientation = m.print_orientation === 'portrait' ? 'portrait' : 'landscape'
+const PAPER_MM = { A4: [210, 297], A3: [297, 420] }
+const paperDims = PAPER_MM[paperSize]
+const pageWidthMm = orientation === 'landscape' ? paperDims[1] : paperDims[0]
+const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
 %><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -37,8 +48,8 @@ const tenantName = m.tenant_name || ''
       -webkit-font-smoothing: antialiased;
     }
     .page {
-      width: 297mm; max-width: 100%;
-      min-height: 210mm;
+      width: <%= pageWidthMm %>mm; max-width: 100%;
+      min-height: <%= pageHeightMm %>mm;
       margin: 16px auto;
       padding: 16mm 16mm 12mm;
       background: var(--paper);
@@ -63,7 +74,7 @@ const tenantName = m.tenant_name || ''
       html, body { background: var(--paper); }
       .print-bar { display: none; }
       .page { box-shadow: none; margin: 0; padding: 12mm; min-height: auto; }
-      @page { size: A4 landscape; margin: 0; }
+      @page { size: <%= paperSize %> <%= orientation %>; margin: 0; }
     }
     /* Header */
     .menu-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 6mm; border-bottom: 1px solid var(--line); margin-bottom: 6mm; gap: 12mm; }
