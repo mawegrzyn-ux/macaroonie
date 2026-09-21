@@ -268,9 +268,15 @@ export function CtaStripCanvas({ data, onChange, selected }) {
     light:   { bg: 'var(--c-surface)', fg: 'var(--c-text)' },
   }
   const { bg, fg } = bgMap[data.bg_style || 'primary']
-  const btnBg = data.bg_style === 'light' ? 'var(--c-primary)' : '#fff'
-  const btnFg = data.bg_style === 'light' ? '#fff' : 'var(--c-primary)'
+  const primaryBg = data.bg_style === 'light' ? 'var(--c-primary)' : '#fff'
+  const primaryFg = data.bg_style === 'light' ? '#fff' : 'var(--c-primary)'
   const set = (k) => (v) => onChange({ ...data, [k]: v })
+  const ctas = Array.isArray(data.ctas) ? data.ctas : []
+
+  function patchCta(i, patch) {
+    const next = ctas.slice(); next[i] = { ...next[i], ...patch }
+    set('ctas')(next)
+  }
 
   return (
     <section className="block" style={{ background: bg, color: fg, paddingTop: 48, paddingBottom: 48, textAlign: 'center' }}>
@@ -295,19 +301,30 @@ export function CtaStripCanvas({ data, onChange, selected }) {
           placeholder="Subheading (optional)"
           style={{ fontSize: 17, opacity: 0.9, margin: '0 0 20px', color: fg }}
         />
-        {(data.cta_text || selected) && (
-          <InlineText
-            as="span"
-            value={data.cta_text}
-            onChange={set('cta_text')}
-            placeholder="Click to set button label"
-            style={{
-              display: 'inline-block',
-              background: btnBg, color: btnFg,
-              padding: '14px 32px', borderRadius: 'var(--btn-r, 4px)',
-              fontWeight: 600, minWidth: 80,
-            }}
-          />
+        {(ctas.length > 0 || selected) && (
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            {(ctas.length > 0 ? ctas : [{ text: '', link: '', style: 'primary' }]).map((cta, i) => {
+              const isPrimary = cta.style !== 'secondary'
+              const btnBg     = isPrimary ? primaryBg : 'transparent'
+              const btnFg     = isPrimary ? primaryFg : fg
+              const border    = isPrimary ? 'none' : `2px solid ${fg}`
+              return (
+                <InlineText
+                  key={i}
+                  as="span"
+                  value={cta.text}
+                  onChange={(v) => (ctas.length > 0 ? patchCta(i, { text: v }) : set('ctas')([{ text: v, link: '', style: 'primary' }]))}
+                  placeholder="Click to set button label"
+                  style={{
+                    display: 'inline-block',
+                    background: btnBg, color: btnFg, border,
+                    padding: '14px 32px', borderRadius: 'var(--btn-r, 4px)',
+                    fontWeight: 600, minWidth: 80,
+                  }}
+                />
+              )
+            })}
+          </div>
         )}
       </div>
     </section>

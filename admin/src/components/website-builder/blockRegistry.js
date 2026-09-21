@@ -324,12 +324,12 @@ export const BLOCKS = [
   {
     key:         'cta_strip',
     label:       'CTA strip',
-    description: 'Coloured band with a single button. Drives bookings or signups.',
+    description: 'Coloured band with up to 3 buttons. Drives bookings or signups.',
     icon:        AlignLeft,
     category:    'content',
     defaultData: {
       heading: 'Hungry?', subheading: '',
-      cta_text: 'Book a table', cta_link: '#reservations',
+      ctas: [{ text: 'Book a table', link: '#reservations', style: 'primary' }],
       bg_style: 'primary',        // primary | accent | dark | light
       container: 'boxed',
     },
@@ -625,7 +625,7 @@ export const PAGE_TEMPLATES = [
     blocks: [
       { type: 'hero',           data: { heading: 'Tonight, well-fed.', subheading: 'Modern bistro in the heart of town.', cta_text: 'Reserve →', cta_link: '#reservations', height: 'medium', align: 'left' } },
       { type: 'story_with_stamp', data: { heading: 'A small kitchen, big ambitions.', body_html: '<p>Family-run since the 90s, serving honest food in a modern setting.</p>', stamp_show: false, image_side: 'right', image_url: null, container: 'boxed' } },
-      { type: 'cta_strip',      data: { heading: 'Bring the team.', subheading: 'Group bookings up to 30 — book online or call us.', cta_text: 'Make a reservation', cta_link: '#reservations', bg_style: 'primary' } },
+      { type: 'cta_strip',      data: { heading: 'Bring the team.', subheading: 'Group bookings up to 30 — book online or call us.', ctas: [{ text: 'Make a reservation', link: '#reservations', style: 'primary' }], bg_style: 'primary' } },
       { type: 'gallery',        data: { heading: 'In the kitchen' } },
       { type: 'reservations_widget', data: { heading: 'Book a table' } },
       { type: 'find_us',        data: { heading: 'Find us' } },
