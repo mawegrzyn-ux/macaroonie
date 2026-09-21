@@ -23,7 +23,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
-import { Card, Field, Input, TextArea, Btn, formatPrice, parsePrice } from '@/components/menus/shared'
+import { Card, Field, Input, TextArea, Btn, formatPrice, PriceInput } from '@/components/menus/shared'
 
 const SEEDS = [
   { slug: 'onethai-dinner', label: 'One Thai Dinner sample' },
@@ -755,9 +755,9 @@ function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove,
         </div>
 
         <Field label="Price">
-          <Input
-            value={item.price_pence == null ? '' : (item.price_pence / 100).toFixed(2)}
-            onChange={e => onChange({ price_pence: parsePrice(e.target.value) })}
+          <PriceInput
+            pence={item.price_pence}
+            onChange={(pence) => onChange({ price_pence: pence })}
             placeholder="£0.00" className="font-mono" />
         </Field>
 
@@ -843,10 +843,9 @@ function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove,
                     <span className="text-[10px] text-muted-foreground font-mono">
                       default {formatPrice(o.default_pence)}
                     </span>
-                    <Input
-                      value={(o.price_pence ?? 0) / 100}
-                      type="number" step="0.10"
-                      onChange={e => setOverride(g.group_id, o.option_id, parsePrice(e.target.value) ?? 0, o.default_pence)}
+                    <PriceInput
+                      pence={o.price_pence ?? 0}
+                      onChange={(pence) => setOverride(g.group_id, o.option_id, pence ?? 0, o.default_pence)}
                       className={cn('w-24 font-mono text-xs', o.overridden && 'border-violet-400')}
                     />
                     {o.overridden && (
