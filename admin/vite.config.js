@@ -44,6 +44,14 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
+        // Default precache limit is 2 MiB — the main bundle has grown past
+        // that (2.1+ MB as of writing) and the build hard-fails rather than
+        // just warning when a precached asset exceeds it. Raised with
+        // headroom rather than precisely matched to today's size, since
+        // this otherwise silently breaks every future deploy again the
+        // next time the bundle grows. Proper fix is code-splitting
+        // (rollupOptions.output.manualChunks) — this just unblocks deploys.
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         // Do not precache index.html — a stale HTML shell is what made
         // hard-refresh still boot the previous deploy.
         globPatterns: ['**/*.{js,css,ico,png,svg,woff,woff2}'],
