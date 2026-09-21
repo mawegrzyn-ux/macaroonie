@@ -36,7 +36,7 @@ const _blockId = `sw-${(it.block.id || Math.random().toString(36).slice(2, 8)).t
       <% } %>
       <div class="sw-text">
         <% if (d.heading) { %>
-          <h2 style="font-family:var(--f-heading); font-size:clamp(2rem,4vw,3rem); font-weight:400; line-height:1.05; letter-spacing:-0.02em; color:var(--c-primary); margin:0 0 24px;">
+          <h2 style="font-family:var(--f-heading); color:var(--c-primary); margin:0 0 24px;">
             <%= d.heading %>
           </h2>
         <% } %>

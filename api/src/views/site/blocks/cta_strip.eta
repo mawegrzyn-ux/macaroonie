@@ -21,7 +21,7 @@ const ctas = Array.isArray(d.ctas) ? d.ctas : []
 <section class="block" style="<%= bg %> padding:48px 0; text-align:center;">
   <div style="<%= containerStyle %>">
     <% if (d.heading) { %>
-      <h2 style="font-family:var(--f-heading); font-size:clamp(22px,3vw,36px); margin:0 0 8px;">
+      <h2 style="font-family:var(--f-heading); margin:0 0 8px;">
         <%= d.heading %>
       </h2>
     <% } %>

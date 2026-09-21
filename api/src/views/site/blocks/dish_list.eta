@@ -21,7 +21,7 @@ const _blockId = `dl-${(it.block.id || Math.random().toString(36).slice(2, 8)).t
     <% if (d.heading || d.subheading) { %>
       <div style="margin-bottom:48px;">
         <% if (d.heading) { %>
-          <h2 style="font-family:var(--f-heading); font-size:clamp(2rem,4vw,3rem); font-weight:400; color:var(--c-primary); letter-spacing:-0.02em; margin:0 0 8px;">
+          <h2 style="font-family:var(--f-heading); color:var(--c-primary); margin:0 0 8px;">
             <%= d.heading %>
           </h2>
         <% } %>
