@@ -24,26 +24,61 @@ const containerStyle = d.container === 'full'
   : 'max-width:' + innerMax + '; margin:0 auto; padding:0 ' + pad + ';'
 const accessKey = String(d.access_key || '').trim()
 const accessKeyJs = JSON.stringify(accessKey)
+const launcherMode = !!d.launcher_mode
+const launcherId = 'gstpln-launcher-' + Math.random().toString(36).slice(2, 9)
 %>
 <section class="block" style="padding:48px 0;">
   <div style="<%= containerStyle %> text-align:center;">
-    <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
+    <% if (d.heading && !launcherMode) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
     <% if (accessKey) { %>
       <% if (d.custom_css) { %>
         <style><%~ d.custom_css %></style>
       <% } %>
-      <script>
-      (function () {
-        if (!window._gstpln) {
-          (function(g,s,t,p,l,n){
-            g["_gstpln"]={};
-            (l=s.createElement(t)),(n=s.getElementsByTagName(t)[0]);
-            l.async=1;l.src=p;n.parentNode.insertBefore(l,n);
-          })(window,document,"script","https://cdn.guestplan.com/widget.js");
-        }
-        window._gstpln.accessKey = <%~ accessKeyJs %>;
-      })();
-      </script>
+      <% if (launcherMode) { %>
+        <%
+        /* Guestplan doesn't publish a documented "start closed" option —
+           it decides its own default (can be expanded on desktop). We
+           can't override behaviour inside a script we don't control, so
+           instead we simply never load it until the visitor clicks this
+           button. Nothing Guestplan-related mounts before that click. */
+        %>
+        <button type="button" id="<%= launcherId %>"
+          style="display:inline-flex; align-items:center; gap:8px; background:var(--c-primary); color:#fff;
+                 border:none; border-radius:999px; padding:14px 28px; font-size:15px; font-weight:600;
+                 cursor:pointer; position:fixed; right:20px; bottom:20px; z-index:60; box-shadow:0 4px 16px rgba(0,0,0,0.2);">
+          <%= d.heading || 'Book a table' %>
+        </button>
+        <script>
+        (function () {
+          var btn = document.getElementById(<%~ JSON.stringify(launcherId) %>);
+          if (!btn) return;
+          btn.addEventListener('click', function onClick() {
+            btn.removeEventListener('click', onClick);
+            if (!window._gstpln) {
+              (function(g,s,t,p,l,n){
+                g["_gstpln"]={};
+                (l=s.createElement(t)),(n=s.getElementsByTagName(t)[0]);
+                l.async=1;l.src=p;n.parentNode.insertBefore(l,n);
+              })(window,document,"script","https://cdn.guestplan.com/widget.js");
+            }
+            window._gstpln.accessKey = <%~ accessKeyJs %>;
+          });
+        })();
+        </script>
+      <% } else { %>
+        <script>
+        (function () {
+          if (!window._gstpln) {
+            (function(g,s,t,p,l,n){
+              g["_gstpln"]={};
+              (l=s.createElement(t)),(n=s.getElementsByTagName(t)[0]);
+              l.async=1;l.src=p;n.parentNode.insertBefore(l,n);
+            })(window,document,"script","https://cdn.guestplan.com/widget.js");
+          }
+          window._gstpln.accessKey = <%~ accessKeyJs %>;
+        })();
+        </script>
+      <% } %>
     <% } else { %>
       <p style="color:var(--c-muted);">Guestplan widget not configured &mdash; add your access key in the block editor.</p>
     <% } %>
