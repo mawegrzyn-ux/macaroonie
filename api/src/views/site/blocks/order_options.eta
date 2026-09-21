@@ -25,7 +25,7 @@ const p = palettes[d.bg_style] || palettes.dark
       </div>
     <% } %>
     <% if (d.heading) { %>
-      <h2 style="font-family:var(--f-heading); font-size:clamp(2rem,4vw,3rem); font-weight:400; letter-spacing:-0.02em; line-height:1.05; margin:0 0 12px; color:<%= p.fg %>;">
+      <h2 style="font-family:var(--f-heading); margin:0 0 12px; color:<%= p.fg %>;">
         <%= d.heading %>
       </h2>
     <% } %>

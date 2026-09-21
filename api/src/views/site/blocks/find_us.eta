@@ -33,22 +33,36 @@ function extractMapsSrc(raw) {
 }
 const mapsSrc = extractMapsSrc(c.google_maps_embed_url)
 
+// Prefer the address text over latitude/longitude — the address is what's
+// visibly printed on the page (so an operator can eyeball it's correct),
+// while lat/long is a separate manually-typed numeric pair with no map
+// picker or "sync from address" helper, so it silently goes stale when
+// the address changes but the coordinates don't. Falling back to lat/long
+// only when there's no address at all avoids sending guests to a stale pin.
 function buildDirectionsUrl(cfg) {
+  const addr = [cfg.address_line1, cfg.address_line2, cfg.city, cfg.postcode, cfg.country].filter(Boolean).join(', ')
+  if (addr) return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr)
   if (cfg.latitude != null && cfg.longitude != null) {
     return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(cfg.latitude + ',' + cfg.longitude)
   }
-  const addr = [cfg.address_line1, cfg.address_line2, cfg.city, cfg.postcode, cfg.country].filter(Boolean).join(', ')
-  return addr ? ('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr)) : null
+  return null
 }
 const directionsUrl = d.show_directions_button ? buildDirectionsUrl(c) : null
 const showAddress = d.hide_address !== true
 const showPhone   = d.hide_phone   !== true
 const showEmail   = d.hide_email   !== true
+const _blockId = `fu-${(it.block.id || Math.random().toString(36).slice(2, 8)).toString().slice(0, 8)}`
 %>
+<style>
+  .<%= _blockId %> { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: stretch; }
+  @media (max-width: 800px) {
+    .<%= _blockId %> { grid-template-columns: 1fr !important; }
+  }
+</style>
 <section class="block" style="padding:48px 0; background:var(--c-surface);">
   <div style="<%= containerStyle %>">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:stretch;">
+    <div class="<%= _blockId %>">
       <div>
         <% if (showAddress) { %>
           <% addressLines.forEach(function(line){ %>
