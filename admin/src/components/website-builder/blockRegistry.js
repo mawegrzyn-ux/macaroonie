@@ -446,10 +446,11 @@ export const BLOCKS = [
     icon:        ExternalLink,
     category:    'data',
     defaultData: {
-      heading:    '',
-      container:  'boxed',
-      access_key: '',
-      custom_css: '',
+      heading:       '',
+      container:     'boxed',
+      access_key:    '',
+      custom_css:    '',
+      launcher_mode: false,   // true = show a floating button, defer loading Guestplan's script until clicked
     },
     editor:      GuestplanWidgetEditor,
   },

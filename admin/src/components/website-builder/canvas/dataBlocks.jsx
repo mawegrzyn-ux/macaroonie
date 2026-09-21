@@ -566,7 +566,9 @@ export function GuestplanWidgetCanvas({ data, onChange }) {
         <BlockHeading data={data} onChange={onChange} />
         {hasKey ? (
           <EmptyPanel Icon={Calendar} title="Guestplan booking widget"
-            hint="Not previewable here — it's a third-party script that mounts itself on the live page."
+            hint={data.launcher_mode
+              ? "Not previewable here — on the live page this shows only a floating button; Guestplan's script loads once clicked."
+              : "Not previewable here — it's a third-party script that mounts itself on the live page."}
             where="Renders on the published site" />
         ) : (
           <EmptyPanel Icon={Calendar} title="Guestplan booking widget"

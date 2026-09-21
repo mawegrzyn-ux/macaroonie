@@ -24,6 +24,20 @@ export function GuestplanWidgetEditor({ data, onChange }) {
         <input value={data.heading || ''} onChange={e => set('heading')(e.target.value)}
           className="w-full text-sm border rounded-md px-2 py-1.5" />
       </FormRow>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-0.5" checked={!!data.launcher_mode}
+          onChange={e => set('launcher_mode')(e.target.checked)} />
+        <span>
+          Start closed — show only a floating "Book a table" button
+          <span className="block text-xs text-muted-foreground mt-0.5">
+            Guestplan doesn't publish a documented option to force their widget closed on
+            load (it decides its own default, which can be expanded on desktop). This
+            works around that by not loading Guestplan's script at all until the visitor
+            clicks the floating button — so nothing of theirs mounts on the page until
+            then, regardless of what their script would otherwise default to.
+          </span>
+        </span>
+      </label>
       <FormRow label="Custom CSS (advanced, best effort)"
         hint="Guestplan doesn't document a colour/theme option we can verify, so this isn't linked to your site theme. Paste CSS here only if you've inspected the live widget's HTML yourself — it has no effect if Guestplan renders inside an iframe.">
         <textarea value={data.custom_css || ''} onChange={e => set('custom_css')(e.target.value)}
