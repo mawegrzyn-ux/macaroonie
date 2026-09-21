@@ -8,6 +8,7 @@ const blocks = Array.isArray(it.config.page_blocks) ? it.config.page_blocks : []
   <%~ include('../../blocks/empty_state', it) %>
 <% } else { %>
   <% for (const block of blocks) { %>
+    <% if (block.type === 'header' || block.type === 'footer') { continue } %>
     <%~ include('../../blocks/renderer', { ...it, block }) %>
   <% } %>
 <% } %>

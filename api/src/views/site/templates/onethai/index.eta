@@ -13,6 +13,7 @@ const ts     = it.tenant_site || {}
   <%~ include('../../blocks/empty_state', it) %>
 <% } else { %>
   <% for (const block of blocks) { %>
+    <% if (block.type === 'header' || block.type === 'footer') { continue } %>
     <%~ include('../../blocks/renderer', { ...it, block }) %>
   <% } %>
 <% } %>
