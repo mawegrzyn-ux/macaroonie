@@ -383,10 +383,17 @@ function MenuEditor({ id, onBack }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <a href={printUrl} target="_blank" rel="noopener"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2">
-            <Printer className="w-3.5 h-3.5" /> Print
-          </a>
+          {dirty ? (
+            <span title="Save your changes first — the print page shows what's saved, not this draft."
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 cursor-not-allowed select-none">
+              <Printer className="w-3.5 h-3.5" /> Print
+            </span>
+          ) : (
+            <a href={printUrl} target="_blank" rel="noopener"
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2">
+              <Printer className="w-3.5 h-3.5" /> Print
+            </a>
+          )}
           <Btn disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
             {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {dirty ? 'Save changes' : 'Saved'}
