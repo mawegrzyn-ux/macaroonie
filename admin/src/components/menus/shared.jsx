@@ -1,6 +1,7 @@
 // Shared primitives for the menu manager (list/edit page + the
 // standalone variant-groups / dietary-groups pages under it).
 
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 export function Card({ title, action, description, children }) {
@@ -63,4 +64,38 @@ export function parsePrice(str) {
   const f = parseFloat(cleaned)
   if (Number.isNaN(f)) return null
   return Math.round(f * 100)
+}
+
+// Money input that doesn't fight the caret. Re-deriving a formatted
+// string (e.g. `.toFixed(2)`) as the controlled `value` on every keystroke
+// resets the DOM input's content mid-edit, which snaps the caret to the
+// end — you can't backspace or type in the middle without it jumping.
+// Instead this keeps its own raw text buffer while focused (no reformatting
+// as you type) and only parses to pence + reformats on blur.
+export function PriceInput({ pence, onChange, className, ...props }) {
+  const [text, setText] = useState(pence == null ? '' : (pence / 100).toFixed(2))
+  const focused = useRef(false)
+
+  useEffect(() => {
+    if (focused.current) return
+    setText(pence == null ? '' : (pence / 100).toFixed(2))
+  }, [pence])
+
+  return (
+    <Input
+      {...props}
+      inputMode="decimal"
+      value={text}
+      onFocus={(e) => { focused.current = true; props.onFocus?.(e) }}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={(e) => {
+        focused.current = false
+        const parsed = parsePrice(e.target.value)
+        setText(parsed == null ? '' : (parsed / 100).toFixed(2))
+        onChange(parsed)
+        props.onBlur?.(e)
+      }}
+      className={className}
+    />
+  )
 }
