@@ -95,14 +95,23 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
        though the on-screen preview (wider window) never triggered it and
        @page below sets landscape. Never drop "screen and" here. */
     @media screen and (max-width: 800px) { .cols { column-count: 1 !important; } }
-    .section { break-inside: avoid; margin-bottom: 5mm; }
+    .section { margin-bottom: 5mm; }
     .section.highlight { background: #fff7e6; padding: 4mm; border-radius: 4px; }
     .section h2 { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
     .section .sub { font-size: 10px; font-weight: 400; color: var(--muted); margin-left: 6px; text-transform: none; letter-spacing: 0; }
-    .section .head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding-bottom: 1.5mm; margin-bottom: 2mm; border-bottom: 1px solid var(--line); }
+    .section .head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding-bottom: 1.5mm; margin-bottom: 2mm; border-bottom: 1px solid var(--line); break-after: avoid; }
 
-    /* Items */
-    .item { padding: 1.5mm 0; }
+    /* Items. break-inside is on the item (not the section): a section
+       with many dishes (e.g. a 15-item Starters list) needs to be able to
+       split across columns/pages. Keeping break-inside: avoid on the
+       whole .section instead forces the ENTIRE section to jump to the
+       next column/page the moment it doesn't fit in the remaining space
+       — leaving the column it vacated mostly blank and confusing Chrome's
+       column-balance calculation, which is what produced the blank-gap /
+       wrong-page-count print output. Avoiding the split at the .item
+       level instead keeps each dish's own name+price+description intact
+       without forcing whole sections to relocate. */
+    .item { padding: 1.5mm 0; break-inside: avoid; }
     .item-thumb { width: 9mm; height: 9mm; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
     .item-body { flex: 1; min-width: 0; }
     .group-name { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 1.5mm; }
