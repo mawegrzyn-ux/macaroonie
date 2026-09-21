@@ -78,7 +78,9 @@ const MenuMetaBody = z.object({
   intro_line:    z.string().max(500).nullable().optional(),
   is_published:  z.boolean().default(true),
   sort_order:    z.number().int().default(0),
-  print_columns: z.number().int().min(1).max(6).default(4),
+  print_columns:     z.number().int().min(1).max(6).default(4),
+  print_orientation: z.enum(['landscape', 'portrait']).default('landscape'),
+  print_paper_size:  z.enum(['A4', 'A3']).default('A4'),
 })
 
 const MenuFullBody = MenuMetaBody.extend({
@@ -424,10 +426,10 @@ export default async function menusRoutes(app) {
   app.post('/', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = MenuMetaBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns)
+      INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size)
       VALUES (${req.tenantId}, ${body.venue_id ?? null}, ${body.name}, ${body.slug},
               ${body.tagline ?? null}, ${body.service_times ?? null}, ${body.intro_line ?? null},
-              ${body.is_published}, ${body.sort_order}, ${body.print_columns})
+              ${body.is_published}, ${body.sort_order}, ${body.print_columns}, ${body.print_orientation}, ${body.print_paper_size})
       RETURNING *
     `)
     return reply.code(201).send(row)
@@ -453,10 +455,11 @@ export default async function menusRoutes(app) {
       for (let n = 2; taken.has(slug); n++) slug = `${full.slug}-copy-${n}`
 
       const [row] = await tx`
-        INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns)
+        INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size)
         VALUES (${req.tenantId}, ${full.venue_id ?? null}, ${full.name + ' (copy)'}, ${slug},
                 ${full.tagline ?? null}, ${full.service_times ?? null}, ${full.intro_line ?? null},
-                false, ${full.sort_order ?? 0}, ${full.print_columns ?? 4})
+                false, ${full.sort_order ?? 0}, ${full.print_columns ?? 4},
+                ${full.print_orientation ?? 'landscape'}, ${full.print_paper_size ?? 'A4'})
         RETURNING *
       `
 
@@ -503,6 +506,8 @@ export default async function menusRoutes(app) {
                is_published = ${body.is_published},
                sort_order = ${body.sort_order},
                print_columns = ${body.print_columns},
+               print_orientation = ${body.print_orientation},
+               print_paper_size = ${body.print_paper_size},
                updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
          RETURNING *
