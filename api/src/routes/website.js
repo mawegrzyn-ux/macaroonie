@@ -20,14 +20,29 @@ import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { normalizeBimiSvg } from '../services/bimiSvg.js'
 import { loadOpeningHours } from '../services/siteDataSvc.js'
+import { RESERVED_SUBDOMAINS, STAGING_PREFIX } from './siteRenderer.js'
+import { publishTenantSite, overrideStagingWithProduction } from '../services/publishSvc.js'
+import { publishQueue } from '../jobs/queues.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
 const HEX_COLOUR = /^#(?:[0-9a-fA-F]{3}){1,2}$/
 
+// A `staging-` prefix is reserved globally — that's where every tenant's
+// own staging site lives (see migrations/082_website_staging_production.sql
+// and siteRenderer.js's resolveSiteHost). Without this, an operator could
+// claim e.g. subdomain_slug = 'staging-foo', which would collide with
+// tenant "foo"'s staging host. RESERVED_SUBDOMAINS is the same infra-name
+// list resolveSiteHost() itself refuses to treat as a tenant site.
 const SlugSchema = z.string()
   .min(1).max(63)
   .regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/, 'Slug must be lowercase alphanumeric with hyphens')
+  .refine(s => !s.startsWith(STAGING_PREFIX), '"staging-" is a reserved prefix')
+  .refine(s => !RESERVED_SUBDOMAINS.has(s), 'That subdomain is reserved')
+
+const SchedulePublishBody = z.object({
+  at: z.coerce.date(),
+})
 
 const SocialLinksSchema = z.record(z.string(), z.string().url().or(z.literal('')))
 
@@ -572,6 +587,72 @@ export default async function websiteRoutes(app) {
         ? 'Domain verified. SSL provisioning still happens outside the app (Nginx + certbot).'
         : `Point ${domain} via CNAME to ${expectedCnameSuffix}, or an A record to one of the app's public IPs.`,
     }
+  })
+
+  // ── Staging → production publishing ─────────────────────
+  // See migrations/082_website_staging_production.sql. Editing always
+  // happens on the live "staging" tables; production renders the frozen
+  // published_snapshot until the next publish. cancelScheduledPublish
+  // removes any pending delayed job so re-scheduling / publishing now /
+  // cancelling never leaves a stale job to fire later.
+  async function cancelScheduledPublish(tenantId) {
+    const job = await publishQueue.getJob(`publish-${tenantId}`)
+    if (job) await job.remove()
+  }
+
+  // ── POST /website/tenant-site/publish ───────────────────
+  // Publish immediately — freezes current staging content as the new
+  // published_snapshot and cancels any pending scheduled publish.
+  app.post('/tenant-site/publish', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    await cancelScheduledPublish(req.tenantId)
+    return publishTenantSite(req.tenantId)
+  })
+
+  // ── POST /website/tenant-site/schedule-publish ──────────
+  // Body: { at: ISO timestamp in the future }. Replaces any existing
+  // scheduled publish (one pending publish per tenant — jobId dedup).
+  app.post('/tenant-site/schedule-publish', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { at } = SchedulePublishBody.parse(req.body)
+    if (at.getTime() <= Date.now()) throw httpError(422, 'Scheduled time must be in the future')
+
+    await cancelScheduledPublish(req.tenantId)
+    await publishQueue.add('publish', { tenantId: req.tenantId }, {
+      delay:            at.getTime() - Date.now(),
+      jobId:            `publish-${req.tenantId}`,
+      removeOnComplete: true,
+      removeOnFail:     true,
+    })
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE tenant_site
+         SET scheduled_publish_at = ${at.toISOString()}, updated_at = now()
+       WHERE tenant_id = ${req.tenantId}
+      RETURNING *
+    `)
+    return row
+  })
+
+  // ── DELETE /website/tenant-site/schedule-publish ────────
+  // Cancels a pending scheduled publish. Does not touch published_snapshot.
+  app.delete('/tenant-site/schedule-publish', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    await cancelScheduledPublish(req.tenantId)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE tenant_site
+         SET scheduled_publish_at = NULL, updated_at = now()
+       WHERE tenant_id = ${req.tenantId}
+      RETURNING *
+    `)
+    return row
+  })
+
+  // ── POST /website/tenant-site/override-staging ──────────
+  // Discards in-progress staging edits, resetting the live draft tables
+  // (tenant_site content, each venue's website_config, website_pages) to
+  // whatever's in the last published snapshot. 409 if nothing's been
+  // published yet.
+  app.post('/tenant-site/override-staging', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    await overrideStagingWithProduction(req.tenantId)
+    return withTenant(req.tenantId, tx => ensureTenantSite(tx, req.tenantId))
   })
 
   // ── Back-compat: brand-defaults endpoints alias tenant-site ─

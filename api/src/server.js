@@ -8,6 +8,7 @@ import { attachWss }                         from './config/ws.js'
 import { startNotificationWorker,
          startHoldSweepWorker }              from './jobs/queues.js'
 import { startReviewScrapeWorker }           from './jobs/reviewScrapeWorker.js'
+import { startPublishWorker }                from './jobs/publishWorker.js'
 import jwksClient                            from 'jwks-rsa'
 
 const app = await buildApp()
@@ -27,6 +28,7 @@ async function verifyWsToken(token) {
 const notifWorker   = startNotificationWorker(app.log)
 const sweepWorker   = startHoldSweepWorker(sql, app.log)
 const reviewWorker  = startReviewScrapeWorker(app.log)
+const publishWorker = startPublishWorker(app.log)
 
 // ── Graceful shutdown ────────────────────────────────────────
 const shutdown = async (signal) => {
@@ -35,6 +37,7 @@ const shutdown = async (signal) => {
   await notifWorker.close()
   await sweepWorker.close()
   await reviewWorker.close()
+  await publishWorker.close()
   await sql.end()
   process.exit(0)
 }

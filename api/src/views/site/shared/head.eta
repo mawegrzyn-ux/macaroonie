@@ -218,6 +218,9 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
   <% if (pageDesc) { %>
     <meta name="description" content="<%= pageDesc %>" />
   <% } %>
+  <% if (it.isStaging) { %>
+    <meta name="robots" content="noindex, nofollow" />
+  <% } %>
   <link rel="canonical" href="<%= canonicalUrl %>" />
   <% if (it.config.favicon_url) { %>
     <link rel="icon" href="<%= it.config.favicon_url %>" />

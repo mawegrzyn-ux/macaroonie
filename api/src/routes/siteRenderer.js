@@ -25,10 +25,21 @@ import { loadTenantBundle, loadLocationBundle, soleVenueOf } from '../services/s
 import { sql }            from '../config/db.js'
 import { env }            from '../config/env.js'
 
-const RESERVED_SUBDOMAINS = new Set([
+// Exported so api/src/routes/website.js can validate against the same
+// reserved list when an operator picks a subdomain slug.
+export const RESERVED_SUBDOMAINS = new Set([
   'www', 'api', 'admin', 'app', 'mail', 'static', 'assets',
   'cdn', 'ws', 'stripe', 'webhook', 'webhooks',
 ])
+
+// The staging environment for a tenant always lives at
+// staging-{subdomain_slug}.{root} — never on a custom domain (see
+// migrations/082_website_staging_production.sql). This prefix is
+// reserved (tenant_site has a CHECK constraint rejecting it, and
+// api/src/routes/website.js's slug validation rejects it too) so a
+// tenant's own subdomain can never collide with another tenant's
+// staging host. Exported for the same reason as RESERVED_SUBDOMAINS above.
+export const STAGING_PREFIX = 'staging-'
 
 /* Theme-role → hex resolution for widget settings. Operators pick role
    names ('primary', 'accent', etc.) in the editor; the widget itself only
@@ -76,8 +87,10 @@ const DEFAULT_TEMPLATE = 'classic'
 
 /**
  * Extracts a tenant site identifier from the request's Host header.
- * Returns `{ slug, customDomain }` or null if the host is bare-root /
- * reserved subdomain.
+ * Returns `{ slug, customDomain, isStaging }` or null if the host is
+ * bare-root / reserved subdomain. A `staging-{slug}` host resolves to
+ * that tenant's slug with `isStaging: true` — staging only ever lives on
+ * the wildcard subdomain, never on a custom domain.
  */
 export function resolveSiteHost(host) {
   if (!host) return null
@@ -86,11 +99,16 @@ export function resolveSiteHost(host) {
 
   const m = hostname.match(SUBDOMAIN_RE)
   if (m) {
-    const slug = m[1].toLowerCase()
-    if (RESERVED_SUBDOMAINS.has(slug)) return null
-    return { slug, customDomain: null }
+    let slug = m[1].toLowerCase()
+    let isStaging = false
+    if (slug.startsWith(STAGING_PREFIX)) {
+      isStaging = true
+      slug = slug.slice(STAGING_PREFIX.length)
+    }
+    if (!slug || RESERVED_SUBDOMAINS.has(slug)) return null
+    return { slug, customDomain: null, isStaging }
   }
-  return { slug: null, customDomain: hostname }
+  return { slug: null, customDomain: hostname, isStaging: false }
 }
 
 // Back-compat for any importer
@@ -105,8 +123,16 @@ function templateOf(cfg) {
 
 export default async function siteRendererRoutes(app) {
 
-  app.addHook('onRequest', async (req) => {
+  app.addHook('onRequest', async (req, reply) => {
     req.siteHost = resolveSiteHost(req.hostname || req.headers.host)
+    // Belt-and-suspenders on top of the <meta name="robots"> tag in
+    // head.eta (which only covers HTML page renders) — this header
+    // covers every response on a staging host, including robots.txt/
+    // sitemap.xml/non-HTML routes, and works even for crawlers that
+    // ignore HTML meta tags.
+    if (req.siteHost?.isStaging) {
+      reply.header('X-Robots-Tag', 'noindex, nofollow')
+    }
   })
 
   async function serveBimi(req, reply) {
@@ -161,6 +187,7 @@ export default async function siteRendererRoutes(app) {
       ...bundle,
       rootDomain: env.PUBLIC_ROOT_DOMAIN,
       siteUrl,
+      isStaging: !!req.siteHost?.isStaging,
     }
   }
 
@@ -283,8 +310,12 @@ export default async function siteRendererRoutes(app) {
   })
 
   // ── Sitemap / robots ───────────────────────────────────
+  // Staging is never meant to be discoverable — no point exposing a
+  // sitemap or llms.txt for it, and robots.txt unconditionally disallows
+  // everything regardless of the tenant's real is_published state.
   app.get('/sitemap.xml', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()
+    if (req.siteHost.isStaging) return reply.callNotFound()
     const bundle = await loadTenantBundle(req.siteHost)
     if (!bundle) { reply.code(404); return 'Not found' }
     const host = (req.hostname || req.headers.host || '').split(':')[0]
@@ -306,6 +337,9 @@ export default async function siteRendererRoutes(app) {
 
   app.get('/robots.txt', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()
+    if (req.siteHost.isStaging) {
+      return reply.type('text/plain').send('User-agent: *\nDisallow: /\n')
+    }
     const host = (req.hostname || req.headers.host || '').split(':')[0]
     const base = env.PUBLIC_SITE_SCHEME + '://' + host
     reply.type('text/plain').send(
@@ -316,6 +350,7 @@ export default async function siteRendererRoutes(app) {
 
   app.get('/llms.txt', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()
+    if (req.siteHost.isStaging) return reply.callNotFound()
     const bundle = await loadTenantBundle(req.siteHost)
     if (!bundle) { reply.code(404); return 'Not found' }
 

@@ -183,14 +183,31 @@ export async function loadOpeningHours(tx, venueId, venueConfig) {
 /**
  * Per-venue public extras (hours, PDF menus, allergens, address config).
  * Used by location pages and by the sole-venue home hydration.
+ *
+ * `venueConfigOverride` / `pagesOverride` let the production (published
+ * snapshot) render path supply frozen config/pages instead of the live
+ * rows, while gallery images, menu PDF documents, allergen info, and
+ * schedule-derived hours keep resolving live either way — those have
+ * their own separate publish/moderation state and are intentionally
+ * NOT part of the site snapshot (see migration 082's header comment).
+ * The frozen config still carries the real website_config row id so
+ * those live joins (keyed by website_config_id) keep working.
  */
-async function loadVenuePublicExtras(tx, tenantId, venue, { includePages = false, includeUnpublished = false } = {}) {
-  const [cfgRow] = await tx`
-    SELECT * FROM website_config
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id}
-     LIMIT 1
-  `
-  const venueConfig = cfgRow ?? {}
+async function loadVenuePublicExtras(tx, tenantId, venue, {
+  includePages = false, includeUnpublished = false,
+  venueConfigOverride = null, pagesOverride = null,
+} = {}) {
+  let venueConfig
+  if (venueConfigOverride) {
+    venueConfig = venueConfigOverride
+  } else {
+    const [cfgRow] = await tx`
+      SELECT * FROM website_config
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venue.id}
+       LIMIT 1
+    `
+    venueConfig = cfgRow ?? {}
+  }
 
   const [gallery, menus, openingHours, allergensRow, pages] = await Promise.all([
     venueConfig.show_gallery !== false && venueConfig.id ? tx`
@@ -216,14 +233,16 @@ async function loadVenuePublicExtras(tx, tenantId, venue, { includePages = false
        LIMIT 1
     ` : Promise.resolve([]),
 
-    includePages ? tx`
+    !includePages ? Promise.resolve([])
+      : pagesOverride !== null ? Promise.resolve(pagesOverride)
+      : tx`
       SELECT id, slug, title, content, blocks, kind, is_published, sort_order, show_header, show_footer
         FROM website_pages
        WHERE tenant_id = ${tenantId}
          AND venue_id  = ${venue.id}
          AND (${includeUnpublished} OR is_published = true)
        ORDER BY sort_order, title
-    ` : Promise.resolve([]),
+    `,
   ])
 
   return {
@@ -241,6 +260,14 @@ async function loadVenuePublicExtras(tx, tenantId, venue, { includePages = false
  * the locations summary, custom pages, and any tenant-wide menus pulled
  * up from venues.
  *
+ * Two render sources, chosen by `lookup.isStaging`:
+ *   - staging (`staging-{slug}.{root}`) → always the live, current draft
+ *     tables, regardless of is_published. Custom domains never resolve
+ *     to staging — only the wildcard subdomain does.
+ *   - production (plain subdomain or verified custom domain) → the
+ *     frozen `published_snapshot` captured by the last Publish action.
+ *     Returns null (404) if the site has never been published.
+ *
  * Single-venue tenants: also merge that venue's website_config (address,
  * phone, hours source) and attach opening_hours / menus / allergens so
  * data blocks on the home page have something to render. Multi-venue
@@ -248,9 +275,22 @@ async function loadVenuePublicExtras(tx, tenantId, venue, { includePages = false
  */
 export async function loadTenantBundle(lookup, { includeUnpublished = false } = {}) {
   if (typeof lookup === 'string') lookup = { slug: lookup }
+  const isStaging = !!lookup.isStaging
+
+  if (isStaging) {
+    const ts = await resolveTenantSite({ slug: lookup.slug }, { includeUnpublished: true })
+    if (!ts) return null
+    return buildLiveTenantBundle(ts, { includeUnpublished: true, isStaging: true })
+  }
+
   const ts = await resolveTenantSite(lookup, { includeUnpublished })
   if (!ts) return null
+  if (includeUnpublished) return buildLiveTenantBundle(ts, { includeUnpublished, isStaging: false })
+  if (!ts.published_snapshot) return null
+  return buildPublishedTenantBundle(ts)
+}
 
+async function buildLiveTenantBundle(ts, { includeUnpublished, isStaging }) {
   const bundle = await withTenant(ts.tenant_id, async tx => {
     const [venues, pages] = await Promise.all([
       tx`
@@ -321,6 +361,88 @@ export async function loadTenantBundle(lookup, { includeUnpublished = false } = 
     menus_by_id: menusById,
     gallery_items_by_block: galleryByBlock,
     reviews_by_block:       reviewsByBlock,
+    is_staging:  isStaging,
+  }
+}
+
+/**
+ * Production render path: reconstructs the same bundle shape as
+ * buildLiveTenantBundle, but sourced from `ts.published_snapshot`
+ * instead of the live tenant_site/website_config/website_pages rows.
+ * Gallery images, menu PDF docs, allergen info, and schedule-derived
+ * hours still resolve live (see loadVenuePublicExtras) — only page
+ * layout/copy is frozen.
+ */
+async function buildPublishedTenantBundle(ts) {
+  const snap = ts.published_snapshot
+  const tenantSiteFrozen = { ...ts, ...snap.tenant_site }
+
+  const venues = await sql`
+    SELECT v.id, v.slug, v.name, v.timezone, v.currency
+      FROM venues v
+     WHERE v.tenant_id = ${ts.tenant_id} AND v.is_active = true
+     ORDER BY v.name
+  `
+  // The venues-summary list (locations index, sitemap) shows a bit of
+  // frozen per-venue config alongside the live venue row.
+  const venueConfigs = snap.venue_configs || {}
+  const venuesWithFrozenConfig = venues.map(v => {
+    const vc = venueConfigs[v.id] || {}
+    return {
+      ...v,
+      address_line1: vc.address_line1 ?? null,
+      address_line2: vc.address_line2 ?? null,
+      city:          vc.city ?? null,
+      postcode:      vc.postcode ?? null,
+      phone:         vc.phone ?? null,
+      email:         vc.email ?? null,
+      hero_image_url: vc.hero_image_url ?? null,
+      venue_tagline:  vc.tagline ?? null,
+    }
+  })
+
+  const pages = snap.tenant_pages || []
+
+  const menusById      = await loadInlineMenus(ts.tenant_id, tenantSiteFrozen.home_blocks)
+  const galleryByBlock = await loadGalleryItemsForBlocks(ts.tenant_id, tenantSiteFrozen.home_blocks)
+  const reviewsByBlock = await loadReviewsForBlocks(ts.tenant_id, tenantSiteFrozen.home_blocks)
+
+  const sole = soleVenueOf(venuesWithFrozenConfig)
+  let config = tenantSiteFrozen
+  let venue = null
+  let opening_hours, menus, allergens
+
+  if (sole) {
+    const frozenVenueConfig = venueConfigs[sole.id] || null
+    const extras = await withTenant(ts.tenant_id, tx =>
+      loadVenuePublicExtras(tx, ts.tenant_id, sole, {
+        includePages: false,
+        venueConfigOverride: frozenVenueConfig,
+      }),
+    )
+    config = mergeLocationConfig(tenantSiteFrozen, frozenVenueConfig)
+    venue = { id: sole.id, slug: sole.slug, name: sole.name, timezone: sole.timezone, currency: sole.currency }
+    opening_hours = extras.openingHours
+    menus = extras.menus
+    allergens = extras.allergens
+  }
+
+  return {
+    tenant_site: tenantSiteFrozen,
+    config,
+    brand:       tenantSiteFrozen,
+    tenant_name: ts.tenant_name,
+    tenant_slug: ts.tenant_slug,
+    venues:      venuesWithFrozenConfig,
+    pages,
+    venue,
+    opening_hours,
+    menus,
+    allergens,
+    menus_by_id: menusById,
+    gallery_items_by_block: galleryByBlock,
+    reviews_by_block:       reviewsByBlock,
+    is_staging:  false,
   }
 }
 
@@ -500,13 +622,21 @@ async function loadGalleryItemsForBlocks(tenantId, ...blockArrays) {
  * hours, allergens, plus the merged config object. Caller supplies the
  * already-resolved tenant bundle so we do not re-query tenant_site.
  *
- * @returns {Promise<object|null>} null when the venue does not exist,
- *   is inactive, or has no website_config row yet.
+ * Mode follows `tenantBundle.is_staging` (set by loadTenantBundle):
+ * staging always uses the live website_config/website_pages rows
+ * (including unpublished pages); production uses this venue's frozen
+ * config/pages from the tenant's published_snapshot, falling back to
+ * empty/default content for a venue that didn't exist yet at the last
+ * publish. Gallery/menu-doc/allergen/hours data stays live either way.
+ *
+ * @returns {Promise<object|null>} null when the venue does not exist
+ *   or is inactive.
  */
-export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpublished = false } = {}) {
+export async function loadLocationBundle(tenantBundle, venueSlug) {
   if (!tenantBundle || !venueSlug) return null
   const ts        = tenantBundle.tenant_site
   const tenantId  = ts.tenant_id
+  const isStaging = !!tenantBundle.is_staging
 
   const [venue] = await sql`
     SELECT id, slug, name, timezone, currency
@@ -518,13 +648,20 @@ export async function loadLocationBundle(tenantBundle, venueSlug, { includeUnpub
   `
   if (!venue) return null
 
+  const frozenVenueConfig = isStaging ? null : ((ts.published_snapshot?.venue_configs || {})[venue.id] || null)
+  const frozenPages       = isStaging ? null : ((ts.published_snapshot?.venue_pages   || {})[venue.id] || [])
+
   const result = await withTenant(tenantId, async tx => {
-    const extras = await loadVenuePublicExtras(tx, tenantId, venue, {
+    const extras = await loadVenuePublicExtras(tx, tenantId, venue, isStaging ? {
       includePages: true,
-      includeUnpublished,
+      includeUnpublished: true,
+    } : {
+      includePages: true,
+      venueConfigOverride: frozenVenueConfig,
+      pagesOverride: frozenPages,
     })
     return {
-      mergedConfig: mergeLocationConfig(ts, extras.venueConfig),
+      mergedConfig: mergeLocationConfig(ts, isStaging ? extras.venueConfig : frozenVenueConfig),
       gallery:      extras.gallery,
       menus:        extras.menus,
       openingHours: extras.openingHours,
