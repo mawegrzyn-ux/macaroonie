@@ -46,8 +46,10 @@ import { BrandFooterSection } from '@/components/website-builder/BrandFooterSect
 const withMode = (items, mode) => items.map(i => ({ ...i, mode }))
 
 const PAGES_TENANT = [
-  { key: 'tenant-page',  label: 'Home',           icon: LayoutTemplate },
-  { key: 'tenant-pages', label: 'Pages & modals', icon: FileText },
+  { key: 'tenant-page',   label: 'Home',           icon: LayoutTemplate },
+  { key: 'tenant-pages',  label: 'Pages & modals', icon: FileText },
+  { key: 'tenant-header', label: 'Header',         icon: PanelTop },
+  { key: 'tenant-footer', label: 'Footer',         icon: PanelBottom },
 ]
 const PAGES_VENUE = [
   { key: 'page',     label: 'Location page',  icon: LayoutTemplate },
@@ -72,8 +74,6 @@ const WIDGET_ITEMS = [
 ]
 const SITE_ITEMS = [
   { key: 'tenant-brand',     label: 'Brand & theme',     icon: Palette },
-  { key: 'tenant-header',    label: 'Header',            icon: PanelTop },
-  { key: 'tenant-footer',    label: 'Footer',            icon: PanelBottom },
   { key: 'tenant-domain',    label: 'Domain & publish',  icon: Globe },
   { key: 'tenant-seo',       label: 'SEO',               icon: Search },
   { key: 'tenant-legal',     label: 'Legal & cookies',   icon: Shield },
