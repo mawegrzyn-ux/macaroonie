@@ -8,21 +8,69 @@ const pad = padMap[d.boxed_step] || 'var(--boxed-pad, 24px)'
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 ' + pad + ';'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 ' + pad + ';'
+
+/* Google's own "Share > Embed a map" dialog offers the WHOLE <iframe>
+   tag as its primary copy action, not the bare src URL — pasting that
+   straight into the "embed URL" field wraps an <iframe> inside our own
+   <iframe src="...">, which browsers can't parse as a URL and instead
+   try to fetch as a bogus relative path (seen as a 404 on our own API).
+   Extract the src="..." value out of a pasted iframe tag defensively so
+   both forms work, without a quote-bearing regex (see CLAUDE.md Eta
+   gotchas — those break the template parser). */
+function extractMapsSrc(raw) {
+  if (!raw) return null
+  const s = String(raw).trim()
+  const iframeIdx = s.indexOf('<iframe')
+  if (iframeIdx === -1) return s
+  const srcIdx = s.indexOf('src=', iframeIdx)
+  if (srcIdx === -1) return null
+  const afterEq = srcIdx + 4
+  const quoteChar = s.charAt(afterEq)
+  if (quoteChar !== '"' && quoteChar !== '\'') return null
+  const endIdx = s.indexOf(quoteChar, afterEq + 1)
+  if (endIdx === -1) return null
+  return s.slice(afterEq + 1, endIdx)
+}
+const mapsSrc = extractMapsSrc(c.google_maps_embed_url)
+
+function buildDirectionsUrl(cfg) {
+  if (cfg.latitude != null && cfg.longitude != null) {
+    return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(cfg.latitude + ',' + cfg.longitude)
+  }
+  const addr = [cfg.address_line1, cfg.address_line2, cfg.city, cfg.postcode, cfg.country].filter(Boolean).join(', ')
+  return addr ? ('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr)) : null
+}
+const directionsUrl = d.show_directions_button ? buildDirectionsUrl(c) : null
+const showAddress = d.hide_address !== true
+const showPhone   = d.hide_phone   !== true
+const showEmail   = d.hide_email   !== true
 %>
 <section class="block" style="padding:48px 0; background:var(--c-surface);">
   <div style="<%= containerStyle %>">
     <% if (d.heading) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:32px; align-items:stretch;">
       <div>
-        <% addressLines.forEach(function(line){ %>
-          <p style="margin:0; font-size:17px; line-height:1.6;"><%= line %></p>
-        <% }) %>
-        <% if (c.phone) { %><p style="margin-top:12px;"><strong>Phone:</strong> <a href="tel:<%= c.phone %>" style="color:var(--c-primary);"><%= c.phone %></a></p><% } %>
-        <% if (c.email) { %><p><strong>Email:</strong> <a href="mailto:<%= c.email %>" style="color:var(--c-primary);"><%= c.email %></a></p><% } %>
+        <% if (showAddress) { %>
+          <% addressLines.forEach(function(line){ %>
+            <p style="margin:0; font-size:17px; line-height:1.6;"><%= line %></p>
+          <% }) %>
+        <% } %>
+        <% if (showPhone && c.phone) { %><p style="margin-top:12px;"><strong>Phone:</strong> <a href="tel:<%= c.phone %>" style="color:var(--c-primary);"><%= c.phone %></a></p><% } %>
+        <% if (showEmail && c.email) { %><p><strong>Email:</strong> <a href="mailto:<%= c.email %>" style="color:var(--c-primary);"><%= c.email %></a></p><% } %>
+        <% if (d.directions_html) { %>
+          <div style="margin-top:12px; font-size:15px; line-height:1.6; color:var(--c-muted);"><%~ d.directions_html %></div>
+        <% } %>
+        <% if (directionsUrl) { %>
+          <a href="<%= directionsUrl %>" target="_blank" rel="noopener"
+             style="display:inline-block; margin-top:16px; background:var(--c-primary); color:#fff;
+                    padding:12px 24px; border-radius:var(--btn-radius, 4px); font-weight:600; text-decoration:none;">
+            <%= d.directions_button_text || 'Get directions' %>
+          </a>
+        <% } %>
       </div>
-      <% if (c.google_maps_embed_url) { %>
+      <% if (mapsSrc) { %>
         <div style="border-radius:var(--r-md, 8px); overflow:hidden; min-height:280px;">
-          <iframe src="<%= c.google_maps_embed_url %>"
+          <iframe src="<%= mapsSrc %>"
                   style="width:100%; height:100%; border:0; min-height:280px;"
                   loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
         </div>
