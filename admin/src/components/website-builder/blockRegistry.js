@@ -34,6 +34,7 @@ import { TextEditor }          from './editors/TextEditor'
 import { ImageBlockEditor }    from './editors/ImageBlockEditor'
 import { CtaStripEditor }      from './editors/CtaStripEditor'
 import { DataBlockEditor }     from './editors/DataBlockEditor'
+import { FindUsEditor }        from './editors/FindUsEditor'
 import { DividerEditor }       from './editors/DividerEditor'
 import { FaqEditor }           from './editors/FaqEditor'
 import { ColumnsEditor }       from './editors/ColumnsEditor'
@@ -377,8 +378,13 @@ export const BLOCKS = [
     description: 'Address + map. Pulled from your contact details.',
     icon:        MapPin,
     category:    'data',
-    defaultData: { heading: 'Find us', container: 'boxed' },
-    editor:      DataBlockEditor,
+    defaultData: {
+      heading: 'Find us', container: 'boxed',
+      hide_address: false, hide_phone: false, hide_email: false,
+      show_directions_button: false, directions_button_text: 'Get directions',
+      directions_html: '',
+    },
+    editor:      FindUsEditor,
     pullsFromConfig: true,
   },
   {

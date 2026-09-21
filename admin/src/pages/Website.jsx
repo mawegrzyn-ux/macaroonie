@@ -1729,6 +1729,27 @@ function BrandingSection({ config }) {
 
 // ── Find us section ─────────────────────────────────────────
 
+// Google's "Share > Embed a map" dialog offers the whole <iframe> tag as
+// its primary copy action, not the bare src URL. Pasting that straight in
+// wraps an <iframe> inside our own <iframe src="...">, which the browser
+// can't parse as a URL — it tries to fetch the literal text as a relative
+// path instead (a 404 against our own API). Extract src="..." out of a
+// pasted iframe tag so either form works; passes a bare URL through as-is.
+function extractMapsSrc(raw) {
+  if (!raw) return raw
+  const s = String(raw).trim()
+  const iframeIdx = s.indexOf('<iframe')
+  if (iframeIdx === -1) return raw
+  const srcIdx = s.indexOf('src=', iframeIdx)
+  if (srcIdx === -1) return raw
+  const afterEq = srcIdx + 4
+  const quoteChar = s.charAt(afterEq)
+  if (quoteChar !== '"' && quoteChar !== '\'') return raw
+  const endIdx = s.indexOf(quoteChar, afterEq + 1)
+  if (endIdx === -1) return raw
+  return s.slice(afterEq + 1, endIdx)
+}
+
 function FindUsSection({ config }) {
   const { values, set, dirty, save, reset } = useConfigFields(config, [
     'address_line1', 'address_line2', 'city', 'postcode', 'country',
@@ -1782,9 +1803,10 @@ function FindUsSection({ config }) {
           </FormRow>
         </div>
         <FormRow label="Google Maps embed URL"
-          hint="Optional. Paste the src attribute from a Google Maps 'Share > Embed' iframe.">
+          hint="Paste either the bare src URL or the whole <iframe> snippet from Google Maps' 'Share > Embed a map' — either works, we'll extract the URL.">
           <TextInput value={values.google_maps_embed_url || ''}
             onChange={set('google_maps_embed_url')}
+            onBlur={(e) => set('google_maps_embed_url')(extractMapsSrc(e.target.value))}
             placeholder="https://www.google.com/maps/embed?pb=…" />
         </FormRow>
       </SectionCard>

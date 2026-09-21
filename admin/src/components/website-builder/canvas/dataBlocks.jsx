@@ -59,13 +59,44 @@ function BlockHeading({ data, onChange }) {
 
 // ── Find us ───────────────────────────────────────────────
 
+// Mirrors find_us.eta's extractMapsSrc — pulls the src="..." out of a
+// pasted <iframe> "Embed a map" snippet so the admin preview matches
+// what the live site will actually do with the same stored value.
+function extractMapsSrc(raw) {
+  if (!raw) return null
+  const s = String(raw).trim()
+  const iframeIdx = s.indexOf('<iframe')
+  if (iframeIdx === -1) return s
+  const srcIdx = s.indexOf('src=', iframeIdx)
+  if (srcIdx === -1) return null
+  const afterEq = srcIdx + 4
+  const quoteChar = s.charAt(afterEq)
+  if (quoteChar !== '"' && quoteChar !== '\'') return null
+  const endIdx = s.indexOf(quoteChar, afterEq + 1)
+  if (endIdx === -1) return null
+  return s.slice(afterEq + 1, endIdx)
+}
+
+function buildDirectionsUrl(c) {
+  if (c.latitude != null && c.longitude != null) {
+    return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(`${c.latitude},${c.longitude}`)
+  }
+  const addr = [c.address_line1, c.address_line2, c.city, c.postcode, c.country].filter(Boolean).join(', ')
+  return addr ? ('https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(addr)) : null
+}
+
 export function FindUsCanvas({ data, onChange, config }) {
   const c = config || {}
   const addressLines = [
     c.address_line1, c.address_line2,
     [c.city, c.postcode].filter(Boolean).join(' '),
   ].filter(Boolean)
-  const has = addressLines.length > 0 || c.google_maps_embed_url
+  const mapsSrc = extractMapsSrc(c.google_maps_embed_url)
+  const showAddress = data.hide_address !== true
+  const showPhone   = data.hide_phone   !== true
+  const showEmail   = data.hide_email   !== true
+  const directionsUrl = data.show_directions_button ? buildDirectionsUrl(c) : null
+  const has = addressLines.length > 0 || mapsSrc
   return (
     <section className="block" style={{ padding: '48px 0', background: 'var(--c-surface)' }}>
       <div style={innerContainerStyle(data.container, data.boxed_step)}>
@@ -73,20 +104,30 @@ export function FindUsCanvas({ data, onChange, config }) {
         {has ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32 }}>
             <div>
-              {addressLines.map((line, i) => (
+              {showAddress && addressLines.map((line, i) => (
                 <p key={i} style={{ margin: 0, fontSize: 17, lineHeight: 1.6 }}>{line}</p>
               ))}
-              {c.phone && <p style={{ marginTop: 12 }}><strong>Phone:</strong> <span style={{ color: 'var(--c-primary)' }}>{c.phone}</span></p>}
-              {c.email && <p><strong>Email:</strong> <span style={{ color: 'var(--c-primary)' }}>{c.email}</span></p>}
+              {showPhone && c.phone && <p style={{ marginTop: 12 }}><strong>Phone:</strong> <span style={{ color: 'var(--c-primary)' }}>{c.phone}</span></p>}
+              {showEmail && c.email && <p><strong>Email:</strong> <span style={{ color: 'var(--c-primary)' }}>{c.email}</span></p>}
+              {data.directions_html && (
+                <div style={{ marginTop: 12, fontSize: 15, lineHeight: 1.6, color: 'var(--c-muted)' }}
+                  dangerouslySetInnerHTML={{ __html: data.directions_html }} />
+              )}
+              {directionsUrl && (
+                <span style={{
+                  display: 'inline-block', marginTop: 16, background: 'var(--c-primary)', color: '#fff',
+                  padding: '12px 24px', borderRadius: 'var(--r-md, 4px)', fontWeight: 600,
+                }}>{data.directions_button_text || 'Get directions'}</span>
+              )}
             </div>
             <div style={{
               borderRadius: 'var(--r-md, 8px)', overflow: 'hidden', minHeight: 240,
-              background: c.google_maps_embed_url ? 'transparent' : 'rgba(0,0,0,0.04)',
+              background: mapsSrc ? 'transparent' : 'rgba(0,0,0,0.04)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: 'var(--c-muted)', fontSize: 13,
             }}>
-              {c.google_maps_embed_url
-                ? <iframe src={c.google_maps_embed_url} style={{ width: '100%', height: '100%', minHeight: 240, border: 0 }} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+              {mapsSrc
+                ? <iframe src={mapsSrc} style={{ width: '100%', height: '100%', minHeight: 240, border: 0 }} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
                 : <span style={{ fontStyle: 'italic' }}>Map will appear here when Google Maps embed URL is set in Find us section.</span>}
             </div>
           </div>
