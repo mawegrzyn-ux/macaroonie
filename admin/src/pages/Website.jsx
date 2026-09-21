@@ -17,6 +17,7 @@ import {
   AlertTriangle, Clock, MapPin, Phone, ShoppingBag, Truck, Calendar,
   Search, BarChart3, Eye, EyeOff, Check, X, Upload, Trash2, GripVertical,
   Plus, ExternalLink, Loader2, HelpCircle, Copy, Shield, Megaphone,
+  PanelTop, PanelBottom,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -33,6 +34,8 @@ import { PageBuilder } from '@/components/website-builder/PageBuilder'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 import ReservationsWidget from '@/pages/ReservationsWidget'
 import { BrandLayoutSection } from '@/components/website-builder/BrandLayoutSection'
+import { BrandHeaderSection } from '@/components/website-builder/BrandHeaderSection'
+import { BrandFooterSection } from '@/components/website-builder/BrandFooterSection'
 
 // ── Section lists ────────────────────────────────────────────
 //
@@ -43,8 +46,10 @@ import { BrandLayoutSection } from '@/components/website-builder/BrandLayoutSect
 const withMode = (items, mode) => items.map(i => ({ ...i, mode }))
 
 const PAGES_TENANT = [
-  { key: 'tenant-page',  label: 'Home',           icon: LayoutTemplate },
-  { key: 'tenant-pages', label: 'Pages & modals', icon: FileText },
+  { key: 'tenant-page',   label: 'Home',           icon: LayoutTemplate },
+  { key: 'tenant-pages',  label: 'Pages & modals', icon: FileText },
+  { key: 'tenant-header', label: 'Header',         icon: PanelTop },
+  { key: 'tenant-footer', label: 'Footer',         icon: PanelBottom },
 ]
 const PAGES_VENUE = [
   { key: 'page',     label: 'Location page',  icon: LayoutTemplate },
@@ -3679,6 +3684,8 @@ function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, on
         <BrandLayoutSection />
       </div>
     )
+    case 'tenant-header':    return <BrandHeaderSection />
+    case 'tenant-footer':    return <BrandFooterSection />
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />
     case 'tenant-pages':     return <PagesSection venueId={null} tenantSite={tenantSite} venues={venues} tenantName={tenantName} />
     case 'tenant-legal':     return <TenantLegalSection     tenantSite={tenantSite} />
