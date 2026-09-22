@@ -420,11 +420,12 @@ const cookiesPolicyHref = (cookiesPage && cookiesPage.kind === 'modal') ? '#moda
       max-width: 1100px; margin: 0 auto;
       display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
     ">
-      <span style="flex: 1; min-width: 240px;">
-        <%= bannerText %>
-        <a href="<%= cookiesPolicyHref %>" style="color: #fff; text-decoration: underline; margin-left: 6px;">Read more</a>
-      </span>
-      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+      <!-- Buttons come first in source order so they land in the bottom-left
+           corner of the bar — the bottom-right corner is where the
+           reservations widget's floating launch button lives (see
+           guestplan_widget.eta's fixed right:20px; bottom:20px button),
+           and the two were overlapping when the buttons sat on the right. -->
+      <div style="display: flex; gap: 10px; flex-wrap: wrap; order: 1;">
         <% if (declineText) { %>
           <button type="button" id="mc-cookie-decline" style="
             background: transparent; color: #f5f5f5;
@@ -442,6 +443,10 @@ const cookiesPolicyHref = (cookiesPage && cookiesPage.kind === 'modal') ? '#moda
           font-family: inherit;
         "><%= acceptText %></button>
       </div>
+      <span style="flex: 1; min-width: 240px; order: 2;">
+        <%= bannerText %>
+        <a href="<%= cookiesPolicyHref %>" style="color: #fff; text-decoration: underline; margin-left: 6px;">Read more</a>
+      </span>
     </div>
   </div>
   <script>
