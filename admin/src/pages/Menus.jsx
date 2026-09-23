@@ -5,8 +5,9 @@
 //   list  — table of all menus for the tenant + create + seed buttons
 //   edit  — sections + dish list in the middle, a right-hand drawer for
 //           editing one dish's full details. Menu-level details (name,
-//           slug, tagline, scope…) are edited in a modal via the pencil
-//           button next to the menu name, not inline on the page.
+//           slug, tagline, scope, print/variant display options…) are
+//           edited in a modal via the Settings button in the header,
+//           not inline on the page.
 //
 // Dietary tags and variant groups are tenant-wide and managed on their
 // own pages (see AppShell's Menus > Variant groups / Dietary groups)
@@ -18,7 +19,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Trash2, Loader2, X, ChevronDown, ChevronRight,
-  Sparkles, Printer, Image as ImageIcon, Layers, Pencil, GripVertical, Copy,
+  Sparkles, Printer, Image as ImageIcon, Layers, GripVertical, Copy,
+  Settings as SettingsIcon,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -292,6 +294,8 @@ function MenuEditor({ id, onBack }) {
         print_columns: draft.print_columns ?? 4,
         print_orientation: draft.print_orientation || 'landscape',
         print_paper_size: draft.print_paper_size || 'A4',
+        print_hide_variant_group_headers: !!draft.print_hide_variant_group_headers,
+        hide_zero_priced_variants: !!draft.hide_zero_priced_variants,
         sections: (draft.sections || []).map((s, si) => ({
           title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
           sort_order: si,
@@ -372,17 +376,15 @@ function MenuEditor({ id, onBack }) {
             ← All menus
           </button>
           <div className="min-w-0">
-            <p className="text-sm font-semibold truncate inline-flex items-center gap-1.5">
-              {draft.name}
-              <button onClick={() => setDetailsOpen(true)}
-                className="text-muted-foreground hover:text-primary p-0.5 rounded shrink-0" title="Edit menu details">
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-            </p>
+            <p className="text-sm font-semibold truncate">{draft.name}</p>
             <p className="text-xs text-muted-foreground truncate">/menus/{draft.slug}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setDetailsOpen(true)}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2 min-h-[44px] touch-manipulation">
+            <SettingsIcon className="w-3.5 h-3.5" /> Settings
+          </button>
           {dirty ? (
             <span title="Save your changes first — the print page shows what's saved, not this draft."
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 cursor-not-allowed select-none">
@@ -505,11 +507,21 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
               <TextArea value={draft.intro_line || ''} onChange={e => onChange('intro_line', e.target.value)} rows={2} />
             </Field>
           </div>
-          <div className="sm:col-span-2">
-            <label className="inline-flex items-center gap-2 text-sm">
+          <div className="sm:col-span-2 space-y-2 pt-1 border-t">
+            <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
               <input type="checkbox" checked={!!draft.is_published}
                 onChange={e => onChange('is_published', e.target.checked)} />
               Published — make this menu visible on the website + printable
+            </label>
+            <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
+              <input type="checkbox" checked={!!draft.print_hide_variant_group_headers}
+                onChange={e => onChange('print_hide_variant_group_headers', e.target.checked)} />
+              Don't print variant group headers (e.g. "Choose your protein")
+            </label>
+            <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
+              <input type="checkbox" checked={!!draft.hide_zero_priced_variants}
+                onChange={e => onChange('hide_zero_priced_variants', e.target.checked)} />
+              Don't show a price on zero-priced variants (print + website)
             </label>
           </div>
         </div>

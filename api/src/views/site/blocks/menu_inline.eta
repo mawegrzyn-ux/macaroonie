@@ -28,6 +28,15 @@ const _blockId = `mi-${(it.block.id || Math.random().toString(36).slice(2, 8)).t
 const _sectionFilter = Array.isArray(d.section_ids) ? d.section_ids : []
 const _itemFilter    = Array.isArray(d.item_ids)    ? d.item_ids    : []
 const _hidePrices    = !!d.hide_prices
+// Per-menu toggle (Menu details > Settings) — a variant priced at exactly
+// 0 is "included, no upcharge"; suppress just its price text (the option
+// label still shows), same treatment a NULL price already gets from
+// fmtPrice below. Independent of _hidePrices, which hides every price.
+const _hideZeroPriced = !!(menu && menu.hide_zero_priced_variants)
+function fmtVariantPrice(p) {
+  if (_hideZeroPriced && Number(p) === 0) return ''
+  return fmtPrice(p)
+}
 function _keepSection(s) {
   if (!_sectionFilter.length) return true
   return _sectionFilter.indexOf(s.id) !== -1
@@ -148,7 +157,7 @@ function _keepItem(item) {
                         <div style="display:grid; grid-template-columns:1fr auto; gap:0 8px; margin-top:2px; font-size:0.88rem;">
                           <% g.options.forEach(function(v){ %>
                             <span style="color:var(--c-text);"><%= v.label %></span>
-                            <span style="font-family:var(--f-heading); color:var(--c-primary); font-variant-numeric:tabular-nums; text-align:right;"><%= fmtPrice(v.price_pence) %></span>
+                            <span style="font-family:var(--f-heading); color:var(--c-primary); font-variant-numeric:tabular-nums; text-align:right;"><%= fmtVariantPrice(v.price_pence) %></span>
                           <% }) %>
                         </div>
                       <% } else if (g.options && g.options.length) { %>
@@ -162,7 +171,7 @@ function _keepItem(item) {
                         <div style="display:grid; grid-template-columns:1fr auto; gap:0 8px; margin-top:6px; font-size:0.88rem;">
                           <% _adhoc.forEach(function(v){ %>
                             <span style="color:var(--c-text);"><%= v.label %></span>
-                            <span style="font-family:var(--f-heading); color:var(--c-primary); font-variant-numeric:tabular-nums; text-align:right;"><%= fmtPrice(v.price_pence) %></span>
+                            <span style="font-family:var(--f-heading); color:var(--c-primary); font-variant-numeric:tabular-nums; text-align:right;"><%= fmtVariantPrice(v.price_pence) %></span>
                           <% }) %>
                         </div>
                       <% } else { %>
