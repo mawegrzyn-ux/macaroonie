@@ -42,6 +42,7 @@ import changelogRoutes       from './routes/changelog.js'
 import orderSheetsRoutes     from './routes/orderSheets.js'
 import testDataRoutes        from './routes/testData.js'
 import foodSafetyRoutes      from './routes/foodSafety.js'
+import checklistsRoutes      from './routes/checklists.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -178,6 +179,7 @@ export async function buildApp() {
   await app.register(orderSheetsRoutes,      { prefix: '/api/order-sheets' })
   await app.register(testDataRoutes,         { prefix: '/api/venues' })
   await app.register(foodSafetyRoutes,       { prefix: '/api/food-safety' })
+  await app.register(checklistsRoutes,       { prefix: '/api/checklists' })
   await app.register(manageBookingRoutes, { prefix: '/manage' })
 
   // ── Health check ─────────────────────────────────────────

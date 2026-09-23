@@ -11,6 +11,7 @@ import {
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
   Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand, MessageSquare,
   AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList, Tag, FlaskConical, Thermometer,
+  ListChecks,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -62,6 +63,7 @@ const NAV_SECTIONS = [
       },
       { label: 'Cash recon', to: '/cash-recon', icon: Wallet, module: 'cash_recon' },
       { label: 'Food safety', to: '/food-safety', icon: Thermometer, module: 'food_safety' },
+      { label: 'Checklists', to: '/checklists', icon: ListChecks, module: 'checklists' },
     ],
   },
   {
