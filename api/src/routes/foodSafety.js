@@ -78,27 +78,69 @@ const DeliveryBody = z.object({
   recorded_by:        z.string().max(200).nullable().optional(),
 })
 
+// ── Hold stations (the "fridges-style" setup for hot/cold hold) ──
+const HoldStationBody = z.object({
+  venue_id:       z.string().uuid(),
+  name:           z.string().min(1).max(200),
+  hold_type:      z.enum(['hot_hold', 'cold_hold']),
+  target_temp_c:  z.number().nullable().optional(),
+  min_temp_c:     z.number().nullable().optional(),
+  max_temp_c:     z.number().nullable().optional(),
+  location:       z.string().max(200).nullable().optional(),
+  notes:          z.string().max(2000).nullable().optional(),
+  is_active:      z.boolean().optional(),
+  sort_order:     z.number().int().optional(),
+})
+const HoldStationPatch = HoldStationBody.partial().omit({ venue_id: true })
+
+const HoldCaptureTimeBody = z.object({
+  venue_id:    z.string().uuid(),
+  label:       z.string().min(1).max(100),
+  time_of_day: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
+  sort_order:  z.number().int().optional(),
+})
+const HoldCaptureTimePatch = HoldCaptureTimeBody.partial().omit({ venue_id: true }).extend({
+  is_active: z.boolean().optional(),
+})
+
 const HoldBody = z.object({
   venue_id:           z.string().uuid(),
+  station_id:         z.string().uuid(),
+  capture_time_id:    z.string().uuid().nullable().optional(),
   check_date:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  hold_type:          z.enum(['hot_hold', 'cold_hold']),
-  item_name:          z.string().min(1).max(200),
   temperature_c:      z.number(),
   corrective_action:  z.string().max(2000).nullable().optional(),
   notes:              z.string().max(2000).nullable().optional(),
   recorded_by:        z.string().max(200).nullable().optional(),
 })
 
+// ── Cooking sessions (frequency + how many items must be checked) ──
+const CookingSessionBody = z.object({
+  venue_id:              z.string().uuid(),
+  label:                 z.string().min(1).max(100),
+  time_of_day:           z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).nullable().optional(),
+  required_items_count:  z.number().int().min(1).max(100).optional(),
+  sort_order:            z.number().int().optional(),
+})
+const CookingSessionPatch = CookingSessionBody.partial().omit({ venue_id: true }).extend({
+  is_active: z.boolean().optional(),
+})
+
 const CookingBody = z.object({
   venue_id:           z.string().uuid(),
+  session_id:         z.string().uuid().nullable().optional(),
+  menu_item_id:       z.string().uuid().nullable().optional(),
+  dish_name:          z.string().min(1).max(200).nullable().optional(),
   check_date:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  dish_name:          z.string().min(1).max(200),
   core_temp_c:        z.number(),
   hold_seconds:       z.number().int().nullable().optional(),
   corrective_action:  z.string().max(2000).nullable().optional(),
   notes:              z.string().max(2000).nullable().optional(),
   recorded_by:        z.string().max(200).nullable().optional(),
-})
+}).refine(
+  b => !!b.menu_item_id || !!(b.dish_name && b.dish_name.trim()),
+  { message: 'Either menu_item_id or dish_name is required' },
+)
 
 function applyEquipmentDefaults(body) {
   const d = DEFAULT_TEMPS[body.equipment_type] || DEFAULT_TEMPS.other
@@ -380,23 +422,168 @@ export default async function foodSafetyRoutes(app) {
     return row
   })
 
+  // ── Hold stations ─────────────────────────────────────────
+  // The "fridges-style" setup for hot/cold hold checks — named
+  // stations with their own target/min/max, kept as their own tab
+  // rather than folded into fs_equipment.
+
+  app.get('/hold-stations', {
+    preHandler: requirePermission('food_safety', 'view'),
+  }, async (req) => {
+    const { venue_id, active } = req.query
+    if (!venue_id) throw httpError(400, 'venue_id required')
+
+    return withTenant(req.tenantId, tx => {
+      const activeFilter = active === 'all' ? tx`` : tx`AND s.is_active = true`
+      return tx`
+        SELECT s.* FROM fs_hold_stations s
+         WHERE s.tenant_id = ${req.tenantId}
+           AND s.venue_id  = ${venue_id}
+           ${activeFilter}
+         ORDER BY s.sort_order, s.name
+      `
+    })
+  })
+
+  app.post('/hold-stations', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = HoldStationBody.parse(req.body)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO fs_hold_stations
+        (tenant_id, venue_id, name, hold_type, target_temp_c, min_temp_c, max_temp_c,
+         location, notes, is_active, sort_order)
+      VALUES
+        (${req.tenantId}, ${body.venue_id}, ${body.name}, ${body.hold_type},
+         ${body.target_temp_c ?? null}, ${body.min_temp_c ?? null}, ${body.max_temp_c ?? null},
+         ${body.location ?? null}, ${body.notes ?? null},
+         ${body.is_active ?? true}, ${body.sort_order ?? 0})
+      RETURNING *
+    `)
+    return row
+  })
+
+  app.patch('/hold-stations/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = HoldStationPatch.parse(req.body)
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_hold_stations
+         SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
+             updated_at = now()
+       WHERE id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Hold station not found')
+    return row
+  })
+
+  app.delete('/hold-stations/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_hold_stations
+         SET is_active = false, updated_at = now()
+       WHERE id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Hold station not found')
+    return row
+  })
+
+  // ── Hold capture times ────────────────────────────────────
+
+  app.get('/hold-capture-times', {
+    preHandler: requirePermission('food_safety', 'view'),
+  }, async (req) => {
+    const { venue_id, active } = req.query
+    if (!venue_id) throw httpError(400, 'venue_id required')
+
+    return withTenant(req.tenantId, tx => {
+      const activeFilter = active === 'all' ? tx`` : tx`AND c.is_active = true`
+      return tx`
+        SELECT c.* FROM fs_hold_capture_times c
+         WHERE c.tenant_id = ${req.tenantId}
+           AND c.venue_id  = ${venue_id}
+           ${activeFilter}
+         ORDER BY c.time_of_day, c.sort_order
+      `
+    })
+  })
+
+  app.post('/hold-capture-times', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = HoldCaptureTimeBody.parse(req.body)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO fs_hold_capture_times (tenant_id, venue_id, label, time_of_day, sort_order)
+      VALUES (${req.tenantId}, ${body.venue_id}, ${body.label}, ${body.time_of_day}, ${body.sort_order ?? 0})
+      RETURNING *
+    `)
+    return row
+  })
+
+  app.patch('/hold-capture-times/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = HoldCaptureTimePatch.parse(req.body)
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_hold_capture_times
+         SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
+             updated_at = now()
+       WHERE id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Hold capture time not found')
+    return row
+  })
+
+  app.delete('/hold-capture-times/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_hold_capture_times
+         SET is_active = false, updated_at = now()
+       WHERE id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Hold capture time not found')
+    return row
+  })
+
   // ── Hold checks ───────────────────────────────────────────
 
   app.get('/holds', {
     preHandler: requirePermission('food_safety', 'view'),
   }, async (req) => {
-    const { venue_id, date, hold_type, limit = '50' } = req.query
+    const { venue_id, date, from, to, limit = '100' } = req.query
     if (!venue_id) throw httpError(400, 'venue_id required')
-    const lim = Math.min(parseInt(limit, 10) || 50, 200)
+    const lim = Math.min(parseInt(limit, 10) || 100, 500)
 
     return withTenant(req.tenantId, tx => {
-      const dateFilter = date ? tx`AND h.check_date = ${date}` : tx``
-      const typeFilter = hold_type ? tx`AND h.hold_type = ${hold_type}` : tx``
+      const dateFilter = date
+        ? tx`AND h.check_date = ${date}`
+        : from || to
+          ? tx`AND h.check_date >= ${from || '1970-01-01'} AND h.check_date <= ${to || '2999-12-31'}`
+          : tx``
       return tx`
-        SELECT h.* FROM fs_hold_checks h
+        SELECT h.*, s.name AS station_name, s.hold_type,
+               s.target_temp_c, s.min_temp_c, s.max_temp_c
+          FROM fs_hold_checks h
+          JOIN fs_hold_stations s ON s.id = h.station_id
          WHERE h.tenant_id = ${req.tenantId}
            AND h.venue_id  = ${venue_id}
-           ${dateFilter} ${typeFilter}
+           ${dateFilter}
          ORDER BY h.check_date DESC, h.recorded_at DESC
          LIMIT ${lim}
       `
@@ -407,24 +594,142 @@ export default async function foodSafetyRoutes(app) {
     preHandler: requirePermission('food_safety', 'manage'),
   }, async (req) => {
     const body = HoldBody.parse(req.body)
-    const checkDate = body.check_date || new Date().toISOString().slice(0, 10)
-    // hot ≥63, cold ≤8
-    const inRange = body.hold_type === 'hot_hold'
-      ? body.temperature_c >= 63
-      : body.temperature_c <= 8
 
+    const [station] = await withTenant(req.tenantId, tx => tx`
+      SELECT id, min_temp_c, max_temp_c FROM fs_hold_stations
+       WHERE id = ${body.station_id} AND tenant_id = ${req.tenantId}
+         AND venue_id = ${body.venue_id}
+    `)
+    if (!station) throw httpError(404, 'Hold station not found')
+
+    if (body.capture_time_id) {
+      const [ct] = await withTenant(req.tenantId, tx => tx`
+        SELECT id FROM fs_hold_capture_times
+         WHERE id = ${body.capture_time_id} AND tenant_id = ${req.tenantId}
+           AND venue_id = ${body.venue_id}
+      `)
+      if (!ct) throw httpError(404, 'Capture time not found')
+    }
+
+    const inRange = withinRange(body.temperature_c, station.min_temp_c, station.max_temp_c)
+    const checkDate = body.check_date || new Date().toISOString().slice(0, 10)
+
+    // Slot-linked readings upsert (re-logging the same station/slot/day
+    // corrects the existing row); ad-hoc readings (no capture_time_id)
+    // always insert a new row — same pattern as fs_temp_logs.
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO fs_hold_checks
-        (tenant_id, venue_id, check_date, hold_type, item_name, temperature_c,
+        (tenant_id, venue_id, station_id, capture_time_id, check_date, temperature_c,
          is_within_range, corrective_action, notes, recorded_by)
       VALUES
-        (${req.tenantId}, ${body.venue_id}, ${checkDate}, ${body.hold_type},
-         ${body.item_name}, ${body.temperature_c}, ${inRange},
+        (${req.tenantId}, ${body.venue_id}, ${body.station_id}, ${body.capture_time_id ?? null}, ${checkDate},
+         ${body.temperature_c}, ${inRange},
          ${body.corrective_action ?? null}, ${body.notes ?? null},
          ${body.recorded_by ?? req.user?.email ?? null})
+      ON CONFLICT (station_id, check_date, capture_time_id) WHERE capture_time_id IS NOT NULL
+      DO UPDATE SET
+        temperature_c     = EXCLUDED.temperature_c,
+        is_within_range   = EXCLUDED.is_within_range,
+        corrective_action = EXCLUDED.corrective_action,
+        notes             = EXCLUDED.notes,
+        recorded_by       = EXCLUDED.recorded_by,
+        recorded_at       = now()
       RETURNING *
     `)
     return row
+  })
+
+  // ── Cooking sessions ──────────────────────────────────────
+  // How many times a day cooking checks happen, and how many items
+  // must be checked in each session to meet criteria.
+
+  app.get('/cooking-sessions', {
+    preHandler: requirePermission('food_safety', 'view'),
+  }, async (req) => {
+    const { venue_id, active } = req.query
+    if (!venue_id) throw httpError(400, 'venue_id required')
+
+    return withTenant(req.tenantId, tx => {
+      const activeFilter = active === 'all' ? tx`` : tx`AND s.is_active = true`
+      return tx`
+        SELECT s.* FROM fs_cooking_sessions s
+         WHERE s.tenant_id = ${req.tenantId}
+           AND s.venue_id  = ${venue_id}
+           ${activeFilter}
+         ORDER BY s.sort_order, s.time_of_day NULLS LAST, s.label
+      `
+    })
+  })
+
+  app.post('/cooking-sessions', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = CookingSessionBody.parse(req.body)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      INSERT INTO fs_cooking_sessions (tenant_id, venue_id, label, time_of_day, required_items_count, sort_order)
+      VALUES (${req.tenantId}, ${body.venue_id}, ${body.label}, ${body.time_of_day ?? null},
+              ${body.required_items_count ?? 1}, ${body.sort_order ?? 0})
+      RETURNING *
+    `)
+    return row
+  })
+
+  app.patch('/cooking-sessions/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = CookingSessionPatch.parse(req.body)
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_cooking_sessions
+         SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
+             updated_at = now()
+       WHERE id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Cooking session not found')
+    return row
+  })
+
+  app.delete('/cooking-sessions/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_cooking_sessions
+         SET is_active = false, updated_at = now()
+       WHERE id = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Cooking session not found')
+    return row
+  })
+
+  // ── Menu items for the cooking-check picker ───────────────
+  // Flattened section (category) + item list for the venue's published
+  // menu(s) — just enough for "categories as tabs, items as buttons".
+  // Tenant-wide menus (venue_id IS NULL) are included alongside the
+  // venue's own, same inheritance rule the public site uses.
+
+  app.get('/cooking/menu-items', {
+    preHandler: requirePermission('food_safety', 'view'),
+  }, async (req) => {
+    const { venue_id } = req.query
+    if (!venue_id) throw httpError(400, 'venue_id required')
+
+    return withTenant(req.tenantId, tx => tx`
+      SELECT s.id AS section_id, s.title AS section_title, s.sort_order AS section_sort,
+             i.id AS item_id, i.name AS item_name, i.sort_order AS item_sort
+        FROM menu_items i
+        JOIN menu_sections s ON s.id = i.section_id
+        JOIN menus m ON m.id = s.menu_id
+       WHERE i.tenant_id = ${req.tenantId}
+         AND m.is_published = true
+         AND (m.venue_id = ${venue_id} OR m.venue_id IS NULL)
+       ORDER BY m.sort_order, s.sort_order, i.sort_order
+    `)
   })
 
   // ── Cooking checks ────────────────────────────────────────
@@ -439,7 +744,9 @@ export default async function foodSafetyRoutes(app) {
     return withTenant(req.tenantId, tx => {
       const dateFilter = date ? tx`AND c.check_date = ${date}` : tx``
       return tx`
-        SELECT c.* FROM fs_cooking_checks c
+        SELECT c.*, s.label AS session_label, s.required_items_count
+          FROM fs_cooking_checks c
+          LEFT JOIN fs_cooking_sessions s ON s.id = c.session_id
          WHERE c.tenant_id = ${req.tenantId}
            AND c.venue_id  = ${venue_id}
            ${dateFilter}
@@ -456,13 +763,36 @@ export default async function foodSafetyRoutes(app) {
     const checkDate = body.check_date || new Date().toISOString().slice(0, 10)
     const inRange = body.core_temp_c >= 75
 
+    // A durable compliance record must keep showing what was checked even
+    // if the menu item is later renamed/removed, so dish_name is captured
+    // now rather than looked up live via menu_item_id on every read.
+    let dishName = body.dish_name?.trim() || null
+    if (body.menu_item_id) {
+      const [item] = await withTenant(req.tenantId, tx => tx`
+        SELECT i.name FROM menu_items i
+         WHERE i.id = ${body.menu_item_id} AND i.tenant_id = ${req.tenantId}
+      `)
+      if (!item) throw httpError(404, 'Menu item not found')
+      dishName = item.name
+    }
+    if (!dishName) throw httpError(400, 'Either menu_item_id or dish_name is required')
+
+    if (body.session_id) {
+      const [session] = await withTenant(req.tenantId, tx => tx`
+        SELECT id FROM fs_cooking_sessions
+         WHERE id = ${body.session_id} AND tenant_id = ${req.tenantId}
+           AND venue_id = ${body.venue_id}
+      `)
+      if (!session) throw httpError(404, 'Cooking session not found')
+    }
+
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO fs_cooking_checks
-        (tenant_id, venue_id, check_date, dish_name, core_temp_c, hold_seconds,
+        (tenant_id, venue_id, check_date, session_id, menu_item_id, dish_name, core_temp_c, hold_seconds,
          is_within_range, corrective_action, notes, recorded_by)
       VALUES
-        (${req.tenantId}, ${body.venue_id}, ${checkDate}, ${body.dish_name},
-         ${body.core_temp_c}, ${body.hold_seconds ?? null}, ${inRange},
+        (${req.tenantId}, ${body.venue_id}, ${checkDate}, ${body.session_id ?? null}, ${body.menu_item_id ?? null},
+         ${dishName}, ${body.core_temp_c}, ${body.hold_seconds ?? null}, ${inRange},
          ${body.corrective_action ?? null}, ${body.notes ?? null},
          ${body.recorded_by ?? req.user?.email ?? null})
       RETURNING *

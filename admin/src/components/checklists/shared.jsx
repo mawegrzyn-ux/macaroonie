@@ -5,11 +5,14 @@
 // tick-and-save panel for a single checklist occurrence, so it lives
 // here once rather than being copied.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Check, RotateCcw } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
+
+const NOTES_AUTOSAVE_DEBOUNCE_MS = 800
 
 export const FREQUENCY_LABELS = { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' }
 
@@ -20,24 +23,33 @@ export function periodLabel(frequency, periodStart) {
   return format(d, 'EEEE d MMM')
 }
 
-// Tick-list + notes + save/complete/reopen flow for one checklist occurrence
-// (a single day/week/month period of one template). Self-contained data
-// fetching so it can be dropped into a modal (Checklists page) or a
-// dashboard card (H&S Dashboard) without prop drilling. `onClose`, if
-// given, shows a close button and is called after "Mark complete" / "Yes,
-// reopen" (not after "Save progress", which keeps the panel open).
+// Tick-list + notes + complete/reopen flow for one checklist occurrence (a
+// single day/week/month period of one template). Ticks and notes autosave
+// — there's no "Save progress" button — while "Mark complete"/"Reopen"
+// stay explicit actions since they're a status transition, not just
+// editing the tick state. Self-contained data fetching so it can be
+// dropped into a modal (Checklists page) or a dashboard card (H&S
+// Dashboard) without prop drilling. `onClose`, if given, shows a close
+// button and is called after "Mark complete" / "Yes, reopen".
 export function ChecklistRunPanel({ template, date, onClose, hideHeader = false }) {
   const api = useApi()
   const qc = useQueryClient()
   const [checks, setChecks] = useState({})
   const [notes, setNotes] = useState('')
   const [confirmReopen, setConfirmReopen] = useState(false)
+  const notesTimerRef = useRef(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['checklist-instance', template.id, date],
     queryFn: () => api.get(`/checklists/instance?template_id=${template.id}&date=${date}`),
   })
 
+  // Keyed on period_start + instance id rather than the whole `data`
+  // object: a background refetch of the SAME period (triggered by our own
+  // autosave invalidation below) must not clobber an in-flight local edit
+  // the operator just made while that refetch was in transit. Genuinely
+  // switching to a different period (or an instance being created by the
+  // very first save) still re-syncs correctly since one of these changes.
   useEffect(() => {
     if (!data) return
     const initial = {}
@@ -46,7 +58,10 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false 
     }
     setChecks(initial)
     setNotes(data.instance?.notes ?? '')
-  }, [data])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.period_start, data?.instance?.id])
+
+  useEffect(() => () => { if (notesTimerRef.current) clearTimeout(notesTimerRef.current) }, [])
 
   // Deliberately invalidates every cached DATE for this template, not just
   // the one just saved — a weekly/monthly instance is shared across many
@@ -58,23 +73,45 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false 
     qc.invalidateQueries({ queryKey: ['checklists-due'] })
   }
 
-  function buildBody(markComplete) {
+  function buildBody(markComplete, checksOverride, notesOverride) {
+    const c = checksOverride ?? checks
+    const n = notesOverride ?? notes
     return {
       template_id: template.id,
       date,
-      items: (data?.items ?? []).map(it => ({ template_item_id: it.id, checked: !!checks[it.id] })),
-      notes: notes.trim() || null,
+      items: (data?.items ?? []).map(it => ({ template_item_id: it.id, checked: !!c[it.id] })),
+      notes: (n ?? '').trim() || null,
       mark_complete: markComplete,
     }
   }
 
   const save = useMutation({
-    mutationFn: (markComplete) => api.put('/checklists/instance', buildBody(markComplete)),
-    onSuccess: (_, markComplete) => {
+    mutationFn: ({ markComplete, checksOverride, notesOverride }) =>
+      api.put('/checklists/instance', buildBody(markComplete, checksOverride, notesOverride)),
+    onSuccess: (_, { markComplete }) => {
       invalidate()
       if (markComplete !== undefined) onClose?.()
     },
   })
+
+  function toggleCheck(itemId, checked) {
+    const nextChecks = { ...checks, [itemId]: checked }
+    setChecks(nextChecks)
+    save.mutate({ markComplete: undefined, checksOverride: nextChecks })
+  }
+
+  function handleNotesChange(value) {
+    setNotes(value)
+    if (notesTimerRef.current) clearTimeout(notesTimerRef.current)
+    notesTimerRef.current = setTimeout(() => {
+      save.mutate({ markComplete: undefined, notesOverride: value })
+    }, NOTES_AUTOSAVE_DEBOUNCE_MS)
+  }
+
+  function flushNotes() {
+    if (notesTimerRef.current) { clearTimeout(notesTimerRef.current); notesTimerRef.current = null }
+    save.mutate({ markComplete: undefined, notesOverride: notes })
+  }
 
   const isCompleted = data?.instance?.status === 'completed'
   const checkedCount = Object.values(checks).filter(Boolean).length
@@ -112,9 +149,12 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false 
           <ul className="border rounded-lg divide-y mb-3">
             {(data?.items ?? []).map(it => (
               <li key={it.id}>
-                <label className="flex items-start gap-3 px-3 py-3 cursor-pointer touch-manipulation min-h-[48px]">
-                  <input type="checkbox" checked={!!checks[it.id]}
-                    onChange={e => setChecks(prev => ({ ...prev, [it.id]: e.target.checked }))}
+                <label className={cn(
+                  'flex items-start gap-3 px-3 py-3 touch-manipulation min-h-[48px]',
+                  isCompleted ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                )}>
+                  <input type="checkbox" checked={!!checks[it.id]} disabled={isCompleted}
+                    onChange={e => toggleCheck(it.id, e.target.checked)}
                     className="mt-0.5 w-5 h-5 shrink-0 touch-manipulation" />
                   <span className="text-sm leading-snug">{it.label}</span>
                 </label>
@@ -123,20 +163,15 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false 
           </ul>
 
           <label className="block text-xs font-medium mb-1">Notes</label>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-            className="w-full border rounded px-3 py-2 text-sm bg-background resize-none mb-4" />
+          <textarea value={notes} onChange={e => handleNotesChange(e.target.value)} onBlur={flushNotes}
+            disabled={isCompleted} rows={2}
+            className="w-full border rounded px-3 py-2 text-sm bg-background resize-none mb-4 disabled:opacity-60" />
 
           {!isCompleted ? (
-            <div className="flex gap-2">
-              <button type="button" onClick={() => save.mutate(undefined)} disabled={save.isPending}
-                className="flex-1 border rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
-                Save progress
-              </button>
-              <button type="button" onClick={() => save.mutate(true)} disabled={save.isPending}
-                className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
-                {save.isPending ? 'Saving…' : 'Mark complete'}
-              </button>
-            </div>
+            <button type="button" onClick={() => save.mutate({ markComplete: true })} disabled={save.isPending}
+              className="w-full bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
+              {save.isPending ? 'Saving…' : 'Mark complete'}
+            </button>
           ) : !confirmReopen ? (
             <button type="button" onClick={() => setConfirmReopen(true)}
               className="w-full inline-flex items-center justify-center gap-1.5 border border-amber-300 text-amber-700 rounded px-4 py-2 text-sm font-medium min-h-[44px] hover:bg-amber-50 touch-manipulation">
@@ -146,7 +181,7 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false 
             <div className="border border-amber-300 rounded-lg p-3 space-y-2">
               <p className="text-xs text-amber-800">Reopen so changes can be made? It will show as not-yet-completed again.</p>
               <div className="flex gap-2">
-                <button type="button" onClick={() => save.mutate(false)} disabled={save.isPending}
+                <button type="button" onClick={() => save.mutate({ markComplete: false })} disabled={save.isPending}
                   className="flex-1 bg-amber-600 text-white rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
                   {save.isPending ? 'Working…' : 'Yes, reopen'}
                 </button>

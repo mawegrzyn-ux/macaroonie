@@ -5,11 +5,14 @@
 // capture-time grid, delivery/hold/cooking check logs and their
 // logging forms, so they live here once rather than being copied.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, X, AlertTriangle, Check, Minus } from 'lucide-react'
+import { Plus, X, AlertTriangle, Check, Minus, Settings } from 'lucide-react'
+import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+
+const AUTOSAVE_DEBOUNCE_MS = 600
 
 export const TYPE_LABELS = {
   fridge: 'Fridge', freezer: 'Freezer', hot_hold: 'Hot hold',
@@ -78,33 +81,30 @@ export function RangeCommentModal({ equipment, temp, onCancel, onConfirm, isSavi
 }
 
 // One equipment × capture-time cell: pre-filled with today's already-logged
-// reading (if any) and always directly editable — no modal. Plus/minus
-// steppers either side for tablet use; a save (check) button appears once
-// the value has changed. Out-of-range values aren't saved directly —
-// attemptSave() hands off to the parent's RangeCommentModal gate (shared
-// across every cell) so a corrective action is captured first.
+// reading (if any) and always directly editable — no modal, no save button.
+// Plus/minus steppers either side for tablet use; any change (typing or a
+// stepper tap) autosaves after a short debounce, and immediately on blur.
+// Out-of-range values aren't saved directly — attemptSave() hands off to
+// the parent's RangeCommentModal gate (shared across every cell) so a
+// corrective action is captured first.
 export function TempCell({ equipment, captureTime, existingLog, onSave, onOutOfRange, isSaving }) {
   const [value, setValue] = useState(() =>
     existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
-  const [dirty, setDirty] = useState(false)
+  const timerRef = useRef(null)
 
-  // Resync from the server value after a save round-trips (new log id /
-  // temperature) — but never while the operator is mid-edit, since this
-  // effect only fires when the *existing log itself* changes.
+  // Resync from the server value after a save round-trips — but never
+  // while the operator is mid-edit, since this effect only fires when the
+  // *existing log itself* changes.
   useEffect(() => {
     setValue(existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
-    setDirty(false)
   }, [existingLog?.id, existingLog?.temperature_c])
 
-  function bump(delta) {
-    const current = value === '' ? (equipment.target_temp_c ?? 0) : Number(value)
-    setValue(String(Math.round((current + delta) * 10) / 10))
-    setDirty(true)
-  }
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
-  function attemptSave() {
-    if (value === '' || isSaving) return
-    const temp = Number(value)
+  function attemptSave(raw) {
+    if (raw === '') return
+    const temp = Number(raw)
+    if (Number.isNaN(temp)) return
     const inRange = withinRange(temp, equipment.min_temp_c, equipment.max_temp_c)
     if (inRange === false) {
       onOutOfRange({ equipment, captureTime, temp })
@@ -120,7 +120,25 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, onOutOfR
     })
   }
 
-  const badReading = !dirty && existingLog?.is_within_range === false
+  function scheduleSave(raw) {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => attemptSave(raw), AUTOSAVE_DEBOUNCE_MS)
+  }
+
+  function flushSave() {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    attemptSave(value)
+  }
+
+  function bump(delta) {
+    const current = value === '' ? (equipment.target_temp_c ?? 0) : Number(value)
+    const next = String(Math.round((current + delta) * 10) / 10)
+    setValue(next)
+    scheduleSave(next)
+  }
+
+  const badReading = existingLog?.is_within_range === false
+    && value === (existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
 
   return (
     <div className="flex items-center gap-1">
@@ -130,25 +148,19 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, onOutOfR
         <Minus className="w-4 h-4" />
       </button>
       <input type="number" step="0.1" inputMode="decimal" value={value}
-        onChange={e => { setValue(e.target.value); setDirty(true) }}
-        onKeyDown={e => { if (e.key === 'Enter') attemptSave() }}
+        onChange={e => { setValue(e.target.value); scheduleSave(e.target.value) }}
+        onBlur={flushSave}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
         placeholder={equipment.target_temp_c != null ? String(equipment.target_temp_c) : '—'}
         className={cn(
           'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
           badReading && 'border-red-400 bg-red-50 text-red-700',
+          isSaving && 'opacity-60',
         )} />
       <button type="button" onClick={() => bump(0.5)}
         className="w-10 h-10 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
         aria-label={`Increase ${equipment.name} temperature`}>
         <Plus className="w-4 h-4" />
-      </button>
-      <button type="button" onClick={attemptSave} disabled={!dirty || value === '' || isSaving}
-        className={cn(
-          'w-10 h-10 shrink-0 rounded-lg flex items-center justify-center touch-manipulation',
-          dirty && value !== '' ? 'bg-primary text-primary-foreground' : 'text-transparent pointer-events-none',
-        )}
-        aria-label={`Save ${equipment.name} reading`}>
-        <Check className="w-4 h-4" />
       </button>
     </div>
   )
@@ -440,58 +452,96 @@ export function DeliveryChecksPanel({ venueId, date, emptyState }) {
 }
 
 // ── Hot / cold hold checks ───────────────────────────────────────
+//
+// "Fridges-style" setup — named stations with their own target/min/max,
+// kept as their own tab/concept rather than folded into fs_equipment.
+// HoldCell/HoldChecksTable mirror TempCell/TempChecksTable exactly, just
+// posting station_id instead of equipment_id — a deliberate small
+// duplication (see CLAUDE.md's architecture notes) rather than a shared
+// abstraction, since Holds is meant to stay organisationally distinct
+// from Equipment even though the interaction pattern is identical.
 
-export function HoldModal({ venueId, onClose, onSave, isSaving }) {
-  const [holdType, setHoldType] = useState('hot_hold')
-  const [item, setItem] = useState('')
-  const [temp, setTemp] = useState('')
-  const [action, setAction] = useState('')
-  const [notes, setNotes] = useState('')
+export const HOLD_TYPE_LABELS = { hot_hold: 'Hot hold', cold_hold: 'Cold hold' }
+
+export function HoldStationModal({ initial, venueId, onClose, onSave, isSaving }) {
+  const DEFAULTS = {
+    hot_hold:  { target: 63, min: 63, max: 100 },
+    cold_hold: { target: 5,  min: -2, max: 8 },
+  }
+  const [name, setName] = useState(initial?.name ?? '')
+  const [holdType, setHoldType] = useState(initial?.hold_type ?? 'hot_hold')
+  const [target, setTarget] = useState(initial?.target_temp_c ?? DEFAULTS.hot_hold.target)
+  const [min, setMin] = useState(initial?.min_temp_c ?? DEFAULTS.hot_hold.min)
+  const [max, setMax] = useState(initial?.max_temp_c ?? DEFAULTS.hot_hold.max)
+  const [location, setLocation] = useState(initial?.location ?? '')
+  const [notes, setNotes] = useState(initial?.notes ?? '')
+
+  function applyType(t) {
+    setHoldType(t)
+    const d = DEFAULTS[t]
+    setTarget(d.target)
+    setMin(d.min)
+    setMax(d.max)
+  }
 
   function submit(e) {
     e.preventDefault()
-    if (!item.trim() || temp === '') return
+    if (!name.trim()) return
     onSave({
       venue_id: venueId,
+      name: name.trim(),
       hold_type: holdType,
-      item_name: item.trim(),
-      temperature_c: Number(temp),
-      corrective_action: action.trim() || null,
+      target_temp_c: target != null && target !== '' ? Number(target) : null,
+      min_temp_c: min != null && min !== '' ? Number(min) : null,
+      max_temp_c: max != null && max !== '' ? Number(max) : null,
+      location: location.trim() || null,
       notes: notes.trim() || null,
     })
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-md p-6">
+      <div className="bg-background rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Hold temperature check</h2>
+          <h2 className="text-lg font-semibold">{initial ? 'Edit hold station' : 'Add hold station'}</h2>
           <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
         </div>
         <form onSubmit={submit} className="space-y-3">
           <div>
+            <label className="block text-sm font-medium mb-1">Name *</label>
+            <input value={name} onChange={e => setName(e.target.value)} required autoFocus
+              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]"
+              placeholder="Bain-marie 1 / Salad bar" />
+          </div>
+          <div>
             <label className="block text-sm font-medium mb-1">Type</label>
-            <select value={holdType} onChange={e => setHoldType(e.target.value)}
+            <select value={holdType} onChange={e => applyType(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]">
-              <option value="hot_hold">Hot hold (≥63°C)</option>
-              <option value="cold_hold">Cold hold (≤8°C)</option>
+              {Object.entries(HOLD_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-xs font-medium mb-1">Target °C</label>
+              <input type="number" step="0.1" value={target ?? ''} onChange={e => setTarget(e.target.value)}
+                className="w-full border rounded px-2 py-2 text-sm bg-background min-h-[44px]" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Min °C</label>
+              <input type="number" step="0.1" value={min ?? ''} onChange={e => setMin(e.target.value)}
+                className="w-full border rounded px-2 py-2 text-sm bg-background min-h-[44px]" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Max °C</label>
+              <input type="number" step="0.1" value={max ?? ''} onChange={e => setMax(e.target.value)}
+                className="w-full border rounded px-2 py-2 text-sm bg-background min-h-[44px]" />
+            </div>
+          </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Item / location *</label>
-            <input value={item} onChange={e => setItem(e.target.value)} required
+            <label className="block text-sm font-medium mb-1">Location</label>
+            <input value={location} onChange={e => setLocation(e.target.value)}
               className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]"
-              placeholder="Bain-marie / salad bar" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Temperature °C *</label>
-            <input type="number" step="0.1" value={temp} onChange={e => setTemp(e.target.value)} required
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Corrective action</label>
-            <input value={action} onChange={e => setAction(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+              placeholder="Kitchen / Front counter" />
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Notes</label>
@@ -499,9 +549,9 @@ export function HoldModal({ venueId, onClose, onSave, isSaving }) {
               className="w-full border rounded px-3 py-2 text-sm bg-background resize-none" />
           </div>
           <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={isSaving || !item.trim() || temp === ''}
+            <button type="submit" disabled={isSaving || !name.trim()}
               className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
-              {isSaving ? 'Saving…' : 'Save check'}
+              {isSaving ? 'Saving…' : 'Save'}
             </button>
             <button type="button" onClick={onClose} className="px-4 py-2 border rounded text-sm min-h-[44px]">Cancel</button>
           </div>
@@ -511,16 +561,149 @@ export function HoldModal({ venueId, onClose, onSave, isSaving }) {
   )
 }
 
-// Hot/cold hold check log for one venue/date, with its own "New check"
-// trigger. Used by the Food safety page's Holds tab and the H&S
-// Dashboard's hold-checks widget.
-export function HoldChecksPanel({ venueId, date, emptyState }) {
+export function HoldCaptureTimeModal({ initial, venueId, onClose, onSave, isSaving }) {
+  const [label, setLabel] = useState(initial?.label ?? '')
+  const [time, setTime] = useState(initial ? timeLabel(initial.time_of_day) : '12:00')
+
+  function submit(e) {
+    e.preventDefault()
+    if (!label.trim() || !time) return
+    onSave({ venue_id: venueId, label: label.trim(), time_of_day: time })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-background rounded-xl shadow-xl w-full max-w-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">{initial ? 'Edit capture time' : 'Add capture time'}</h2>
+          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
+        </div>
+        <form onSubmit={submit} className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Label *</label>
+            <input value={label} onChange={e => setLabel(e.target.value)} required
+              placeholder="e.g. Lunch service"
+              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" autoFocus />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Time *</label>
+            <input type="time" value={time} onChange={e => setTime(e.target.value)} required
+              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="submit" disabled={isSaving || !label.trim()}
+              className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
+              {isSaving ? 'Saving…' : 'Save'}
+            </button>
+            <button type="button" onClick={onClose} className="px-4 py-2 border rounded text-sm min-h-[44px]">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// One hold station × capture-time cell — identical interaction to TempCell
+// (autosave on type/stepper, debounced, out-of-range gate via the shared
+// RangeCommentModal) but posts station_id instead of equipment_id.
+function HoldCell({ station, captureTime, existingLog, onSave, onOutOfRange, isSaving }) {
+  const [value, setValue] = useState(() =>
+    existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+  const timerRef = useRef(null)
+
+  useEffect(() => {
+    setValue(existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+  }, [existingLog?.id, existingLog?.temperature_c])
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
+  function attemptSave(raw) {
+    if (raw === '') return
+    const temp = Number(raw)
+    if (Number.isNaN(temp)) return
+    const inRange = withinRange(temp, station.min_temp_c, station.max_temp_c)
+    if (inRange === false) {
+      onOutOfRange({ equipment: station, captureTime, temp })
+      return
+    }
+    onSave({
+      venue_id: station.venue_id,
+      station_id: station.id,
+      capture_time_id: captureTime?.id ?? null,
+      temperature_c: temp,
+      corrective_action: null,
+      notes: null,
+    })
+  }
+
+  function scheduleSave(raw) {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => attemptSave(raw), AUTOSAVE_DEBOUNCE_MS)
+  }
+
+  function flushSave() {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    attemptSave(value)
+  }
+
+  function bump(delta) {
+    const current = value === '' ? (station.target_temp_c ?? 0) : Number(value)
+    const next = String(Math.round((current + delta) * 10) / 10)
+    setValue(next)
+    scheduleSave(next)
+  }
+
+  const badReading = existingLog?.is_within_range === false
+    && value === (existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+
+  return (
+    <div className="flex items-center gap-1">
+      <button type="button" onClick={() => bump(-0.5)}
+        className="w-10 h-10 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
+        aria-label={`Decrease ${station.name} temperature`}>
+        <Minus className="w-4 h-4" />
+      </button>
+      <input type="number" step="0.1" inputMode="decimal" value={value}
+        onChange={e => { setValue(e.target.value); scheduleSave(e.target.value) }}
+        onBlur={flushSave}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+        placeholder={station.target_temp_c != null ? String(station.target_temp_c) : '—'}
+        className={cn(
+          'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
+          badReading && 'border-red-400 bg-red-50 text-red-700',
+          isSaving && 'opacity-60',
+        )} />
+      <button type="button" onClick={() => bump(0.5)}
+        className="w-10 h-10 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
+        aria-label={`Increase ${station.name} temperature`}>
+        <Plus className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
+// Full hold-station × capture-time grid for one venue/date — the grid-only
+// piece (station/capture-time management stays on the Food safety page's
+// Holds tab, same split as Equipment vs TempChecksTable). Used by the
+// Holds tab and the H&S Dashboard's hold-checks widget.
+export function HoldChecksTable({ venueId, date, emptyState, showType = true }) {
   const api = useApi()
   const qc = useQueryClient()
-  const [showModal, setShowModal] = useState(false)
+  const [pendingOutOfRange, setPendingOutOfRange] = useState(null)
 
   const enabled = !!venueId
-  const { data: holds = [], isLoading } = useQuery({
+
+  const { data: stations = [], isLoading } = useQuery({
+    queryKey: ['fs-hold-stations', venueId],
+    queryFn: () => api.get(`/food-safety/hold-stations?venue_id=${venueId}`),
+    enabled,
+  })
+  const { data: captureTimes = [] } = useQuery({
+    queryKey: ['fs-hold-capture-times', venueId],
+    queryFn: () => api.get(`/food-safety/hold-capture-times?venue_id=${venueId}`),
+    enabled,
+  })
+  const { data: logs = [] } = useQuery({
     queryKey: ['fs-holds', venueId, date],
     queryFn: () => api.get(`/food-safety/holds?venue_id=${venueId}&date=${date}`),
     enabled,
@@ -530,57 +713,78 @@ export function HoldChecksPanel({ venueId, date, emptyState }) {
     mutationFn: body => api.post('/food-safety/holds', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fs-holds', venueId, date] })
-      setShowModal(false)
+      setPendingOutOfRange(null)
     },
   })
 
   if (!enabled) return null
+  if (isLoading) return <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+  if (stations.length === 0) {
+    return emptyState ?? <p className="text-sm text-muted-foreground py-8 text-center">No hold stations configured for this venue yet.</p>
+  }
+
+  const columns = captureTimes.length > 0 ? captureTimes : [null]
 
   return (
     <>
-      <div className="flex justify-between items-center mb-3 gap-2">
-        <p className="text-xs text-muted-foreground">{holds.length} logged today</p>
-        <button type="button" onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium min-h-[36px] touch-manipulation">
-          <Plus className="w-3.5 h-3.5" /> New check
-        </button>
+      <div className="border rounded-xl overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 border-b">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted/50">Station</th>
+              {showType && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Type</th>}
+              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Range</th>
+              {columns.map(ct => (
+                <th key={ct?.id ?? 'adhoc'} className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                  {ct ? <>{ct.label}<span className="block font-normal text-[11px]">{timeLabel(ct.time_of_day)}</span></> : 'Today'}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {stations.map(st => (
+              <tr key={st.id} className="border-b last:border-0">
+                <td className="px-4 py-3 font-medium whitespace-nowrap sticky left-0 bg-background">{st.name}</td>
+                {showType && <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{HOLD_TYPE_LABELS[st.hold_type]}</td>}
+                <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                  {st.min_temp_c ?? '—'} … {st.max_temp_c ?? '—'}°C
+                </td>
+                {columns.map(ct => {
+                  const existingLog = logs.find(l => l.station_id === st.id
+                    && (ct ? l.capture_time_id === ct.id : l.capture_time_id == null))
+                  return (
+                    <td key={ct?.id ?? 'adhoc'} className="px-3 py-2">
+                      <HoldCell
+                        station={st}
+                        captureTime={ct}
+                        existingLog={existingLog}
+                        onSave={body => createHold.mutate(body)}
+                        onOutOfRange={setPendingOutOfRange}
+                        isSaving={createHold.isPending}
+                      />
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground py-6 text-center">Loading…</p>
-      ) : holds.length === 0 ? (
-        emptyState ?? <p className="text-sm text-muted-foreground py-6 text-center">No hold checks for this date.</p>
-      ) : (
-        <div className="border rounded-xl overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Item</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Temp</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">OK?</th>
-              </tr>
-            </thead>
-            <tbody>
-              {holds.map(h => (
-                <tr key={h.id} className="border-b last:border-0">
-                  <td className="px-4 py-3 text-muted-foreground">{h.hold_type === 'hot_hold' ? 'Hot' : 'Cold'}</td>
-                  <td className="px-4 py-3 font-medium">{h.item_name}</td>
-                  <td className="px-4 py-3">{h.temperature_c}°C</td>
-                  <td className="px-4 py-3"><Badge ok={h.is_within_range}>{h.is_within_range ? 'In range' : 'Out'}</Badge></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {showModal && (
-        <HoldModal
-          venueId={venueId}
-          onClose={() => setShowModal(false)}
-          onSave={body => createHold.mutate(body)}
+      {pendingOutOfRange && (
+        <RangeCommentModal
+          equipment={pendingOutOfRange.equipment}
+          temp={pendingOutOfRange.temp}
           isSaving={createHold.isPending}
+          onCancel={() => setPendingOutOfRange(null)}
+          onConfirm={action => createHold.mutate({
+            venue_id: pendingOutOfRange.equipment.venue_id,
+            station_id: pendingOutOfRange.equipment.id,
+            capture_time_id: pendingOutOfRange.captureTime?.id ?? null,
+            temperature_c: pendingOutOfRange.temp,
+            corrective_action: action,
+            notes: null,
+          })}
         />
       )}
     </>
@@ -588,65 +792,202 @@ export function HoldChecksPanel({ venueId, date, emptyState }) {
 }
 
 // ── Cooking / reheat checks ──────────────────────────────────────
+//
+// Menu categories as tabs, menu items as buttons — click a dish, log its
+// core temperature (steppers + optional corrective-action note), no
+// typing a dish name each time. "Sessions" (configured via the gear icon)
+// define how many times a day this happens and how many items must be
+// checked each time to meet criteria. A live "today's checks" side panel
+// works like a till receipt while working through service.
 
-export function CookingModal({ venueId, onClose, onSave, isSaving }) {
-  const [dish, setDish] = useState('')
-  const [temp, setTemp] = useState('')
-  const [holdSec, setHoldSec] = useState('')
-  const [action, setAction] = useState('')
-  const [notes, setNotes] = useState('')
+function CookingSessionForm({ initial, onCancel, onSave, isSaving }) {
+  const [label, setLabel] = useState(initial?.label ?? '')
+  const [time, setTime] = useState(initial?.time_of_day ? timeLabel(initial.time_of_day) : '')
+  const [count, setCount] = useState(initial?.required_items_count ?? 1)
 
   function submit(e) {
     e.preventDefault()
-    if (!dish.trim() || temp === '') return
+    if (!label.trim()) return
+    onSave({ label: label.trim(), time_of_day: time || null, required_items_count: Number(count) || 1 })
+  }
+
+  return (
+    <form onSubmit={submit} className="space-y-2 border rounded-lg p-3">
+      <div>
+        <label className="block text-xs font-medium mb-1">Label *</label>
+        <input value={label} onChange={e => setLabel(e.target.value)} required autoFocus
+          placeholder="e.g. Lunch service"
+          className="w-full border rounded px-2 py-1.5 text-sm bg-background min-h-[40px]" />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-xs font-medium mb-1">Time (optional)</label>
+          <input type="time" value={time} onChange={e => setTime(e.target.value)}
+            className="w-full border rounded px-2 py-1.5 text-sm bg-background min-h-[40px]" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-1">Items required</label>
+          <input type="number" min={1} value={count} onChange={e => setCount(e.target.value)}
+            className="w-full border rounded px-2 py-1.5 text-sm bg-background min-h-[40px]" />
+        </div>
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button type="submit" disabled={isSaving || !label.trim()}
+          className="flex-1 bg-primary text-primary-foreground rounded px-3 py-2 text-sm font-medium min-h-[40px] disabled:opacity-50">
+          {isSaving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" onClick={onCancel} className="px-3 py-2 border rounded text-sm min-h-[40px]">Cancel</button>
+      </div>
+    </form>
+  )
+}
+
+function CookingSessionsModal({ venueId, onClose }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [form, setForm] = useState(null) // 'new' | session row | null
+
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['fs-cooking-sessions', venueId],
+    queryFn: () => api.get(`/food-safety/cooking-sessions?venue_id=${venueId}`),
+  })
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['fs-cooking-sessions', venueId] })
+  const create = useMutation({
+    mutationFn: body => api.post('/food-safety/cooking-sessions', body),
+    onSuccess: () => { invalidate(); setForm(null) },
+  })
+  const patch = useMutation({
+    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/cooking-sessions/${id}`, body),
+    onSuccess: () => { invalidate(); setForm(null) },
+  })
+  const deactivate = useMutation({
+    mutationFn: id => api.delete(`/food-safety/cooking-sessions/${id}`),
+    onSuccess: invalidate,
+  })
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-xl shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-semibold">Cooking check sessions</h2>
+          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          How many times a day cooking checks happen, and how many items must be checked each time to meet criteria.
+        </p>
+
+        {sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">No sessions yet.</p>
+        ) : (
+          <ul className="border rounded-lg divide-y mb-3">
+            {sessions.map(s => (
+              <li key={s.id} className="flex items-center gap-2 px-3 py-2">
+                <span className="flex-1 min-w-0">
+                  <span className="block text-sm font-medium">{s.label}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {s.time_of_day ? `${timeLabel(s.time_of_day)} · ` : ''}{s.required_items_count} item{s.required_items_count === 1 ? '' : 's'} required
+                  </span>
+                </span>
+                <button type="button" onClick={() => setForm(s)} className="text-xs text-primary hover:underline">Edit</button>
+                <button type="button" onClick={() => deactivate.mutate(s.id)} className="text-xs text-red-600 hover:underline">Remove</button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {form ? (
+          <CookingSessionForm
+            initial={form === 'new' ? null : form}
+            isSaving={create.isPending || patch.isPending}
+            onCancel={() => setForm(null)}
+            onSave={body => form === 'new'
+              ? create.mutate({ venue_id: venueId, ...body })
+              : patch.mutate({ id: form.id, ...body })}
+          />
+        ) : (
+          <button type="button" onClick={() => setForm('new')}
+            className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
+            <Plus className="w-4 h-4" /> Add session
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// The one-shot temperature-entry modal for a clicked menu item (or a
+// custom off-menu dish). Unlike TempCell/HoldCell this always shows an
+// explicit Save — it's creating a brand new check event, not editing
+// continuous state, so there's no "current value" to autosave against.
+function CookingEntryModal({ target, venueId, date, sessionId, onClose, onSave, isSaving }) {
+  const [temp, setTemp] = useState('75')
+  const [note, setNote] = useState('')
+  const [customName, setCustomName] = useState('')
+
+  function bump(delta) {
+    setTemp(prev => {
+      const current = prev === '' ? 75 : Number(prev)
+      return String(Math.round((current + delta) * 10) / 10)
+    })
+  }
+
+  function submit(e) {
+    e.preventDefault()
+    if (temp === '') return
+    if (target.custom && !customName.trim()) return
     onSave({
       venue_id: venueId,
-      dish_name: dish.trim(),
+      check_date: date,
+      session_id: sessionId || null,
+      menu_item_id: target.custom ? null : target.itemId,
+      dish_name: target.custom ? customName.trim() : null,
       core_temp_c: Number(temp),
-      hold_seconds: holdSec !== '' ? parseInt(holdSec, 10) : null,
-      corrective_action: action.trim() || null,
-      notes: notes.trim() || null,
+      corrective_action: note.trim() || null,
     })
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-md p-6">
+      <div className="bg-background rounded-xl shadow-xl w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Cooking / reheat check</h2>
+          <h2 className="text-lg font-semibold">{target.custom ? 'Log a dish' : target.itemName}</h2>
           <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
         </div>
-        <p className="text-xs text-muted-foreground mb-3">SFBB target: core ≥75°C for 30 seconds (or FSA equivalents)</p>
-        <form onSubmit={submit} className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">Dish *</label>
-            <input value={dish} onChange={e => setDish(e.target.value)} required
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" placeholder="Chicken curry batch" />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+        <form onSubmit={submit} className="space-y-4">
+          {target.custom && (
             <div>
-              <label className="block text-sm font-medium mb-1">Core temp °C *</label>
-              <input type="number" step="0.1" value={temp} onChange={e => setTemp(e.target.value)} required
+              <label className="block text-sm font-medium mb-1">Dish name *</label>
+              <input value={customName} onChange={e => setCustomName(e.target.value)} required autoFocus
                 className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Hold (seconds)</label>
-              <input type="number" value={holdSec} onChange={e => setHoldSec(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" placeholder="30" />
+          )}
+          <div>
+            <label className="block text-sm font-medium mb-2 text-center">Core temperature °C</label>
+            <div className="flex items-center justify-center gap-3">
+              <button type="button" onClick={() => bump(-1)}
+                className="w-12 h-12 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
+                aria-label="Decrease temperature">
+                <Minus className="w-5 h-5" />
+              </button>
+              <input type="number" step="0.1" inputMode="decimal" value={temp} onChange={e => setTemp(e.target.value)}
+                className="w-24 text-center text-xl font-semibold border rounded-lg px-2 py-2 bg-background min-h-[48px]" />
+              <button type="button" onClick={() => bump(1)}
+                className="w-12 h-12 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
+                aria-label="Increase temperature">
+                <Plus className="w-5 h-5" />
+              </button>
             </div>
+            <p className="text-xs text-muted-foreground text-center mt-1">SFBB target: ≥75°C for 30 seconds (or FSA equivalents)</p>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Corrective action</label>
-            <input value={action} onChange={e => setAction(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+            <label className="block text-sm font-medium mb-1">Corrective action (optional)</label>
+            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+              placeholder="e.g. Returned to heat for a further 5 minutes"
               className="w-full border rounded px-3 py-2 text-sm bg-background resize-none" />
           </div>
           <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={isSaving || !dish.trim() || temp === ''}
+            <button type="submit" disabled={isSaving || temp === '' || (target.custom && !customName.trim())}
               className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
               {isSaving ? 'Saving…' : 'Save check'}
             </button>
@@ -658,78 +999,189 @@ export function CookingModal({ venueId, onClose, onSave, isSaving }) {
   )
 }
 
-// Cooking/reheat check log for one venue/date, with its own "New check"
-// trigger. Used by the Food safety page's Cooking tab and the H&S
-// Dashboard's cooking-checks widget.
-export function CookingChecksPanel({ venueId, date, emptyState }) {
+// Full cooking-checks experience for one venue/date: session tabs +
+// required-count progress, menu category tabs + item buttons, the
+// temp-entry modal, and a live "today's checks" side panel. Used by the
+// Food safety page's Cooking tab and the H&S Dashboard's cooking-checks
+// widget.
+export function CookingChecksPanel({ venueId, date }) {
   const api = useApi()
   const qc = useQueryClient()
-  const [showModal, setShowModal] = useState(false)
+  const [sessionId, setSessionId] = useState('')
+  const [activeSectionId, setActiveSectionId] = useState('')
+  const [entryTarget, setEntryTarget] = useState(null)
+  const [sessionsOpen, setSessionsOpen] = useState(false)
 
   const enabled = !!venueId
-  const { data: cooking = [], isLoading } = useQuery({
+
+  const { data: sessions = [] } = useQuery({
+    queryKey: ['fs-cooking-sessions', venueId],
+    queryFn: () => api.get(`/food-safety/cooking-sessions?venue_id=${venueId}`),
+    enabled,
+  })
+
+  useEffect(() => {
+    if (sessionId && !sessions.some(s => s.id === sessionId)) setSessionId('')
+    if (!sessionId && sessions.length) setSessionId(sessions[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions])
+
+  const { data: menuRows = [] } = useQuery({
+    queryKey: ['fs-cooking-menu-items', venueId],
+    queryFn: () => api.get(`/food-safety/cooking/menu-items?venue_id=${venueId}`),
+    enabled,
+  })
+
+  const sections = useMemo(() => {
+    const bySection = new Map()
+    for (const row of menuRows) {
+      if (!bySection.has(row.section_id)) {
+        bySection.set(row.section_id, { id: row.section_id, title: row.section_title, items: [] })
+      }
+      bySection.get(row.section_id).items.push({ id: row.item_id, name: row.item_name })
+    }
+    return Array.from(bySection.values())
+  }, [menuRows])
+
+  useEffect(() => {
+    if (activeSectionId && !sections.some(s => s.id === activeSectionId)) setActiveSectionId('')
+    if (!activeSectionId && sections.length) setActiveSectionId(sections[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sections])
+
+  const { data: checks = [] } = useQuery({
     queryKey: ['fs-cooking', venueId, date],
     queryFn: () => api.get(`/food-safety/cooking?venue_id=${venueId}&date=${date}`),
     enabled,
   })
 
-  const createCooking = useMutation({
+  const createCheck = useMutation({
     mutationFn: body => api.post('/food-safety/cooking', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] })
-      setShowModal(false)
+      setEntryTarget(null)
     },
   })
 
   if (!enabled) return null
 
+  const activeSession = sessions.find(s => s.id === sessionId) ?? null
+  const sessionChecks = activeSession ? checks.filter(c => c.session_id === activeSession.id) : checks
+  const countDone = sessionChecks.length
+  const target = activeSession?.required_items_count ?? null
+  const activeSection = sections.find(s => s.id === activeSectionId) ?? null
+
   return (
-    <>
-      <div className="flex justify-between items-center mb-3 gap-2">
-        <p className="text-xs text-muted-foreground">{cooking.length} logged today</p>
-        <button type="button" onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium min-h-[36px] touch-manipulation">
-          <Plus className="w-3.5 h-3.5" /> New check
+    <div className="flex flex-col lg:flex-row gap-4">
+      <div className="flex-1 min-w-0 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1 overflow-x-auto pb-1">
+            {sessions.map(s => (
+              <button key={s.id} type="button" onClick={() => setSessionId(s.id)}
+                className={cn(
+                  'px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap touch-manipulation',
+                  s.id === sessionId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+                )}>
+                {s.label}
+              </button>
+            ))}
+            {sessions.length === 0 && <span className="text-sm text-muted-foreground">No sessions configured</span>}
+          </div>
+          <button type="button" onClick={() => setSessionsOpen(true)}
+            className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation shrink-0" title="Manage sessions">
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
+
+        {activeSession && (
+          <div className={cn(
+            'rounded-lg px-3 py-2 text-sm inline-flex items-center gap-1.5',
+            countDone >= target ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800',
+          )}>
+            {countDone >= target ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+            {countDone}/{target} items checked for {activeSession.label}
+          </div>
+        )}
+
+        {sections.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-8 text-center border rounded-xl">
+            No menu items yet — build a menu on the Menus page first, or log a custom dish below.
+          </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b">
+              {sections.map(s => (
+                <button key={s.id} type="button" onClick={() => setActiveSectionId(s.id)}
+                  className={cn(
+                    'px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px touch-manipulation',
+                    s.id === activeSectionId ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground',
+                  )}>
+                  {s.title}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {(activeSection?.items ?? []).map(item => {
+                const countToday = checks.filter(c => c.menu_item_id === item.id).length
+                return (
+                  <button key={item.id} type="button"
+                    onClick={() => setEntryTarget({ itemId: item.id, itemName: item.name })}
+                    className="relative border rounded-lg px-3 py-3 text-sm font-medium text-left hover:bg-accent hover:border-primary/40 touch-manipulation min-h-[48px]">
+                    {item.name}
+                    {countToday > 0 && (
+                      <span className="absolute top-1 right-1 text-[10px] font-semibold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">
+                        {countToday}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        <button type="button" onClick={() => setEntryTarget({ custom: true })}
+          className="text-xs text-primary hover:underline">
+          + Log a dish not on the menu
         </button>
       </div>
 
-      {isLoading ? (
-        <p className="text-sm text-muted-foreground py-6 text-center">Loading…</p>
-      ) : cooking.length === 0 ? (
-        emptyState ?? <p className="text-sm text-muted-foreground py-6 text-center">No cooking checks for this date.</p>
-      ) : (
-        <div className="border rounded-xl overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Dish</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Core temp</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Hold</th>
-                <th className="text-left px-4 py-3 font-medium text-muted-foreground">OK?</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cooking.map(c => (
-                <tr key={c.id} className="border-b last:border-0">
-                  <td className="px-4 py-3 font-medium">{c.dish_name}</td>
-                  <td className="px-4 py-3">{c.core_temp_c}°C</td>
-                  <td className="px-4 py-3 text-muted-foreground">{c.hold_seconds != null ? `${c.hold_seconds}s` : '—'}</td>
-                  <td className="px-4 py-3"><Badge ok={c.is_within_range}>{c.is_within_range ? '≥75°C' : 'Below'}</Badge></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <div className="lg:w-72 shrink-0 border rounded-xl p-3 space-y-2 max-h-[420px] overflow-y-auto">
+        <p className="text-xs font-semibold text-muted-foreground uppercase">Today's checks ({checks.length})</p>
+        {checks.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">None yet</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {checks.map(c => (
+              <li key={c.id} className="flex items-center justify-between gap-2 text-sm border-b pb-1.5 last:border-0">
+                <span className="min-w-0">
+                  <span className="block font-medium truncate">{c.dish_name}</span>
+                  <span className="block text-[11px] text-muted-foreground">
+                    {format(new Date(c.recorded_at), 'HH:mm')}{c.session_label ? ` · ${c.session_label}` : ''}
+                  </span>
+                </span>
+                <Badge ok={c.is_within_range}>{c.core_temp_c}°C</Badge>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
-      {showModal && (
-        <CookingModal
+      {entryTarget && (
+        <CookingEntryModal
+          target={entryTarget}
           venueId={venueId}
-          onClose={() => setShowModal(false)}
-          onSave={body => createCooking.mutate(body)}
-          isSaving={createCooking.isPending}
+          date={date}
+          sessionId={sessionId}
+          onClose={() => setEntryTarget(null)}
+          onSave={body => createCheck.mutate(body)}
+          isSaving={createCheck.isPending}
         />
       )}
-    </>
+
+      {sessionsOpen && (
+        <CookingSessionsModal venueId={venueId} onClose={() => setSessionsOpen(false)} />
+      )}
+    </div>
   )
 }
