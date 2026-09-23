@@ -4,13 +4,17 @@
 // /api/hs-dashboards in app.js.
 //
 // A dashboard is a named tab holding an ordered set of widgets. Each
-// widget is either:
-//   'checklist'    — embeds one existing checklist_templates row
-//                     (the tick-list rendered by ChecklistRunPanel)
-//   'temp_checks'  — embeds the venue's whole equipment x capture-time
-//                     grid (rendered by TempChecksTable) — there is
-//                     always at most one meaningful instance of this
-//                     per venue, so it carries no template reference
+// widget is one of:
+//   'checklist'        — embeds one existing checklist_templates row
+//                         (the tick-list rendered by ChecklistRunPanel)
+//   'temp_checks'      — embeds the venue's whole equipment x capture-time
+//                         grid (rendered by TempChecksTable)
+//   'delivery_checks'  — embeds the delivery-check log (DeliveryChecksPanel)
+//   'hold_checks'      — embeds the hot/cold hold-check log (HoldChecksPanel)
+//   'cooking_checks'   — embeds the cooking/reheat-check log (CookingChecksPanel)
+// Only 'checklist' carries a checklist_template_id — every other type is
+// venue-wide, so there's always at most one meaningful instance of it per
+// venue and it carries no template reference.
 //
 // Dashboards:
 //   GET    /dashboards?venue_id=&active=
@@ -44,13 +48,13 @@ const DashboardPatch = DashboardBody.partial().omit({ venue_id: true }).extend({
 })
 
 const WidgetBody = z.object({
-  widget_type:            z.enum(['checklist', 'temp_checks']),
+  widget_type:            z.enum(['checklist', 'temp_checks', 'delivery_checks', 'hold_checks', 'cooking_checks']),
   checklist_template_id:  z.string().uuid().nullable().optional(),
   title_override:         z.string().max(200).nullable().optional(),
   sort_order:             z.number().int().optional(),
 }).refine(
   b => (b.widget_type === 'checklist') === !!b.checklist_template_id,
-  { message: 'checklist_template_id is required for a checklist widget, and must be omitted for a temp_checks widget' },
+  { message: 'checklist_template_id is required for a checklist widget, and must be omitted for every other widget type' },
 )
 
 const WidgetPatch = z.object({

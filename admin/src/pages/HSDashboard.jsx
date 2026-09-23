@@ -2,26 +2,40 @@
 //
 // Customisable Health & Safety dashboard. Any number of named
 // dashboards (shown as tabs), each holding any number of widgets —
-// a checklist tick-list or the equipment temperature grid — all
-// driven by a single date navigator at the top. Widgets are directly
-// interactive in place (enter temps, tick tasks) with no drill-down.
+// a checklist tick-list, the equipment temperature grid, or any of
+// the other food-safety check logs (deliveries, hot/cold hold,
+// cooking/reheat) — all driven by a single date navigator at the
+// top. Widgets are directly interactive in place (enter temps, tick
+// tasks, log a check) with no drill-down.
 //
 // Reuses the exact same data/tick/save logic as the Checklists and
 // Food safety pages via their shared components, so there is only
-// one implementation of "run a checklist" / "log a temperature"
-// anywhere in the app.
+// one implementation of each check type anywhere in the app.
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import {
   Plus, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
-  Pencil, Trash2, Check, ListChecks, Thermometer, LayoutGrid,
+  Pencil, Trash2, Check, ListChecks, Thermometer, Truck, Flame, ChefHat, LayoutGrid,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ChecklistRunPanel, FREQUENCY_LABELS } from '@/components/checklists/shared'
-import { TempChecksTable } from '@/components/foodSafety/shared'
+import {
+  TempChecksTable, DeliveryChecksPanel, HoldChecksPanel, CookingChecksPanel,
+} from '@/components/foodSafety/shared'
+
+// Single source of truth for widget-type metadata — drives both the
+// "Add widget" type picker and the WidgetCard header/icon/default title.
+const WIDGET_TYPES = [
+  { key: 'checklist',       label: 'Checklist',              icon: ListChecks,  defaultTitle: 'Checklist' },
+  { key: 'temp_checks',     label: 'Temperature checks',     icon: Thermometer, defaultTitle: 'Temperature checks' },
+  { key: 'delivery_checks', label: 'Delivery checks',        icon: Truck,       defaultTitle: 'Delivery checks' },
+  { key: 'hold_checks',     label: 'Hot / cold hold checks', icon: Flame,       defaultTitle: 'Hot / cold hold checks' },
+  { key: 'cooking_checks',  label: 'Cooking / reheat checks',icon: ChefHat,     defaultTitle: 'Cooking / reheat checks' },
+]
+const WIDGET_TYPE_BY_KEY = Object.fromEntries(WIDGET_TYPES.map(w => [w.key, w]))
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -102,21 +116,19 @@ function AddWidgetModal({ venueId, api, onClose, onSave, isSaving }) {
         <form onSubmit={submit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-2">Widget type</label>
-            <div className="grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setWidgetType('checklist')}
-                className={cn(
-                  'flex flex-col items-center gap-1.5 border rounded-xl px-3 py-3 text-sm font-medium touch-manipulation min-h-[64px]',
-                  widgetType === 'checklist' ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-accent',
-                )}>
-                <ListChecks className="w-5 h-5" /> Checklist
-              </button>
-              <button type="button" onClick={() => setWidgetType('temp_checks')}
-                className={cn(
-                  'flex flex-col items-center gap-1.5 border rounded-xl px-3 py-3 text-sm font-medium touch-manipulation min-h-[64px]',
-                  widgetType === 'temp_checks' ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-accent',
-                )}>
-                <Thermometer className="w-5 h-5" /> Temperature checks
-              </button>
+            <div className="space-y-1.5">
+              {WIDGET_TYPES.map(wt => {
+                const Icon = wt.icon
+                return (
+                  <button key={wt.key} type="button" onClick={() => setWidgetType(wt.key)}
+                    className={cn(
+                      'w-full flex items-center gap-2.5 border rounded-xl px-3 py-2.5 text-sm font-medium touch-manipulation min-h-[48px]',
+                      widgetType === wt.key ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-accent',
+                    )}>
+                    <Icon className="w-4 h-4 shrink-0" /> {wt.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
@@ -141,7 +153,7 @@ function AddWidgetModal({ venueId, api, onClose, onSave, isSaving }) {
             <input value={titleOverride} onChange={e => setTitleOverride(e.target.value)}
               placeholder={widgetType === 'checklist'
                 ? (templates.find(t => t.id === templateId)?.name ?? '')
-                : 'Temperature checks'}
+                : WIDGET_TYPE_BY_KEY[widgetType].defaultTitle}
               className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
           </div>
 
@@ -162,8 +174,9 @@ function AddWidgetModal({ venueId, api, onClose, onSave, isSaving }) {
 
 function WidgetCard({ widget, venueId, date, editing, onRemove, onMoveUp, onMoveDown, isFirst, isLast }) {
   const isChecklist = widget.widget_type === 'checklist'
-  const title = widget.title_override || (isChecklist ? widget.checklist_name : 'Temperature checks')
-  const Icon = isChecklist ? ListChecks : Thermometer
+  const meta  = WIDGET_TYPE_BY_KEY[widget.widget_type]
+  const title = widget.title_override || (isChecklist ? widget.checklist_name : meta.defaultTitle)
+  const Icon  = meta.icon
 
   const template = isChecklist
     ? { id: widget.checklist_template_id, name: widget.checklist_name, frequency: widget.checklist_frequency }
@@ -205,9 +218,11 @@ function WidgetCard({ widget, venueId, date, editing, onRemove, onMoveUp, onMove
         )}
       </div>
       <div className="p-4 max-h-[480px] overflow-y-auto">
-        {isChecklist
-          ? <ChecklistRunPanel template={template} date={date} hideHeader />
-          : <TempChecksTable venueId={venueId} date={date} />}
+        {widget.widget_type === 'checklist' && <ChecklistRunPanel template={template} date={date} hideHeader />}
+        {widget.widget_type === 'temp_checks' && <TempChecksTable venueId={venueId} date={date} />}
+        {widget.widget_type === 'delivery_checks' && <DeliveryChecksPanel venueId={venueId} date={date} />}
+        {widget.widget_type === 'hold_checks' && <HoldChecksPanel venueId={venueId} date={date} />}
+        {widget.widget_type === 'cooking_checks' && <CookingChecksPanel venueId={venueId} date={date} />}
       </div>
     </div>
   )
