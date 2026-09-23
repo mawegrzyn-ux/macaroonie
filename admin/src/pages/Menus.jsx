@@ -296,6 +296,7 @@ function MenuEditor({ id, onBack }) {
         print_paper_size: draft.print_paper_size || 'A4',
         print_hide_variant_group_headers: !!draft.print_hide_variant_group_headers,
         hide_zero_priced_variants: !!draft.hide_zero_priced_variants,
+        hide_unpriced_variants: !!draft.hide_unpriced_variants,
         sections: (draft.sections || []).map((s, si) => ({
           title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
           sort_order: si,
@@ -522,6 +523,11 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
               <input type="checkbox" checked={!!draft.hide_zero_priced_variants}
                 onChange={e => onChange('hide_zero_priced_variants', e.target.checked)} />
               Don't show a price on zero-priced variants (print + website)
+            </label>
+            <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
+              <input type="checkbox" checked={!!draft.hide_unpriced_variants}
+                onChange={e => onChange('hide_unpriced_variants', e.target.checked)} />
+              Don't show the variant option at all if it isn't priced (print + website)
             </label>
           </div>
         </div>

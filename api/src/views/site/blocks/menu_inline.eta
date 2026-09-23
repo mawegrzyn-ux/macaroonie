@@ -37,6 +37,12 @@ function fmtVariantPrice(p) {
   if (_hideZeroPriced && Number(p) === 0) return ''
   return fmtPrice(p)
 }
+// "Not priced" — drops the option row entirely (label included), unlike
+// _hideZeroPriced above which keeps the label and only drops its price
+// text. Separate flag since an operator may want one behaviour without
+// the other.
+const _hideUnpriced = !!(menu && menu.hide_unpriced_variants)
+function _isUnpriced(p) { return p == null || Number(p) === 0 }
 function _keepSection(s) {
   if (!_sectionFilter.length) return true
   return _sectionFilter.indexOf(s.id) !== -1
@@ -112,8 +118,15 @@ function _keepItem(item) {
               </h3>
             <% } %>
             <% _mitems.forEach(function(item){ %>
-              <% const _groups = item.variant_groups || [] %>
-              <% const _adhoc  = item.variants || [] %>
+              <% const _groups = (item.variant_groups || [])
+                   .map(function(g){
+                     if (!_hideUnpriced) return g
+                     return Object.assign({}, g, { options: (g.options || []).filter(function(v){ return !_isUnpriced(v.price_pence) }) })
+                   })
+                   .filter(function(g){ return !_hideUnpriced || (g.options && g.options.length) }) %>
+              <% const _adhoc = _hideUnpriced
+                   ? (item.variants || []).filter(function(v){ return !_isUnpriced(v.price_pence) })
+                   : (item.variants || []) %>
               <% const _hasVar = (_adhoc.length > 0) || _groups.some(function(g){ return g.options && g.options.length }) %>
               <div style="padding:10px 0; border-bottom:1px dotted var(--c-border);">
                 <div style="display:flex; gap:10px; align-items:flex-start;">
