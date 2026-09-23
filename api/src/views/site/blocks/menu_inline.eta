@@ -100,9 +100,12 @@ function _keepItem(item) {
         </p>
       <% } %>
       <% if (menu.intro_line) { %>
-        <p style="text-align:center; color:var(--c-muted); max-width:640px; margin:0 auto 32px; font-size:0.95rem;">
-          <%= menu.intro_line %>
-        </p>
+        <% if (menu.intro_fonts_url) { %>
+          <link rel="stylesheet" href="<%= menu.intro_fonts_url %>" />
+        <% } %>
+        <div style="text-align:center; color:var(--c-muted); max-width:640px; margin:0 auto 32px; font-size:0.95rem;">
+          <%~ menu.intro_line %>
+        </div>
       <% } %>
 
       <% const _msections = (menu.sections || []).filter(_keepSection) %>

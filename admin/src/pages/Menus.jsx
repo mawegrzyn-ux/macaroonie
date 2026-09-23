@@ -25,6 +25,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
+import { RichTextEditor } from '@/components/RichTextEditor'
 import { Card, Field, Input, TextArea, Btn, formatPrice, PriceInput } from '@/components/menus/shared'
 
 const SEEDS = [
@@ -504,8 +505,15 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
             </select>
           </Field>
           <div className="sm:col-span-2">
-            <Field label="Intro line" hint="Short note shown at the top — e.g. 'Looking for starters? Our dinner menu is available all day…'">
-              <TextArea value={draft.intro_line || ''} onChange={e => onChange('intro_line', e.target.value)} rows={2} />
+            <Field label="Intro line" hint="Short note shown at the top of the menu. Formatting and font choices apply on the website — the printable PDF always uses the menu's print styling.">
+              <RichTextEditor
+                value={draft.intro_line || ''}
+                onChange={html => onChange('intro_line', html)}
+                compact
+                showFontFamily
+                minHeight={90}
+                placeholder="Looking for starters? Our dinner menu is available all day…"
+              />
             </Field>
           </div>
           <div className="sm:col-span-2 space-y-2 pt-1 border-t">

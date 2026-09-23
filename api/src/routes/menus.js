@@ -75,7 +75,7 @@ const MenuMetaBody = z.object({
   venue_id:      z.string().uuid().nullable().optional(),
   tagline:       z.string().max(200).nullable().optional(),
   service_times: z.string().max(200).nullable().optional(),
-  intro_line:    z.string().max(500).nullable().optional(),
+  intro_line:    z.string().max(5000).nullable().optional(),
   is_published:  z.boolean().default(true),
   sort_order:    z.number().int().default(0),
   print_columns:     z.number().int().min(1).max(6).default(4),

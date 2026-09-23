@@ -446,6 +446,67 @@ async function buildPublishedTenantBundle(ts) {
   }
 }
 
+/* ── Menu intro_line font self-loading ─────────────────────────
+ * `intro_line` is authored via the admin's RichTextEditor and can carry
+ * inline `font-family: X` styles from its font picker. head.eta's global
+ * font collector only scans structured `block.data.font_family` fields,
+ * not arbitrary rich-text HTML, so a font picked here would never get
+ * requested from Google Fonts and would silently fall back to the
+ * browser default. Instead of teaching the shared collector to parse
+ * HTML, this mirrors the scrolling_text block's approach: menu_inline.eta
+ * loads exactly the font(s) intro_line actually uses via a small
+ * self-contained <link>, built here (real JS, not inside an Eta <% %>
+ * block — see the CLAUDE.md gotcha about quote-bearing regexes breaking
+ * Eta's parser).
+ *
+ * Same 22-font list + weight sets as head.eta / scrolling_text.eta —
+ * kept as its own copy per that established convention (each render
+ * site that needs font loading keeps its own table rather than sharing
+ * a module), and used here as an allowlist so nothing from the HTML
+ * ever reaches the Google Fonts URL unfiltered. */
+const FONT_WEIGHTS = {
+  'Inter':              '300;400;500;600;700;800',
+  'Fraunces':           '300;400;500;600;700;800',
+  'Caveat':             '400;500;600;700',
+  'Playfair Display':   '400;500;600;700;800',
+  'Poppins':            '300;400;500;600;700;800',
+  'Lora':               '400;500;600;700',
+  'Montserrat':         '300;400;500;600;700;800',
+  'Roboto':             '300;400;500;700',
+  'Open Sans':          '300;400;500;600;700;800',
+  'Source Sans Pro':    '300;400;600;700',
+  'Raleway':            '300;400;500;600;700;800',
+  'Merriweather':       '300;400;700;900',
+  'Work Sans':          '300;400;500;600;700;800',
+  'Karla':              '300;400;500;600;700;800',
+  'DM Sans':            '400;500;700',
+  'DM Serif Display':   '400',
+  'Space Grotesk':      '300;400;500;600;700',
+  'Manrope':            '300;400;500;600;700;800',
+  'Cormorant Garamond': '300;400;500;600;700',
+  'Libre Baskerville':  '400;700',
+  'Nunito':             '300;400;500;600;700;800',
+  'Rubik':              '300;400;500;600;700;800',
+}
+
+function extractRichTextFonts(html) {
+  if (!html) return []
+  const found = new Set()
+  const re = /font-family:\s*["']?([^;"'>]+)["']?/gi
+  let match
+  while ((match = re.exec(html))) {
+    const name = match[1].trim()
+    if (FONT_WEIGHTS[name]) found.add(name)
+  }
+  return Array.from(found)
+}
+
+function buildGoogleFontsUrl(fontNames) {
+  if (!fontNames.length) return null
+  const parts = fontNames.map(f => `family=${encodeURIComponent(f)}:wght@${FONT_WEIGHTS[f]}`)
+  return `https://fonts.googleapis.com/css2?${parts.join('&')}&display=swap`
+}
+
 /* ── Inline-menu hydration ────────────────────────────────────
  * Walks blocks looking for `type: 'menu_inline'` with a `menu_id`,
  * batch-loads each unique menu (with sections + items + variants +
@@ -507,7 +568,9 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
     `
 
     const byMenu = {}
-    for (const m of menus) byMenu[m.id] = { ...m, sections: [] }
+    for (const m of menus) {
+      byMenu[m.id] = { ...m, sections: [], intro_fonts_url: buildGoogleFontsUrl(extractRichTextFonts(m.intro_line)) }
+    }
     for (const s of sections) byMenu[s.menu_id]?.sections.push(s)
     const allItems = sections.flatMap(s => s.items || [])
     await attachVariantGroupsToItems(tx, allItems)
