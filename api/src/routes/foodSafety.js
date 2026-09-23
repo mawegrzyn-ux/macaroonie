@@ -465,7 +465,7 @@ export default async function foodSafetyRoutes(app) {
       VALUES
         (${req.tenantId}, ${body.venue_id}, ${deliveryDate}, ${body.vendor_name},
          ${body.packaging_ok}, ${body.damage_ok}, ${body.quality_ok}, ${body.temp_ok},
-         ${body.product_temp_c ?? null}, ${JSON.stringify(body.items ?? [])},
+         ${body.product_temp_c ?? null}, ${body.items ?? []},
          ${body.accepted}, ${body.corrective_action ?? null}, ${body.notes ?? null},
          ${body.recorded_by ?? req.user?.email ?? null})
       RETURNING *
