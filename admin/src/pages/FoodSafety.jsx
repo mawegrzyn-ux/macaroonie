@@ -10,7 +10,7 @@ import { format } from 'date-fns'
 import {
   TYPE_LABELS, HOLD_TYPE_LABELS, timeLabel, TempChecksTable,
   DeliveryChecksPanel, HoldChecksTable, HoldStationModal, HoldCaptureTimeModal,
-  CookingChecksPanel,
+  CookingChecksPanel, EndOfDayReview,
 } from '@/components/foodSafety/shared'
 
 const TABS = [
@@ -312,20 +312,23 @@ export default function FoodSafety() {
         </div>
       </div>
 
-      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
-        {TABS.map(t => {
-          const Icon = t.icon
-          return (
-            <button key={t.key} type="button" onClick={() => setTab(t.key)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors',
-                tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-              )}>
-              <Icon className="w-3.5 h-3.5" />
-              {t.label}
-            </button>
-          )
-        })}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <div className="flex gap-1 overflow-x-auto pb-1">
+          {TABS.map(t => {
+            const Icon = t.icon
+            return (
+              <button key={t.key} type="button" onClick={() => setTab(t.key)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors',
+                  tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+                )}>
+                <Icon className="w-3.5 h-3.5" />
+                {t.label}
+              </button>
+            )
+          })}
+        </div>
+        {venueId && <EndOfDayReview venueId={venueId} date={date} />}
       </div>
 
       {!venueId ? (

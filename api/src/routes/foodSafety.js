@@ -62,6 +62,15 @@ const TempLogBody = z.object({
   recorded_by:        z.string().max(200).nullable().optional(),
 })
 
+// Editing an already-logged reading — used by the autosave temp cells (no
+// popup, so a corrective action can be attached after the fact) and by the
+// end-of-day review's batched corrective-action prompt.
+const TempLogPatch = z.object({
+  temperature_c:      z.number().optional(),
+  corrective_action:  z.string().max(2000).nullable().optional(),
+  notes:              z.string().max(2000).nullable().optional(),
+})
+
 const DeliveryBody = z.object({
   venue_id:           z.string().uuid(),
   delivery_date:      z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -114,6 +123,12 @@ const HoldBody = z.object({
   recorded_by:        z.string().max(200).nullable().optional(),
 })
 
+const HoldPatch = z.object({
+  temperature_c:      z.number().optional(),
+  corrective_action:  z.string().max(2000).nullable().optional(),
+  notes:              z.string().max(2000).nullable().optional(),
+})
+
 // ── Cooking sessions (frequency + how many items must be checked) ──
 const CookingSessionBody = z.object({
   venue_id:              z.string().uuid(),
@@ -141,6 +156,14 @@ const CookingBody = z.object({
   b => !!b.menu_item_id || !!(b.dish_name && b.dish_name.trim()),
   { message: 'Either menu_item_id or dish_name is required' },
 )
+
+// Editing an already-logged check — the dish identity (menu_item_id /
+// dish_name) is fixed once created, only the reading itself can change.
+const CookingPatch = z.object({
+  core_temp_c:        z.number().optional(),
+  corrective_action:  z.string().max(2000).nullable().optional(),
+  notes:              z.string().max(2000).nullable().optional(),
+})
 
 function applyEquipmentDefaults(body) {
   const d = DEFAULT_TEMPS[body.equipment_type] || DEFAULT_TEMPS.other
@@ -375,6 +398,34 @@ export default async function foodSafetyRoutes(app) {
         recorded_at       = now()
       RETURNING *
     `)
+    return row
+  })
+
+  app.patch('/temp-logs/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = TempLogPatch.parse(req.body)
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [existing] = await withTenant(req.tenantId, tx => tx`
+      SELECT l.temperature_c, e.min_temp_c, e.max_temp_c
+        FROM fs_temp_logs l JOIN fs_equipment e ON e.id = l.equipment_id
+       WHERE l.id = ${req.params.id} AND l.tenant_id = ${req.tenantId}
+    `)
+    if (!existing) throw httpError(404, 'Temp log not found')
+
+    const temp = body.temperature_c ?? existing.temperature_c
+    const updates = { ...body, is_within_range: withinRange(temp, existing.min_temp_c, existing.max_temp_c) }
+    const updateFields = Object.keys(updates)
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_temp_logs
+         SET ${tx(updates, ...updateFields)}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Temp log not found')
     return row
   })
 
@@ -639,6 +690,34 @@ export default async function foodSafetyRoutes(app) {
     return row
   })
 
+  app.patch('/holds/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = HoldPatch.parse(req.body)
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [existing] = await withTenant(req.tenantId, tx => tx`
+      SELECT h.temperature_c, s.min_temp_c, s.max_temp_c
+        FROM fs_hold_checks h JOIN fs_hold_stations s ON s.id = h.station_id
+       WHERE h.id = ${req.params.id} AND h.tenant_id = ${req.tenantId}
+    `)
+    if (!existing) throw httpError(404, 'Hold check not found')
+
+    const temp = body.temperature_c ?? existing.temperature_c
+    const updates = { ...body, is_within_range: withinRange(temp, existing.min_temp_c, existing.max_temp_c) }
+    const updateFields = Object.keys(updates)
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_hold_checks
+         SET ${tx(updates, ...updateFields)}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Hold check not found')
+    return row
+  })
+
   // ── Cooking sessions ──────────────────────────────────────
   // How many times a day cooking checks happen, and how many items
   // must be checked in each session to meet criteria.
@@ -797,6 +876,33 @@ export default async function foodSafetyRoutes(app) {
          ${body.recorded_by ?? req.user?.email ?? null})
       RETURNING *
     `)
+    return row
+  })
+
+  app.patch('/cooking/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = CookingPatch.parse(req.body)
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [existing] = await withTenant(req.tenantId, tx => tx`
+      SELECT core_temp_c FROM fs_cooking_checks
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+    `)
+    if (!existing) throw httpError(404, 'Cooking check not found')
+
+    const temp = body.core_temp_c ?? existing.core_temp_c
+    const updates = { ...body, is_within_range: temp >= 75 }
+    const updateFields = Object.keys(updates)
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_cooking_checks
+         SET ${tx(updates, ...updateFields)}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Cooking check not found')
     return row
   })
 

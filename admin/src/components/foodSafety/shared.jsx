@@ -19,15 +19,6 @@ export const TYPE_LABELS = {
   cold_hold: 'Cold hold', other: 'Other',
 }
 
-// Mirrors the backend's withinRange() in foodSafety.js — used to decide
-// client-side, before saving, whether the out-of-range comment popup is required.
-export function withinRange(temp, min, max) {
-  if (temp == null || Number.isNaN(temp)) return null
-  if (min != null && temp < min) return false
-  if (max != null && temp > max) return false
-  return true
-}
-
 export function timeLabel(t) {
   return t ? t.slice(0, 5) : ''
 }
@@ -47,47 +38,16 @@ export function Badge({ ok, children }) {
   )
 }
 
-// Required-comment gate for out-of-range readings. Shown instead of saving
-// directly — the reading only reaches the API once a corrective action is given.
-export function RangeCommentModal({ equipment, temp, onCancel, onConfirm, isSaving }) {
-  const [action, setAction] = useState('')
-  return (
-    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-md p-6 border-2 border-red-200">
-        <div className="flex items-center gap-2 mb-1 text-red-700">
-          <AlertTriangle className="w-5 h-5" />
-          <h2 className="text-lg font-semibold">Reading is out of range</h2>
-        </div>
-        <p className="text-sm text-muted-foreground mb-4">
-          {equipment.name} was logged at <strong>{temp}°C</strong>, outside the allowed{' '}
-          {equipment.min_temp_c ?? '—'} to {equipment.max_temp_c ?? '—'}°C range. Add a comment
-          on what action was taken before saving.
-        </p>
-        <label className="block text-sm font-medium mb-1">Corrective action *</label>
-        <textarea value={action} onChange={e => setAction(e.target.value)} rows={3} autoFocus
-          placeholder="e.g. Adjusted thermostat, moved stock to backup unit, called engineer"
-          className="w-full border rounded px-3 py-2 text-sm bg-background resize-none mb-4" />
-        <div className="flex gap-2">
-          <button type="button" disabled={!action.trim() || isSaving}
-            onClick={() => onConfirm(action.trim())}
-            className="flex-1 bg-red-600 text-white rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
-            {isSaving ? 'Saving…' : 'Confirm & save'}
-          </button>
-          <button type="button" onClick={onCancel} disabled={isSaving} className="px-4 py-2 border rounded text-sm min-h-[44px]">Back</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // One equipment × capture-time cell: pre-filled with today's already-logged
 // reading (if any) and always directly editable — no modal, no save button.
 // Plus/minus steppers either side for tablet use; any change (typing or a
-// stepper tap) autosaves after a short debounce, and immediately on blur.
-// Out-of-range values aren't saved directly — attemptSave() hands off to
-// the parent's RangeCommentModal gate (shared across every cell) so a
-// corrective action is captured first.
-export function TempCell({ equipment, captureTime, existingLog, onSave, onOutOfRange, isSaving }) {
+// stepper tap) autosaves after a short debounce, and immediately on blur —
+// including out-of-range values, which save immediately with no popup.
+// A reading that's out of range and still missing a corrective action is
+// flagged red; once a corrective action has been recorded (via the
+// end-of-day review, see EndOfDayReview below) it's flagged amber instead,
+// so the "still needs attention" cases stay visually distinct.
+export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving }) {
   const [value, setValue] = useState(() =>
     existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
   const timerRef = useRef(null)
@@ -105,18 +65,17 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, onOutOfR
     if (raw === '') return
     const temp = Number(raw)
     if (Number.isNaN(temp)) return
-    const inRange = withinRange(temp, equipment.min_temp_c, equipment.max_temp_c)
-    if (inRange === false) {
-      onOutOfRange({ equipment, captureTime, temp })
-      return
-    }
     onSave({
       venue_id: equipment.venue_id,
       equipment_id: equipment.id,
       capture_time_id: captureTime?.id ?? null,
       temperature_c: temp,
-      corrective_action: null,
-      notes: null,
+      // Carry forward any corrective action already on this slot (e.g. from
+      // the end-of-day review) rather than wiping it out on every re-touch
+      // of the stepper — a plain autosave here isn't the place to collect
+      // a fresh one.
+      corrective_action: existingLog?.corrective_action ?? null,
+      notes: existingLog?.notes ?? null,
     })
   }
 
@@ -137,8 +96,9 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, onOutOfR
     scheduleSave(next)
   }
 
-  const badReading = existingLog?.is_within_range === false
-    && value === (existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+  const isCurrentReading = value === (existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+  const unresolved = isCurrentReading && existingLog?.is_within_range === false && !existingLog?.corrective_action
+  const resolved   = isCurrentReading && existingLog?.is_within_range === false && !!existingLog?.corrective_action
 
   return (
     <div className="flex items-center gap-1">
@@ -152,9 +112,11 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, onOutOfR
         onBlur={flushSave}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
         placeholder={equipment.target_temp_c != null ? String(equipment.target_temp_c) : '—'}
+        title={resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined}
         className={cn(
           'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
-          badReading && 'border-red-400 bg-red-50 text-red-700',
+          unresolved && 'border-red-400 bg-red-50 text-red-700',
+          resolved && 'border-amber-300 bg-amber-50 text-amber-700',
           isSaving && 'opacity-60',
         )} />
       <button type="button" onClick={() => bump(0.5)}
@@ -167,13 +129,14 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, onOutOfR
 }
 
 // Full equipment × capture-time grid for one venue/date — the entire "Today"
-// experience (data fetching, out-of-range gate, inline entry) as a single
-// drop-in component. Used by the Food safety page's Today tab and by the
-// H&S Dashboard's temperature-check widget card.
+// experience (data fetching, inline entry) as a single drop-in component.
+// Out-of-range readings save immediately, same as any other value — a
+// corrective action can be attached later via EndOfDayReview rather than
+// gating the save itself. Used by the Food safety page's Today tab and by
+// the H&S Dashboard's temperature-check widget card.
 export function TempChecksTable({ venueId, date, emptyState, showType = true }) {
   const api = useApi()
   const qc = useQueryClient()
-  const [pendingOutOfRange, setPendingOutOfRange] = useState(null)
 
   const enabled = !!venueId
 
@@ -195,10 +158,7 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
 
   const createTemp = useMutation({
     mutationFn: body => api.post('/food-safety/temp-logs', body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['fs-temp-logs', venueId, date] })
-      setPendingOutOfRange(null)
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-temp-logs', venueId, date] }),
   })
 
   if (!enabled) return null
@@ -213,68 +173,48 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
   const columns = captureTimes.length > 0 ? captureTimes : [null]
 
   return (
-    <>
-      <div className="border rounded-xl overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 border-b">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted/50">Equipment</th>
-              {showType && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Type</th>}
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Range</th>
-              {columns.map(ct => (
-                <th key={ct?.id ?? 'adhoc'} className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                  {ct ? <>{ct.label}<span className="block font-normal text-[11px]">{timeLabel(ct.time_of_day)}</span></> : 'Today'}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {equipment.map(eq => (
-              <tr key={eq.id} className="border-b last:border-0">
-                <td className="px-4 py-3 font-medium whitespace-nowrap sticky left-0 bg-background">{eq.name}</td>
-                {showType && <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{TYPE_LABELS[eq.equipment_type]}</td>}
-                <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
-                  {eq.min_temp_c ?? '—'} … {eq.max_temp_c ?? '—'}°C
-                </td>
-                {columns.map(ct => {
-                  const existingLog = tempLogs.find(l => l.equipment_id === eq.id
-                    && (ct ? l.capture_time_id === ct.id : l.capture_time_id == null))
-                  return (
-                    <td key={ct?.id ?? 'adhoc'} className="px-3 py-2">
-                      <TempCell
-                        equipment={eq}
-                        captureTime={ct}
-                        existingLog={existingLog}
-                        onSave={body => createTemp.mutate(body)}
-                        onOutOfRange={setPendingOutOfRange}
-                        isSaving={createTemp.isPending}
-                      />
-                    </td>
-                  )
-                })}
-              </tr>
+    <div className="border rounded-xl overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/50 border-b">
+          <tr>
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted/50">Equipment</th>
+            {showType && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Type</th>}
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Range</th>
+            {columns.map(ct => (
+              <th key={ct?.id ?? 'adhoc'} className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                {ct ? <>{ct.label}<span className="block font-normal text-[11px]">{timeLabel(ct.time_of_day)}</span></> : 'Today'}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
-
-      {pendingOutOfRange && (
-        <RangeCommentModal
-          equipment={pendingOutOfRange.equipment}
-          temp={pendingOutOfRange.temp}
-          isSaving={createTemp.isPending}
-          onCancel={() => setPendingOutOfRange(null)}
-          onConfirm={action => createTemp.mutate({
-            venue_id: pendingOutOfRange.equipment.venue_id,
-            equipment_id: pendingOutOfRange.equipment.id,
-            capture_time_id: pendingOutOfRange.captureTime?.id ?? null,
-            temperature_c: pendingOutOfRange.temp,
-            corrective_action: action,
-            notes: null,
-          })}
-        />
-      )}
-    </>
+          </tr>
+        </thead>
+        <tbody>
+          {equipment.map(eq => (
+            <tr key={eq.id} className="border-b last:border-0">
+              <td className="px-4 py-3 font-medium whitespace-nowrap sticky left-0 bg-background">{eq.name}</td>
+              {showType && <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{TYPE_LABELS[eq.equipment_type]}</td>}
+              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                {eq.min_temp_c ?? '—'} … {eq.max_temp_c ?? '—'}°C
+              </td>
+              {columns.map(ct => {
+                const existingLog = tempLogs.find(l => l.equipment_id === eq.id
+                  && (ct ? l.capture_time_id === ct.id : l.capture_time_id == null))
+                return (
+                  <td key={ct?.id ?? 'adhoc'} className="px-3 py-2">
+                    <TempCell
+                      equipment={eq}
+                      captureTime={ct}
+                      existingLog={existingLog}
+                      onSave={body => createTemp.mutate(body)}
+                      isSaving={createTemp.isPending}
+                    />
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -604,9 +544,9 @@ export function HoldCaptureTimeModal({ initial, venueId, onClose, onSave, isSavi
 }
 
 // One hold station × capture-time cell — identical interaction to TempCell
-// (autosave on type/stepper, debounced, out-of-range gate via the shared
-// RangeCommentModal) but posts station_id instead of equipment_id.
-function HoldCell({ station, captureTime, existingLog, onSave, onOutOfRange, isSaving }) {
+// (autosave on type/stepper, debounced, out-of-range saves immediately —
+// see the note on TempCell) but posts station_id instead of equipment_id.
+function HoldCell({ station, captureTime, existingLog, onSave, isSaving }) {
   const [value, setValue] = useState(() =>
     existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
   const timerRef = useRef(null)
@@ -621,18 +561,13 @@ function HoldCell({ station, captureTime, existingLog, onSave, onOutOfRange, isS
     if (raw === '') return
     const temp = Number(raw)
     if (Number.isNaN(temp)) return
-    const inRange = withinRange(temp, station.min_temp_c, station.max_temp_c)
-    if (inRange === false) {
-      onOutOfRange({ equipment: station, captureTime, temp })
-      return
-    }
     onSave({
       venue_id: station.venue_id,
       station_id: station.id,
       capture_time_id: captureTime?.id ?? null,
       temperature_c: temp,
-      corrective_action: null,
-      notes: null,
+      corrective_action: existingLog?.corrective_action ?? null,
+      notes: existingLog?.notes ?? null,
     })
   }
 
@@ -653,8 +588,9 @@ function HoldCell({ station, captureTime, existingLog, onSave, onOutOfRange, isS
     scheduleSave(next)
   }
 
-  const badReading = existingLog?.is_within_range === false
-    && value === (existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+  const isCurrentReading = value === (existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+  const unresolved = isCurrentReading && existingLog?.is_within_range === false && !existingLog?.corrective_action
+  const resolved   = isCurrentReading && existingLog?.is_within_range === false && !!existingLog?.corrective_action
 
   return (
     <div className="flex items-center gap-1">
@@ -668,9 +604,11 @@ function HoldCell({ station, captureTime, existingLog, onSave, onOutOfRange, isS
         onBlur={flushSave}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
         placeholder={station.target_temp_c != null ? String(station.target_temp_c) : '—'}
+        title={resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined}
         className={cn(
           'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
-          badReading && 'border-red-400 bg-red-50 text-red-700',
+          unresolved && 'border-red-400 bg-red-50 text-red-700',
+          resolved && 'border-amber-300 bg-amber-50 text-amber-700',
           isSaving && 'opacity-60',
         )} />
       <button type="button" onClick={() => bump(0.5)}
@@ -689,7 +627,6 @@ function HoldCell({ station, captureTime, existingLog, onSave, onOutOfRange, isS
 export function HoldChecksTable({ venueId, date, emptyState, showType = true }) {
   const api = useApi()
   const qc = useQueryClient()
-  const [pendingOutOfRange, setPendingOutOfRange] = useState(null)
 
   const enabled = !!venueId
 
@@ -711,10 +648,7 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
 
   const createHold = useMutation({
     mutationFn: body => api.post('/food-safety/holds', body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['fs-holds', venueId, date] })
-      setPendingOutOfRange(null)
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-holds', venueId, date] }),
   })
 
   if (!enabled) return null
@@ -726,68 +660,48 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
   const columns = captureTimes.length > 0 ? captureTimes : [null]
 
   return (
-    <>
-      <div className="border rounded-xl overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 border-b">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted/50">Station</th>
-              {showType && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Type</th>}
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Range</th>
-              {columns.map(ct => (
-                <th key={ct?.id ?? 'adhoc'} className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
-                  {ct ? <>{ct.label}<span className="block font-normal text-[11px]">{timeLabel(ct.time_of_day)}</span></> : 'Today'}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {stations.map(st => (
-              <tr key={st.id} className="border-b last:border-0">
-                <td className="px-4 py-3 font-medium whitespace-nowrap sticky left-0 bg-background">{st.name}</td>
-                {showType && <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{HOLD_TYPE_LABELS[st.hold_type]}</td>}
-                <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
-                  {st.min_temp_c ?? '—'} … {st.max_temp_c ?? '—'}°C
-                </td>
-                {columns.map(ct => {
-                  const existingLog = logs.find(l => l.station_id === st.id
-                    && (ct ? l.capture_time_id === ct.id : l.capture_time_id == null))
-                  return (
-                    <td key={ct?.id ?? 'adhoc'} className="px-3 py-2">
-                      <HoldCell
-                        station={st}
-                        captureTime={ct}
-                        existingLog={existingLog}
-                        onSave={body => createHold.mutate(body)}
-                        onOutOfRange={setPendingOutOfRange}
-                        isSaving={createHold.isPending}
-                      />
-                    </td>
-                  )
-                })}
-              </tr>
+    <div className="border rounded-xl overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/50 border-b">
+          <tr>
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted/50">Station</th>
+            {showType && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Type</th>}
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Range</th>
+            {columns.map(ct => (
+              <th key={ct?.id ?? 'adhoc'} className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
+                {ct ? <>{ct.label}<span className="block font-normal text-[11px]">{timeLabel(ct.time_of_day)}</span></> : 'Today'}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
-
-      {pendingOutOfRange && (
-        <RangeCommentModal
-          equipment={pendingOutOfRange.equipment}
-          temp={pendingOutOfRange.temp}
-          isSaving={createHold.isPending}
-          onCancel={() => setPendingOutOfRange(null)}
-          onConfirm={action => createHold.mutate({
-            venue_id: pendingOutOfRange.equipment.venue_id,
-            station_id: pendingOutOfRange.equipment.id,
-            capture_time_id: pendingOutOfRange.captureTime?.id ?? null,
-            temperature_c: pendingOutOfRange.temp,
-            corrective_action: action,
-            notes: null,
-          })}
-        />
-      )}
-    </>
+          </tr>
+        </thead>
+        <tbody>
+          {stations.map(st => (
+            <tr key={st.id} className="border-b last:border-0">
+              <td className="px-4 py-3 font-medium whitespace-nowrap sticky left-0 bg-background">{st.name}</td>
+              {showType && <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{HOLD_TYPE_LABELS[st.hold_type]}</td>}
+              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                {st.min_temp_c ?? '—'} … {st.max_temp_c ?? '—'}°C
+              </td>
+              {columns.map(ct => {
+                const existingLog = logs.find(l => l.station_id === st.id
+                  && (ct ? l.capture_time_id === ct.id : l.capture_time_id == null))
+                return (
+                  <td key={ct?.id ?? 'adhoc'} className="px-3 py-2">
+                    <HoldCell
+                      station={st}
+                      captureTime={ct}
+                      existingLog={existingLog}
+                      onSave={body => createHold.mutate(body)}
+                      isSaving={createHold.isPending}
+                    />
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -916,34 +830,61 @@ function CookingSessionsModal({ venueId, onClose }) {
   )
 }
 
-// The one-shot temperature-entry modal for a clicked menu item (or a
-// custom off-menu dish). Unlike TempCell/HoldCell this always shows an
-// explicit Save — it's creating a brand new check event, not editing
-// continuous state, so there's no "current value" to autosave against.
-function CookingEntryModal({ target, venueId, date, sessionId, onClose, onSave, isSaving }) {
+// The temperature-entry modal for a clicked menu item (or a custom
+// off-menu dish). Autosaves like TempCell/HoldCell: the first interaction
+// (a stepper tap, typing a temp, or — for a custom dish — naming it)
+// creates the check; every change after that debounces a PATCH onto the
+// same row rather than creating another one. Closing the modal (X or
+// Done) flushes any pending change first, since unmounting would
+// otherwise drop it. There's no Cancel — once something's been logged,
+// closing just stops editing it rather than undoing it.
+function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate, onUpdate, isSaving }) {
   const [temp, setTemp] = useState('75')
   const [note, setNote] = useState('')
   const [customName, setCustomName] = useState('')
+  const [checkId, setCheckId] = useState(null)
+  const timerRef = useRef(null)
 
-  function bump(delta) {
-    setTemp(prev => {
-      const current = prev === '' ? 75 : Number(prev)
-      return String(Math.round((current + delta) * 10) / 10)
-    })
-  }
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
-  function submit(e) {
-    e.preventDefault()
-    if (temp === '') return
+  function persist(rawTemp, rawNote) {
+    if (rawTemp === '') return
+    const coreTemp = Number(rawTemp)
+    if (Number.isNaN(coreTemp)) return
+    if (checkId) {
+      onUpdate(checkId, { core_temp_c: coreTemp, corrective_action: rawNote.trim() || null })
+      return
+    }
     if (target.custom && !customName.trim()) return
-    onSave({
+    onCreate({
       venue_id: venueId,
       check_date: date,
       session_id: sessionId || null,
       menu_item_id: target.custom ? null : target.itemId,
       dish_name: target.custom ? customName.trim() : null,
-      core_temp_c: Number(temp),
-      corrective_action: note.trim() || null,
+      core_temp_c: coreTemp,
+      corrective_action: rawNote.trim() || null,
+    }, id => setCheckId(id))
+  }
+
+  function scheduleSave(rawTemp, rawNote) {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => persist(rawTemp, rawNote), AUTOSAVE_DEBOUNCE_MS)
+  }
+
+  function flushSave() {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+    persist(temp, note)
+  }
+
+  function close() { flushSave(); onClose() }
+
+  function bump(delta) {
+    setTemp(prev => {
+      const current = prev === '' ? 75 : Number(prev)
+      const next = String(Math.round((current + delta) * 10) / 10)
+      scheduleSave(next, note)
+      return next
     })
   }
 
@@ -952,13 +893,14 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onSave, 
       <div className="bg-background rounded-xl shadow-xl w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">{target.custom ? 'Log a dish' : target.itemName}</h2>
-          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
+          <button type="button" onClick={close} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
         </div>
-        <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-4">
           {target.custom && (
             <div>
               <label className="block text-sm font-medium mb-1">Dish name *</label>
-              <input value={customName} onChange={e => setCustomName(e.target.value)} required autoFocus
+              <input value={customName} onChange={e => setCustomName(e.target.value)}
+                onBlur={() => { if (!checkId) persist(temp, note) }} required autoFocus
                 className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
             </div>
           )}
@@ -970,7 +912,9 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onSave, 
                 aria-label="Decrease temperature">
                 <Minus className="w-5 h-5" />
               </button>
-              <input type="number" step="0.1" inputMode="decimal" value={temp} onChange={e => setTemp(e.target.value)}
+              <input type="number" step="0.1" inputMode="decimal" value={temp}
+                onChange={e => { setTemp(e.target.value); scheduleSave(e.target.value, note) }}
+                onBlur={flushSave}
                 className="w-24 text-center text-xl font-semibold border rounded-lg px-2 py-2 bg-background min-h-[48px]" />
               <button type="button" onClick={() => bump(1)}
                 className="w-12 h-12 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
@@ -982,18 +926,17 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onSave, 
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Corrective action (optional)</label>
-            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2}
+            <textarea value={note}
+              onChange={e => { setNote(e.target.value); scheduleSave(temp, e.target.value) }}
+              onBlur={flushSave} rows={2}
               placeholder="e.g. Returned to heat for a further 5 minutes"
               className="w-full border rounded px-3 py-2 text-sm bg-background resize-none" />
           </div>
-          <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={isSaving || temp === '' || (target.custom && !customName.trim())}
-              className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
-              {isSaving ? 'Saving…' : 'Save check'}
-            </button>
-            <button type="button" onClick={onClose} className="px-4 py-2 border rounded text-sm min-h-[44px]">Cancel</button>
-          </div>
-        </form>
+          <button type="button" onClick={close}
+            className="w-full bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50" disabled={isSaving}>
+            {isSaving ? 'Saving…' : 'Done'}
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -1057,10 +1000,11 @@ export function CookingChecksPanel({ venueId, date }) {
 
   const createCheck = useMutation({
     mutationFn: body => api.post('/food-safety/cooking', body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] })
-      setEntryTarget(null)
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] }),
+  })
+  const updateCheck = useMutation({
+    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/cooking/${id}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] }),
   })
 
   if (!enabled) return null
@@ -1174,8 +1118,9 @@ export function CookingChecksPanel({ venueId, date }) {
           date={date}
           sessionId={sessionId}
           onClose={() => setEntryTarget(null)}
-          onSave={body => createCheck.mutate(body)}
-          isSaving={createCheck.isPending}
+          onCreate={(body, cb) => createCheck.mutate(body, { onSuccess: row => cb(row.id) })}
+          onUpdate={(id, body) => updateCheck.mutate({ id, ...body })}
+          isSaving={createCheck.isPending || updateCheck.isPending}
         />
       )}
 
@@ -1183,5 +1128,142 @@ export function CookingChecksPanel({ venueId, date }) {
         <CookingSessionsModal venueId={venueId} onClose={() => setSessionsOpen(false)} />
       )}
     </div>
+  )
+}
+
+// ── End of day review ─────────────────────────────────────────────
+//
+// Temp checks, hold checks and cooking checks all autosave immediately —
+// including out-of-range readings — rather than popping up a corrective-
+// action prompt on every stepper tap. Instead, any reading that's out of
+// range and still missing a corrective action shows up here: one button,
+// visible regardless of which tab is active, that cycles through every
+// unresolved reading for the day and collects a corrective action for
+// each. "Do this later" closes without losing progress — whatever's left
+// stays unresolved (and the badge count reflects it) until reopened.
+export function EndOfDayReview({ venueId, date }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [index, setIndex] = useState(0)
+  const [action, setAction] = useState('')
+
+  const enabled = !!venueId
+
+  const { data: tempLogs = [] } = useQuery({
+    queryKey: ['fs-temp-logs', venueId, date],
+    queryFn: () => api.get(`/food-safety/temp-logs?venue_id=${venueId}&date=${date}`),
+    enabled,
+  })
+  const { data: holds = [] } = useQuery({
+    queryKey: ['fs-holds', venueId, date],
+    queryFn: () => api.get(`/food-safety/holds?venue_id=${venueId}&date=${date}`),
+    enabled,
+  })
+  const { data: cooking = [] } = useQuery({
+    queryKey: ['fs-cooking', venueId, date],
+    queryFn: () => api.get(`/food-safety/cooking?venue_id=${venueId}&date=${date}`),
+    enabled,
+  })
+
+  const unresolved = useMemo(() => {
+    const items = []
+    for (const l of tempLogs) {
+      if (l.is_within_range === false && !l.corrective_action) {
+        items.push({
+          name: l.equipment_name, temp: l.temperature_c,
+          range: `${l.min_temp_c ?? '—'} to ${l.max_temp_c ?? '—'}°C`,
+          endpoint: `/food-safety/temp-logs/${l.id}`, invalidateKey: ['fs-temp-logs', venueId, date],
+        })
+      }
+    }
+    for (const h of holds) {
+      if (h.is_within_range === false && !h.corrective_action) {
+        items.push({
+          name: h.station_name, temp: h.temperature_c,
+          range: `${h.min_temp_c ?? '—'} to ${h.max_temp_c ?? '—'}°C`,
+          endpoint: `/food-safety/holds/${h.id}`, invalidateKey: ['fs-holds', venueId, date],
+        })
+      }
+    }
+    for (const c of cooking) {
+      if (c.is_within_range === false && !c.corrective_action) {
+        items.push({
+          name: c.dish_name, temp: c.core_temp_c, range: '75°C or above',
+          endpoint: `/food-safety/cooking/${c.id}`, invalidateKey: ['fs-cooking', venueId, date],
+        })
+      }
+    }
+    return items
+  }, [tempLogs, holds, cooking, venueId, date])
+
+  const patch = useMutation({
+    mutationFn: ({ endpoint, body }) => api.patch(endpoint, body),
+    onSuccess: (_, { invalidateKey }) => qc.invalidateQueries({ queryKey: invalidateKey }),
+  })
+
+  if (!enabled) return null
+
+  function openReview() {
+    setIndex(0)
+    setAction('')
+    setOpen(true)
+  }
+
+  const current = unresolved[index]
+  const isLast = index + 1 >= unresolved.length
+
+  function confirmAndNext() {
+    if (!current || !action.trim()) return
+    patch.mutate({ endpoint: current.endpoint, body: { corrective_action: action.trim() } }, {
+      onSuccess: () => {
+        setAction('')
+        if (isLast) setOpen(false)
+        else setIndex(i => i + 1)
+      },
+    })
+  }
+
+  return (
+    <>
+      <button type="button" onClick={openReview} disabled={unresolved.length === 0}
+        className={cn(
+          'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation',
+          unresolved.length > 0 ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-emerald-50 text-emerald-700 cursor-default',
+        )}>
+        {unresolved.length > 0 ? <AlertTriangle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+        {unresolved.length > 0 ? `End of day review (${unresolved.length})` : 'End of day — all clear'}
+      </button>
+
+      {open && current && (
+        <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+          <div className="bg-background rounded-xl shadow-xl w-full max-w-md p-6 border-2 border-red-200">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2 text-red-700">
+                <AlertTriangle className="w-5 h-5" />
+                <h2 className="text-lg font-semibold">Reading was out of range</h2>
+              </div>
+              <span className="text-xs text-muted-foreground shrink-0">{index + 1} of {unresolved.length}</span>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              {current.name} was logged at <strong>{current.temp}°C</strong>, outside the allowed {current.range} range.
+              Add a comment on what action was taken.
+            </p>
+            <label className="block text-sm font-medium mb-1">Corrective action *</label>
+            <textarea value={action} onChange={e => setAction(e.target.value)} rows={3} autoFocus
+              placeholder="e.g. Adjusted thermostat, moved stock to backup unit, called engineer"
+              className="w-full border rounded px-3 py-2 text-sm bg-background resize-none mb-4" />
+            <div className="flex gap-2">
+              <button type="button" disabled={!action.trim() || patch.isPending} onClick={confirmAndNext}
+                className="flex-1 bg-red-600 text-white rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
+                {patch.isPending ? 'Saving…' : isLast ? 'Confirm & finish' : 'Confirm & next'}
+              </button>
+              <button type="button" onClick={() => setOpen(false)} disabled={patch.isPending}
+                className="px-4 py-2 border rounded text-sm min-h-[44px]">Do this later</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
