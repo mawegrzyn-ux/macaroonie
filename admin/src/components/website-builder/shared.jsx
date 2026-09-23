@@ -5,12 +5,17 @@ import { Loader2, Upload, Image as ImageIcon } from 'lucide-react'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 
 export function FormRow({ label, hint, children }) {
+  // A plain <div>, not <label> — see the matching note on Field in
+  // admin/src/components/menus/shared.jsx. Wrapping a composite child
+  // (e.g. RichTextEditor, which has its own toolbar <select>) in a
+  // native <label> with no htmlFor sends any click inside it to the
+  // FIRST labelable control found, not necessarily the one clicked.
   return (
-    <label className="block">
+    <div className="block">
       <span className="text-[11px] uppercase font-semibold text-muted-foreground tracking-wide block mb-1">{label}</span>
       {children}
       {hint && <p className="text-[11px] text-muted-foreground mt-1">{hint}</p>}
-    </label>
+    </div>
   )
 }
 

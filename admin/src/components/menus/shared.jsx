@@ -20,12 +20,19 @@ export function Card({ title, action, description, children }) {
 }
 
 export function Field({ label, hint, children }) {
+  // A plain <div>, not <label> — wrapping composite children (e.g. the
+  // intro line's RichTextEditor, which has its own toolbar <select>) in a
+  // native <label> with no htmlFor makes the browser forward any click
+  // inside it to the FIRST labelable control it finds, which isn't
+  // necessarily the one the click landed on. That silently stole focus
+  // (and, via <select> type-ahead, mangled content) when clicking into
+  // the rich text editor's content area. See CLAUDE.md.
   return (
-    <label className="block">
+    <div className="block">
       <span className="text-xs font-medium block mb-1">{label}</span>
       {children}
       {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
-    </label>
+    </div>
   )
 }
 
