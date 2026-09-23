@@ -191,6 +191,13 @@ export const MODULES = [
     description: 'Recurring opening/closing/cleaning checklists — daily, weekly or monthly, fully operator-defined.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
+  {
+    key:    'hs_dashboard',
+    label:  'H&S Dashboard',
+    group:  'hs_dashboard',
+    description: 'Customisable dashboards combining checklist and temperature-check widgets behind one date navigator.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
 ]
 
 export const MODULE_KEYS = MODULES.map(m => m.key)
@@ -260,6 +267,12 @@ export const MODULE_GROUPS = [
     label:  'Checklists',
     description: 'Recurring opening/closing/cleaning checklists per venue.',
     moduleKeys: ['checklists'],
+  },
+  {
+    key:    'hs_dashboard',
+    label:  'H&S Dashboard',
+    description: 'Customisable checklist + temperature-check dashboards per venue.',
+    moduleKeys: ['hs_dashboard'],
   },
 ]
 
