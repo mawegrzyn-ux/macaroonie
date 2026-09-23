@@ -12,12 +12,13 @@
 // Food safety pages via their shared components, so there is only
 // one implementation of each check type anywhere in the app.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import {
-  Plus, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
+  Plus, Minus, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
   Pencil, Trash2, Check, ListChecks, Thermometer, Truck, Flame, ChefHat, LayoutGrid,
+  Maximize2, Minimize2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -172,7 +173,16 @@ function AddWidgetModal({ venueId, api, onClose, onSave, isSaving }) {
 
 // ── One widget card ──────────────────────────────────────────────
 
-function WidgetCard({ widget, venueId, date, editing, onRemove, onMoveUp, onMoveDown, isFirst, isLast }) {
+const MIN_COL_SPAN = 1
+const MIN_HEIGHT_PX = 240
+const MAX_HEIGHT_PX = 1200
+const HEIGHT_STEP_PX = 120
+
+function WidgetCard({
+  widget, venueId, date, editing, columnCount,
+  onRemove, onMoveUp, onMoveDown, isFirst, isLast,
+  onResizeWidth, onResizeHeight,
+}) {
   const isChecklist = widget.widget_type === 'checklist'
   const meta  = WIDGET_TYPE_BY_KEY[widget.widget_type]
   const title = widget.title_override || (isChecklist ? widget.checklist_name : meta.defaultTitle)
@@ -182,11 +192,16 @@ function WidgetCard({ widget, venueId, date, editing, onRemove, onMoveUp, onMove
     ? { id: widget.checklist_template_id, name: widget.checklist_name, frequency: widget.checklist_frequency }
     : null
 
+  const colSpan  = Math.min(widget.col_span ?? 1, columnCount)
+  const heightPx = widget.height_px ?? 480
+
   return (
-    <div className={cn(
-      'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
-      editing && 'ring-1 ring-primary/30 border-dashed',
-    )}>
+    <div
+      style={{ gridColumn: `span ${colSpan}` }}
+      className={cn(
+        'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
+        editing && 'ring-1 ring-primary/30 border-dashed',
+      )}>
       <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
         <span className="w-8 h-8 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon className="w-4 h-4" />
@@ -217,7 +232,41 @@ function WidgetCard({ widget, venueId, date, editing, onRemove, onMoveUp, onMove
           </div>
         )}
       </div>
-      <div className="p-4 max-h-[480px] overflow-y-auto">
+
+      {editing && (
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-4 py-2 border-b bg-muted/10 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Width</span>
+            <button type="button" onClick={() => onResizeWidth(-1)} disabled={colSpan <= MIN_COL_SPAN}
+              className="w-7 h-7 flex items-center justify-center rounded border hover:bg-accent disabled:opacity-30 touch-manipulation"
+              aria-label="Narrower">
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <span className="w-10 text-center font-medium">{colSpan}/{columnCount}</span>
+            <button type="button" onClick={() => onResizeWidth(1)} disabled={colSpan >= columnCount}
+              className="w-7 h-7 flex items-center justify-center rounded border hover:bg-accent disabled:opacity-30 touch-manipulation"
+              aria-label="Wider">
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">Height</span>
+            <button type="button" onClick={() => onResizeHeight(-HEIGHT_STEP_PX)} disabled={heightPx <= MIN_HEIGHT_PX}
+              className="w-7 h-7 flex items-center justify-center rounded border hover:bg-accent disabled:opacity-30 touch-manipulation"
+              aria-label="Shorter">
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+            <span className="w-14 text-center font-medium">{heightPx}px</span>
+            <button type="button" onClick={() => onResizeHeight(HEIGHT_STEP_PX)} disabled={heightPx >= MAX_HEIGHT_PX}
+              className="w-7 h-7 flex items-center justify-center rounded border hover:bg-accent disabled:opacity-30 touch-manipulation"
+              aria-label="Taller">
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="p-4 overflow-y-auto" style={{ maxHeight: heightPx }}>
         {widget.widget_type === 'checklist' && <ChecklistRunPanel template={template} date={date} hideHeader />}
         {widget.widget_type === 'temp_checks' && <TempChecksTable venueId={venueId} date={date} />}
         {widget.widget_type === 'delivery_checks' && <DeliveryChecksPanel venueId={venueId} date={date} />}
@@ -233,6 +282,7 @@ function WidgetCard({ widget, venueId, date, editing, onRemove, onMoveUp, onMove
 export default function HSDashboard() {
   const api = useApi()
   const qc = useQueryClient()
+  const containerRef = useRef(null)
 
   const [venueId, setVenueId] = useState('')
   const [date, setDate] = useState(todayStr())
@@ -241,6 +291,17 @@ export default function HSDashboard() {
   const [dashModal, setDashModal] = useState(null) // 'new' | dashboard row | null
   const [confirmDeleteDash, setConfirmDeleteDash] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => {
+    function handler() { setIsFullscreen(document.fullscreenElement === containerRef.current) }
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) containerRef.current?.requestFullscreen?.()
+    else document.exitFullscreen?.()
+  }
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -276,8 +337,8 @@ export default function HSDashboard() {
     mutationFn: name => api.post('/hs-dashboards/dashboards', { venue_id: venueId, name }),
     onSuccess: (row) => { invalidateDashboards(); setDashModal(null); setActiveDashboardId(row.id) },
   })
-  const renameDashboard = useMutation({
-    mutationFn: ({ id, name }) => api.patch(`/hs-dashboards/dashboards/${id}`, { name }),
+  const patchDashboard = useMutation({
+    mutationFn: ({ id, ...body }) => api.patch(`/hs-dashboards/dashboards/${id}`, body),
     onSuccess: () => { invalidateDashboards(); setDashModal(null) },
   })
   const deleteDashboard = useMutation({
@@ -299,6 +360,10 @@ export default function HSDashboard() {
   })
   const reorderWidgets = useMutation({
     mutationFn: ids => api.put(`/hs-dashboards/dashboards/${activeDashboardId}/widgets/reorder`, { ids }),
+    onSuccess: invalidateWidgets,
+  })
+  const patchWidget = useMutation({
+    mutationFn: ({ id, ...body }) => api.patch(`/hs-dashboards/dashboards/${activeDashboardId}/widgets/${id}`, body),
     onSuccess: invalidateWidgets,
   })
 
@@ -326,9 +391,26 @@ export default function HSDashboard() {
 
   const activeDashboard = dashboards.find(d => d.id === activeDashboardId) ?? null
   const activeIdx = dashboards.findIndex(d => d.id === activeDashboardId)
+  const columnCount = activeDashboard?.column_count ?? 4
+
+  function setColumnCount(delta) {
+    if (!activeDashboard) return
+    const next = Math.min(6, Math.max(1, columnCount + delta))
+    if (next === columnCount) return
+    patchDashboard.mutate({ id: activeDashboard.id, column_count: next })
+  }
+
+  function resizeWidget(widget, field, value) {
+    patchWidget.mutate({ id: widget.id, [field]: value })
+  }
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto">
+    <div
+      ref={containerRef}
+      className={cn(
+        'p-4 md:p-6 bg-background',
+        isFullscreen ? 'w-screen h-screen overflow-y-auto' : 'max-w-6xl mx-auto',
+      )}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <LayoutGrid className="w-6 h-6 text-primary" /> H&amp;S Dashboard
@@ -350,6 +432,11 @@ export default function HSDashboard() {
               {editing ? 'Done editing' : 'Edit layout'}
             </button>
           )}
+          <button type="button" onClick={toggleFullscreen} title={isFullscreen ? 'Exit full screen' : 'Full screen'}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border hover:bg-accent px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
+            {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+            {isFullscreen ? 'Exit' : 'Full screen'}
+          </button>
         </div>
       </div>
 
@@ -424,6 +511,20 @@ export default function HSDashboard() {
                 className="inline-flex items-center gap-1 px-2 py-1.5 rounded hover:bg-accent touch-manipulation">
                 <Pencil className="w-3.5 h-3.5" /> Rename
               </button>
+              <span className="w-px h-5 bg-border mx-1" />
+              <span className="text-muted-foreground">Columns</span>
+              <button type="button" onClick={() => setColumnCount(-1)} disabled={columnCount <= 1}
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent disabled:opacity-30 touch-manipulation"
+                aria-label="Fewer columns">
+                <Minus className="w-3.5 h-3.5" />
+              </button>
+              <span className="w-4 text-center font-medium">{columnCount}</span>
+              <button type="button" onClick={() => setColumnCount(1)} disabled={columnCount >= 6}
+                className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent disabled:opacity-30 touch-manipulation"
+                aria-label="More columns">
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              <span className="w-px h-5 bg-border mx-1" />
               {confirmDeleteDash ? (
                 <>
                   <button type="button" onClick={() => deleteDashboard.mutate(activeDashboard.id)} disabled={deleteDashboard.isPending}
@@ -462,21 +563,28 @@ export default function HSDashboard() {
               </button>
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {widgets.map((w, idx) => (
-                <WidgetCard
-                  key={w.id}
-                  widget={w}
-                  venueId={venueId}
-                  date={date}
-                  editing={editing}
-                  isFirst={idx === 0}
-                  isLast={idx === widgets.length - 1}
-                  onMoveUp={() => moveWidget(idx, -1)}
-                  onMoveDown={() => moveWidget(idx, 1)}
-                  onRemove={() => removeWidget.mutate(w.id)}
-                />
-              ))}
+            <div className="overflow-x-auto">
+              <div
+                className="grid gap-4"
+                style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(240px, 1fr))` }}>
+                {widgets.map((w, idx) => (
+                  <WidgetCard
+                    key={w.id}
+                    widget={w}
+                    venueId={venueId}
+                    date={date}
+                    editing={editing}
+                    columnCount={columnCount}
+                    isFirst={idx === 0}
+                    isLast={idx === widgets.length - 1}
+                    onMoveUp={() => moveWidget(idx, -1)}
+                    onMoveDown={() => moveWidget(idx, 1)}
+                    onRemove={() => removeWidget.mutate(w.id)}
+                    onResizeWidth={delta => resizeWidget(w, 'col_span', Math.min(columnCount, Math.max(1, (w.col_span ?? 1) + delta)))}
+                    onResizeHeight={delta => resizeWidget(w, 'height_px', Math.min(1200, Math.max(240, (w.height_px ?? 480) + delta)))}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </>
@@ -485,11 +593,11 @@ export default function HSDashboard() {
       {dashModal && (
         <DashboardModal
           initial={dashModal === 'new' ? null : dashModal}
-          isSaving={createDashboard.isPending || renameDashboard.isPending}
+          isSaving={createDashboard.isPending || patchDashboard.isPending}
           onClose={() => setDashModal(null)}
           onSave={name => dashModal === 'new'
             ? createDashboard.mutate(name)
-            : renameDashboard.mutate({ id: dashModal.id, name })}
+            : patchDashboard.mutate({ id: dashModal.id, name })}
         />
       )}
 
