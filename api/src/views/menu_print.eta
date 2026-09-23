@@ -8,6 +8,16 @@ function fmtPrice(p) {
   const n = Number(p) / 100
   return '£' + n.toFixed(2)
 }
+const hideGroupHeaders = !!m.print_hide_variant_group_headers
+const hideZeroPriced   = !!m.hide_zero_priced_variants
+// Variant option prices only — a NULL price already renders as '' via
+// fmtPrice above; this treats an explicit 0 (an "included, no upcharge"
+// option) the same way when the operator has opted in, without touching
+// the base dish price shown via fmtPrice(item.price_pence).
+function fmtVariantPrice(p) {
+  if (hideZeroPriced && Number(p) === 0) return ''
+  return fmtPrice(p)
+}
 const cols = m.print_columns || 4
 const tenantName = m.tenant_name || ''
 
@@ -205,12 +215,12 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
               <% if (item.description) { %><div class="item-desc"><%= item.description %></div><% } %>
               <% if (item.notes) { %><div class="item-notes"><%= item.notes %></div><% } %>
               <% _groups.forEach(function(g){ %>
-                <% if (g.name) { %><div class="group-name"><%= g.name %></div><% } %>
+                <% if (g.name && !hideGroupHeaders) { %><div class="group-name"><%= g.name %></div><% } %>
                 <% if (g.options && g.options.length) { %>
                   <div class="variants">
                     <% g.options.forEach(function(v){ %>
                       <span class="variant-label"><%= v.label %></span>
-                      <span class="variant-price"><%= fmtPrice(v.price_pence) %></span>
+                      <span class="variant-price"><%= fmtVariantPrice(v.price_pence) %></span>
                     <% }) %>
                   </div>
                 <% } %>
@@ -219,7 +229,7 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
                 <div class="variants">
                   <% _adhoc.forEach(function(v){ %>
                     <span class="variant-label"><%= v.label %></span>
-                    <span class="variant-price"><%= fmtPrice(v.price_pence) %></span>
+                    <span class="variant-price"><%= fmtVariantPrice(v.price_pence) %></span>
                   <% }) %>
                 </div>
               <% } %>
