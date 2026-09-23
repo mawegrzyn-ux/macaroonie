@@ -24,7 +24,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ChecklistRunPanel, FREQUENCY_LABELS } from '@/components/checklists/shared'
 import {
-  TempChecksTable, DeliveryChecksPanel, HoldChecksPanel, CookingChecksPanel,
+  TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
 } from '@/components/foodSafety/shared'
 
 // Single source of truth for widget-type metadata — drives both the
@@ -270,7 +270,7 @@ function WidgetCard({
         {widget.widget_type === 'checklist' && <ChecklistRunPanel template={template} date={date} hideHeader />}
         {widget.widget_type === 'temp_checks' && <TempChecksTable venueId={venueId} date={date} />}
         {widget.widget_type === 'delivery_checks' && <DeliveryChecksPanel venueId={venueId} date={date} />}
-        {widget.widget_type === 'hold_checks' && <HoldChecksPanel venueId={venueId} date={date} />}
+        {widget.widget_type === 'hold_checks' && <HoldChecksTable venueId={venueId} date={date} />}
         {widget.widget_type === 'cooking_checks' && <CookingChecksPanel venueId={venueId} date={date} />}
       </div>
     </div>

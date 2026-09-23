@@ -8,8 +8,9 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 import {
-  TYPE_LABELS, timeLabel, TempChecksTable,
-  DeliveryChecksPanel, HoldChecksPanel, CookingChecksPanel,
+  TYPE_LABELS, HOLD_TYPE_LABELS, timeLabel, TempChecksTable,
+  DeliveryChecksPanel, HoldChecksTable, HoldStationModal, HoldCaptureTimeModal,
+  CookingChecksPanel,
 } from '@/components/foodSafety/shared'
 
 const TABS = [
@@ -178,6 +179,8 @@ export default function FoodSafety() {
   const [date, setDate] = useState(todayStr())
   const [eqModal, setEqModal] = useState(null)
   const [ctModal, setCtModal] = useState(null)
+  const [holdStationModal, setHoldStationModal] = useState(null)
+  const [holdCtModal, setHoldCtModal] = useState(null)
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -214,6 +217,18 @@ export default function FoodSafety() {
     enabled,
   })
 
+  const { data: holdStations = [] } = useQuery({
+    queryKey: ['fs-hold-stations', venueId],
+    queryFn: () => api.get(`/food-safety/hold-stations?venue_id=${venueId}`),
+    enabled,
+  })
+
+  const { data: holdCaptureTimes = [] } = useQuery({
+    queryKey: ['fs-hold-capture-times', venueId],
+    queryFn: () => api.get(`/food-safety/hold-capture-times?venue_id=${venueId}`),
+    enabled,
+  })
+
   const { data: cooking = [] } = useQuery({
     queryKey: ['fs-cooking', venueId, date],
     queryFn: () => api.get(`/food-safety/cooking?venue_id=${venueId}&date=${date}`),
@@ -225,6 +240,8 @@ export default function FoodSafety() {
     qc.invalidateQueries({ queryKey: ['fs-capture-times'] })
     qc.invalidateQueries({ queryKey: ['fs-temp-logs'] })
     qc.invalidateQueries({ queryKey: ['fs-deliveries'] })
+    qc.invalidateQueries({ queryKey: ['fs-hold-stations'] })
+    qc.invalidateQueries({ queryKey: ['fs-hold-capture-times'] })
     qc.invalidateQueries({ queryKey: ['fs-holds'] })
     qc.invalidateQueries({ queryKey: ['fs-cooking'] })
   }
@@ -251,6 +268,31 @@ export default function FoodSafety() {
   })
   const deactivateCt = useMutation({
     mutationFn: id => api.delete(`/food-safety/capture-times/${id}`),
+    onSuccess: invalidate,
+  })
+
+  const createHoldStation = useMutation({
+    mutationFn: body => api.post('/food-safety/hold-stations', body),
+    onSuccess: () => { invalidate(); setHoldStationModal(null) },
+  })
+  const patchHoldStation = useMutation({
+    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/hold-stations/${id}`, body),
+    onSuccess: () => { invalidate(); setHoldStationModal(null) },
+  })
+  const deactivateHoldStation = useMutation({
+    mutationFn: id => api.delete(`/food-safety/hold-stations/${id}`),
+    onSuccess: invalidate,
+  })
+  const createHoldCt = useMutation({
+    mutationFn: body => api.post('/food-safety/hold-capture-times', body),
+    onSuccess: () => { invalidate(); setHoldCtModal(null) },
+  })
+  const patchHoldCt = useMutation({
+    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/hold-capture-times/${id}`, body),
+    onSuccess: () => { invalidate(); setHoldCtModal(null) },
+  })
+  const deactivateHoldCt = useMutation({
+    mutationFn: id => api.delete(`/food-safety/hold-capture-times/${id}`),
     onSuccess: invalidate,
   })
 
@@ -415,9 +457,110 @@ export default function FoodSafety() {
           <DeliveryChecksPanel venueId={venueId} date={date} />
         </div>
       ) : tab === 'holds' ? (
-        <div>
-          <h2 className="font-semibold mb-4">Hot / cold hold checks</h2>
-          <HoldChecksPanel venueId={venueId} date={date} />
+        <div className="space-y-8">
+          <div>
+            <h2 className="font-semibold mb-4">Hot / cold hold checks — {format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}</h2>
+            <HoldChecksTable
+              venueId={venueId}
+              date={date}
+              emptyState={
+                <div className="border rounded-xl p-8 text-center">
+                  <p className="text-muted-foreground text-sm mb-3">No hold stations yet. Add a bain-marie, salad bar or other station first.</p>
+                  <button type="button" onClick={() => setHoldStationModal('new')}
+                    className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
+                    <Plus className="w-4 h-4" /> Add hold station
+                  </button>
+                </div>
+              }
+            />
+          </div>
+
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="font-semibold">Hold stations</h2>
+              <button type="button" onClick={() => setHoldStationModal('new')}
+                className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
+                <Plus className="w-4 h-4" /> Add
+              </button>
+            </div>
+            {holdStations.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No active hold stations.</p>
+            ) : (
+              <div className="border rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 border-b">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Target</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Min / Max</th>
+                      <th className="w-32" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdStations.map(st => (
+                      <tr key={st.id} className="border-b last:border-0">
+                        <td className="px-4 py-3 font-medium">{st.name}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{HOLD_TYPE_LABELS[st.hold_type]}</td>
+                        <td className="px-4 py-3">{st.target_temp_c != null ? `${st.target_temp_c}°C` : '—'}</td>
+                        <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
+                          {st.min_temp_c ?? '—'} / {st.max_temp_c ?? '—'}°C
+                        </td>
+                        <td className="px-4 py-3 space-x-2">
+                          <button type="button" onClick={() => setHoldStationModal(st)} className="text-xs text-primary hover:underline">Edit</button>
+                          <button type="button" onClick={() => deactivateHoldStation.mutate(st.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h2 className="font-semibold">Capture times</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  When hold checks happen each day — leave empty to log a single ad-hoc reading per day instead.
+                </p>
+              </div>
+              <button type="button" onClick={() => setHoldCtModal('new')}
+                className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] shrink-0">
+                <Plus className="w-4 h-4" /> Add
+              </button>
+            </div>
+            {holdCaptureTimes.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No capture times configured.</p>
+            ) : (
+              <div className="border rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 border-b">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Label</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Time</th>
+                      <th className="w-32" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {holdCaptureTimes.map(ct => (
+                      <tr key={ct.id} className="border-b last:border-0">
+                        <td className="px-4 py-3 font-medium">{ct.label}</td>
+                        <td className="px-4 py-3 text-muted-foreground flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5" /> {timeLabel(ct.time_of_day)}
+                        </td>
+                        <td className="px-4 py-3 space-x-2">
+                          <button type="button" onClick={() => setHoldCtModal(ct)} className="text-xs text-primary hover:underline">Edit</button>
+                          <button type="button" onClick={() => deactivateHoldCt.mutate(ct.id)} className="text-xs text-red-600 hover:underline">Remove</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       ) : tab === 'cooking' ? (
         <div>
@@ -446,6 +589,28 @@ export default function FoodSafety() {
             ? createCt.mutate(body)
             : patchCt.mutate({ id: ctModal.id, ...body })}
           isSaving={createCt.isPending || patchCt.isPending}
+        />
+      )}
+      {holdStationModal && (
+        <HoldStationModal
+          initial={holdStationModal === 'new' ? null : holdStationModal}
+          venueId={venueId}
+          onClose={() => setHoldStationModal(null)}
+          onSave={body => holdStationModal === 'new'
+            ? createHoldStation.mutate(body)
+            : patchHoldStation.mutate({ id: holdStationModal.id, ...body })}
+          isSaving={createHoldStation.isPending || patchHoldStation.isPending}
+        />
+      )}
+      {holdCtModal && (
+        <HoldCaptureTimeModal
+          initial={holdCtModal === 'new' ? null : holdCtModal}
+          venueId={venueId}
+          onClose={() => setHoldCtModal(null)}
+          onSave={body => holdCtModal === 'new'
+            ? createHoldCt.mutate(body)
+            : patchHoldCt.mutate({ id: holdCtModal.id, ...body })}
+          isSaving={createHoldCt.isPending || patchHoldCt.isPending}
         />
       )}
     </div>
