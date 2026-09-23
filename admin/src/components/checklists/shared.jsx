@@ -48,8 +48,13 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false 
     setNotes(data.instance?.notes ?? '')
   }, [data])
 
+  // Deliberately invalidates every cached DATE for this template, not just
+  // the one just saved — a weekly/monthly instance is shared across many
+  // calendar dates (all mapping to the same period_start server-side), so
+  // saving on one date must not leave another already-visited date in the
+  // same week/month showing stale, pre-save tick state.
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['checklist-instance', template.id, date] })
+    qc.invalidateQueries({ queryKey: ['checklist-instance', template.id] })
     qc.invalidateQueries({ queryKey: ['checklists-due'] })
   }
 
