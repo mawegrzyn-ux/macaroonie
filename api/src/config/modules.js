@@ -184,6 +184,13 @@ export const MODULES = [
     description: 'SFBB temperature logs — fridge/freezer, delivery checks, hot/cold hold, cooking.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
+  {
+    key:    'checklists',
+    label:  'Checklists',
+    group:  'checklists',
+    description: 'Recurring opening/closing/cleaning checklists — daily, weekly or monthly, fully operator-defined.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
 ]
 
 export const MODULE_KEYS = MODULES.map(m => m.key)
@@ -247,6 +254,12 @@ export const MODULE_GROUPS = [
     label:  'Food safety',
     description: 'SFBB temperature and delivery logs per venue.',
     moduleKeys: ['food_safety'],
+  },
+  {
+    key:    'checklists',
+    label:  'Checklists',
+    description: 'Recurring opening/closing/cleaning checklists per venue.',
+    moduleKeys: ['checklists'],
   },
 ]
 
