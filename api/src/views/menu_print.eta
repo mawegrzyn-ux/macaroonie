@@ -10,6 +10,7 @@ function fmtPrice(p) {
 }
 const hideGroupHeaders = !!m.print_hide_variant_group_headers
 const hideZeroPriced   = !!m.hide_zero_priced_variants
+const hideUnpriced     = !!m.hide_unpriced_variants
 // Variant option prices only — a NULL price already renders as '' via
 // fmtPrice above; this treats an explicit 0 (an "included, no upcharge"
 // option) the same way when the operator has opted in, without touching
@@ -18,6 +19,14 @@ function fmtVariantPrice(p) {
   if (hideZeroPriced && Number(p) === 0) return ''
   return fmtPrice(p)
 }
+// "Not priced" — no price at all, distinct from hideZeroPriced above
+// (which keeps the option but drops just its "£0.00" text). This drops
+// the option row entirely, label included. Group-attached options are
+// never actually NULL (the DB defaults an option's price to 0), so in
+// practice this and hideZeroPriced target the same rows — kept as
+// separate flags since an operator may want one behaviour without the
+// other, and legacy one-off variants can still be NULL.
+function isUnpriced(p) { return p == null || Number(p) === 0 }
 const cols = m.print_columns || 4
 const tenantName = m.tenant_name || ''
 
@@ -182,8 +191,15 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
           </div>
           <% const _printItems = s.items || [] %>
           <% _printItems.forEach(function(item){ %>
-            <% const _groups = item.variant_groups || [] %>
-            <% const _adhoc  = item.variants || [] %>
+            <% const _groups = (item.variant_groups || [])
+                 .map(function(g){
+                   if (!hideUnpriced) return g
+                   return Object.assign({}, g, { options: (g.options || []).filter(function(v){ return !isUnpriced(v.price_pence) }) })
+                 })
+                 .filter(function(g){ return !hideUnpriced || (g.options && g.options.length) }) %>
+            <% const _adhoc = hideUnpriced
+                 ? (item.variants || []).filter(function(v){ return !isUnpriced(v.price_pence) })
+                 : (item.variants || []) %>
             <% const _hasVar = (_adhoc.length > 0) || _groups.some(function(g){ return g.options && g.options.length }) %>
             <div class="item<%= item.is_featured ? ' featured' : '' %>">
               <div class="item-row" style="align-items:flex-start; gap: 2mm;">
