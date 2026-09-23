@@ -92,17 +92,29 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
     @media print {
       html, body { background: var(--paper); }
       .print-bar { display: none; }
-      .page { box-shadow: none; margin: 0; padding: 12mm; min-height: auto; }
+      /* Vertical padding tighter than horizontal — measured with headless
+         Chrome (page.pdf + scrollHeight) against a realistic full 4-column
+         menu (header + intro banner + 4 sections + 4-column callouts
+         footer): that content needed ~198mm inside an A4-landscape page's
+         186mm usable height (210mm - 2x12mm), spilling ~12mm onto a mostly
+         blank second sheet. The 12mm print margin in Chrome's "Minimum"
+         setting doesn't stack on top of this — it's the content itself
+         that was too tall. Reclaimed here plus in .menu-head/.section/
+         .item/.callouts/.menu-foot below, well past the ~12mm actually
+         needed, so moderately denser menus than this test case still fit
+         one page. Re-measure with the same method before loosening any
+         of these if a menu still spills to a second sheet. */
+      .page { box-shadow: none; margin: 0; padding: 8mm 12mm; min-height: auto; }
       @page { size: <%= paperSize %> <%= orientation %>; margin: 0; }
     }
     /* Header */
-    .menu-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 6mm; border-bottom: 1px solid var(--line); margin-bottom: 6mm; gap: 12mm; }
+    .menu-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 4mm; border-bottom: 1px solid var(--line); margin-bottom: 4mm; gap: 12mm; }
     .menu-head h1 { font-family: 'Fraunces', serif; font-size: 28px; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; line-height: 1; }
     .menu-head .tagline { font-family: 'Caveat', cursive; font-size: 18px; color: var(--plum); margin-top: 2px; }
     .menu-head .right { text-align: right; font-size: 11px; color: var(--muted); line-height: 1.5; }
     .menu-head .right strong { color: var(--ink); display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
     .menu-logo { width: 18mm; height: 18mm; object-fit: contain; flex-shrink: 0; }
-    .menu-intro { background: var(--paper-warm); padding: 6px 10px; font-size: 11px; color: var(--muted); border-radius: 3px; margin-bottom: 4mm; }
+    .menu-intro { background: var(--paper-warm); padding: 6px 10px; font-size: 11px; color: var(--muted); border-radius: 3px; margin-bottom: 3mm; }
     .menu-intro strong { color: var(--ink); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
 
     /* Columns grid */
@@ -114,7 +126,7 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
        though the on-screen preview (wider window) never triggered it and
        @page below sets landscape. Never drop "screen and" here. */
     @media screen and (max-width: 800px) { .cols { column-count: 1 !important; } }
-    .section { margin-bottom: 5mm; }
+    .section { margin-bottom: 4mm; }
     .section.highlight { background: #fff7e6; padding: 4mm; border-radius: 4px; }
     .section h2 { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
     .section .sub { font-size: 10px; font-weight: 400; color: var(--muted); margin-left: 6px; text-transform: none; letter-spacing: 0; }
@@ -130,7 +142,7 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
        wrong-page-count print output. Avoiding the split at the .item
        level instead keeps each dish's own name+price+description intact
        without forcing whole sections to relocate. */
-    .item { padding: 1.5mm 0; break-inside: avoid; }
+    .item { padding: 1.2mm 0; break-inside: avoid; }
     .item-thumb { width: 9mm; height: 9mm; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
     .item-body { flex: 1; min-width: 0; }
     .group-name { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 1.5mm; }
@@ -149,14 +161,14 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
     .variant-price { font-family: 'Fraunces', serif; font-size: 10.5px; color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; }
 
     /* Callouts (footer notes) */
-    .callouts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; margin-top: 6mm; padding-top: 4mm; border-top: 1px solid var(--line); font-size: 10px; }
+    .callouts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; margin-top: 4mm; padding-top: 3mm; border-top: 1px solid var(--line); font-size: 10px; }
     .callout strong { display: block; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin-bottom: 2px; font-weight: 600; }
     .callout p { color: var(--muted); white-space: pre-line; line-height: 1.45; }
     .callout .key { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2mm; }
     .callout .key .pair { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; }
 
     /* Footer line */
-    .menu-foot { text-align: center; padding-top: 4mm; font-family: 'Fraunces', serif; font-style: italic; color: var(--muted); font-size: 10px; }
+    .menu-foot { text-align: center; padding-top: 3mm; font-family: 'Fraunces', serif; font-style: italic; color: var(--muted); font-size: 10px; }
   </style>
 </head>
 <body>
