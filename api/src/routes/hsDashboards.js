@@ -16,6 +16,13 @@
 // venue-wide, so there's always at most one meaningful instance of it per
 // venue and it carries no template reference.
 //
+// Layout: `hs_dashboards.column_count` (1-6, default 4) sets the grid
+// column count for the whole dashboard. Each widget's `col_span` (1-6,
+// default 1) sets how many of those columns its card spans — clamped to
+// column_count client-side so lowering the dashboard's column count later
+// never orphans a wider card. `height_px` (240-1200, default 480) sets
+// the card's scrollable content height.
+//
 // Dashboards:
 //   GET    /dashboards?venue_id=&active=
 //   POST   /dashboards
@@ -38,9 +45,10 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 
 const DashboardBody = z.object({
-  venue_id:   z.string().uuid(),
-  name:       z.string().min(1).max(200),
-  sort_order: z.number().int().optional(),
+  venue_id:     z.string().uuid(),
+  name:         z.string().min(1).max(200),
+  sort_order:   z.number().int().optional(),
+  column_count: z.number().int().min(1).max(6).optional(),
 })
 
 const DashboardPatch = DashboardBody.partial().omit({ venue_id: true }).extend({
@@ -52,6 +60,8 @@ const WidgetBody = z.object({
   checklist_template_id:  z.string().uuid().nullable().optional(),
   title_override:         z.string().max(200).nullable().optional(),
   sort_order:             z.number().int().optional(),
+  col_span:               z.number().int().min(1).max(6).optional(),
+  height_px:              z.number().int().min(240).max(1200).optional(),
 }).refine(
   b => (b.widget_type === 'checklist') === !!b.checklist_template_id,
   { message: 'checklist_template_id is required for a checklist widget, and must be omitted for every other widget type' },
@@ -61,6 +71,8 @@ const WidgetPatch = z.object({
   title_override: z.string().max(200).nullable().optional(),
   sort_order:     z.number().int().optional(),
   is_active:      z.boolean().optional(),
+  col_span:       z.number().int().min(1).max(6).optional(),
+  height_px:      z.number().int().min(240).max(1200).optional(),
 })
 
 /** Loads a dashboard (must belong to this tenant) or throws 404. */
@@ -101,8 +113,8 @@ export default async function hsDashboardsRoutes(app) {
   }, async (req) => {
     const body = DashboardBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO hs_dashboards (tenant_id, venue_id, name, sort_order)
-      VALUES (${req.tenantId}, ${body.venue_id}, ${body.name}, ${body.sort_order ?? 0})
+      INSERT INTO hs_dashboards (tenant_id, venue_id, name, sort_order, column_count)
+      VALUES (${req.tenantId}, ${body.venue_id}, ${body.name}, ${body.sort_order ?? 0}, ${body.column_count ?? 4})
       RETURNING *
     `)
     return row
@@ -203,10 +215,11 @@ export default async function hsDashboardsRoutes(app) {
 
       const [row] = await tx`
         INSERT INTO hs_dashboard_widgets
-          (tenant_id, dashboard_id, widget_type, checklist_template_id, title_override, sort_order)
+          (tenant_id, dashboard_id, widget_type, checklist_template_id, title_override, sort_order, col_span, height_px)
         VALUES
           (${req.tenantId}, ${req.params.id}, ${body.widget_type},
-           ${body.checklist_template_id ?? null}, ${body.title_override ?? null}, ${body.sort_order ?? 0})
+           ${body.checklist_template_id ?? null}, ${body.title_override ?? null}, ${body.sort_order ?? 0},
+           ${body.col_span ?? 1}, ${body.height_px ?? 480})
         RETURNING *
       `
       return row
