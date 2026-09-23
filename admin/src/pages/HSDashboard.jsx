@@ -477,9 +477,9 @@ export default function HSDashboard() {
         <>
           <div className="flex items-center gap-1 mb-2 overflow-x-auto pb-1">
             {dashboards.map(d => (
-              <button key={d.id} type="button" onClick={() => setActiveDashboardId(d.id)}
+              <button key={d.id} type="button" onClick={() => setActiveDashboardId(d.id)} title={d.name}
                 className={cn(
-                  'px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors touch-manipulation',
+                  'w-36 shrink-0 px-3 py-1.5 rounded-md text-sm font-medium truncate text-center transition-colors touch-manipulation',
                   d.id === activeDashboardId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
                 )}>
                 {d.name}
