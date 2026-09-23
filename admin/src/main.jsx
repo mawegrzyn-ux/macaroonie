@@ -41,6 +41,7 @@ import OrderSheets           from '@/pages/OrderSheets'
 import OrderSheetTemplates  from '@/pages/OrderSheetTemplates'
 import OrderSheetCategories from '@/pages/OrderSheetCategories'
 import TestData        from '@/pages/TestData'
+import LegacyImport     from '@/pages/LegacyImport'
 import FoodSafety      from '@/pages/FoodSafety'
 import Checklists      from '@/pages/Checklists'
 import HSDashboard     from '@/pages/HSDashboard'
@@ -138,6 +139,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="menus/dietary-groups"  element={<MenuDietaryGroups />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="test-data"   element={<TestData />} />
+                <Route path="legacy-import" element={<LegacyImport />} />
                 <Route path="team"        element={<Team />} />
                 <Route path="access"      element={<Access />} />
                 <Route path="platform"           element={<Platform />} />
