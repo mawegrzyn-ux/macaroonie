@@ -11,7 +11,7 @@ import {
   Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
   Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand, MessageSquare,
   AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList, Tag, FlaskConical, Thermometer,
-  ListChecks, LayoutGrid,
+  ListChecks, LayoutGrid, FileSpreadsheet,
 } from 'lucide-react'
 
 // Macaroon SVG logo — matches favicon.svg
@@ -112,6 +112,7 @@ const NAV_SECTIONS = [
       { label: 'Settings', to: '/settings', icon: SlidersHorizontal, module: 'settings' },
       { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate, module: 'widget_test' },
       { label: 'Test data',   to: '/test-data',   icon: FlaskConical,   module: 'test_data' },
+      { label: 'Legacy import', to: '/legacy-import', icon: FileSpreadsheet, module: 'test_data' },
     ],
   },
   {
