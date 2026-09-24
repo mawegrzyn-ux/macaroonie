@@ -1688,12 +1688,19 @@ function WagesView({ venueId, weekStart, onBack }) {
   const initializedWeek = useRef(null)
 
   useEffect(() => {
-    if (!wagesData || !config) return
+    // `wagesData` is `undefined` while the query hasn't resolved yet, but a
+    // resolved `null` means "confirmed — no wage report exists for this week
+    // yet" (see GET .../wages/:week_start: `if (!header) return null`). Only
+    // the former should block initialisation — treating `null` the same way
+    // meant a brand-new week (never saved before) never reached the
+    // auto-populate branch below, so "Set as default" appeared to do nothing
+    // the moment you moved to a week that had no prior data.
+    if (wagesData === undefined || !config) return
     // Reset initialised flag when week changes
     if (initializedWeek.current !== weekStart) {
       initializedWeek.current = weekStart
-      setNotes(wagesData.notes ?? '')
-      const serverEntries = wagesData.entries ?? []
+      setNotes(wagesData?.notes ?? '')
+      const serverEntries = wagesData?.entries ?? []
       if (serverEntries.length > 0) {
         // Week has saved entries — load them
         setEntries(serverEntries)
