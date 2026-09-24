@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — Cooking check delete, dashboard widget height fix]
+
+### Food safety — delete a cooking check
+- Tapping a logged cooking temperature to correct it now also offers a "Delete this reading" option (double-confirm) for entries logged in error.
+
+### Dashboards — set height is now enforced
+- Both the H&S Dashboard and Overview's customisable widgets now hold the height you set even when the widget's content is shorter — previously a short widget would shrink below the size you picked.
+
+---
+
 ## [2026-09-24 — Mobile PWA: /mobile section + H&S Dashboard]
 
 ### /mobile — a phone-optimised area of the same app

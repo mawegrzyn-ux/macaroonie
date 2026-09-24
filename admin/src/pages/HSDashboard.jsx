@@ -285,7 +285,7 @@ function WidgetCard({
         </div>
       )}
 
-      <div className="p-4 overflow-y-auto" style={{ maxHeight: heightPx }}>
+      <div className="p-4 overflow-y-auto" style={{ height: heightPx }}>
         {widget.widget_type === 'checklist' && <ChecklistRunPanel template={template} date={date} hideHeader onStateChange={setChecklistState} />}
         {widget.widget_type === 'temp_checks' && <TempChecksTable venueId={venueId} date={date} />}
         {widget.widget_type === 'delivery_checks' && <DeliveryChecksPanel venueId={venueId} date={date} />}

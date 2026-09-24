@@ -959,6 +959,18 @@ export default async function foodSafetyRoutes(app) {
     return row
   })
 
+  app.delete('/cooking/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM fs_cooking_checks
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+       RETURNING id
+    `)
+    if (!row) throw httpError(404, 'Cooking check not found')
+    return { ok: true }
+  })
+
   // ── Defaults helper for UI ────────────────────────────────
 
   app.get('/defaults', {
