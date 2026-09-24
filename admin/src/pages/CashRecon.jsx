@@ -35,6 +35,29 @@ function parseNum(v) {
   return isNaN(n) ? 0 : n
 }
 
+// A service-charge/tips source can independently add to, subtract from, or
+// sit out of each side of the reconciliation-variance adjustment (Takings
+// and Income) — e.g. a source that's counted in Takings but needs to be
+// DEDUCTED (not the usual "add") because it was refunded out of the till
+// separately. `effect` is one of 'none' | 'add' | 'subtract'.
+function scEffectAmount(effect, amount) {
+  if (effect === 'add') return amount
+  if (effect === 'subtract') return -amount
+  return 0
+}
+
+const SC_EFFECTS = [
+  { value: 'none',     label: 'No effect' },
+  { value: 'add',      label: 'Add' },
+  { value: 'subtract', label: 'Deduct' },
+]
+
+function ScEffectBadge({ effect, label, colourClass }) {
+  if (effect === 'none') return null
+  const sign = effect === 'add' ? '+' : '−'
+  return <span className={cn('ml-1 text-[10px]', colourClass)}>↳ {label} {sign}</span>
+}
+
 function getMonday(date) {
   // returns YYYY-MM-DD string for Monday of the ISO week containing `date`
   return format(startOfISOWeek(date instanceof Date ? date : new Date(date)), 'yyyy-MM-dd')
@@ -349,9 +372,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   function variance(date) {
     const adj = activeSc.reduce((sum, s) => {
       const a = cellNum(date, 'sc', s.id)
-      if (s.included_in_takings && !s.included_in_income) return sum + a
-      if (s.included_in_income  && !s.included_in_takings) return sum - a
-      return sum
+      return sum + scEffectAmount(s.takings_effect, a) + scEffectAmount(s.income_effect, a)
     }, 0)
     return dayTotal(date, 'income') + adj - dayTotal(date, 'takings')
   }
@@ -672,8 +693,8 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
                 <tr key={s.id} className="border-b border-border/40 hover:bg-muted/20">
                   <td className="sticky left-0 bg-background px-3 py-1 text-xs border-r border-border/60 min-w-[150px] z-10 whitespace-nowrap">
                     <span className="font-medium">{s.name}</span>
-                    {s.included_in_takings && <span className="ml-1 text-[10px] text-amber-600">↳ takings</span>}
-                    {s.included_in_income   && <span className="ml-1 text-[10px] text-emerald-600">↳ income</span>}
+                    <ScEffectBadge effect={s.takings_effect} label="takings" colourClass="text-amber-600" />
+                    <ScEffectBadge effect={s.income_effect} label="income" colourClass="text-emerald-600" />
                   </td>
                   {visibleDates.map(date => <EditableCell key={date} date={date} cat="sc" id={s.id} />)}
                   <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
@@ -1001,28 +1022,28 @@ function DayView({ venueId, date, onBack }) {
     [activeSources, incomeValues]
   )
 
-  // SC adjustment for reconciliation variance (XOR of the two flags):
-  //   both on  → 0   (SC is already in income AND expected in till)
-  //   income only → -A (SC bundled in income but not in till)
-  //   takings only → +A (SC not in income but is in till)
-  //   both off → 0   (tracked only; doesn't affect variance)
+  // SC adjustment for reconciliation variance: each source independently
+  // adds to, deducts from, or sits out of each side (Takings / Income) —
+  // see scEffectAmount(). Summing both sides' contributions per source
+  // reproduces the old fixed-direction XOR behaviour exactly when a
+  // source is 'add' on takings and/or 'subtract' on income (the only
+  // combinations the old two-boolean model could express), and generalises
+  // to any other combination the operator now picks.
   const scAdjustment = useMemo(() =>
     activeSc.reduce((sum, s) => {
       const a = parseNum(scValues[s.id] ?? 0)
-      if (s.included_in_takings && !s.included_in_income) return sum + a
-      if (s.included_in_income  && !s.included_in_takings) return sum - a
-      return sum
+      return sum + scEffectAmount(s.takings_effect, a) + scEffectAmount(s.income_effect, a)
     }, 0),
     [activeSc, scValues]
   )
 
   // Kept for display context only.
   const totalScIncluded = useMemo(() =>
-    activeSc.filter(s => s.included_in_takings).reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
+    activeSc.filter(s => s.takings_effect !== 'none').reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
     [activeSc, scValues]
   )
   const totalScInIncome = useMemo(() =>
-    activeSc.filter(s => s.included_in_income).reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
+    activeSc.filter(s => s.income_effect !== 'none').reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
     [activeSc, scValues]
   )
 
@@ -1323,7 +1344,7 @@ function DayView({ venueId, date, onBack }) {
                 </div>
               </div>
             ))}
-            <p className="text-xs text-muted-foreground pt-2 border-t">Should balance with total income{totalScIncluded > 0 ? ' + included service charges' : ''}.</p>
+            <p className="text-xs text-muted-foreground pt-2 border-t">Should balance with total income{totalScIncluded > 0 ? ', adjusted for service charges' : ''}.</p>
           </div>
         </SectionCard>
 
@@ -1342,10 +1363,10 @@ function DayView({ venueId, date, onBack }) {
           <h3 className="text-sm font-semibold mb-3">Summary</h3>
           <div className="flex justify-between text-sm"><span>Total Income</span><span className="font-medium">{fmt(totalIncome)}</span></div>
           {totalScInIncome > 0 && (
-            <div className="flex justify-between text-xs text-emerald-700"><span className="pl-3">of which SC already in income</span><span>{fmt(totalScInIncome)}</span></div>
+            <div className="flex justify-between text-xs text-emerald-700"><span className="pl-3">of which SC affects income</span><span>{fmt(totalScInIncome)}</span></div>
           )}
           {totalScIncluded > 0 && (
-            <div className="flex justify-between text-sm text-muted-foreground"><span>SC included in takings</span><span>{fmt(totalScIncluded)}</span></div>
+            <div className="flex justify-between text-sm text-muted-foreground"><span>SC affecting takings</span><span>{fmt(totalScIncluded)}</span></div>
           )}
           {scAdjustment !== 0 && (
             <div className="flex justify-between text-xs text-muted-foreground">
@@ -2485,8 +2506,20 @@ function ScSourcesTab({ venueId, items, onRefetch, api }) {
           <option value="">Select type…</option>
           {SC_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        <Toggle checked={!!vals.included_in_takings} onChange={v => setVals(p => ({ ...p, included_in_takings: v }))} label="Included in Takings" />
-        <Toggle checked={!!vals.included_in_income}  onChange={v => setVals(p => ({ ...p, included_in_income:  v }))} label="Included in Income" />
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Effect on Takings (reconciliation)</label>
+          <select value={vals.takings_effect ?? 'none'} onChange={e => setVals(p => ({ ...p, takings_effect: e.target.value }))}
+            className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
+            {SC_EFFECTS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">Effect on Income (reconciliation)</label>
+          <select value={vals.income_effect ?? 'none'} onChange={e => setVals(p => ({ ...p, income_effect: e.target.value }))}
+            className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
+            {SC_EFFECTS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
         <select value={vals.distribution ?? ''} onChange={e => setVals(p => ({ ...p, distribution: e.target.value }))}
           className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
           <option value="">Distribution…</option>

@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — Service charges can now deduct, not just add] *(migration 096)*
+
+### Cash Reconciliation
+- Each service charge/tips source now has two independent settings — "Effect on Takings" and "Effect on Income" — each set to No effect, Add, or Deduct. Previously a source could only ever add to Takings or subtract from Income; now either side can go either way, for cases like a charge that needs deducting from the till count.
+- Existing sources keep computing exactly the same numbers as before — nothing changes unless you go in and pick a new setting.
+
+---
+
 ## [2026-09-24 — H&S dashboard breakdown + reopen, Cash Recon theming fix, mobile expenses]
 
 ### Overview — H&S today tile shows every check individually
