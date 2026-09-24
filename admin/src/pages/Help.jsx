@@ -16,6 +16,7 @@ const SECTIONS = [
   { id: 'manual-booking',      label: 'Manual Booking' },
   { id: 'bookings',            label: 'Managing Bookings' },
   { id: 'customers',           label: 'Customers & GDPR' },
+  { id: 'cash-recon',          label: 'Cash Reconciliation' },
   { id: 'food-safety',         label: 'Food Safety Logs' },
   { id: 'checklists',          label: 'Checklists' },
   { id: 'hs-dashboard',        label: 'H&S Dashboard' },
@@ -1068,6 +1069,60 @@ export default function Help() {
             </InfoBox>
           </section>
 
+          {/* ── CASH RECONCILIATION ──────────────────────────── */}
+          <section id="cash-recon" data-help="">
+            <H2>Cash Reconciliation</H2>
+            <P>
+              The <strong>Cash recon</strong> page (sidebar nav) is your daily till declaration
+              and weekly reconciliation — income, service charges &amp; tips, takings, petty
+              cash expenses, and staff wages, all per venue.
+            </P>
+            <H3>Daily declaration</H3>
+            <P>
+              Open any day to declare it. Each section (<strong>Income</strong>,{' '}
+              <strong>Service Charges &amp; Tips</strong>, <strong>Takings</strong>) is a card
+              with a coloured header and footer band using your website's brand accent colour, so
+              the sections stay visually distinct as you scroll a long page of figures — the
+              footer band shows that section's running total. Every figure autosaves as you type;
+              there's no separate Save button.
+            </P>
+            <H3>Week view / spreadsheet view</H3>
+            <P>
+              Toggle between a card-based week overview and a dense <strong>spreadsheet
+              view</strong> (table icon) showing every day of the week as columns with income,
+              takings, variance, net cash, and wages as rows — useful for spotting a day that
+              doesn't balance at a glance.
+            </P>
+            <H3>Wages</H3>
+            <P>
+              Open a week's <strong>Wages</strong> card to log staff pay. Each staff member is one
+              compact row: Fixed or Hourly, hours/rate (hourly only), total cost, and how much of
+              that was actually <strong>paid in cash</strong> — the two can differ when part or
+              all of a wage goes by bank transfer instead of the till.
+            </P>
+            <DataTable
+              head={['Control', 'What it does']}
+              rows={[
+                ['Set as default', 'Saves the current week\'s staff list (who\'s included, and their Fixed/Hourly setting) as this venue\'s default. Any future week you open that has no saved wages yet auto-populates from this list instead of your full staff roster.'],
+                ['Cash-only net balance', 'The net cash position (in the daily/weekly totals) subtracts only the cash-paid portion of wages, not the full wage cost — a wage paid by bank transfer no longer drags down your cash figure.'],
+                ['Imbalance flag', 'An amber warning icon appears wherever a week\'s wages are shown whenever Total wages doesn\'t match Cash paid, so a data-entry slip doesn\'t go unnoticed.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              "Set as default" replaces the old "Load template" button, which pulled from your
+              full active-staff list every time. Ad-hoc entries (a name typed in without picking
+              an existing staff member) aren't included in the default — only staff you've added
+              in Settings have a stable identity to carry over week to week.
+            </InfoBox>
+            <H3>Settings</H3>
+            <P>
+              The gear icon manages your income sources, payment channels, service charge
+              sources, expense categories, and staff list — all drag-reorderable. Service charge
+              sources have two independent toggles ("included in takings" / "included in income")
+              that control how they adjust the day's variance calculation.
+            </P>
+          </section>
+
           {/* ── FOOD SAFETY ───────────────────────────────── */}
           <section id="food-safety" data-help="">
             <H2>Food Safety Logs</H2>
@@ -1082,10 +1137,10 @@ export default function Help() {
               head={['Tab', 'What it is']}
               rows={[
                 ['Today', 'A single-page overview of everything logged so far today, across all check types.'],
-                ['Equipment', 'Fridge/freezer temperature checks. One row per piece of equipment, one column per configured capture time (e.g. AM/PM). Drag the grip handle to reorder equipment.'],
+                ['Equipment', 'Fridge/freezer temperature checks. One row per piece of equipment, one column per configured capture time (e.g. AM/PM). Drag the grip handle to reorder equipment. Each unlogged reading starts pre-filled at the low end of that equipment\'s normal range, so you only need to nudge the +/- steppers or overtype it — nothing saves until you actually touch the cell.'],
                 ['Deliveries', 'Log a delivery: supplier, temperature, condition. The main view is an entry form on one side and a list of this week\'s deliveries on the other — click any item in the list to load it back into the form for editing.'],
-                ['Holds', 'Hot-hold and cold-hold checks for food kept warm/cold for service. Same reorderable-station pattern as Equipment.'],
-                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a menu category tab, then tap the dish you just cooked — no typing a dish name each time. A stepper lets you dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents).'],
+                ['Holds', 'Hot-hold and cold-hold checks for food kept warm/cold for service. Same reorderable-station pattern (and same pre-filled reading) as Equipment.'],
+                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a menu category tab, then tap the dish you just cooked — no typing a dish name each time. A stepper lets you dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents). Tap any entry in the "Today\'s checks" list on the right to reopen it and correct the reading.'],
               ]}
             />
             <H3>Sessions & stations</H3>
@@ -1107,6 +1162,13 @@ export default function Help() {
               Every check type here (Equipment, Deliveries, Holds, Cooking) can also be added as
               its own widget on a custom <strong>H&amp;S Dashboard</strong> — see that section
               below if you want several of these side by side with a checklist on one screen.
+            </InfoBox>
+            <InfoBox type="info">
+              On a touch tablet, tapping a temperature field opens a built-in on-screen keypad
+              (digits, a decimal point, and a +/- sign for freezer readings) instead of trying to
+              bring up your device's own keyboard. This is deliberate — some touch devices (seen
+              on at least one Linux/Chrome tablet) never show their native keyboard for this kind
+              of field, so the app no longer depends on it.
             </InfoBox>
           </section>
 
@@ -1524,7 +1586,7 @@ export default function Help() {
               rows={[
                 ['Colours',    '7 colours: Primary (brand/CTA), Accent (highlights), Background, Surface (alt-band background), Body text, Muted text, Borders.'],
                 ['Typography', 'Heading + body font (Google Fonts auto-loaded), base size, heading scale, weights, line-height.'],
-                ['Spacing',    'Container max width, section padding (desktop + mobile), grid gap.'],
+                ['Spacing',    'Container max width, section padding (desktop + mobile), grid gap, and the boxed-inset "Layout" card below (side padding on boxed/wide blocks — see next).'],
                 ['Corners',    'Small / medium / large border-radius.'],
                 ['Logo',       'Header logo height.'],
                 ['Buttons',    'Radius, padding, font weight.'],
@@ -1534,6 +1596,27 @@ export default function Help() {
             <InfoBox type="tip">
               Start with colours + fonts. Everything else is fine-tuning. <strong>Reset to
               defaults</strong> is always available if you mess something up.
+            </InfoBox>
+
+            <H3>Boxed inset (margins) — customisable per step</H3>
+            <P>
+              The <strong>Layout</strong> card (Brand &amp; theme, tenant-wide — applies to every
+              venue's site) controls the side padding inside "boxed" and "wide" blocks. Padding is
+              picked from 5 numbered <strong>steps</strong>, and you can now redefine what each
+              step actually means: give it a plain pixel value (e.g. step 1 = 20px) or a
+              percentage (e.g. step 3 = 5%) — mix units freely across the 5 steps.
+            </P>
+            <P>
+              Below the step editor, two pickers set which step is the <strong>default</strong>
+              (used everywhere) and which step applies only on narrow phones held upright (the{' '}
+              <strong>mobile portrait override</strong> — tablets, phone landscape, and desktop
+              always use the default). Any individual block can still override its own inset in
+              the page builder's block inspector, picking one of the same 5 steps.
+            </P>
+            <InfoBox type="tip">
+              A practical use: set step 1 to a fixed 20px for tight mobile margins, and set a
+              different step to 5% so wide-screen margins scale with the page instead of staying
+              a fixed width forever.
             </InfoBox>
 
             <H3>Custom domain</H3>

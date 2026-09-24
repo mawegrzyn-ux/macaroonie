@@ -18,6 +18,27 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — Website margin steps, admin brand theming, food safety keypad + edit-on-tap]
+
+### Website theme: tenant-customisable boxed-inset margin steps
+- The 5 boxed-inset margin steps used across every website block can now be redefined per tenant instead of a fixed 16/24/40/64/96px scale — mix pixels and percentages freely (e.g. a fixed 20px on mobile portrait, 5% everywhere else). New "step values" editor on Website → Brand & theme → Layout.
+
+### Admin portal: brand-accent section styling
+- Cash Recon's Income / Service Charges & Tips / Takings / Wages / Expenses cards now show a coloured header and footer bar using your website's own brand accent colour, replacing the previous flat grey dividers.
+
+### Menu inline block — canvas/live parity fix
+- The page builder's live preview for the Menu (inline) block now correctly hides zero-priced and unpriced variant options exactly as configured, matching what was already correct on the published site.
+
+### Food safety — quicker, more reliable temperature entry
+- Fridge/freezer and hot/cold-hold readings now start pre-filled at the low end of the normal range instead of a blank field.
+- On touch tablets where the on-screen keyboard doesn't reliably appear, tapping a temperature field now opens a built-in numeric keypad instead.
+- Cooking checks: tap any entry in "Today's checks" to reopen and correct that reading.
+
+### Wages bug fix
+- Fixed: a week that had never been saved before didn't auto-populate from the venue's default staff list.
+
+---
+
 ## [2026-09-24 — Wages UX overhaul + cash-only net balance] *(migration 093)*
 
 ### Wages page redesign

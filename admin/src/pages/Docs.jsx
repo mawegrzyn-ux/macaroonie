@@ -16,6 +16,7 @@ const SECTIONS = [
   { id: 'database',     label: 'Database Schema' },
   { id: 'api',          label: 'API Reference' },
   { id: 'customers',    label: 'Customers & GDPR' },
+  { id: 'cash-recon',   label: 'Cash Reconciliation' },
   { id: 'food-safety',  label: 'Food Safety Logs' },
   { id: 'checklists',   label: 'Checklists' },
   { id: 'hs-dashboard', label: 'H&S Dashboard' },
@@ -927,6 +928,66 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             />
           </section>
 
+          {/* ── CASH RECONCILIATION ──────────────────────────── */}
+          <section id="cash-recon" data-doc="">
+            <H2>Cash Reconciliation</H2>
+            <P>
+              Daily till declaration + weekly reconciliation, per venue (migration 027). Config
+              tables (income sources, payment channels, SC sources, expense categories, staff)
+              are all drag-reorderable lists scoped by <Mono>venue_id</Mono>; daily figures live
+              on <Mono>cash_daily_reports</Mono> + child entry tables; wages are a separate weekly
+              cycle.
+            </P>
+            <H3>Wages schema</H3>
+            <DataTable
+              head={['Table', 'Purpose']}
+              rows={[
+                ['cash_staff', 'Per-venue staff list with a default_rate. sort_order for drag-reorder.'],
+                ['cash_wage_reports', 'One per venue per ISO week (week_start), status draft/submitted.'],
+                ['cash_wage_entries', 'One per staff member per report. total is the full wage cost; cash_amount is only the cash-paid portion — the two legitimately differ when part or all of a wage goes by bank transfer.'],
+                ['cash_wage_defaults', "(migration 093) tenant_id, venue_id, staff_id, entry_type, sort_order — UNIQUE(venue_id, staff_id). The venue's saved default staff list for 'Set as default'; entries without a staff_id (ad-hoc) are never included since there's no stable identity to carry over week to week."],
+              ]}
+            />
+            <H3>Cash-only net balance</H3>
+            <P>
+              Both wage-total queries in <Mono>cashRecon.js</Mono> (<Mono>week-detail</Mono> and{' '}
+              <Mono>week</Mono> routes) select <Mono>SUM(total)</Mono> AND{' '}
+              <Mono>SUM(cash_amount)</Mono> side by side. The frontend's net-position calculations
+              (<Mono>weekNetPosition()</Mono> in <Mono>SpreadsheetView</Mono>, the Wages card in{' '}
+              <Mono>WeekView</Mono>) subtract only the cash-amount sum. Wherever wages are shown,
+              an <Mono>AlertTriangle</Mono> flag appears when the two sums don't match.
+            </P>
+            <P>
+              <Mono>POST /:venueId/cash-recon/wages/:week_start/set-default</Mono> replaces the
+              venue's <Mono>cash_wage_defaults</Mono> rows from the current week's entries
+              (staff_id + entry_type only, filtering out entries with no staff_id). The wages{' '}
+              <Mono>GET /config</Mono> response includes the resolved default list (joined with
+              staff name/rate) as <Mono>wage_defaults</Mono>; the frontend's auto-populate{' '}
+              <Mono>useEffect</Mono> falls through defaults → full active-staff roster → empty, in
+              that order, whenever a week has no saved entries yet.
+            </P>
+            <InfoBox type="warn">
+              A resolved <Mono>null</Mono> from a TanStack Query is not the same as{' '}
+              <Mono>undefined</Mono>. <Mono>GET .../wages/:week_start</Mono> returns{' '}
+              <Mono>null</Mono> (not 404) when no wage report exists yet for that week — a guard
+              like <Mono>if (!wagesData || !config) return</Mono> treats that confirmed-empty{' '}
+              <Mono>null</Mono> the same as "still loading" (<Mono>undefined</Mono>), so a
+              brand-new week never reached the auto-populate branch. Check{' '}
+              <Mono>wagesData === undefined</Mono> specifically when a query's success value can
+              legitimately be <Mono>null</Mono>.
+            </InfoBox>
+            <H3>Admin theming — SectionCard</H3>
+            <P>
+              <Mono>SectionCard</Mono> (used by every Cash Recon section — Income, Service
+              Charges &amp; Tips, Takings, Wages, Expenses) has a coloured header bar and an
+              optional <Mono>footer</Mono> prop rendering a matching coloured footer bar, both
+              using the <Mono>--site-accent</Mono> CSS variable (see <Mono>/api/me:
+              site_theme</Mono> in the Navigation &amp; Launcher section). The "Total ..." row in
+              each daily-declaration section is passed as <Mono>footer</Mono> rather than trailing
+              off as a plain bordered line inside the card body.
+            </P>
+          </section>
+
           {/* ── FOOD SAFETY ───────────────────────────────── */}
           <section id="food-safety" data-doc="">
             <H2>Food Safety Logs</H2>
@@ -976,6 +1037,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               till/POS buttons (fixed height, tighter width, distinct <Mono>bg-muted/60</Mono> fill)
               since this is used mid-service on a tablet, not a form to fill in at a desk.
             </InfoBox>
+            <H3>Reading pre-fill + touch keypad</H3>
+            <P>
+              <Mono>TempCell</Mono> / <Mono>HoldCell</Mono> initialise their local <Mono>value</Mono>{' '}
+              state from <Mono>equipment.min_temp_c</Mono> / <Mono>station.min_temp_c</Mono>{' '}
+              (the lower end of that equipment's configured range) when no reading exists yet,
+              instead of an empty string behind a placeholder. This is display-only — the existing
+              autosave path (<Mono>onChange</Mono> / <Mono>onBlur</Mono> / stepper tap) is what
+              actually persists a log row, so an untouched cell never fakes a reading.
+            </P>
+            <P>
+              On touch devices (<Mono>navigator.maxTouchPoints &gt; 0</Mono>, the same{' '}
+              <Mono>IS_TOUCH</Mono> detection pattern as <Mono>NewBookingModal</Mono>'s covers
+              stepper), the temp cell renders as a button instead of a native{' '}
+              <Mono>&lt;input&gt;</Mono>; tapping it opens <Mono>TempKeypadModal</Mono> — a
+              full-screen centred modal (never clipped by the check table's own scroll container)
+              supporting one decimal place and a <Mono>±</Mono> sign toggle for negative freezer
+              readings. This exists because some touch platforms (confirmed on at least one
+              Linux/Chrome tablet) never surface their on-screen keyboard for a text/number input
+              — a platform limitation <Mono>inputMode="decimal"</Mono> can't fix, so the app
+              stops depending on it entirely for this field. Applied to{' '}
+              <Mono>TempCell</Mono>, <Mono>HoldCell</Mono>, and <Mono>CookingEntryModal</Mono>'s
+              core-temp field.
+            </P>
+            <P>
+              Each row in the Cooking tab's "Today's checks" list is a button; tapping it opens{' '}
+              <Mono>CookingEntryModal</Mono> with <Mono>target.existingCheck</Mono> set, which
+              seeds <Mono>checkId</Mono>/<Mono>temp</Mono>/<Mono>note</Mono> from that row —{' '}
+              <Mono>persist()</Mono> already routed to <Mono>onUpdate</Mono> whenever{' '}
+              <Mono>checkId</Mono> is set, so this only needed the initialisation path, not new
+              save logic. The dish name is shown as the modal title but isn't editable, matching{' '}
+              <Mono>CookingPatch</Mono>'s schema (only <Mono>core_temp_c</Mono> /{' '}
+              <Mono>corrective_action</Mono> can change once a check exists).
+            </P>
           </section>
 
           {/* ── CHECKLISTS ────────────────────────────────── */}
@@ -1272,6 +1366,22 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               above); when <Mono>nav_style === 'launcher'</Mono> it renders a single "Quick
               access" link to <Mono>/launcher</Mono> instead of the tree.
             </P>
+            <H3>/api/me: site_theme</H3>
+            <P>
+              The same handler also returns <Mono>site_theme</Mono> — the tenant's public-website
+              brand colours (<Mono>tenant_site.theme.colors</Mono>), resolved with the same
+              default fallbacks <Mono>head.eta</Mono> uses so every tenant gets a value even
+              before touching the Website builder. Piggybacks on the existing{' '}
+              <Mono>/api/me</Mono> round-trip (already fetched on every admin page load) rather
+              than adding a new one. <Mono>SettingsContext.applySiteTheme()</Mono> writes it as{' '}
+              <Mono>--site-primary</Mono> / <Mono>--site-accent</Mono> / etc CSS variables on{' '}
+              <Mono>:root</Mono> — a namespace deliberately separate from <Mono>--primary</Mono>{' '}
+              (the operator's own admin colour pick, Settings page) and <Mono>--accent</Mono> (a
+              neutral hover-state grey used pervasively via <Mono>hover:bg-accent</Mono>), so
+              borrowing the tenant's brand colour for admin UI (e.g. Cash Recon's{' '}
+              <Mono>SectionCard</Mono> header/footer bars) never repaints the app's own hover
+              surfaces.
+            </P>
             <H3>Seeding</H3>
             <P>
               <Mono>api/src/config/defaultNav.js</Mono> exports <Mono>DEFAULT_NAV_TREE</Mono> +
@@ -1425,7 +1535,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
   "colors":     { primary, accent, background, surface, text, muted, border },
   "typography": { heading_font, body_font, base_size_px, heading_scale,
                   heading_weight, body_weight, line_height, letter_spacing },
-  "spacing":    { container_max_px, section_y_px, section_y_mobile_px, gap_px },
+  "spacing":    { container_max_px, section_y_px, section_y_mobile_px, gap_px,
+                  boxed_step, boxed_step_mobile, boxed_steps },
   "radii":      { sm_px, md_px, lg_px },
   "logo":       { height_px, show_name_beside },
   "buttons":    { radius_px, padding_y_px, padding_x_px, weight },
@@ -1435,6 +1546,49 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               PATCH semantics are <strong>column overwrite</strong>, not deep-merge.
               The admin's ThemeSection holds the FULL merged theme in local state and PATCHes
               the whole object. Never PATCH a partial theme — missing keys become null.
+            </InfoBox>
+
+            <H3>Boxed-inset step values (theme.spacing.boxed_steps)</H3>
+            <P>
+              <Mono>boxed_step</Mono> (theme-wide default) and <Mono>boxed_step_mobile</Mono>{' '}
+              (mobile-portrait-only override, applied inside the existing{' '}
+              <Mono>@media (max-width: 600px) and (orientation: portrait)</Mono> rule) — plus
+              every block's own per-block <Mono>boxed_step</Mono> override — are step{' '}
+              <em>numbers</em> (1-5) that index into <Mono>boxed_steps</Mono>: an array of exactly
+              5 <Mono>{'{ value, unit: \'px\' | \'%\' }'}</Mono> entries, Zod-validated with{' '}
+              <Mono>.length(5)</Mono>. Falls back to the standard 16/24/40/64/96px scale
+              (<Mono>DEFAULT_BOXED_STEPS</Mono> in <Mono>boxedLayout.js</Mono> /{' '}
+              <Mono>head.eta</Mono>) when a tenant hasn't customised it. Units can be mixed freely
+              per step — e.g. step 1 = 20px, step 3 = 5%.
+            </P>
+            <P>
+              Resolved identically on both sides: <Mono>head.eta</Mono> and all 19{' '}
+              <Mono>api/src/views/site/blocks/*.eta</Mono> partials read{' '}
+              <Mono>it.config.theme.spacing.boxed_steps</Mono> directly (each partial keeps its
+              own small resolver — same duplication pattern the file already used for the old
+              hard-coded map). On the admin canvas, <Mono>themeResolver.js</Mono> calls{' '}
+              <Mono>boxedLayout.js</Mono>'s <Mono>setBoxedSteps()</Mono> once per render so the
+              per-block override calculations (computed inline, not via CSS vars, deep inside{' '}
+              <Mono>blockCanvas.jsx</Mono> / <Mono>siteBlocks.jsx</Mono> / <Mono>dataBlocks.jsx</Mono>)
+              see the tenant's real values.
+            </P>
+            <InfoBox type="warn">
+              <Mono>boxedLayout.js</Mono>'s current step values live in a module-level variable
+              (<Mono>currentBoxedSteps</Mono>), not React Context — deliberate, since there is
+              only ever one <Mono>&lt;ThemeFrame&gt;</Mono> mounted at a time (the page-builder
+              canvas). If a second concurrent canvas is ever added, this needs to become a
+              Context instead or two tenants' step values will collide.
+            </InfoBox>
+            <InfoBox type="warn">
+              Every canvas component under <Mono>admin/src/components/website-builder/canvas/</Mono>{' '}
+              is a second, independent implementation of what its matching SSR{' '}
+              <Mono>.eta</Mono> partial renders — there's no shared renderer between them. Any
+              conditional-display data flag added to a block (a menu-level toggle, a per-block
+              option, a venue setting) must be ported into the canvas version too, or the
+              editor's preview silently drifts from the published page. Caught once already:{' '}
+              <Mono>MenuInlineCanvas</Mono> (<Mono>dataBlocks.jsx</Mono>) ignored a menu's{' '}
+              <Mono>hide_zero_priced_variants</Mono> / <Mono>hide_unpriced_variants</Mono> toggles
+              for a while after <Mono>menu_inline.eta</Mono> already had them.
             </InfoBox>
 
             <H3>API routes</H3>
