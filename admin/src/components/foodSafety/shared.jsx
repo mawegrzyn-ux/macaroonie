@@ -1251,24 +1251,26 @@ export function CookingChecksPanel({ venueId, date }) {
           </p>
         ) : (
           <>
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
               {sections.map(s => (
                 <button key={s.id} type="button" onClick={() => setActiveSectionId(s.id)}
                   className={cn(
-                    'px-3 py-2 text-sm font-medium whitespace-nowrap border-b-2 -mb-px touch-manipulation',
-                    s.id === activeSectionId ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground',
+                    'shrink-0 rounded-lg border px-3 py-3 min-h-[52px] text-sm font-medium whitespace-nowrap touch-manipulation',
+                    s.id === activeSectionId
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-muted-foreground hover:text-foreground hover:border-primary/40',
                   )}>
                   {s.title}
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2">
               {(activeSection?.items ?? []).map(item => {
                 const countToday = checks.filter(c => c.menu_item_id === item.id).length
                 return (
                   <button key={item.id} type="button"
                     onClick={() => setEntryTarget({ itemId: item.id, itemName: item.name })}
-                    className="relative border rounded-lg px-3 py-3 text-sm font-medium text-left hover:bg-accent hover:border-primary/40 touch-manipulation min-h-[48px]">
+                    className="relative border rounded-lg px-2 py-4 min-h-[72px] text-sm font-medium text-center flex items-center justify-center hover:bg-accent hover:border-primary/40 touch-manipulation">
                     {item.name}
                     {countToday > 0 && (
                       <span className="absolute top-1 right-1 text-[10px] font-semibold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">

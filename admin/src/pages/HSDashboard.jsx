@@ -426,7 +426,7 @@ export default function HSDashboard() {
       ref={containerRef}
       className={cn(
         'p-4 md:p-6 bg-background overflow-y-auto',
-        isFullscreen ? 'w-screen h-screen' : 'h-full max-w-6xl mx-auto',
+        isFullscreen ? 'w-screen h-screen' : 'h-full w-[90%] mx-auto',
       )}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold flex items-center gap-2">
