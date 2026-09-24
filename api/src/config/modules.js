@@ -137,9 +137,9 @@ export const MODULES = [
   },
   {
     key:    'dashboard',
-    label:  'Dashboard',
+    label:  'Overview',
     core:   true,
-    description: 'Today overview cards.',
+    description: 'Tile-based home page — quick access, stats, bookings, venues, H&S status.',
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'view' },
   },
   {

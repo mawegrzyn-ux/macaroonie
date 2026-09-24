@@ -21,6 +21,7 @@ const SECTIONS = [
   { id: 'hs-dashboard', label: 'H&S Dashboard' },
   { id: 'hs-action-log', label: 'H&S Action Log' },
   { id: 'navigation',   label: 'Navigation & Launcher' },
+  { id: 'overview-tiles', label: 'Overview Tiles' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'services',     label: 'Services & Jobs' },
   { id: 'data-flows',   label: 'Data Flows' },
@@ -1199,9 +1200,95 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <InfoBox type="warn">
               Switching a tenant to <Mono>nav_style: 'launcher'</Mono> before any nav item has
               <Mono> show_in_launcher</Mono> set hides the entire sidebar with nothing to replace
-              it. The <Mono>/launcher</Mono> empty state includes a "Switch back to sidebar"
-              button (visible to <Mono>nav_designer:manage</Mono>) as an escape hatch for exactly
-              this case.
+              it. <Mono>Launcher.jsx</Mono>'s header always shows a "Back to full menu" button
+              (visible to <Mono>nav_designer:manage</Mono>) whenever <Mono>nav_style ===
+              'launcher'</Mono> — deliberately NOT conditioned on the tile count, after an earlier
+              version that only showed it in the empty state left a tenant with one tile
+              configured stranded in production.
+            </InfoBox>
+          </section>
+
+          {/* ── OVERVIEW TILES ────────────────────────────── */}
+          <section id="overview-tiles" data-doc="">
+            <H2>Overview Tiles</H2>
+            <P>
+              Migration 093 turns the home page ("Dashboard", renamed "Overview") into a
+              tile-based layout. Simpler than <Mono>hs_dashboards</Mono>/<Mono>hs_dashboard_widgets</Mono> —
+              there's no multiple-named-dashboards concept, since Overview is tenant-wide (not
+              per-venue). Layout control (<Mono>col_span</Mono>/<Mono>height_px</Mono>/<Mono>sort_order</Mono>)
+              mirrors <Mono>hs_dashboard_widgets</Mono>; per-role visibility
+              (<Mono>hidden_role_ids</Mono>) mirrors <Mono>nav_items</Mono>. Gated by the existing
+              <Mono> dashboard</Mono> module (relabelled "Overview") — no new module was needed.
+            </P>
+            <H3>Schema</H3>
+            <DataTable
+              head={['Table / column', 'Purpose']}
+              rows={[
+                ['dashboard_tiles', "One row per tile. tile_type (CHECK-constrained enum), title_override, hidden_role_ids uuid[], col_span, height_px, sort_order. UNIQUE(tenant_id, tile_type) — a tenant can't add the same tile twice."],
+              ]}
+            />
+            <H3>Tile types</H3>
+            <DataTable
+              head={['tile_type', 'Source']}
+              rows={[
+                ['quick_access', "Renders the existing per-user Shortcuts component — unchanged, a separate personalisation axis from tile layout."],
+                ['stats_today', 'The 4 stat cards (bookings/covers/deposit revenue/upcoming), computed client-side from GET /api/bookings for today.'],
+                ['upcoming_bookings', "Today's remaining bookings, same data source as stats_today."],
+                ['venues_status', 'One row per venue from GET /api/venues.'],
+                ['hs_today_status', "Combined Checklists + Food safety status for today, from GET /api/dashboard-tiles/hs-status."],
+                ['hs_week_status', 'Same endpoint, Monday-to-Sunday range for the current week.'],
+              ]}
+            />
+            <H3>API — /api/dashboard-tiles</H3>
+            <P>
+              Gated by <Mono>requirePermission('dashboard', 'view' | 'manage')</Mono>. Standard
+              CRUD + <Mono>PATCH /reorder</Mono> follow the same shape as every other reorderable
+              list in this codebase (fs_hold_stations, hs_action_categories, …).
+              <Mono> POST /</Mono> rejects with 422 if the tenant already has that
+              <Mono> tile_type</Mono>.
+            </P>
+            <H3>GET /hs-status — the combined status computation</H3>
+            <P>
+              Query params: <Mono>from</Mono>, <Mono>to</Mono> (both YYYY-MM-DD), optional
+              <Mono> today</Mono> (client-supplied "today" — the server never assumes its own
+              timezone matches the viewer's). For each date in range and each active venue, sums:
+            </P>
+            <DataTable
+              head={['Component', 'Expected', 'Completed']}
+              rows={[
+                ['Checklists', 'Count of active checklist_templates for the venue (every template counts every day — see the Checklists section on why due_day is advisory, not filtering).', "Templates whose current period's checklist_instances.status = 'completed' (period computed via the same periodStartFor() used by checklists.js — factored into utils/checklistPeriod.js so the two can never drift)."],
+                ['Equipment temp checks', '(active fs_equipment) × (active fs_capture_times) for the venue.', 'Distinct (equipment_id, capture_time_id) pairs logged in fs_temp_logs for that date (capture_time_id IS NOT NULL only — ad-hoc logs don\'t count toward a slot).'],
+                ['Hold checks', 'Same pattern with fs_hold_stations × fs_hold_capture_times.', 'Same pattern against fs_hold_checks.'],
+                ['Cooking checks', 'SUM(required_items_count) across active fs_cooking_sessions.', 'Per session, MIN(checks logged for that session+date, required_items_count), summed.'],
+              ]}
+            />
+            <P>
+              <Mono>unresolved</Mono> is computed separately: any row in fs_temp_logs /
+              fs_hold_checks / fs_cooking_checks for that date with
+              <Mono> is_within_range = false AND corrective_action IS NULL</Mono> — the exact same
+              predicate <Mono>EndOfDayReview</Mono> already uses client-side. Deliveries are
+              excluded entirely (no "expected count" concept — logged ad hoc).
+            </P>
+            <H3>Status derivation</H3>
+            <DataTable
+              head={['Status', 'Condition']}
+              rows={[
+                ['red', 'unresolved > 0 (checked first — an outstanding food-safety issue always outranks the completion count), OR expected > 0 and completed === 0.'],
+                ['amber', '0 < completed < expected, no unresolved issues.'],
+                ['green', 'completed >= expected, expected > 0, no unresolved issues.'],
+                ['grey', 'expected === 0 (nothing configured/due that day).'],
+                ['upcoming', "date > today, overriding every other branch — standing configuration (equipment, sessions, etc.) doesn't vary by date, so a future date would otherwise compute a real (and misleadingly red) expected/completed pair."],
+              ]}
+            />
+            <InfoBox type="warn">
+              postgres.js deserialises <Mono>date</Mono> columns to JS <Mono>Date</Mono> objects,
+              not strings. The <Mono>checklist_instances.period_start</Mono> query MUST cast to
+              <Mono> ::text</Mono> (matching the existing <Mono>log_date::text</Mono> /
+              <Mono> check_date::text</Mono> casts on the food-safety queries) or the
+              <Mono> `${template_id}|${period_start}`</Mono> map-key lookup silently never matches
+              — a weekly/monthly checklist marked complete would never show as complete in this
+              aggregation. Caught by a direct test against a disposable Postgres before shipping;
+              see <Mono>api/src/routes/dashboardTiles.js</Mono>.
             </InfoBox>
           </section>
 

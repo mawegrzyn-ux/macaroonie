@@ -1173,7 +1173,6 @@ function DayView({ venueId, date, onBack }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-medium">{source.name}</span>
-                      <TypeBadge type={source.type} />
                       {excluded && (
                         <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-500 border border-slate-200">
                           Excluded from recon
@@ -1234,13 +1233,6 @@ function DayView({ venueId, date, onBack }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">{source.name}</span>
-                    <TypeBadge type={source.type} />
-                    {source.included_in_takings && (
-                      <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700">Included in takings</span>
-                    )}
-                    {source.included_in_income && (
-                      <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700">Included in income</span>
-                    )}
                   </div>
                   {source.tooltip && (
                     <div className="text-xs text-muted-foreground mt-0.5">{source.tooltip}</div>
@@ -1284,7 +1276,6 @@ function DayView({ venueId, date, onBack }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">{channel.name}</span>
-                    <TypeBadge type={channel.type} />
                   </div>
                   {channel.tooltip && (
                     <div className="text-xs text-muted-foreground mt-0.5">{channel.tooltip}</div>
