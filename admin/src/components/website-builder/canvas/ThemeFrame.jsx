@@ -55,6 +55,7 @@ export function ThemeFrame({ config, children, className = '' }) {
       --ls:         ${t.letterSp};
 
       --cw:   ${t.containerMax}px;
+      ${t.boxedStepVars}
       --boxed-pad: ${t.boxedPad};
       --sy:   ${t.sectionY}px;
       --sy-m: ${t.sectionYMob}px;
@@ -81,6 +82,14 @@ export function ThemeFrame({ config, children, className = '' }) {
       line-height: var(--lh);
       letter-spacing: var(--ls);
     }
+    ${t.backgroundImage ? `
+    .${scopeId} {
+      background-image: url('${t.backgroundImage}');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+    }` : ''}
     .${scopeId} *,
     .${scopeId} *::before,
     .${scopeId} *::after { box-sizing: border-box; }
@@ -141,9 +150,12 @@ export function ThemeFrame({ config, children, className = '' }) {
     @media (max-width: 700px) {
       .${scopeId} section.block { padding: var(--sy-m) 0; }
     }
-    ${t.boxedPadMobile != null ? `
+    ${t.hasBoxedMobileBlock ? `
     @media (max-width: 600px) and (orientation: portrait) {
-      .${scopeId} { --boxed-pad: ${t.boxedPadMobile}; }
+      .${scopeId} {
+        ${t.boxedMobileVars}
+        ${t.boxedPadMobileOverride != null ? `--boxed-pad: ${t.boxedPadMobileOverride};` : ''}
+      }
     }` : ''}
   `
 

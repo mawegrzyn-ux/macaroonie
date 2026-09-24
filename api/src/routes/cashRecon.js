@@ -88,17 +88,19 @@ const IncomeSourcePatch = z.object({
 })
 
 const ChannelBody = z.object({
-  name:    z.string().min(1).max(200),
-  type:    z.enum(['cash', 'card', 'voucher', 'online', 'other']).default('cash'),
-  tooltip: z.string().max(500).nullable().optional(),
+  name:           z.string().min(1).max(200),
+  type:           z.enum(['cash', 'card', 'voucher', 'online', 'other']).default('cash'),
+  counts_as_cash: z.coerce.boolean().optional(),
+  tooltip:        z.string().max(500).nullable().optional(),
 })
 
 const ChannelPatch = z.object({
-  name:       z.string().min(1).max(200).optional(),
-  type:       z.enum(['cash', 'card', 'voucher', 'online', 'other']).optional(),
-  tooltip:    z.string().max(500).nullable().optional(),
-  is_active:  z.coerce.boolean().optional(),
-  sort_order: z.coerce.number().int().optional(),
+  name:           z.string().min(1).max(200).optional(),
+  type:           z.enum(['cash', 'card', 'voucher', 'online', 'other']).optional(),
+  counts_as_cash: z.coerce.boolean().optional(),
+  tooltip:        z.string().max(500).nullable().optional(),
+  is_active:      z.coerce.boolean().optional(),
+  sort_order:     z.coerce.number().int().optional(),
 })
 
 const ScEffect = z.enum(['none', 'add', 'subtract'])
@@ -637,12 +639,13 @@ export default async function cashReconRoutes(app) {
   }, async (req, reply) => {
     const { venueId } = req.params
     const body = ChannelBody.parse(req.body)
+    const countsAsCash = body.counts_as_cash ?? (body.type === 'cash')
 
     const [row] = await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
       return tx`
-        INSERT INTO cash_payment_channels (tenant_id, venue_id, name, type, tooltip)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type}, ${body.tooltip ?? null})
+        INSERT INTO cash_payment_channels (tenant_id, venue_id, name, type, counts_as_cash, tooltip)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type}, ${countsAsCash}, ${body.tooltip ?? null})
         RETURNING *
       `
     })

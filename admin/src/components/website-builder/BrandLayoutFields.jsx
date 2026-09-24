@@ -14,6 +14,19 @@ export function BrandLayoutFields({ theme, setPath }) {
     setPath('spacing', 'boxed_steps', next)
   }
 
+  function toggleStepMobile(idx, on) {
+    if (on) {
+      setStepValue(idx, { mobile_value: steps[idx].value, mobile_unit: steps[idx].unit })
+      return
+    }
+    const next = steps.map((s, i) => {
+      if (i !== idx) return s
+      const { mobile_value, mobile_unit, ...rest } = s
+      return rest
+    })
+    setPath('spacing', 'boxed_steps', next)
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -33,7 +46,8 @@ export function BrandLayoutFields({ theme, setPath }) {
         <p className="text-sm font-medium mb-1">Boxed inset — step values</p>
         <p className="text-xs text-muted-foreground mb-2">
           Define what each of the 5 steps below means for this site. Mix units freely — e.g. step 1
-          could be a fixed 20px while step 3 is 5% of the block width.
+          could be a fixed 20px while step 3 is 5% of the block width. Tick "Mobile" on a step to give
+          it a different value on narrow phone portraits (≤600px) — e.g. step 1 = 16px desktop, 8px mobile.
         </p>
         <div className="grid grid-cols-5 gap-1.5">
           {steps.map((s, idx) => (
@@ -52,6 +66,32 @@ export function BrandLayoutFields({ theme, setPath }) {
                 <option value="px">px</option>
                 <option value="%">%</option>
               </select>
+              <label className="flex items-center justify-center gap-1 mt-1.5">
+                <input
+                  type="checkbox"
+                  checked={s.mobile_value != null}
+                  onChange={e => toggleStepMobile(idx, e.target.checked)}
+                  className="w-3.5 h-3.5 touch-manipulation"
+                />
+                <span className="text-[10px] text-muted-foreground">Mobile</span>
+              </label>
+              {s.mobile_value != null && (
+                <div className="mt-1">
+                  <input
+                    type="number" min={0} max={200} value={s.mobile_value}
+                    onChange={e => setStepValue(idx, { mobile_value: Math.max(0, Math.min(200, Number(e.target.value))) })}
+                    className="w-full h-8 rounded border bg-background px-1.5 text-xs text-center touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  />
+                  <select
+                    value={s.mobile_unit || s.unit}
+                    onChange={e => setStepValue(idx, { mobile_unit: e.target.value })}
+                    className="w-full h-7 mt-1 rounded border bg-background text-[10px] text-center touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  >
+                    <option value="px">px</option>
+                    <option value="%">%</option>
+                  </select>
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -970,6 +970,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               model has no such asymmetry: both effects use the same <Mono>add</Mono>/{' '}
               <Mono>subtract</Mono> vocabulary and either can go either way per source.
             </InfoBox>
+            <H3>Variance sign (migration 097 fix)</H3>
+            <P>
+              Variance is <Mono>Takings − (Income + scAdjustment)</Mono> — actual minus expected, the
+              standard reconciliation convention. Positive means a surplus (took in more than
+              declared), negative means a shortfall (took in less). This is computed independently
+              in three places that must stay in sync: <Mono>variance(date)</Mono> in{' '}
+              <Mono>SpreadsheetView</Mono> (week grid), the day-view's <Mono>const variance</Mono>,
+              and <Mono>WeekView</Mono>'s 7-day cards, which now reads the{' '}
+              <Mono>variance</Mono> field the <Mono>GET /:venueId/cash-recon/week/:week_start</Mono>{' '}
+              route already returns (<Mono>total_takings − total_income</Mono>) instead of
+              recomputing its own.
+            </P>
+            <InfoBox type="warn">
+              Before migration 097 the formula was inverted (<Mono>Income − Takings</Mono>) in all
+              three places — a surplus showed as negative and a shortfall as positive. The amber/red
+              colour thresholds (<Mono>variance &gt; 0</Mono> → amber, <Mono>&lt; 0</Mono> → red)
+              were left unchanged; flipping the underlying number's sign alone was enough to make
+              them read correctly (shortfall → red, surplus → amber).
+            </InfoBox>
+            <H3>Net Cash / Cash to bank — cash-only channels</H3>
+            <P>
+              <Mono>cash_payment_channels.counts_as_cash</Mono> (migration 097, boolean, default{' '}
+              <Mono>true</Mono> only where <Mono>type = 'cash'</Mono>) flags which Takings channels
+              actually become physical cash in the till. <Mono>Net Cash</Mono> and the week-grid's
+              final row (relabelled <Mono>Cash to bank</Mono>, was "Net Position") sum only channels
+              where <Mono>counts_as_cash !== false</Mono> — see <Mono>cashChannels</Mono> /{' '}
+              <Mono>cashTakingsTotal(date)</Mono> in <Mono>CashRecon.jsx</Mono>.{' '}
+              <Mono>Total Takings</Mono> and <Mono>Variance</Mono> are unaffected and still sum every
+              active channel regardless of the flag — only the two cash-specific rows are filtered. A
+              "Non-cash" badge renders next to any such channel in both the week-grid row label and
+              the day-view Takings list.
+            </P>
             <H3>Wages schema</H3>
             <DataTable
               head={['Table', 'Purpose']}
@@ -1724,7 +1756,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               falls back to defaults hard-coded in <Mono>views/site/shared/head.eta</Mono>.
             </P>
             <Code>{`{
-  "colors":     { primary, accent, background, surface, text, muted, border },
+  "colors":     { primary, accent, background, background_image, surface, text, muted, border },
   "typography": { heading_font, body_font, base_size_px, heading_scale,
                   heading_weight, body_weight, line_height, letter_spacing },
   "spacing":    { container_max_px, section_y_px, section_y_mobile_px, gap_px,
@@ -1743,27 +1775,47 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Boxed-inset step values (theme.spacing.boxed_steps)</H3>
             <P>
               <Mono>boxed_step</Mono> (theme-wide default) and <Mono>boxed_step_mobile</Mono>{' '}
-              (mobile-portrait-only override, applied inside the existing{' '}
-              <Mono>@media (max-width: 600px) and (orientation: portrait)</Mono> rule) — plus
-              every block's own per-block <Mono>boxed_step</Mono> override — are step{' '}
-              <em>numbers</em> (1-5) that index into <Mono>boxed_steps</Mono>: an array of exactly
-              5 <Mono>{'{ value, unit: \'px\' | \'%\' }'}</Mono> entries, Zod-validated with{' '}
-              <Mono>.length(5)</Mono>. Falls back to the standard 16/24/40/64/96px scale
-              (<Mono>DEFAULT_BOXED_STEPS</Mono> in <Mono>boxedLayout.js</Mono> /{' '}
-              <Mono>head.eta</Mono>) when a tenant hasn't customised it. Units can be mixed freely
-              per step — e.g. step 1 = 20px, step 3 = 5%.
+              (mobile-portrait-only override — swap to a <em>different step index</em> on
+              mobile) — plus every block's own per-block <Mono>boxed_step</Mono> override — are
+              step <em>numbers</em> (1-5) that index into <Mono>boxed_steps</Mono>: an array of
+              exactly 5{' '}
+              <Mono>{'{ value, unit: \'px\' | \'%\', mobile_value?, mobile_unit? }'}</Mono>{' '}
+              entries, Zod-validated with <Mono>.length(5)</Mono>. Falls back to the standard
+              16/24/40/64/96px scale (<Mono>DEFAULT_BOXED_STEPS</Mono> in{' '}
+              <Mono>boxedLayout.js</Mono> / <Mono>head.eta</Mono>) when a tenant hasn't
+              customised it. Units can be mixed freely per step — e.g. step 1 = 20px, step 3 = 5%.
             </P>
             <P>
-              Resolved identically on both sides: <Mono>head.eta</Mono> and all 19{' '}
-              <Mono>api/src/views/site/blocks/*.eta</Mono> partials read{' '}
-              <Mono>it.config.theme.spacing.boxed_steps</Mono> directly (each partial keeps its
-              own small resolver — same duplication pattern the file already used for the old
-              hard-coded map). On the admin canvas, <Mono>themeResolver.js</Mono> calls{' '}
-              <Mono>boxedLayout.js</Mono>'s <Mono>setBoxedSteps()</Mono> once per render so the
-              per-block override calculations (computed inline, not via CSS vars, deep inside{' '}
-              <Mono>blockCanvas.jsx</Mono> / <Mono>siteBlocks.jsx</Mono> / <Mono>dataBlocks.jsx</Mono>)
-              see the tenant's real values.
+              <Mono>mobile_value</Mono>/<Mono>mobile_unit</Mono> are optional per-step overrides —
+              a step can resolve to a different length on phone portrait (≤600px) without
+              touching any other step, e.g. step 1 = 16px desktop, 8px mobile. This is distinct
+              from <Mono>boxed_step_mobile</Mono> (which points the theme DEFAULT at a different
+              step index on mobile) — both can be used together.
             </P>
+            <P>
+              Every consumer resolves through 5 shared CSS variables (
+              <Mono>--boxed-step-1</Mono> … <Mono>--boxed-step-5</Mono>) emitted once in{' '}
+              <Mono>head.eta</Mono>'s <Mono>:root</Mono>, with a single{' '}
+              <Mono>@media (max-width: 600px) and (orientation: portrait)</Mono> block overriding
+              whichever steps have a <Mono>mobile_value</Mono> set. The theme default (
+              <Mono>--boxed-pad</Mono>) is just <Mono>var(--boxed-step-N)</Mono>, and all 19{' '}
+              <Mono>api/src/views/site/blocks/*.eta</Mono> partials resolve their own per-block{' '}
+              <Mono>boxed_step</Mono> override the same way (
+              <Mono>{"pad = 'var(--boxed-step-' + step + ')'"}</Mono>) instead of computing a
+              literal px/% value — so a per-step mobile value applies everywhere that step is
+              used, block overrides included, with no per-block media query needed. On the admin
+              canvas, <Mono>boxedLayout.js</Mono> exports the matching{' '}
+              <Mono>boxedStepVarCss</Mono>/<Mono>boxedStepVarsCss</Mono>/
+              <Mono>boxedStepMobileVarsCss</Mono> helpers, called from{' '}
+              <Mono>themeResolver.js</Mono> and emitted by <Mono>ThemeFrame.jsx</Mono>.
+            </P>
+            <InfoBox type="info">
+              The canvas's "Approximate mobile preview" toggle (<Mono>PageBuilder.jsx</Mono>)
+              narrows a container div, not the real browser viewport, so it does not retrigger{' '}
+              <Mono>@media</Mono> rules — a per-step mobile value only visibly differs in the
+              canvas if the admin's actual browser window is narrowed below 600px. This is a
+              pre-existing limitation of the preview mode, unrelated to boxed-step resolution.
+            </InfoBox>
             <InfoBox type="warn">
               <Mono>boxedLayout.js</Mono>'s current step values live in a module-level variable
               (<Mono>currentBoxedSteps</Mono>), not React Context — deliberate, since there is

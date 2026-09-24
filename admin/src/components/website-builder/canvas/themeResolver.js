@@ -4,7 +4,7 @@
 // the two in sync — when a knob is added on the public side, add it
 // here too.
 
-import { boxedPadCss, setBoxedSteps, DEFAULT_BOXED_STEP, DEFAULT_BOXED_STEPS, DEFAULT_CONTAINER_MAX_PX } from '../boxedLayout'
+import { boxedStepVarCss, boxedStepVarsCss, boxedStepMobileVarsCss, setBoxedSteps, DEFAULT_BOXED_STEP, DEFAULT_BOXED_STEPS, DEFAULT_CONTAINER_MAX_PX } from '../boxedLayout'
 
 const GOOGLE_FONTS = new Set([
   'Inter', 'Playfair Display', 'Poppins', 'Lora', 'Montserrat', 'Roboto', 'Open Sans',
@@ -25,6 +25,7 @@ export function resolveTheme(config) {
   const primary    = colors.primary    || config?.primary_colour    || '#630812'
   const accent     = colors.accent     || config?.secondary_colour  || '#f4a7b9'
   const background = colors.background || '#ffffff'
+  const backgroundImage = colors.background_image || null
   const surface    = colors.surface    || '#f9f6f1'
   const textColor  = colors.text       || '#1a1a1a'
   const mutedColor = colors.muted      || '#666666'
@@ -47,11 +48,16 @@ export function resolveTheme(config) {
 
   const containerMax = spacing.container_max_px    || DEFAULT_CONTAINER_MAX_PX
   const boxedStep    = spacing.boxed_step          || DEFAULT_BOXED_STEP
-  const boxedPad     = boxedPadCss(boxedStep)
-  // Mobile-portrait override — null means "same as default" (no override
-  // emitted). Only the theme-level default has this override; per-block
-  // boxed_step overrides stay fixed at all sizes.
-  const boxedPadMobile = spacing.boxed_step_mobile ? boxedPadCss(spacing.boxed_step_mobile) : null
+  // boxedPad resolves through the shared --boxed-step-N vars (see
+  // boxedLayout.js) so it picks up each step's own mobile_value too.
+  const boxedPad         = boxedStepVarCss(boxedStep)
+  const boxedStepVars    = boxedStepVarsCss()
+  const boxedMobileVars  = boxedStepMobileVarsCss()
+  // "Use a different step index on mobile" override — still supported
+  // alongside per-step mobile values; composes fine since it just points
+  // at another --boxed-step-N var.
+  const boxedPadMobileOverride = spacing.boxed_step_mobile ? boxedStepVarCss(spacing.boxed_step_mobile) : null
+  const hasBoxedMobileBlock = !!boxedMobileVars || !!boxedPadMobileOverride
   const sectionY     = spacing.section_y_px        || 72
   const sectionYMob  = spacing.section_y_mobile_px || 48
   const gap          = spacing.gap_px              || 24
@@ -78,9 +84,9 @@ export function resolveTheme(config) {
     : null
 
   return {
-    primary, accent, background, surface, textColor, mutedColor, border,
+    primary, accent, background, backgroundImage, surface, textColor, mutedColor, border,
     headingFont, bodyFont, baseSize, hScale, hWeight, bWeight, lineHeight, letterSp,
-    containerMax, boxedStep, boxedPad, boxedPadMobile, boxedSteps, sectionY, sectionYMob, gap,
+    containerMax, boxedStep, boxedPad, boxedStepVars, boxedMobileVars, boxedPadMobileOverride, hasBoxedMobileBlock, boxedSteps, sectionY, sectionYMob, gap,
     rSm, rMd, rLg,
     logoH,
     btnR, btnPy, btnPx, btnW,
