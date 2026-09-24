@@ -12,7 +12,7 @@ import {
   Wallet, Mail, Activity, SlidersHorizontal, LayoutTemplate,
   Shield, AlertCircle, Lightbulb, Newspaper, BookMarked,
   HelpCircle, Plus, X, Pencil, Check,
-  Thermometer, ListChecks, LayoutGrid,
+  Thermometer, ListChecks, LayoutGrid, ClipboardCheck,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
@@ -30,6 +30,7 @@ const SHORTCUT_OPTIONS = [
   { to: '/food-safety',          label: 'Food safety',          icon: Thermometer,     colour: 'bg-red-100 text-red-600' },
   { to: '/checklists',           label: 'Checklists',           icon: ListChecks,      colour: 'bg-teal-100 text-teal-700' },
   { to: '/hs-dashboard',         label: 'H&S Dashboard',        icon: LayoutGrid,      colour: 'bg-orange-100 text-orange-700' },
+  { to: '/hs-action-log',        label: 'Action log',           icon: ClipboardCheck,  colour: 'bg-cyan-100 text-cyan-700' },
   { to: '/email-templates',      label: 'Emails',               icon: Mail,            colour: 'bg-rose-100 text-rose-600' },
   { to: '/email-monitoring',     label: 'Email monitor',        icon: Activity,        colour: 'bg-orange-100 text-orange-600' },
   { to: '/venues',               label: 'Venues',               icon: Building2,       colour: 'bg-teal-100 text-teal-600' },

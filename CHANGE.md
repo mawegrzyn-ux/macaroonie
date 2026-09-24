@@ -5,14 +5,21 @@ Migrations are listed where a database change is required.
 
 ---
 
-## [2026-09-24 — Navigation designer, quick-access launcher, food-safety polish] *(migration 091)*
+## [2026-09-24 — Navigation designer, quick-access launcher, H&S Action Log, food-safety polish] *(migrations 091 + 092)*
 
 ### Navigation designer + quick-access launcher *(migration 091)*
 - Replaces the previously-hardcoded sidebar (`NAV_SECTIONS` in `AppShell.jsx`) with an admin-configurable, arbitrary-depth nav tree per tenant (`nav_items`, self-referencing `parent_id`), with per-role visibility on top of the existing module-permission gating.
 - New `/nav-designer` admin page (owner-only by default): outline editor (move up/down, indent, outdent — not free-form drag-and-drop reparenting) for the tree, add section/link with route picked from a static catalog so items can only ever point at real pages, per-item module gate + per-role hide + "show as quick-access tile" toggle, typed-confirmation reset to defaults.
 - New tenant-wide `tenants.nav_style` toggle (`sidebar` / `launcher`). In Launcher mode the whole sidebar is replaced by a tile grid at `/launcher`, built from links flagged "show as a quick-access tile"; a single "Quick access" link stays in the sidebar as a safety net.
-- New `/launcher` page: drag-reorder and hide/show tiles for yourself (persisted to `localStorage`, never a DB table — same pattern as other per-viewer prefs), "reset to admin defaults". Empty state explains where tiles come from and offers a one-click "switch back to sidebar" if a tenant ends up in Launcher mode with nothing flagged yet.
+- New `/launcher` page: drag-reorder and hide/show tiles for yourself (persisted to `localStorage`, never a DB table — same pattern as other per-viewer prefs), "reset to admin defaults". A "Back to full menu" control in the page header is always visible whenever the tenant is in Launcher mode (regardless of how many tiles are configured), so nobody gets stranded without a sidebar.
 - `GET /api/me` now returns `nav_tree` (pruned for the caller's effective role) and `launcher_tiles`.
+
+### H&S Action Log *(migration 092)*
+- New general facilities/compliance to-do list per venue — repairs, records, training, cleaning tasks with due dates and priority — migrated field-for-field from the legacy spreadsheet's "ActionLog" tab.
+- Categories (Repairs / Records / Training / Cleaning by default) are a tenant-managed, reorderable list rather than a fixed enum — add/rename/reorder/retire your own.
+- Not date-scoped like the other food-safety checks: an item stays open across days until ticked complete, recording who and when.
+- Photo attachments via the existing Media library (no new upload path).
+- New `/hs-action-log` admin page, and also available as an `action_log` widget on the H&S Dashboard.
 
 ### Food safety / H&S Dashboard polish
 - Drag-to-reorder added to the Equipment and Hold-stations management lists in Food safety.

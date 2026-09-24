@@ -19,6 +19,7 @@ const SECTIONS = [
   { id: 'food-safety',  label: 'Food Safety Logs' },
   { id: 'checklists',   label: 'Checklists' },
   { id: 'hs-dashboard', label: 'H&S Dashboard' },
+  { id: 'hs-action-log', label: 'H&S Action Log' },
   { id: 'navigation',   label: 'Navigation & Launcher' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'services',     label: 'Services & Jobs' },
@@ -1028,7 +1029,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'Purpose']}
               rows={[
                 ['hs_dashboards', 'One row per named dashboard (shown as a tab). venue_id, name, column_count, sort_order.'],
-                ['hs_dashboard_widgets', 'One row per widget on a dashboard. widget_type enum (checklist / temp_checks / delivery_checks / hold_checks / cooking_checks), checklist_template_id (nullable, only for widget_type=checklist), title_override, col_span, height_px, sort_order.'],
+                ['hs_dashboard_widgets', 'One row per widget on a dashboard. widget_type enum (checklist / temp_checks / delivery_checks / hold_checks / cooking_checks / action_log), checklist_template_id (nullable, only for widget_type=checklist), title_override, col_span, height_px, sort_order.'],
               ]}
             />
             <H3>API</H3>
@@ -1055,6 +1056,60 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the same "styled button + native picker" pattern used on Timeline and Bookings, not
               a custom calendar component.
             </InfoBox>
+          </section>
+
+          {/* ── H&S ACTION LOG ────────────────────────────── */}
+          <section id="hs-action-log" data-doc="">
+            <H2>H&amp;S Action Log</H2>
+            <P>
+              Migration 092. A general facilities/compliance to-do list per venue — migrated from
+              the legacy spreadsheet's "ActionLog" tab (Date, Category, Task, Details, Assigned To,
+              Due Date, Priority, Completed, Notes, Attachments). Not date-scoped like the other
+              food-safety checks — an entry stays open across days until completed.
+            </P>
+            <H3>Schema</H3>
+            <DataTable
+              head={['Table', 'Purpose']}
+              rows={[
+                ['hs_action_categories', 'Tenant-managed, reorderable named list (same pattern as fs_hold_stations — soft-deleted via is_active, not a fixed enum). Seeded with the spreadsheet\'s four categories (Repairs, Records, Training, Cleaning) for every tenant.'],
+                ['hs_action_log', 'One row per action item. category_id (nullable FK, ON DELETE SET NULL), logged_date, task, details, assigned_to (free text — historical assignee names were inconsistent nicknames, not a clean FK target), due_date, priority enum (low/medium/high/critical), is_completed + completed_by + completed_at, notes, attachment_media_id (nullable FK to media_items), created_by.'],
+              ]}
+            />
+            <InfoBox type="warn">
+              <Mono>completed_by</Mono> / <Mono>created_by</Mono> are plain <Mono>text</Mono> columns
+              storing <Mono>req.user.email</Mono>, not a FK to <Mono>users(id)</Mono> — matching
+              <Mono> checklist_instances.completed_by</Mono>'s existing convention exactly. Don't
+              "fix" these to a uuid FK without also changing that convention everywhere else.
+            </InfoBox>
+            <H3>API</H3>
+            <P>
+              Mounted at <Mono>/api/hs-action-log</Mono>, gated by <Mono>requirePermission('hs_action_log', …)</Mono>.
+              Category CRUD + <Mono>PATCH /categories/reorder</Mono> follows the exact
+              fs_hold_stations pattern. Entries: <Mono>GET /entries?venue_id=&amp;status=open|completed|all&amp;category_id=</Mono>,
+              <Mono> POST</Mono>, generic <Mono>PATCH /entries/:id</Mono>, and a dedicated
+              <Mono> PATCH /entries/:id/complete</Mono> that always sets
+              <Mono> completed_by</Mono>/<Mono>completed_at</Mono> server-side from the caller's
+              JWT — never trust a client-supplied value for who completed something.
+            </P>
+            <H3>Attachments</H3>
+            <P>
+              Reuses the existing Media library rather than a bespoke upload path.
+              <Mono> MediaLibraryModal</Mono> in <Mono>picker</Mono> mode returns
+              <Mono> (url, item)</Mono> to <Mono>onPick</Mono>; the entry stores
+              <Mono> item.id</Mono> as <Mono>attachment_media_id</Mono> (a real FK) and keeps the
+              URL only for display. Media library uploads are image-only
+              (<Mono>ALLOWED_MIMES</Mono> in <Mono>media.js</Mono>) — matches the spreadsheet's
+              observed use case (photo evidence), not PDFs.
+            </P>
+            <H3>Key files</H3>
+            <DataTable
+              head={['File', 'Purpose']}
+              rows={[
+                ['api/src/routes/hsActionLog.js', 'All Action Log routes.'],
+                ['admin/src/components/hsActionLog/shared.jsx', 'HSActionLogPanel — the one implementation, reused by the standalone page and the H&S Dashboard\'s action_log widget. Also the category-management modal.'],
+                ['admin/src/pages/HSActionLog.jsx', 'Standalone page at /hs-action-log — just a venue picker + HSActionLogPanel.'],
+              ]}
+            />
           </section>
 
           {/* ── NAVIGATION & LAUNCHER ─────────────────────── */}
