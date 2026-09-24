@@ -72,7 +72,7 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
   const venues = await tx`SELECT id, name FROM venues WHERE tenant_id = ${tenantId} AND is_active = true ORDER BY name`
 
   const templates = await tx`
-    SELECT id, venue_id, frequency FROM checklist_templates
+    SELECT id, venue_id, name, frequency FROM checklist_templates
      WHERE tenant_id = ${tenantId} AND is_active = true
   `
   const minPeriodStart = [mondayOf(from), monthStartOf(from), from].sort()[0]
@@ -122,8 +122,13 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
     const venueResults = venues.map(v => {
       const vTemplates = templatesByVenue.get(v.id) ?? []
       const checklistExpected = vTemplates.length
-      const checklistCompleted = vTemplates.filter(t =>
-        instanceMap.get(`${t.id}|${periodStartFor(t.frequency, date)}`) === 'completed').length
+      const checklistBreakdown = vTemplates.map(t => ({
+        id: t.id,
+        name: t.name,
+        frequency: t.frequency,
+        completed: instanceMap.get(`${t.id}|${periodStartFor(t.frequency, date)}`) === 'completed',
+      }))
+      const checklistCompleted = checklistBreakdown.filter(c => c.completed).length
 
       const vEquip = equipmentByVenue.get(v.id) ?? []
       const vCaptures = captureTimesByVenue.get(v.id) ?? []
@@ -157,7 +162,34 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
       const unresolved = equipUnresolved + holdUnresolved + cookingUnresolved
       const status = isUpcoming ? 'upcoming' : deriveStatus(expected, completed, unresolved)
 
-      return { venue_id: v.id, venue_name: v.name, status, expected, completed, unresolved }
+      // Per-check-type breakdown for the hs_today_status tile's expanded
+      // view — checklists individually (they only have a done/not-done
+      // state, no "unresolved" concept), the other three check types as
+      // one aggregate line each (their own individual readings are too
+      // granular for a small tile — see Equipment/Holds/Cooking pages for
+      // that level of detail).
+      const categories = [
+        equipExpected > 0 && {
+          key: 'equipment', label: 'Fridge/freezer checks',
+          expected: equipExpected, completed: equipCompleted, unresolved: equipUnresolved,
+          status: isUpcoming ? 'upcoming' : deriveStatus(equipExpected, equipCompleted, equipUnresolved),
+        },
+        holdExpected > 0 && {
+          key: 'hold', label: 'Hot/cold hold checks',
+          expected: holdExpected, completed: holdCompleted, unresolved: holdUnresolved,
+          status: isUpcoming ? 'upcoming' : deriveStatus(holdExpected, holdCompleted, holdUnresolved),
+        },
+        cookingExpected > 0 && {
+          key: 'cooking', label: 'Cooking checks',
+          expected: cookingExpected, completed: cookingCompleted, unresolved: cookingUnresolved,
+          status: isUpcoming ? 'upcoming' : deriveStatus(cookingExpected, cookingCompleted, cookingUnresolved),
+        },
+      ].filter(Boolean)
+
+      return {
+        venue_id: v.id, venue_name: v.name, status, expected, completed, unresolved,
+        checklists: checklistBreakdown, categories,
+      }
     })
 
     const expected   = venueResults.reduce((s, v) => s + v.expected, 0)

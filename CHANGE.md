@@ -5,6 +5,25 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — H&S dashboard breakdown + reopen, Cash Recon theming fix, mobile expenses]
+
+### Overview — H&S today tile shows every check individually
+- The "H&S checks today" tile now lists each checklist by name (done/not done) plus a line each for fridge/freezer checks, hold checks and cooking checks, instead of just an overall status badge.
+
+### Checklists can now be reopened from the H&S Dashboard
+- Previously only the Checklists page itself let you reopen a completed checklist. The H&S Dashboard's checklist widget (desktop and mobile) can now do the same — tap the "Complete" badge, then confirm.
+
+### Cash Reconciliation — visual fixes
+- The coloured accent band on each section is now header-only; the totals footer is back to plain, per feedback that two accent bars per card was too heavy.
+- Fixed a layout bug where stacked sections on the daily-declaration page had no visible gap between them.
+- Fixed "Add expense" silently failing to save on every attempt — it's worked from the start of this release, but the bug behind it went unnoticed until now.
+- H&S Dashboard widget headers now use the same brand accent colour as Cash Reconciliation.
+
+### Mobile: record expenses
+- New "Expenses" module on the `/mobile` app — log a petty cash expense and snap a receipt photo with your phone's camera, without opening the full Cash Reconciliation page.
+
+---
+
 ## [2026-09-24 — Menu calories + section category icons] *(migrations 094 + 095)*
 
 ### Menus

@@ -385,6 +385,7 @@ function HsTodayStatusBody({ api }) {
   const day = data?.days?.[0]
   if (!day) return null
   const style = HS_STATUS_STYLES[day.status]
+  const multiVenue = day.venues.length > 1
 
   return (
     <div className="space-y-3">
@@ -393,20 +394,37 @@ function HsTodayStatusBody({ api }) {
         {style.label}
         {day.expected > 0 && <span className="opacity-70">· {day.completed}/{day.expected} checks complete</span>}
       </div>
-      {day.venues.length > 1 && (
-        <div className="space-y-1.5">
-          {day.venues.map(v => {
-            const vStyle = HS_STATUS_STYLES[v.status]
-            return (
-              <div key={v.venue_id} className="flex items-center gap-2 text-sm">
-                <span className={cn('w-2 h-2 rounded-full shrink-0', vStyle.dot)} />
-                <span className="flex-1 min-w-0 truncate">{v.venue_name}</span>
-                <span className="text-xs text-muted-foreground shrink-0">{v.completed}/{v.expected}</span>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      <div className="space-y-3">
+        {day.venues.map(v => {
+          const checklists = v.checklists ?? []
+          const categories = v.categories ?? []
+          if (checklists.length === 0 && categories.length === 0) return null
+          return (
+            <div key={v.venue_id} className="space-y-1">
+              {multiVenue && (
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">{v.venue_name}</p>
+              )}
+              {checklists.map(c => (
+                <div key={c.id} className="flex items-center gap-2 text-sm">
+                  <span className={cn('w-2 h-2 rounded-full shrink-0', c.completed ? 'bg-emerald-500' : 'bg-gray-300')} />
+                  <span className="flex-1 min-w-0 truncate">{c.name}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{c.completed ? 'Done' : 'Not done'}</span>
+                </div>
+              ))}
+              {categories.map(cat => {
+                const cStyle = HS_STATUS_STYLES[cat.status]
+                return (
+                  <div key={cat.key} className="flex items-center gap-2 text-sm">
+                    <span className={cn('w-2 h-2 rounded-full shrink-0', cStyle.dot)} />
+                    <span className="flex-1 min-w-0 truncate">{cat.label}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{cat.completed}/{cat.expected}</span>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

@@ -13,7 +13,10 @@
 import { useEffect } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
+import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, LogOut, LayoutGrid } from 'lucide-react'
+import { useApi } from '@/lib/api'
+import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
 
 const MAIN_MANIFEST_HREF = '/manifest.webmanifest'
@@ -55,6 +58,20 @@ export default function MobileShell() {
   const { logout } = useAuth0()
   const location = useLocation()
   const navigate = useNavigate()
+  const api = useApi()
+
+  // /mobile mounts under its own shell, never AppShell — so the site-accent
+  // theme AppShell applies from GET /me has to be fetched here too, or the
+  // H&S Dashboard widget headers (which use --site-accent) fall back to the
+  // hardcoded default colour instead of the tenant's actual brand colour.
+  const { data: me } = useQuery({
+    queryKey: ['me'],
+    queryFn: () => api.get('/me'),
+    staleTime: 120_000,
+  })
+  useEffect(() => {
+    if (me?.site_theme) applySiteTheme(me.site_theme)
+  }, [me?.site_theme])
 
   const isHub = location.pathname === '/mobile' || location.pathname === '/mobile/'
   const activeModule = MOBILE_MODULES.find(m => location.pathname.startsWith(m.path))

@@ -198,6 +198,8 @@ function WidgetCard({
   // complete action can live in this card's own title bar instead of a
   // full-width button at the bottom of the checklist.
   const [checklistState, setChecklistState] = useState(null)
+  const [confirmReopen, setConfirmReopen] = useState(false)
+  useEffect(() => { if (!checklistState?.isCompleted) setConfirmReopen(false) }, [checklistState?.isCompleted])
 
   const colSpan  = Math.min(widget.col_span ?? 1, columnCount)
   const heightPx = widget.height_px ?? 480
@@ -209,7 +211,8 @@ function WidgetCard({
         'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
         editing && 'ring-1 ring-primary/30 border-dashed',
       )}>
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
+      <div className="flex items-center gap-2 px-4 py-3"
+        style={{ background: 'var(--site-accent-soft, rgba(244,167,185,0.16))', borderBottom: '2px solid var(--site-accent, #f4a7b9)' }}>
         <span className="w-8 h-8 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon className="w-4 h-4" />
         </span>
@@ -221,9 +224,24 @@ function WidgetCard({
         </span>
         {isChecklist && !editing && checklistState && (
           checklistState.isCompleted ? (
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 shrink-0">
-              <Check className="w-3.5 h-3.5" /> Complete
-            </span>
+            confirmReopen ? (
+              <div className="flex items-center gap-1 shrink-0">
+                <button type="button" onClick={() => { checklistState.reopen(); setConfirmReopen(false) }} disabled={checklistState.isPending}
+                  className="text-xs font-medium px-2 py-1.5 rounded-md bg-amber-600 text-white disabled:opacity-50 min-h-[32px] touch-manipulation">
+                  {checklistState.isPending ? 'Working…' : 'Yes, reopen'}
+                </button>
+                <button type="button" onClick={() => setConfirmReopen(false)}
+                  className="text-xs font-medium px-2 py-1.5 rounded-md border min-h-[32px] touch-manipulation">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setConfirmReopen(true)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 rounded-md px-1.5 py-1.5 min-h-[32px] shrink-0 touch-manipulation"
+                title="Tap to reopen">
+                <Check className="w-3.5 h-3.5" /> Complete
+              </button>
+            )
           ) : (
             <button type="button" onClick={checklistState.markComplete} disabled={checklistState.isPending}
               className="shrink-0 text-xs font-medium px-2.5 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50 min-h-[32px] touch-manipulation">

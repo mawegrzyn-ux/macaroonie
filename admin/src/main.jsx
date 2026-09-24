@@ -9,6 +9,7 @@ import AppShell    from '@/components/layout/AppShell'
 import MobileShell from '@/components/mobile/MobileShell'
 import MobileHub   from '@/pages/mobile/MobileHub'
 import MobileHSDashboard from '@/pages/mobile/MobileHSDashboard'
+import MobileExpenses from '@/pages/mobile/MobileExpenses'
 import TenantGate  from '@/components/TenantGate'
 import { TimelineSettingsProvider } from '@/contexts/TimelineSettingsContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
@@ -166,6 +167,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="mobile" element={<MobileShell />}>
                 <Route index          element={<MobileHub />} />
                 <Route path="hs-dashboard" element={<MobileHSDashboard />} />
+                <Route path="expenses"     element={<MobileExpenses />} />
               </Route>
             </Routes>
             </TenantGate>
