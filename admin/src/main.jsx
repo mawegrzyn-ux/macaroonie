@@ -45,6 +45,8 @@ import LegacyImport     from '@/pages/LegacyImport'
 import FoodSafety      from '@/pages/FoodSafety'
 import Checklists      from '@/pages/Checklists'
 import HSDashboard     from '@/pages/HSDashboard'
+import NavDesigner     from '@/pages/NavDesigner'
+import Launcher        from '@/pages/Launcher'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -153,6 +155,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="docs"               element={<Docs />} />
                 <Route path="help"        element={<Help />} />
                 <Route path="settings"    element={<Settings />} />
+                <Route path="nav-designer" element={<NavDesigner />} />
+                <Route path="launcher"     element={<Launcher />} />
               </Route>
             </Routes>
             </TenantGate>
