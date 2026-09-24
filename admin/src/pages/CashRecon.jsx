@@ -17,6 +17,7 @@ import {
   ArrowLeft, Settings, ChevronLeft, ChevronRight,
   Plus, Trash2, Pencil, Check, Camera, X, Loader2,
   ChevronUp, ChevronDown, Lock, MessageSquare, Table2,
+  AlertTriangle, Star,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -349,8 +350,8 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   function weekExpenses()    { return visibleDates.reduce((s, d) => s + dayExpenses(d), 0) }
   function weekNetCash()     { return weekDayTotal('takings') - weekExpenses() }
   function weekNetPosition() {
-    const wages = parseNum(detail?.wages_total ?? 0)
-    return weekNetCash() - wages
+    const cashWages = parseNum(detail?.wages_cash_total ?? 0)
+    return weekNetCash() - cashWages
   }
 
   function startEdit(date, cat, id) {
@@ -725,11 +726,17 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
             <tr className="border-b border-border/40">
               <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">
                 <span className="flex items-center gap-1">
-                  Wages
+                  Wages (cash paid)
                   {detail?.wages_status && (
                     <span className={cn('text-[10px] rounded-full px-1.5 py-px', detail.wages_status === 'submitted' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
                       {detail.wages_status === 'submitted' ? 'Subm' : 'Draft'}
                     </span>
+                  )}
+                  {parseNum(detail?.wages_total) !== parseNum(detail?.wages_cash_total) && (
+                    <AlertTriangle
+                      className="w-3.5 h-3.5 text-amber-600"
+                      title={`Total wages ${fmt(parseNum(detail?.wages_total))} does not match cash paid ${fmt(parseNum(detail?.wages_cash_total))}`}
+                    />
                   )}
                 </span>
               </td>
@@ -737,7 +744,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
               <td
                 onClick={onSelectWages}
                 className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums cursor-pointer hover:bg-muted/40">
-                {detail?.wages_total ? fmt(detail.wages_total) : '—'}
+                {detail?.wages_cash_total ? fmt(detail.wages_cash_total) : '—'}
               </td>
             </tr>
             <tr className="border-b-2 border-border">
@@ -869,11 +876,26 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
               className="w-full rounded-2xl border bg-card shadow-sm p-4 text-left touch-manipulation transition-colors hover:border-primary/60"
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-semibold">Wages — Week of {format(parseISO(weekStart), 'd MMM')}</span>
+                <span className="text-sm font-semibold flex items-center gap-1">
+                  Wages — Week of {format(parseISO(weekStart), 'd MMM')}
+                  {w != null && parseNum(w.total_wages) !== parseNum(w.total_cash_wages) && (
+                    <AlertTriangle
+                      className="w-3.5 h-3.5 text-amber-600"
+                      title={`Total wages ${fmt(parseNum(w.total_wages))} does not match cash paid ${fmt(parseNum(w.total_cash_wages))}`}
+                    />
+                  )}
+                </span>
                 <StatusBadge status={w?.status ?? 'none'} />
               </div>
               {w?.total_wages != null
-                ? <div className="text-base font-bold">{fmt(w.total_wages)}</div>
+                ? (
+                  <div>
+                    <div className="text-base font-bold">{fmt(w.total_cash_wages)} <span className="text-xs font-normal text-muted-foreground">cash paid</span></div>
+                    {parseNum(w.total_wages) !== parseNum(w.total_cash_wages) && (
+                      <div className="text-xs text-muted-foreground">{fmt(w.total_wages)} total wages</div>
+                    )}
+                  </div>
+                )
                 : <div className="text-xs text-muted-foreground">No wages recorded</div>
               }
             </button>
@@ -1659,7 +1681,8 @@ function WagesView({ venueId, weekStart, onBack }) {
   const [addStaff, setAddStaff] = useState('')
   const [addAdhoc, setAddAdhoc] = useState('')
 
-  const activeStaff = useMemo(() => (config?.staff ?? []).filter(s => s.is_active), [config])
+  const activeStaff  = useMemo(() => (config?.staff ?? []).filter(s => s.is_active), [config])
+  const wageDefaults = useMemo(() => config?.wage_defaults ?? [], [config])
 
   // Track which week we've already initialised so refetching config doesn't wipe entered data
   const initializedWeek = useRef(null)
@@ -1674,8 +1697,20 @@ function WagesView({ venueId, weekStart, onBack }) {
       if (serverEntries.length > 0) {
         // Week has saved entries — load them
         setEntries(serverEntries)
+      } else if (wageDefaults.length > 0) {
+        // New week — auto-populate from the venue's default wage list
+        setEntries(wageDefaults.map(d => ({
+          staff_id:    d.staff_id,
+          name:        d.staff_name,
+          entry_type:  d.entry_type ?? 'fixed',
+          hours:       '',
+          rate:        '',
+          total:       d.entry_type !== 'hourly' && d.staff_default_rate != null ? String(d.staff_default_rate) : '',
+          cash_amount: '',
+          notes:       '',
+        })))
       } else if (activeStaff.length > 0) {
-        // New week — auto-populate from staff template
+        // No default set yet — fall back to the full active-staff roster
         setEntries(activeStaff.map(s => ({
           staff_id:    s.id,
           name:        s.name,
@@ -1690,7 +1725,7 @@ function WagesView({ venueId, weekStart, onBack }) {
         setEntries([])
       }
     }
-  }, [wagesData, config, weekStart, activeStaff])
+  }, [wagesData, config, weekStart, activeStaff, wageDefaults])
 
   const totalWages     = useMemo(() => entries.reduce((s, e) => s + parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))), 0), [entries])
   const totalCashWages = useMemo(() => entries.reduce((s, e) => s + parseNum(e.cash_amount ?? 0), 0), [entries])
@@ -1778,8 +1813,21 @@ function WagesView({ venueId, weekStart, onBack }) {
     onSuccess:  () => { qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] }); qc.invalidateQueries({ queryKey: ['cash-recon-week'] }) },
   })
 
+  const [defaultSaved, setDefaultSaved] = useState(false)
+  const setDefaultMutation = useMutation({
+    mutationFn: () => api.post(`/venues/${venueId}/cash-recon/wages/${weekStart}/set-default`, {
+      entries: entries.map(e => ({ staff_id: e.staff_id ?? null, entry_type: e.entry_type ?? 'fixed' })),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-recon-config', venueId] })
+      setDefaultSaved(true)
+      setTimeout(() => setDefaultSaved(false), 2000)
+    },
+  })
+
   const currentStatus = wagesData?.status ?? 'none'
   const isSubmitted   = currentStatus === 'submitted'
+  const staffEntryCount = entries.filter(e => e.staff_id).length
 
   if (isLoading) {
     return (
@@ -1821,106 +1869,86 @@ function WagesView({ venueId, weekStart, onBack }) {
         <SectionCard
           title="Staff Wages"
           action={
-            activeStaff.length > 0 && (
+            entries.length > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  if (entries.length > 0 && !window.confirm('This will replace existing entries with staff template. Continue?')) return
-                  initializedWeek.current = null  // allow re-init
-                  setEntries(activeStaff.map(s => ({
-                    staff_id: s.id, name: s.name, entry_type: 'fixed',
-                    hours: '', rate: '',
-                    total: s.default_rate != null ? String(s.default_rate) : '',
-                    cash_amount: '', notes: '',
-                  })))
-                }}
-                className="text-xs text-primary touch-manipulation hover:underline"
+                disabled={setDefaultMutation.isPending || staffEntryCount === 0}
+                onClick={() => setDefaultMutation.mutate()}
+                className="flex items-center gap-1 text-xs text-primary touch-manipulation hover:underline disabled:opacity-50"
+                title="Save this week's staff list (and Fixed/Hourly settings) as the default for future weeks. Ad-hoc entries without a staff record are not included."
               >
-                Load template
+                {setDefaultMutation.isPending
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Star className={cn('w-3.5 h-3.5', defaultSaved && 'fill-primary')} />}
+                {defaultSaved ? 'Saved as default' : 'Set as default'}
               </button>
             )
           }
         >
-          <div className="space-y-3">
+          <div className="space-y-2">
             {entries.length === 0 && !addOpen && (
-              <p className="text-sm text-muted-foreground">No staff entries yet. {activeStaff.length > 0 ? 'Click "Load template" to pre-fill from your staff list.' : 'Add staff in Settings first.'}</p>
+              <p className="text-sm text-muted-foreground">No staff entries yet. {activeStaff.length > 0 ? 'Add staff below, then use "Set as default" to reuse this list every week.' : 'Add staff in Settings first.'}</p>
             )}
 
-            {entries.map((entry, idx) => (
-              <div key={idx} className="rounded-xl border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold">{entry.name}</span>
-                  <IconBtn onClick={() => removeEntry(idx)} title="Remove" className="text-destructive hover:bg-destructive/10">
-                    <Trash2 className="w-4 h-4" />
-                  </IconBtn>
-                </div>
-                <div className="flex gap-1 mb-2">
-                  {['fixed', 'hourly'].map(mode => (
-                    <button
-                      key={mode}
-                      type="button"
-                      onClick={() => updateEntry(idx, 'entry_type', mode)}
-                      className={cn(
-                        'px-3 h-8 rounded-lg text-xs font-medium touch-manipulation transition-colors',
-                        (entry.entry_type ?? 'fixed') === mode
-                          ? 'bg-primary text-primary-foreground'
-                          : 'border text-muted-foreground hover:bg-muted'
-                      )}
-                    >
-                      {mode === 'hourly' ? '⏱ Hourly' : '£ Fixed'}
-                    </button>
-                  ))}
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {(entry.entry_type ?? 'fixed') === 'hourly' && (
-                    <>
-                      <div>
-                        <label className="text-xs text-muted-foreground mb-1 block">Hours</label>
-                        <AmountInput
-                          value={entry.hours}
-                          onChange={v => updateEntry(idx, 'hours', v)}
-                          onBlur={handleEntryBlur}
-                          placeholder="0"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground mb-1 block">Rate (£/hr)</label>
-                        <AmountInput
-                          value={entry.rate}
-                          onChange={v => updateEntry(idx, 'rate', v)}
-                          onBlur={handleEntryBlur}
-                          placeholder="0.00"
-                        />
-                      </div>
-                    </>
-                  )}
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">Total (£)</label>
-                    <AmountInput
-                      value={entry.total}
-                      onChange={v => updateEntry(idx, 'total', v)}
-                      onBlur={handleEntryBlur}
-                      placeholder="auto"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">Cash paid (£)</label>
-                    <AmountInput
-                      value={entry.cash_amount}
-                      onChange={v => updateEntry(idx, 'cash_amount', v)}
-                      onBlur={handleEntryBlur}
-                      placeholder="0.00"
-                    />
-                  </div>
-                </div>
-                <TextInput
-                  placeholder="Notes (optional)"
-                  value={entry.notes ?? ''}
-                  onChange={v => updateEntry(idx, 'notes', v)}
-                  onBlur={handleEntryBlur}
-                />
+            {entries.length > 0 && (
+              <div className="hidden sm:grid grid-cols-[minmax(120px,1fr)_92px_64px_76px_84px_84px_minmax(100px,1fr)_40px] gap-2 px-1 text-[11px] font-medium text-muted-foreground">
+                <span>Staff</span>
+                <span>Type</span>
+                <span>Hours</span>
+                <span>Rate</span>
+                <span>Total (£)</span>
+                <span>Cash paid (£)</span>
+                <span>Notes</span>
+                <span></span>
               </div>
-            ))}
+            )}
+
+            <div className="overflow-x-auto">
+              <div className="space-y-1.5 min-w-[760px] sm:min-w-0">
+                {entries.map((entry, idx) => {
+                  const isHourly = (entry.entry_type ?? 'fixed') === 'hourly'
+                  return (
+                    <div key={idx} className="grid grid-cols-[minmax(120px,1fr)_92px_64px_76px_84px_84px_minmax(100px,1fr)_40px] gap-2 items-center rounded-xl border p-1.5">
+                      <span className="text-sm font-medium truncate px-1.5" title={entry.name}>{entry.name}</span>
+
+                      <button
+                        type="button"
+                        onClick={() => updateEntry(idx, 'entry_type', isHourly ? 'fixed' : 'hourly')}
+                        className={cn(
+                          'h-10 rounded-lg text-[11px] font-medium touch-manipulation transition-colors',
+                          isHourly ? 'bg-primary text-primary-foreground' : 'border text-muted-foreground hover:bg-muted'
+                        )}
+                        title="Toggle Fixed / Hourly"
+                      >
+                        {isHourly ? '⏱ Hourly' : '£ Fixed'}
+                      </button>
+
+                      {isHourly ? (
+                        <AmountInput value={entry.hours} onChange={v => updateEntry(idx, 'hours', v)} onBlur={handleEntryBlur} placeholder="0" />
+                      ) : (
+                        <div className="h-10 flex items-center justify-center text-xs text-muted-foreground/40">—</div>
+                      )}
+
+                      {isHourly ? (
+                        <AmountInput value={entry.rate} onChange={v => updateEntry(idx, 'rate', v)} onBlur={handleEntryBlur} placeholder="0.00" />
+                      ) : (
+                        <div className="h-10 flex items-center justify-center text-xs text-muted-foreground/40">—</div>
+                      )}
+
+                      <AmountInput value={entry.total} onChange={v => updateEntry(idx, 'total', v)} onBlur={handleEntryBlur} placeholder="auto" />
+
+                      <AmountInput value={entry.cash_amount} onChange={v => updateEntry(idx, 'cash_amount', v)} onBlur={handleEntryBlur} placeholder="0.00" />
+
+                      <TextInput placeholder="Notes" value={entry.notes ?? ''} onChange={v => updateEntry(idx, 'notes', v)} onBlur={handleEntryBlur} />
+
+                      <IconBtn onClick={() => removeEntry(idx)} title="Remove" className="text-destructive hover:bg-destructive/10 w-10 h-10">
+                        <Trash2 className="w-4 h-4" />
+                      </IconBtn>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
 
             {/* Add staff */}
             {addOpen ? (
