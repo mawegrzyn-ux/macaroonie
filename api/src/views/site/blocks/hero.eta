@@ -5,11 +5,7 @@ const minH = heightMap[d.height || 'medium']
 const align = d.align === 'left' ? 'flex-start' : 'center'
 const textAlign = d.align === 'left' ? 'left' : 'center'
 const overlay = (d.overlay_opacity ?? 0.4)
-const boxedSteps = (it.config && it.config.theme && it.config.theme.spacing && it.config.theme.spacing.boxed_steps && it.config.theme.spacing.boxed_steps.length === 5)
-  ? it.config.theme.spacing.boxed_steps
-  : [{ value: 16, unit: 'px' }, { value: 24, unit: 'px' }, { value: 40, unit: 'px' }, { value: 64, unit: 'px' }, { value: 96, unit: 'px' }]
-const boxedStepCfg = boxedSteps[Number(d.boxed_step) - 1] || boxedSteps[1]
-const pad = d.boxed_step ? (boxedStepCfg.value + (boxedStepCfg.unit || 'px')) : 'var(--boxed-pad, 24px)'
+const pad = d.boxed_step ? ('var(--boxed-step-' + Number(d.boxed_step) + ')') : 'var(--boxed-pad, 24px)'
 const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 ' + pad + ';'

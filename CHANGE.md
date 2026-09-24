@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — Reconciliation variance fixed, Net Cash cash-only, website background image] *(migration 097)*
+
+### Cash Reconciliation
+- **Fixed inverted variance sign.** Variance now reads Takings (actual) − Income (expected): a positive number means you took in more than declared (surplus), a negative number means you took in less (shortfall). Previously it was calculated the other way round, which read backwards from what most people expect.
+- **"Net Cash" and the renamed "Cash to bank" row now only count channels flagged as actual cash.** Card, voucher and online-link takings never become physical cash in the till, so they no longer inflate these two figures. Mark a channel "Counts toward Net Cash" (on by default only for the "Cash" type) in Cash Recon settings → Payment channels; non-cash channels show a small "Non-cash" tag wherever they're listed in Takings.
+- "Net Position" (the week view's final wage-adjusted row) is now labelled "Cash to bank".
+
+### Website theme
+- Boxed-inset step values can now have a separate value for mobile portrait screens (≤600px) — e.g. step 1 = 16px on desktop, 8px on mobile — tick "Mobile" under any step in Brand & theme → Layout.
+- New "Background image" option under Brand & theme → Colours — an optional image behind the background colour, shown fixed and covering the viewport on every page.
+- Renamed the venue "Hero" section in the Pages nav to "Identity" — it's always configured site identity fields (site name, tagline, logo, favicon), never hero image/overlay settings, which already live in the Hero block itself and the theme's Hero settings.
+
+---
+
 ## [2026-09-24 — Service charges can now deduct, not just add] *(migration 096)*
 
 ### Cash Reconciliation

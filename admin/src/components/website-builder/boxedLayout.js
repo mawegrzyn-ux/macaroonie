@@ -16,7 +16,10 @@ export const DEFAULT_CONTAINER_MAX_PX = 1100
 // DEFAULT_BOXED_STEPS. A tenant can override this whole array via
 // theme.spacing.boxed_steps (see BrandLayoutFields.jsx) — the *number*
 // (1-5) referenced everywhere (theme default, mobile override, per-block
-// override) always indexes into whichever array is active.
+// override) always indexes into whichever array is active. Each step may
+// also carry `mobile_value`/`mobile_unit` — optional, falls back to the
+// desktop value/unit when unset — so a step can resolve differently on
+// phone portrait (e.g. step 1 = 16px desktop, 8px mobile).
 export const DEFAULT_BOXED_STEPS = [
   { value: 16, unit: 'px' },
   { value: 24, unit: 'px' },
@@ -48,6 +51,31 @@ export function boxedPadCss(step) {
   const n = Number(step)
   const cfg = currentBoxedSteps[n - 1] || currentBoxedSteps[DEFAULT_BOXED_STEP - 1]
   return `${cfg.value}${cfg.unit || 'px'}`
+}
+
+/** var(--boxed-step-N) reference for a 1-5 step number — resolves through
+ *  the shared CSS variables emitted by boxedStepVarsCss(), so it responds
+ *  to the mobile override media query automatically. */
+export function boxedStepVarCss(step) {
+  const n = Number(step) || DEFAULT_BOXED_STEP
+  return `var(--boxed-step-${n})`
+}
+
+/** `:root`-block CSS declaring all 5 --boxed-step-N variables at their
+ *  desktop value. Mirrors head.eta's boxedStepVarsCss. */
+export function boxedStepVarsCss() {
+  return currentBoxedSteps.map((cfg, i) => `--boxed-step-${i + 1}: ${cfg.value}${cfg.unit || 'px'};`).join('\n')
+}
+
+/** Media-query-block CSS overriding --boxed-step-N for any step that has
+ *  its own mobile_value set. Empty string when none do. */
+export function boxedStepMobileVarsCss() {
+  return currentBoxedSteps
+    .map((cfg, i) => cfg.mobile_value != null
+      ? `--boxed-step-${i + 1}: ${cfg.mobile_value}${cfg.mobile_unit || cfg.unit || 'px'};`
+      : '')
+    .filter(Boolean)
+    .join('\n')
 }
 
 /** @deprecated use boxedPadCss — kept only for any straggling px-only callers. */

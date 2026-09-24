@@ -344,6 +344,9 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   const activeSources  = useMemo(() => (config?.income_sources   ?? []).filter(s => s.is_active), [config])
   const activeSc       = useMemo(() => (config?.sc_sources       ?? []).filter(s => s.is_active), [config])
   const activeChannels = useMemo(() => (config?.payment_channels ?? []).filter(s => s.is_active), [config])
+  // Only channels flagged as contributing to cash-in-hand feed Net Cash / Cash to bank —
+  // card, voucher and online channels never become physical cash in the till.
+  const cashChannels   = useMemo(() => activeChannels.filter(c => c.counts_as_cash !== false), [activeChannels])
 
   // Get cell value: local override → loaded data → ''
   function getCellVal(date, cat, id) {
@@ -369,15 +372,19 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
 
   function dayExpenses(date) { return parseNum(detail?.days?.[date]?.total_expenses ?? 0) }
 
+  // variance = actual (Takings) − expected (Income, adjusted for SC effects).
+  // Positive = surplus (took more than declared), negative = shortfall (took less).
   function variance(date) {
     const adj = activeSc.reduce((sum, s) => {
       const a = cellNum(date, 'sc', s.id)
       return sum + scEffectAmount(s.takings_effect, a) + scEffectAmount(s.income_effect, a)
     }, 0)
-    return dayTotal(date, 'income') + adj - dayTotal(date, 'takings')
+    return dayTotal(date, 'takings') - (dayTotal(date, 'income') + adj)
   }
 
-  function netCash(date) { return dayTotal(date, 'takings') - dayExpenses(date) }
+  function cashTakingsTotal(date) { return cashChannels.reduce((s, r) => s + cellNum(date, 'takings', r.id), 0) }
+
+  function netCash(date) { return cashTakingsTotal(date) - dayExpenses(date) }
 
   // Week totals
   function weekTotal(cat, id) {
@@ -385,7 +392,8 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   }
   function weekDayTotal(cat) { return visibleDates.reduce((s, d) => s + dayTotal(d, cat), 0) }
   function weekExpenses()    { return visibleDates.reduce((s, d) => s + dayExpenses(d), 0) }
-  function weekNetCash()     { return weekDayTotal('takings') - weekExpenses() }
+  function weekCashTakings() { return visibleDates.reduce((s, d) => s + cashTakingsTotal(d), 0) }
+  function weekNetCash()     { return weekCashTakings() - weekExpenses() }
   function weekNetPosition() {
     const cashWages = parseNum(detail?.wages_cash_total ?? 0)
     return weekNetCash() - cashWages
@@ -715,6 +723,9 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
               <tr key={c.id} className="border-b border-border/40 hover:bg-muted/20">
                 <td className="sticky left-0 bg-background px-3 py-1 text-xs border-r border-border/60 min-w-[150px] z-10 whitespace-nowrap">
                   <span className="font-medium">{c.name}</span>
+                  {c.counts_as_cash === false && (
+                    <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground align-middle">Non-cash</span>
+                  )}
                 </td>
                 {visibleDates.map(date => <EditableCell key={date} date={date} cat="takings" id={c.id} />)}
                 <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums w-[86px] min-w-[86px]">
@@ -785,7 +796,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
               </td>
             </tr>
             <tr className="border-b-2 border-border">
-              <td className="sticky left-0 bg-background px-3 py-2 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Net Position</td>
+              <td className="sticky left-0 bg-background px-3 py-2 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Cash to bank</td>
               {visibleDates.map(d => <td key={d} className="border-r border-border/60 w-[86px] min-w-[86px]" />)}
               <td className="px-2 py-2 text-xs text-right font-bold bg-muted/20 tabular-nums">{fmt(weekNetPosition())}</td>
             </tr>
@@ -867,7 +878,8 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
           {days.map((dateStr, i) => {
             const d = getDayData(dateStr)
             const isToday = dateStr === today
-            const variance = d ? (parseNum(d.total_income) + parseNum(d.total_sc_in_takings)) - parseNum(d.total_takings) : null
+            // Server already computes variance as Takings − Income (surplus positive, shortfall negative).
+            const variance = d?.total_income != null ? d.variance : null
             return (
               <button
                 key={dateStr}
@@ -1062,11 +1074,17 @@ function DayView({ venueId, date, onBack }) {
     [expenses]
   )
 
-  // variance = expected till cash − actual till cash
-  // Expected cash = totalIncome (raw declared) + scAdjustment
-  // scAdjustment is the XOR-driven signed sum (see above).
-  const variance = (totalIncome + scAdjustment) - totalTakings
-  const netCash  = totalTakings - totalExpenses
+  // variance = actual till (Takings) − expected till (Income + scAdjustment).
+  // Positive = surplus (took more than declared), negative = shortfall (took less).
+  const variance = totalTakings - (totalIncome + scAdjustment)
+  // Net cash only counts channels flagged as contributing to cash-in-hand
+  // (e.g. card/voucher/online channels never become physical cash in the till).
+  const cashChannels = useMemo(() => activeChannels.filter(c => c.counts_as_cash !== false), [activeChannels])
+  const cashTakings = useMemo(() =>
+    cashChannels.reduce((sum, c) => sum + parseNum(takingsValues[c.id] ?? 0), 0),
+    [cashChannels, takingsValues]
+  )
+  const netCash  = cashTakings - totalExpenses
 
   // Auto-save on blur (debounced 800ms)
   function triggerSave(data) {
@@ -1319,6 +1337,9 @@ function DayView({ venueId, date, onBack }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium">{channel.name}</span>
+                    {channel.counts_as_cash === false && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">Non-cash</span>
+                    )}
                   </div>
                   {channel.tooltip && (
                     <div className="text-xs text-muted-foreground mt-0.5">{channel.tooltip}</div>
@@ -2443,6 +2464,12 @@ function PaymentChannelsTab({ venueId, items, onRefetch, api }) {
           <label className="text-xs text-muted-foreground block mb-1">Description / tooltip shown in daily view</label>
           <TextInput placeholder="e.g. Till 1 card machine" value={vals.tooltip ?? ''} onChange={v => setVals(p => ({ ...p, tooltip: v || null }))} />
         </div>
+        <Toggle
+          checked={vals.counts_as_cash ?? (vals.type ? vals.type === 'cash' : true)}
+          onChange={v => setVals(p => ({ ...p, counts_as_cash: v }))}
+          label="Counts toward Net Cash"
+        />
+        <p className="text-xs text-muted-foreground -mt-2">Turn off for channels that never become physical cash in the till (card, voucher, online links).</p>
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
     )

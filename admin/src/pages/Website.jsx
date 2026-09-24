@@ -54,7 +54,7 @@ const PAGES_TENANT = [
 const PAGES_VENUE = [
   { key: 'page',     label: 'Location page',  icon: LayoutTemplate },
   { key: 'pages',    label: 'Pages & modals', icon: FileText },
-  { key: 'branding', label: 'Hero',           icon: ImageIcon },
+  { key: 'branding', label: 'Identity',       icon: ImageIcon },
 ]
 const RESTAURANT_ITEMS = [
   { key: 'hours',     label: 'Opening hours', icon: Clock },
@@ -3451,6 +3451,11 @@ function BrandThemeSection() {
         <ColourField label="Primary" value={theme.colors.primary} onChange={v => setPath('colors', 'primary', v)} />
         <ColourField label="Accent" value={theme.colors.accent} onChange={v => setPath('colors', 'accent', v)} />
         <ColourField label="Background" value={theme.colors.background} onChange={v => setPath('colors', 'background', v)} />
+        <div>
+          <label className="text-sm font-medium block mb-1">Background image</label>
+          <p className="text-xs text-muted-foreground mb-2">Optional. Sits behind the background colour on every page — covers the viewport and stays fixed while scrolling.</p>
+          <ImageField url={theme.colors.background_image} onChange={v => setPath('colors', 'background_image', v)} />
+        </div>
         <ColourField label="Surface" value={theme.colors.surface} onChange={v => setPath('colors', 'surface', v)} />
         <ColourField label="Text" value={theme.colors.text} onChange={v => setPath('colors', 'text', v)} />
         <ColourField label="Muted" value={theme.colors.muted} onChange={v => setPath('colors', 'muted', v)} />

@@ -20,6 +20,7 @@ const hero       = t.hero       || {}
 const primary    = colors.primary    || it.config.primary_colour    || '#630812'
 const accent     = colors.accent     || it.config.secondary_colour  || '#f4a7b9'
 const background = colors.background || '#ffffff'
+const backgroundImage = colors.background_image || null
 const surface    = colors.surface    || '#f9f6f1'
 const textColor  = colors.text       || '#1a1a1a'
 const mutedColor = colors.muted      || '#666666'
@@ -39,28 +40,45 @@ const sectionY     = spacing.section_y_px        || 72
 const sectionYMob  = spacing.section_y_mobile_px || 48
 const gap          = spacing.gap_px              || 24
 
-/* Boxed inset — 5-step scale, tenant-customisable (spacing.boxed_steps),
-   same mapping as per-block boxed_step overrides (see e.g.
-   api/src/views/site/blocks/hero.eta). Each step is { value, unit } so a
-   tenant can mix px and % across steps (e.g. step 1 = 20px for mobile
-   portrait, step 3 = 5% for everything else). Falls back to the standard
-   16/24/40/64/96px scale when the tenant hasn't customised it. */
+/* Boxed inset — 5-step scale, tenant-customisable (spacing.boxed_steps).
+   Each step is { value, unit, mobile_value, mobile_unit } — the mobile
+   fields are optional and fall back to the desktop value/unit when unset,
+   so a tenant can give a step a different value on phone portrait (e.g.
+   step 1 = 16px desktop, 8px mobile) without touching any other step.
+   Falls back to the standard 16/24/40/64/96px scale when the tenant
+   hasn't customised it.
+
+   Every consumer — the theme default below AND every per-block boxed_step
+   override (see e.g. api/src/views/site/blocks/hero.eta) — resolves
+   through the shared --boxed-step-N CSS variables emitted here, so this
+   single mobile media query is the only place the breakpoint is defined. */
 const DEFAULT_BOXED_STEPS = [
   { value: 16, unit: 'px' }, { value: 24, unit: 'px' }, { value: 40, unit: 'px' },
   { value: 64, unit: 'px' }, { value: 96, unit: 'px' },
 ]
 const boxedStepsCfg = (Array.isArray(spacing.boxed_steps) && spacing.boxed_steps.length === 5)
   ? spacing.boxed_steps : DEFAULT_BOXED_STEPS
-function boxedPadCss(step) {
-  const cfg = boxedStepsCfg[(Number(step) || 2) - 1] || boxedStepsCfg[1]
-  return cfg.value + (cfg.unit || 'px')
-}
-const boxedPad = boxedPadCss(spacing.boxed_step)
-/* Optional mobile-portrait-only override of the same setting. null means
-   "same as default" — no override rule is emitted. Only the theme-level
-   default has this override; per-block boxed_step overrides are fixed at
-   all sizes. */
-const boxedPadMobile = spacing.boxed_step_mobile ? boxedPadCss(spacing.boxed_step_mobile) : null
+function boxedLen(cfg) { return cfg.value + (cfg.unit || 'px') }
+
+const boxedStepVarsCss = boxedStepsCfg.map(function (cfg, i) {
+  return '--boxed-step-' + (i + 1) + ': ' + boxedLen(cfg) + ';'
+}).join('\n      ')
+
+const boxedMobileVarsCss = boxedStepsCfg.map(function (cfg, i) {
+  if (cfg.mobile_value == null) return ''
+  return '--boxed-step-' + (i + 1) + ': ' + (cfg.mobile_value + (cfg.mobile_unit || cfg.unit || 'px')) + ';'
+}).filter(Boolean).join('\n        ')
+
+/* Theme default step, and the existing "use a different step index on
+   mobile" override — both now just point at one of the shared vars, so
+   they automatically pick up that step's own mobile value too. */
+const boxedDefaultIdx = (Number(spacing.boxed_step) || 2) - 1
+const boxedPad = 'var(--boxed-step-' + (boxedDefaultIdx + 1) + ')'
+const boxedMobileOverrideIdx = spacing.boxed_step_mobile ? (Number(spacing.boxed_step_mobile) - 1) : null
+const boxedPadMobileOverrideCss = boxedMobileOverrideIdx != null
+  ? '--boxed-pad: var(--boxed-step-' + (boxedMobileOverrideIdx + 1) + ');'
+  : ''
+const hasBoxedMobileBlock = boxedMobileVarsCss.length > 0 || boxedPadMobileOverrideCss.length > 0
 
 const rSm = (radii.sm_px != null ? radii.sm_px :  4)
 const rMd = (radii.md_px != null ? radii.md_px :  8)
@@ -306,6 +324,7 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
 
       /* Spacing */
       --cw:         <%= containerMax %>px;
+      <%~ boxedStepVarsCss %>
       --boxed-pad:  <%= boxedPad %>;
       --sy:         <%= sectionY %>px;
       --sy-m:       <%= sectionYMob %>px;
@@ -329,15 +348,25 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
       --hero-overlay: <%= heroOpacity %>;
       --hero-minh:    <%= heroMinH %>px;
     }
-    <% if (boxedPadMobile != null) { %>
+    <% if (hasBoxedMobileBlock) { %>
     @media (max-width: 600px) and (orientation: portrait) {
-      :root { --boxed-pad: <%= boxedPadMobile %>; }
+      :root {
+        <%~ boxedMobileVarsCss %>
+        <%~ boxedPadMobileOverrideCss %>
+      }
     }
     <% } %>
     * { box-sizing: border-box; }
     html, body {
       margin: 0; padding: 0;
       background: var(--c-bg);
+      <% if (backgroundImage) { %>
+      background-image: url('<%~ backgroundImage %>');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      <% } %>
       color: var(--c-text);
       font-family: var(--f-body);
       font-size: var(--fs-base);
