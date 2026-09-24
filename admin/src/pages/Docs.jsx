@@ -939,6 +939,37 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               on <Mono>cash_daily_reports</Mono> + child entry tables; wages are a separate weekly
               cycle.
             </P>
+            <H3>Service charge sources — signed Takings/Income effect</H3>
+            <P>
+              Migration 096. <Mono>cash_sc_sources.takings_effect</Mono> and{' '}
+              <Mono>income_effect</Mono> are each <Mono>'none' | 'add' | 'subtract'</Mono> (replacing
+              the earlier <Mono>included_in_takings</Mono>/<Mono>included_in_income</Mono>{' '}
+              booleans from migrations 033/034, which only supported a fixed direction per flag —
+              see the shared <Mono>scEffectAmount(effect, amount)</Mono> helper in{' '}
+              <Mono>CashRecon.jsx</Mono>: <Mono>'add'</Mono> → <Mono>+amount</Mono>,{' '}
+              <Mono>'subtract'</Mono> → <Mono>-amount</Mono>, <Mono>'none'</Mono> → <Mono>0</Mono>.
+            </P>
+            <P>
+              The variance adjustment for one source is{' '}
+              <Mono>scEffectAmount(takings_effect, amount) + scEffectAmount(income_effect,
+              amount)</Mono>, summed across all active SC sources — computed identically in{' '}
+              <Mono>variance(date)</Mono> (the week spreadsheet grid) and the{' '}
+              <Mono>scAdjustment</Mono> useMemo (the day-declaration summary), both in{' '}
+              <Mono>CashRecon.jsx</Mono>. There is no server-side duplicate of this math —{' '}
+              <Mono>week-detail</Mono> returns raw <Mono>cash_sc_entries</Mono> rows only, the
+              frontend computes variance client-side against the loaded{' '}
+              <Mono>config.sc_sources</Mono>.
+            </P>
+            <InfoBox type="info">
+              Migration 096's data migration maps the old booleans onto the new columns so every
+              existing source computes an IDENTICAL adjustment number before and after:{' '}
+              <Mono>included_in_takings = true</Mono> → <Mono>takings_effect = 'add'</Mono>;{' '}
+              <Mono>included_in_income = true</Mono> → <Mono>income_effect = 'subtract'</Mono>. This
+              looks asymmetric (why does "income" default to subtract, not add?) because the OLD
+              hardcoded formula was itself asymmetric — see migration 034's comment table. The new
+              model has no such asymmetry: both effects use the same <Mono>add</Mono>/{' '}
+              <Mono>subtract</Mono> vocabulary and either can go either way per source.
+            </InfoBox>
             <H3>Wages schema</H3>
             <DataTable
               head={['Table', 'Purpose']}

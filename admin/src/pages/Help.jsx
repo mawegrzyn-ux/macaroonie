@@ -1118,10 +1118,31 @@ export default function Help() {
             <H3>Settings</H3>
             <P>
               The gear icon manages your income sources, payment channels, service charge
-              sources, expense categories, and staff list — all drag-reorderable. Service charge
-              sources have two independent toggles ("included in takings" / "included in income")
-              that control how they adjust the day's variance calculation.
+              sources, expense categories, and staff list — all drag-reorderable.
             </P>
+            <H3>Service charge sources — Takings/Income effect</H3>
+            <P>
+              Each service charge or tips source has two independent settings — <strong>Effect on
+              Takings</strong> and <strong>Effect on Income</strong> — each set to <strong>No
+              effect</strong>, <strong>Add</strong>, or <strong>Deduct</strong>. Together they
+              control how that source adjusts the day's reconciliation variance (the figure
+              comparing what you'd expect in the till against what was actually counted):
+            </P>
+            <DataTable
+              head={['Scenario', 'Set it to']}
+              rows={[
+                ['The SC amount lands in the till (counted in Takings) but isn\'t part of your declared Income total.', 'Takings: Add. Income: No effect.'],
+                ['The SC amount is already counted in Income, but never physically reaches the till (paid out separately, or card-only).', 'Takings: No effect. Income: Deduct.'],
+                ['The SC is counted in both Income and the till — no imbalance to correct for.', 'Takings: No effect. Income: No effect (or Add + Deduct, which also nets to zero).'],
+                ['A source that needs the opposite of the usual direction — e.g. an amount refunded out of the till separately, so it should reduce the expected till figure instead of adding to it.', 'Takings: Deduct.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              If you're not sure, leave both at <strong>No effect</strong> — the source still shows
+              up in the Service Charges &amp; Tips section and its own total, it just won't be
+              factored into the Variance line. You can always come back and set the effects once
+              you've worked out how that particular charge flows through your till.
+            </InfoBox>
           </section>
 
           {/* ── FOOD SAFETY ───────────────────────────────── */}
