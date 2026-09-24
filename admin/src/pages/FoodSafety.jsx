@@ -3,7 +3,14 @@
 
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, X, Thermometer, Truck, Flame, Snowflake, ChefHat, Clock } from 'lucide-react'
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { Plus, X, Thermometer, Truck, Flame, Snowflake, ChefHat, Clock, GripVertical } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
@@ -31,6 +38,25 @@ const DEFAULTS = {
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
+}
+
+// Drag-to-reorder row for the Equipment / Hold stations management tables —
+// grip handle is its own button so dragging never fights with the row's
+// Edit/Deactivate links.
+function SortableRow({ id, children }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+  return (
+    <tr ref={setNodeRef} style={style} className="border-b last:border-0 bg-background">
+      <td className="pl-3 pr-1 py-3 w-8">
+        <button type="button" {...attributes} {...listeners}
+          className="p-1.5 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation" title="Drag to reorder">
+          <GripVertical className="w-4 h-4" />
+        </button>
+      </td>
+      {children}
+    </tr>
+  )
 }
 
 function EquipmentModal({ initial, venueId, onClose, onSave, isSaving }) {
@@ -182,6 +208,11 @@ export default function FoodSafety() {
   const [holdStationModal, setHoldStationModal] = useState(null)
   const [holdCtModal, setHoldCtModal] = useState(null)
 
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor),
+  )
+
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn: () => api.get('/venues'),
@@ -258,6 +289,15 @@ export default function FoodSafety() {
     mutationFn: id => api.delete(`/food-safety/equipment/${id}`),
     onSuccess: invalidate,
   })
+  const reorderEq = useMutation({
+    mutationFn: ids => api.patch('/food-safety/equipment/reorder', { ids }),
+  })
+  function handleEqDragEnd({ active, over }) {
+    if (!over || active.id === over.id) return
+    const reordered = arrayMove(equipment, equipment.findIndex(e => e.id === active.id), equipment.findIndex(e => e.id === over.id))
+    qc.setQueryData(['fs-equipment', venueId], reordered)
+    reorderEq.mutate(reordered.map(e => e.id), { onError: () => qc.invalidateQueries({ queryKey: ['fs-equipment', venueId] }) })
+  }
   const createCt = useMutation({
     mutationFn: body => api.post('/food-safety/capture-times', body),
     onSuccess: () => { invalidate(); setCtModal(null) },
@@ -283,6 +323,15 @@ export default function FoodSafety() {
     mutationFn: id => api.delete(`/food-safety/hold-stations/${id}`),
     onSuccess: invalidate,
   })
+  const reorderHoldStations = useMutation({
+    mutationFn: ids => api.patch('/food-safety/hold-stations/reorder', { ids }),
+  })
+  function handleHoldStationDragEnd({ active, over }) {
+    if (!over || active.id === over.id) return
+    const reordered = arrayMove(holdStations, holdStations.findIndex(s => s.id === active.id), holdStations.findIndex(s => s.id === over.id))
+    qc.setQueryData(['fs-hold-stations', venueId], reordered)
+    reorderHoldStations.mutate(reordered.map(s => s.id), { onError: () => qc.invalidateQueries({ queryKey: ['fs-hold-stations', venueId] }) })
+  }
   const createHoldCt = useMutation({
     mutationFn: body => api.post('/food-safety/hold-capture-times', body),
     onSuccess: () => { invalidate(); setHoldCtModal(null) },
@@ -384,6 +433,7 @@ export default function FoodSafety() {
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 border-b">
                   <tr>
+                    <th className="w-8" />
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Target</th>
@@ -391,22 +441,26 @@ export default function FoodSafety() {
                     <th className="w-32" />
                   </tr>
                 </thead>
-                <tbody>
-                  {equipment.map(eq => (
-                    <tr key={eq.id} className="border-b last:border-0">
-                      <td className="px-4 py-3 font-medium">{eq.name}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{TYPE_LABELS[eq.equipment_type]}</td>
-                      <td className="px-4 py-3">{eq.target_temp_c != null ? `${eq.target_temp_c}°C` : '—'}</td>
-                      <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-                        {eq.min_temp_c ?? '—'} / {eq.max_temp_c ?? '—'}°C
-                      </td>
-                      <td className="px-4 py-3 space-x-2">
-                        <button type="button" onClick={() => setEqModal(eq)} className="text-xs text-primary hover:underline">Edit</button>
-                        <button type="button" onClick={() => deactivateEq.mutate(eq.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
+                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleEqDragEnd}>
+                  <SortableContext items={equipment.map(e => e.id)} strategy={verticalListSortingStrategy}>
+                    <tbody>
+                      {equipment.map(eq => (
+                        <SortableRow key={eq.id} id={eq.id}>
+                          <td className="px-4 py-3 font-medium">{eq.name}</td>
+                          <td className="px-4 py-3 text-muted-foreground">{TYPE_LABELS[eq.equipment_type]}</td>
+                          <td className="px-4 py-3">{eq.target_temp_c != null ? `${eq.target_temp_c}°C` : '—'}</td>
+                          <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
+                            {eq.min_temp_c ?? '—'} / {eq.max_temp_c ?? '—'}°C
+                          </td>
+                          <td className="px-4 py-3 space-x-2">
+                            <button type="button" onClick={() => setEqModal(eq)} className="text-xs text-primary hover:underline">Edit</button>
+                            <button type="button" onClick={() => deactivateEq.mutate(eq.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
+                          </td>
+                        </SortableRow>
+                      ))}
+                    </tbody>
+                  </SortableContext>
+                </DndContext>
               </table>
             </div>
           )}
@@ -493,6 +547,7 @@ export default function FoodSafety() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 border-b">
                     <tr>
+                      <th className="w-8" />
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">Target</th>
@@ -500,22 +555,26 @@ export default function FoodSafety() {
                       <th className="w-32" />
                     </tr>
                   </thead>
-                  <tbody>
-                    {holdStations.map(st => (
-                      <tr key={st.id} className="border-b last:border-0">
-                        <td className="px-4 py-3 font-medium">{st.name}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{HOLD_TYPE_LABELS[st.hold_type]}</td>
-                        <td className="px-4 py-3">{st.target_temp_c != null ? `${st.target_temp_c}°C` : '—'}</td>
-                        <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-                          {st.min_temp_c ?? '—'} / {st.max_temp_c ?? '—'}°C
-                        </td>
-                        <td className="px-4 py-3 space-x-2">
-                          <button type="button" onClick={() => setHoldStationModal(st)} className="text-xs text-primary hover:underline">Edit</button>
-                          <button type="button" onClick={() => deactivateHoldStation.mutate(st.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleHoldStationDragEnd}>
+                    <SortableContext items={holdStations.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                      <tbody>
+                        {holdStations.map(st => (
+                          <SortableRow key={st.id} id={st.id}>
+                            <td className="px-4 py-3 font-medium">{st.name}</td>
+                            <td className="px-4 py-3 text-muted-foreground">{HOLD_TYPE_LABELS[st.hold_type]}</td>
+                            <td className="px-4 py-3">{st.target_temp_c != null ? `${st.target_temp_c}°C` : '—'}</td>
+                            <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
+                              {st.min_temp_c ?? '—'} / {st.max_temp_c ?? '—'}°C
+                            </td>
+                            <td className="px-4 py-3 space-x-2">
+                              <button type="button" onClick={() => setHoldStationModal(st)} className="text-xs text-primary hover:underline">Edit</button>
+                              <button type="button" onClick={() => deactivateHoldStation.mutate(st.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
+                            </td>
+                          </SortableRow>
+                        ))}
+                      </tbody>
+                    </SortableContext>
+                  </DndContext>
                 </table>
               </div>
             )}

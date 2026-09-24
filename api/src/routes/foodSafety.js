@@ -221,6 +221,21 @@ export default async function foodSafetyRoutes(app) {
     return row
   })
 
+  // Must be registered before /equipment/:id.
+  app.patch('/equipment/reorder', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      const owned = await tx`SELECT id FROM fs_equipment WHERE id = ANY(${ids}::uuid[]) AND tenant_id = ${req.tenantId}`
+      if (owned.length !== ids.length) throw httpError(404, 'One or more equipment items not found')
+      for (let i = 0; i < ids.length; i++) {
+        await tx`UPDATE fs_equipment SET sort_order = ${i}, updated_at = now() WHERE id = ${ids[i]} AND tenant_id = ${req.tenantId}`
+      }
+    })
+    return { ok: true }
+  })
+
   app.patch('/equipment/:id', {
     preHandler: requirePermission('food_safety', 'manage'),
   }, async (req) => {
@@ -512,6 +527,21 @@ export default async function foodSafetyRoutes(app) {
       RETURNING *
     `)
     return row
+  })
+
+  // Must be registered before /hold-stations/:id.
+  app.patch('/hold-stations/reorder', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      const owned = await tx`SELECT id FROM fs_hold_stations WHERE id = ANY(${ids}::uuid[]) AND tenant_id = ${req.tenantId}`
+      if (owned.length !== ids.length) throw httpError(404, 'One or more hold stations not found')
+      for (let i = 0; i < ids.length; i++) {
+        await tx`UPDATE fs_hold_stations SET sort_order = ${i}, updated_at = now() WHERE id = ${ids[i]} AND tenant_id = ${req.tenantId}`
+      }
+    })
+    return { ok: true }
   })
 
   app.patch('/hold-stations/:id', {
