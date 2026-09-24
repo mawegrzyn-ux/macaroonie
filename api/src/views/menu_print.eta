@@ -199,7 +199,10 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
       <% sections.forEach(function(s){ %>
         <div class="section<%= s.highlight ? ' highlight' : '' %>">
           <div class="head-row">
-            <h2><%= s.title %><% if (s.subtitle) { %><span class="sub"><%= s.subtitle %></span><% } %></h2>
+            <h2>
+              <% if (s.image_url) { %><img src="<%= s.image_url %>" alt="" style="width:1.6em; height:1.6em; object-fit:cover; border-radius:3px; vertical-align:middle; margin-right:4px;" /><% } %>
+              <%= s.title %><% if (s.subtitle) { %><span class="sub"><%= s.subtitle %></span><% } %>
+            </h2>
           </div>
           <% const _printItems = s.items || [] %>
           <% _printItems.forEach(function(item){ %>
@@ -242,6 +245,7 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
               </div>
               <% if (item.description) { %><div class="item-desc"><%= item.description %></div><% } %>
               <% if (item.notes) { %><div class="item-notes"><%= item.notes %></div><% } %>
+              <% if (item.calories != null) { %><div class="item-notes"><%= item.calories %> kcal</div><% } %>
               <% _groups.forEach(function(g){ %>
                 <% if (g.name && !hideGroupHeaders) { %><div class="group-name"><%= g.name %></div><% } %>
                 <% if (g.options && g.options.length) { %>

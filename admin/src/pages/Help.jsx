@@ -26,6 +26,7 @@ const SECTIONS = [
   { id: 'navigation',          label: 'Navigation & Quick Access' },
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'website',             label: 'Website Builder' },
+  { id: 'menus',               label: 'Menus' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -1875,6 +1876,44 @@ export default function Help() {
                 </p>
               </div>
             </div>
+          </section>
+
+          {/* ── MENUS ──────────────────────────────────────── */}
+          <section id="menus" data-help="">
+            <H2>Menus</H2>
+            <P>
+              The <strong>Menus</strong> page (sidebar nav) is a structured menu builder —
+              sections (Starters, Curries, …) containing dishes, each with a price, optional
+              description and photo. Menus display on your website via the Booking widget's
+              menu block and can be opened as a printable PDF at any time.
+            </P>
+            <H3>Sections and dishes</H3>
+            <P>
+              Click <strong>Add section</strong> to create a category, then <strong>Add
+              dish</strong> inside it. Every dish can have a single price, or — for dishes sold
+              in multiple sizes/proteins — one or more <strong>variant groups</strong> (managed
+              separately under Menus → Variant groups) attached with per-dish price overrides.
+            </P>
+            <DataTable
+              head={['Field', 'What it does']}
+              rows={[
+                ['Calories', 'Optional kcal count shown next to the price on the website and printed menu. Leave blank for dishes you haven\'t calculated yet — nothing is required.'],
+                ['Category icon', 'A small image/icon next to a section\'s title (e.g. a little flame for "Spicy", a leaf for "Vegan Specials"). Upload something roughly square — 64×64 or 96×96 px works well — it always displays small, no bigger than the heading text next to it, regardless of the source size.'],
+                ['House favourite', 'Highlights the dish with the featured styling.'],
+                ['Dietary tags', 'Small coloured badges (vegan, gluten-free, spicy, …) shown next to the dish name.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              Every reading here saves as part of the whole menu — click <strong>Save</strong> at
+              the top of the page once you're done editing, same as any other admin form.
+            </InfoBox>
+            <H3>Printing</H3>
+            <P>
+              Every menu has a printable version at <strong>Open as printable PDF</strong> (also
+              linked from the bottom of the menu block on your website) — no extra setup, it
+              renders straight from the browser's print dialog. Columns, paper size and
+              orientation are configurable per menu.
+            </P>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}
