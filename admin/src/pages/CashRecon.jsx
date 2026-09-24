@@ -51,14 +51,31 @@ function todayStr() {
 
 // ── Shared UI primitives ─────────────────────────────────────────────────────
 
-function SectionCard({ title, children, action }) {
+// Header/footer bars use the tenant's own website brand accent colour
+// (see SettingsContext.applySiteTheme, sourced from GET /api/me's
+// site_theme) so record-heavy sections read as clearly divided cards
+// instead of blending into one grey wall of inputs. Falls back to the
+// site's default accent (#f4a7b9) if the tenant hasn't customised their
+// theme, so it never looks unstyled.
+function SectionCard({ title, children, action, footer }) {
   return (
-    <div className="rounded-2xl border bg-card shadow-sm mb-4 overflow-hidden">
-      <div className="px-4 py-3 border-b bg-muted/40 flex items-center justify-between gap-3">
+    <div className="rounded-2xl border shadow-sm mb-4 overflow-hidden">
+      <div
+        className="px-4 py-3 flex items-center justify-between gap-3"
+        style={{ background: 'var(--site-accent-soft, rgba(244,167,185,0.16))', borderBottom: '2px solid var(--site-accent, #f4a7b9)' }}
+      >
         <span className="text-sm font-semibold">{title}</span>
         {action}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-4 bg-card">{children}</div>
+      {footer && (
+        <div
+          className="px-4 py-3 flex items-center justify-between gap-3 text-sm font-semibold"
+          style={{ background: 'var(--site-accent-soft, rgba(244,167,185,0.16))', borderTop: '2px solid var(--site-accent, #f4a7b9)' }}
+        >
+          {footer}
+        </div>
+      )}
     </div>
   )
 }
@@ -1159,7 +1176,20 @@ function DayView({ venueId, date, onBack }) {
       <div className="p-4 space-y-0 pb-32">
 
         {/* Section 1: Income */}
-        <SectionCard title="Income">
+        <SectionCard
+          title="Income"
+          footer={
+            <>
+              <span className="flex items-center gap-1.5">
+                Total Income
+                {activeSources.some(s => s.exclude_from_recon) && (
+                  <span className="text-xs font-normal text-muted-foreground">(excl. excluded sources)</span>
+                )}
+              </span>
+              <span>{fmt(totalIncome)}</span>
+            </>
+          }
+        >
           <div className="space-y-3">
             {activeSources.length === 0 && (
               <p className="text-sm text-muted-foreground">No income sources configured. Add them in Settings.</p>
@@ -1210,20 +1240,14 @@ function DayView({ venueId, date, onBack }) {
                 </div>
               )
             })}
-            <div className="flex justify-between items-center pt-2 border-t text-sm font-semibold">
-              <span className="flex items-center gap-1.5">
-                Total Income
-                {activeSources.some(s => s.exclude_from_recon) && (
-                  <span className="text-xs font-normal text-muted-foreground">(excl. excluded sources)</span>
-                )}
-              </span>
-              <span>{fmt(totalIncome)}</span>
-            </div>
           </div>
         </SectionCard>
 
         {/* Section 2: Service Charges & Tips */}
-        <SectionCard title="Service Charges & Tips">
+        <SectionCard
+          title="Service Charges & Tips"
+          footer={<><span>Total</span><span>{fmt(totalSc)}</span></>}
+        >
           <div className="space-y-3">
             {activeSc.length === 0 && (
               <p className="text-sm text-muted-foreground">No service charge sources configured.</p>
@@ -1258,15 +1282,14 @@ function DayView({ venueId, date, onBack }) {
                 </div>
               </div>
             ))}
-            <div className="flex justify-between items-center pt-2 border-t text-sm font-semibold">
-              <span>Total</span>
-              <span>{fmt(totalSc)}</span>
-            </div>
           </div>
         </SectionCard>
 
         {/* Section 3: Takings */}
-        <SectionCard title="Takings">
+        <SectionCard
+          title="Takings"
+          footer={<><span>Total Takings</span><span>{fmt(totalTakings)}</span></>}
+        >
           <div className="space-y-3">
             {activeChannels.length === 0 && (
               <p className="text-sm text-muted-foreground">No payment channels configured.</p>
@@ -1301,11 +1324,7 @@ function DayView({ venueId, date, onBack }) {
                 </div>
               </div>
             ))}
-            <div className="flex justify-between items-center pt-2 border-t text-sm font-semibold">
-              <span>Total Takings</span>
-              <span>{fmt(totalTakings)}</span>
-            </div>
-            <p className="text-xs text-muted-foreground">Should balance with total income{totalScIncluded > 0 ? ' + included service charges' : ''}.</p>
+            <p className="text-xs text-muted-foreground pt-2 border-t">Should balance with total income{totalScIncluded > 0 ? ' + included service charges' : ''}.</p>
           </div>
         </SectionCard>
 

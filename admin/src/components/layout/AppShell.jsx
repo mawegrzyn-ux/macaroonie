@@ -43,7 +43,7 @@ function MacaroonIcon({ className = 'w-5 h-5' }) {
 import { cn } from '@/lib/utils'
 import { useApi, setSelectedTenant } from '@/lib/api'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
-import { useSettings } from '@/contexts/SettingsContext'
+import { useSettings, applySiteTheme } from '@/contexts/SettingsContext'
 
 // The tenant-customisable nav tree comes from /api/me's nav_tree (see
 // the nav designer, api/src/routes/nav.js) — already filtered server-side
@@ -173,6 +173,10 @@ export default function AppShell() {
   const currentTenant     = me?.current_tenant
   const hasTenants        = availableTenants.length > 0
   const isLauncherMode    = currentTenant?.nav_style === 'launcher'
+
+  useEffect(() => {
+    if (me?.site_theme) applySiteTheme(me.site_theme)
+  }, [me?.site_theme])
 
   function switchTenant(tenantId) {
     if (!tenantId) return

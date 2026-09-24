@@ -189,6 +189,35 @@ export default async function platformRoutes(app) {
       dashboardTiles = tiles.filter(t => navItemVisible(t, permissions, effectiveRole?.id ?? null, isPlatformAdmin))
     }
 
+    // Website brand-theme colours — exposed so the ADMIN portal itself
+    // (not just the public site) can use the tenant's own brand colours
+    // for visual structure (e.g. Cash Recon's section header/footer
+    // bars). Same default fallbacks as head.eta's theme resolution, so
+    // every tenant gets a sensible accent even before touching the
+    // Website builder. `/api/me` is fetched on every admin page load, so
+    // this piggybacks on an existing round-trip rather than adding one.
+    let siteTheme = {
+      primary: '#630812', accent: '#f4a7b9', background: '#ffffff',
+      surface: '#f9f6f1', text: '#1a1a1a', muted: '#666666', border: '#e5e7eb',
+    }
+    if (req.tenantId) {
+      const [ts] = await withTenant(req.tenantId, tx => tx`
+        SELECT theme, primary_colour, secondary_colour FROM tenant_site WHERE tenant_id = ${req.tenantId}
+      `)
+      if (ts) {
+        const colors = ts.theme?.colors || {}
+        siteTheme = {
+          primary:    colors.primary    || ts.primary_colour   || siteTheme.primary,
+          accent:     colors.accent     || ts.secondary_colour || siteTheme.accent,
+          background: colors.background || siteTheme.background,
+          surface:    colors.surface    || siteTheme.surface,
+          text:       colors.text       || siteTheme.text,
+          muted:      colors.muted      || siteTheme.muted,
+          border:     colors.border     || siteTheme.border,
+        }
+      }
+    }
+
     return {
       auth0_sub:        sub,
       email,
@@ -203,6 +232,7 @@ export default async function platformRoutes(app) {
       nav_tree:          navTree,
       launcher_tiles:    launcherTiles,
       dashboard_tiles:   dashboardTiles,
+      site_theme:        siteTheme,
     }
   })
 
