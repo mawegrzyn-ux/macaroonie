@@ -31,7 +31,14 @@ export function periodLabel(frequency, periodStart) {
 // dropped into a modal (Checklists page) or a dashboard card (H&S
 // Dashboard) without prop drilling. `onClose`, if given, shows a close
 // button and is called after "Mark complete" / "Yes, reopen".
-export function ChecklistRunPanel({ template, date, onClose, hideHeader = false }) {
+//
+// `hideHeader` also moves the complete action out of this component: with
+// it, the internal "Mark complete"/Reopen block is suppressed and
+// `onStateChange({ isCompleted, isPending, markComplete })` is called
+// instead so the parent (the dashboard widget card's own title bar) can
+// render a compact action there. Without `hideHeader`, the full-width
+// button below stays and `onStateChange` is unused.
+export function ChecklistRunPanel({ template, date, onClose, hideHeader = false, onStateChange }) {
   const api = useApi()
   const qc = useQueryClient()
   const [checks, setChecks] = useState({})
@@ -117,6 +124,15 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false 
   const checkedCount = Object.values(checks).filter(Boolean).length
   const totalCount = data?.items?.length ?? 0
 
+  // hideHeader means the parent (the H&S Dashboard widget card) draws its
+  // own title bar and wants the complete action there instead of the
+  // full-width button below — hand it what it needs to render that.
+  useEffect(() => {
+    if (!hideHeader) return
+    onStateChange?.({ isCompleted, isPending: save.isPending, markComplete: () => save.mutate({ markComplete: true }) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hideHeader, isCompleted, save.isPending])
+
   return (
     <>
       {!hideHeader && (
@@ -167,7 +183,7 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false 
             disabled={isCompleted} rows={2}
             className="w-full border rounded px-3 py-2 text-sm bg-background resize-none mb-4 disabled:opacity-60" />
 
-          {!isCompleted ? (
+          {hideHeader ? null : !isCompleted ? (
             <button type="button" onClick={() => save.mutate({ markComplete: true })} disabled={save.isPending}
               className="w-full bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
               {save.isPending ? 'Saving…' : 'Mark complete'}

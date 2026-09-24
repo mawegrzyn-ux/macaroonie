@@ -192,6 +192,11 @@ function WidgetCard({
     ? { id: widget.checklist_template_id, name: widget.checklist_name, frequency: widget.checklist_frequency }
     : null
 
+  // Handed up by ChecklistRunPanel (via its hideHeader mode) so the
+  // complete action can live in this card's own title bar instead of a
+  // full-width button at the bottom of the checklist.
+  const [checklistState, setChecklistState] = useState(null)
+
   const colSpan  = Math.min(widget.col_span ?? 1, columnCount)
   const heightPx = widget.height_px ?? 480
 
@@ -212,6 +217,18 @@ function WidgetCard({
             <span className="block text-xs text-muted-foreground">{FREQUENCY_LABELS[widget.checklist_frequency]}</span>
           )}
         </span>
+        {isChecklist && !editing && checklistState && (
+          checklistState.isCompleted ? (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 shrink-0">
+              <Check className="w-3.5 h-3.5" /> Complete
+            </span>
+          ) : (
+            <button type="button" onClick={checklistState.markComplete} disabled={checklistState.isPending}
+              className="shrink-0 text-xs font-medium px-2.5 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50 min-h-[32px] touch-manipulation">
+              {checklistState.isPending ? 'Saving…' : 'Complete'}
+            </button>
+          )
+        )}
         {editing && (
           <div className="flex items-center gap-0.5 shrink-0">
             <button type="button" onClick={onMoveUp} disabled={isFirst}
@@ -267,7 +284,7 @@ function WidgetCard({
       )}
 
       <div className="p-4 overflow-y-auto" style={{ maxHeight: heightPx }}>
-        {widget.widget_type === 'checklist' && <ChecklistRunPanel template={template} date={date} hideHeader />}
+        {widget.widget_type === 'checklist' && <ChecklistRunPanel template={template} date={date} hideHeader onStateChange={setChecklistState} />}
         {widget.widget_type === 'temp_checks' && <TempChecksTable venueId={venueId} date={date} />}
         {widget.widget_type === 'delivery_checks' && <DeliveryChecksPanel venueId={venueId} date={date} />}
         {widget.widget_type === 'hold_checks' && <HoldChecksTable venueId={venueId} date={date} />}
