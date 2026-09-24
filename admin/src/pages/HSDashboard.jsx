@@ -18,7 +18,7 @@ import { format, addDays, subDays, parseISO } from 'date-fns'
 import {
   Plus, Minus, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
   Pencil, Trash2, Check, ListChecks, Thermometer, Truck, Flame, ChefHat, LayoutGrid,
-  Maximize2, Minimize2,
+  Maximize2, Minimize2, ClipboardCheck,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -26,6 +26,7 @@ import { ChecklistRunPanel, FREQUENCY_LABELS } from '@/components/checklists/sha
 import {
   TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
 } from '@/components/foodSafety/shared'
+import { HSActionLogPanel } from '@/components/hsActionLog/shared'
 
 // Single source of truth for widget-type metadata — drives both the
 // "Add widget" type picker and the WidgetCard header/icon/default title.
@@ -35,6 +36,7 @@ const WIDGET_TYPES = [
   { key: 'delivery_checks', label: 'Delivery checks',        icon: Truck,       defaultTitle: 'Delivery checks' },
   { key: 'hold_checks',     label: 'Hot / cold hold checks', icon: Flame,       defaultTitle: 'Hot / cold hold checks' },
   { key: 'cooking_checks',  label: 'Cooking / reheat checks',icon: ChefHat,     defaultTitle: 'Cooking / reheat checks' },
+  { key: 'action_log',      label: 'Action log',             icon: ClipboardCheck, defaultTitle: 'Action log' },
 ]
 const WIDGET_TYPE_BY_KEY = Object.fromEntries(WIDGET_TYPES.map(w => [w.key, w]))
 
@@ -289,6 +291,7 @@ function WidgetCard({
         {widget.widget_type === 'delivery_checks' && <DeliveryChecksPanel venueId={venueId} date={date} />}
         {widget.widget_type === 'hold_checks' && <HoldChecksTable venueId={venueId} date={date} />}
         {widget.widget_type === 'cooking_checks' && <CookingChecksPanel venueId={venueId} date={date} />}
+        {widget.widget_type === 'action_log' && <HSActionLogPanel venueId={venueId} />}
       </div>
     </div>
   )

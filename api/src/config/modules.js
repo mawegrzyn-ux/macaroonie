@@ -205,6 +205,13 @@ export const MODULES = [
     description: 'Customisable dashboards combining checklist and temperature-check widgets behind one date navigator.',
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
+  {
+    key:    'hs_action_log',
+    label:  'H&S Action Log',
+    group:  'hs_action_log',
+    description: 'General facilities & compliance to-do list per venue — repairs, records, training, cleaning tasks with due dates and priority.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
 ]
 
 export const MODULE_KEYS = MODULES.map(m => m.key)
@@ -280,6 +287,12 @@ export const MODULE_GROUPS = [
     label:  'H&S Dashboard',
     description: 'Customisable checklist + temperature-check dashboards per venue.',
     moduleKeys: ['hs_dashboard'],
+  },
+  {
+    key:    'hs_action_log',
+    label:  'H&S Action Log',
+    description: 'Repairs, records, training and cleaning tasks per venue.',
+    moduleKeys: ['hs_action_log'],
   },
 ]
 

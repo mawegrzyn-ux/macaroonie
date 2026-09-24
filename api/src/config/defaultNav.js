@@ -26,6 +26,7 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Food safety', icon: 'Thermometer', route: '/food-safety', module: 'food_safety' },
       { label: 'Checklists', icon: 'ListChecks', route: '/checklists', module: 'checklists' },
       { label: 'H&S Dashboard', icon: 'LayoutGrid', route: '/hs-dashboard', module: 'hs_dashboard' },
+      { label: 'Action log', icon: 'ClipboardCheck', route: '/hs-action-log', module: 'hs_action_log' },
     ],
   },
   {

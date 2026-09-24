@@ -37,6 +37,7 @@ const ROUTE_CATALOG = [
   { route: '/food-safety', label: 'Food safety', icon: 'Thermometer', module: 'food_safety' },
   { route: '/checklists', label: 'Checklists', icon: 'ListChecks', module: 'checklists' },
   { route: '/hs-dashboard', label: 'H&S Dashboard', icon: 'LayoutGrid', module: 'hs_dashboard' },
+  { route: '/hs-action-log', label: 'Action log', icon: 'ClipboardCheck', module: 'hs_action_log' },
   { route: '/website', label: 'Website', icon: 'Globe', module: 'website' },
   { route: '/menus', label: 'Menus', icon: 'ChefHat', module: 'menus' },
   { route: '/menus/variant-groups', label: 'Menu variant groups', icon: 'Layers', module: 'menus' },
