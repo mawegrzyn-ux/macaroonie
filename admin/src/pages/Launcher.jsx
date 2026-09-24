@@ -10,14 +10,14 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as LucideIcons from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
 import { SortableContext, rectSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { LayoutGrid, Pencil, Check, X, RotateCcw, GripVertical, Compass } from 'lucide-react'
+import { LayoutGrid, Pencil, Check, X, RotateCcw, GripVertical, Compass, PanelLeft } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -50,12 +50,18 @@ function applyPrefs(tiles, prefs) {
 
 export default function Launcher() {
   const api = useApi()
+  const qc = useQueryClient()
   const navigate = useNavigate()
   const { data: me, isLoading } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
 
   const tenantId = me?.current_tenant?.id
   const canManageNav = me?.permissions?.nav_designer === 'manage' || me?.is_platform_admin
   const defaultTiles = me?.launcher_tiles ?? []
+
+  const setStyle = useMutation({
+    mutationFn: (nav_style) => api.patch('/nav/style', { nav_style }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me'] }),
+  })
 
   const [prefs, setPrefs] = useState(() => loadPrefs(tenantId))
   const [editMode, setEditMode] = useState(false)
@@ -131,11 +137,23 @@ export default function Launcher() {
             <div className="text-center py-16 space-y-2">
               <LayoutGrid className="w-8 h-8 text-muted-foreground mx-auto" />
               <p className="text-sm text-muted-foreground">No quick-access tiles have been set up yet.</p>
+              <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                Tiles come from the Navigation designer — open a link item there and turn on
+                "Show as a quick-access tile" for each page you want here.
+              </p>
               {canManageNav && (
-                <button onClick={() => navigate('/nav-designer')}
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary touch-manipulation min-h-[40px] px-3 py-2">
-                  <Compass className="w-4 h-4" /> Open Navigation designer
-                </button>
+                <div className="flex items-center justify-center gap-2 pt-1">
+                  <button onClick={() => navigate('/nav-designer')}
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-primary touch-manipulation min-h-[40px] px-3 py-2">
+                    <Compass className="w-4 h-4" /> Open Navigation designer
+                  </button>
+                  {me?.current_tenant?.nav_style === 'launcher' && (
+                    <button onClick={() => setStyle.mutate('sidebar')} disabled={setStyle.isPending}
+                      className="inline-flex items-center gap-1.5 text-sm font-medium border rounded-md px-3 py-2 min-h-[40px] touch-manipulation hover:bg-accent disabled:opacity-50">
+                      <PanelLeft className="w-4 h-4" /> Switch back to sidebar
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ) : tiles.length === 0 ? (
