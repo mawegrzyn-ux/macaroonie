@@ -20,6 +20,7 @@ const SECTIONS = [
   { id: 'food-safety',         label: 'Food Safety Logs' },
   { id: 'checklists',          label: 'Checklists' },
   { id: 'hs-dashboard',        label: 'H&S Dashboard' },
+  { id: 'mobile-app',          label: 'Mobile App' },
   { id: 'hs-action-log',       label: 'H&S Action Log' },
   { id: 'settings',            label: 'Settings' },
   { id: 'navigation',          label: 'Navigation & Quick Access' },
@@ -1236,6 +1237,35 @@ export default function Help() {
             <InfoBox type="tip">
               Use <strong>Full screen</strong> (top right) to hide the sidebar entirely — good
               for a wall-mounted or kitchen-pass tablet running one dashboard all day.
+            </InfoBox>
+          </section>
+
+          {/* ── MOBILE APP ────────────────────────────── */}
+          <section id="mobile-app" data-help="">
+            <H2>Mobile App</H2>
+            <P>
+              Visit <strong>macaroonie.com/mobile</strong> on a phone (signed in with your usual
+              account) for a phone-sized version of the app, starting with the H&amp;S Dashboard.
+              It's the same data and the same Complete/log actions as the desktop page — just
+              laid out in a single column for a phone screen instead of a resizable grid.
+            </P>
+            <H3>Installing it as an app</H3>
+            <P>
+              On the <strong>/mobile</strong> page, use your browser's <strong>Add to Home
+              Screen</strong> (Safari: Share → Add to Home Screen; Android Chrome: menu → Add to
+              Home screen or the install banner). It installs under its own name, <strong>
+              Macaroonie Ops</strong>, with its own icon — separate from the main desktop app if
+              you also have that installed — and opens straight into the mobile section, full
+              screen, no browser address bar.
+            </P>
+            <P>
+              More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
+              over time — it's a home screen of tiles, one per available mobile module.
+            </P>
+            <InfoBox type="tip">
+              This is the same login and the same restaurant data as the desktop admin portal —
+              there's nothing extra to set up. If you're not signed in, it takes you through the
+              normal login first.
             </InfoBox>
           </section>
 

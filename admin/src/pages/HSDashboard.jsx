@@ -38,7 +38,7 @@ const WIDGET_TYPES = [
   { key: 'cooking_checks',  label: 'Cooking / reheat checks',icon: ChefHat,     defaultTitle: 'Cooking / reheat checks' },
   { key: 'action_log',      label: 'Action log',             icon: ClipboardCheck, defaultTitle: 'Action log' },
 ]
-const WIDGET_TYPE_BY_KEY = Object.fromEntries(WIDGET_TYPES.map(w => [w.key, w]))
+export const WIDGET_TYPE_BY_KEY = Object.fromEntries(WIDGET_TYPES.map(w => [w.key, w]))
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -46,7 +46,7 @@ function todayStr() {
 
 // ── Add / rename dashboard modal ───────────────────────────────
 
-function DashboardModal({ initial, onClose, onSave, isSaving }) {
+export function DashboardModal({ initial, onClose, onSave, isSaving }) {
   const [name, setName] = useState(initial?.name ?? '')
 
   function submit(e) {
@@ -84,7 +84,7 @@ function DashboardModal({ initial, onClose, onSave, isSaving }) {
 
 // ── Add widget modal ────────────────────────────────────────────
 
-function AddWidgetModal({ venueId, api, onClose, onSave, isSaving }) {
+export function AddWidgetModal({ venueId, api, onClose, onSave, isSaving }) {
   const [widgetType, setWidgetType] = useState('checklist')
   const [templateId, setTemplateId] = useState('')
   const [titleOverride, setTitleOverride] = useState('')

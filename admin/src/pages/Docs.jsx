@@ -20,6 +20,7 @@ const SECTIONS = [
   { id: 'food-safety',  label: 'Food Safety Logs' },
   { id: 'checklists',   label: 'Checklists' },
   { id: 'hs-dashboard', label: 'H&S Dashboard' },
+  { id: 'mobile-app', label: 'Mobile App (/mobile)' },
   { id: 'hs-action-log', label: 'H&S Action Log' },
   { id: 'navigation',   label: 'Navigation & Launcher' },
   { id: 'overview-tiles', label: 'Overview Tiles' },
@@ -1150,6 +1151,101 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               fixed-width label button plus an invisible <Mono>input[type=date]</Mono> overlay —
               the same "styled button + native picker" pattern used on Timeline and Bookings, not
               a custom calendar component.
+            </InfoBox>
+          </section>
+
+          {/* ── MOBILE APP ────────────────────────────── */}
+          <section id="mobile-app" data-doc="">
+            <H2>Mobile App (/mobile)</H2>
+            <P>
+              A phone-portrait section of the same admin SPA at <Mono>/mobile/*</Mono>, chosen
+              over a separate Vite project / subdomain so it shares the existing Auth0 session,
+              API, and GitHub Actions deploy pipeline with zero new infra (no new Nginx server
+              block, no new DNS record, no second Auth0 application). It gets its own installable
+              identity ("Macaroonie Ops") purely through a second static PWA manifest swapped in
+              at runtime — everything else about the app is unchanged.
+            </P>
+            <H3>Routing and layout</H3>
+            <P>
+              <Mono>main.jsx</Mono> mounts a second top-level route tree,{' '}
+              <Mono>{`<Route path="mobile" element={<MobileShell />}>`}</Mono>, as a sibling of the
+              existing <Mono>{`<Route element={<AppShell />}>`}</Mono> tree — both still sit inside
+              the same <Mono>RequireAuth</Mono> + <Mono>TenantGate</Mono> wrappers, so login and
+              restaurant selection are identical to the desktop app.
+              <Mono> admin/src/components/mobile/MobileShell.jsx</Mono> replaces
+              <Mono> AppShell</Mono>'s sidebar entirely with a minimal header (back arrow / title /
+              sign out, safe-area aware) — there is no shared chrome between the two shells by
+              design; the desktop sidebar assumes a ≥1015px tablet per the Standard Design Rules,
+              which is the wrong shape for a phone.
+            </P>
+            <H3>Module registry</H3>
+            <P>
+              <Mono>admin/src/mobile/registry.js</Mono> exports <Mono>MOBILE_MODULES</Mono> — the
+              same "one array drives a picker" pattern as <Mono>modules.js</Mono> /{' '}
+              <Mono>defaultNav.js</Mono>. <Mono>MobileHub.jsx</Mono> (the <Mono>/mobile</Mono>{' '}
+              index route) renders one tile per entry. Shipping a new mobile-optimised page is:
+              add an entry here, add the route in <Mono>main.jsx</Mono>, build the page — no
+              changes to the shell or hub.
+            </P>
+            <H3>Scoped second PWA manifest</H3>
+            <P>
+              <Mono>vite-plugin-pwa</Mono> already generates the main app's manifest (
+              <Mono>manifest.webmanifest</Mono>, scope <Mono>/</Mono>) and injects its{' '}
+              <Mono>{'<link rel="manifest">'}</Mono> tag into <Mono>index.html</Mono> at build
+              time. Rather than configure a second plugin instance (this is a single-page SPA —
+              there's only one <Mono>index.html</Mono> to inject into), a hand-written static file{' '}
+              <Mono>admin/public/mobile.webmanifest</Mono> ships alongside it (scope{' '}
+              <Mono>/mobile/</Mono>, <Mono>start_url: /mobile</Mono>, its own name/icons/theme
+              colour). <Mono>MobileShell</Mono>'s <Mono>useMobileManifest()</Mono> effect swaps
+              the existing <Mono>{'<link rel="manifest">'}</Mono>'s <Mono>href</Mono>, the{' '}
+              <Mono>{'<link rel="apple-touch-icon">'}</Mono>'s <Mono>href</Mono>, the{' '}
+              <Mono>{'<meta name="theme-color">'}</Mono>, and{' '}
+              <Mono>{'<meta name="apple-mobile-web-app-title">'}</Mono> on mount, and restores the
+              originals on unmount. iOS reads the apple-touch-icon/title meta tags from whatever
+              page is current when "Add to Home Screen" runs (Safari doesn't consult the manifest
+              for pre-17.4 behaviour), so swapping those tags — not just the manifest link — is
+              what actually changes the installed icon/name on iPhone.
+            </P>
+            <InfoBox type="warn">
+              This swap only takes effect while a <Mono>/mobile</Mono> route is mounted — a user
+              who installs from the desktop routes still gets the main "Macaroonie" identity, and
+              vice versa. There is no server-side content negotiation involved; both manifests and
+              both icon sets ship in every build and are just static files under{' '}
+              <Mono>admin/public/</Mono> (<Mono>mobile.webmanifest</Mono>,{' '}
+              <Mono>mobile-pwa-192.png</Mono>, <Mono>mobile-pwa-512.png</Mono>,{' '}
+              <Mono>mobile-apple-touch-icon.png</Mono>).
+            </InfoBox>
+            <H3>Mobile H&amp;S Dashboard</H3>
+            <P>
+              <Mono>admin/src/pages/mobile/MobileHSDashboard.jsx</Mono> is a parallel
+              implementation of <Mono>HSDashboard.jsx</Mono> — same dashboards-as-tabs, same
+              add/remove/reorder-widget mutations, same six widget types, same underlying{' '}
+              <Mono>/api/hs-dashboards/*</Mono> endpoints and the same shared body components (
+              <Mono>ChecklistRunPanel</Mono>, <Mono>TempChecksTable</Mono>,{' '}
+              <Mono>DeliveryChecksPanel</Mono>, <Mono>HoldChecksTable</Mono>,{' '}
+              <Mono>CookingChecksPanel</Mono>, <Mono>HSActionLogPanel</Mono>) — full interactivity,
+              not a read-only view. <Mono>DashboardModal</Mono>, <Mono>AddWidgetModal</Mono> and{' '}
+              <Mono>WIDGET_TYPE_BY_KEY</Mono> are exported from <Mono>HSDashboard.jsx</Mono> and
+              reused as-is rather than duplicated.
+            </P>
+            <P>
+              The one deliberate difference: mobile ignores <Mono>col_span</Mono> and{' '}
+              <Mono>height_px</Mono> entirely and always renders one full-width column at natural
+              content height, so the page itself is the only scroll container — no nested
+              scroll-within-scroll widget regions, which is a common mobile UX papercut. Those two
+              fields still exist on the shared <Mono>hs_dashboard_widgets</Mono> rows and still
+              drive the desktop grid; a widget resized on desktop is unaffected on mobile and vice
+              versa, same "one data model, per-surface rendering rules" approach already used for
+              website-CMS data blocks.
+            </P>
+            <InfoBox type="info">
+              This first mobile module reuses the existing food-safety/checklist body components
+              unmodified — they already use responsive Tailwind classes (
+              <Mono>{'hidden sm:table-cell'}</Mono>, <Mono>{'overflow-x-auto'}</Mono> table
+              wrappers, <Mono>{'sm:grid-cols-2'}</Mono>) rather than a fixed min-width, so they
+              hold up reasonably at phone width without a mobile-specific rewrite. If a future
+              mobile module's body component doesn't already reflow this way, redesign that
+              component rather than assuming the mobile shell alone will fix it.
             </InfoBox>
           </section>
 
