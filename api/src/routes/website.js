@@ -82,6 +82,16 @@ const ThemeSchema = z.object({
     container_max_px:     z.number().int().min(600).max(1600).optional(),
     boxed_step:           z.number().int().min(1).max(5).optional(),
     boxed_step_mobile:    z.number().int().min(1).max(5).optional().nullable(),
+    // Per-tenant override of what each of the 5 boxed-inset steps actually
+    // means. Falls back to DEFAULT_BOXED_STEPS (16/24/40/64/96px) in
+    // head.eta / boxedLayout.js when absent or the wrong length. Always
+    // exactly 5 entries — step numbers (1-5) referenced by boxed_step,
+    // boxed_step_mobile, and every block's own boxed_step override all
+    // index into this same array.
+    boxed_steps: z.array(z.object({
+      value: z.number().min(0).max(200),
+      unit:  z.enum(['px', '%']),
+    })).length(5).optional(),
     section_y_px:         z.number().int().min(16).max(200).optional(),
     section_y_mobile_px:  z.number().int().min(12).max(160).optional(),
     gap_px:               z.number().int().min(4).max(60).optional(),

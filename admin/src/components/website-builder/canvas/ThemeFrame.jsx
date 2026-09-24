@@ -55,7 +55,7 @@ export function ThemeFrame({ config, children, className = '' }) {
       --ls:         ${t.letterSp};
 
       --cw:   ${t.containerMax}px;
-      --boxed-pad: ${t.boxedPad}px;
+      --boxed-pad: ${t.boxedPad};
       --sy:   ${t.sectionY}px;
       --sy-m: ${t.sectionYMob}px;
       --gap:  ${t.gap}px;
@@ -143,7 +143,7 @@ export function ThemeFrame({ config, children, className = '' }) {
     }
     ${t.boxedPadMobile != null ? `
     @media (max-width: 600px) and (orientation: portrait) {
-      .${scopeId} { --boxed-pad: ${t.boxedPadMobile}px; }
+      .${scopeId} { --boxed-pad: ${t.boxedPadMobile}; }
     }` : ''}
   `
 
