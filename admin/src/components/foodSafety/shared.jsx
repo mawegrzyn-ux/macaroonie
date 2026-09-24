@@ -14,6 +14,71 @@ import { cn } from '@/lib/utils'
 
 const AUTOSAVE_DEBOUNCE_MS = 600
 
+// Same detection used by NewBookingModal's covers stepper — some touch
+// devices' native on-screen keyboard doesn't reliably appear for a
+// text/number input (confirmed absent entirely on some Linux/Chrome
+// tablet builds; this is a platform limitation outside a web app's
+// control, not something inputMode can fix). TempCell/HoldCell fall back
+// to this same custom keypad pattern rather than depending on the OS.
+const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
+
+// Full-screen centred modal (not an anchored popover) so it's never
+// clipped by the temp-check table's own scroll container regardless of
+// which row/column it's opened from. Supports one optional decimal place
+// and a leading minus sign (freezer readings run negative).
+function TempKeypadModal({ label, initialValue, onConfirm, onClose }) {
+  const [draft, setDraft] = useState(initialValue != null && initialValue !== '' ? String(initialValue) : '')
+
+  function press(key) {
+    if (key === '±') {
+      setDraft(v => v.startsWith('-') ? v.slice(1) : (v ? `-${v}` : '-'))
+    } else if (key === '.') {
+      setDraft(v => v.includes('.') ? v : (v === '' || v === '-' ? `${v}0.` : `${v}.`))
+    } else {
+      setDraft(v => (v === '0' ? key : v + key))
+    }
+  }
+  function backspace() { setDraft(v => v.slice(0, -1)) }
+  function confirm() {
+    const n = parseFloat(draft)
+    onConfirm(Number.isNaN(n) ? null : n)
+  }
+
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '±', '0', '.']
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-2xl shadow-2xl w-full max-w-xs p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm font-medium text-muted-foreground truncate">{label}</p>
+          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent shrink-0"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="text-center text-3xl font-bold mb-3 py-2 rounded-xl bg-muted/40 min-h-[3rem] flex items-center justify-center">
+          {draft !== '' ? `${draft}°C` : <span className="text-muted-foreground text-2xl">—</span>}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {keys.map(k => (
+            <button key={k} type="button" onClick={() => press(k)}
+              className="h-14 rounded-xl text-xl font-medium border hover:bg-accent active:scale-95 transition-all touch-manipulation select-none">
+              {k}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <button type="button" onClick={backspace}
+            className="h-14 rounded-xl text-xl font-medium border text-destructive hover:bg-destructive/10 active:scale-95 transition-all touch-manipulation">
+            ⌫
+          </button>
+          <button type="button" onClick={confirm}
+            className="h-14 rounded-xl text-base font-medium border bg-primary text-primary-foreground border-primary active:scale-95 transition-all touch-manipulation">
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export const TYPE_LABELS = {
   fridge: 'Fridge', freezer: 'Freezer', hot_hold: 'Hot hold',
   cold_hold: 'Cold hold', other: 'Other',
@@ -48,16 +113,24 @@ export function Badge({ ok, children }) {
 // end-of-day review, see EndOfDayReview below) it's flagged amber instead,
 // so the "still needs attention" cases stay visually distinct.
 export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving }) {
+  // Pre-fill with the lower end of the equipment's normal range (rather
+  // than leaving the field blank behind a ghost placeholder) so the
+  // operator starts from a plausible passing reading and only needs to
+  // nudge the +/- steppers or overtype it — this is a display default
+  // only, nothing is saved until the field is actually touched (typed
+  // into, stepped, or blurred), so an untouched cell still has no log row.
   const [value, setValue] = useState(() =>
-    existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+    existingLog?.temperature_c != null ? String(existingLog.temperature_c)
+      : (equipment.min_temp_c != null ? String(equipment.min_temp_c) : ''))
   const timerRef = useRef(null)
 
   // Resync from the server value after a save round-trips — but never
   // while the operator is mid-edit, since this effect only fires when the
   // *existing log itself* changes.
   useEffect(() => {
-    setValue(existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
-  }, [existingLog?.id, existingLog?.temperature_c])
+    setValue(existingLog?.temperature_c != null ? String(existingLog.temperature_c)
+      : (equipment.min_temp_c != null ? String(equipment.min_temp_c) : ''))
+  }, [existingLog?.id, existingLog?.temperature_c, equipment.min_temp_c])
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
@@ -99,6 +172,14 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving
   const isCurrentReading = value === (existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
   const unresolved = isCurrentReading && existingLog?.is_within_range === false && !existingLog?.corrective_action
   const resolved   = isCurrentReading && existingLog?.is_within_range === false && !!existingLog?.corrective_action
+  const [showKeypad, setShowKeypad] = useState(false)
+  const cellClass = cn(
+    'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
+    unresolved && 'border-red-400 bg-red-50 text-red-700',
+    resolved && 'border-amber-300 bg-amber-50 text-amber-700',
+    isSaving && 'opacity-60',
+  )
+  const cellTitle = resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined
 
   return (
     <div className="flex items-center gap-1">
@@ -107,23 +188,42 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving
         aria-label={`Decrease ${equipment.name} temperature`}>
         <Minus className="w-4 h-4" />
       </button>
-      <input type="number" step="0.1" inputMode="decimal" value={value}
-        onChange={e => { setValue(e.target.value); scheduleSave(e.target.value) }}
-        onBlur={flushSave}
-        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-        placeholder={equipment.target_temp_c != null ? String(equipment.target_temp_c) : '—'}
-        title={resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined}
-        className={cn(
-          'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
-          unresolved && 'border-red-400 bg-red-50 text-red-700',
-          resolved && 'border-amber-300 bg-amber-50 text-amber-700',
-          isSaving && 'opacity-60',
-        )} />
+      {/* Some touch devices (confirmed on at least one Linux/Chrome tablet
+          build) never bring up their on-screen keyboard for a text/number
+          input — a platform limitation outside this app's control. Route
+          touch devices through the same custom keypad already used for
+          covers entry instead of depending on the OS keyboard. */}
+      {IS_TOUCH ? (
+        <button type="button" onClick={() => setShowKeypad(true)} title={cellTitle} className={cellClass}>
+          {value !== '' ? value : '—'}
+        </button>
+      ) : (
+        <input type="number" step="0.1" inputMode="decimal" value={value}
+          onChange={e => { setValue(e.target.value); scheduleSave(e.target.value) }}
+          onBlur={flushSave}
+          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+          title={cellTitle}
+          className={cellClass} />
+      )}
       <button type="button" onClick={() => bump(0.5)}
         className="w-10 h-10 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
         aria-label={`Increase ${equipment.name} temperature`}>
         <Plus className="w-4 h-4" />
       </button>
+      {showKeypad && (
+        <TempKeypadModal
+          label={`${equipment.name}${captureTime ? ` — ${captureTime.label || timeLabel(captureTime.time_of_day)}` : ''}`}
+          initialValue={value}
+          onConfirm={n => {
+            const s = n == null ? '' : String(n)
+            setValue(s)
+            if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+            attemptSave(s)
+            setShowKeypad(false)
+          }}
+          onClose={() => setShowKeypad(false)}
+        />
+      )}
     </div>
   )
 }
@@ -745,13 +845,16 @@ export function HoldCaptureTimeModal({ initial, venueId, onClose, onSave, isSavi
 // (autosave on type/stepper, debounced, out-of-range saves immediately —
 // see the note on TempCell) but posts station_id instead of equipment_id.
 function HoldCell({ station, captureTime, existingLog, onSave, isSaving }) {
+  // Same lower-end-of-range pre-fill as TempCell — see its comment.
   const [value, setValue] = useState(() =>
-    existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
+    existingLog?.temperature_c != null ? String(existingLog.temperature_c)
+      : (station.min_temp_c != null ? String(station.min_temp_c) : ''))
   const timerRef = useRef(null)
 
   useEffect(() => {
-    setValue(existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
-  }, [existingLog?.id, existingLog?.temperature_c])
+    setValue(existingLog?.temperature_c != null ? String(existingLog.temperature_c)
+      : (station.min_temp_c != null ? String(station.min_temp_c) : ''))
+  }, [existingLog?.id, existingLog?.temperature_c, station.min_temp_c])
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
@@ -789,6 +892,14 @@ function HoldCell({ station, captureTime, existingLog, onSave, isSaving }) {
   const isCurrentReading = value === (existingLog?.temperature_c != null ? String(existingLog.temperature_c) : '')
   const unresolved = isCurrentReading && existingLog?.is_within_range === false && !existingLog?.corrective_action
   const resolved   = isCurrentReading && existingLog?.is_within_range === false && !!existingLog?.corrective_action
+  const [showKeypad, setShowKeypad] = useState(false)
+  const cellClass = cn(
+    'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
+    unresolved && 'border-red-400 bg-red-50 text-red-700',
+    resolved && 'border-amber-300 bg-amber-50 text-amber-700',
+    isSaving && 'opacity-60',
+  )
+  const cellTitle = resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined
 
   return (
     <div className="flex items-center gap-1">
@@ -797,23 +908,39 @@ function HoldCell({ station, captureTime, existingLog, onSave, isSaving }) {
         aria-label={`Decrease ${station.name} temperature`}>
         <Minus className="w-4 h-4" />
       </button>
-      <input type="number" step="0.1" inputMode="decimal" value={value}
-        onChange={e => { setValue(e.target.value); scheduleSave(e.target.value) }}
-        onBlur={flushSave}
-        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-        placeholder={station.target_temp_c != null ? String(station.target_temp_c) : '—'}
-        title={resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined}
-        className={cn(
-          'w-16 text-center text-sm font-semibold border rounded-lg px-1 py-2 bg-background min-h-[40px] touch-manipulation',
-          unresolved && 'border-red-400 bg-red-50 text-red-700',
-          resolved && 'border-amber-300 bg-amber-50 text-amber-700',
-          isSaving && 'opacity-60',
-        )} />
+      {/* See TempCell's comment — same custom keypad fallback for touch
+          devices whose on-screen keyboard doesn't reliably appear. */}
+      {IS_TOUCH ? (
+        <button type="button" onClick={() => setShowKeypad(true)} title={cellTitle} className={cellClass}>
+          {value !== '' ? value : '—'}
+        </button>
+      ) : (
+        <input type="number" step="0.1" inputMode="decimal" value={value}
+          onChange={e => { setValue(e.target.value); scheduleSave(e.target.value) }}
+          onBlur={flushSave}
+          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+          title={cellTitle}
+          className={cellClass} />
+      )}
       <button type="button" onClick={() => bump(0.5)}
         className="w-10 h-10 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
         aria-label={`Increase ${station.name} temperature`}>
         <Plus className="w-4 h-4" />
       </button>
+      {showKeypad && (
+        <TempKeypadModal
+          label={`${station.name}${captureTime ? ` — ${captureTime.label || timeLabel(captureTime.time_of_day)}` : ''}`}
+          initialValue={value}
+          onConfirm={n => {
+            const s = n == null ? '' : String(n)
+            setValue(s)
+            if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+            attemptSave(s)
+            setShowKeypad(false)
+          }}
+          onClose={() => setShowKeypad(false)}
+        />
+      )}
     </div>
   )
 }
@@ -1086,6 +1213,8 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
     })
   }
 
+  const [showKeypad, setShowKeypad] = useState(false)
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-background rounded-xl shadow-xl w-full max-w-sm p-6">
@@ -1110,10 +1239,19 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
                 aria-label="Decrease temperature">
                 <Minus className="w-5 h-5" />
               </button>
-              <input type="number" step="0.1" inputMode="decimal" value={temp}
-                onChange={e => { setTemp(e.target.value); scheduleSave(e.target.value, note) }}
-                onBlur={flushSave}
-                className="w-24 text-center text-xl font-semibold border rounded-lg px-2 py-2 bg-background min-h-[48px]" />
+              {/* See TempCell's comment — same custom keypad fallback for
+                  touch devices whose on-screen keyboard doesn't reliably appear. */}
+              {IS_TOUCH ? (
+                <button type="button" onClick={() => setShowKeypad(true)}
+                  className="w-24 text-center text-xl font-semibold border rounded-lg px-2 py-2 bg-background min-h-[48px] touch-manipulation">
+                  {temp !== '' ? temp : '—'}
+                </button>
+              ) : (
+                <input type="number" step="0.1" inputMode="decimal" value={temp}
+                  onChange={e => { setTemp(e.target.value); scheduleSave(e.target.value, note) }}
+                  onBlur={flushSave}
+                  className="w-24 text-center text-xl font-semibold border rounded-lg px-2 py-2 bg-background min-h-[48px]" />
+              )}
               <button type="button" onClick={() => bump(1)}
                 className="w-12 h-12 shrink-0 rounded-lg border flex items-center justify-center hover:bg-accent touch-manipulation"
                 aria-label="Increase temperature">
@@ -1122,6 +1260,20 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
             </div>
             <p className="text-xs text-muted-foreground text-center mt-1">SFBB target: ≥75°C for 30 seconds (or FSA equivalents)</p>
           </div>
+          {showKeypad && (
+            <TempKeypadModal
+              label={target.custom ? (customName || 'Log a dish') : target.itemName}
+              initialValue={temp}
+              onConfirm={n => {
+                const s = n == null ? '' : String(n)
+                setTemp(s)
+                if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+                persist(s, note)
+                setShowKeypad(false)
+              }}
+              onClose={() => setShowKeypad(false)}
+            />
+          )}
           <div>
             <label className="block text-sm font-medium mb-1">Corrective action (optional)</label>
             <textarea value={note}
