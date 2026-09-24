@@ -6,6 +6,9 @@ import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import AppShell    from '@/components/layout/AppShell'
+import MobileShell from '@/components/mobile/MobileShell'
+import MobileHub   from '@/pages/mobile/MobileHub'
+import MobileHSDashboard from '@/pages/mobile/MobileHSDashboard'
 import TenantGate  from '@/components/TenantGate'
 import { TimelineSettingsProvider } from '@/contexts/TimelineSettingsContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
@@ -159,6 +162,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="settings"    element={<Settings />} />
                 <Route path="nav-designer" element={<NavDesigner />} />
                 <Route path="launcher"     element={<Launcher />} />
+              </Route>
+              <Route path="mobile" element={<MobileShell />}>
+                <Route index          element={<MobileHub />} />
+                <Route path="hs-dashboard" element={<MobileHSDashboard />} />
               </Route>
             </Routes>
             </TenantGate>

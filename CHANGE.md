@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — Mobile PWA: /mobile section + H&S Dashboard]
+
+### /mobile — a phone-optimised area of the same app
+- New `/mobile/*` route tree, sharing the existing login, API and deploy pipeline — no new server, domain, or Auth0 app required.
+- Installs to a phone home screen as its own app, "Macaroonie Ops", with its own icon and colour — separate from the main "Macaroonie" install, even though it's the same site.
+- `/mobile` opens to a hub of tiles, one per available mobile-optimised page — built so more mobile pages can be added over time without reworking this shell.
+
+### Mobile H&S Dashboard
+- First mobile module: a phone-portrait version of the H&S Dashboard with full functionality — multiple named dashboards, add/remove/reorder widgets, tick checklists, log temperature/hold/delivery/cooking checks, the action log — all reading and writing the exact same data as the desktop page.
+- Laid out as a single scrolling column sized for one hand, rather than the desktop's resizable multi-column grid.
+
+---
+
 ## [2026-09-24 — Wages UX overhaul + cash-only net balance] *(migration 093)*
 
 ### Wages page redesign
