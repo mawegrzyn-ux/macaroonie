@@ -19,6 +19,7 @@ import {
 } from '../services/auth0MgmtSvc.js'
 import { MODULES, MODULE_KEYS, resolvePermission } from '../config/modules.js'
 import { listMemberships } from '../services/membershipSvc.js'
+import { seedDefaultNav } from '../config/defaultNav.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -41,6 +42,40 @@ const TenantPatch = z.object({
   is_active:         z.boolean().optional(),
 })
 
+// ── Nav tree → effective view for one user ──────────────────
+// A link item is visible when its module (if any) isn't 'none' for this
+// user AND their effective role isn't in hidden_role_ids. A section is
+// pure grouping — always "passes" its own check — but is pruned if it
+// ends up with no visible children. Platform admins bypass both checks
+// (same as they bypass module permissions generally). A hidden link's
+// children are unreachable and dropped too, not hoisted up.
+function navItemVisible(item, permissions, effectiveRoleId, isPlatformAdmin) {
+  if (isPlatformAdmin) return true
+  if (item.module && (permissions[item.module] ?? 'manage') === 'none') return false
+  if (effectiveRoleId && item.hidden_role_ids?.includes(effectiveRoleId)) return false
+  return true
+}
+
+function buildNavTree(items, parentId = null) {
+  return items
+    .filter(i => i.parent_id === parentId)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map(i => ({ ...i, children: buildNavTree(items, i.id) }))
+}
+
+function pruneNavTree(nodes, permissions, effectiveRoleId, isPlatformAdmin) {
+  const out = []
+  for (const n of nodes) {
+    const children = pruneNavTree(n.children, permissions, effectiveRoleId, isPlatformAdmin)
+    if (n.kind === 'section') {
+      if (children.length) out.push({ ...n, children })
+      continue
+    }
+    if (navItemVisible(n, permissions, effectiveRoleId, isPlatformAdmin)) out.push({ ...n, children })
+  }
+  return out
+}
+
 export default async function platformRoutes(app) {
 
   // ── GET /api/me ─────────────────────────────────────────
@@ -53,7 +88,7 @@ export default async function platformRoutes(app) {
     let currentTenant = null
     if (req.tenantId) {
       [currentTenant] = await sql`
-        SELECT id, name, slug, plan, is_active FROM tenants WHERE id = ${req.tenantId}
+        SELECT id, name, slug, plan, is_active, nav_style FROM tenants WHERE id = ${req.tenantId}
       `
     }
 
@@ -127,6 +162,21 @@ export default async function platformRoutes(app) {
       availableTenants = await listMemberships(sub, email)
     }
 
+    // Effective nav tree + launcher tiles for this user's role.
+    let navTree = []
+    let launcherTiles = []
+    if (req.tenantId) {
+      const items = await withTenant(req.tenantId, tx => tx`
+        SELECT * FROM nav_items WHERE tenant_id = ${req.tenantId} AND is_active = true
+      `)
+      const fullTree = buildNavTree(items)
+      navTree = pruneNavTree(fullTree, permissions, effectiveRole?.id ?? null, isPlatformAdmin)
+      launcherTiles = items
+        .filter(i => i.kind === 'link' && i.show_in_launcher
+          && navItemVisible(i, permissions, effectiveRole?.id ?? null, isPlatformAdmin))
+        .sort((a, b) => a.launcher_sort_order - b.launcher_sort_order)
+    }
+
     return {
       auth0_sub:        sub,
       email,
@@ -138,6 +188,8 @@ export default async function platformRoutes(app) {
       effective_role:    effectiveRole,
       enabled_modules:   enabledModules,
       permissions,
+      nav_tree:          navTree,
+      launcher_tiles:    launcherTiles,
     }
   })
 
@@ -237,6 +289,11 @@ export default async function platformRoutes(app) {
               ${body.is_active})
       RETURNING *
     `
+
+    // New tenants start from the same default nav tree existing tenants
+    // were seeded with — otherwise they'd open to an empty sidebar.
+    await withTenant(tenant.id, tx => seedDefaultNav(tx, tenant.id))
+      .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to seed default nav for new tenant'))
 
     return reply.code(201).send({
       ...tenant,

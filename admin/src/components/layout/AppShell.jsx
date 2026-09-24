@@ -3,16 +3,21 @@ import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery } from '@tanstack/react-query'
+import * as LucideIcons from 'lucide-react'
 import {
-  LayoutDashboard, CalendarDays, BookOpen,
-  Building2, Table2, Clock, Settings, Users, UserRound,
-  LogOut, LayoutTemplate, Menu, X,
-  BookMarked, HelpCircle, SlidersHorizontal, Globe,
-  Eye, EyeOff, Layers, RefreshCw, Maximize2, Minimize2, Columns, LayoutList,
-  Wallet, Mail, Shield, ChevronDown, Activity, FolderOpen, ChefHat, Hand, MessageSquare,
-  AlertCircle, Lightbulb, Newspaper, KanbanSquare, ClipboardList, Tag, FlaskConical, Thermometer,
-  ListChecks, LayoutGrid, FileSpreadsheet,
+  LogOut, Menu, X,
+  Eye, EyeOff, RefreshCw, Maximize2, Minimize2, Columns, LayoutList, Layers,
+  Shield, ChevronDown, Hand, KanbanSquare, LayoutGrid,
 } from 'lucide-react'
+
+// nav_items.icon is a plain lucide-react component name (string), set by
+// the nav designer's icon picker — resolve it dynamically instead of
+// maintaining a hand-written name → component map. Falls back to a
+// generic dot if an icon name is missing/renamed/typo'd, rather than
+// crashing the whole sidebar.
+function resolveIcon(name) {
+  return LucideIcons[name] || LucideIcons.Circle
+}
 
 // Macaroon SVG logo — matches favicon.svg
 function MacaroonIcon({ className = 'w-5 h-5' }) {
@@ -40,108 +45,32 @@ import { useApi, setSelectedTenant } from '@/lib/api'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings } from '@/contexts/SettingsContext'
 
-// `module` keys map onto tenant_modules + tenant_roles permissions
-// loaded by /api/me. Entries with no module are always shown.
-const NAV_SECTIONS = [
-  {
-    label: 'Service',
-    items: [
-      { label: 'Dashboard', to: '/',         icon: LayoutDashboard, module: 'dashboard' },
-      { label: 'Timeline',  to: '/timeline', icon: CalendarDays,    module: 'bookings' },
-      { label: 'Bookings',  to: '/bookings', icon: BookOpen,        module: 'bookings' },
-      { label: 'Customers', to: '/customers',icon: UserRound,       module: 'customers' },
-      {
-        label: 'Order sheets',
-        to: '/order-sheets',
-        icon: ClipboardList,
-        module: 'order_sheets',
-        end: true,
-        children: [
-          { label: 'Templates',  to: '/order-sheets/templates',  icon: ClipboardList, module: 'order_sheet_setup' },
-          { label: 'Categories', to: '/order-sheets/categories', icon: Tag,           module: 'order_sheet_setup' },
-        ],
-      },
-      { label: 'Cash recon', to: '/cash-recon', icon: Wallet, module: 'cash_recon' },
-      { label: 'Food safety', to: '/food-safety', icon: Thermometer, module: 'food_safety' },
-      { label: 'Checklists', to: '/checklists', icon: ListChecks, module: 'checklists' },
-      { label: 'H&S Dashboard', to: '/hs-dashboard', icon: LayoutGrid, module: 'hs_dashboard' },
-    ],
-  },
-  {
-    label: 'Website',
-    items: [
-      { label: 'Website', to: '/website', icon: Globe,         module: 'website' },
-      {
-        label: 'Menus',
-        to: '/menus',
-        icon: ChefHat,
-        module: 'menus',
-        end: true,
-        children: [
-          { label: 'Variant groups', to: '/menus/variant-groups', icon: Layers, module: 'menus' },
-          { label: 'Dietary groups', to: '/menus/dietary-groups', icon: Tag,    module: 'menus' },
-        ],
-      },
-      { label: 'Media',   to: '/media',   icon: FolderOpen,    module: 'website' },
-      { label: 'Reviews', to: '/reviews', icon: MessageSquare, module: 'website' },
-    ],
-  },
-  {
-    label: 'Setup',
-    items: [
-      { label: 'Venues',   to: '/venues',   icon: Building2, module: 'venues' },
-      { label: 'Tables',   to: '/tables',   icon: Table2,    module: 'tables' },
-      { label: 'Schedule', to: '/schedule', icon: Clock,     module: 'schedule' },
-      { label: 'Rules',    to: '/rules',    icon: Settings,  module: 'rules' },
-    ],
-  },
-  {
-    label: 'Account',
-    items: [
-      {
-        label: 'Emails',
-        to: '/email-templates',
-        icon: Mail,
-        module: 'email_templates',
-        children: [
-          { label: 'Monitor', to: '/email-monitoring', icon: Activity, module: 'email_templates' },
-        ],
-      },
-      { label: 'Team',     to: '/team',     icon: Users,             module: 'team' },
-      { label: 'Access',   to: '/access',   icon: Shield,            module: 'team' },
-      { label: 'Settings', to: '/settings', icon: SlidersHorizontal, module: 'settings' },
-      { label: 'Widget test', to: '/widget-test', icon: LayoutTemplate, module: 'widget_test' },
-      { label: 'Test data',   to: '/test-data',   icon: FlaskConical,   module: 'test_data' },
-      { label: 'Legacy import', to: '/legacy-import', icon: FileSpreadsheet, module: 'test_data' },
-    ],
-  },
-  {
-    label: 'Help',
-    items: [
-      { label: 'Issues',           to: '/issues',           icon: AlertCircle,  module: 'issue_log' },
-      { label: 'Feature requests', to: '/feature-requests', icon: Lightbulb,    module: 'feature_requests' },
-      { label: "What's new",       to: '/changelog',        icon: Newspaper,    module: 'changelog' },
-      { label: 'Documentation',    to: '/docs',             icon: BookMarked,   module: 'documentation' },
-      { label: 'Help',             to: '/help',             icon: HelpCircle,   module: 'documentation' },
-    ],
-  },
-]
+// The tenant-customisable nav tree comes from /api/me's nav_tree (see
+// the nav designer, api/src/routes/nav.js) — already filtered server-side
+// to what this user's role can see (module permissions + per-item
+// hidden_role_ids). This file no longer hardcodes the nav structure at
+// all; it just renders whatever tree it's handed. `toNavItem` adapts one
+// API node (route/icon-as-string) into the shape NavItem expects
+// (to/icon-as-component), recursively.
+function toNavItem(node) {
+  const children = (node.children || []).filter(c => c.kind === 'link').map(toNavItem)
+  return {
+    label: node.label,
+    to: node.route,
+    icon: resolveIcon(node.icon),
+    // An item with children needs exact-match active state, or its own
+    // NavLink stays "active" while browsing any child's route too (NavLink
+    // defaults to prefix matching) — same reasoning the old hardcoded nav
+    // applied to Order sheets/Menus/Emails.
+    end: children.length > 0,
+    children,
+  }
+}
 
 const PLATFORM_NAV = [
   { label: 'Tenants',   to: '/platform', icon: Shield },
   { label: 'Backlog',   to: '/backlog',  icon: KanbanSquare },
 ]
-
-function allowed(item, perms) {
-  if (!item.module) return true
-  return (perms[item.module] ?? 'manage') !== 'none'
-}
-
-function filterNavItem(item, perms) {
-  const children = (item.children || []).filter(c => allowed(c, perms))
-  if (!allowed(item, perms) && children.length === 0) return null
-  return { ...item, children }
-}
 
 function NavItem({ item, open }) {
   const location = useLocation()
@@ -243,6 +172,7 @@ export default function AppShell() {
   const availableTenants  = me?.available_tenants ?? []
   const currentTenant     = me?.current_tenant
   const hasTenants        = availableTenants.length > 0
+  const isLauncherMode    = currentTenant?.nav_style === 'launcher'
 
   function switchTenant(tenantId) {
     if (!tenantId) return
@@ -327,25 +257,33 @@ export default function AppShell() {
           </div>
         )}
         <nav className="flex-1 overflow-y-auto p-2 space-y-3">
-          {(() => {
-            const perms = me?.permissions ?? {}
-            return NAV_SECTIONS.map(section => {
-              const items = section.items.map(i => filterNavItem(i, perms)).filter(Boolean)
-              if (!items.length) return null
-              return (
-                <div key={section.label}>
-                  {open && (
-                    <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      {section.label}
-                    </p>
-                  )}
-                  <div className="space-y-0.5">
-                    {items.map(item => <NavItem key={item.to} item={item} open={open} />)}
+          {isLauncherMode ? (
+            // Launcher mode: the sidebar tree is switched off tenant-wide
+            // (Settings → Navigation) in favour of the quick-access tile
+            // grid. Keep one link back to it so nobody's stranded — the
+            // launcher itself surfaces everything else the role can reach.
+            <NavItem item={{ label: 'Quick access', to: '/launcher', icon: LayoutGrid, children: [] }} open={open} />
+          ) : (
+            (me?.nav_tree ?? []).map(node => {
+              if (node.kind === 'section') {
+                const items = (node.children || []).filter(c => c.kind === 'link').map(toNavItem)
+                if (!items.length) return null
+                return (
+                  <div key={node.id}>
+                    {open && (
+                      <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {node.label}
+                      </p>
+                    )}
+                    <div className="space-y-0.5">
+                      {items.map(item => <NavItem key={item.to} item={item} open={open} />)}
+                    </div>
                   </div>
-                </div>
-              )
+                )
+              }
+              return <NavItem key={node.id} item={toNavItem(node)} open={open} />
             })
-          })()}
+          )}
           {isPlatformAdmin && (
             <>
               {open && (

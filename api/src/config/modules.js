@@ -129,6 +129,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
   },
   {
+    key:    'nav_designer',
+    label:  'Navigation',
+    core:   true,
+    description: 'Customise the sidebar/launcher nav tree and per-role visibility.',
+    default: { owner: 'manage', admin: 'none', operator: 'none', viewer: 'none' },
+  },
+  {
     key:    'dashboard',
     label:  'Dashboard',
     core:   true,
