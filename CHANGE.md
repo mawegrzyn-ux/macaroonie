@@ -5,6 +5,28 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — Navigation designer, quick-access launcher, food-safety polish] *(migration 091)*
+
+### Navigation designer + quick-access launcher *(migration 091)*
+- Replaces the previously-hardcoded sidebar (`NAV_SECTIONS` in `AppShell.jsx`) with an admin-configurable, arbitrary-depth nav tree per tenant (`nav_items`, self-referencing `parent_id`), with per-role visibility on top of the existing module-permission gating.
+- New `/nav-designer` admin page (owner-only by default): outline editor (move up/down, indent, outdent — not free-form drag-and-drop reparenting) for the tree, add section/link with route picked from a static catalog so items can only ever point at real pages, per-item module gate + per-role hide + "show as quick-access tile" toggle, typed-confirmation reset to defaults.
+- New tenant-wide `tenants.nav_style` toggle (`sidebar` / `launcher`). In Launcher mode the whole sidebar is replaced by a tile grid at `/launcher`, built from links flagged "show as a quick-access tile"; a single "Quick access" link stays in the sidebar as a safety net.
+- New `/launcher` page: drag-reorder and hide/show tiles for yourself (persisted to `localStorage`, never a DB table — same pattern as other per-viewer prefs), "reset to admin defaults". Empty state explains where tiles come from and offers a one-click "switch back to sidebar" if a tenant ends up in Launcher mode with nothing flagged yet.
+- `GET /api/me` now returns `nav_tree` (pruned for the caller's effective role) and `launcher_tiles`.
+
+### Food safety / H&S Dashboard polish
+- Drag-to-reorder added to the Equipment and Hold-stations management lists in Food safety.
+- H&S Dashboard checklist widget's "Complete" action moved into the widget's own card header (was a full-width button at the bottom of the checklist).
+- Deliveries tab redesigned: inline entry form + current-week list side by side, click any item in the list to load it back into the form for editing.
+- H&S Dashboard container widened to 90% of panel width (was a fixed `max-w-6xl` cap).
+- Cooking checks' category tabs and dish buttons restyled like till/POS buttons (fixed height, tighter width, distinct background fill so tiles read as tappable tiles instead of blending into the page).
+- H&S Dashboard date navigator made touch-friendly: fixed-width date label (no more toolbar reflow switching between "Today" and a full date string), bigger outlined prev/next arrows, confirmed the native date-picker overlay still opens the OS calendar.
+
+### Dashboard quick-access shortcuts
+- Added Food safety, Checklists, and H&S Dashboard to the Dashboard page's own Quick access shortcut picker — a separate, older feature from the Navigation designer above, which had never been updated since those three modules shipped.
+
+---
+
 ## [2026-06-04 — Reviews, dev tools, widget hold fixes, curly-quote crash fix] *(migrations 053 + 054 + 056 + 057)*
 
 ### Reviews system *(migration 056)*

@@ -15,7 +15,11 @@ const SECTIONS = [
   { id: 'manual-booking',      label: 'Manual Booking' },
   { id: 'bookings',            label: 'Managing Bookings' },
   { id: 'customers',           label: 'Customers & GDPR' },
+  { id: 'food-safety',         label: 'Food Safety Logs' },
+  { id: 'checklists',          label: 'Checklists' },
+  { id: 'hs-dashboard',        label: 'H&S Dashboard' },
   { id: 'settings',            label: 'Settings' },
+  { id: 'navigation',          label: 'Navigation & Quick Access' },
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'website',             label: 'Website Builder' },
   { id: 'emails',              label: 'Booking Emails' },
@@ -23,6 +27,10 @@ const SECTIONS = [
   { id: 'access',              label: 'Modules & Roles' },
   { id: 'email-monitoring',    label: 'Email Monitoring' },
   { id: 'media-library',       label: 'Media Library' },
+  { id: 'reviews',             label: 'Reviews' },
+  { id: 'issues',              label: 'Issue Log' },
+  { id: 'feature-requests',    label: 'Feature Requests' },
+  { id: 'changelog',           label: 'What is New' },
   { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
 
@@ -1005,6 +1013,115 @@ export default function Help() {
             </InfoBox>
           </section>
 
+          {/* ── FOOD SAFETY ───────────────────────────────── */}
+          <section id="food-safety" data-help="">
+            <H2>Food Safety Logs</H2>
+            <P>
+              The <strong>Food safety</strong> page (sidebar nav) is your SFBB-style due-diligence
+              record: fridge/freezer temperatures, delivery checks, hot/cold holding, and
+              cooking/reheat checks, all logged per venue and per day. Every reading autosaves
+              as soon as you type or tap a stepper — there is no separate Save button to forget.
+            </P>
+            <H3>Tabs</H3>
+            <DataTable
+              head={['Tab', 'What it is']}
+              rows={[
+                ['Today', 'A single-page overview of everything logged so far today, across all check types.'],
+                ['Equipment', 'Fridge/freezer temperature checks. One row per piece of equipment, one column per configured capture time (e.g. AM/PM). Drag the grip handle to reorder equipment.'],
+                ['Deliveries', 'Log a delivery: supplier, temperature, condition. The main view is an entry form on one side and a list of this week\'s deliveries on the other — click any item in the list to load it back into the form for editing.'],
+                ['Holds', 'Hot-hold and cold-hold checks for food kept warm/cold for service. Same reorderable-station pattern as Equipment.'],
+                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a menu category tab, then tap the dish you just cooked — no typing a dish name each time. A stepper lets you dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents).'],
+              ]}
+            />
+            <H3>Sessions & stations</H3>
+            <P>
+              Use the gear icon on the Cooking tab to define <strong>sessions</strong> (e.g. "Lunch
+              service", "Dinner service") — how many times a day cooking checks happen and how
+              many items must be checked each time. Equipment and Hold pages work similarly:
+              manage the list of fridges/freezers or hold stations from their own settings, and
+              drag to reorder how they appear in the grid.
+            </P>
+            <H3>Out-of-range readings</H3>
+            <P>
+              Any reading outside its configured min/max shows in red immediately — you don't
+              need to add a corrective action before it saves. The <strong>Corrective actions</strong>
+              button (visible on every tab) cycles through every reading for the day that's still
+              out of range and missing a note, so nothing gets forgotten by end of service.
+            </P>
+            <InfoBox type="tip">
+              Every check type here (Equipment, Deliveries, Holds, Cooking) can also be added as
+              its own widget on a custom <strong>H&amp;S Dashboard</strong> — see that section
+              below if you want several of these side by side with a checklist on one screen.
+            </InfoBox>
+          </section>
+
+          {/* ── CHECKLISTS ────────────────────────────────── */}
+          <section id="checklists" data-help="">
+            <H2>Checklists</H2>
+            <P>
+              The <strong>Checklists</strong> page (sidebar nav) covers recurring operational
+              checklists — opening, closing, cleaning, or anything else you define — per venue.
+              Unlike Food safety, there's no fixed set of built-in checks: you build your own
+              checklists, name them however you like, and set how often they're due.
+            </P>
+            <H3>Two tabs</H3>
+            <DataTable
+              head={['Tab', 'What it is']}
+              rows={[
+                ['Today', 'Whatever checklists are due today. Tick items off as you go — ticking the last required item marks the whole checklist complete, recording who completed it and when.'],
+                ['Checklists', 'The builder. Create a checklist, give it a name and optional department, set its frequency (daily / weekly / monthly), and add/reorder/remove its individual tasks.'],
+              ]}
+            />
+            <H3>Frequency</H3>
+            <P>
+              <strong>Daily</strong> checklists are due every day. <strong>Weekly</strong> checklists
+              let you pick which day of the week they're due. <strong>Monthly</strong> checklists let
+              you pick a day of the month. A checklist only shows on the Today tab on the day(s) it's
+              actually due.
+            </P>
+            <InfoBox type="info">
+              Once a checklist has been completed for a given day, it stays visible on Today showing
+              who completed it and at what time — useful for shift handover and due-diligence
+              records.
+            </InfoBox>
+          </section>
+
+          {/* ── H&S DASHBOARD ─────────────────────────────── */}
+          <section id="hs-dashboard" data-help="">
+            <H2>H&amp;S Dashboard</H2>
+            <P>
+              The <strong>H&amp;S Dashboard</strong> page (sidebar nav) lets you build your own
+              screen combining any mix of checklists and food-safety check widgets behind a single
+              date navigator — useful for a kitchen-pass tablet showing "everything due right
+              now" without switching between the Food safety and Checklists pages.
+            </P>
+            <H3>Dashboards and widgets</H3>
+            <P>
+              You can create any number of named dashboards, shown as tabs across the top. Click
+              <strong> Edit layout</strong> to add widgets, reorder them, resize their width (in
+              grid columns) and height, or remove them. Each widget is one of:
+            </P>
+            <DataTable
+              head={['Widget', 'Shows']}
+              rows={[
+                ['Checklist', 'One specific checklist, tick-and-complete right on the dashboard — the "Complete" action sits in the widget\'s own header.'],
+                ['Temperature checks', 'The Equipment (fridge/freezer) grid.'],
+                ['Delivery checks', 'The delivery log entry form + this week\'s list.'],
+                ['Hot / cold hold checks', 'The Holds grid.'],
+                ['Cooking / reheat checks', 'The till-style cooking checks panel.'],
+              ]}
+            />
+            <P>
+              Every widget reads and writes the exact same data as the Food safety and Checklists
+              pages — there's only one copy of each day's checks, the dashboard is just another
+              place to see and log them.
+            </P>
+            <InfoBox type="tip">
+              Use <strong>Full screen</strong> (top right) to hide the sidebar entirely — good
+              for a wall-mounted or kitchen-pass tablet running one dashboard all day.
+            </InfoBox>
+          </section>
+
           {/* ── SETTINGS ──────────────────────────────────── */}
           <section id="settings" data-help="">
             <H2>Settings</H2>
@@ -1101,6 +1218,60 @@ export default function Help() {
               On a large monitor, try Detailed tile mode with Wide time columns for a clear, at-a-glance
               service view. On a tablet at the host stand, Compact S keeps the maximum number of tables
               visible without scrolling.
+            </InfoBox>
+          </section>
+
+          {/* ── NAVIGATION & QUICK ACCESS ─────────────────── */}
+          <section id="navigation" data-help="">
+            <H2>Navigation &amp; Quick Access</H2>
+            <P>
+              An owner can customise the left sidebar for everyone in the restaurant from the
+              <strong> Navigation</strong> page (sidebar nav, under Account) — and can optionally
+              replace the sidebar entirely with a tile-based quick-access screen instead.
+            </P>
+            <H3>Editing the sidebar tree</H3>
+            <P>
+              The Navigation page shows the current sidebar as an outline: sections and links,
+              nested as deep as you like. Use the arrow buttons on each row to move an item up or
+              down, indent it under the item above, or outdent it back out. <strong>Add section</strong>
+              and <strong>Add link</strong> create new items; picking a link's page from the list
+              also fills in a sensible icon and permission automatically.
+            </P>
+            <H3>Per-item controls</H3>
+            <DataTable
+              head={['Control', 'Effect']}
+              rows={[
+                ['Module gate', 'Ties the item to an existing module permission — hidden automatically for any role without access, same as today.'],
+                ['Hide for specific roles', 'An extra hide on top of the module gate — hide an otherwise-permitted item from just one or two roles without touching their permissions.'],
+                ['Show as a quick-access tile', 'Also surfaces this link as a tile in Quick access / Launcher mode (see below).'],
+              ]}
+            />
+            <H3>Sidebar vs. Launcher</H3>
+            <P>
+              The <strong>Sidebar / Launcher</strong> toggle at the top of the Navigation page is
+              restaurant-wide. In <strong>Launcher</strong> mode, the entire sidebar tree is
+              replaced for every user by a full-page tile grid at <Mono>/launcher</Mono>, built
+              from whichever links have "Show as a quick-access tile" turned on. A single
+              "Quick access" link stays in the sidebar so nobody loses their way back to it.
+            </P>
+            <InfoBox type="warn">
+              Switching to Launcher mode before flagging any items hides the whole sidebar with
+              nothing to replace it. If that happens, open the Navigation page (still reachable —
+              it's your safety net) and switch back to Sidebar, or flag the items you want first.
+            </InfoBox>
+            <H3>Personalising Quick access</H3>
+            <P>
+              On the Quick access / Launcher screen itself, each person can tap <strong>Customise</strong>
+              to drag their own tiles into a preferred order or hide ones they don't use — this is
+              personal to your device/browser and doesn't change what anyone else sees.
+              <strong> Reset to admin defaults</strong> clears your personal changes and goes back
+              to the order the admin set up.
+            </P>
+            <InfoBox type="info">
+              This is a different feature from the small <strong>Quick access</strong> widget on the
+              Dashboard page, which is a separate, always-available set of shortcuts each person
+              picks for themselves from a fixed list — unrelated to the restaurant-wide Navigation
+              designer described here.
             </InfoBox>
           </section>
 
@@ -2000,7 +2171,7 @@ export default function Help() {
             </InfoBox>
           </section>
 
-          {/* ── FAQ ───────────────────────────────────────── */}
+          {/* ── Reviews ───────────────────────────────────── */}
           <section id="reviews" data-help="">
             <H2>Reviews</H2>
             <P>
