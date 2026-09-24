@@ -308,7 +308,7 @@ function TileCard({
         </div>
       )}
 
-      <div className="p-4 overflow-y-auto" style={{ maxHeight: height }}>
+      <div className="p-4 overflow-y-auto" style={{ height }}>
         {children}
       </div>
     </div>
