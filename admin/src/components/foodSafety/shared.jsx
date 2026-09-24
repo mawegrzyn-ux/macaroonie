@@ -1270,7 +1270,7 @@ export function CookingChecksPanel({ venueId, date }) {
                 return (
                   <button key={item.id} type="button"
                     onClick={() => setEntryTarget({ itemId: item.id, itemName: item.name })}
-                    className="relative border rounded-lg px-2 py-4 min-h-[72px] text-sm font-medium text-center flex items-center justify-center hover:bg-accent hover:border-primary/40 touch-manipulation">
+                    className="relative border rounded-lg px-2 py-4 min-h-[72px] text-sm font-medium text-center flex items-center justify-center bg-muted/60 hover:bg-accent hover:border-primary/40 touch-manipulation">
                     {item.name}
                     {countToday > 0 && (
                       <span className="absolute top-1 right-1 text-[10px] font-semibold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">
