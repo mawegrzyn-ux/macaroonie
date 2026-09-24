@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 import {
   TYPE_LABELS, HOLD_TYPE_LABELS, timeLabel, TempChecksTable,
-  DeliveryChecksPanel, HoldChecksTable, HoldStationModal, HoldCaptureTimeModal,
+  DeliveryChecksBoard, HoldChecksTable, HoldStationModal, HoldCaptureTimeModal,
   CookingChecksPanel, EndOfDayReview,
 } from '@/components/foodSafety/shared'
 
@@ -457,7 +457,7 @@ export default function FoodSafety() {
       ) : tab === 'deliveries' ? (
         <div>
           <h2 className="font-semibold mb-4">Delivery checks</h2>
-          <DeliveryChecksPanel venueId={venueId} date={date} />
+          <DeliveryChecksBoard venueId={venueId} date={date} />
         </div>
       ) : tab === 'holds' ? (
         <div className="space-y-8">

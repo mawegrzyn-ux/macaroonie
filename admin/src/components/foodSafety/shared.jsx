@@ -391,6 +391,204 @@ export function DeliveryChecksPanel({ venueId, date, emptyState }) {
   )
 }
 
+function mondayOf(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  const day = d.getUTCDay() // 0=Sun..6=Sat
+  const diff = (day === 0 ? -6 : 1) - day
+  d.setUTCDate(d.getUTCDate() + diff)
+  return d.toISOString().slice(0, 10)
+}
+function addDaysISO(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+function emptyDeliveryForm(date) {
+  return {
+    id: null, delivery_date: date, vendor_name: '',
+    packaging_ok: true, damage_ok: true, quality_ok: true, temp_ok: true,
+    product_temp_c: '', accepted: true, corrective_action: '', notes: '',
+  }
+}
+
+function DeliveryTick({ label, value, onChange }) {
+  return (
+    <label className="flex items-center gap-2 text-sm cursor-pointer touch-manipulation min-h-[36px]">
+      <input type="checkbox" checked={value} onChange={e => onChange(e.target.checked)} className="rounded w-4 h-4" />
+      {label}
+    </label>
+  )
+}
+
+// Full delivery-checks experience for one venue: an always-visible entry
+// form (new or editing) on the left, and the current week's logged
+// deliveries on the right — clicking one loads it into the form so it can
+// be corrected without re-typing everything. Replaces the old
+// modal-per-entry flow for the Food safety page's Deliveries tab
+// (DeliveryChecksPanel/DeliveryModal above stay as they are, still used by
+// the H&S Dashboard's compact delivery-checks widget).
+export function DeliveryChecksBoard({ venueId, date }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const [form, setForm] = useState(() => emptyDeliveryForm(date))
+
+  const weekStart = mondayOf(date)
+  const weekEnd = addDaysISO(weekStart, 6)
+
+  const enabled = !!venueId
+  const { data: deliveries = [], isLoading } = useQuery({
+    queryKey: ['fs-deliveries-week', venueId, weekStart],
+    queryFn: () => api.get(`/food-safety/deliveries?venue_id=${venueId}&from=${weekStart}&to=${weekEnd}&limit=200`),
+    enabled,
+  })
+
+  const createDelivery = useMutation({
+    mutationFn: body => api.post('/food-safety/deliveries', body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fs-deliveries-week', venueId, weekStart] })
+      setForm(emptyDeliveryForm(date))
+    },
+  })
+  const updateDelivery = useMutation({
+    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/deliveries/${id}`, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-deliveries-week', venueId, weekStart] }),
+  })
+
+  // Re-anchor to the newly selected date's week whenever the page's date
+  // picker moves — but never clobber an in-progress edit or partially
+  // filled new entry.
+  useEffect(() => {
+    setForm(f => (f.id ? f : emptyDeliveryForm(date)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date])
+
+  if (!enabled) return null
+
+  function loadIntoForm(d) {
+    setForm({
+      id: d.id, delivery_date: d.delivery_date, vendor_name: d.vendor_name,
+      packaging_ok: d.packaging_ok, damage_ok: d.damage_ok, quality_ok: d.quality_ok, temp_ok: d.temp_ok,
+      product_temp_c: d.product_temp_c ?? '', accepted: d.accepted,
+      corrective_action: d.corrective_action ?? '', notes: d.notes ?? '',
+    })
+  }
+
+  function submit(e) {
+    e.preventDefault()
+    if (!form.vendor_name.trim()) return
+    const body = {
+      venue_id: venueId,
+      delivery_date: form.delivery_date,
+      vendor_name: form.vendor_name.trim(),
+      packaging_ok: form.packaging_ok,
+      damage_ok: form.damage_ok,
+      quality_ok: form.quality_ok,
+      temp_ok: form.temp_ok,
+      product_temp_c: form.product_temp_c !== '' ? Number(form.product_temp_c) : null,
+      accepted: form.accepted,
+      corrective_action: form.corrective_action.trim() || null,
+      notes: form.notes.trim() || null,
+    }
+    if (form.id) updateDelivery.mutate({ id: form.id, ...body })
+    else createDelivery.mutate(body)
+  }
+
+  const isSaving = createDelivery.isPending || updateDelivery.isPending
+  const isEditing = !!form.id
+
+  return (
+    <div className="flex flex-col lg:flex-row gap-4">
+      <form onSubmit={submit} className="flex-1 min-w-0 border rounded-xl p-4 space-y-3 h-fit">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">{isEditing ? `Editing — ${form.vendor_name || 'delivery'}` : 'New delivery check'}</h3>
+          {isEditing && (
+            <button type="button" onClick={() => setForm(emptyDeliveryForm(date))} className="text-xs text-muted-foreground hover:underline touch-manipulation">
+              Cancel edit
+            </button>
+          )}
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1">Date *</label>
+            <input type="date" value={form.delivery_date} required
+              onChange={e => setForm(f => ({ ...f, delivery_date: e.target.value }))}
+              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Vendor *</label>
+            <input value={form.vendor_name} required placeholder="Supplier name"
+              onChange={e => setForm(f => ({ ...f, vendor_name: e.target.value }))}
+              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 border rounded p-3">
+          <DeliveryTick label="Packaging OK" value={form.packaging_ok} onChange={v => setForm(f => ({ ...f, packaging_ok: v }))} />
+          <DeliveryTick label="No damage" value={form.damage_ok} onChange={v => setForm(f => ({ ...f, damage_ok: v }))} />
+          <DeliveryTick label="Quality OK" value={form.quality_ok} onChange={v => setForm(f => ({ ...f, quality_ok: v }))} />
+          <DeliveryTick label="Temperature OK" value={form.temp_ok} onChange={v => setForm(f => ({ ...f, temp_ok: v }))} />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3 items-end">
+          <div>
+            <label className="block text-sm font-medium mb-1">Product temp °C</label>
+            <input type="number" step="0.1" value={form.product_temp_c}
+              onChange={e => setForm(f => ({ ...f, product_temp_c: e.target.value }))}
+              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+          </div>
+          <div className="pb-2.5">
+            <DeliveryTick label="Accepted" value={form.accepted} onChange={v => setForm(f => ({ ...f, accepted: v }))} />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Corrective action</label>
+          <input value={form.corrective_action}
+            onChange={e => setForm(f => ({ ...f, corrective_action: e.target.value }))}
+            className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Notes</label>
+          <textarea value={form.notes} rows={2}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+            className="w-full border rounded px-3 py-2 text-sm bg-background resize-none" />
+        </div>
+        <button type="submit" disabled={isSaving || !form.vendor_name.trim()}
+          className="w-full bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
+          {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Log delivery'}
+        </button>
+      </form>
+
+      <div className="lg:w-80 shrink-0 border rounded-xl p-3 space-y-2 max-h-[640px] overflow-y-auto">
+        <p className="text-xs font-semibold text-muted-foreground uppercase">
+          This week · {format(new Date(weekStart + 'T12:00:00'), 'd MMM')}–{format(new Date(weekEnd + 'T12:00:00'), 'd MMM')}
+        </p>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">Loading…</p>
+        ) : deliveries.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">No deliveries logged this week.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {deliveries.map(d => (
+              <li key={d.id}>
+                <button type="button" onClick={() => loadIntoForm(d)}
+                  className={cn(
+                    'w-full text-left flex items-center justify-between gap-2 text-sm border rounded-lg px-3 py-2 touch-manipulation hover:bg-accent min-h-[44px]',
+                    form.id === d.id && 'border-primary bg-primary/5',
+                  )}>
+                  <span className="min-w-0">
+                    <span className="block font-medium truncate">{d.vendor_name}</span>
+                    <span className="block text-[11px] text-muted-foreground">{format(new Date(d.delivery_date + 'T12:00:00'), 'EEE d MMM')}</span>
+                  </span>
+                  <Badge ok={d.accepted}>{d.accepted ? 'OK' : 'Rejected'}</Badge>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Hot / cold hold checks ───────────────────────────────────────
 //
 // "Fridges-style" setup — named stations with their own target/min/max,
