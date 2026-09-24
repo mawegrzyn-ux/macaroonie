@@ -1140,7 +1140,7 @@ export default function Help() {
                 ['Equipment', 'Fridge/freezer temperature checks. One row per piece of equipment, one column per configured capture time (e.g. AM/PM). Drag the grip handle to reorder equipment. Each unlogged reading starts pre-filled at the low end of that equipment\'s normal range, so you only need to nudge the +/- steppers or overtype it — nothing saves until you actually touch the cell.'],
                 ['Deliveries', 'Log a delivery: supplier, temperature, condition. The main view is an entry form on one side and a list of this week\'s deliveries on the other — click any item in the list to load it back into the form for editing.'],
                 ['Holds', 'Hot-hold and cold-hold checks for food kept warm/cold for service. Same reorderable-station pattern (and same pre-filled reading) as Equipment.'],
-                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a menu category tab, then tap the dish you just cooked — no typing a dish name each time. A stepper lets you dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents). Tap any entry in the "Today\'s checks" list on the right to reopen it and correct the reading.'],
+                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a menu category tab, then tap the dish you just cooked — no typing a dish name each time. A stepper lets you dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents). Tap any entry in the "Today\'s checks" list on the right to reopen it, correct the reading, or delete it entirely (double-confirm) if it was logged in error.'],
               ]}
             />
             <H3>Sessions & stations</H3>

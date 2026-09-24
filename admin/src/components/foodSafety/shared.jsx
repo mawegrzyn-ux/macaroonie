@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, X, AlertTriangle, Check, Minus, Settings } from 'lucide-react'
+import { Plus, X, AlertTriangle, Check, Minus, Settings, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -1163,7 +1163,7 @@ function CookingSessionsModal({ venueId, onClose }) {
 // Done) flushes any pending change first, since unmounting would
 // otherwise drop it. There's no Cancel — once something's been logged,
 // closing just stops editing it rather than undoing it.
-function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate, onUpdate, isSaving }) {
+function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate, onUpdate, onDelete, isDeleting, isSaving }) {
   // Editing an already-logged check (opened by tapping it in the "Today's
   // checks" list) pre-fills from that check and, since checkId is already
   // set, every save below routes to onUpdate instead of onCreate.
@@ -1172,6 +1172,7 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
   const [note, setNote] = useState(() => target.existingCheck?.corrective_action ?? '')
   const [customName, setCustomName] = useState('')
   const [checkId, setCheckId] = useState(() => target.existingCheck?.id ?? null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const timerRef = useRef(null)
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
@@ -1290,6 +1291,25 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
             className="w-full bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50" disabled={isSaving}>
             {isSaving ? 'Saving…' : 'Done'}
           </button>
+          {checkId && (
+            confirmDelete ? (
+              <div className="flex gap-2">
+                <button type="button" onClick={() => onDelete(checkId)} disabled={isDeleting}
+                  className="flex-1 bg-destructive text-destructive-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
+                  {isDeleting ? 'Deleting…' : 'Confirm delete'}
+                </button>
+                <button type="button" onClick={() => setConfirmDelete(false)}
+                  className="flex-1 border rounded px-4 py-2 text-sm font-medium min-h-[44px]">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => setConfirmDelete(true)}
+                className="w-full text-destructive text-sm font-medium py-2 min-h-[44px] hover:bg-destructive/5 rounded flex items-center justify-center gap-1.5">
+                <Trash2 className="w-3.5 h-3.5" /> Delete this reading
+              </button>
+            )
+          )}
         </div>
       </div>
     </div>
@@ -1359,6 +1379,13 @@ export function CookingChecksPanel({ venueId, date }) {
   const updateCheck = useMutation({
     mutationFn: ({ id, ...body }) => api.patch(`/food-safety/cooking/${id}`, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] }),
+  })
+  const deleteCheck = useMutation({
+    mutationFn: id => api.delete(`/food-safety/cooking/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fs-cooking', venueId, date] })
+      setEntryTarget(null)
+    },
   })
 
   if (!enabled) return null
@@ -1481,6 +1508,8 @@ export function CookingChecksPanel({ venueId, date }) {
           onClose={() => setEntryTarget(null)}
           onCreate={(body, cb) => createCheck.mutate(body, { onSuccess: row => cb(row.id) })}
           onUpdate={(id, body) => updateCheck.mutate({ id, ...body })}
+          onDelete={id => deleteCheck.mutate(id)}
+          isDeleting={deleteCheck.isPending}
           isSaving={createCheck.isPending || updateCheck.isPending}
         />
       )}

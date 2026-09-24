@@ -1070,6 +1070,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>CookingPatch</Mono>'s schema (only <Mono>core_temp_c</Mono> /{' '}
               <Mono>corrective_action</Mono> can change once a check exists).
             </P>
+            <P>
+              <Mono>DELETE /api/food-safety/cooking/:id</Mono> hard-deletes a{' '}
+              <Mono>fs_cooking_checks</Mono> row (no soft-delete flag on this table, and nothing
+              else references its id, unlike the config entities above which use{' '}
+              <Mono>is_active</Mono>). The <Mono>CookingEntryModal</Mono>'s "Delete this reading"
+              control only renders when <Mono>checkId</Mono> is set (i.e. editing an existing
+              check, not logging a new one) and requires an inline double-confirm (Standard
+              Design Rule #6) before calling it.
+            </P>
           </section>
 
           {/* ── CHECKLISTS ────────────────────────────────── */}
@@ -1151,6 +1160,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               fixed-width label button plus an invisible <Mono>input[type=date]</Mono> overlay —
               the same "styled button + native picker" pattern used on Timeline and Bookings, not
               a custom calendar component.
+            </InfoBox>
+            <InfoBox type="warn">
+              The widget body's height style is <Mono>height: heightPx</Mono>, not{' '}
+              <Mono>maxHeight: heightPx</Mono>. A max-height lets short content shrink the card
+              below the size the operator picked with the width/height resize controls, which
+              defeats the point of a fixed layout grid (cards visually jump around as widgets
+              gain/lose content across the day). A fixed <Mono>height</Mono> plus{' '}
+              <Mono>overflow-y-auto</Mono> enforces the chosen size in both directions — taller
+              content scrolls, shorter content leaves blank space rather than collapsing the
+              card. The Overview tile system (<Mono>Dashboard.jsx</Mono>'s <Mono>TileCard</Mono>)
+              uses the identical fix for the same reason — see Overview Tiles below.
             </InfoBox>
           </section>
 
