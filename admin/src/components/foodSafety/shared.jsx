@@ -1164,10 +1164,14 @@ function CookingSessionsModal({ venueId, onClose }) {
 // otherwise drop it. There's no Cancel — once something's been logged,
 // closing just stops editing it rather than undoing it.
 function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate, onUpdate, isSaving }) {
-  const [temp, setTemp] = useState('75')
-  const [note, setNote] = useState('')
+  // Editing an already-logged check (opened by tapping it in the "Today's
+  // checks" list) pre-fills from that check and, since checkId is already
+  // set, every save below routes to onUpdate instead of onCreate.
+  const [temp, setTemp] = useState(() =>
+    target.existingCheck ? String(target.existingCheck.core_temp_c) : '75')
+  const [note, setNote] = useState(() => target.existingCheck?.corrective_action ?? '')
   const [customName, setCustomName] = useState('')
-  const [checkId, setCheckId] = useState(null)
+  const [checkId, setCheckId] = useState(() => target.existingCheck?.id ?? null)
   const timerRef = useRef(null)
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
@@ -1449,14 +1453,19 @@ export function CookingChecksPanel({ venueId, date }) {
         ) : (
           <ul className="space-y-1.5">
             {checks.map(c => (
-              <li key={c.id} className="flex items-center justify-between gap-2 text-sm border-b pb-1.5 last:border-0">
-                <span className="min-w-0">
-                  <span className="block font-medium truncate">{c.dish_name}</span>
-                  <span className="block text-[11px] text-muted-foreground">
-                    {format(new Date(c.recorded_at), 'HH:mm')}{c.session_label ? ` · ${c.session_label}` : ''}
+              <li key={c.id} className="border-b pb-1.5 last:border-0">
+                <button type="button"
+                  onClick={() => setEntryTarget({ itemName: c.dish_name, existingCheck: c })}
+                  className="w-full flex items-center justify-between gap-2 text-sm text-left rounded-lg px-1.5 py-1 -mx-1.5 min-h-[44px] touch-manipulation hover:bg-accent"
+                  title="Tap to edit this reading">
+                  <span className="min-w-0">
+                    <span className="block font-medium truncate">{c.dish_name}</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      {format(new Date(c.recorded_at), 'HH:mm')}{c.session_label ? ` · ${c.session_label}` : ''}
+                    </span>
                   </span>
-                </span>
-                <Badge ok={c.is_within_range}>{c.core_temp_c}°C</Badge>
+                  <Badge ok={c.is_within_range}>{c.core_temp_c}°C</Badge>
+                </button>
               </li>
             ))}
           </ul>
