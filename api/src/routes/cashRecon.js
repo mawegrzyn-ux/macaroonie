@@ -50,6 +50,7 @@
 // Weekly wages:
 //   GET    /:venueId/cash-recon/wages/:week_start
 //   PUT    /:venueId/cash-recon/wages/:week_start
+//   POST   /:venueId/cash-recon/wages/:week_start/set-default
 //   POST   /:venueId/cash-recon/wages/:week_start/submit
 //   POST   /:venueId/cash-recon/wages/:week_start/unsubmit
 
@@ -428,7 +429,7 @@ export default async function cashReconRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
-      const [income_sources, payment_channels, sc_sources, staff, expense_categories, venueSettingsRows] = await Promise.all([
+      const [income_sources, payment_channels, sc_sources, staff, expense_categories, venueSettingsRows, wage_defaults] = await Promise.all([
         tx`
           SELECT * FROM cash_income_sources
            WHERE venue_id  = ${venueId}
@@ -465,10 +466,19 @@ export default async function cashReconRoutes(app) {
            WHERE venue_id  = ${venueId}
              AND tenant_id = ${req.tenantId}
         `,
+        tx`
+          SELECT d.staff_id, d.entry_type, d.sort_order,
+                 s.name AS staff_name, s.default_rate AS staff_default_rate
+            FROM cash_wage_defaults d
+            JOIN cash_staff s ON s.id = d.staff_id
+           WHERE d.venue_id  = ${venueId}
+             AND d.tenant_id = ${req.tenantId}
+           ORDER BY d.sort_order
+        `,
       ])
 
       const venue_settings = venueSettingsRows[0] ?? { allow_bulk_submit: false }
-      return { income_sources, payment_channels, sc_sources, staff, expense_categories, venue_settings }
+      return { income_sources, payment_channels, sc_sources, staff, expense_categories, venue_settings, wage_defaults }
     })
   })
 
@@ -1121,7 +1131,8 @@ export default async function cashReconRoutes(app) {
       const [wageReport] = await tx`
         SELECT wr.id,
                wr.status,
-               COALESCE(SUM(we.total), 0) AS total_wages
+               COALESCE(SUM(we.total), 0) AS total_wages,
+               COALESCE(SUM(we.cash_amount), 0) AS total_cash_wages
           FROM cash_wage_reports wr
           LEFT JOIN cash_wage_entries we ON we.wage_report_id = wr.id AND we.tenant_id = wr.tenant_id
          WHERE wr.venue_id   = ${venueId}
@@ -1131,8 +1142,8 @@ export default async function cashReconRoutes(app) {
       `
 
       const wages = wageReport
-        ? { status: wageReport.status, total_wages: Number(wageReport.total_wages) }
-        : { status: null, total_wages: 0 }
+        ? { status: wageReport.status, total_wages: Number(wageReport.total_wages), total_cash_wages: Number(wageReport.total_cash_wages) }
+        : { status: null, total_wages: 0, total_cash_wages: 0 }
 
       return { days, wages }
     })
@@ -1198,7 +1209,8 @@ export default async function cashReconRoutes(app) {
 
       const [wages] = await tx`
         SELECT wr.status,
-               COALESCE(SUM(we.total), 0) AS total_wages
+               COALESCE(SUM(we.total), 0) AS total_wages,
+               COALESCE(SUM(we.cash_amount), 0) AS total_cash_wages
           FROM cash_wage_reports wr
           LEFT JOIN cash_wage_entries we
                  ON we.wage_report_id = wr.id AND we.tenant_id = ${req.tenantId}
@@ -1232,8 +1244,9 @@ export default async function cashReconRoutes(app) {
         dates,
         open_dates:   openDates,
         days,
-        wages_total:  wages ? String(wages.total_wages) : null,
-        wages_status: wages?.status ?? null,
+        wages_total:      wages ? String(wages.total_wages) : null,
+        wages_cash_total: wages ? String(wages.total_cash_wages) : null,
+        wages_status:     wages?.status ?? null,
       }
     })
   })
@@ -1754,6 +1767,60 @@ export default async function cashReconRoutes(app) {
       }
 
       return loadWageReport(tx, req.tenantId, report.id)
+    })
+  })
+
+  // POST /:venueId/cash-recon/wages/:week_start/set-default
+  // Persists the given staff/entry_type list as the venue's default wage list
+  // — future weeks with no saved entries auto-populate from this instead of
+  // the full active-staff roster. Ad-hoc (staff_id-less) entries are skipped:
+  // there's no stable identity to match them against in a future week.
+  app.post('/:venueId/cash-recon/wages/:week_start/set-default', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req) => {
+    const { venueId } = req.params
+    const body = z.object({
+      entries: z.array(z.object({
+        staff_id:   UUID.nullable().optional(),
+        entry_type: z.enum(['hourly', 'fixed']).default('fixed'),
+      })).default([]),
+    }).parse(req.body)
+
+    return withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+
+      await tx`
+        DELETE FROM cash_wage_defaults
+         WHERE venue_id  = ${venueId}
+           AND tenant_id = ${req.tenantId}
+      `
+
+      const withStaff = body.entries.filter(e => e.staff_id)
+      if (withStaff.length > 0) {
+        await tx`
+          INSERT INTO cash_wage_defaults ${tx(withStaff.map((e, i) => ({
+            tenant_id:  req.tenantId,
+            venue_id:   venueId,
+            staff_id:   e.staff_id,
+            entry_type: e.entry_type ?? 'fixed',
+            sort_order: i,
+          })))}
+          ON CONFLICT (venue_id, staff_id) DO UPDATE
+            SET entry_type = EXCLUDED.entry_type,
+                sort_order = EXCLUDED.sort_order,
+                updated_at = now()
+        `
+      }
+
+      return tx`
+        SELECT d.staff_id, d.entry_type, d.sort_order,
+               s.name AS staff_name, s.default_rate AS staff_default_rate
+          FROM cash_wage_defaults d
+          JOIN cash_staff s ON s.id = d.staff_id
+         WHERE d.venue_id  = ${venueId}
+           AND d.tenant_id = ${req.tenantId}
+         ORDER BY d.sort_order
+      `
     })
   })
 

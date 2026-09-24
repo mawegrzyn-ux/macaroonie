@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — Wages UX overhaul + cash-only net balance] *(migration 093)*
+
+### Wages page redesign
+- Each staff wage entry rebuilt from 4 stacked blocks into a single compact grid row: Staff / Type / Hours / Rate / Total / Cash paid / Notes / Remove.
+- New "Set as default" action saves the current week's staff list (who's included, and their Fixed/Hourly setting) as the venue's default — future weeks with no saved entries auto-populate from that list instead of the full active-staff roster.
+- Removed the "Load template" button and its confirmation popup (violated the app's no-native-popups rule) — replaced by the non-destructive "Set as default".
+
+### Cash-only net balance
+- Cash recon's net-position calculation now subtracts only the cash-paid portion of wages (`cash_amount`), not the full wage cost — a wage paid partly or fully by bank transfer no longer drags down the cash net position.
+- A flag now appears wherever wages are shown in the recon view whenever a week's total wages don't match the cash-paid amount.
+
+---
+
 ## [2026-09-24 — Navigation designer, quick-access launcher, H&S Action Log, food-safety polish] *(migrations 091 + 092)*
 
 ### Navigation designer + quick-access launcher *(migration 091)*
