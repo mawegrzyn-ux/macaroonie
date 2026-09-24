@@ -109,6 +109,27 @@ export function applyTheme(hex) {
   document.documentElement.style.setProperty('--primary-foreground', fgForHex(hex))
 }
 
+// Write --site-{role} CSS variables from the tenant's PUBLIC WEBSITE brand
+// theme (tenant_site.theme.colors, via GET /api/me's `site_theme`). This is
+// deliberately a separate namespace from --primary/--accent (the operator's
+// own admin-portal colour pick in Settings, and the existing neutral
+// hover-state --accent used by hover:bg-accent everywhere) — it exists so
+// record-heavy admin pages (Cash Recon's section cards, etc.) can borrow the
+// tenant's own brand colour for visual structure without repainting every
+// hover surface in the app. `site_theme` always has a value (head.eta's own
+// defaults) even for tenants who've never touched the Website builder.
+export function applySiteTheme(siteTheme) {
+  if (!siteTheme) return
+  const root = document.documentElement.style
+  for (const role of ['primary', 'accent', 'background', 'surface', 'text', 'muted', 'border']) {
+    const hex = siteTheme[role]
+    if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) continue
+    root.setProperty(`--site-${role}`, hex)
+    root.setProperty(`--site-${role}-fg`, `hsl(${fgForHex(hex)})`)
+  }
+  if (siteTheme.accent) root.setProperty('--site-accent-soft', hexToRgba(siteTheme.accent, 0.16))
+}
+
 // Write --status-{name}-bg and --status-{name}-bd CSS variables for each status.
 // The CSS vars are consumed by .timeline-slot.{status} rules in index.css.
 export function applyStatusColours(colours) {
