@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 
 const SECTIONS = [
   { id: 'getting-started',     label: 'Getting Started' },
+  { id: 'overview',            label: 'The Overview Page' },
   { id: 'venues',              label: 'Managing Venues' },
   { id: 'tables',              label: 'Tables & Combinations' },
   { id: 'schedule',            label: 'Setting Your Schedule' },
@@ -130,6 +131,58 @@ export default function Help() {
                 </div>
               ))}
             </div>
+          </section>
+
+          {/* ── OVERVIEW PAGE ─────────────────────────────── */}
+          <section id="overview" data-help="">
+            <H2>The Overview Page</H2>
+            <P>
+              <strong>Overview</strong> (the home page, sidebar nav) is built from tiles — Quick
+              access shortcuts, today's stats, upcoming bookings, venue status, and (if your
+              owner has added them) H&amp;S status tiles. An owner or admin can click
+              <strong> Customise layout</strong> to add, remove, resize, reorder, and set which
+              roles can see each tile.
+            </P>
+            <H3>Available tiles</H3>
+            <DataTable
+              head={['Tile', 'Shows']}
+              rows={[
+                ['Quick access shortcuts', 'Your own personal shortcut picker (see the info box below).'],
+                ['Today\'s stats', 'Bookings today, covers today, deposit revenue, upcoming today.'],
+                ['Upcoming bookings', 'Today\'s remaining bookings from now, soonest first.'],
+                ['Venues status', 'One card per venue with an active/inactive dot and table count.'],
+                ['H&S checks today', 'Combined Checklists + Food safety status for today, across all venues, with a per-venue breakdown.'],
+                ['Week\'s H&S status', 'The same status as a Monday-to-Sunday strip for the current week — one coloured cell per day.'],
+              ]}
+            />
+            <H3>H&amp;S status colours</H3>
+            <DataTable
+              head={['Colour', 'Meaning']}
+              rows={[
+                ['Green', 'Everything due today is complete, with no unresolved out-of-range readings.'],
+                ['Amber', 'Some checks are done, some aren\'t yet.'],
+                ['Red', 'Either nothing has been done yet, or there\'s an out-of-range reading (temperature, hold, or cooking check) still missing a corrective action — that always takes priority over the completion count.'],
+                ['Grey', 'Nothing is due or configured for that day.'],
+              ]}
+            />
+            <P>
+              The status combines Checklists (every active checklist counts, regardless of its
+              daily/weekly/monthly frequency — see the Checklists section) with Food safety
+              (equipment and hold temperature checks against their configured capture times, and
+              cooking-check sessions against their required item count).
+            </P>
+            <H3>Per-role visibility</H3>
+            <P>
+              In edit mode, each tile shows a <strong>Visible to all</strong> / <strong>Hidden
+              from N</strong> button — click it to untick specific roles. A hidden tile simply
+              doesn't appear for anyone in that role; there's no partial/blurred state.
+            </P>
+            <InfoBox type="info">
+              The <strong>Quick access</strong> tile is different from the Overview's own tile
+              layout: an admin decides whether the tile appears at all (and for which roles), but
+              each person still personalises which shortcuts show up inside it, from a fixed
+              catalog — that part is unrelated to tile layout permissions.
+            </InfoBox>
           </section>
 
           {/* ── VENUES ────────────────────────────────────── */}
@@ -1307,7 +1360,7 @@ export default function Help() {
             </P>
             <InfoBox type="info">
               This is a different feature from the small <strong>Quick access</strong> widget on the
-              Dashboard page, which is a separate, always-available set of shortcuts each person
+              Overview page, which is a separate, always-available set of shortcuts each person
               picks for themselves from a fixed list — unrelated to the restaurant-wide Navigation
               designer described here.
             </InfoBox>
@@ -2061,7 +2114,7 @@ export default function Help() {
               ]}
             />
             <P>
-              Always-on (no toggle): Dashboard, Team, Settings, Documentation. These are core
+              Always-on (no toggle): Overview, Team, Settings, Documentation. These are core
               to running the platform itself.
             </P>
 

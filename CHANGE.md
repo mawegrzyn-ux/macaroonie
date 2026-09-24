@@ -5,7 +5,7 @@ Migrations are listed where a database change is required.
 
 ---
 
-## [2026-09-24 — Navigation designer, quick-access launcher, H&S Action Log, food-safety polish] *(migrations 091 + 092)*
+## [2026-09-24 — Navigation designer, quick-access launcher, H&S Action Log, Overview tiles, food-safety polish] *(migrations 091 + 092 + 093)*
 
 ### Navigation designer + quick-access launcher *(migration 091)*
 - Replaces the previously-hardcoded sidebar (`NAV_SECTIONS` in `AppShell.jsx`) with an admin-configurable, arbitrary-depth nav tree per tenant (`nav_items`, self-referencing `parent_id`), with per-role visibility on top of the existing module-permission gating.
@@ -20,6 +20,12 @@ Migrations are listed where a database change is required.
 - Not date-scoped like the other food-safety checks: an item stays open across days until ticked complete, recording who and when.
 - Photo attachments via the existing Media library (no new upload path).
 - New `/hs-action-log` admin page, and also available as an `action_log` widget on the H&S Dashboard.
+
+### Dashboard renamed "Overview" + tile system *(migration 093)*
+- The home page is renamed "Overview" and rebuilt as a tile layout — the four sections that used to be fixed (Quick access shortcuts, today's stats, upcoming bookings, venues status) are now tiles, in their original order, so nobody's home page changes shape on deploy.
+- An owner/admin clicks "Customise layout" to add, remove, reorder, and resize tiles, and to set which roles can see each one.
+- Two new tile types: **H&S checks today** (combined Checklists + Food safety completion status for today, across all venues, red/amber/green/grey) and **Week's H&S status** (the same, as a Monday–Sunday 7-day strip).
+- No new module — gated by the existing Overview (formerly "Dashboard") module.
 
 ### Food safety / H&S Dashboard polish
 - Drag-to-reorder added to the Equipment and Hold-stations management lists in Food safety.

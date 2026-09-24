@@ -26,7 +26,7 @@ import { seedDefaultNav } from '../config/defaultNav.js'
 // or pick a different one (e.g. to gate an item more/less strictly than
 // its page's own default guard).
 const ROUTE_CATALOG = [
-  { route: '/', label: 'Dashboard', icon: 'LayoutDashboard', module: 'dashboard' },
+  { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },
   { route: '/bookings', label: 'Bookings', icon: 'BookOpen', module: 'bookings' },
   { route: '/customers', label: 'Customers', icon: 'UserRound', module: 'customers' },

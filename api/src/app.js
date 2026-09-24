@@ -45,6 +45,7 @@ import foodSafetyRoutes      from './routes/foodSafety.js'
 import checklistsRoutes      from './routes/checklists.js'
 import hsDashboardsRoutes    from './routes/hsDashboards.js'
 import hsActionLogRoutes     from './routes/hsActionLog.js'
+import dashboardTilesRoutes  from './routes/dashboardTiles.js'
 import legacyImportRoutes    from './routes/legacyImport.js'
 import navRoutes             from './routes/nav.js'
 
@@ -186,6 +187,7 @@ export async function buildApp() {
   await app.register(checklistsRoutes,       { prefix: '/api/checklists' })
   await app.register(hsDashboardsRoutes,     { prefix: '/api/hs-dashboards' })
   await app.register(hsActionLogRoutes,      { prefix: '/api/hs-action-log' })
+  await app.register(dashboardTilesRoutes,   { prefix: '/api/dashboard-tiles' })
   await app.register(legacyImportRoutes,     { prefix: '/api/legacy-import' })
   await app.register(navRoutes,              { prefix: '/api/nav' })
   await app.register(manageBookingRoutes, { prefix: '/manage' })
