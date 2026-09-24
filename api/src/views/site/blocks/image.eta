@@ -4,8 +4,11 @@ const widthMap = { narrow: 600, normal: 900, wide: 1200, full: null }
 const maxW = widthMap[d.max_width || 'normal']
 const align = d.align === 'left' ? 'flex-start' : d.align === 'right' ? 'flex-end' : 'center'
 const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
-const padMap = { 1: '16px', 2: '24px', 3: '40px', 4: '64px', 5: '96px' }
-const pad = padMap[d.boxed_step] || 'var(--boxed-pad, 24px)'
+const boxedSteps = (it.config && it.config.theme && it.config.theme.spacing && it.config.theme.spacing.boxed_steps && it.config.theme.spacing.boxed_steps.length === 5)
+  ? it.config.theme.spacing.boxed_steps
+  : [{ value: 16, unit: 'px' }, { value: 24, unit: 'px' }, { value: 40, unit: 'px' }, { value: 64, unit: 'px' }, { value: 96, unit: 'px' }]
+const boxedStepCfg = boxedSteps[Number(d.boxed_step) - 1] || boxedSteps[1]
+const pad = d.boxed_step ? (boxedStepCfg.value + (boxedStepCfg.unit || 'px')) : 'var(--boxed-pad, 24px)'
 const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 ' + pad + ';'
   : 'max-width:' + cw + '; margin:0 auto; padding:0 ' + pad + ';'

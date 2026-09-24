@@ -4,7 +4,7 @@
 // the two in sync — when a knob is added on the public side, add it
 // here too.
 
-import { boxedPadPx, DEFAULT_BOXED_STEP, DEFAULT_CONTAINER_MAX_PX } from '../boxedLayout'
+import { boxedPadCss, setBoxedSteps, DEFAULT_BOXED_STEP, DEFAULT_BOXED_STEPS, DEFAULT_CONTAINER_MAX_PX } from '../boxedLayout'
 
 const GOOGLE_FONTS = new Set([
   'Inter', 'Playfair Display', 'Poppins', 'Lora', 'Montserrat', 'Roboto', 'Open Sans',
@@ -39,13 +39,19 @@ export function resolveTheme(config) {
   const lineHeight  = typography.line_height    || 1.5
   const letterSp    = typography.letter_spacing || 'normal'
 
+  const boxedSteps = (Array.isArray(spacing.boxed_steps) && spacing.boxed_steps.length === DEFAULT_BOXED_STEPS.length)
+    ? spacing.boxed_steps : DEFAULT_BOXED_STEPS
+  // Make the tenant's real step values visible to per-block boxed_step
+  // overrides computed elsewhere in the canvas (see boxedLayout.js).
+  setBoxedSteps(boxedSteps)
+
   const containerMax = spacing.container_max_px    || DEFAULT_CONTAINER_MAX_PX
   const boxedStep    = spacing.boxed_step          || DEFAULT_BOXED_STEP
-  const boxedPad     = boxedPadPx(boxedStep)
+  const boxedPad     = boxedPadCss(boxedStep)
   // Mobile-portrait override — null means "same as default" (no override
   // emitted). Only the theme-level default has this override; per-block
   // boxed_step overrides stay fixed at all sizes.
-  const boxedPadMobile = spacing.boxed_step_mobile ? boxedPadPx(spacing.boxed_step_mobile) : null
+  const boxedPadMobile = spacing.boxed_step_mobile ? boxedPadCss(spacing.boxed_step_mobile) : null
   const sectionY     = spacing.section_y_px        || 72
   const sectionYMob  = spacing.section_y_mobile_px || 48
   const gap          = spacing.gap_px              || 24
@@ -74,7 +80,7 @@ export function resolveTheme(config) {
   return {
     primary, accent, background, surface, textColor, mutedColor, border,
     headingFont, bodyFont, baseSize, hScale, hWeight, bWeight, lineHeight, letterSp,
-    containerMax, boxedStep, boxedPad, boxedPadMobile, sectionY, sectionYMob, gap,
+    containerMax, boxedStep, boxedPad, boxedPadMobile, boxedSteps, sectionY, sectionYMob, gap,
     rSm, rMd, rLg,
     logoH,
     btnR, btnPy, btnPx, btnW,

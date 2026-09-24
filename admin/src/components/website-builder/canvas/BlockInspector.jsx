@@ -6,10 +6,12 @@ import {
   BLOCK_BY_KEY, CONTAINER_OPTIONS, NO_CONTAINER_BLOCKS, DEFAULT_CONTAINER,
   sanitizeAnchorId, ANCHOR_FALLBACK,
 } from '../blockRegistry'
-import { BOXED_STEPS } from '../boxedLayout'
+import { BOXED_STEPS, DEFAULT_BOXED_STEPS } from '../boxedLayout'
 import { FormRow } from '../shared'
 
-export function BlockInspector({ block, onChange, onClose, onJumpTo }) {
+export function BlockInspector({ block, onChange, onClose, onJumpTo, boxedSteps }) {
+  const steps = (Array.isArray(boxedSteps) && boxedSteps.length === DEFAULT_BOXED_STEPS.length)
+    ? boxedSteps : DEFAULT_BOXED_STEPS
   useEffect(() => {
     function onKey(e) { if (e.key === 'Escape') onClose?.() }
     window.addEventListener('keydown', onKey)
@@ -76,14 +78,18 @@ export function BlockInspector({ block, onChange, onClose, onJumpTo }) {
                       !boxedStep ? 'bg-primary/10 border-primary text-primary font-medium' : 'hover:bg-accent'}`}>
                     Theme
                   </button>
-                  {BOXED_STEPS.map(s => (
-                    <button key={s.value} type="button" title={s.hint}
-                      onClick={() => setBoxedStep(s.value)}
-                      className={`text-xs border rounded-md py-2 min-h-[36px] ${
-                        Number(boxedStep) === s.value ? 'bg-primary/10 border-primary text-primary font-medium' : 'hover:bg-accent'}`}>
-                      {s.label}
-                    </button>
-                  ))}
+                  {BOXED_STEPS.map(s => {
+                    const cfg = steps[s.value - 1]
+                    return (
+                      <button key={s.value} type="button" title={`${s.hint} — ${cfg.value}${cfg.unit}`}
+                        onClick={() => setBoxedStep(s.value)}
+                        className={`text-xs border rounded-md py-2 min-h-[36px] leading-tight ${
+                          Number(boxedStep) === s.value ? 'bg-primary/10 border-primary text-primary font-medium' : 'hover:bg-accent'}`}>
+                        <span className="block">{s.label}</span>
+                        <span className="block text-[9px] text-muted-foreground">{cfg.value}{cfg.unit}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               </FormRow>
             )}

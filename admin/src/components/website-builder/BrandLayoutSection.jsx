@@ -6,13 +6,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { BrandLayoutFields } from './BrandLayoutFields'
-import { DEFAULT_BOXED_STEP, DEFAULT_CONTAINER_MAX_PX } from './boxedLayout'
+import { DEFAULT_BOXED_STEP, DEFAULT_BOXED_STEPS, DEFAULT_CONTAINER_MAX_PX } from './boxedLayout'
 
 function mergeSpacing(existing) {
   return {
     container_max_px: existing?.container_max_px ?? DEFAULT_CONTAINER_MAX_PX,
     boxed_step:       existing?.boxed_step ?? DEFAULT_BOXED_STEP,
     boxed_step_mobile: existing?.boxed_step_mobile ?? null,
+    boxed_steps: (Array.isArray(existing?.boxed_steps) && existing.boxed_steps.length === DEFAULT_BOXED_STEPS.length)
+      ? existing.boxed_steps
+      : DEFAULT_BOXED_STEPS.map(s => ({ ...s })),
     section_y_px:     existing?.section_y_px ?? 72,
     section_y_mobile_px: existing?.section_y_mobile_px ?? 48,
     gap_px:           existing?.gap_px ?? 24,

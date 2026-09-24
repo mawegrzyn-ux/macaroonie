@@ -19,6 +19,7 @@ import {
 import { useApi } from '@/lib/api'
 import { newBlock, PAGE_TEMPLATES } from './blockRegistry'
 import { ThemeFrame }     from './canvas/ThemeFrame'
+import { resolveTheme }   from './canvas/themeResolver'
 import { BlockInserter }  from './canvas/BlockInserter'
 import { BlockInspector } from './canvas/BlockInspector'
 import { BlockNode }      from './canvas/BlockNode'
@@ -377,6 +378,12 @@ export function PageBuilder({
 
   // The current style pack — picked via "Templates" button. Drives the
   // server-rendered header/footer/decorations on the live site.
+  // Tenant's actual boxed-inset step values, so the inspector's per-block
+  // override picker can show real values (e.g. "20px" / "5%") instead of
+  // the generic 1-5 labels. ThemeFrame resolves the same theme for the
+  // canvas CSS vars — this is a second, cheap resolve just for the array.
+  const boxedSteps = useMemo(() => resolveTheme(config).boxedSteps, [config])
+
   const templateKey = config?.template_key || 'classic'
   const TEMPLATE_LABELS = { classic: 'Classic', modern: 'Modern', onethai: 'Onethai' }
   const templateLabel = TEMPLATE_LABELS[templateKey] || templateKey
@@ -516,6 +523,7 @@ export function PageBuilder({
             onChange={(next) => replace(selectedBlock.id, next)}
             onClose={() => setInspectorOpen(false)}
             onJumpTo={onJumpTo}
+            boxedSteps={boxedSteps}
           />
         )}
       </div>
