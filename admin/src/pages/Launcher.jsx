@@ -117,6 +117,13 @@ export default function Launcher() {
           <p className="text-xs text-muted-foreground">Your shortcuts — drag to reorder, hide what you don't need</p>
         </div>
         <div className="flex items-center gap-2">
+          {canManageNav && me?.current_tenant?.nav_style === 'launcher' && (
+            <button onClick={() => setStyle.mutate('sidebar')} disabled={setStyle.isPending}
+              title="Bring back the full sidebar menu for everyone in this tenant"
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground touch-manipulation min-h-[40px] px-3 py-2 rounded-md border hover:bg-accent hover:text-foreground disabled:opacity-50">
+              <PanelLeft className="w-3.5 h-3.5" /> Back to full menu
+            </button>
+          )}
           {editMode ? (
             <button onClick={() => setEditMode(false)}
               className="inline-flex items-center gap-1.5 text-sm font-medium text-primary touch-manipulation min-h-[40px] px-3 py-2 rounded-md hover:bg-primary/10">
@@ -147,12 +154,6 @@ export default function Launcher() {
                     className="inline-flex items-center gap-1.5 text-sm font-medium text-primary touch-manipulation min-h-[40px] px-3 py-2">
                     <Compass className="w-4 h-4" /> Open Navigation designer
                   </button>
-                  {me?.current_tenant?.nav_style === 'launcher' && (
-                    <button onClick={() => setStyle.mutate('sidebar')} disabled={setStyle.isPending}
-                      className="inline-flex items-center gap-1.5 text-sm font-medium border rounded-md px-3 py-2 min-h-[40px] touch-manipulation hover:bg-accent disabled:opacity-50">
-                      <PanelLeft className="w-4 h-4" /> Switch back to sidebar
-                    </button>
-                  )}
                 </div>
               )}
             </div>
