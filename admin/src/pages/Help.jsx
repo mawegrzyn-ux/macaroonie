@@ -154,7 +154,7 @@ export default function Help() {
                 ['Today\'s stats', 'Bookings today, covers today, deposit revenue, upcoming today.'],
                 ['Upcoming bookings', 'Today\'s remaining bookings from now, soonest first.'],
                 ['Venues status', 'One card per venue with an active/inactive dot and table count.'],
-                ['H&S checks today', 'Combined Checklists + Food safety status for today, across all venues, with a per-venue breakdown.'],
+                ['H&S checks today', 'Combined Checklists + Food safety status for today. Below the overall badge, every checklist is listed by name (done/not done), plus one line each for fridge/freezer checks, hot/cold hold checks, and cooking checks (only the categories you actually have configured) — grouped by venue if you have more than one.'],
                 ['Week\'s H&S status', 'The same status as a Monday-to-Sunday strip for the current week — one coloured cell per day.'],
               ]}
             />
@@ -1082,10 +1082,10 @@ export default function Help() {
             <P>
               Open any day to declare it. Each section (<strong>Income</strong>,{' '}
               <strong>Service Charges &amp; Tips</strong>, <strong>Takings</strong>) is a card
-              with a coloured header and footer band using your website's brand accent colour, so
-              the sections stay visually distinct as you scroll a long page of figures — the
-              footer band shows that section's running total. Every figure autosaves as you type;
-              there's no separate Save button.
+              with a coloured header band using your website's brand accent colour, so the
+              sections stay visually distinct as you scroll a long page of figures — a plain
+              footer band below each section's figures shows its running total. Every figure
+              autosaves as you type; there's no separate Save button.
             </P>
             <H3>Week view / spreadsheet view</H3>
             <P>
@@ -1202,6 +1202,15 @@ export default function Help() {
               who completed it and at what time — useful for shift handover and due-diligence
               records.
             </InfoBox>
+            <H3>Made a mistake? Reopen it</H3>
+            <P>
+              A completed checklist can be reopened so items can be re-ticked or corrected. On the
+              Checklists page, tap <strong>Reopen this checklist</strong> under a completed
+              checklist and confirm. On the H&amp;S Dashboard, tap the green{' '}
+              <strong>Complete</strong> badge in a checklist widget's header, then confirm{' '}
+              <strong>Yes, reopen</strong>. Reopening clears who/when it was completed by — it
+              goes back to showing as not-yet-done until someone completes it again.
+            </P>
           </section>
 
           {/* ── H&S DASHBOARD ─────────────────────────────── */}
@@ -1211,7 +1220,9 @@ export default function Help() {
               The <strong>H&amp;S Dashboard</strong> page (sidebar nav) lets you build your own
               screen combining any mix of checklists and food-safety check widgets behind a single
               date navigator — useful for a kitchen-pass tablet showing "everything due right
-              now" without switching between the Food safety and Checklists pages.
+              now" without switching between the Food safety and Checklists pages. Each widget's
+              header uses your website's brand accent colour, same as Cash Reconciliation's
+              section cards.
             </P>
             <H3>Dashboards and widgets</H3>
             <P>
@@ -1262,6 +1273,9 @@ export default function Help() {
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
               over time — it's a home screen of tiles, one per available mobile module.
+              <strong> Expenses</strong> is the second one: log a petty cash expense and snap a
+              photo of the receipt with your phone's camera, without opening the full Cash
+              Reconciliation page.
             </P>
             <InfoBox type="tip">
               This is the same login and the same restaurant data as the desktop admin portal —

@@ -1495,12 +1495,19 @@ export default async function cashReconRoutes(app) {
   // ────────────────────────────────────────────────────────────
 
   // POST /:venueId/cash-recon/expenses
+  // Takes `date`, not `report_id` — the daily report for that venue/date
+  // is found-or-created here (same upsert the daily PUT handler's header
+  // insert does), so callers never need to know a report id up front.
+  // This is the endpoint used by both the desktop "Add expense" modal and
+  // the mobile Expenses page — a single expense at a time, safe to call
+  // without risk of clobbering that day's income/takings/SC entries (unlike
+  // PUT daily/:date, which replaces those wholesale from the request body).
   app.post('/:venueId/cash-recon/expenses', {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId } = req.params
-    const { report_id, description, category, category_id, amount, notes } = z.object({
-      report_id:   z.string().uuid(),
+    const { date, description, category, category_id, amount, notes } = z.object({
+      date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       description: z.string().min(1).max(500),
       category:    z.string().max(100).nullable().optional(),
       category_id: UUID.nullable().optional(),
@@ -1511,19 +1518,21 @@ export default async function cashReconRoutes(app) {
     const [row] = await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
-      // Verify the report belongs to this tenant + venue
       const [report] = await tx`
-        SELECT id FROM cash_daily_reports
-         WHERE id        = ${report_id}
-           AND venue_id  = ${venueId}
-           AND tenant_id = ${req.tenantId}
+        INSERT INTO cash_daily_reports (tenant_id, venue_id, report_date)
+        VALUES (${req.tenantId}, ${venueId}, ${date}::date)
+        ON CONFLICT (tenant_id, venue_id, report_date) DO UPDATE
+          SET updated_at = now()
+        RETURNING *
       `
-      if (!report) throw httpError(404, 'Daily report not found')
+      if (report.status === 'submitted') {
+        throw httpError(422, 'Cannot add an expense to a submitted report — unsubmit first')
+      }
 
       return tx`
         INSERT INTO cash_expenses
                (tenant_id, report_id, description, category, category_id, amount, notes)
-        VALUES (${req.tenantId}, ${report_id}, ${description},
+        VALUES (${req.tenantId}, ${report.id}, ${description},
                 ${category ?? null}, ${category_id ?? null}, ${amount}, ${notes ?? null})
         RETURNING *
       `

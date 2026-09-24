@@ -51,15 +51,17 @@ function todayStr() {
 
 // ── Shared UI primitives ─────────────────────────────────────────────────────
 
-// Header/footer bars use the tenant's own website brand accent colour
-// (see SettingsContext.applySiteTheme, sourced from GET /api/me's
-// site_theme) so record-heavy sections read as clearly divided cards
-// instead of blending into one grey wall of inputs. Falls back to the
-// site's default accent (#f4a7b9) if the tenant hasn't customised their
-// theme, so it never looks unstyled.
+// The header bar uses the tenant's own website brand accent colour (see
+// SettingsContext.applySiteTheme, sourced from GET /api/me's site_theme)
+// so record-heavy sections read as clearly divided cards instead of
+// blending into one grey wall of inputs. Falls back to the site's default
+// accent (#f4a7b9) if the tenant hasn't customised their theme, so it
+// never looks unstyled. The footer (when present) is deliberately plain —
+// an earlier version coloured it to match the header, but that read as
+// too heavy/repetitive for a running total row.
 function SectionCard({ title, children, action, footer }) {
   return (
-    <div className="rounded-2xl border shadow-sm mb-4 overflow-hidden">
+    <div className="rounded-2xl border shadow-sm overflow-hidden">
       <div
         className="px-4 py-3 flex items-center justify-between gap-3"
         style={{ background: 'var(--site-accent-soft, rgba(244,167,185,0.16))', borderBottom: '2px solid var(--site-accent, #f4a7b9)' }}
@@ -69,10 +71,7 @@ function SectionCard({ title, children, action, footer }) {
       </div>
       <div className="p-4 bg-card">{children}</div>
       {footer && (
-        <div
-          className="px-4 py-3 flex items-center justify-between gap-3 text-sm font-semibold"
-          style={{ background: 'var(--site-accent-soft, rgba(244,167,185,0.16))', borderTop: '2px solid var(--site-accent, #f4a7b9)' }}
-        >
+        <div className="px-4 py-3 flex items-center justify-between gap-3 text-sm font-semibold bg-muted/30 border-t">
           {footer}
         </div>
       )}
@@ -1173,7 +1172,7 @@ function DayView({ venueId, date, onBack }) {
         </div>
       </div>
 
-      <div className="p-4 space-y-0 pb-32">
+      <div className="p-4 space-y-4 pb-32">
 
         {/* Section 1: Income */}
         <SectionCard
@@ -1891,7 +1890,7 @@ function WagesView({ venueId, weekStart, onBack }) {
         </div>
       </div>
 
-      <div className="p-4 space-y-0 pb-32">
+      <div className="p-4 space-y-4 pb-32">
         <SectionCard
           title="Staff Wages"
           action={

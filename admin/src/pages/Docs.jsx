@@ -980,13 +980,25 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Admin theming — SectionCard</H3>
             <P>
               <Mono>SectionCard</Mono> (used by every Cash Recon section — Income, Service
-              Charges &amp; Tips, Takings, Wages, Expenses) has a coloured header bar and an
-              optional <Mono>footer</Mono> prop rendering a matching coloured footer bar, both
+              Charges &amp; Tips, Takings, Wages, Expenses) has a coloured <Mono>header</Mono> bar
               using the <Mono>--site-accent</Mono> CSS variable (see <Mono>/api/me:
-              site_theme</Mono> in the Navigation &amp; Launcher section). The "Total ..." row in
-              each daily-declaration section is passed as <Mono>footer</Mono> rather than trailing
-              off as a plain bordered line inside the card body.
+              site_theme</Mono> in the Navigation &amp; Launcher section). The optional{' '}
+              <Mono>footer</Mono> prop (the "Total ..." row in each daily-declaration section) is
+              deliberately plain (<Mono>bg-muted/30</Mono>, no accent) — an earlier version
+              coloured it to match the header, but two accent bars per card (top and bottom) read
+              as too heavy/repetitive for a running total; header-only is the current design.
             </P>
+            <InfoBox type="warn">
+              <Mono>SectionCard</Mono>'s own <Mono>mb-4</Mono> margin was removed — spacing between
+              stacked cards on the daily-declaration page now comes entirely from{' '}
+              <Mono>space-y-4</Mono> on the page's outer wrapper (it had been{' '}
+              <Mono>space-y-0</Mono>, relying on each card's own margin, which visually produced
+              zero gap between a section's footer and the next section's header — colour-matched
+              accent bars touching directly with no visible seam). Two sources of spacing for the
+              same layout (a component's own margin + a parent's <Mono>space-y</Mono>) is exactly
+              the kind of thing that looks fine until one of the two silently stops applying —
+              pick one mechanism per layout and keep spacing there, not split across both.
+            </InfoBox>
           </section>
 
           {/* ── FOOD SAFETY ───────────────────────────────── */}
@@ -1118,6 +1130,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['admin/src/components/checklists/shared.jsx', 'ChecklistRunPanel — the tick-list UI, reused as-is by both Checklists.jsx and the H&S Dashboard\'s checklist widget. Accepts a hideHeader + onStateChange mode so the host can render its own "Complete" affordance.'],
               ]}
             />
+            <InfoBox type="info">
+              Reopening (<Mono>PUT /instance</Mono> with <Mono>mark_complete: false</Mono>) was
+              already fully implemented in <Mono>ChecklistRunPanel</Mono>'s own full-width footer
+              (used by <Mono>Checklists.jsx</Mono>) — double-confirm, then clears{' '}
+              <Mono>completed_by</Mono>/<Mono>completed_at</Mono> and sets status back to{' '}
+              <Mono>in_progress</Mono>. It was missing from <Mono>hideHeader</Mono> mode (the H&S
+              Dashboard / mobile H&S Dashboard widget card): that mode's{' '}
+              <Mono>onStateChange</Mono> callback only exposed <Mono>markComplete</Mono>, not a
+              reopen action, so a completed widget showed a static badge with no way back. Fixed
+              by adding <Mono>reopen: () =&gt; save.mutate({'{'} markComplete: false {'}'})</Mono>{' '}
+              to that callback's payload; each widget-card host (
+              <Mono>HSDashboard.jsx</Mono>'s <Mono>WidgetCard</Mono>,{' '}
+              <Mono>MobileHSDashboard.jsx</Mono>'s <Mono>MobileWidgetCard</Mono>) manages its own
+              local <Mono>confirmReopen</Mono> boolean and renders the same double-confirm
+              affordance inline in its compact header, since there's no room there for the
+              full-panel's dedicated footer block.
+            </InfoBox>
           </section>
 
           {/* ── H&S DASHBOARD ─────────────────────────────── */}
@@ -1173,6 +1202,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               card. The Overview tile system (<Mono>Dashboard.jsx</Mono>'s <Mono>TileCard</Mono>)
               uses the identical fix for the same reason — see Overview Tiles below.
             </InfoBox>
+            <P>
+              Each widget's header bar uses <Mono>var(--site-accent-soft)</Mono> background /{' '}
+              <Mono>var(--site-accent)</Mono> border, the same theming Cash Reconciliation's{' '}
+              <Mono>SectionCard</Mono> header uses (see the Cash Reconciliation section) — applied
+              inline via <Mono>style</Mono>, not a Tailwind class, since the value comes from a CSS
+              variable set at runtime by <Mono>SettingsContext.applySiteTheme()</Mono>. This only
+              works if something in the current route tree has actually called{' '}
+              <Mono>applySiteTheme()</Mono> — see the Mobile App section for why{' '}
+              <Mono>MobileShell.jsx</Mono> needed its own copy of that fetch-and-apply effect.
+            </P>
           </section>
 
           {/* ── MOBILE APP ────────────────────────────── */}
@@ -1236,6 +1275,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>mobile-pwa-192.png</Mono>, <Mono>mobile-pwa-512.png</Mono>,{' '}
               <Mono>mobile-apple-touch-icon.png</Mono>).
             </InfoBox>
+            <P>
+              <Mono>MobileShell</Mono> also fetches <Mono>GET /me</Mono> and calls{' '}
+              <Mono>applySiteTheme(me.site_theme)</Mono> itself, duplicating the effect{' '}
+              <Mono>AppShell.jsx</Mono> runs for the desktop app. <Mono>/mobile</Mono> never
+              mounts <Mono>AppShell</Mono>, so without this the <Mono>--site-accent</Mono>/{' '}
+              <Mono>--site-primary</Mono> CSS variables would never be set on a session that opens
+              straight into <Mono>/mobile</Mono> (e.g. the installed PWA's own start URL) — any
+              mobile UI that themes itself with those variables (the H&S Dashboard widget headers)
+              would silently show the hardcoded fallback colour instead of the tenant's actual
+              brand accent.
+            </P>
             <H3>Mobile H&amp;S Dashboard</H3>
             <P>
               <Mono>admin/src/pages/mobile/MobileHSDashboard.jsx</Mono> is a parallel
@@ -1267,6 +1317,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               hold up reasonably at phone width without a mobile-specific rewrite. If a future
               mobile module's body component doesn't already reflow this way, redesign that
               component rather than assuming the mobile shell alone will fix it.
+            </InfoBox>
+            <H3>Mobile Expenses</H3>
+            <P>
+              <Mono>admin/src/pages/mobile/MobileExpenses.jsx</Mono> — the second mobile module.
+              Venue picker (if &gt;1) + date button/overlay, a running total for the day, a tap-to-
+              edit list of that day's <Mono>cash_expenses</Mono> rows, and an Add/Edit modal with a
+              category chip picker and a <Mono>capture="environment"</Mono> file input for
+              snapping a receipt photo straight from the phone camera. Reuses the exact same API
+              surface as <Mono>CashRecon.jsx</Mono>'s <Mono>ExpensesSection</Mono> (
+              <Mono>GET config</Mono> for categories, <Mono>GET/POST/PUT/DELETE
+              .../cash-recon/expenses[/:id]</Mono>, <Mono>POST .../expenses/:id/receipt</Mono>) —
+              no new backend surface for this feature beyond the bug fix below. Blocked (no Add
+              button, inline banner instead) when the day's report is already{' '}
+              <Mono>submitted</Mono>, matching what the API now enforces server-side.
+            </P>
+            <InfoBox type="warn">
+              Building this surfaced a live bug in <Mono>POST /:venueId/cash-recon/expenses</Mono>:
+              the Zod schema required a <Mono>report_id</Mono> (a UUID for an existing{' '}
+              <Mono>cash_daily_reports</Mono> row), but <Mono>ExpensesSection.handleAdd()</Mono> —
+              the ONLY caller — has only ever sent <Mono>date</Mono>, never{' '}
+              <Mono>report_id</Mono> (it doesn't have one in scope; see its props). Every "Add
+              expense" click via that inline form has been failing Zod validation (400) since it
+              shipped, silently swallowed by an empty <Mono>catch {'{}'}</Mono>. Fixed by changing
+              the endpoint to take <Mono>date</Mono> and find-or-create the daily report row itself
+              (the same <Mono>INSERT … ON CONFLICT (tenant_id, venue_id, report_date) DO
+              UPDATE … RETURNING *</Mono> upsert <Mono>PUT /daily/:date</Mono> already uses for its
+              header row) — this also blocks adding to a submitted report, matching that PUT's
+              guard. Both the desktop "Add expense" form and the new mobile page call this same,
+              now-working endpoint. Deliberately NOT reusing <Mono>PUT /daily/:date</Mono> itself
+              for single-expense writes — that endpoint replaces the day's income/takings/SC
+              entries wholesale from the request body, so a caller that only wants to add one
+              expense would need to round-trip the entire day's state first to avoid wiping it.
             </InfoBox>
           </section>
 
@@ -1495,6 +1577,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono> is_within_range = false AND corrective_action IS NULL</Mono> — the exact same
               predicate <Mono>EndOfDayReview</Mono> already uses client-side. Deliveries are
               excluded entirely (no "expected count" concept — logged ad hoc).
+            </P>
+            <P>
+              Each venue result also carries a per-check-type breakdown, used by the{' '}
+              <Mono>hs_today_status</Mono> tile's expanded list (not by <Mono>hs_week_status</Mono>,
+              which only shows the day's overall dot): <Mono>checklists: [{'{'}id, name, frequency,
+              completed{'}'}]</Mono> — one entry per active template, checklists don't have an{' '}
+              <Mono>unresolved</Mono> concept so it's a plain done/not-done boolean — and{' '}
+              <Mono>categories: [{'{'}key, label, expected, completed, unresolved, status{'}'}]</Mono>{' '}
+              — one aggregate entry each for equipment/hold/cooking, included only when that
+              category has <Mono>expected &gt; 0</Mono> for the venue (skips clutter for check
+              types the venue hasn't configured). This is computed from data already loaded for the
+              existing expected/completed sums — no extra queries.
             </P>
             <H3>Status derivation</H3>
             <DataTable

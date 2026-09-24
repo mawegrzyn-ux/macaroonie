@@ -129,7 +129,11 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false,
   // full-width button below — hand it what it needs to render that.
   useEffect(() => {
     if (!hideHeader) return
-    onStateChange?.({ isCompleted, isPending: save.isPending, markComplete: () => save.mutate({ markComplete: true }) })
+    onStateChange?.({
+      isCompleted, isPending: save.isPending,
+      markComplete: () => save.mutate({ markComplete: true }),
+      reopen: () => save.mutate({ markComplete: false }),
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hideHeader, isCompleted, save.isPending])
 
