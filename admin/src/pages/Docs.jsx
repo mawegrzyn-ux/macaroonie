@@ -16,6 +16,10 @@ const SECTIONS = [
   { id: 'database',     label: 'Database Schema' },
   { id: 'api',          label: 'API Reference' },
   { id: 'customers',    label: 'Customers & GDPR' },
+  { id: 'food-safety',  label: 'Food Safety Logs' },
+  { id: 'checklists',   label: 'Checklists' },
+  { id: 'hs-dashboard', label: 'H&S Dashboard' },
+  { id: 'navigation',   label: 'Navigation & Launcher' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'services',     label: 'Services & Jobs' },
   { id: 'data-flows',   label: 'Data Flows' },
@@ -918,6 +922,232 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['/api/changelog PATCH /:id/publish', 'platform admin', 'Publish or unpublish a changelog entry.'],
               ]}
             />
+          </section>
+
+          {/* ── FOOD SAFETY ───────────────────────────────── */}
+          <section id="food-safety" data-doc="">
+            <H2>Food Safety Logs</H2>
+            <P>
+              SFBB-style due-diligence logging, per venue and per day. Migration 076 (core
+              tables), 077 (equipment capture times), 090 (hold stations + cooking sessions as
+              their own reorderable/manageable entities rather than fixed enums).
+            </P>
+            <H3>Schema</H3>
+            <DataTable
+              head={['Table', 'Purpose']}
+              rows={[
+                ['fs_equipment', 'Fridges/freezers being monitored. sort_order for drag-reorder.'],
+                ['fs_capture_times', 'Named capture times for equipment checks (e.g. AM/PM) — one column per row in the Equipment grid.'],
+                ['fs_temp_logs', 'One row per equipment reading per capture time per day. Out-of-range readings carry a nullable corrective_action.'],
+                ['fs_delivery_checks', 'One row per delivery logged: supplier, temp, condition, notes.'],
+                ['fs_hold_stations', 'Named hot/cold hold stations (migration 090). sort_order for drag-reorder — replaces an earlier fixed set.'],
+                ['fs_hold_capture_times', 'Named capture times for hold checks, same pattern as fs_capture_times.'],
+                ['fs_hold_checks', 'One row per hold-station reading per capture time per day.'],
+                ['fs_cooking_sessions', 'Named cooking-check sessions (migration 090) — e.g. "Lunch service" — with a required_items_count target.'],
+                ['fs_cooking_checks', 'One row per dish checked: menu_item_id (or a free-text dish_name for off-menu items), core_temp_c, corrective_action.'],
+              ]}
+            />
+            <H3>API</H3>
+            <P>
+              Mounted at <Mono>/api/food-safety</Mono>, gated by <Mono>requirePermission('food_safety', …)</Mono>.
+              Every collection follows the same shape: <Mono>GET</Mono> list for a venue/date,
+              <Mono> POST</Mono> create, <Mono>PATCH</Mono> update by id, plus a
+              <Mono> /reorder</Mono> endpoint for the two drag-reorderable lists
+              (equipment, hold stations). See <Mono>src/routes/foodSafety.js</Mono> for the full
+              route list — it mirrors the schema above one-for-one (equipment, capture-times,
+              temp-logs, deliveries, hold-stations, hold-capture-times, holds, cooking-sessions,
+              cooking, plus a <Mono>GET /defaults</Mono> for the built-in target/min/max per
+              equipment type).
+            </P>
+            <H3>Key files</H3>
+            <DataTable
+              head={['File', 'Purpose']}
+              rows={[
+                ['api/src/routes/foodSafety.js', 'All food-safety routes.'],
+                ['admin/src/pages/FoodSafety.jsx', 'Tabs: Today, Equipment, Deliveries, Holds, Cooking. Deliveries tab is entry-form + current-week list with click-to-edit.'],
+                ['admin/src/components/foodSafety/shared.jsx', 'Shared panels reused by both FoodSafety.jsx and HSDashboard.jsx widgets — TempChecksTable, DeliveryChecksPanel/Board, HoldChecksTable, CookingChecksPanel, EndOfDayReview. One implementation of each check type, not two.'],
+              ]}
+            />
+            <InfoBox type="info">
+              The Cooking tab's menu-category tabs and dish buttons are deliberately styled like
+              till/POS buttons (fixed height, tighter width, distinct <Mono>bg-muted/60</Mono> fill)
+              since this is used mid-service on a tablet, not a form to fill in at a desk.
+            </InfoBox>
+          </section>
+
+          {/* ── CHECKLISTS ────────────────────────────────── */}
+          <section id="checklists" data-doc="">
+            <H2>Checklists</H2>
+            <P>
+              Operator-defined recurring checklists (migration 083) — unlike Food safety, there
+              is no fixed set of built-in checks. Tenants build their own templates with any
+              number of tasks and a daily/weekly/monthly due schedule.
+            </P>
+            <H3>Schema</H3>
+            <DataTable
+              head={['Table', 'Purpose']}
+              rows={[
+                ['checklist_templates', 'One row per checklist definition: name, department, frequency (daily/weekly/monthly), due_day_of_week / due_day_of_month, sort_order.'],
+                ['checklist_template_items', 'Ordered tasks belonging to a template. sort_order for drag-reorder.'],
+                ['checklist_instances', 'One row per template per calendar occurrence (a specific day/week/month) — created on first interaction, not pre-generated. Records completed_by / completed_at.'],
+                ['checklist_instance_items', 'Tick state per instance per template item.'],
+              ]}
+            />
+            <H3>API</H3>
+            <P>
+              Mounted at <Mono>/api/checklists</Mono>, gated by <Mono>requirePermission('checklists', …)</Mono>.
+              <Mono> GET /due</Mono> returns every template due for a venue/date. <Mono>GET
+              /instance</Mono> + <Mono>PUT /instance</Mono> load/save the tick state for one
+              template on one date — the instance row is created lazily on first PUT. Template
+              CRUD and item CRUD/reorder live under <Mono>/templates</Mono> and
+              <Mono> /templates/:id/items</Mono>.
+            </P>
+            <H3>Key files</H3>
+            <DataTable
+              head={['File', 'Purpose']}
+              rows={[
+                ['api/src/routes/checklists.js', 'All checklist routes.'],
+                ['admin/src/pages/Checklists.jsx', 'Two tabs: Today (tick off what\'s due) and Checklists (the template builder).'],
+                ['admin/src/components/checklists/shared.jsx', 'ChecklistRunPanel — the tick-list UI, reused as-is by both Checklists.jsx and the H&S Dashboard\'s checklist widget. Accepts a hideHeader + onStateChange mode so the host can render its own "Complete" affordance.'],
+              ]}
+            />
+          </section>
+
+          {/* ── H&S DASHBOARD ─────────────────────────────── */}
+          <section id="hs-dashboard" data-doc="">
+            <H2>H&amp;S Dashboard</H2>
+            <P>
+              Customisable dashboards (migrations 086–088) combining any mix of checklist and
+              food-safety check widgets behind one date navigator. Deliberately built as a thin
+              layout layer over the existing Food safety / Checklists data and components — there
+              is no separate data model per widget type, just a reference to which
+              template/venue/check-type to render.
+            </P>
+            <H3>Schema</H3>
+            <DataTable
+              head={['Table', 'Purpose']}
+              rows={[
+                ['hs_dashboards', 'One row per named dashboard (shown as a tab). venue_id, name, column_count, sort_order.'],
+                ['hs_dashboard_widgets', 'One row per widget on a dashboard. widget_type enum (checklist / temp_checks / delivery_checks / hold_checks / cooking_checks), checklist_template_id (nullable, only for widget_type=checklist), title_override, col_span, height_px, sort_order.'],
+              ]}
+            />
+            <H3>API</H3>
+            <P>
+              Mounted at <Mono>/api/hs-dashboards</Mono>, gated by <Mono>requirePermission('hs_dashboard', …)</Mono>.
+              CRUD + <Mono>PUT /reorder</Mono> for dashboards, and CRUD + <Mono>PUT
+              /:id/widgets/reorder</Mono> for widgets. Widget resize (col_span, height_px) goes
+              through the same widget <Mono>PATCH</Mono>.
+            </P>
+            <H3>Rendering</H3>
+            <P>
+              <Mono>admin/src/pages/HSDashboard.jsx</Mono> renders each widget by
+              <Mono> widget_type</Mono> using the exact same shared components as the Food safety
+              and Checklists pages (<Mono>ChecklistRunPanel</Mono>, <Mono>TempChecksTable</Mono>,
+              <Mono> DeliveryChecksPanel</Mono>, <Mono>HoldChecksTable</Mono>,
+              <Mono> CookingChecksPanel</Mono>) — one implementation of each check type reused in
+              three places (its own page, this dashboard, and nowhere else). The container is
+              sized to 90% of the panel width (<Mono>w-[90%] mx-auto</Mono>) rather than a fixed
+              <Mono> max-w</Mono> cap, matching the width convention used by other wide admin pages.
+            </P>
+            <InfoBox type="info">
+              The date navigator (prev/next day, Today, click-to-open native date picker) uses a
+              fixed-width label button plus an invisible <Mono>input[type=date]</Mono> overlay —
+              the same "styled button + native picker" pattern used on Timeline and Bookings, not
+              a custom calendar component.
+            </InfoBox>
+          </section>
+
+          {/* ── NAVIGATION & LAUNCHER ─────────────────────── */}
+          <section id="navigation" data-doc="">
+            <H2>Navigation &amp; Launcher</H2>
+            <P>
+              Migration 091 replaces the previously-hardcoded <Mono>NAV_SECTIONS</Mono> array in
+              <Mono> AppShell.jsx</Mono> with an admin-configurable, arbitrary-depth tree per
+              tenant, plus a tenant-wide toggle to swap the sidebar for a quick-access tile
+              launcher instead.
+            </P>
+            <H3>Schema</H3>
+            <DataTable
+              head={['Table / column', 'Purpose']}
+              rows={[
+                ['nav_items', 'Self-referencing tree (parent_id → nav_items.id, ON DELETE CASCADE). kind is \'section\' (pure grouping label, no route) or \'link\' (route required). module ties an item to the existing tenant_modules/tenant_roles permission system. hidden_role_ids uuid[] is an ADDITIONAL hide on top of module gating. show_in_launcher + launcher_sort_order mark items that also appear as quick-access tiles.'],
+                ['tenants.nav_style', "'sidebar' (default) or 'launcher' — tenant-wide, toggled via PATCH /api/nav/style."],
+              ]}
+            />
+            <H3>API — /api/nav</H3>
+            <P>
+              Every route requires <Mono>requirePermission('nav_designer', 'view' | 'manage')</Mono>
+              — owner-only <Mono>manage</Mono> by default (see <Mono>modules.js</Mono>).
+            </P>
+            <DataTable
+              head={['Method', 'Path', 'Purpose']}
+              rows={[
+                ['GET', '/route-catalog', 'Static list of every real admin-portal route + a suggested icon/label/module — the designer can only ever point a link at a known page, never an arbitrary URL.'],
+                ['GET', '/items', 'Flat list of active nav_items for the tenant.'],
+                ['POST', '/items', 'Create a section or link. New items land at the end of their sibling list.'],
+                ['PATCH', '/items/reorder', 'Body { parent_id, ids } — re-sequences sort_order for one sibling list (move up/down).'],
+                ['PATCH', '/items/:id/reparent', 'Body { parent_id, index } — moves an item to a new parent at a position. Used for both "indent" (new parent = previous sibling) and "outdent" (new parent = grandparent) from the frontend.'],
+                ['PATCH', '/items/:id', 'Generic field update (label, icon, route, module, hidden_role_ids, show_in_launcher, is_active, …).'],
+                ['DELETE', '/items/:id', 'Hard delete — children cascade via the FK.'],
+                ['POST', '/reset', 'Deletes every nav_items row for the tenant and re-seeds via seedDefaultNav().'],
+                ['PATCH', '/style', 'Body { nav_style } — sidebar ↔ launcher.'],
+              ]}
+            />
+            <H3>The outline editor, not drag-and-drop reparenting</H3>
+            <P>
+              Free-form drag-and-drop tree reparenting (dropping a node onto an arbitrary other
+              node at an arbitrary position) is fragile to build correctly. Instead the designer
+              is an outline editor — move up/down, indent, outdent — which still supports
+              arbitrary depth. <Mono>reparent()</Mono> computes the old-siblings list (excluding
+              the moved item), computes the new-siblings list under the target parent (reusing
+              the same list if the parent didn't change), splices the item in at the requested
+              index, persists the new <Mono>parent_id</Mono>, then re-sequences
+              <Mono> sort_order</Mono> for the new-siblings list and — if the parent actually
+              changed — also re-sequences the old-siblings list to close the gap left behind.
+            </P>
+            <H3>/api/me: nav_tree and launcher_tiles</H3>
+            <P>
+              <Mono>platform.js</Mono>'s <Mono>/api/me</Mono> handler fetches the tenant's active
+              <Mono> nav_items</Mono>, builds the tree, and prunes it against the caller's
+              effective permissions and role id (<Mono>pruneNavTree()</Mono>): a link is dropped
+              if its module is disabled/unpermitted or its own id is in
+              <Mono> hidden_role_ids</Mono> for the caller's role; a section is dropped only if
+              every child was pruned. Platform admins bypass all of it. The response also
+              includes <Mono>launcher_tiles</Mono> — the flat set of visible link items with
+              <Mono> show_in_launcher = true</Mono>, sorted by <Mono>launcher_sort_order</Mono>.
+              <Mono> AppShell.jsx</Mono> renders <Mono>nav_tree</Mono> directly instead of a
+              hardcoded array (superseding the note about static gating in the RBAC section
+              above); when <Mono>nav_style === 'launcher'</Mono> it renders a single "Quick
+              access" link to <Mono>/launcher</Mono> instead of the tree.
+            </P>
+            <H3>Seeding</H3>
+            <P>
+              <Mono>api/src/config/defaultNav.js</Mono> exports <Mono>DEFAULT_NAV_TREE</Mono> +
+              <Mono> seedDefaultNav(tx, tenantId)</Mono>, used both for brand-new tenants
+              (<Mono>POST /api/platform/tenants</Mono>) and the designer's <Mono>POST
+              /api/nav/reset</Mono>. Migration 091 also seeds this same tree once, directly in
+              SQL, for every tenant that existed at migration time — that one-time seed is never
+              re-run, so <Mono>defaultNav.js</Mono> is the only copy that matters going forward;
+              keep them in sync by hand if the default tree ever changes.
+            </P>
+            <H3>Launcher personalisation (admin/src/pages/Launcher.jsx)</H3>
+            <P>
+              Tile order and visibility are per-user, per-tenant, stored in
+              <Mono> localStorage</Mono> under <Mono>maca_launcher_prefs_&#123;tenantId&#125;</Mono> —
+              the same pattern as <Mono>maca_settings</Mono> / <Mono>maca_timeline_prefs</Mono>,
+              not a DB table. The admin's <Mono>launcher_tiles</Mono> order from <Mono>/api/me</Mono>
+              is the default; a viewer's local <Mono>order</Mono>/<Mono>hidden</Mono> arrays are
+              merged on top (<Mono>applyPrefs()</Mono>), and any tile the admin removed (or the
+              viewer no longer has access to) is dropped even if still named in the stored
+              override. "Reset to admin defaults" just clears the localStorage key.
+            </P>
+            <InfoBox type="warn">
+              Switching a tenant to <Mono>nav_style: 'launcher'</Mono> before any nav item has
+              <Mono> show_in_launcher</Mono> set hides the entire sidebar with nothing to replace
+              it. The <Mono>/launcher</Mono> empty state includes a "Switch back to sidebar"
+              button (visible to <Mono>nav_designer:manage</Mono>) as an escape hatch for exactly
+              this case.
+            </InfoBox>
           </section>
 
           {/* ── WEBSITE CMS ───────────────────────────────── */}
