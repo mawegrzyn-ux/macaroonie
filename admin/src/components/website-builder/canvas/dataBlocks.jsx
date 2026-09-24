@@ -648,6 +648,14 @@ export function MenuInlineCanvas({ data, onChange }) {
   const sectionFilter = Array.isArray(data.section_ids) ? data.section_ids : []
   const itemFilter    = Array.isArray(data.item_ids)    ? data.item_ids    : []
   const hidePrices    = !!data.hide_prices
+  // Per-menu toggles (Menu details > Settings) — must mirror menu_inline.eta
+  // exactly, or the canvas preview shows variants/prices the live site
+  // actually hides. hideZeroPriced only blanks the price text (label
+  // stays); hideUnpriced drops the option row entirely.
+  const hideZeroPriced = !!(menu && menu.hide_zero_priced_variants)
+  const hideUnpriced   = !!(menu && menu.hide_unpriced_variants)
+  const isUnpriced = p => p == null || Number(p) === 0
+  const formatVariantPrice = p => (hideZeroPriced && Number(p) === 0) ? '' : formatPrice(p)
   const filteredSections = (menu?.sections || [])
     .filter(s => sectionFilter.length === 0 || sectionFilter.includes(s.id))
     .map(s => ({
@@ -702,8 +710,12 @@ export function MenuInlineCanvas({ data, onChange }) {
                     </h3>
                   )}
                   {(s.items || []).map(item => {
-                    const groups = item.variant_groups || []
-                    const adhoc  = item.variants || []
+                    const groups = (item.variant_groups || [])
+                      .map(g => hideUnpriced ? { ...g, options: (g.options || []).filter(v => !isUnpriced(v.price_pence)) } : g)
+                      .filter(g => !hideUnpriced || (g.options && g.options.length))
+                    const adhoc  = hideUnpriced
+                      ? (item.variants || []).filter(v => !isUnpriced(v.price_pence))
+                      : (item.variants || [])
                     const hasVar = adhoc.length > 0 || groups.some(g => g.options?.length)
                     return (
                     <div key={item.id} style={{ padding: '10px 0', borderBottom: '1px dotted var(--c-border)' }}>
@@ -759,7 +771,7 @@ export function MenuInlineCanvas({ data, onChange }) {
                                   <div key={v.option_id || i} style={{ display: 'contents' }}>
                                     <span>{v.label}</span>
                                     <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-                                      {formatPrice(v.price_pence)}
+                                      {formatVariantPrice(v.price_pence)}
                                     </span>
                                   </div>
                                 ))}
@@ -779,7 +791,7 @@ export function MenuInlineCanvas({ data, onChange }) {
                               <div key={i} style={{ display: 'contents' }}>
                                 <span>{v.label}</span>
                                 <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-                                  {formatPrice(v.price_pence)}
+                                  {formatVariantPrice(v.price_pence)}
                                 </span>
                               </div>
                             ))}
