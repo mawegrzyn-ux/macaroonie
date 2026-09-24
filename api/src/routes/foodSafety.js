@@ -87,6 +87,8 @@ const DeliveryBody = z.object({
   recorded_by:        z.string().max(200).nullable().optional(),
 })
 
+const DeliveryPatch = DeliveryBody.partial().omit({ venue_id: true })
+
 // ── Hold stations (the "fridges-style" setup for hot/cold hold) ──
 const HoldStationBody = z.object({
   venue_id:       z.string().uuid(),
@@ -449,12 +451,16 @@ export default async function foodSafetyRoutes(app) {
   app.get('/deliveries', {
     preHandler: requirePermission('food_safety', 'view'),
   }, async (req) => {
-    const { venue_id, date, limit = '50' } = req.query
+    const { venue_id, date, from, to, limit = '50' } = req.query
     if (!venue_id) throw httpError(400, 'venue_id required')
     const lim = Math.min(parseInt(limit, 10) || 50, 200)
 
     return withTenant(req.tenantId, tx => {
-      const dateFilter = date ? tx`AND d.delivery_date = ${date}` : tx``
+      const dateFilter = date
+        ? tx`AND d.delivery_date = ${date}`
+        : from || to
+          ? tx`AND d.delivery_date >= ${from || '1970-01-01'} AND d.delivery_date <= ${to || '2999-12-31'}`
+          : tx``
       return tx`
         SELECT d.* FROM fs_delivery_checks d
          WHERE d.tenant_id = ${req.tenantId}
@@ -485,6 +491,23 @@ export default async function foodSafetyRoutes(app) {
          ${body.recorded_by ?? req.user?.email ?? null})
       RETURNING *
     `)
+    return row
+  })
+
+  app.patch('/deliveries/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = DeliveryPatch.parse(req.body)
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_delivery_checks
+         SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Delivery check not found')
     return row
   })
 
