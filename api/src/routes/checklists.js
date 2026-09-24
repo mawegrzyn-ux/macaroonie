@@ -29,31 +29,9 @@ import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+import { periodStartFor } from '../utils/checklistPeriod.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-
-function pad(n) { return String(n).padStart(2, '0') }
-
-/** Monday (ISO week start) of the week containing the given YYYY-MM-DD, as a string. */
-function mondayOf(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00Z')
-  const day = d.getUTCDay() // 0=Sun..6=Sat
-  const diff = day === 0 ? -6 : 1 - day
-  d.setUTCDate(d.getUTCDate() + diff)
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
-}
-
-/** First of the month containing the given YYYY-MM-DD, as a string. */
-function monthStartOf(dateStr) {
-  return dateStr.slice(0, 7) + '-01'
-}
-
-/** The period_start an instance of this frequency is keyed by, for a given date. */
-function periodStartFor(frequency, dateStr) {
-  if (frequency === 'weekly')  return mondayOf(dateStr)
-  if (frequency === 'monthly') return monthStartOf(dateStr)
-  return dateStr
-}
 
 const TemplateBody = z.object({
   venue_id:         z.string().uuid(),

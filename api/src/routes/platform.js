@@ -20,6 +20,7 @@ import {
 import { MODULES, MODULE_KEYS, resolvePermission } from '../config/modules.js'
 import { listMemberships } from '../services/membershipSvc.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
+import { seedDefaultDashboardTiles } from '../config/defaultDashboardTiles.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -177,6 +178,17 @@ export default async function platformRoutes(app) {
         .sort((a, b) => a.launcher_sort_order - b.launcher_sort_order)
     }
 
+    // Overview page tiles, filtered to this user's role (same visibility
+    // rule as nav items — a tile has no `module` of its own, so only the
+    // hidden_role_ids check applies).
+    let dashboardTiles = []
+    if (req.tenantId) {
+      const tiles = await withTenant(req.tenantId, tx => tx`
+        SELECT * FROM dashboard_tiles WHERE tenant_id = ${req.tenantId} ORDER BY sort_order
+      `)
+      dashboardTiles = tiles.filter(t => navItemVisible(t, permissions, effectiveRole?.id ?? null, isPlatformAdmin))
+    }
+
     return {
       auth0_sub:        sub,
       email,
@@ -190,6 +202,7 @@ export default async function platformRoutes(app) {
       permissions,
       nav_tree:          navTree,
       launcher_tiles:    launcherTiles,
+      dashboard_tiles:   dashboardTiles,
     }
   })
 
@@ -294,6 +307,8 @@ export default async function platformRoutes(app) {
     // were seeded with — otherwise they'd open to an empty sidebar.
     await withTenant(tenant.id, tx => seedDefaultNav(tx, tenant.id))
       .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to seed default nav for new tenant'))
+    await withTenant(tenant.id, tx => seedDefaultDashboardTiles(tx, tenant.id))
+      .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to seed default dashboard tiles for new tenant'))
 
     return reply.code(201).send({
       ...tenant,
