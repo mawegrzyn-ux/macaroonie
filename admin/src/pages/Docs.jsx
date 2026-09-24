@@ -24,6 +24,7 @@ const SECTIONS = [
   { id: 'hs-action-log', label: 'H&S Action Log' },
   { id: 'navigation',   label: 'Navigation & Launcher' },
   { id: 'overview-tiles', label: 'Overview Tiles' },
+  { id: 'menus',        label: 'Menus' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'services',     label: 'Services & Jobs' },
   { id: 'data-flows',   label: 'Data Flows' },
@@ -1516,6 +1517,52 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               aggregation. Caught by a direct test against a disposable Postgres before shipping;
               see <Mono>api/src/routes/dashboardTiles.js</Mono>.
             </InfoBox>
+          </section>
+
+          {/* ── MENUS ─────────────────────────────────────── */}
+          <section id="menus" data-doc="">
+            <H2>Menus</H2>
+            <P>
+              Structured menu manager (migration 048) — <Mono>menus</Mono> →{' '}
+              <Mono>menu_sections</Mono> → <Mono>menu_items</Mono>, with an admin bulk-upsert
+              PATCH rewriting the whole tree per save (delete + re-insert under the{' '}
+              <Mono>menu_id</Mono> — acceptable since only one admin edits a menu at a time).
+              Renders on the website via the <Mono>menu_inline</Mono> block, and standalone as a
+              printable page at <Mono>GET /api/menus/:id/print</Mono>.
+            </P>
+            <H3>Schema (relevant to this section)</H3>
+            <DataTable
+              head={['Table / column', 'Purpose']}
+              rows={[
+                ['menu_items.calories', 'Migration 094. Nullable int (kcal), CHECK >= 0. Shown next to the price wherever price is shown — website block, print, and the page-builder canvas preview.'],
+                ['menu_sections.image_url', 'Migration 095. Nullable text (a Media library URL). A small category icon/image next to the section heading — capped at 1.3em (website block / canvas) or 1.6em (print) so it never renders larger than the heading font next to it, regardless of the uploaded image\'s actual resolution.'],
+              ]}
+            />
+            <InfoBox type="info">
+              Both are plain nullable columns with no companion "show/hide" toggle — they render
+              automatically whenever set, the same way <Mono>notes</Mono> and{' '}
+              <Mono>image_url</Mono> (dish photo) already work. Don't add a per-menu visibility
+              toggle unless asked; that would be new scope, not what these migrations do.
+            </InfoBox>
+            <H3>Touch points for any new menu_items / menu_sections field</H3>
+            <P>
+              Because the whole tree is rewritten on every save, a new column needs updating in
+              (all in <Mono>api/src/routes/menus.js</Mono> unless noted): the Zod{' '}
+              <Mono>ItemBody</Mono>/<Mono>SectionBody</Mono> schema, the{' '}
+              <Mono>loadMenuFull()</Mono> SELECT's <Mono>jsonb_build_object</Mono> (items only —
+              sections use <Mono>SELECT s.*</Mono> so a new section column needs no query change),
+              the <Mono>upsertMenuTree()</Mono> INSERT, and the <Mono>/:id/duplicate</Mono> route's
+              section/item re-mapping. On the frontend (<Mono>admin/src/pages/Menus.jsx</Mono>):
+              the new-item/new-section default object, the editor form field, and the explicit
+              field whitelist in the save-payload builder (it does not spread <Mono>...item</Mono>
+              — omitting a field there silently drops it on save even though the editor state has
+              it). On the render side: <Mono>api/src/views/site/blocks/menu_inline.eta</Mono>{' '}
+              (website), <Mono>api/src/views/menu_print.eta</Mono> (print), and{' '}
+              <Mono>admin/src/components/website-builder/canvas/dataBlocks.jsx</Mono>'s{' '}
+              <Mono>MenuInlineCanvas</Mono> (page-builder live preview) — the canvas/SSR-parity
+              gotcha applies here same as the variant-visibility toggles: grep all three render
+              sites, not just one, before considering a menu-item display change done.
+            </P>
           </section>
 
           {/* ── WEBSITE CMS ───────────────────────────────── */}

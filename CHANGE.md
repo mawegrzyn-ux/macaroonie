@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-24 — Menu calories + section category icons] *(migrations 094 + 095)*
+
+### Menus
+- Dishes can now carry an optional calorie count (kcal), shown next to the price on your website's menu, the printed menu, and the page-builder preview.
+- Menu sections (Starters, Curries, …) can now have a small category icon/image next to the section title — it always displays small, no bigger than the heading text next to it, whatever size image you upload (64×64 or 96×96 works well).
+- First-ever Help and Docs pages for the Menus feature.
+
+---
+
 ## [2026-09-24 — Cooking check delete, dashboard widget height fix]
 
 ### Food safety — delete a cooking check

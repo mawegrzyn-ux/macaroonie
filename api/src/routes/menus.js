@@ -41,6 +41,7 @@ const ItemBody = z.object({
   native_name:    z.string().max(200).nullable().optional(),
   description:    z.string().nullable().optional(),
   price_pence:    z.number().int().min(0).nullable().optional(),
+  calories:       z.number().int().min(0).nullable().optional(),
   notes:          z.string().max(200).nullable().optional(),
   is_featured:    z.boolean().default(false),
   image_url:      z.string().max(2000).nullable().optional(),
@@ -57,6 +58,7 @@ const SectionBody = z.object({
   title:      z.string().min(1).max(120),
   subtitle:   z.string().max(120).nullable().optional(),
   highlight:  z.boolean().default(false),
+  image_url:  z.string().max(2000).nullable().optional(),
   sort_order: z.number().int().default(0),
   items:      z.array(ItemBody).default([]),
 })
@@ -182,7 +184,7 @@ async function loadMenuFull(tx, menuId, tenantId) {
       SELECT s.*,
              COALESCE(json_agg(DISTINCT jsonb_build_object(
                'id', i.id, 'name', i.name, 'native_name', i.native_name,
-               'description', i.description, 'price_pence', i.price_pence,
+               'description', i.description, 'price_pence', i.price_pence, 'calories', i.calories,
                'notes', i.notes, 'is_featured', i.is_featured, 'image_url', i.image_url,
                'sort_order', i.sort_order,
                'variants', COALESCE((
@@ -246,18 +248,18 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
 
   for (const [si, section] of (body.sections || []).entries()) {
     const [s] = await tx`
-      INSERT INTO menu_sections (menu_id, tenant_id, title, subtitle, highlight, sort_order)
+      INSERT INTO menu_sections (menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order)
       VALUES (${menuId}, ${tenantId}, ${section.title},
-              ${section.subtitle ?? null}, ${section.highlight ?? false},
+              ${section.subtitle ?? null}, ${section.highlight ?? false}, ${section.image_url ?? null},
               ${section.sort_order ?? si})
       RETURNING id
     `
     for (const [ii, item] of (section.items || []).entries()) {
       const [it] = await tx`
-        INSERT INTO menu_items (section_id, tenant_id, name, native_name, description, price_pence, notes, is_featured, image_url, sort_order)
+        INSERT INTO menu_items (section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order)
         VALUES (${s.id}, ${tenantId}, ${item.name},
                 ${item.native_name ?? null}, ${item.description ?? null},
-                ${item.price_pence ?? null}, ${item.notes ?? null},
+                ${item.price_pence ?? null}, ${item.calories ?? null}, ${item.notes ?? null},
                 ${item.is_featured ?? false}, ${item.image_url ?? null},
                 ${item.sort_order ?? ii})
         RETURNING id
@@ -469,10 +471,10 @@ export default async function menusRoutes(app) {
       `
 
       const sections = (full.sections || []).map(s => ({
-        title: s.title, subtitle: s.subtitle ?? null, highlight: !!s.highlight, sort_order: s.sort_order,
+        title: s.title, subtitle: s.subtitle ?? null, highlight: !!s.highlight, image_url: s.image_url ?? null, sort_order: s.sort_order,
         items: (s.items || []).map(it => ({
           name: it.name, native_name: it.native_name ?? null, description: it.description ?? null,
-          price_pence: it.price_pence ?? null, notes: it.notes ?? null, is_featured: !!it.is_featured,
+          price_pence: it.price_pence ?? null, calories: it.calories ?? null, notes: it.notes ?? null, is_featured: !!it.is_featured,
           image_url: it.image_url ?? null, sort_order: it.sort_order,
           variants: (it.variants || []).map(v => ({ label: v.label, price_pence: v.price_pence, sort_order: v.sort_order })),
           // loadMenuFull() shapes attached groups as { options: [{overridden, price_pence, option_id}] }

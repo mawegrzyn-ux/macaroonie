@@ -119,7 +119,12 @@ function _keepItem(item) {
           <div style="break-inside:avoid; <%= _direction === 'rows' ? '' : 'margin-bottom:36px;' %>">
             <% if (_showHeaders) { %>
               <h3 style="font-family:var(--f-heading); color:var(--c-primary); font-size:1.2rem; font-weight:600; padding-bottom:8px; border-bottom:1px solid var(--c-border); margin:0 0 16px; display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
-                <span><%= s.title %></span>
+                <span style="display:inline-flex; align-items:center; gap:8px;">
+                  <% if (s.image_url) { %>
+                    <img src="<%= s.image_url %>" alt="" style="width:1.3em; height:1.3em; object-fit:cover; border-radius:6px; flex-shrink:0;" />
+                  <% } %>
+                  <span><%= s.title %></span>
+                </span>
                 <% if (s.subtitle) { %><span style="font-size:0.78rem; font-weight:400; color:var(--c-muted); font-style:italic;"><%= s.subtitle %></span><% } %>
               </h3>
             <% } %>
@@ -159,10 +164,17 @@ function _keepItem(item) {
                           <% } %>
                         <% }) %>
                       </div>
-                      <% if (!_hidePrices && item.price_pence != null && !_hasVar) { %>
-                        <span style="font-family:var(--f-heading); color:var(--c-primary); font-weight:500; font-variant-numeric:tabular-nums; white-space:nowrap;">
-                          <%= fmtPrice(item.price_pence) %>
-                        </span>
+                      <% if ((!_hidePrices && item.price_pence != null && !_hasVar) || item.calories != null) { %>
+                        <div style="text-align:right; white-space:nowrap;">
+                          <% if (!_hidePrices && item.price_pence != null && !_hasVar) { %>
+                            <span style="font-family:var(--f-heading); color:var(--c-primary); font-weight:500; font-variant-numeric:tabular-nums;">
+                              <%= fmtPrice(item.price_pence) %>
+                            </span>
+                          <% } %>
+                          <% if (item.calories != null) { %>
+                            <div style="font-size:0.72rem; color:var(--c-muted);"><%= item.calories %> kcal</div>
+                          <% } %>
+                        </div>
                       <% } %>
                     </div>
                     <% if (item.description) { %>

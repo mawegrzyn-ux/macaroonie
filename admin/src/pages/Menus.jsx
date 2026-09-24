@@ -300,12 +300,14 @@ function MenuEditor({ id, onBack }) {
         hide_unpriced_variants: !!draft.hide_unpriced_variants,
         sections: (draft.sections || []).map((s, si) => ({
           title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
+          image_url: s.image_url || null,
           sort_order: si,
           items: (s.items || []).map((it, ii) => ({
             name: it.name,
             native_name: it.native_name || null,
             description: it.description || null,
             price_pence: it.price_pence ?? null,
+            calories: it.calories ?? null,
             notes: it.notes || null,
             is_featured: !!it.is_featured,
             image_url: it.image_url || null,
@@ -554,7 +556,7 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, onChange }) {
     const next = sections.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
   }
   const setItems = (i, items) => set(i, { items })
-  const addSection = () => onChange([...sections, { id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, items: [] }])
+  const addSection = () => onChange([...sections, { id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, image_url: null, items: [] }])
   const removeSection = (i) => onChange(sections.filter((_, j) => j !== i))
   const moveSection = (i, dir) => {
     const j = i + dir; if (j < 0 || j >= sections.length) return
@@ -593,7 +595,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, on
   const addItem = () => {
     const item = {
       id: crypto.randomUUID(), name: 'New dish', native_name: '', description: '',
-      price_pence: null, notes: '', is_featured: false, image_url: null,
+      price_pence: null, calories: null, notes: '', is_featured: false, image_url: null,
       variants: [], variant_groups: [], dietary: [],
     }
     onItemsChange([...items, item])
@@ -616,6 +618,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, on
         <button onClick={() => setOpen(o => !o)} className="p-1">
           {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </button>
+        <SectionImagePicker url={section.image_url || null} onChange={(image_url) => onChange({ image_url })} />
         <Input value={section.title} onChange={e => onChange({ title: e.target.value })}
           placeholder="Section title (e.g. Starters)" className="flex-1 font-medium bg-white" />
         <Input value={section.subtitle || ''} onChange={e => onChange({ subtitle: e.target.value })}
@@ -685,6 +688,40 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, o
         </button>
       </div>
     </div>
+  )
+}
+
+// Compact icon-style picker for a section's category image — deliberately
+// small (fits inline in the section header bar) since the image is meant
+// to render no bigger than the heading font next to it on the live site,
+// not as a hero-sized photo like a dish's ItemImagePicker.
+function SectionImagePicker({ url, onChange }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <div className="relative shrink-0">
+        <button type="button" onClick={() => setOpen(true)} title="Category icon/image (optional)"
+          className="w-9 h-9 rounded-md border overflow-hidden bg-white flex items-center justify-center hover:border-primary">
+          {url
+            ? <img src={url} alt="" className="w-full h-full object-cover" />
+            : <ImageIcon className="w-4 h-4 text-muted-foreground" />}
+        </button>
+        {url && (
+          <button type="button" onClick={() => onChange(null)}
+            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-background border text-destructive flex items-center justify-center shadow-sm"
+            title="Remove image">
+            <X className="w-2.5 h-2.5" />
+          </button>
+        )}
+      </div>
+      <MediaLibraryModal
+        open={open}
+        onClose={() => setOpen(false)}
+        mode="picker"
+        scope="menu:section"
+        onPick={(pickedUrl) => { onChange(pickedUrl); setOpen(false) }}
+      />
+    </>
   )
 }
 
@@ -803,12 +840,20 @@ function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove,
           </div>
         </div>
 
-        <Field label="Price">
-          <PriceInput
-            pence={item.price_pence}
-            onChange={(pence) => onChange({ price_pence: pence })}
-            placeholder="£0.00" className="font-mono" />
-        </Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Price">
+            <PriceInput
+              pence={item.price_pence}
+              onChange={(pence) => onChange({ price_pence: pence })}
+              placeholder="£0.00" className="font-mono" />
+          </Field>
+          <Field label="Calories" hint="kcal, optional">
+            <Input type="number" min="0" step="1" inputMode="numeric"
+              value={item.calories ?? ''}
+              onChange={e => onChange({ calories: e.target.value === '' ? null : Math.max(0, parseInt(e.target.value, 10) || 0) })}
+              placeholder="e.g. 420" className="font-mono" />
+          </Field>
+        </div>
 
         <Field label="Description">
           <TextArea value={item.description || ''} onChange={e => onChange({ description: e.target.value })} rows={3} />

@@ -705,7 +705,12 @@ export function MenuInlineCanvas({ data, onChange }) {
                       margin: '0 0 16px', display: 'flex',
                       alignItems: 'baseline', justifyContent: 'space-between', gap: 12,
                     }}>
-                      <span>{s.title}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        {s.image_url && (
+                          <img src={s.image_url} alt="" style={{ width: '1.3em', height: '1.3em', objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                        )}
+                        <span>{s.title}</span>
+                      </span>
                       {s.subtitle && <span style={{ fontSize: '0.78rem', fontWeight: 400, color: 'var(--c-muted)', fontStyle: 'italic' }}>{s.subtitle}</span>}
                     </h3>
                   )}
@@ -748,10 +753,17 @@ export function MenuInlineCanvas({ data, onChange }) {
                             )
                           })}
                         </div>
-                        {!hidePrices && item.price_pence != null && !hasVar && (
-                          <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                            {formatPrice(item.price_pence)}
-                          </span>
+                        {((!hidePrices && item.price_pence != null && !hasVar) || item.calories != null) && (
+                          <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            {!hidePrices && item.price_pence != null && !hasVar && (
+                              <span style={{ fontFamily: 'var(--f-heading)', color: 'var(--c-primary)', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                                {formatPrice(item.price_pence)}
+                              </span>
+                            )}
+                            {item.calories != null && (
+                              <div style={{ fontSize: '0.72rem', color: 'var(--c-muted)' }}>{item.calories} kcal</div>
+                            )}
+                          </div>
                         )}
                       </div>
                       {item.description && (
