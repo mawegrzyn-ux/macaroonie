@@ -61,10 +61,10 @@ function StatusBadge({ status }) {
 
 // ── Filter Modal ───────────────────────────────────────────────────────────────
 
-const ALL_STATUSES    = ['ordering', 'ready', 'placed']
-const DEFAULT_STATUSES = ['ordering', 'ready']
+export const ALL_STATUSES    = ['ordering', 'ready', 'placed']
+export const DEFAULT_STATUSES = ['ordering', 'ready']
 
-function FilterModal({ onClose, venues, currentStatuses, currentVenueId, onApply }) {
+export function FilterModal({ onClose, venues, currentStatuses, currentVenueId, onApply }) {
   const [statuses, setStatuses] = useState(currentStatuses)
   const [venueId, setVenueId]   = useState(currentVenueId)
 
@@ -161,7 +161,7 @@ function FilterModal({ onClose, venues, currentStatuses, currentVenueId, onApply
 
 // ── New Order Modal ────────────────────────────────────────────────────────────
 
-function NewOrderModal({ onClose, onCreated }) {
+export function NewOrderModal({ onClose, onCreated }) {
   const api = useApi()
   const queryClient = useQueryClient()
 
@@ -308,7 +308,7 @@ function NewOrderModal({ onClose, onCreated }) {
 
 // ── Order Detail Panel ─────────────────────────────────────────────────────────
 
-function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
+export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   const api = useApi()
   const queryClient = useQueryClient()
 
@@ -735,7 +735,7 @@ function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
 
 // ── Order List Card ────────────────────────────────────────────────────────────
 
-function OrderCard({ order, isSelected, onClick }) {
+export function OrderCard({ order, isSelected, onClick }) {
   const filledCount = order.filled_count ?? 0
   const itemCount   = order.item_count ?? 0
 

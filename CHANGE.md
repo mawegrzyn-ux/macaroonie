@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Order Sheets now available on /mobile]
+
+### Order Sheets
+- Order Sheets is now a tile on the `/mobile` hub — browse orders, filter by status or venue, tap in to fill quantities and mark an order Ready or Placed, right from your phone. Same screen and data as the desktop page.
+
+---
+
 ## [2026-09-25 — Login: smarter tenant selection, no more dropdown]
 
 ### Login & tenant switching

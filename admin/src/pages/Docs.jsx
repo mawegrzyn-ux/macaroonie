@@ -24,6 +24,7 @@ const SECTIONS = [
   { id: 'hs-action-log', label: 'H&S Action Log' },
   { id: 'navigation',   label: 'Navigation & Launcher' },
   { id: 'overview-tiles', label: 'Overview Tiles' },
+  { id: 'order-sheets', label: 'Order Sheets' },
   { id: 'menus',        label: 'Menus' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'services',     label: 'Services & Jobs' },
@@ -1449,6 +1450,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               entries wholesale from the request body, so a caller that only wants to add one
               expense would need to round-trip the entire day's state first to avoid wiping it.
             </InfoBox>
+            <H3>Mobile Order Sheets</H3>
+            <P>
+              <Mono>admin/src/pages/mobile/MobileOrderSheets.jsx</Mono> — the third mobile module.
+              Unlike the previous two, the desktop <Mono>OrderSheets.jsx</Mono> page's body
+              components needed no rework at all: its list/detail pattern already collapses to a
+              single full-page-detail-on-select layout at phone width (the list column is{' '}
+              <Mono>{'hidden md:flex'}</Mono> once an order is selected — the same responsive
+              approach <Mono>Bookings.jsx</Mono>'s <Mono>inlineMode</Mono> uses), and the item
+              table's horizontal scroll-on-overflow is an accepted mobile pattern, not something to
+              redesign. <Mono>OrderCard</Mono>, <Mono>OrderDetail</Mono>, <Mono>NewOrderModal</Mono>,{' '}
+              <Mono>FilterModal</Mono>, <Mono>ALL_STATUSES</Mono> and <Mono>DEFAULT_STATUSES</Mono>{' '}
+              are exported from <Mono>OrderSheets.jsx</Mono> and reused verbatim — same{' '}
+              <Mono>/api/order-sheets/*</Mono> endpoints, same mutations (autosave on quantity
+              change, status transitions, delete). What differs is only the shell: the desktop
+              page's own header (title text, <Mono>pl-14</Mono> space reserved for{' '}
+              <Mono>AppShell</Mono>'s mobile hamburger button) and its resizable desktop list-panel
+              width are both irrelevant under <Mono>MobileShell</Mono>, which already supplies a
+              back-arrow header with the module title — the mobile page replaces that chrome with a
+              plain Filter/New-order action row and drops the list/detail split down to strict
+              either/or (never side-by-side, since there's no room for it on a phone).
+            </P>
           </section>
 
           {/* ── H&S ACTION LOG ────────────────────────────── */}
@@ -1709,6 +1731,50 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               — a weekly/monthly checklist marked complete would never show as complete in this
               aggregation. Caught by a direct test against a disposable Postgres before shipping;
               see <Mono>api/src/routes/dashboardTiles.js</Mono>.
+            </InfoBox>
+          </section>
+
+          {/* ── ORDER SHEETS ──────────────────────────────── */}
+          <section id="order-sheets" data-doc="">
+            <H2>Order Sheets</H2>
+            <P>
+              Supplier order management. <Mono>api/src/routes/orderSheets.js</Mono>, mounted at{' '}
+              <Mono>/api/order-sheets</Mono>. Two layers: reusable <strong>templates</strong> (a
+              named supplier order form — a list of items with units/prices, assigned to one or
+              more venues, with an optional weekly <Mono>delivery_days</Mono> pattern) and{' '}
+              <strong>orders</strong> (one instance of a template for a specific venue + delivery
+              date, with per-item quantities). Items belong to tenant-wide, reorderable{' '}
+              <Mono>order_sheet_categories</Mono> (same "operator-managed list, not a fixed enum"
+              pattern as food-safety's hold stations) — the order/item UI groups by category when
+              more than one is in play.
+            </P>
+            <H3>Order lifecycle</H3>
+            <P>
+              An order moves through three statuses: <Mono>ordering</Mono> (quantities editable,
+              autosaved 700ms after the last change) → <Mono>ready</Mono> (quantities locked,
+              awaiting placement) → <Mono>placed</Mono> (sent to the supplier). Reverting backwards
+              (<Mono>ready → ordering</Mono>, <Mono>placed → ready/ordering</Mono>) is manage-only.
+              Each order's detail view also shows up to 3 columns of the venue's most recent prior
+              orders on the same template (<Mono>history</Mono>) alongside a per-item{' '}
+              <Mono>suggested_qty</Mono>, so an operator filling in quantities can see what was
+              ordered last time without leaving the page.
+            </P>
+            <H3>Two-module permission split</H3>
+            <P>
+              <Mono>order_sheets</Mono> gates the day-to-day page (view orders, and — at{' '}
+              <Mono>manage</Mono> — create/delete orders and edit quantities/status).{' '}
+              <Mono>order_sheet_setup</Mono> gates the separate admin surfaces: templates (
+              <Mono>OrderSheetTemplates.jsx</Mono>, <Mono>/order-sheets/templates</Mono>) and
+              categories (<Mono>OrderSheetCategories.jsx</Mono>,{' '}
+              <Mono>/order-sheets/categories</Mono>). Both belong to the <Mono>order_sheets</Mono>{' '}
+              module group in <Mono>modules.js</Mono>, so a tenant toggles the whole feature on/off
+              in one switch, but a role can be given day-to-day access without template-editing
+              rights (e.g. a chef fills in quantities but doesn't restructure the order form).
+            </P>
+            <InfoBox type="info">
+              Also available at <Mono>/mobile/order-sheets</Mono> — see the Mobile App section's
+              "Mobile Order Sheets" entry for why this module needed no body-component rework, only
+              a different shell around the same reused components.
             </InfoBox>
           </section>
 
