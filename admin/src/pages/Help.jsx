@@ -135,6 +135,14 @@ export default function Help() {
                 </div>
               ))}
             </div>
+
+            <H3>Switching restaurants</H3>
+            <P>
+              If your account is connected to more than one restaurant, the sidebar header shows
+              your current restaurant's name with a small arrow next to it. Tap the name (or the
+              arrow) to open the restaurant picker. If your account only has one restaurant, the
+              name is shown without an arrow — there's nothing to switch to.
+            </P>
           </section>
 
           {/* ── OVERVIEW PAGE ─────────────────────────────── */}

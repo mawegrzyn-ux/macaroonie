@@ -441,7 +441,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <li><strong>A user with exactly one tenant</strong> (and not a platform admin) is auto-signed into it — no picker is ever shown, not even for a single frame (the loading state is held until the auto-select effect has run).</li>
               <li><strong>A returning multi-tenant user</strong> whose stored pick is still valid for their account (<Mono>{'GET /me'}</Mono>'s <Mono>current_tenant.id</Mono> matches the stored id) is signed straight back into that tenant — this is the "last one" behaviour, and it's just localStorage persistence plus the existing membership check, no separate "last used" column.</li>
               <li><strong>A multi-tenant user with no valid stored pick</strong> (first login on this browser, or their stored tenant was revoked) sees a mandatory <Mono>TenantSwitcherModal</Mono> — no close button, no backdrop dismiss, just the tenant list plus a Sign out link.</li>
-              <li>Once inside the app, <Mono>AppShell</Mono>'s sidebar "Tenant" control opens the same <Mono>TenantSwitcherModal</Mono> component (dismissible this time) instead of the old <Mono>{'<select>'}</Mono> dropdown — picking a tenant calls <Mono>setSelectedTenant()</Mono> then reloads the page so every query re-fetches under the new <Mono>X-Tenant-Id</Mono>.</li>
+              <li>Once inside the app, <Mono>AppShell</Mono>'s expanded-sidebar header shows the
+              current tenant's name in place of a static "Macaroonie" wordmark, with a small
+              chevron next to it whenever <Mono>{'GET /me'}</Mono>'s <Mono>available_tenants</Mono>{' '}
+              has more than one entry; tapping the name or the chevron opens the same{' '}
+              <Mono>TenantSwitcherModal</Mono> (dismissible this time) — picking a tenant calls{' '}
+              <Mono>setSelectedTenant()</Mono> then reloads the page so every query re-fetches under
+              the new <Mono>X-Tenant-Id</Mono>. A single-tenant user sees their tenant's name as
+              plain (non-interactive) text; the collapsed icon-rail sidebar keeps its own separate
+              chevron button below the logo for the same modal.</li>
             </ul>
             <InfoBox type="info">
               An Auth0 org switch (re-authenticating with a different Auth0 organisation) is a

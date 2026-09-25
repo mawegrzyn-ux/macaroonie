@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Sidebar header now shows your restaurant name]
+
+### Admin Portal
+- Fixed the sidebar header's logo and title not lining up cleanly when the sidebar is open.
+- The sidebar header now shows your current restaurant's name instead of the "Macaroonie" logo text. If your account has access to more than one restaurant, a small arrow appears next to the name — tap the name or arrow to switch restaurants.
+
+---
+
 ## [2026-09-25 — Cash Up and Wages added to the mobile app]
 
 ### Mobile App
