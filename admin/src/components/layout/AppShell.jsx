@@ -531,7 +531,7 @@ export default function AppShell() {
       </main>
       {!open && (
         <button
-          className="fixed top-3.5 left-3.5 z-10 p-2 rounded-md bg-background border shadow-sm lg:hidden"
+          className="fixed top-3.5 left-3.5 z-40 p-2 rounded-md bg-background border shadow-sm lg:hidden"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
         >
