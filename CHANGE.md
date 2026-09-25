@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Per-venue brand & theme overrides, Identity page removed] *(migration 098)*
+
+### Website — Brand & theme
+- A multi-venue tenant can now give one venue its own complete Brand & theme (identity, colours, fonts, layout) instead of every venue sharing the exact same look. Open Brand & theme and click **+ Add site override**, pick a venue, and it gets its own tab — starting as a copy of today's tenant defaults, editable independently from then on. **Remove override** switches that venue back to the shared default. Single-venue restaurants see no selector at all — just the one Brand & theme, as before.
+- The separate per-venue "Identity" page (site name/tagline/logo/favicon) has been removed — it's fully replaced by the above, and covered strictly less (no colours/fonts/layout). It also turned out its site name/tagline fields had no effect on the published site at all — logo and favicon were the only parts that ever worked, and those are now part of the full override instead.
+- Boxed-inset theme steps can now have a separate value for mobile portrait screens, applying everywhere that step is used (the site default and any block that's picked it) — see the 2026-09-24 entry below for the initial (theme-default-only) version; this is the same feature extended to per-block overrides too.
+
+---
+
 ## [2026-09-24 — Reconciliation variance fixed, Net Cash cash-only, website background image] *(migration 097)*
 
 ### Cash Reconciliation

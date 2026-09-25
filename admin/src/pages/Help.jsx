@@ -1592,7 +1592,7 @@ export default function Help() {
                 ['Setup & domain',   'Subdomain slug, custom domain (with DNS verification), publish toggle.'],
                 ['Template',         'Visual layout. Pick Classic (warm, traditional) or Modern (editorial, full-bleed hero).'],
                 ['Theme',            'Your look & feel — independent of template. Colours, fonts, sizes, spacing, corners, buttons, hero overlay.'],
-                ['Branding',         'Site name, tagline, logo, favicon.'],
+                ['Branding',         'Site name, tagline, logo, favicon, colours, fonts, layout — see Brand & theme below. A single-venue restaurant only ever has one; a multi-venue franchise can give an individual venue its own.'],
                 ['Hero',             'The first screen guests see: image, heading, subheading, call-to-action button.'],
                 ['About',            'Short story / description with an optional image.'],
                 ['Gallery',          'Photo grid. Drag to reorder, add captions, upload new images.'],
@@ -1649,10 +1649,42 @@ export default function Help() {
               always use the default). Any individual block can still override its own inset in
               the page builder's block inspector, picking one of the same 5 steps.
             </P>
+            <P>
+              Each step can also have its own <strong>mobile value</strong> — tick "Mobile" under
+              any step card to give it a different px/% value on narrow phone portraits (≤600px)
+              than on everything else, e.g. step 1 = 16px on desktop, 8px on mobile. This applies
+              everywhere that step number is used — the site-wide default AND any individual
+              block that's set its own inset to that step — so you don't need to separately tune
+              mobile spacing per block.
+            </P>
             <InfoBox type="tip">
               A practical use: set step 1 to a fixed 20px for tight mobile margins, and set a
               different step to 5% so wide-screen margins scale with the page instead of staying
               a fixed width forever.
+            </InfoBox>
+
+            <H3>Give a venue its own brand & theme</H3>
+            <P>
+              Every venue starts on the tenant's shared <strong>Brand &amp; theme</strong> —
+              one set of colours, fonts, logo and layout for every location. If you run more
+              than one venue and want a specific one to look different (its own logo, colours,
+              even its own site name), open <strong>Brand &amp; theme</strong> and click{' '}
+              <strong>+ Add site override</strong>, then pick the venue. This copies today's
+              tenant settings as a starting point for that venue and adds it as its own tab —
+              from then on, editing that venue's tab only changes that venue, and editing the{' '}
+              <strong>Default</strong> tab only changes venues that haven't been given their own
+              override.
+            </P>
+            <P>
+              To go back to sharing the tenant default, open that venue's tab and click{' '}
+              <strong>Remove override</strong> (with an inline confirm). This selector only
+              appears once you have more than one venue — a single-venue restaurant just has the
+              one Brand &amp; theme, no tabs to manage.
+            </P>
+            <InfoBox type="info">
+              There used to be a separate "Identity" page under each venue for site name/tagline/
+              logo/favicon. It's gone — Brand &amp; theme now covers identity, colours, typography
+              and layout together, per venue if you need it.
             </InfoBox>
 
             <H3>Custom domain</H3>

@@ -22,12 +22,14 @@ function mergeSpacing(existing) {
   }
 }
 
-export function BrandLayoutSection() {
+export function BrandLayoutSection({ venueId = null }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const isVenue  = !!venueId
+  const queryKey = isVenue ? ['website-config', venueId] : ['brand-defaults']
   const { data: brand = {} } = useQuery({
-    queryKey: ['brand-defaults'],
-    queryFn:  () => api.get('/website/brand-defaults'),
+    queryKey,
+    queryFn: () => isVenue ? api.get(`/website/config?venue_id=${venueId}`) : api.get('/website/brand-defaults'),
   })
   const hasBrand = !!brand?.id
   const baseline = useMemo(() => mergeSpacing(brand.theme?.spacing), [brand.theme])
@@ -38,13 +40,14 @@ export function BrandLayoutSection() {
   const save = useMutation({
     mutationFn: () => {
       const theme = { ...(brand.theme || {}), spacing: { ...(brand.theme?.spacing || {}), ...spacing } }
+      if (isVenue) return api.patch(`/website/config?venue_id=${venueId}`, { theme })
       return hasBrand
         ? api.patch('/website/brand-defaults', { theme })
         : api.post('/website/brand-defaults', { theme })
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['brand-defaults'] })
-      qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      qc.invalidateQueries({ queryKey })
+      qc.invalidateQueries({ queryKey: isVenue ? ['website-configs'] : ['tenant-site'] })
     },
   })
 

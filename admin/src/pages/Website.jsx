@@ -54,7 +54,6 @@ const PAGES_TENANT = [
 const PAGES_VENUE = [
   { key: 'page',     label: 'Location page',  icon: LayoutTemplate },
   { key: 'pages',    label: 'Pages & modals', icon: FileText },
-  { key: 'branding', label: 'Identity',       icon: ImageIcon },
 ]
 const RESTAURANT_ITEMS = [
   { key: 'hours',     label: 'Opening hours', icon: Clock },
@@ -98,13 +97,11 @@ const VENUE_NAV = [
 ]
 
 const SINGLE_VENUE_NAV = [
-  { label: 'Pages', items: [
-    ...withMode(PAGES_TENANT, 'tenant'),
-    // No separate "Location page" for single-venue tenants — the Home
-    // page (above) already gets this venue's data merged in, and the
-    // Restaurant-group blocks below can be dropped straight onto it.
-    ...withMode(PAGES_VENUE.filter(i => i.key !== 'pages' && i.key !== 'page'), 'venue'),
-  ]},
+  { label: 'Pages', items: withMode(PAGES_TENANT, 'tenant') },
+  // No separate "Location page"/"Identity" for single-venue tenants — the
+  // Home page above already gets this venue's data merged in, the
+  // Restaurant-group blocks below can be dropped straight onto it, and
+  // Brand & theme (Site group) is the only identity/theme editor needed.
   { label: 'Restaurant',   items: withMode(RESTAURANT_ITEMS, 'venue') },
   { label: 'Book & order', items: [
     ...withMode(WIDGET_ITEMS, 'tenant'),
@@ -1856,36 +1853,10 @@ function useConfigFields(config, fields) {
 
 // ── Branding section ────────────────────────────────────────
 
-function BrandingSection({ config }) {
-  const { values, set, dirty, save, reset } = useConfigFields(config,
-    ['site_name', 'tagline', 'logo_url', 'favicon_url'])
-
-  return (
-    <div className="space-y-5">
-      <SectionCard title="Identity">
-        <FormRow label="Site name" hint="Shown in the header and browser tab.">
-          <TextInput value={values.site_name || ''} onChange={set('site_name')}
-            placeholder="Wingstop Covent Garden" />
-        </FormRow>
-        <FormRow label="Tagline" hint="One-line description shown in the footer.">
-          <TextInput value={values.tagline || ''} onChange={set('tagline')} />
-        </FormRow>
-      </SectionCard>
-
-      <SectionCard title="Logo & favicon">
-        <FormRow label="Logo" hint="Shown in the site header. PNG or SVG work best.">
-          <ImageField url={values.logo_url} onChange={set('logo_url')} />
-        </FormRow>
-        <FormRow label="Favicon" hint="Small icon shown in the browser tab.">
-          <ImageField url={values.favicon_url} onChange={set('favicon_url')} />
-        </FormRow>
-      </SectionCard>
-
-      <SaveBar dirty={dirty} saving={save.isPending}
-        onReset={reset} onSave={() => save.mutate()} />
-    </div>
-  )
-}
+// Identity/branding is no longer a per-venue page — see BrandSection
+// (tenant-brand). A venue that needs its own site name/tagline/logo/
+// favicon/theme adds a site override there instead of a standalone
+// per-venue Identity form (removed 2026-09-25).
 
 // Hero + About are now block-only — see PageBuilder. Their flat-field
 // admin sections were removed (2026-05-03) along with the legacy template
@@ -3296,14 +3267,146 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
   )
 }
 
-// ── Brand defaults sections ─────────────────────────────────
-
-function BrandIdentitySection() {
+// ── Brand & theme — tenant default + per-venue site overrides ──────────────
+//
+// Single-venue tenants only ever see the tenant default (no selector — see
+// `venues.length <= 1` guard below). Multi-venue tenants get a pill row:
+// "Default" plus one pill per venue that has added its own override
+// (website_config.use_brand_override = true). "+ Add site override" seeds
+// a venue's brand/theme fields from the CURRENT tenant default at the
+// moment it's added, then that venue's pills edit independently from then
+// on — no ongoing blending between tenant and venue (see
+// BRAND_OVERRIDE_FIELDS in siteDataSvc.js).
+function BrandSection({ venues, allConfigs }) {
   const api = useApi()
   const qc  = useQueryClient()
-  const { data: brand = {} } = useQuery({
+  const [target, setTarget] = useState(null) // null = tenant default, else venueId
+  const [addingVenueId, setAddingVenueId] = useState('')
+  const [removing, setRemoving] = useState(false)
+
+  const { data: tenantSite = {} } = useQuery({
     queryKey: ['brand-defaults'],
     queryFn:  () => api.get('/website/brand-defaults'),
+  })
+
+  const overrideVenueIds = useMemo(
+    () => new Set((allConfigs || []).filter(c => c.use_brand_override).map(c => c.venue_id)),
+    [allConfigs]
+  )
+  const overrideVenues = venues.filter(v => overrideVenueIds.has(v.id))
+  const availableVenues = venues.filter(v => !overrideVenueIds.has(v.id))
+
+  const addOverride = useMutation({
+    mutationFn: async (venueId) => {
+      await api.post('/website/config', { venue_id: venueId })
+      return api.patch(`/website/config?venue_id=${venueId}`, {
+        use_brand_override: true,
+        site_name:        tenantSite.site_name ?? null,
+        tagline:          tenantSite.tagline ?? null,
+        logo_url:         tenantSite.logo_url ?? null,
+        favicon_url:      tenantSite.favicon_url ?? null,
+        primary_colour:   tenantSite.primary_colour || '#630812',
+        secondary_colour: tenantSite.secondary_colour ?? null,
+        font_family:      tenantSite.font_family || 'Inter',
+        template_key:     tenantSite.template_key || 'classic',
+        og_image_url:     tenantSite.og_image_url ?? null,
+        theme:            tenantSite.theme || {},
+      })
+    },
+    onSuccess: (_data, venueId) => {
+      qc.invalidateQueries({ queryKey: ['website-configs'] })
+      qc.invalidateQueries({ queryKey: ['website-config', venueId] })
+      setTarget(venueId)
+      setAddingVenueId('')
+    },
+  })
+
+  const removeOverride = useMutation({
+    mutationFn: (venueId) => api.patch(`/website/config?venue_id=${venueId}`, { use_brand_override: false }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['website-configs'] })
+      setTarget(null)
+      setRemoving(false)
+    },
+  })
+
+  const showSelector = venues.length > 1
+
+  return (
+    <div className="space-y-5">
+      {showSelector && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button type="button" onClick={() => setTarget(null)}
+            className={cn('h-9 px-3 rounded-full text-sm font-medium touch-manipulation border',
+              target === null ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent')}>
+            Default
+          </button>
+          {overrideVenues.map(v => (
+            <button key={v.id} type="button" onClick={() => setTarget(v.id)}
+              className={cn('h-9 px-3 rounded-full text-sm font-medium touch-manipulation border',
+                target === v.id ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent')}>
+              {v.name}
+            </button>
+          ))}
+          {availableVenues.length > 0 && (
+            addingVenueId !== '__open__' ? (
+              <button type="button" onClick={() => setAddingVenueId('__open__')}
+                className="h-9 px-3 rounded-full text-sm font-medium touch-manipulation border border-dashed text-muted-foreground hover:bg-accent inline-flex items-center gap-1">
+                <Plus className="w-3.5 h-3.5" /> Add site override
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <select autoFocus value="" onChange={e => e.target.value && addOverride.mutate(e.target.value)}
+                  className="h-9 rounded-full border bg-background px-3 text-sm touch-manipulation">
+                  <option value="">Choose a venue…</option>
+                  {availableVenues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+                <button type="button" onClick={() => setAddingVenueId('')}
+                  className="h-9 w-9 rounded-full border hover:bg-accent inline-flex items-center justify-center touch-manipulation">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {showSelector && target != null && (
+        <div className="flex items-center justify-between bg-muted/40 border rounded-xl px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            {venues.find(v => v.id === target)?.name} has its own brand &amp; theme, independent of the tenant default.
+          </p>
+          {removing ? (
+            <span className="flex items-center gap-2 text-xs">
+              Remove this site's override and use the tenant default again?
+              <button type="button" onClick={() => removeOverride.mutate(target)}
+                className="text-destructive font-medium hover:underline">Yes, remove</button>
+              <button type="button" onClick={() => setRemoving(false)} className="text-muted-foreground hover:underline">Cancel</button>
+            </span>
+          ) : (
+            <button type="button" onClick={() => setRemoving(true)}
+              className="text-xs text-destructive hover:underline shrink-0 ml-3">Remove override</button>
+          )}
+        </div>
+      )}
+
+      <BrandIdentitySection venueId={target} />
+      <BrandThemeSection venueId={target} />
+      <BrandLayoutSection venueId={target} />
+    </div>
+  )
+}
+
+// ── Brand defaults sections ─────────────────────────────────
+
+function BrandIdentitySection({ venueId = null }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const isVenue  = !!venueId
+  const queryKey = isVenue ? ['website-config', venueId] : ['brand-defaults']
+  const { data: brand = {} } = useQuery({
+    queryKey,
+    queryFn: () => isVenue ? api.get(`/website/config?venue_id=${venueId}`) : api.get('/website/brand-defaults'),
   })
   const hasBrand = !!brand?.id
   const initial = useMemo(() => ({
@@ -3331,19 +3434,21 @@ function BrandIdentitySection() {
       // (template_key + font_family are enums/strings without .nullable()
       // in Zod, and the inspector inputs always set a real value.)
       for (const [k, v] of Object.entries(state)) {
+        if (isVenue && k === 'brand_name') continue // tenant-only field
         if (v === '' && k !== 'template_key' && k !== 'font_family' && k !== 'primary_colour') {
           body[k] = null
         } else {
           body[k] = v
         }
       }
+      if (isVenue) return api.patch(`/website/config?venue_id=${venueId}`, body)
       return hasBrand ? api.patch('/website/brand-defaults', body)
                       : api.post('/website/brand-defaults', body)
     },
     onMutate: () => { setSaveError(null); setSavedFlash(false) },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['brand-defaults'] })
-      qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      qc.invalidateQueries({ queryKey })
+      qc.invalidateQueries({ queryKey: isVenue ? ['website-configs'] : ['tenant-site'] })
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2000)
     },
@@ -3359,10 +3464,14 @@ function BrandIdentitySection() {
   return (
     <div className="space-y-5">
       <SectionCard title="Brand identity"
-        description="These values cascade to every venue website. Venues can override per-location if needed.">
-        <FormRow label="Brand name" hint="Franchise name shown across all venue sites.">
-          <TextInput value={state.brand_name} onChange={e => setState(s => ({ ...s, brand_name: e.target.value }))} />
-        </FormRow>
+        description={isVenue
+          ? "This venue's own identity — independent of the tenant default."
+          : 'These values cascade to every venue website unless a venue has its own override.'}>
+        {!isVenue && (
+          <FormRow label="Brand name" hint="Franchise name shown across all venue sites.">
+            <TextInput value={state.brand_name} onChange={e => setState(s => ({ ...s, brand_name: e.target.value }))} />
+          </FormRow>
+        )}
         <FormRow label="Site name" hint="Shown in the header next to the logo and in the footer. Falls back to brand name.">
           <TextInput value={state.site_name} onChange={e => setState(s => ({ ...s, site_name: e.target.value }))} />
         </FormRow>
@@ -3405,12 +3514,14 @@ function BrandIdentitySection() {
   )
 }
 
-function BrandThemeSection() {
+function BrandThemeSection({ venueId = null }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const isVenue  = !!venueId
+  const queryKey = isVenue ? ['website-config', venueId] : ['brand-defaults']
   const { data: brand = {} } = useQuery({
-    queryKey: ['brand-defaults'],
-    queryFn:  () => api.get('/website/brand-defaults'),
+    queryKey,
+    queryFn: () => isVenue ? api.get(`/website/config?venue_id=${venueId}`) : api.get('/website/brand-defaults'),
   })
   const hasBrand = !!brand?.id
   const [theme, setTheme] = useState(() => mergeTheme(brand.theme))
@@ -3422,13 +3533,14 @@ function BrandThemeSection() {
 
   const save = useMutation({
     mutationFn: () => {
+      if (isVenue) return api.patch(`/website/config?venue_id=${venueId}`, { theme })
       return hasBrand ? api.patch('/website/brand-defaults', { theme })
                       : api.post('/website/brand-defaults', { theme })
     },
     onMutate: () => { setSaveError(null); setSavedFlash(false) },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['brand-defaults'] })
-      qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      qc.invalidateQueries({ queryKey })
+      qc.invalidateQueries({ queryKey: isVenue ? ['website-configs'] : ['tenant-site'] })
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2000)
     },
@@ -3447,7 +3559,9 @@ function BrandThemeSection() {
   return (
     <div className="space-y-5">
       <SectionCard title="Brand theme"
-        description="Default theme for all venue sites. Individual venues can override specific values in their Theme overrides section.">
+        description={isVenue
+          ? "This venue's own theme — independent of the tenant default."
+          : 'Default theme for every venue site. A venue with its own site override gets an independent copy, starting from this.'}>
         <ColourField label="Primary" value={theme.colors.primary} onChange={v => setPath('colors', 'primary', v)} />
         <ColourField label="Accent" value={theme.colors.accent} onChange={v => setPath('colors', 'accent', v)} />
         <ColourField label="Background" value={theme.colors.background} onChange={v => setPath('colors', 'background', v)} />
@@ -3788,7 +3902,7 @@ export default function Website() {
           {mode === 'tenant' ? (
             tenantSite
               ? <TenantActiveSection active={active} tenantSite={tenantSite}
-                  pages={tenantPages} venues={venues} tenantName={tenantName}
+                  pages={tenantPages} venues={venues} allConfigs={allConfigs} tenantName={tenantName}
                   config={config} venueId={venueId}
                   onJumpTo={jumpTo} />
               : <div className="flex items-center justify-center py-12">
@@ -3820,7 +3934,7 @@ export default function Website() {
   )
 }
 
-function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, onJumpTo, config, venueId }) {
+function TenantActiveSection({ active, tenantSite, pages, venues, allConfigs, tenantName, onJumpTo, config, venueId }) {
   switch (active) {
     case 'tenant-page':
       return (
@@ -3841,13 +3955,7 @@ function TenantActiveSection({ active, tenantSite, pages, venues, tenantName, on
     case 'hours':
       return <HoursSection config={config?.id ? config : { venue_id: venueId }} venueId={venueId} />
     case 'tenant-domain':    return <TenantDomainSection    tenantSite={tenantSite} />
-    case 'tenant-brand':     return (
-      <div className="space-y-6">
-        <BrandIdentitySection />
-        <BrandThemeSection />
-        <BrandLayoutSection />
-      </div>
-    )
+    case 'tenant-brand':     return <BrandSection venues={venues} allConfigs={allConfigs} />
     case 'tenant-header':    return <BrandHeaderSection />
     case 'tenant-footer':    return <BrandFooterSection />
     case 'tenant-locations': return <TenantLocationsSection tenantSite={tenantSite} />
@@ -3882,7 +3990,6 @@ function VenueActiveSection({ active, config, venueId, tenantSite, pages, venues
           onJumpTo={(key) => key === 'hours' ? setActive('hours') : jumpToTenant(key)}
         />
       )
-    case 'branding':  return <BrandingSection  config={config} />
     case 'gallery':   return <GallerySection   config={config} />
     case 'menu':      return <MenuSection      config={config} />
     case 'allergens': return <AllergensSection config={config} />
