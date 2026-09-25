@@ -44,6 +44,7 @@ import { cn } from '@/lib/utils'
 import { useApi, setSelectedTenant } from '@/lib/api'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import MobileSuggestModal from '@/components/MobileSuggestModal'
+import MobileViewToggle from '@/components/MobileViewToggle'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings, applySiteTheme } from '@/contexts/SettingsContext'
 
@@ -535,6 +536,7 @@ export default function AppShell() {
         </button>
       )}
       <MobileSuggestModal />
+      <MobileViewToggle target="mobile" />
     </div>
   )
 }

@@ -18,6 +18,7 @@ import { ArrowLeft, LogOut, LayoutGrid } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
+import MobileViewToggle from '@/components/MobileViewToggle'
 
 const MAIN_MANIFEST_HREF = '/manifest.webmanifest'
 const MOBILE_MANIFEST_HREF = '/mobile.webmanifest'
@@ -118,6 +119,7 @@ export default function MobileShell() {
       <main className="flex-1 overflow-y-auto overscroll-contain">
         <Outlet />
       </main>
+      <MobileViewToggle target="standard" />
     </div>
   )
 }
