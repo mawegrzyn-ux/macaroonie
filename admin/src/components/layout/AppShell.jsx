@@ -175,6 +175,7 @@ export default function AppShell() {
   const availableTenants  = me?.available_tenants ?? []
   const currentTenant     = me?.current_tenant
   const hasTenants        = availableTenants.length > 0
+  const canSwitchTenant   = availableTenants.length > 1
   const isLauncherMode    = currentTenant?.nav_style === 'launcher'
 
   useEffect(() => {
@@ -209,10 +210,26 @@ export default function AppShell() {
           {open ? (
             <>
               <MacaroonIcon className="w-6 h-6 shrink-0" />
-              <span className="font-semibold text-sm flex-1 whitespace-nowrap">Macaroonie</span>
+              {canSwitchTenant ? (
+                <button
+                  type="button"
+                  onClick={() => setSwitcherOpen(true)}
+                  className="flex-1 min-w-0 flex items-center gap-1 -mx-1 px-1 py-1.5 rounded text-left touch-manipulation hover:bg-accent"
+                  title={currentTenant ? `Tenant: ${currentTenant.name} — click to switch` : 'No tenant selected — click to switch'}
+                >
+                  <span className={cn('font-semibold text-sm truncate leading-none', !currentTenant && 'text-amber-600')}>
+                    {currentTenant ? currentTenant.name : 'Choose a restaurant'}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                </button>
+              ) : (
+                <span className="font-semibold text-sm flex-1 truncate leading-none">
+                  {currentTenant ? currentTenant.name : 'Macaroonie'}
+                </span>
+              )}
               <button
                 onClick={() => setOpen(false)}
-                className="p-1.5 rounded hover:bg-accent text-muted-foreground"
+                className="p-1.5 rounded hover:bg-accent text-muted-foreground shrink-0"
                 title="Collapse sidebar"
               >
                 <X className="w-4 h-4" />
@@ -228,28 +245,14 @@ export default function AppShell() {
             </button>
           )}
         </div>
-        {open && hasTenants && (
-          <div className="shrink-0 px-3 py-2 border-b">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-              Tenant
-            </p>
-            {!currentTenant && (
-              <p className="text-[11px] text-amber-600 mb-1 font-medium">No tenant selected — pick one below</p>
-            )}
-            <button
-              type="button"
-              onClick={() => setSwitcherOpen(true)}
-              className={cn(
-                'w-full flex items-center justify-between gap-2 text-xs border rounded px-2 py-1.5 min-h-[36px] touch-manipulation hover:bg-accent',
-                !currentTenant && 'border-amber-400',
-              )}
-            >
-              <span className={cn('truncate text-left', !currentTenant && 'text-amber-600 font-medium')}>
-                {currentTenant ? currentTenant.name : 'Choose a restaurant'}
-              </span>
-              <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-            </button>
-          </div>
+        {open && hasTenants && !currentTenant && (
+          <button
+            type="button"
+            onClick={() => setSwitcherOpen(true)}
+            className="shrink-0 w-full text-left px-4 py-1.5 text-[11px] font-medium text-amber-600 bg-amber-50 border-b touch-manipulation hover:bg-amber-100"
+          >
+            No tenant selected — tap to choose a restaurant
+          </button>
         )}
         {!open && hasTenants && (
           <div className="shrink-0 border-b flex justify-center py-1.5">
