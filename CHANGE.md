@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Fixed: the menu button could be completely hidden on a phone]
+
+### Admin Portal
+- Fixed a bug where the menu (hamburger) button was hidden underneath the page's own header on Cash Reconciliation at phone width, making it impossible to open the sidebar or navigate anywhere else. The menu button now always stays on top and reachable, on every page.
+
+---
+
 ## [2026-09-25 — Sidebar header now shows your restaurant name]
 
 ### Admin Portal
