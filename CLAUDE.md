@@ -629,6 +629,20 @@ end-to-end (Add to Home Screen on an actual iPhone/Android device, confirm the s
 icon/name/manifest actually take effect, confirm `100dvh`/safe-area handling on a notched
 device). Worth a real-device pass before treating this as fully verified.
 
+**11. `/mobile` PWA install identity on Android — confirmed broken on real device, needs a subdomain**
+Real-device testing (item 10) surfaced that Android Chrome does not treat `/mobile` as a
+separately-installable PWA the way iOS Safari does. Chrome ties "already installed?" to
+the *origin*, not to which manifest is currently linked — since a WebAPK is already
+installed for `macaroonie.com` (the main app, `scope: "/"`), Chrome's install flow offers
+to open that existing app instead of creating a distinct "Macaroonie Ops" icon, regardless
+of `MobileShell`'s manifest/link-tag swap. The only reliable fix is a genuinely different
+origin for `/mobile` (e.g. `ops.macaroonie.com`), since PWA install identity on Android is
+origin-scoped. **Pick this up together with the office/ops subdomain work discussed earlier**
+— fold the `/mobile` PWA identity fix into that same subdomain rollout rather than doing a
+one-off DNS/Nginx change just for this. Until then, "Create shortcut" (Chrome's fallback
+option) is the only way to get a distinct icon/name on Android, and it's a browser
+shortcut, not a standalone WebAPK.
+
 ---
 
 ## Environment variables
