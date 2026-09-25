@@ -1319,6 +1319,14 @@ export default function Help() {
               using the desktop layout. It only offers once; dismissing it (either way) won't ask
               again on that phone.
             </P>
+            <P>
+              Beyond that one-time pop-up, whenever you're on a phone-sized screen you'll also see
+              a small floating <strong>Mobile view</strong> button in the bottom-left corner of the
+              regular desktop admin pages — tap it any time to jump to <strong>/mobile</strong>.
+              And once you're in the mobile section, the same button shows there too, labelled{' '}
+              <strong>Standard view</strong>, to jump straight back to the full desktop admin. It's
+              always there on a phone screen, so you can switch back and forth as often as you like.
+            </P>
             <InfoBox type="tip">
               This is the same login and the same restaurant data as the desktop admin portal —
               there's nothing extra to set up. If you're not signed in, it takes you through the

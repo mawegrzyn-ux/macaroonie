@@ -1486,6 +1486,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (dismiss) — sets <Mono>maca_mobile_prompt_dismissed</Mono> in localStorage, so it's a
               one-time offer per browser rather than a repeating nag.
             </P>
+            <H3>Persistent mobile / standard toggle</H3>
+            <P>
+              <Mono>admin/src/components/MobileViewToggle.jsx</Mono> is a separate, always-on
+              counterpart to the suggestion modal above — a small floating pill button fixed at{' '}
+              <Mono>bottom-4 left-4</Mono>, shown any time the viewport matches{' '}
+              <Mono>{"IS_TOUCH && matchMedia('(max-width: 700px)')"}</Mono> (no portrait
+              requirement, no dismissal — it reappears on every visit rather than offering once).
+              It takes a <Mono>target</Mono> prop: <Mono>{"target=\"mobile\""}</Mono> (mounted in{' '}
+              <Mono>AppShell.jsx</Mono>, next to <Mono>MobileSuggestModal</Mono>) navigates to{' '}
+              <Mono>/mobile</Mono>; <Mono>{"target=\"standard\""}</Mono> (mounted in{' '}
+              <Mono>MobileShell.jsx</Mono>, after its <Mono>{'<Outlet />'}</Mono>) navigates back to{' '}
+              <Mono>/</Mono>. Before this shipped, <Mono>MobileShell</Mono>'s own header back-arrow
+              only ever returned to the <Mono>/mobile</Mono> hub — there was no route back to the
+              full desktop admin from inside <Mono>/mobile/*</Mono> short of editing the URL by hand.
+            </P>
           </section>
 
           {/* ── H&S ACTION LOG ────────────────────────────── */}
@@ -1747,6 +1762,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               aggregation. Caught by a direct test against a disposable Postgres before shipping;
               see <Mono>api/src/routes/dashboardTiles.js</Mono>.
             </InfoBox>
+            <H3>Responsive layout</H3>
+            <P>
+              The tile grid is <Mono>grid-cols-1 sm:grid-cols-2 lg:grid-cols-4</Mono> — it only
+              actually has 4 columns at the <Mono>lg</Mono> breakpoint. Each tile's stored{' '}
+              <Mono>col_span</Mono> (1-4 "quarters") maps through a <Mono>SPAN_CLASSES</Mono>{' '}
+              lookup on <Mono>TileCard</Mono> (<Mono>{"{1: 'col-span-1', 2: 'col-span-1 sm:col-span-2', 3: '... lg:col-span-3', 4: '... lg:col-span-4'}"}</Mono>)
+              instead of a raw <Mono>{"style={{ gridColumn: `span ${colSpan}` }}"}</Mono>, so a
+              tile configured 4-wide degrades to full-width on a 1- or 2-column grid rather than
+              overflowing it. The page header also reserves <Mono>pl-14 lg:pl-6</Mono> so its
+              title doesn't sit under <Mono>AppShell</Mono>'s fixed hamburger button below{' '}
+              <Mono>lg</Mono> — see the Common-mistakes entry on this in CLAUDE.md for the general
+              pattern every new page header under <Mono>AppShell</Mono> should follow.
+            </P>
           </section>
 
           {/* ── ORDER SHEETS ──────────────────────────────── */}

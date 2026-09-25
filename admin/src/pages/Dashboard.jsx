@@ -240,6 +240,18 @@ function mondayOfWeek(dateStr) {
 
 // ── Tile shell — header (icon/title + edit controls) + scrollable body ──────
 
+// The 4-column grid only exists at the lg breakpoint — below that the page
+// falls back to 2 columns (sm) or a single column (phone width), so a
+// tile's colSpan is capped to however many columns actually exist at each
+// breakpoint rather than overflowing the grid or forcing a horizontal
+// scroll strip.
+const SPAN_CLASSES = {
+  1: 'col-span-1',
+  2: 'col-span-1 sm:col-span-2',
+  3: 'col-span-1 sm:col-span-2 lg:col-span-3',
+  4: 'col-span-1 sm:col-span-2 lg:col-span-4',
+}
+
 function TileCard({
   icon: Icon, title, editing, colSpan, height,
   onRemove, onMoveUp, onMoveDown, isFirst, isLast, onResizeWidth, onResizeHeight,
@@ -247,8 +259,8 @@ function TileCard({
 }) {
   return (
     <div
-      style={{ gridColumn: `span ${colSpan}` }}
       className={cn(
+        SPAN_CLASSES[colSpan] ?? 'col-span-1',
         'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
         editing && 'ring-1 ring-primary/30 border-dashed',
       )}>
@@ -621,33 +633,35 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
-        <div>
-          <h1 className="font-semibold">Overview</h1>
-          <p className="text-xs text-muted-foreground">{format(new Date(), 'EEEE d MMMM yyyy')}</p>
+      <div className="flex items-center justify-between gap-2 px-4 sm:px-6 pl-14 lg:pl-6 h-14 border-b shrink-0">
+        <div className="min-w-0">
+          <h1 className="font-semibold truncate">Overview</h1>
+          <p className="text-xs text-muted-foreground truncate">{format(new Date(), 'EEEE d MMMM yyyy')}</p>
         </div>
         {canManage && (
           editing ? (
             <button onClick={() => setEditing(false)}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary touch-manipulation min-h-[40px] px-3 py-2 rounded-md hover:bg-primary/10">
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary touch-manipulation min-h-[40px] px-3 py-2 rounded-md hover:bg-primary/10 shrink-0">
               <Check className="w-4 h-4" /> Done
             </button>
           ) : (
             <button onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground touch-manipulation min-h-[40px] px-3 py-2 rounded-md hover:bg-accent hover:text-foreground">
-              <Pencil className="w-3.5 h-3.5" /> Customise layout
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground touch-manipulation min-h-[40px] px-3 py-2 rounded-md hover:bg-accent hover:text-foreground shrink-0">
+              <Pencil className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Customise layout</span>
+              <span className="sm:hidden">Customise</span>
             </button>
           )
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         {tiles.length === 0 && !editing && (
           <p className="text-sm text-muted-foreground text-center py-12">
             {canManage ? 'No tiles on this page yet — click "Customise layout" to add some.' : 'Nothing to show here yet.'}
           </p>
         )}
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(4, minmax(240px, 1fr))' }}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {tiles.map((tile, i) => {
             const meta = TILE_META[tile.tile_type]
             if (!meta) return null
@@ -680,8 +694,7 @@ export default function Dashboard() {
 
           {editing && (
             <button onClick={() => setAddTileOpen(true)}
-              style={{ gridColumn: 'span 2' }}
-              className="border-2 border-dashed rounded-xl flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground hover:border-primary/40 hover:bg-accent touch-manipulation">
+              className="col-span-1 sm:col-span-2 border-2 border-dashed rounded-xl flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground hover:border-primary/40 hover:bg-accent touch-manipulation">
               <Plus className="w-6 h-6" />
               <span className="text-sm font-medium">Add tile</span>
             </button>

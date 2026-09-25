@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Overview page made phone-friendly + a persistent mobile/standard switch button]
+
+### Admin Portal
+- The Overview (home) page's tile layout now reflows properly on a phone-sized screen instead of squeezing into a fixed 4-column grid — tiles stack full-width or half-width as the screen narrows.
+- Fixed a bug where the Overview page's title sat directly underneath the menu button on narrower screens.
+- Added a small floating **Mobile view** / **Standard view** button, bottom-left, that appears any time you're on a phone-sized screen — tap it to switch between the regular admin portal and the phone-optimised `/mobile` view, in either direction, as often as you like.
+
+---
+
 ## [2026-09-25 — Desktop now offers to switch to the mobile view on a phone]
 
 ### Mobile App
