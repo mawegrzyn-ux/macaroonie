@@ -23,12 +23,15 @@
 
 import { sql, withTenant } from '../config/db.js'
 import { attachVariantGroupsToItems } from '../routes/menus.js'
-import { mergeThemes } from './brandTheme.js'
 
-const BRAND_INHERITABLE = [
-  'logo_url', 'favicon_url', 'primary_colour', 'secondary_colour',
-  'font_family', 'template_key', 'og_image_url',
-  'ga4_measurement_id', 'fb_pixel_id',
+// A venue with website_config.use_brand_override = true replaces the
+// tenant's Brand & theme with its own values for these fields — wholesale,
+// not blended (see BrandSection.jsx "Add site override", which seeds these
+// from the tenant default at the moment the override is created).
+const BRAND_OVERRIDE_FIELDS = [
+  'site_name', 'tagline', 'logo_url', 'favicon_url',
+  'primary_colour', 'secondary_colour', 'font_family', 'template_key',
+  'theme', 'og_image_url',
 ]
 
 export function soleVenueOf(venues) {
@@ -54,18 +57,20 @@ function mergeLocationConfig(tenantSite, venueConfig) {
   if (!venueConfig) return tenantSite
   const merged = { ...tenantSite }
 
-  for (const key of BRAND_INHERITABLE) {
-    if (venueConfig[key]) merged[key] = venueConfig[key]
+  // Brand & theme is all-or-nothing per venue — either this location uses
+  // the tenant default untouched, or its own complete override. No
+  // per-field blending: that's what used to let a stale venue-level value
+  // silently bleed into the live site (see the removed brandTheme.js).
+  if (venueConfig.use_brand_override) {
+    for (const key of BRAND_OVERRIDE_FIELDS) {
+      if (venueConfig[key] != null) merged[key] = venueConfig[key]
+    }
   }
 
   merged.social_links = {
     ...(tenantSite.social_links || {}),
     ...(venueConfig.social_links || {}),
   }
-
- merged.theme = mergeThemes(tenantSite.theme, venueConfig.theme)
-  if (tenantSite.template_key) merged.template_key = tenantSite.template_key
-  if (tenantSite.font_family)  merged.font_family  = tenantSite.font_family
 
   // Per-location fields — these have no tenant-level fallback because they
   // are fundamentally per-location (address, hero photo of THIS venue, etc.)

@@ -277,6 +277,13 @@ const VenueConfigBody = z.object({
   font_family:      z.string().max(100).optional(),
   template_key:     z.enum(['classic', 'modern', 'onethai']).optional(),
   theme:            ThemeSchema.optional(),
+  // When true, this venue's own brand/theme fields (identity, colours,
+  // typography, layout — everything above from primary_colour through
+  // theme, plus site_name/tagline/logo_url/favicon_url) fully REPLACE the
+  // tenant default for this location's pages. When false (default), all of
+  // those fields are ignored and the tenant's Brand & theme applies as-is
+  // — no per-field blending. See BRAND_OVERRIDE_FIELDS in siteDataSvc.js.
+  use_brand_override: z.boolean().optional(),
 
   show_booking_widget: z.boolean().optional(),
   show_menu:          z.boolean().optional(),
@@ -724,7 +731,7 @@ export default async function websiteRoutes(app) {
       SELECT v.id AS venue_id, v.name AS venue_name, v.slug AS venue_slug,
              wc.id AS config_id,
              wc.hero_image_url, wc.address_line1, wc.city,
-             wc.show_booking_widget, wc.updated_at
+             wc.show_booking_widget, wc.use_brand_override, wc.updated_at
         FROM venues v
         LEFT JOIN website_config wc ON wc.venue_id = v.id
        WHERE v.tenant_id = ${req.tenantId}

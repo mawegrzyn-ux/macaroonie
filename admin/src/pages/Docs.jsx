@@ -1835,6 +1835,57 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               for a while after <Mono>menu_inline.eta</Mono> already had them.
             </InfoBox>
 
+            <H3>Brand & theme — tenant default + per-venue site overrides</H3>
+            <P>
+              <Mono>website_config.use_brand_override</Mono> (migration 098, boolean, default{' '}
+              <Mono>false</Mono>) is the single switch deciding whether a venue's own brand/theme
+              fields apply. When <Mono>false</Mono> (the default, and the only state for
+              single-venue tenants), every field in{' '}
+              <Mono>BRAND_OVERRIDE_FIELDS</Mono> (<Mono>siteDataSvc.js</Mono>) — site_name,
+              tagline, logo_url, favicon_url, primary_colour, secondary_colour, font_family,
+              template_key, theme — is read from <Mono>tenant_site</Mono> only; the venue's own
+              stored values (if any, from a previously-removed override) are ignored entirely.
+              When <Mono>true</Mono>, the venue's own values replace the tenant's wholesale — no
+              per-field blending. <Mono>mergeLocationConfig()</Mono> in <Mono>siteDataSvc.js</Mono>{' '}
+              is the one place this resolves.
+            </P>
+            <P>
+              Admin UI: <Mono>BrandSection</Mono> in <Mono>Website.jsx</Mono> (rendered under{' '}
+              <Mono>tenant-brand</Mono>) shows a pill selector — "Default" plus one pill per venue
+              with an active override — only when the tenant has more than one venue.{' '}
+              <Mono>+ Add site override</Mono> calls <Mono>POST /website/config</Mono> (ensures the
+              venue's row exists) then <Mono>PATCH /website/config?venue_id=X</Mono> with{' '}
+              <Mono>use_brand_override: true</Mono> and every override field COPIED from the
+              tenant's current values at that moment — a snapshot, not a live link; editing the
+              tenant default afterwards does not change an already-created override.{' '}
+              <Mono>Remove override</Mono> just flips the flag back to <Mono>false</Mono> (inline
+              double-confirm); the venue's stored values are left in place in case the operator
+              re-adds the override later. <Mono>BrandIdentitySection</Mono>,{' '}
+              <Mono>BrandThemeSection</Mono>, and <Mono>BrandLayoutSection</Mono> all take an
+              optional <Mono>venueId</Mono> prop — <Mono>null</Mono> (default) edits{' '}
+              <Mono>tenant_site</Mono> via <Mono>/website/brand-defaults</Mono> exactly as before;
+              a venue id edits that venue's <Mono>website_config</Mono> via{' '}
+              <Mono>/website/config?venue_id=X</Mono> instead, using the identical form fields.
+            </P>
+            <InfoBox type="warn">
+              This replaces an earlier per-field sparse-inheritance model (
+              <Mono>BRAND_INHERITABLE</Mono>, and a <Mono>brandTheme.js</Mono> helper that forced
+              tenant colours/typography to always win regardless of what a venue had stored) that
+              let a stale, half-filled venue theme silently bleed into the live site. Both are
+              deleted — there is no code path left that blends tenant and venue brand/theme
+              field-by-field. A venue's brand/theme is either the tenant's, in full, or its own,
+              in full.
+            </InfoBox>
+            <InfoBox type="info">
+              The standalone per-venue "Identity" page (site name/tagline/logo/favicon only, no
+              theme) that used to sit under the venue Pages nav is gone (2026-09-25). It never
+              actually had any effect beyond logo/favicon — <Mono>mergeLocationConfig()</Mono>{' '}
+              never read its site_name/tagline back out for rendering — and is now fully
+              superseded by the Brand & theme override above, which covers strictly more (theme,
+              typography, layout too) with an explicit on/off switch instead of silent
+              per-field inheritance.
+            </InfoBox>
+
             <H3>API routes</H3>
             <DataTable
               head={['Method + Path', 'Auth', 'Purpose']}
