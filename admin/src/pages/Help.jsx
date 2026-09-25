@@ -1318,7 +1318,10 @@ export default function Help() {
               Reconciliation page. <strong>Order Sheets</strong> is the third: browse orders,
               filter by status or venue, tap into one to fill in quantities and mark it Ready or
               Placed — the same order screen as the desktop page, just full-screen on your phone
-              instead of a side panel.
+              instead of a side panel. <strong>Cash Up</strong> is the fourth: a plain list of the
+              week's days with status, income and variance at a glance — tap a day to open the
+              full declaration. <strong>Wages</strong> is the fifth: this week's staff list
+              stripped down to just names, what's owed, and what's been paid in cash.
             </P>
             <P>
               If you open the regular desktop admin portal on a phone held upright, you'll see a

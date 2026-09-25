@@ -1509,6 +1509,37 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               only ever returned to the <Mono>/mobile</Mono> hub — there was no route back to the
               full desktop admin from inside <Mono>/mobile/*</Mono> short of editing the URL by hand.
             </P>
+            <H3>Mobile Cash Up</H3>
+            <P>
+              <Mono>admin/src/pages/mobile/MobileCashUp.jsx</Mono> (<Mono>/mobile/cash-up</Mono>).
+              Venue picker + week nav over a plain vertical list of the week's 7 days, each row
+              showing the day name/date, a <Mono>StatusBadge</Mono>, total income, and variance —
+              fetched from the same <Mono>GET /venues/:id/cash-recon/week/:week_start</Mono>{' '}
+              endpoint the desktop <Mono>WeekView</Mono>'s day cards already use. Tapping a day
+              renders <Mono>CashRecon.jsx</Mono>'s <Mono>DayView</Mono> full-page (exported for
+              this) for the complete daily declaration — the same "list, then a reused full-page
+              detail component" shape <Mono>MobileOrderSheets.jsx</Mono> uses with{' '}
+              <Mono>OrderDetail</Mono>. A "Week total" tile below the list sums income, takings
+              and variance across whichever days have a report yet.
+            </P>
+            <H3>Mobile Wages</H3>
+            <P>
+              <Mono>admin/src/pages/mobile/MobileWages.jsx</Mono> (<Mono>/mobile/wages</Mono>).
+              Desktop's <Mono>WagesView</Mono> shows an 8-column grid (Staff / Type / Hours / Rate
+              / Total / Cash paid / Notes / Remove) that only survives phone width via{' '}
+              <Mono>overflow-x-auto</Mono> horizontal scrolling — not a real reflow. The mobile
+              page instead renders one card per staff entry with just two editable fields:{' '}
+              <Mono>total</Mono> ("To be paid") and <Mono>cash_amount</Mono> ("Paid"). Every other
+              field on an entry (<Mono>entry_type</Mono>, <Mono>hours</Mono>, <Mono>rate</Mono>,{' '}
+              <Mono>notes</Mono>) is read from the loaded entry and passed straight back through on
+              every save unchanged — this page never edits them, so an hourly entry configured on
+              desktop keeps its hours/rate intact after a mobile-only edit. Same auto-populate
+              behaviour as desktop (server entries → venue's <Mono>wage_defaults</Mono> → full
+              active-staff roster, in that order), same add-staff (from the staff list, or
+              ad-hoc)/remove/submit/unsubmit/"Set as default" actions, same{' '}
+              <Mono>/venues/:id/cash-recon/wages/:week_start[/submit|/unsubmit|/set-default]</Mono>{' '}
+              endpoints.
+            </P>
           </section>
 
           {/* ── H&S ACTION LOG ────────────────────────────── */}

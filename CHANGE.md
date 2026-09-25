@@ -13,6 +13,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Cash Up and Wages added to the mobile app]
+
+### Mobile App
+- New **Cash Up** mobile module: this week's days listed with status, income and variance at a glance, tap a day to open the full declaration, with a week-total tile below the list.
+- New **Wages** mobile module: this week's staff list narrowed to just names, what's owed, and what's been paid in cash — everything else stays exactly as set on desktop.
+
+---
+
 ## [2026-09-25 — Overview page made phone-friendly + a persistent mobile/standard switch button]
 
 ### Admin Portal
