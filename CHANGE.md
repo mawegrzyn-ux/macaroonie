@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Login: smarter tenant selection, no more dropdown]
+
+### Login & tenant switching
+- If you only work in one restaurant, you're now dropped straight in — no picker screen, not even a flash of one.
+- If you work in more than one, you're signed back into whichever one you used last, same as before, but if you've never picked one on this device (or your access changed), you now get a clean pop-up to choose instead of a full-page list.
+- The tenant switcher in the sidebar is now a proper button that opens the same pop-up, replacing the old dropdown menu — easier to tap accurately on a tablet.
+
+---
+
 ## [2026-09-25 — Mobile H&S Dashboard: fixed overlapping temp table headers]
 
 ### Health & safety
