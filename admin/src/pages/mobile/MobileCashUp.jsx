@@ -64,7 +64,7 @@ export default function MobileCashUp() {
 
   return (
     <div className="p-3 pb-8 space-y-3">
-      {venues.length > 1 && (
+      {venues.length > 0 && (
         <select value={venueId} onChange={e => setVenueId(e.target.value)}
           className="w-full border rounded-lg px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation">
           {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}

@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Mobile Cash Up, Wages and Expenses now always show the venue picker]
+
+### Mobile App
+- Fixed the Cash Up, Wages and Expenses mobile pages hiding their venue picker for single-venue restaurants, which didn't match the desktop Cash Reconciliation page (which always shows it). All three now show the venue picker whenever there's at least one venue.
+
+---
+
 ## [2026-09-25 — Fixed: the menu button could be completely hidden on a phone]
 
 ### Admin Portal
