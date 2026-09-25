@@ -11,6 +11,8 @@ import MobileHub   from '@/pages/mobile/MobileHub'
 import MobileHSDashboard from '@/pages/mobile/MobileHSDashboard'
 import MobileExpenses from '@/pages/mobile/MobileExpenses'
 import MobileOrderSheets from '@/pages/mobile/MobileOrderSheets'
+import MobileCashUp from '@/pages/mobile/MobileCashUp'
+import MobileWages from '@/pages/mobile/MobileWages'
 import TenantGate  from '@/components/TenantGate'
 import { TimelineSettingsProvider } from '@/contexts/TimelineSettingsContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
@@ -170,6 +172,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="hs-dashboard" element={<MobileHSDashboard />} />
                 <Route path="expenses"     element={<MobileExpenses />} />
                 <Route path="order-sheets" element={<MobileOrderSheets />} />
+                <Route path="cash-up"      element={<MobileCashUp />} />
+                <Route path="wages"        element={<MobileWages />} />
               </Route>
             </Routes>
             </TenantGate>
