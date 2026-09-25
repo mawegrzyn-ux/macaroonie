@@ -2305,9 +2305,9 @@ export default function Help() {
               </li>
               <li>Click <strong>Create tenant</strong>. The tenant appears in the list immediately.</li>
               <li>
-                Use the <strong>tenant switcher</strong> dropdown in the top-left of the
-                sidebar to enter the new tenant. Then go to <strong>Team</strong> and invite
-                the franchise owner.
+                Use the <strong>tenant switcher</strong> button in the top-left of the
+                sidebar (opens a "Switch restaurant" picker) to enter the new tenant. Then go
+                to <strong>Team</strong> and invite the franchise owner.
               </li>
             </ol>
             <InfoBox type="info">

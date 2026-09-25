@@ -413,10 +413,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H2>Authentication</H2>
             <ol className="space-y-3 text-sm mb-6">
               {[
-                'User logs in via Auth0 (organisation-scoped login).',
-                "Auth0 Login Action injects tenant_id (Auth0 org ID) and role into the access token under the https://${AUTH0_DOMAIN}/claims/ namespace.",
-                'API middleware (src/middleware/auth.js) validates the JWT via the Auth0 JWKS endpoint.',
-                'Middleware resolves auth0_org_id → tenants.id (internal UUID).',
+                'User logs in via Auth0 — identity only, no organisation param on the everyday login path. RequireAuth (main.jsx) calls loginWithRedirect() with no organization, except when the URL carries invitation + organization query params (an Auth0 invite-acceptance link), which are forwarded as-is.',
+                "The JWT carries the user's identity (sub, email via a Login Action custom claim) but does not by itself select a restaurant — org_id on the token (when present, e.g. from an invite login) is only used as a same-browser hint, never as the source of truth.",
+                'API middleware (src/middleware/auth.js) validates the JWT via the Auth0 JWKS endpoint and checks platform_admins.',
+                "Middleware resolves the active tenant per REQUEST from the X-Tenant-Id header (sent by every admin-portal API call, see TenantGate below) — falling back to the JWT's org_id claim only when no header is sent. A header naming a tenant the caller isn't a member of is ignored (logged, not 401'd) rather than failing the request, so a stale localStorage pick can never cause a login loop.",
                 'req.tenantId and req.user.role are attached to every request.',
                 'Every route handler passes req.tenantId to withTenant().',
               ].map((text, i) => (
@@ -428,6 +428,25 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 </li>
               ))}
             </ol>
+            <H3>Tenant selection (client-side, not Auth0)</H3>
+            <P>
+              Which restaurant a session is working in is resolved entirely in the admin portal,
+              not via a second Auth0 login. <Mono>TenantGate</Mono> (src/components/TenantGate.jsx)
+              sits inside <Mono>RequireAuth</Mono> and, once identity is established, decides
+              which tenant (if any) to send as <Mono>X-Tenant-Id</Mono>:
+            </P>
+            <ul className="list-disc pl-5 space-y-1.5 text-sm text-muted-foreground mb-4">
+              <li>The pick is a plain id string in <Mono>localStorage</Mono> (key <Mono>maca_selected_tenant</Mono>), read by <Mono>getSelectedTenant()</Mono> / written by <Mono>setSelectedTenant()</Mono> in <Mono>src/lib/api.js</Mono>. <Mono>useApi()</Mono> attaches it as <Mono>X-Tenant-Id</Mono> on every call.</li>
+              <li><strong>A user with exactly one tenant</strong> (and not a platform admin) is auto-signed into it — no picker is ever shown, not even for a single frame (the loading state is held until the auto-select effect has run).</li>
+              <li><strong>A returning multi-tenant user</strong> whose stored pick is still valid for their account (<Mono>{'GET /me'}</Mono>'s <Mono>current_tenant.id</Mono> matches the stored id) is signed straight back into that tenant — this is the "last one" behaviour, and it's just localStorage persistence plus the existing membership check, no separate "last used" column.</li>
+              <li><strong>A multi-tenant user with no valid stored pick</strong> (first login on this browser, or their stored tenant was revoked) sees a mandatory <Mono>TenantSwitcherModal</Mono> — no close button, no backdrop dismiss, just the tenant list plus a Sign out link.</li>
+              <li>Once inside the app, <Mono>AppShell</Mono>'s sidebar "Tenant" control opens the same <Mono>TenantSwitcherModal</Mono> component (dismissible this time) instead of the old <Mono>{'<select>'}</Mono> dropdown — picking a tenant calls <Mono>setSelectedTenant()</Mono> then reloads the page so every query re-fetches under the new <Mono>X-Tenant-Id</Mono>.</li>
+            </ul>
+            <InfoBox type="info">
+              An Auth0 org switch (re-authenticating with a different Auth0 organisation) is a
+              separate, older mechanism still used only for invitation-link acceptance — everyday
+              tenant switching never triggers a second Auth0 login or loses TanStack Query cache.
+            </InfoBox>
             <H3>Roles</H3>
             <DataTable
               head={['Role', 'Privilege', 'Capabilities']}

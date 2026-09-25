@@ -42,6 +42,7 @@ function MacaroonIcon({ className = 'w-5 h-5' }) {
 }
 import { cn } from '@/lib/utils'
 import { useApi, setSelectedTenant } from '@/lib/api'
+import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings, applySiteTheme } from '@/contexts/SettingsContext'
 
@@ -178,6 +179,8 @@ export default function AppShell() {
     if (me?.site_theme) applySiteTheme(me.site_theme)
   }, [me?.site_theme])
 
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+
   function switchTenant(tenantId) {
     if (!tenantId) return
     setSelectedTenant(tenantId)
@@ -231,34 +234,44 @@ export default function AppShell() {
             {!currentTenant && (
               <p className="text-[11px] text-amber-600 mb-1 font-medium">No tenant selected — pick one below</p>
             )}
-            <select
-              value={currentTenant?.id || ''}
-              onChange={e => switchTenant(e.target.value)}
+            <button
+              type="button"
+              onClick={() => setSwitcherOpen(true)}
               className={cn(
-                'w-full text-xs border rounded px-2 py-1.5 bg-background touch-manipulation min-h-[36px]',
+                'w-full flex items-center justify-between gap-2 text-xs border rounded px-2 py-1.5 min-h-[36px] touch-manipulation hover:bg-accent',
                 !currentTenant && 'border-amber-400',
               )}
             >
-              {!currentTenant && <option value="">— select tenant —</option>}
-              {availableTenants.map(t => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+              <span className={cn('truncate text-left', !currentTenant && 'text-amber-600 font-medium')}>
+                {currentTenant ? currentTenant.name : 'Choose a restaurant'}
+              </span>
+              <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+            </button>
           </div>
         )}
         {!open && hasTenants && (
           <div className="shrink-0 border-b flex justify-center py-1.5">
             <button
-              onClick={() => setOpen(true)}
-              title={currentTenant ? `Tenant: ${currentTenant.name}` : 'No tenant selected — click to switch'}
+              onClick={() => setSwitcherOpen(true)}
+              title={currentTenant ? `Tenant: ${currentTenant.name} — click to switch` : 'No tenant selected — click to switch'}
               className={cn(
-                'p-2 rounded',
+                'p-2 rounded touch-manipulation',
                 !currentTenant ? 'text-amber-500 hover:bg-amber-50' : 'hover:bg-accent text-muted-foreground',
               )}
             >
               <ChevronDown className="w-4 h-4" />
             </button>
           </div>
+        )}
+        {switcherOpen && (
+          <TenantSwitcherModal
+            tenants={availableTenants}
+            currentTenantId={currentTenant?.id}
+            onPick={switchTenant}
+            onClose={() => setSwitcherOpen(false)}
+            title="Switch restaurant"
+            subtitle="Pick which restaurant to work in."
+          />
         )}
         <nav className="flex-1 overflow-y-auto p-2 space-y-3">
           {isLauncherMode ? (

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery } from '@tanstack/react-query'
 import { useApi, getSelectedTenant, setSelectedTenant } from '@/lib/api'
+import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 
 function Screen({ children }) {
   return (
@@ -30,17 +31,26 @@ export default function TenantGate({ children }) {
   const tenants = me?.available_tenants ?? []
   const selectedIsValid = !!(selected && me?.current_tenant?.id === selected)
 
+  // Same candidate logic the effect below acts on, computed at render time
+  // too so we know — before the effect has had a chance to run — whether
+  // this user is about to be auto-signed into a tenant. A single-tenant
+  // user (or an invite-link org match) should never see the picker flash
+  // on screen even for one frame; only a genuine "which one?" case (no
+  // stored history, more than one tenant) should render the modal.
+  const byOrgCandidate = me && user?.org_id
+    ? tenants.find(t => t.auth0_org_id === user.org_id)
+    : null
+  const autoSelectCandidate = byOrgCandidate
+    || (me && !me.is_platform_admin && tenants.length === 1 ? tenants[0] : null)
+  const willAutoSelect = !selectedIsValid && !!autoSelectCandidate
+
   useEffect(() => {
-    if (!me || selectedIsValid) return
-    const byOrg = user?.org_id
-      ? tenants.find(t => t.auth0_org_id === user.org_id)
-      : null
-    const candidate = byOrg || (!me.is_platform_admin && tenants.length === 1 ? tenants[0] : null)
-    if (!candidate || tried.current.has(candidate.id)) return
-    tried.current.add(candidate.id)
-    setSelectedTenant(candidate.id)
-    setSelected(candidate.id)
-  }, [me, selectedIsValid, user?.org_id, tenants])
+    if (!me || selectedIsValid || !autoSelectCandidate) return
+    if (tried.current.has(autoSelectCandidate.id)) return
+    tried.current.add(autoSelectCandidate.id)
+    setSelectedTenant(autoSelectCandidate.id)
+    setSelected(autoSelectCandidate.id)
+  }, [me, selectedIsValid, autoSelectCandidate])
 
   function pick(id) {
     tried.current.add(id)
@@ -52,7 +62,7 @@ export default function TenantGate({ children }) {
     logout({ logoutParams: { returnTo: window.location.origin } })
   }
 
-  if (!error && !selectedIsValid && (isLoading || isFetching || !me)) {
+  if (!error && !selectedIsValid && (isLoading || isFetching || !me || willAutoSelect)) {
     return (
       <Screen>
         <p className="text-sm text-muted-foreground animate-pulse text-center">Loading…</p>
@@ -101,36 +111,28 @@ export default function TenantGate({ children }) {
     )
   }
 
+  // Genuine "which one?" case — more than one tenant and no valid stored
+  // pick (first login on this browser, or a previously-picked tenant this
+  // account no longer belongs to). Shown as a modal, not a full page —
+  // there's nothing behind it yet, but it's still the same dismissible-free
+  // component AppShell's "Change tenant" button reuses later.
   if (!selectedIsValid) {
     return (
-      <Screen>
-        <h1 className="text-lg font-semibold mb-1">Choose a restaurant</h1>
-        <p className="text-sm text-muted-foreground mb-4">
-          Signed in as {me.email || user?.email}. Pick where you want to work —
-          you can switch later from the sidebar.
-        </p>
-        <ul className="space-y-2">
-          {tenants.map(t => (
-            <li key={t.id}>
-              <button
-                onClick={() => pick(t.id)}
-                className="w-full text-left text-sm rounded border px-3 py-2.5 hover:bg-accent touch-manipulation"
-              >
-                <span className="font-medium">{t.name}</span>
-                {t.slug && (
-                  <span className="block text-xs text-muted-foreground">{t.slug}</span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <button
-          onClick={signOut}
-          className="mt-4 w-full text-xs text-muted-foreground hover:underline"
-        >
-          Sign out
-        </button>
-      </Screen>
+      <TenantSwitcherModal
+        tenants={tenants}
+        currentTenantId={selected}
+        onPick={pick}
+        title="Choose a restaurant"
+        subtitle={`Signed in as ${me.email || user?.email}. Pick where you want to work — you can switch later from the sidebar.`}
+        footer={
+          <button
+            onClick={signOut}
+            className="mt-4 w-full text-xs text-muted-foreground hover:underline touch-manipulation"
+          >
+            Sign out
+          </button>
+        }
+      />
     )
   }
 
