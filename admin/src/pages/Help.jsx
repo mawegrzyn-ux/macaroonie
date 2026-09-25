@@ -27,6 +27,7 @@ const SECTIONS = [
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'website',             label: 'Website Builder' },
   { id: 'menus',               label: 'Menus' },
+  { id: 'order-sheets',        label: 'Order Sheets' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -1306,7 +1307,10 @@ export default function Help() {
               over time — it's a home screen of tiles, one per available mobile module.
               <strong> Expenses</strong> is the second one: log a petty cash expense and snap a
               photo of the receipt with your phone's camera, without opening the full Cash
-              Reconciliation page.
+              Reconciliation page. <strong>Order Sheets</strong> is the third: browse orders,
+              filter by status or venue, tap into one to fill in quantities and mark it Ready or
+              Placed — the same order screen as the desktop page, just full-screen on your phone
+              instead of a side panel.
             </P>
             <InfoBox type="tip">
               This is the same login and the same restaurant data as the desktop admin portal —
@@ -1991,6 +1995,51 @@ export default function Help() {
               renders straight from the browser's print dialog. Columns, paper size and
               orientation are configurable per menu.
             </P>
+          </section>
+
+          {/* ── ORDER SHEETS ──────────────────────────────── */}
+          <section id="order-sheets" data-help="">
+            <H2>Order Sheets</H2>
+            <P>
+              The <strong>Order Sheets</strong> page (sidebar nav) is for filling in and tracking
+              supplier orders — think a reusable order form per supplier, filled in fresh each
+              delivery. Also available full-screen on your phone at{' '}
+              <strong>/mobile → Order Sheets</strong>.
+            </P>
+            <H3>Templates first, then orders</H3>
+            <P>
+              Before anyone can place an order, a manager sets up a <strong>template</strong>{' '}
+              (Order Sheets → Templates) — a named order form for one supplier, listing every item
+              they stock with its unit and (optionally) price, assigned to whichever restaurants
+              use that supplier. Templates can also have a weekly delivery pattern (e.g. every
+              Tuesday and Friday), used to suggest the next delivery date automatically.
+            </P>
+            <P>
+              To place an order, click <strong>New order</strong> on the main Order Sheets page,
+              pick a template and a venue, and confirm the delivery date. That creates a fresh copy
+              of the template's item list ready to fill in.
+            </P>
+            <H3>Filling in an order</H3>
+            <P>
+              Tap into an order to see every item with a quantity stepper, plus a{' '}
+              <strong>Suggested</strong> column and up to 3 columns of what was ordered on previous
+              deliveries — handy for spotting "we usually order more of this" at a glance. Every
+              change to a quantity autosaves a moment after you stop typing — there's no separate
+              Save button while an order is still open.
+            </P>
+            <DataTable
+              head={['Status', 'What it means']}
+              rows={[
+                ['Ordering', 'Still being filled in — quantities are editable.'],
+                ['Ready', 'Quantities locked in, waiting to be placed with the supplier.'],
+                ['Placed', 'Sent — the order is done. Kept for the order history other orders reference.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              Use the <strong>Filter</strong> button to narrow the order list by status or venue —
+              by default it hides Placed orders so the list stays focused on what still needs
+              attention.
+            </InfoBox>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}
