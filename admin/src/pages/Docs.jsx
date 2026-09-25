@@ -1471,6 +1471,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               plain Filter/New-order action row and drops the list/detail split down to strict
               either/or (never side-by-side, since there's no room for it on a phone).
             </P>
+            <H3>Suggesting the mobile view from desktop</H3>
+            <P>
+              <Mono>admin/src/components/MobileSuggestModal.jsx</Mono>, mounted at the bottom of{' '}
+              <Mono>AppShell</Mono> (never rendered under <Mono>MobileShell</Mono> itself, so it
+              can't offer to send someone already on <Mono>/mobile</Mono> back to <Mono>/mobile</Mono>).
+              Detects a touch device in portrait — <Mono>IS_TOUCH</Mono> (the same{' '}
+              <Mono>{'navigator.maxTouchPoints > 0'}</Mono> module-load check used elsewhere) plus a{' '}
+              <Mono>{"matchMedia('(max-width: 700px) and (orientation: portrait)')"}</Mono> query,
+              checked on mount and on that query's own <Mono>change</Mono> listener so rotating a
+              phone into portrait mid-session also triggers it, not just page load. On a match it
+              shows a large centred modal pointing at <Mono>/mobile</Mono>. Either button —{' '}
+              <Mono>Open mobile view</Mono> (navigates there) or <Mono>Stay on this page</Mono>{' '}
+              (dismiss) — sets <Mono>maca_mobile_prompt_dismissed</Mono> in localStorage, so it's a
+              one-time offer per browser rather than a repeating nag.
+            </P>
           </section>
 
           {/* ── H&S ACTION LOG ────────────────────────────── */}

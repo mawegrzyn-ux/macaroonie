@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Desktop now offers to switch to the mobile view on a phone]
+
+### Mobile App
+- Opening the regular admin portal on a phone held upright now shows a pop-up offering to switch to the phone-optimised `/mobile` view instead. Dismiss it either way and it won't ask again on that device.
+
+---
+
 ## [2026-09-25 — Order Sheets now available on /mobile]
 
 ### Order Sheets
