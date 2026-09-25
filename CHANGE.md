@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Mobile H&S Dashboard: fixed overlapping temp table headers]
+
+### Health & safety
+- The Fridge/Freezer and Holds temperature tables on the `/mobile` H&S Dashboard had a layout bug where the header row's text could overlap on a phone screen (the Equipment/Station column bled through onto the Range column). Fixed, and the Range (guideline) column is now hidden on phone width — it wasn't needed there — freeing up room so the temperature entry column fits on screen without scrolling. Equipment/station names now wrap onto a second line on mobile instead of forcing the column too wide.
+
+---
+
 ## [2026-09-25 — Week grid: visible "Open day" link]
 
 ### Cash Reconciliation

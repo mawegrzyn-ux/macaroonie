@@ -277,9 +277,9 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
       <table className="w-full text-sm">
         <thead className="bg-muted/50 border-b">
           <tr>
-            <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted/50">Equipment</th>
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted max-w-[110px] sm:max-w-none">Equipment</th>
             {showType && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Type</th>}
-            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Range</th>
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Range</th>
             {columns.map(ct => (
               <th key={ct?.id ?? 'adhoc'} className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
                 {ct ? <>{ct.label}<span className="block font-normal text-[11px]">{timeLabel(ct.time_of_day)}</span></> : 'Today'}
@@ -290,9 +290,9 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
         <tbody>
           {equipment.map(eq => (
             <tr key={eq.id} className="border-b last:border-0">
-              <td className="px-4 py-3 font-medium whitespace-nowrap sticky left-0 bg-background">{eq.name}</td>
+              <td className="px-4 py-3 font-medium sticky left-0 bg-background whitespace-normal break-words max-w-[110px] sm:max-w-none sm:whitespace-nowrap">{eq.name}</td>
               {showType && <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{TYPE_LABELS[eq.equipment_type]}</td>}
-              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap hidden sm:table-cell">
                 {eq.min_temp_c ?? '—'} … {eq.max_temp_c ?? '—'}°C
               </td>
               {columns.map(ct => {
@@ -989,9 +989,9 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
       <table className="w-full text-sm">
         <thead className="bg-muted/50 border-b">
           <tr>
-            <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted/50">Station</th>
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted max-w-[110px] sm:max-w-none">Station</th>
             {showType && <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Type</th>}
-            <th className="text-left px-4 py-3 font-medium text-muted-foreground">Range</th>
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden sm:table-cell">Range</th>
             {columns.map(ct => (
               <th key={ct?.id ?? 'adhoc'} className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap">
                 {ct ? <>{ct.label}<span className="block font-normal text-[11px]">{timeLabel(ct.time_of_day)}</span></> : 'Today'}
@@ -1002,9 +1002,9 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
         <tbody>
           {stations.map(st => (
             <tr key={st.id} className="border-b last:border-0">
-              <td className="px-4 py-3 font-medium whitespace-nowrap sticky left-0 bg-background">{st.name}</td>
+              <td className="px-4 py-3 font-medium sticky left-0 bg-background whitespace-normal break-words max-w-[110px] sm:max-w-none sm:whitespace-nowrap">{st.name}</td>
               {showType && <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">{HOLD_TYPE_LABELS[st.hold_type]}</td>}
-              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap">
+              <td className="px-4 py-3 text-muted-foreground text-xs whitespace-nowrap hidden sm:table-cell">
                 {st.min_temp_c ?? '—'} … {st.max_temp_c ?? '—'}°C
               </td>
               {columns.map(ct => {
