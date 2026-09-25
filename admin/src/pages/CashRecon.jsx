@@ -25,12 +25,12 @@ import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmt(amount) {
+export function fmt(amount) {
   if (amount == null || amount === '' || isNaN(Number(amount))) return '—'
   return `£${Number(amount).toFixed(2)}`
 }
 
-function parseNum(v) {
+export function parseNum(v) {
   const n = parseFloat(v)
   return isNaN(n) ? 0 : n
 }
@@ -58,12 +58,12 @@ function ScEffectBadge({ effect, label, colourClass }) {
   return <span className={cn('ml-1 text-[10px]', colourClass)}>↳ {label} {sign}</span>
 }
 
-function getMonday(date) {
+export function getMonday(date) {
   // returns YYYY-MM-DD string for Monday of the ISO week containing `date`
   return format(startOfISOWeek(date instanceof Date ? date : new Date(date)), 'yyyy-MM-dd')
 }
 
-function isoWeekDates(weekStartStr) {
+export function isoWeekDates(weekStartStr) {
   const start = parseISO(weekStartStr)
   return Array.from({ length: 7 }, (_, i) => format(addDays(start, i), 'yyyy-MM-dd'))
 }
@@ -102,7 +102,7 @@ function SectionCard({ title, children, action, footer }) {
   )
 }
 
-function StatusBadge({ status }) {
+export function StatusBadge({ status }) {
   if (!status || status === 'none') {
     return <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">—</span>
   }
@@ -136,7 +136,7 @@ function TypeBadge({ type }) {
   )
 }
 
-function SaveIndicator({ saving, saved, error }) {
+export function SaveIndicator({ saving, saved, error }) {
   if (saving) return <span className="flex items-center gap-1 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Saving…</span>
   if (error)  return <span className="text-xs text-destructive">Save failed</span>
   if (saved)  return <span className="flex items-center gap-1 text-xs text-green-600"><Check className="w-3 h-3" /> Saved</span>
@@ -960,7 +960,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
 
 // ── DAY VIEW ─────────────────────────────────────────────────────────────────
 
-function DayView({ venueId, date, onBack }) {
+export function DayView({ venueId, date, onBack }) {
   const api = useApi()
   const qc  = useQueryClient()
 
