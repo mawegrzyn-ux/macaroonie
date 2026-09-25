@@ -664,6 +664,9 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
                             : <span className="text-[9px] text-muted-foreground/40">—</span>
                       }
                     </div>
+                    <div className="mt-1 flex items-center justify-center gap-0.5 text-[9px] font-medium text-primary/70">
+                      Open <ChevronRight className="w-2.5 h-2.5" />
+                    </div>
                   </th>
                 )
               })}

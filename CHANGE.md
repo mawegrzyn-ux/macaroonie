@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Week grid: visible "Open day" link]
+
+### Cash Reconciliation
+- The day columns in the week grid always could be clicked to open that day's declaration — now each one shows a small "Open ›" line so it's obvious without having to discover it by hovering.
+
+---
+
 ## [2026-09-25 — Expense VAT amount] *(migration 099)*
 
 ### Cash Reconciliation
