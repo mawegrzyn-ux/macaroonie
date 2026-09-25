@@ -177,6 +177,7 @@ const ExpenseEntrySchema = z.object({
   category:    z.string().max(100).nullable().optional(),
   category_id: UUID.nullable().optional(),
   amount:      z.coerce.number().min(0).default(0),
+  vat_amount:  z.coerce.number().min(0).default(0),
   notes:       z.string().max(1000).nullable().optional(),
 })
 
@@ -1195,7 +1196,7 @@ export default async function cashReconRoutes(app) {
             tx`SELECT report_id, source_id, amount, notes
                  FROM cash_sc_entries
                 WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}`,
-            tx`SELECT report_id, id, description, category, category_id, amount, notes
+            tx`SELECT report_id, id, description, category, category_id, amount, vat_amount, notes
                  FROM cash_expenses
                 WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}
                 ORDER BY created_at`,
@@ -1409,6 +1410,7 @@ export default async function cashReconRoutes(app) {
                    category    = ${e.category ?? null},
                    category_id = ${e.category_id ?? null},
                    amount      = ${e.amount},
+                   vat_amount  = ${e.vat_amount ?? 0},
                    notes       = ${e.notes ?? null}
              WHERE id        = ${e.id}
                AND report_id = ${reportId}
@@ -1418,9 +1420,9 @@ export default async function cashReconRoutes(app) {
           // Insert new
           await tx`
             INSERT INTO cash_expenses
-                   (tenant_id, report_id, description, category, category_id, amount, notes)
+                   (tenant_id, report_id, description, category, category_id, amount, vat_amount, notes)
             VALUES (${req.tenantId}, ${reportId}, ${e.description},
-                    ${e.category ?? null}, ${e.category_id ?? null}, ${e.amount}, ${e.notes ?? null})
+                    ${e.category ?? null}, ${e.category_id ?? null}, ${e.amount}, ${e.vat_amount ?? 0}, ${e.notes ?? null})
           `
         }
       }
@@ -1511,12 +1513,13 @@ export default async function cashReconRoutes(app) {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId } = req.params
-    const { date, description, category, category_id, amount, notes } = z.object({
+    const { date, description, category, category_id, amount, vat_amount, notes } = z.object({
       date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       description: z.string().min(1).max(500),
       category:    z.string().max(100).nullable().optional(),
       category_id: UUID.nullable().optional(),
       amount:      z.coerce.number().min(0).default(0),
+      vat_amount:  z.coerce.number().min(0).default(0),
       notes:       z.string().max(1000).nullable().optional(),
     }).parse(req.body)
 
@@ -1536,9 +1539,9 @@ export default async function cashReconRoutes(app) {
 
       return tx`
         INSERT INTO cash_expenses
-               (tenant_id, report_id, description, category, category_id, amount, notes)
+               (tenant_id, report_id, description, category, category_id, amount, vat_amount, notes)
         VALUES (${req.tenantId}, ${report.id}, ${description},
-                ${category ?? null}, ${category_id ?? null}, ${amount}, ${notes ?? null})
+                ${category ?? null}, ${category_id ?? null}, ${amount}, ${vat_amount ?? 0}, ${notes ?? null})
         RETURNING *
       `
     })
@@ -1551,11 +1554,12 @@ export default async function cashReconRoutes(app) {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
     const { venueId, expenseId } = req.params
-    const { description, category, category_id, amount, notes } = z.object({
+    const { description, category, category_id, amount, vat_amount, notes } = z.object({
       description: z.string().min(1).max(500),
       category:    z.string().max(100).nullable().optional(),
       category_id: UUID.nullable().optional(),
       amount:      z.coerce.number().min(0).default(0),
+      vat_amount:  z.coerce.number().min(0).default(0),
       notes:       z.string().max(1000).nullable().optional(),
     }).parse(req.body)
 
@@ -1568,6 +1572,7 @@ export default async function cashReconRoutes(app) {
                category    = ${category ?? null},
                category_id = ${category_id ?? null},
                amount      = ${amount},
+               vat_amount  = ${vat_amount ?? 0},
                notes       = ${notes ?? null}
          WHERE id        = ${expenseId}
            AND tenant_id = ${req.tenantId}
