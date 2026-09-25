@@ -1312,6 +1312,13 @@ export default function Help() {
               Placed — the same order screen as the desktop page, just full-screen on your phone
               instead of a side panel.
             </P>
+            <P>
+              If you open the regular desktop admin portal on a phone held upright, you'll see a
+              pop-up offering to switch to this mobile view — tap <strong>Open mobile
+              view</strong> to jump straight there, or <strong>Stay on this page</strong> to keep
+              using the desktop layout. It only offers once; dismissing it (either way) won't ask
+              again on that phone.
+            </P>
             <InfoBox type="tip">
               This is the same login and the same restaurant data as the desktop admin portal —
               there's nothing extra to set up. If you're not signed in, it takes you through the
