@@ -28,6 +28,7 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
   const [description, setDescription] = useState(initial?.description ?? '')
   const [categoryId, setCategoryId] = useState(initial?.category_id ?? null)
   const [amount, setAmount] = useState(initial?.amount != null ? String(initial.amount) : '')
+  const [vatAmount, setVatAmount] = useState(initial?.vat_amount != null ? String(initial.vat_amount) : '')
   const [notes, setNotes] = useState(initial?.notes ?? '')
   const [photo, setPhoto] = useState(null) // { file, preview }
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -80,11 +81,19 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Amount *</label>
-            <input type="number" step="0.01" min="0" inputMode="decimal" value={amount}
-              onChange={e => setAmount(e.target.value)} placeholder="0.00"
-              className="w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px] font-mono" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Gross amount *</label>
+              <input type="number" step="0.01" min="0" inputMode="decimal" value={amount}
+                onChange={e => setAmount(e.target.value)} placeholder="0.00"
+                className="w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px] font-mono" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">VAT amount</label>
+              <input type="number" step="0.01" min="0" inputMode="decimal" value={vatAmount}
+                onChange={e => setVatAmount(e.target.value)} placeholder="0.00"
+                className="w-full border rounded-lg px-3 py-2.5 text-sm bg-background min-h-[44px] font-mono" />
+            </div>
           </div>
 
           <div>
@@ -118,7 +127,7 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
           </div>
 
           <button type="button" disabled={!canSave || isSaving}
-            onClick={() => onSave({ description: description.trim(), category_id: categoryId, amount: Number(amount) || 0, notes: notes.trim() || null }, photo?.file)}
+            onClick={() => onSave({ description: description.trim(), category_id: categoryId, amount: Number(amount) || 0, vat_amount: Number(vatAmount) || 0, notes: notes.trim() || null }, photo?.file)}
             className="w-full bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
             {isSaving ? 'Saving…' : isEdit ? 'Save changes' : 'Add expense'}
           </button>

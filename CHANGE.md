@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-25 — Expense VAT amount] *(migration 099)*
+
+### Cash Reconciliation
+- Petty cash expenses can now record a VAT amount alongside the gross amount — just for the record, it's never added to or deducted from any total (the gross figure already covers VAT everywhere in reconciliation). Available on desktop and in the `/mobile` Expenses page.
+
+---
+
 ## [2026-09-25 — Per-venue brand & theme overrides, Identity page removed] *(migration 098)*
 
 ### Website — Brand & theme

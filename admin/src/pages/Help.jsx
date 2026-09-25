@@ -1087,6 +1087,16 @@ export default function Help() {
               footer band below each section's figures shows its running total. Every figure
               autosaves as you type; there's no separate Save button.
             </P>
+            <H3>Petty cash expenses</H3>
+            <P>
+              Log any petty cash spend under the day's <strong>Expenses</strong> section — a
+              description, an optional category, and the <strong>gross amount</strong> (what
+              actually left the till). Add a <strong>VAT amount</strong> too if you want it on
+              record — it's stored alongside the expense but never added to or taken off any
+              total; the gross amount already covers it everywhere reconciliation figures are
+              calculated. Attach a photo of the receipt with your camera or from your library.
+              The same form is available on your phone under <strong>/mobile → Expenses</strong>.
+            </P>
             <H3>Week view / spreadsheet view</H3>
             <P>
               Toggle between a card-based week overview and a dense <strong>spreadsheet

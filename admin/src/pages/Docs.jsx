@@ -1040,6 +1040,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>wagesData === undefined</Mono> specifically when a query's success value can
               legitimately be <Mono>null</Mono>.
             </InfoBox>
+            <H3>Expense VAT amount (migration 099)</H3>
+            <P>
+              <Mono>cash_expenses.vat_amount</Mono> (numeric, default 0) is a second figure
+              alongside the existing <Mono>amount</Mono> — purely informational. <Mono>amount</Mono>{' '}
+              is, and remains, the gross (VAT-inclusive) figure every reconciliation calculation
+              already uses (<Mono>total_expenses</Mono>, <Mono>Net Cash</Mono>/<Mono>Cash to
+              bank</Mono>); <Mono>vat_amount</Mono> is never added to or subtracted from anything —
+              it's recorded purely so the VAT portion is available for bookkeeping. All three
+              write paths accept it identically: the whole-day <Mono>PUT /daily/:date</Mono> (via{' '}
+              <Mono>ExpenseEntrySchema</Mono>), and the individual{' '}
+              <Mono>POST /:venueId/cash-recon/expenses</Mono> /{' '}
+              <Mono>PUT /:venueId/cash-recon/expenses/:expenseId</Mono> routes. Shown as a small
+              "VAT £x" line under the gross amount wherever an expense is listed, and as a second
+              "VAT amount" input next to "Gross amount" in both the add/edit forms
+              (<Mono>CashRecon.jsx</Mono>'s <Mono>ExpensesSection</Mono> and{' '}
+              <Mono>MobileExpenses.jsx</Mono>'s <Mono>ExpenseModal</Mono>).
+            </P>
             <H3>Admin theming — SectionCard</H3>
             <P>
               <Mono>SectionCard</Mono> (used by every Cash Recon section — Income, Service

@@ -1420,7 +1420,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
   const api = useApi()
   const [addOpen,   setAddOpen]   = useState(false)
   const [editId,    setEditId]    = useState(null)
-  const [newForm,   setNewForm]   = useState({ description: '', category_id: null, amount: '', notes: '' })
+  const [newForm,   setNewForm]   = useState({ description: '', category_id: null, amount: '', vat_amount: '', notes: '' })
   const [newPhoto,  setNewPhoto]  = useState(null)   // { file, preview }
   const [editForm,  setEditForm]  = useState({})
   const [editPhoto, setEditPhoto] = useState(null)   // { file, preview }
@@ -1454,7 +1454,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
         setUploading(p => ({ ...p, [created.id]: false }))
       }
       setExpenses(p => [...p, created])
-      setNewForm({ description: '', category_id: null, amount: '', notes: '' })
+      setNewForm({ description: '', category_id: null, amount: '', vat_amount: '', notes: '' })
       if (newPhoto?.preview) URL.revokeObjectURL(newPhoto.preview)
       setNewPhoto(null)
       setAddOpen(false)
@@ -1591,7 +1591,10 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
               <div key={exp.id} className="rounded-xl border p-3 bg-muted/20 space-y-2">
                 <TextInput placeholder="Description *" value={editForm.description ?? ''} onChange={v => setEditForm(p => ({ ...p, description: v }))} />
                 <CategoryChips selected={editForm.category_id ?? null} onSelect={id => setEditForm(p => ({ ...p, category_id: id }))} />
-                <AmountInput placeholder="Amount" value={editForm.amount ?? ''} onChange={v => setEditForm(p => ({ ...p, amount: v }))} />
+                <div className="grid grid-cols-2 gap-2">
+                  <AmountInput placeholder="Gross amount" value={editForm.amount ?? ''} onChange={v => setEditForm(p => ({ ...p, amount: v }))} />
+                  <AmountInput placeholder="VAT amount" value={editForm.vat_amount ?? ''} onChange={v => setEditForm(p => ({ ...p, vat_amount: v }))} />
+                </div>
                 <TextInput placeholder="Notes" value={editForm.notes ?? ''} onChange={v => setEditForm(p => ({ ...p, notes: v }))} />
                 <PhotoInput photo={editPhoto} setPhoto={setEditPhoto} fileRef={editFileRef} label={exp.receipt_url ? 'Replace photo' : 'Add photo'} />
                 <div className="flex gap-2">
@@ -1623,7 +1626,12 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                   {!cat && exp.category && <div className="text-xs text-muted-foreground">{exp.category}</div>}
                   {exp.notes && <div className="text-xs text-muted-foreground mt-0.5">{exp.notes}</div>}
                 </div>
-                <div className="text-sm font-semibold shrink-0">{fmt(exp.amount)}</div>
+                <div className="text-right shrink-0">
+                  <div className="text-sm font-semibold">{fmt(exp.amount)}</div>
+                  {parseNum(exp.vat_amount) > 0 && (
+                    <div className="text-xs text-muted-foreground">VAT {fmt(exp.vat_amount)}</div>
+                  )}
+                </div>
               </div>
 
               {/* Receipt thumbnail */}
@@ -1665,7 +1673,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                   <IconBtn onClick={() => {
                     setEditId(exp.id)
                     setEditPhoto(null)
-                    setEditForm({ description: exp.description, category_id: exp.category_id ?? null, amount: exp.amount ?? '', notes: exp.notes ?? '' })
+                    setEditForm({ description: exp.description, category_id: exp.category_id ?? null, amount: exp.amount ?? '', vat_amount: exp.vat_amount ?? '', notes: exp.notes ?? '' })
                   }} title="Edit">
                     <Pencil className="w-4 h-4" />
                   </IconBtn>
@@ -1683,7 +1691,10 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
           <div className="rounded-xl border p-3 bg-muted/20 space-y-2">
             <TextInput placeholder="Description *" value={newForm.description} onChange={v => setNewForm(p => ({ ...p, description: v }))} />
             <CategoryChips selected={newForm.category_id} onSelect={id => setNewForm(p => ({ ...p, category_id: id }))} />
-            <AmountInput placeholder="Amount *" value={newForm.amount} onChange={v => setNewForm(p => ({ ...p, amount: v }))} />
+            <div className="grid grid-cols-2 gap-2">
+              <AmountInput placeholder="Gross amount *" value={newForm.amount} onChange={v => setNewForm(p => ({ ...p, amount: v }))} />
+              <AmountInput placeholder="VAT amount" value={newForm.vat_amount} onChange={v => setNewForm(p => ({ ...p, vat_amount: v }))} />
+            </div>
             <TextInput placeholder="Notes" value={newForm.notes} onChange={v => setNewForm(p => ({ ...p, notes: v }))} />
             <PhotoInput photo={newPhoto} setPhoto={setNewPhoto} fileRef={newFileRef} />
             <div className="flex gap-2">
@@ -1691,7 +1702,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                 className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation">Save</button>
               <button type="button" onClick={() => {
                 setAddOpen(false)
-                setNewForm({ description: '', category_id: null, amount: '', notes: '' })
+                setNewForm({ description: '', category_id: null, amount: '', vat_amount: '', notes: '' })
                 if (newPhoto?.preview) URL.revokeObjectURL(newPhoto.preview)
                 setNewPhoto(null)
               }} className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
