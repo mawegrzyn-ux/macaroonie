@@ -41,10 +41,10 @@ export const CASH_WIDGET_TYPES = [
   { key: 'cash_day_balance',  label: 'Day balance',            icon: Scale,        defaultTitle: 'Day balance' },
   { key: 'cash_week_balance', label: 'Week balance',           icon: CalendarDays, defaultTitle: 'Week balance' },
   { key: 'cash_recon_grid',   label: 'Reconciliation grid',    icon: Table2,       defaultTitle: 'Reconciliation', flush: true },
-  { key: 'cash_wages_paid',   label: 'Wages paid',             icon: Users,        defaultTitle: 'Wages paid' },
+  { key: 'cash_wages_paid',   label: 'Wages paid',             icon: Users,        defaultTitle: 'Wages paid', HeaderValue: WagesPaidHeader },
   { key: 'cash_petty_cash',   label: 'Petty cash',             icon: Receipt,      defaultTitle: 'Petty cash' },
-  { key: 'cash_week_expenses', label: 'Week expenses',         icon: ListChecks,   defaultTitle: 'Expenses this week' },
-  { key: 'cash_week_summary_grid', label: 'Week summary grid', icon: Sigma,        defaultTitle: 'Week summary', flush: true },
+  { key: 'cash_week_expenses', label: 'Week expenses',         icon: ListChecks,   defaultTitle: 'Expenses this week', HeaderValue: WeekExpensesHeader },
+  { key: 'cash_week_summary_grid', label: 'Week summary grid', icon: Sigma,        defaultTitle: 'Week summary', flush: true, HeaderValue: WeekSummaryHeader },
   { key: 'cash_week_staff',   label: 'Week staff list',        icon: UserCog,      defaultTitle: 'Staff this week' },
 ]
 
@@ -109,6 +109,55 @@ function Row({ label, value, bold, tone, muted }) {
       </span>
     </div>
   )
+}
+
+// ── Header figures ─────────────────────────────────────────────
+//
+// A widget type's optional `HeaderValue` component renders a headline
+// figure in the card's title bar (WidgetCard in HSDashboard.jsx). They read
+// the same queries as the widget bodies, so they add no requests.
+
+function HeaderFigure({ label, value, tone }) {
+  const n = parseNum(value)
+  return (
+    <span className="shrink-0 text-right leading-tight">
+      <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className={cn(
+        'block text-sm font-semibold tabular-nums',
+        tone === 'var' && (n > 0 ? 'text-amber-600' : n < 0 ? 'text-red-600' : 'text-green-700'),
+      )}>
+        {fmt(n)}
+      </span>
+    </span>
+  )
+}
+
+function WeekSummaryHeader({ venueId, ctx }) {
+  const { detail, calc } = useReconWeek(venueId, ctx.weekStart)
+  if (!detail) return null
+  return <HeaderFigure label="Variance" value={calc.weekVariance()} tone="var" />
+}
+
+function WeekExpensesHeader({ venueId, ctx }) {
+  const { detail, calc } = useReconWeek(venueId, ctx.weekStart)
+  if (!detail) return null
+  return <HeaderFigure label="Total" value={calc.weekExpenses()} />
+}
+
+function useWeekWages(venueId, weekStart) {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['cash-recon-wages', venueId, weekStart],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/wages/${weekStart}`),
+    enabled:  !!venueId && !!weekStart,
+  })
+}
+
+function WagesPaidHeader({ venueId, ctx }) {
+  const { data } = useWeekWages(venueId, ctx.weekStart)
+  if (data === undefined) return null
+  const paid = (data?.entries ?? []).reduce((s, e) => s + parseNum(e.cash_amount), 0)
+  return <HeaderFigure label="Paid" value={paid} />
 }
 
 function Loading() {
@@ -798,11 +847,7 @@ function WagesPaidWidget({ venueId, ctx }) {
   const qc = useQueryClient()
   const { weekStart } = ctx
 
-  const { data: wagesData, isLoading } = useQuery({
-    queryKey: ['cash-recon-wages', venueId, weekStart],
-    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/wages/${weekStart}`),
-    enabled:  !!venueId && !!weekStart,
-  })
+  const { data: wagesData, isLoading } = useWeekWages(venueId, weekStart)
 
   // The dedicated paid endpoint works whether or not the week's wages are
   // submitted — marking staff paid happens after the report is final.

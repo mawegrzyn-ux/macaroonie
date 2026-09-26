@@ -15,6 +15,7 @@ Migrations are listed where a database change is required.
 - Dashboard widgets can now have their own display options, shown as switches on the widget in Edit layout.
 - Rename any widget (H&S and Cash dashboards) or Overview tile in Edit layout / Customise layout: a Name box with Save, and Use default to go back to the built-in name.
 - Fixed: the Overview's per-tile "Visible to" button never showed in Customise layout.
+- Cash dashboard title bars show a headline figure: **Week summary grid** the week's variance, **Week expenses** the cash total, **Wages paid** the total paid in cash.
 - Cash dashboard **Week staff list** widget is more compact: one row per person (name, Fixed/Hourly, hours x rate or amount, total, remove) when the widget is wide enough, wrapping to two lines only on narrower widgets.
 
 ### Database

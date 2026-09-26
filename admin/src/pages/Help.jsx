@@ -1361,11 +1361,11 @@ export default function Help() {
                 ['Day balance', 'The selected day: income, service charges, takings, variance, cash takings, cash expenses, card expenses and Net cash.'],
                 ['Week balance', 'The week down to Cash to bank: income, takings, variance, cash takings, expenses, Net cash, wages paid in cash, plus how many days are submitted.'],
                 ['Reconciliation grid', 'The full week grid from Cash Recon. You can type into it the same way; tap a day heading to select that day.'],
-                ['Wages paid', 'This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
+                ['Wages paid', 'The title bar shows the total paid in cash so far. This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
                 ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
-                ['Week expenses', 'Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
+                ['Week expenses', 'The title bar shows the week's cash expenses total. Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
                 ['Week staff list', 'Manage who is on this week\'s wages: switch each person between Fixed and Hourly, enter hours and rate or a fixed amount, add someone from your staff list (or a one-off name), remove someone, copy the list from one of the last 8 weeks, and Set as default for new weeks. Changes are only written when you tap Save (Discard changes throws them away). Paid ticks are kept. Locked once the week\'s wages are submitted, except Set as default.'],
-                ['Week summary grid', 'The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then expenses, variance, Net cash, wages paid in cash and Cash to bank. Read only, and always matches the WEEK column of the full grid.'],
+                ['Week summary grid', 'The title bar shows the week's variance. The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then expenses, variance, Net cash, wages paid in cash and Cash to bank. Read only, and always matches the WEEK column of the full grid.'],
               ]}
             />
             <InfoBox type="tip">

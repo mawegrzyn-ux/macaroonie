@@ -230,6 +230,9 @@ function WidgetCard({
             <span className="block text-xs text-muted-foreground">{FREQUENCY_LABELS[widget.checklist_frequency]}</span>
           )}
         </span>
+        {meta.HeaderValue && !editing && (
+          <meta.HeaderValue widget={widget} venueId={venueId} ctx={ctx} />
+        )}
         {isChecklist && !editing && checklistState && (
           checklistState.isCompleted ? (
             confirmReopen ? (

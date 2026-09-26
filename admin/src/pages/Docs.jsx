@@ -1452,6 +1452,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>null</Mono>, so the built-in title (or the checklist name) shows again. Both PATCH
               routes already accepted <Mono>title_override</Mono>; there was just no UI for it.
             </P>
+            <H3>Header figures</H3>
+            <P>
+              A widget type can set <Mono>HeaderValue</Mono> (a component) in its type list;{' '}
+              <Mono>WidgetCard</Mono> renders it in the title bar outside Edit layout with{' '}
+              <Mono>{'{ widget, venueId, ctx }'}</Mono>. The cash widgets use a shared{' '}
+              <Mono>HeaderFigure</Mono> (label + amount): Week summary grid shows{' '}
+              <Mono>calc.weekVariance()</Mono> (coloured like the grid), Week expenses shows{' '}
+              <Mono>calc.weekExpenses()</Mono> (cash only), Wages paid shows the sum of{' '}
+              <Mono>cash_amount</Mono>. They read the same query keys as the widget bodies
+              (<Mono>useReconWeek</Mono>, <Mono>useWeekWages</Mono>), so they add no requests and
+              refresh with them.
+            </P>
             <H3>Per-widget options (all dashboards)</H3>
             <P>
               <Mono>hs_dashboard_widgets.settings</Mono> (jsonb, default <Mono>{'{}'}</Mono>, migration
