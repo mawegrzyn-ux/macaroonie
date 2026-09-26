@@ -1035,12 +1035,24 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'Purpose']}
               rows={[
-                ['cash_staff', 'Per-venue staff list with a default_rate. sort_order for drag-reorder.'],
+                ['cash_staff', 'Per-venue staff list with a default_rate and pay_type (hourly | fixed, migration 104): default_rate is £/hr for hourly, £/week for fixed. pay_type seeds entry_type when the person is added to a week. sort_order for reorder (PUT /config/staff/reorder).'],
                 ['cash_wage_reports', 'One per venue per ISO week (week_start), status draft/submitted.'],
                 ['cash_wage_entries', 'One per staff member per report. total is the full wage cost; cash_amount is only the cash-paid portion — the two legitimately differ when part or all of a wage goes by bank transfer.'],
                 ['cash_wage_defaults', "(migration 093) tenant_id, venue_id, staff_id, entry_type, sort_order — UNIQUE(venue_id, staff_id). The venue's saved default staff list for 'Set as default'; entries without a staff_id (ad-hoc) are never included since there's no stable identity to carry over week to week."],
               ]}
             />
+            <H3>Filling a week's wage entries</H3>
+            <P>
+              <Mono>CashRecon.jsx</Mono> exports the one implementation used by{' '}
+              <Mono>WagesView</Mono>, <Mono>MobileWages.jsx</Mono> and the Cash Dashboard's{' '}
+              <Mono>cash_week_staff</Mono> widget: <Mono>wageEntryForStaff(staff, entryType)</Mono>{' '}
+              (hourly puts <Mono>default_rate</Mono> in <Mono>rate</Mono>, fixed puts it in{' '}
+              <Mono>total</Mono>; <Mono>entryType</Mono> defaults to the staff member's{' '}
+              <Mono>pay_type</Mono>), <Mono>defaultWageEntries(config)</Mono> (the{' '}
+              <Mono>wage_defaults</Mono> list with its own entry_type, else every active staff member
+              by pay_type), plus <Mono>PAY_TYPES</Mono> and <Mono>staffRateLabel()</Mono>. Change how a
+              new week is filled there, not in a page.
+            </P>
             <H3>Cash-only net balance</H3>
             <P>
               Both wage-total queries in <Mono>cashRecon.js</Mono> (<Mono>week-detail</Mono> and{' '}
@@ -1418,6 +1430,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['cash_wages_paid', 'GET /wages/:week_start + PATCH .../entries/:id/paid (works when submitted)'],
                 ['cash_petty_cash', 'PettyCashPanel (exported from MobileExpenses.jsx) for ctx.selectedDay'],
                 ['cash_week_expenses', 'useReconWeek() — detail.days[date].expenses grouped by day (read-only), dayExpenses/weekExpenses/weekCardExpenses totals; day heading sets ctx.selectedDay. Added in migration 102 (CHECK constraint only)'],
+                ['cash_week_staff', 'GET /wages/:week_start + config. Local draft of the week\'s entries (pay type, hours x rate or fixed total, add/remove, copy from one of the last 8 weeks via qc.fetchQuery on the same wages key); Save sends the whole-tree PUT /wages/:week_start, carrying cash_amount over from the saved entry by id (an entry that was fully paid stays fully paid at its new total). Set as default posts /wages/:week_start/set-default. New weeks fill from defaultWageEntries(config). Read-only when the report is submitted. Added in migration 104'],
                 ['cash_week_summary_grid', 'useReconWeek() — the SpreadsheetView row set with only the WEEK column (weekTotal per source/SC/channel, weekDayTotal, weekExpenses, weekCardExpenses, weekVariance, weekNetCash, weekCashWages, weekNetPosition); read-only. ScEffectBadge exported from CashRecon.jsx for it. Added in migration 103 (CHECK constraint only)'],
               ]}
             />

@@ -139,14 +139,18 @@ const CategoryPatch = z.object({
   sort_order: z.coerce.number().int().optional(),
 })
 
+// pay_type decides what default_rate means: £ per hour (hourly) or £ per
+// week (fixed). It seeds entry_type when the staff member is added to a week.
 const StaffBody = z.object({
   name:         z.string().min(1).max(200),
   default_rate: z.coerce.number().min(0).nullable().optional(),
+  pay_type:     z.enum(['hourly', 'fixed']).default('fixed'),
 })
 
 const StaffPatch = z.object({
   name:         z.string().min(1).max(200).optional(),
   default_rate: z.coerce.number().min(0).nullable().optional(),
+  pay_type:     z.enum(['hourly', 'fixed']).optional(),
   is_active:    z.coerce.boolean().optional(),
   sort_order:   z.coerce.number().int().optional(),
 })
@@ -880,8 +884,8 @@ export default async function cashReconRoutes(app) {
     const [row] = await withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
       return tx`
-        INSERT INTO cash_staff (tenant_id, venue_id, name, default_rate)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.default_rate ?? null})
+        INSERT INTO cash_staff (tenant_id, venue_id, name, default_rate, pay_type)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.default_rate ?? null}, ${body.pay_type})
         RETURNING *
       `
     })

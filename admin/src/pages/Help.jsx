@@ -1156,6 +1156,21 @@ export default function Help() {
               The gear icon manages your income sources, payment channels, service charge
               sources, expense categories, and staff list — all drag-reorderable.
             </P>
+            <H3>Staff list — Fixed or Hourly</H3>
+            <P>
+              Each person in Settings, then Staff, has a <strong>pay type</strong>. Fixed staff are paid a set
+              amount each week, so their default rate is a weekly amount. Hourly staff are paid hours
+              times rate, so their default rate is per hour. The list shows each person's type and
+              rate (for example "Hourly, £12.50/hr").
+            </P>
+            <P>
+              The pay type is used whenever that person is added to a week: a new week filled from
+              your staff list, or someone added on the Wages page or the Week staff list widget, starts
+              as Fixed with their weekly amount, or as Hourly with their rate ready for the hours. You
+              can still switch a single week's entry between Fixed and Hourly without changing the
+              staff record. If you have saved a default wage list, its Fixed/Hourly choices are used
+              for new weeks instead.
+            </P>
             <H3>Service charge sources — Takings/Income effect</H3>
             <P>
               Each service charge or tips source has two independent settings — <strong>Effect on
@@ -1345,6 +1360,7 @@ export default function Help() {
                 ['Wages paid', 'This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
                 ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
                 ['Week expenses', 'Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
+                ['Week staff list', 'Manage who is on this week\'s wages: switch each person between Fixed and Hourly, enter hours and rate or a fixed amount, add someone from your staff list (or a one-off name), remove someone, copy the list from one of the last 8 weeks, and Set as default for new weeks. Changes are only written when you tap Save (Discard changes throws them away). Paid ticks are kept. Locked once the week\'s wages are submitted, except Set as default.'],
                 ['Week summary grid', 'The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then expenses, variance, Net cash, wages paid in cash and Cash to bank. Read only, and always matches the WEEK column of the full grid.'],
               ]}
             />

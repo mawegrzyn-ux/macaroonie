@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Staff pay type + week staff list widget]
+
+### Cash Reconciliation
+- Staff list (Cash Recon settings, Staff): each person now has a **Fixed** or **Hourly** pay type. The default rate is a weekly amount for fixed staff and an hourly rate for hourly staff, and the list shows it (e.g. "Hourly, £12.50/hr").
+- New weeks and newly added staff start with their pay type: fixed staff get their weekly amount, hourly staff get their rate ready for the hours (on the Wages page, mobile Wages and the new widget).
+- New **Week staff list** widget for the Cash dashboard: switch each person between Fixed and Hourly, enter hours x rate or an amount, add or remove staff, copy the list from one of the last 8 weeks, and Set as default. Changes are saved with an explicit Save button; Paid ticks are kept.
+- Fixed: the up/down buttons in the settings staff list now save the new order (they used to snap back).
+
+### Database
+- Migration `104_cash_staff_pay_type.sql`: `cash_staff.pay_type` (backfilled from the default wage list), and the `cash_week_staff` widget type.
+
 ## [2026-09-27 — Cash Dashboard: week summary grid widget]
 
 ### Cash Reconciliation
