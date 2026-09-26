@@ -179,6 +179,7 @@ const ExpenseEntrySchema = z.object({
   category_id: UUID.nullable().optional(),
   amount:      z.coerce.number().min(0).default(0),
   vat_amount:  z.coerce.number().min(0).default(0),
+  paid_by_card: z.boolean().default(false),
   notes:       z.string().max(1000).nullable().optional(),
 })
 
@@ -1197,7 +1198,7 @@ export default async function cashReconRoutes(app) {
             tx`SELECT report_id, source_id, amount, notes
                  FROM cash_sc_entries
                 WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}`,
-            tx`SELECT report_id, id, description, category, category_id, amount, vat_amount, notes
+            tx`SELECT report_id, id, description, category, category_id, amount, vat_amount, paid_by_card, notes
                  FROM cash_expenses
                 WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}
                 ORDER BY created_at`,
@@ -1232,7 +1233,10 @@ export default async function cashReconRoutes(app) {
         const hdr = reportByDate[date]
         if (!hdr) { days[date] = null; continue }
         const exps   = expenseByRpt[hdr.id] ?? []
-        const totExp = exps.reduce((s, e) => s + parseFloat(e.amount ?? 0), 0)
+        // Card-paid expenses never left the till, so they're excluded from
+        // the cash total that feeds Net Cash / Cash to bank.
+        const totExp  = exps.filter(e => !e.paid_by_card).reduce((s, e) => s + parseFloat(e.amount ?? 0), 0)
+        const totCard = exps.filter(e =>  e.paid_by_card).reduce((s, e) => s + parseFloat(e.amount ?? 0), 0)
         days[date] = {
           status:         hdr.status,
           report_id:      hdr.id,
@@ -1241,6 +1245,7 @@ export default async function cashReconRoutes(app) {
           takings:        takingsByRpt[hdr.id] ?? [],
           expenses:       exps,
           total_expenses: totExp.toFixed(2),
+          total_card_expenses: totCard.toFixed(2),
         }
       }
 
@@ -1412,6 +1417,7 @@ export default async function cashReconRoutes(app) {
                    category_id = ${e.category_id ?? null},
                    amount      = ${e.amount},
                    vat_amount  = ${e.vat_amount ?? 0},
+                   paid_by_card = ${e.paid_by_card ?? false},
                    notes       = ${e.notes ?? null}
              WHERE id        = ${e.id}
                AND report_id = ${reportId}
@@ -1421,9 +1427,9 @@ export default async function cashReconRoutes(app) {
           // Insert new
           await tx`
             INSERT INTO cash_expenses
-                   (tenant_id, report_id, description, category, category_id, amount, vat_amount, notes)
+                   (tenant_id, report_id, description, category, category_id, amount, vat_amount, paid_by_card, notes)
             VALUES (${req.tenantId}, ${reportId}, ${e.description},
-                    ${e.category ?? null}, ${e.category_id ?? null}, ${e.amount}, ${e.vat_amount ?? 0}, ${e.notes ?? null})
+                    ${e.category ?? null}, ${e.category_id ?? null}, ${e.amount}, ${e.vat_amount ?? 0}, ${e.paid_by_card ?? false}, ${e.notes ?? null})
           `
         }
       }
@@ -1514,13 +1520,14 @@ export default async function cashReconRoutes(app) {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req, reply) => {
     const { venueId } = req.params
-    const { date, description, category, category_id, amount, vat_amount, notes } = z.object({
+    const { date, description, category, category_id, amount, vat_amount, paid_by_card, notes } = z.object({
       date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       description: z.string().min(1).max(500),
       category:    z.string().max(100).nullable().optional(),
       category_id: UUID.nullable().optional(),
       amount:      z.coerce.number().min(0).default(0),
       vat_amount:  z.coerce.number().min(0).default(0),
+      paid_by_card: z.boolean().default(false),
       notes:       z.string().max(1000).nullable().optional(),
     }).parse(req.body)
 
@@ -1540,9 +1547,9 @@ export default async function cashReconRoutes(app) {
 
       return tx`
         INSERT INTO cash_expenses
-               (tenant_id, report_id, description, category, category_id, amount, vat_amount, notes)
+               (tenant_id, report_id, description, category, category_id, amount, vat_amount, paid_by_card, notes)
         VALUES (${req.tenantId}, ${report.id}, ${description},
-                ${category ?? null}, ${category_id ?? null}, ${amount}, ${vat_amount ?? 0}, ${notes ?? null})
+                ${category ?? null}, ${category_id ?? null}, ${amount}, ${vat_amount ?? 0}, ${paid_by_card}, ${notes ?? null})
         RETURNING *
       `
     })
@@ -1555,12 +1562,13 @@ export default async function cashReconRoutes(app) {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
     const { venueId, expenseId } = req.params
-    const { description, category, category_id, amount, vat_amount, notes } = z.object({
+    const { description, category, category_id, amount, vat_amount, paid_by_card, notes } = z.object({
       description: z.string().min(1).max(500),
       category:    z.string().max(100).nullable().optional(),
       category_id: UUID.nullable().optional(),
       amount:      z.coerce.number().min(0).default(0),
       vat_amount:  z.coerce.number().min(0).default(0),
+      paid_by_card: z.boolean().default(false),
       notes:       z.string().max(1000).nullable().optional(),
     }).parse(req.body)
 
@@ -1574,6 +1582,7 @@ export default async function cashReconRoutes(app) {
                category_id = ${category_id ?? null},
                amount      = ${amount},
                vat_amount  = ${vat_amount ?? 0},
+               paid_by_card = ${paid_by_card},
                notes       = ${notes ?? null}
          WHERE id        = ${expenseId}
            AND tenant_id = ${req.tenantId}

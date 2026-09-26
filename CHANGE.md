@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Petty cash: paid by card]
+
+### Cash Reconciliation
+- Petty cash expenses can be marked **Paid by card**. They stay on record (with receipt and VAT) but are no longer counted in Total Expenses, Net Cash or Cash to bank.
+- Card-paid spend is listed separately as "Paid by card (not in recon)" on the day summary and the week grid, and card expenses carry a small Card tag.
+
+### Mobile App
+- Mobile Expenses has the same Paid by card option; the day total now shows cash only, with card spend on its own line.
+
+### Database
+- Migration `100_expense_paid_by_card.sql` adds `cash_expenses.paid_by_card`.
+
 ## [2026-09-27 — Delivery checks in Overview H&S status + Action log widget fix]
 
 ### Admin Portal

@@ -1106,6 +1106,14 @@ export default function Help() {
               calculated. Attach a photo of the receipt with your camera or from your library.
               The same form is available on your phone under <strong>/mobile → Expenses</strong>.
             </P>
+            <P>
+              If an expense was paid with a card rather than cash from the till, tick{' '}
+              <strong>Paid by card</strong> on the expense. It's still recorded, with its receipt
+              and VAT, and shows a small <strong>Card</strong> tag in the list. But it's left out
+              of Total Expenses, Net Cash and Cash to bank, because that money never came out of
+              the till. The day summary and the week grid list card-paid expenses separately as
+              "Paid by card (not in recon)" so you can still see what was spent.
+            </P>
             <H3>Week view / spreadsheet view</H3>
             <P>
               Toggle between a card-based week overview and a dense <strong>spreadsheet
