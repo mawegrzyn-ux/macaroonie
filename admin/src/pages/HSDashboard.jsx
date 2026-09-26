@@ -478,44 +478,33 @@ export default function HSDashboard() {
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 mb-5">
-        <button type="button" onClick={() => goDay(-1)}
-          className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg border hover:bg-accent touch-manipulation">
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <div className="relative">
-          <button type="button" className="w-60 shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg hover:bg-accent touch-manipulation text-center whitespace-nowrap overflow-hidden text-ellipsis">
-            {isToday ? 'Today' : format(parseISO(date), 'EEEE d MMMM yyyy')}
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button type="button" onClick={() => goDay(-1)}
+            className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg border hover:bg-accent touch-manipulation">
+            <ChevronLeft className="w-5 h-5" />
           </button>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)}
-            className="absolute inset-0 opacity-0 cursor-pointer w-full" />
+          <div className="relative">
+            <button type="button" className="w-60 shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg hover:bg-accent touch-manipulation text-center whitespace-nowrap overflow-hidden text-ellipsis">
+              {isToday ? 'Today' : format(parseISO(date), 'EEEE d MMMM yyyy')}
+            </button>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer w-full" />
+          </div>
+          <button type="button" onClick={() => goDay(1)}
+            className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg border hover:bg-accent touch-manipulation">
+            <ChevronRight className="w-5 h-5" />
+          </button>
+          {!isToday && (
+            <button type="button" onClick={() => setDate(todayStr())}
+              className="text-xs px-2.5 py-1.5 rounded-lg border hover:bg-accent touch-manipulation ml-1">
+              Today
+            </button>
+          )}
         </div>
-        <button type="button" onClick={() => goDay(1)}
-          className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg border hover:bg-accent touch-manipulation">
-          <ChevronRight className="w-5 h-5" />
-        </button>
-        {!isToday && (
-          <button type="button" onClick={() => setDate(todayStr())}
-            className="text-xs px-2.5 py-1.5 rounded-lg border hover:bg-accent touch-manipulation ml-1">
-            Today
-          </button>
-        )}
-      </div>
 
-      {!venueId ? (
-        <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
-      ) : dashboards.length === 0 ? (
-        <div className="border rounded-xl p-10 text-center">
-          <LayoutGrid className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-          <p className="text-muted-foreground text-sm mb-4">No dashboards yet. Create one to start adding checklist and temperature-check widgets.</p>
-          <button type="button" onClick={() => setDashModal('new')}
-            className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
-            <Plus className="w-4 h-4" /> Create dashboard
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className="flex items-center gap-1 mb-2 overflow-x-auto pb-1">
+        {dashboards.length > 0 && (
+          <div className="flex items-center gap-1 overflow-x-auto min-w-0">
             {dashboards.map(d => (
               <button key={d.id} type="button" onClick={() => setActiveDashboardId(d.id)} title={d.name}
                 className={cn(
@@ -533,7 +522,22 @@ export default function HSDashboard() {
               </button>
             )}
           </div>
+        )}
+      </div>
 
+      {!venueId ? (
+        <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
+      ) : dashboards.length === 0 ? (
+        <div className="border rounded-xl p-10 text-center">
+          <LayoutGrid className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+          <p className="text-muted-foreground text-sm mb-4">No dashboards yet. Create one to start adding checklist and temperature-check widgets.</p>
+          <button type="button" onClick={() => setDashModal('new')}
+            className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
+            <Plus className="w-4 h-4" /> Create dashboard
+          </button>
+        </div>
+      ) : (
+        <>
           {editing && activeDashboard && (
             <div className="flex flex-wrap items-center gap-1.5 mb-4 text-xs">
               <span className="text-muted-foreground mr-1">Editing "{activeDashboard.name}":</span>

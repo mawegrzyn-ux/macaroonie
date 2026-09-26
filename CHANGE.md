@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-26 — H&S Dashboard tabs moved next to date selector]
+
+### Admin Portal
+- H&S Dashboard's named-dashboard tabs (Daily Checks / Weekly Checklist / etc) now sit in the same row as the date navigator instead of on their own row below it.
+
 ## [2026-09-26 — Mobile Wages "Paid" checkbox + submitted-report fixes]
 
 ### Mobile App
