@@ -161,8 +161,9 @@ export default function Help() {
               <strong>Overview</strong> (the home page, sidebar nav) is built from tiles — Quick
               access shortcuts, today's stats, upcoming bookings, venue status, and (if your
               owner has added them) H&amp;S status tiles. An owner or admin can click
-              <strong> Customise layout</strong> to add, remove, resize, reorder, and set which
-              roles can see each tile.
+              <strong> Customise layout</strong> to add, remove, resize, reorder, rename, and set which
+              roles can see each tile. To rename a tile, type in its <strong>Name</strong> box and tap
+              Save; <strong>Use default</strong> puts the built-in name back.
             </P>
             <H3>Available tiles</H3>
             <DataTable
@@ -1299,8 +1300,10 @@ export default function Help() {
             <H3>Dashboards and widgets</H3>
             <P>
               You can create any number of named dashboards, shown as tabs across the top. Click
-              <strong> Edit layout</strong> to add widgets, reorder them, resize their width (in
-              grid columns) and height (in rows), or remove them. A tall widget spans several
+              <strong> Edit layout</strong> to add widgets, rename, reorder, resize their width (in
+              grid columns) and height (in rows), or remove them. To rename a widget, type in its{' '}
+              <strong>Name</strong> box and tap Save; <strong>Use default</strong> puts the built-in
+              name back. The same works on the Cash dashboard. A tall widget spans several
               rows, and shorter widgets stack beside it instead of leaving a gap. Each widget is one of:
             </P>
             <DataTable
@@ -1346,22 +1349,23 @@ export default function Help() {
             </P>
             <P>
               The navigator at the top picks the <strong>week</strong>. Tap a day in the{' '}
-              <strong>Days of the week</strong> widget to select it; the Day balance and Petty cash
-              widgets then show that day. The selected day starts as today (or the Monday when
-              you move to another week).
+              <strong>Days of the week</strong> widget to open that day's full declaration (the same
+              screen as on the Cash Recon page); the back arrow returns to the dashboard. The tapped
+              day is also selected, so the Day balance and Petty cash widgets show it. The selected
+              day starts as today (or the Monday when you move to another week).
             </P>
             <DataTable
               head={['Widget', 'Shows']}
               rows={[
-                ['Days of the week', 'One tile per day with its status, income and variance. Tap a tile to select that day. Closed days are faded.'],
+                ['Days of the week', 'One tile per day with its status, income and variance. Tap a tile to open that day\'s declaration. Closed days are faded. In Edit layout, two switches on the widget: Hide closed days (leave out days the venue is closed) and Compact (smaller tiles showing the day, a status dot and the variance: green submitted, amber draft, grey not started).'],
                 ['Day balance', 'The selected day: income, service charges, takings, variance, cash takings, cash expenses, card expenses and Net cash.'],
                 ['Week balance', 'The week down to Cash to bank: income, takings, variance, cash takings, expenses, Net cash, wages paid in cash, plus how many days are submitted.'],
                 ['Reconciliation grid', 'The full week grid from Cash Recon. You can type into it the same way; tap a day heading to select that day.'],
-                ['Wages paid', 'This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
+                ['Wages paid', 'The title bar shows the total paid in cash so far. This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
                 ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
-                ['Week expenses', 'Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
+                ['Week expenses', 'The title bar shows the week\'s cash expenses total. Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
                 ['Week staff list', 'Manage who is on this week\'s wages: switch each person between Fixed and Hourly, enter hours and rate or a fixed amount, add someone from your staff list (or a one-off name), remove someone, copy the list from one of the last 8 weeks, and Set as default for new weeks. Changes are only written when you tap Save (Discard changes throws them away). Paid ticks are kept. Locked once the week\'s wages are submitted, except Set as default.'],
-                ['Week summary grid', 'The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then expenses, variance, Net cash, wages paid in cash and Cash to bank. Read only, and always matches the WEEK column of the full grid.'],
+                ['Week summary grid', 'The title bar shows the week\'s variance. The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then expenses, variance, Net cash, wages paid in cash and Cash to bank. Read only, and always matches the WEEK column of the full grid.'],
               ]}
             />
             <InfoBox type="tip">

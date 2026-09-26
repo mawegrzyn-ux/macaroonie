@@ -27,20 +27,24 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
   fmt, parseNum, getMonday, isoWeekDates, StatusBadge, CardBadge, ScEffectBadge,
-  SpreadsheetView, useReconWeek,
+  SpreadsheetView, DayView, useReconWeek,
   PAY_TYPES, staffRateLabel, wageEntryForStaff, defaultWageEntries,
 } from '@/pages/CashRecon'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 
 export const CASH_WIDGET_TYPES = [
-  { key: 'cash_day_tiles',    label: 'Days of the week',       icon: LayoutGrid,   defaultTitle: 'This week' },
+  { key: 'cash_day_tiles',    label: 'Days of the week',       icon: LayoutGrid,   defaultTitle: 'This week',
+    options: [
+      { key: 'hide_closed', label: 'Hide closed days', hint: 'Leave out days the venue is closed' },
+      { key: 'compact',     label: 'Compact',          hint: 'Smaller tiles: day, status and variance only' },
+    ] },
   { key: 'cash_day_balance',  label: 'Day balance',            icon: Scale,        defaultTitle: 'Day balance' },
   { key: 'cash_week_balance', label: 'Week balance',           icon: CalendarDays, defaultTitle: 'Week balance' },
   { key: 'cash_recon_grid',   label: 'Reconciliation grid',    icon: Table2,       defaultTitle: 'Reconciliation', flush: true },
-  { key: 'cash_wages_paid',   label: 'Wages paid',             icon: Users,        defaultTitle: 'Wages paid' },
+  { key: 'cash_wages_paid',   label: 'Wages paid',             icon: Users,        defaultTitle: 'Wages paid', HeaderValue: WagesPaidHeader },
   { key: 'cash_petty_cash',   label: 'Petty cash',             icon: Receipt,      defaultTitle: 'Petty cash' },
-  { key: 'cash_week_expenses', label: 'Week expenses',         icon: ListChecks,   defaultTitle: 'Expenses this week' },
-  { key: 'cash_week_summary_grid', label: 'Week summary grid', icon: Sigma,        defaultTitle: 'Week summary', flush: true },
+  { key: 'cash_week_expenses', label: 'Week expenses',         icon: ListChecks,   defaultTitle: 'Expenses this week', HeaderValue: WeekExpensesHeader },
+  { key: 'cash_week_summary_grid', label: 'Week summary grid', icon: Sigma,        defaultTitle: 'Week summary', flush: true, HeaderValue: WeekSummaryHeader },
   { key: 'cash_week_staff',   label: 'Week staff list',        icon: UserCog,      defaultTitle: 'Staff this week' },
 ]
 
@@ -107,6 +111,55 @@ function Row({ label, value, bold, tone, muted }) {
   )
 }
 
+// ── Header figures ─────────────────────────────────────────────
+//
+// A widget type's optional `HeaderValue` component renders a headline
+// figure in the card's title bar (WidgetCard in HSDashboard.jsx). They read
+// the same queries as the widget bodies, so they add no requests.
+
+function HeaderFigure({ label, value, tone }) {
+  const n = parseNum(value)
+  return (
+    <span className="shrink-0 text-right leading-tight">
+      <span className="block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className={cn(
+        'block text-sm font-semibold tabular-nums',
+        tone === 'var' && (n > 0 ? 'text-amber-600' : n < 0 ? 'text-red-600' : 'text-green-700'),
+      )}>
+        {fmt(n)}
+      </span>
+    </span>
+  )
+}
+
+function WeekSummaryHeader({ venueId, ctx }) {
+  const { detail, calc } = useReconWeek(venueId, ctx.weekStart)
+  if (!detail) return null
+  return <HeaderFigure label="Variance" value={calc.weekVariance()} tone="var" />
+}
+
+function WeekExpensesHeader({ venueId, ctx }) {
+  const { detail, calc } = useReconWeek(venueId, ctx.weekStart)
+  if (!detail) return null
+  return <HeaderFigure label="Total" value={calc.weekExpenses()} />
+}
+
+function useWeekWages(venueId, weekStart) {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['cash-recon-wages', venueId, weekStart],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/wages/${weekStart}`),
+    enabled:  !!venueId && !!weekStart,
+  })
+}
+
+function WagesPaidHeader({ venueId, ctx }) {
+  const { data } = useWeekWages(venueId, ctx.weekStart)
+  if (data === undefined) return null
+  const paid = (data?.entries ?? []).reduce((s, e) => s + parseNum(e.cash_amount), 0)
+  return <HeaderFigure label="Paid" value={paid} />
+}
+
 function Loading() {
   return (
     <div className="flex items-center justify-center py-8">
@@ -117,48 +170,108 @@ function Loading() {
 
 // ── Days of the week ───────────────────────────────────────────
 
-function DayTilesWidget({ venueId, ctx }) {
+// Tapping a day selects it (the day balance and petty cash widgets follow)
+// and opens that day's full declaration (DayView) over the dashboard.
+// Rendered inline rather than in a portal so it stays inside the
+// dashboard's full-screen element. Options (widget.settings):
+//   hide_closed  leave out days the venue is closed
+//   compact      small tiles: day, status dot, variance
+
+const STATUS_DOT = {
+  submitted: 'bg-green-500',
+  draft:     'bg-amber-500',
+}
+
+function DayTilesWidget({ venueId, ctx, settings }) {
+  const qc = useQueryClient()
   const { detail, isLoading, calc } = useReconWeek(venueId, ctx.weekStart)
+  const [openDate, setOpenDate] = useState(null)
   if (isLoading && !detail) return <Loading />
   const open = new Set(calc.visibleDates)
   const today = todayStr()
+  const compact = !!settings?.compact
+  const dates = settings?.hide_closed ? calc.dates.filter(d => open.has(d)) : calc.dates
+
+  function openDay(date) {
+    ctx.setSelectedDay(date)
+    setOpenDate(date)
+  }
+
+  function closeDay() {
+    setOpenDate(null)
+    // DayView refreshes the day and the week cards; the dashboard's
+    // widgets read week-detail, so refresh that too.
+    qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId] })
+  }
 
   return (
-    <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))' }}>
-      {calc.dates.map(date => {
-        const day = detail?.days?.[date]
-        const isOpen = open.has(date)
-        const selected = date === ctx.selectedDay
-        const v = calc.variance(date)
-        return (
-          <button key={date} type="button" onClick={() => ctx.setSelectedDay(date)}
-            className={cn(
-              'text-left rounded-xl border p-3 min-h-[96px] touch-manipulation transition-colors',
-              selected ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'hover:bg-accent',
-              !isOpen && 'opacity-60',
-            )}>
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-sm font-semibold">{format(parseISO(date), 'EEE')}</span>
-              {date === today && <span className="text-[10px] font-medium text-primary">Today</span>}
-            </div>
-            <div className="text-xs text-muted-foreground mb-1.5">{format(parseISO(date), 'd MMM')}</div>
-            {!isOpen ? (
-              <div className="text-xs text-muted-foreground">Closed</div>
-            ) : (
-              <>
-                <StatusBadge status={day?.status ?? 'none'} />
-                <div className="mt-1.5 text-xs tabular-nums">
-                  <div>Income {fmt(calc.dayTotal(date, 'income'))}</div>
-                  <div className={cn(v > 0 ? 'text-amber-600' : v < 0 ? 'text-red-600' : 'text-green-700')}>
-                    Var {fmt(v)}
-                  </div>
-                </div>
-              </>
-            )}
-          </button>
-        )
-      })}
-    </div>
+    <>
+      {dates.length === 0 ? (
+        <p className="text-sm text-muted-foreground">The venue is closed all week.</p>
+      ) : (
+        <div className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${compact ? 76 : 118}px, 1fr))` }}>
+          {dates.map(date => {
+            const day = detail?.days?.[date]
+            const isOpen = open.has(date)
+            const selected = date === ctx.selectedDay
+            const v = calc.variance(date)
+            const vTone = v > 0 ? 'text-amber-600' : v < 0 ? 'text-red-600' : 'text-green-700'
+            return (
+              <button key={date} type="button" onClick={() => openDay(date)}
+                aria-label={`Open ${format(parseISO(date), 'EEEE d MMMM')}`}
+                className={cn(
+                  'text-left rounded-xl border touch-manipulation transition-colors',
+                  compact ? 'p-2 min-h-[56px]' : 'p-3 min-h-[96px]',
+                  selected ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'hover:bg-accent',
+                  !isOpen && 'opacity-60',
+                )}>
+                {compact ? (
+                  <>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-sm font-semibold">{format(parseISO(date), 'EEE d')}</span>
+                      {isOpen && (
+                        <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', STATUS_DOT[day?.status] ?? 'bg-muted-foreground/30')}
+                          title={day?.status === 'submitted' ? 'Submitted' : day?.status === 'draft' ? 'Draft' : 'Not started'} />
+                      )}
+                    </div>
+                    <div className={cn('mt-1 text-xs tabular-nums', isOpen ? vTone : 'text-muted-foreground')}>
+                      {isOpen ? fmt(v) : 'Closed'}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-sm font-semibold">{format(parseISO(date), 'EEE')}</span>
+                      {date === today && <span className="text-[10px] font-medium text-primary">Today</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-1.5">{format(parseISO(date), 'd MMM')}</div>
+                    {!isOpen ? (
+                      <div className="text-xs text-muted-foreground">Closed</div>
+                    ) : (
+                      <>
+                        <StatusBadge status={day?.status ?? 'none'} />
+                        <div className="mt-1.5 text-xs tabular-nums">
+                          <div>Income {fmt(calc.dayTotal(date, 'income'))}</div>
+                          <div className={vTone}>Var {fmt(v)}</div>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {openDate && (
+        <div className="fixed inset-0 z-50 bg-background flex flex-col" role="dialog" aria-modal="true"
+          aria-label={`Declaration for ${format(parseISO(openDate), 'EEEE d MMMM')}`}>
+          <DayView venueId={venueId} date={openDate} onBack={closeDay} />
+        </div>
+      )}
+    </>
   )
 }
 
@@ -364,7 +477,7 @@ function weekEntryTotal(e) {
     : parseNum(e.total)
 }
 
-function NumField({ value, onChange, placeholder, prefix, suffix, disabled, label }) {
+function NumField({ value, onChange, placeholder, prefix, suffix, disabled, label, inputClassName = 'w-16' }) {
   return (
     <label className={cn(
       'h-11 flex items-center gap-1 rounded-lg border bg-background px-2 text-sm focus-within:ring-2 focus-within:ring-primary/40',
@@ -379,7 +492,7 @@ function NumField({ value, onChange, placeholder, prefix, suffix, disabled, labe
         placeholder={placeholder}
         disabled={disabled}
         onChange={e => onChange(e.target.value.replace(/[^0-9.]/g, ''))}
-        className="w-16 bg-transparent text-right tabular-nums outline-none touch-manipulation"
+        className={cn(inputClassName, 'bg-transparent text-right tabular-nums outline-none touch-manipulation')}
       />
       {suffix && <span className="text-muted-foreground">{suffix}</span>}
     </label>
@@ -393,7 +506,7 @@ function PayTypeSwitch({ value, onChange, disabled }) {
         <button key={t.value} type="button" disabled={disabled}
           onClick={() => onChange(t.value)}
           className={cn(
-            'h-11 px-3 text-xs font-medium touch-manipulation transition-colors disabled:cursor-default',
+            'h-11 px-2 text-xs font-medium touch-manipulation transition-colors disabled:cursor-default',
             value === t.value ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted',
           )}>
           {t.label}
@@ -578,42 +691,52 @@ function WeekStaffWidget({ venueId, ctx }) {
         <p className="text-sm text-muted-foreground py-2">No staff on this week yet.</p>
       )}
 
-      {entries.map((e, idx) => {
-        const hourly = e.entry_type === 'hourly'
-        return (
-          <div key={e.id ?? `${e.staff_id ?? 'adhoc'}-${idx}`} className="rounded-xl border p-2 space-y-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="flex-1 min-w-0 truncate text-sm font-medium" title={e.name}>
-                {e.name}
-                {!e.staff_id && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">ad-hoc</span>}
-              </span>
-              <span className="text-sm font-semibold tabular-nums shrink-0">{fmt(weekEntryTotal(e))}</span>
-              {!isSubmitted && (
-                <button type="button" aria-label={`Remove ${e.name}`}
-                  onClick={() => edit(entries.filter((_, i) => i !== idx))}
-                  className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 touch-manipulation">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <PayTypeSwitch value={hourly ? 'hourly' : 'fixed'} disabled={isSubmitted} onChange={t => changeType(idx, t)} />
-              {hourly ? (
-                <>
-                  <NumField label="Hours" value={e.hours} placeholder="0" suffix="h" disabled={isSubmitted}
-                    onChange={v => updateEntry(idx, { hours: v })} />
-                  <span className="text-muted-foreground text-sm">×</span>
-                  <NumField label="Rate" value={e.rate} placeholder="0.00" prefix="£" suffix="/hr" disabled={isSubmitted}
-                    onChange={v => updateEntry(idx, { rate: v })} />
-                </>
-              ) : (
-                <NumField label="Amount" value={e.total} placeholder="0.00" prefix="£" disabled={isSubmitted}
-                  onChange={v => updateEntry(idx, { total: v })} />
-              )}
-            </div>
-          </div>
-        )
-      })}
+      {/* One row per person when the widget is wide enough; the row wraps
+          (name first, controls below) only when it isn't. The amount area
+          has a fixed width so pay type, amounts and totals line up. */}
+      {entries.length > 0 && (
+        <div className="rounded-xl border divide-y">
+          {entries.map((e, idx) => {
+            const hourly = e.entry_type === 'hourly'
+            return (
+              <div key={e.id ?? `${e.staff_id ?? 'adhoc'}-${idx}`}
+                className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-2 py-1.5">
+                <span className="flex-1 basis-28 min-w-[7rem] truncate text-sm font-medium" title={e.name}>
+                  {e.name}
+                  {!e.staff_id && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">ad-hoc</span>}
+                </span>
+                <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
+                  <PayTypeSwitch value={hourly ? 'hourly' : 'fixed'} disabled={isSubmitted} onChange={t => changeType(idx, t)} />
+                  <div className="w-[11.5rem] flex items-center justify-end gap-1">
+                    {hourly ? (
+                      <>
+                        <NumField label="Hours" value={e.hours} placeholder="0" suffix="h" disabled={isSubmitted}
+                          inputClassName="w-10" onChange={v => updateEntry(idx, { hours: v })} />
+                        <span className="text-muted-foreground text-sm">×</span>
+                        <NumField label="Rate" value={e.rate} placeholder="0.00" prefix="£" suffix="/hr" disabled={isSubmitted}
+                          inputClassName="w-11" onChange={v => updateEntry(idx, { rate: v })} />
+                      </>
+                    ) : (
+                      <NumField label="Amount" value={e.total} placeholder="0.00" prefix="£" disabled={isSubmitted}
+                        onChange={v => updateEntry(idx, { total: v })} />
+                    )}
+                  </div>
+                  <span className="w-[4.5rem] text-right text-sm font-semibold tabular-nums shrink-0">{fmt(weekEntryTotal(e))}</span>
+                  {isSubmitted ? (
+                    <span className="w-11 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <button type="button" aria-label={`Remove ${e.name}`}
+                      onClick={() => edit(entries.filter((_, i) => i !== idx))}
+                      className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 touch-manipulation">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       <div className="flex items-center justify-between px-1 pt-1 text-sm font-semibold">
         <span>Total wages</span><span className="tabular-nums">{fmt(total)}</span>
@@ -724,11 +847,7 @@ function WagesPaidWidget({ venueId, ctx }) {
   const qc = useQueryClient()
   const { weekStart } = ctx
 
-  const { data: wagesData, isLoading } = useQuery({
-    queryKey: ['cash-recon-wages', venueId, weekStart],
-    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/wages/${weekStart}`),
-    enabled:  !!venueId && !!weekStart,
-  })
+  const { data: wagesData, isLoading } = useWeekWages(venueId, weekStart)
 
   // The dedicated paid endpoint works whether or not the week's wages are
   // submitted — marking staff paid happens after the report is final.
@@ -879,7 +998,7 @@ function WeekExpensesWidget({ venueId, ctx }) {
 
 export function renderCashWidget({ widget, venueId, ctx }) {
   switch (widget.widget_type) {
-    case 'cash_day_tiles':    return <DayTilesWidget venueId={venueId} ctx={ctx} />
+    case 'cash_day_tiles':    return <DayTilesWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
     case 'cash_day_balance':  return <DayBalanceWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_balance': return <WeekBalanceWidget venueId={venueId} ctx={ctx} />
     case 'cash_recon_grid':   return <ReconGridWidget venueId={venueId} ctx={ctx} />

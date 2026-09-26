@@ -25,6 +25,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
 import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
+import { TitleRename } from '@/components/dashboards/TitleRename'
 
 function resolveIcon(name) {
   return LucideIcons[name] || LucideIcons.Circle
@@ -255,7 +256,8 @@ const SPAN_CLASSES = {
 }
 
 function TileCard({
-  icon: Icon, title, editing, colSpan, height,
+  icon: Icon, title, defaultTitle, isCustomTitle, onRename, isRenaming,
+  editing, colSpan, height,
   onRemove, onMoveUp, onMoveDown, isFirst, isLast, onResizeWidth, onResizeRows,
   headerExtra, children,
 }) {
@@ -275,7 +277,7 @@ function TileCard({
           <Icon className="w-4 h-4" />
         </span>
         <span className="flex-1 min-w-0 text-sm font-semibold truncate">{title}</span>
-        {!editing && headerExtra}
+        {headerExtra}
         {editing && (
           <div className="flex items-center gap-0.5 shrink-0">
             <button type="button" onClick={onMoveUp} disabled={isFirst}
@@ -296,6 +298,17 @@ function TileCard({
           </div>
         )}
       </div>
+
+      {editing && onRename && (
+        <TitleRename
+          title={title}
+          defaultTitle={defaultTitle}
+          isCustom={isCustomTitle}
+          maxLength={100}
+          isSaving={isRenaming}
+          onSave={onRename}
+        />
+      )}
 
       {editing && (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-4 py-2 border-b bg-muted/10 text-xs">
@@ -676,6 +689,10 @@ export default function Dashboard() {
                 key={tile.id}
                 icon={resolveIcon(meta.icon)}
                 title={tile.title_override || meta.label}
+                defaultTitle={meta.label}
+                isCustomTitle={!!tile.title_override}
+                onRename={title_override => patchTile.mutate({ id: tile.id, title_override })}
+                isRenaming={patchTile.isPending && patchTile.variables?.id === tile.id && 'title_override' in (patchTile.variables ?? {})}
                 editing={editing}
                 colSpan={Math.min(tile.col_span ?? meta.default_col_span, 4)}
                 height={tile.height_px ?? meta.default_height_px}

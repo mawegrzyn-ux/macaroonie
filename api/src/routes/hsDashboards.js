@@ -71,6 +71,11 @@ const DashboardPatch = DashboardBody.partial().omit({ venue_id: true }).extend({
   is_active: z.boolean().optional(),
 })
 
+// Per-widget display options (migration 105). Flat map of simple values;
+// which keys mean anything is up to each widget type in the admin.
+const WidgetSettings = z.record(z.union([z.boolean(), z.number(), z.string().max(200)]))
+  .refine(o => Object.keys(o).length <= 20, { message: 'Too many widget settings' })
+
 function widgetBodyFor(kind) {
   return z.object({
     widget_type:            z.enum(WIDGET_TYPES_BY_KIND[kind]),
@@ -79,6 +84,7 @@ function widgetBodyFor(kind) {
     sort_order:             z.number().int().optional(),
     col_span:               z.number().int().min(1).max(6).optional(),
     height_px:              z.number().int().min(240).max(1200).optional(),
+    settings:               WidgetSettings.optional(),
   }).refine(
     b => (b.widget_type === 'checklist') === !!b.checklist_template_id,
     { message: 'checklist_template_id is required for a checklist widget, and must be omitted for every other widget type' },
@@ -91,6 +97,7 @@ const WidgetPatch = z.object({
   is_active:      z.boolean().optional(),
   col_span:       z.number().int().min(1).max(6).optional(),
   height_px:      z.number().int().min(240).max(1200).optional(),
+  settings:       WidgetSettings.optional(),
 })
 
 /** Loads a dashboard (must belong to this tenant and kind) or throws 404. */
@@ -241,11 +248,11 @@ export default async function hsDashboardsRoutes(app, opts) {
 
       const [row] = await tx`
         INSERT INTO hs_dashboard_widgets
-          (tenant_id, dashboard_id, widget_type, checklist_template_id, title_override, sort_order, col_span, height_px)
+          (tenant_id, dashboard_id, widget_type, checklist_template_id, title_override, sort_order, col_span, height_px, settings)
         VALUES
           (${req.tenantId}, ${req.params.id}, ${body.widget_type},
            ${body.checklist_template_id ?? null}, ${body.title_override ?? null}, ${body.sort_order ?? 0},
-           ${body.col_span ?? 1}, ${body.height_px ?? 480})
+           ${body.col_span ?? 1}, ${body.height_px ?? 480}, ${tx.json(body.settings ?? {})})
         RETURNING *
       `
       return row
@@ -261,9 +268,10 @@ export default async function hsDashboardsRoutes(app, opts) {
 
     const [row] = await withTenant(req.tenantId, async tx => {
       await loadDashboard(tx, req.tenantId, req.params.id, kind)
+      const values = Object.fromEntries(fields.map(k => [k, k === 'settings' ? tx.json(body[k]) : body[k]]))
       return tx`
         UPDATE hs_dashboard_widgets
-           SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)},
+           SET ${tx(values, ...fields)},
                updated_at = now()
          WHERE id = ${req.params.widgetId}
            AND dashboard_id = ${req.params.id}
