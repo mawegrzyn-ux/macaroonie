@@ -102,6 +102,13 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
       FROM fs_cooking_checks WHERE tenant_id = ${tenantId} AND check_date BETWEEN ${from} AND ${to}
   `
 
+  const deliveryChecks = await tx`
+    SELECT venue_id, delivery_date::text AS delivery_date,
+           (packaging_ok AND damage_ok AND quality_ok AND temp_ok AND accepted) AS passed,
+           corrective_action
+      FROM fs_delivery_checks WHERE tenant_id = ${tenantId} AND delivery_date BETWEEN ${from} AND ${to}
+  `
+
   const byVenue = (rows) => {
     const m = new Map()
     for (const r of rows) {
@@ -157,9 +164,15 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
       }, 0)
       const cookingUnresolved = dayCookingChecks.filter(c => c.is_within_range === false && !c.corrective_action).length
 
+      // Deliveries aren't scheduled, so there's no "expected" count — they
+      // only ever raise the day's status (a failed check with no corrective
+      // action is unresolved), never count toward expected/completed.
+      const dayDeliveries = deliveryChecks.filter(d => d.venue_id === v.id && d.delivery_date === date)
+      const deliveryUnresolved = dayDeliveries.filter(d => !d.passed && !d.corrective_action).length
+
       const expected  = checklistExpected + equipExpected + holdExpected + cookingExpected
       const completed = checklistCompleted + equipCompleted + holdCompleted + cookingCompleted
-      const unresolved = equipUnresolved + holdUnresolved + cookingUnresolved
+      const unresolved = equipUnresolved + holdUnresolved + cookingUnresolved + deliveryUnresolved
       const status = isUpcoming ? 'upcoming' : deriveStatus(expected, completed, unresolved)
 
       // Per-check-type breakdown for the hs_today_status tile's expanded
@@ -183,6 +196,12 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
           key: 'cooking', label: 'Cooking checks',
           expected: cookingExpected, completed: cookingCompleted, unresolved: cookingUnresolved,
           status: isUpcoming ? 'upcoming' : deriveStatus(cookingExpected, cookingCompleted, cookingUnresolved),
+        },
+        dayDeliveries.length > 0 && {
+          key: 'delivery', label: 'Delivery checks',
+          expected: dayDeliveries.length, completed: dayDeliveries.length, unresolved: deliveryUnresolved,
+          summary: `${dayDeliveries.length} logged${deliveryUnresolved ? ` · ${deliveryUnresolved} issue${deliveryUnresolved > 1 ? 's' : ''}` : ''}`,
+          status: isUpcoming ? 'upcoming' : (deliveryUnresolved > 0 ? 'red' : 'green'),
         },
       ].filter(Boolean)
 

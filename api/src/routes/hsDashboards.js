@@ -12,6 +12,7 @@
 //   'delivery_checks'  — embeds the delivery-check log (DeliveryChecksPanel)
 //   'hold_checks'      — embeds the hot/cold hold-check log (HoldChecksPanel)
 //   'cooking_checks'   — embeds the cooking/reheat-check log (CookingChecksPanel)
+//   'action_log'       — embeds the H&S Action Log (HSActionLogPanel)
 // Only 'checklist' carries a checklist_template_id — every other type is
 // venue-wide, so there's always at most one meaningful instance of it per
 // venue and it carries no template reference.
@@ -56,7 +57,7 @@ const DashboardPatch = DashboardBody.partial().omit({ venue_id: true }).extend({
 })
 
 const WidgetBody = z.object({
-  widget_type:            z.enum(['checklist', 'temp_checks', 'delivery_checks', 'hold_checks', 'cooking_checks']),
+  widget_type:            z.enum(['checklist', 'temp_checks', 'delivery_checks', 'hold_checks', 'cooking_checks', 'action_log']),
   checklist_template_id:  z.string().uuid().nullable().optional(),
   title_override:         z.string().max(200).nullable().optional(),
   sort_order:             z.number().int().optional(),
