@@ -14,6 +14,7 @@ import { format } from 'date-fns'
 import { Plus, X, Camera, Trash2, Receipt } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { PaidByCardToggle, CardBadge } from '@/pages/CashRecon'
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -30,6 +31,7 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
   const [amount, setAmount] = useState(initial?.amount != null ? String(initial.amount) : '')
   const [vatAmount, setVatAmount] = useState(initial?.vat_amount != null ? String(initial.vat_amount) : '')
   const [notes, setNotes] = useState(initial?.notes ?? '')
+  const [paidByCard, setPaidByCard] = useState(!!initial?.paid_by_card)
   const [photo, setPhoto] = useState(null) // { file, preview }
   const [confirmDelete, setConfirmDelete] = useState(false)
   const fileRef = useRef(null)
@@ -96,6 +98,8 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
             </div>
           </div>
 
+          <PaidByCardToggle checked={paidByCard} onChange={setPaidByCard} />
+
           <div>
             <label className="block text-sm font-medium mb-1">Notes (optional)</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
@@ -127,7 +131,7 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
           </div>
 
           <button type="button" disabled={!canSave || isSaving}
-            onClick={() => onSave({ description: description.trim(), category_id: categoryId, amount: Number(amount) || 0, vat_amount: Number(vatAmount) || 0, notes: notes.trim() || null }, photo?.file)}
+            onClick={() => onSave({ description: description.trim(), category_id: categoryId, amount: Number(amount) || 0, vat_amount: Number(vatAmount) || 0, paid_by_card: paidByCard, notes: notes.trim() || null }, photo?.file)}
             className="w-full bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
             {isSaving ? 'Saving…' : isEdit ? 'Save changes' : 'Add expense'}
           </button>
@@ -192,7 +196,10 @@ export default function MobileExpenses() {
   const categories = (config?.expense_categories ?? []).filter(c => c.is_active)
   const catById = Object.fromEntries((config?.expense_categories ?? []).map(c => [c.id, c]))
   const expenses = daily?.expenses ?? []
-  const total = expenses.reduce((s, e) => s + Number(e.amount || 0), 0)
+  // Card-paid expenses never left the till, so they don't count toward the
+  // cash total (same rule as CashRecon.jsx's day view).
+  const total     = expenses.filter(e => !e.paid_by_card).reduce((s, e) => s + Number(e.amount || 0), 0)
+  const cardTotal = expenses.filter(e =>  e.paid_by_card).reduce((s, e) => s + Number(e.amount || 0), 0)
   const isSubmitted = daily?.status === 'submitted'
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] })
@@ -239,9 +246,17 @@ export default function MobileExpenses() {
           className="absolute inset-0 opacity-0 cursor-pointer w-full" />
       </div>
 
-      <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-        <span className="text-sm font-medium">Total for this day</span>
-        <span className="text-sm font-semibold">{fmt(total)}</span>
+      <div className="rounded-lg border px-3 py-2.5 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Cash total for this day</span>
+          <span className="text-sm font-semibold">{fmt(total)}</span>
+        </div>
+        {cardTotal > 0 && (
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span className="text-xs">Paid by card (not in recon)</span>
+            <span className="text-xs font-medium">{fmt(cardTotal)}</span>
+          </div>
+        )}
       </div>
 
       {isSubmitted && (
@@ -269,6 +284,7 @@ export default function MobileExpenses() {
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm font-medium truncate">{exp.description}</span>
                   {cat && <span className="block text-xs text-muted-foreground truncate">{cat.name}</span>}
+                  {exp.paid_by_card && <span className="block mt-0.5"><CardBadge /></span>}
                 </span>
                 <span className="text-sm font-semibold shrink-0">{fmt(exp.amount)}</span>
               </button>

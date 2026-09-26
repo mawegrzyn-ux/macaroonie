@@ -1085,6 +1085,24 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>CashRecon.jsx</Mono>'s <Mono>ExpensesSection</Mono> and{' '}
               <Mono>MobileExpenses.jsx</Mono>'s <Mono>ExpenseModal</Mono>).
             </P>
+            <H3>Expense paid by card (migration 100)</H3>
+            <P>
+              <Mono>cash_expenses.paid_by_card</Mono> (boolean, default false) marks an expense
+              paid by card instead of from the till. Card-paid rows are still stored in full
+              (receipt, VAT, category) but are excluded from every cash figure: the week-detail
+              route's per-day <Mono>total_expenses</Mono> now sums only{' '}
+              <Mono>!paid_by_card</Mono> rows and returns the card sum separately as{' '}
+              <Mono>total_card_expenses</Mono>. Because <Mono>SpreadsheetView</Mono>'s{' '}
+              <Mono>dayExpenses()</Mono> reads <Mono>total_expenses</Mono>, Net Cash and Cash to
+              bank drop card expenses with no further change. The day view's{' '}
+              <Mono>totalExpenses</Mono> memo filters the same way client-side, and so does{' '}
+              <Mono>MobileExpenses.jsx</Mono>'s day total. All three write paths accept the flag
+              (<Mono>ExpenseEntrySchema</Mono> for the whole-day PUT, plus the individual POST/PUT
+              expense routes). Shared UI lives in <Mono>CashRecon.jsx</Mono>:{' '}
+              <Mono>PaidByCardToggle</Mono> (form checkbox) and <Mono>CardBadge</Mono> (list tag),
+              both reused by the mobile page. Card totals are shown as a separate "Paid by card
+              (not in recon)" line in the day summary, the week grid and the mobile day total.
+            </P>
             <H3>Admin theming — SectionCard</H3>
             <P>
               <Mono>SectionCard</Mono> (used by every Cash Recon section — Income, Service

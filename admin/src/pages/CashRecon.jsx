@@ -17,13 +17,51 @@ import {
   ArrowLeft, Settings, ChevronLeft, ChevronRight,
   Plus, Trash2, Pencil, Check, Camera, X, Loader2,
   ChevronUp, ChevronDown, Lock, MessageSquare, Table2,
-  AlertTriangle, Star,
+  AlertTriangle, Star, CreditCard,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// Checkbox-style toggle for a petty cash expense paid by card rather than from
+// the till. Card-paid expenses are still recorded but excluded from every cash
+// reconciliation total (Total Expenses, Net Cash, Cash to bank).
+export function PaidByCardToggle({ checked, onChange }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'w-full min-h-[44px] flex items-center gap-3 rounded-xl border px-3 py-2 text-left touch-manipulation transition-colors',
+        checked ? 'border-primary bg-primary/5' : 'hover:bg-muted',
+      )}
+    >
+      <span className={cn(
+        'w-5 h-5 shrink-0 rounded border flex items-center justify-center',
+        checked ? 'bg-primary border-primary text-primary-foreground' : 'bg-background',
+      )}>
+        {checked && <Check className="w-3.5 h-3.5" />}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-medium">Paid by card</span>
+        <span className="block text-xs text-muted-foreground">Not taken from the till, so left out of the cash reconciliation</span>
+      </span>
+      <CreditCard className="w-4 h-4 shrink-0 text-muted-foreground" />
+    </button>
+  )
+}
+
+export function CardBadge() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium border bg-muted/40 text-muted-foreground">
+      <CreditCard className="w-3 h-3" /> Card
+    </span>
+  )
+}
 
 export function fmt(amount) {
   if (amount == null || amount === '' || isNaN(Number(amount))) return '—'
@@ -371,6 +409,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   }
 
   function dayExpenses(date) { return parseNum(detail?.days?.[date]?.total_expenses ?? 0) }
+  function dayCardExpenses(date) { return parseNum(detail?.days?.[date]?.total_card_expenses ?? 0) }
 
   // variance = actual (Takings) − expected (Income, adjusted for SC effects).
   // Positive = surplus (took more than declared), negative = shortfall (took less).
@@ -392,6 +431,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   }
   function weekDayTotal(cat) { return visibleDates.reduce((s, d) => s + dayTotal(d, cat), 0) }
   function weekExpenses()    { return visibleDates.reduce((s, d) => s + dayExpenses(d), 0) }
+  function weekCardExpenses() { return visibleDates.reduce((s, d) => s + dayCardExpenses(d), 0) }
   function weekCashTakings() { return visibleDates.reduce((s, d) => s + cashTakingsTotal(d), 0) }
   function weekNetCash()     { return weekCashTakings() - weekExpenses() }
   function weekNetPosition() {
@@ -746,7 +786,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
             <SectionRow label="Expenses" />
             <tr className="border-b border-border/40">
               <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">
-                Total Expenses
+                Total Expenses (cash)
               </td>
               {visibleDates.map(d => (
                 <td key={d}
@@ -757,6 +797,21 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
               ))}
               <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums">{fmt(weekExpenses())}</td>
             </tr>
+            {weekCardExpenses() > 0 && (
+              <tr className="border-b border-border/40 text-muted-foreground">
+                <td className="sticky left-0 bg-background px-3 py-1 text-xs border-r border-border/60 min-w-[150px] z-10">
+                  Paid by card (not in recon)
+                </td>
+                {visibleDates.map(d => (
+                  <td key={d}
+                    onClick={() => onSelectDay(d)}
+                    className="px-2 py-1 text-xs text-right border-r border-border/60 w-[86px] min-w-[86px] tabular-nums cursor-pointer hover:bg-muted/60">
+                    {dayCardExpenses(d) !== 0 ? fmt(dayCardExpenses(d)) : '—'}
+                  </td>
+                ))}
+                <td className="px-2 py-1 text-xs text-right bg-muted/20 tabular-nums">{fmt(weekCardExpenses())}</td>
+              </tr>
+            )}
 
             {/* ── SUMMARY ── */}
             <SectionRow label="Summary" />
@@ -1072,8 +1127,13 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
     [activeChannels, takingsValues]
   )
 
+  // Only till-paid expenses reduce cash; card-paid ones are shown separately.
   const totalExpenses = useMemo(() =>
-    expenses.reduce((sum, e) => sum + parseNum(e.amount ?? 0), 0),
+    expenses.filter(e => !e.paid_by_card).reduce((sum, e) => sum + parseNum(e.amount ?? 0), 0),
+    [expenses]
+  )
+  const cardExpenses = useMemo(() =>
+    expenses.filter(e => e.paid_by_card).reduce((sum, e) => sum + parseNum(e.amount ?? 0), 0),
     [expenses]
   )
 
@@ -1422,7 +1482,10 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
               {variance === 0 ? 'Balanced' : `${variance > 0 ? '+' : ''}${fmt(variance)}`}
             </span>
           </div>
-          <div className="flex justify-between text-sm pt-1"><span>Total Expenses</span><span className="font-medium">{fmt(totalExpenses)}</span></div>
+          <div className="flex justify-between text-sm pt-1"><span>Total Expenses (cash)</span><span className="font-medium">{fmt(totalExpenses)}</span></div>
+          {cardExpenses > 0 && (
+            <div className="flex justify-between text-xs text-muted-foreground"><span>Paid by card (not in recon)</span><span>{fmt(cardExpenses)}</span></div>
+          )}
           <div className="flex justify-between text-sm font-bold pt-1 border-t">
             <span>Net Cash Position</span>
             <span>{fmt(netCash)}</span>
@@ -1439,7 +1502,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
   const api = useApi()
   const [addOpen,   setAddOpen]   = useState(false)
   const [editId,    setEditId]    = useState(null)
-  const [newForm,   setNewForm]   = useState({ description: '', category_id: null, amount: '', vat_amount: '', notes: '' })
+  const [newForm,   setNewForm]   = useState({ description: '', category_id: null, amount: '', vat_amount: '', paid_by_card: false, notes: '' })
   const [newPhoto,  setNewPhoto]  = useState(null)   // { file, preview }
   const [editForm,  setEditForm]  = useState({})
   const [editPhoto, setEditPhoto] = useState(null)   // { file, preview }
@@ -1473,7 +1536,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
         setUploading(p => ({ ...p, [created.id]: false }))
       }
       setExpenses(p => [...p, created])
-      setNewForm({ description: '', category_id: null, amount: '', vat_amount: '', notes: '' })
+      setNewForm({ description: '', category_id: null, amount: '', vat_amount: '', paid_by_card: false, notes: '' })
       if (newPhoto?.preview) URL.revokeObjectURL(newPhoto.preview)
       setNewPhoto(null)
       setAddOpen(false)
@@ -1614,6 +1677,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                   <AmountInput placeholder="Gross amount" value={editForm.amount ?? ''} onChange={v => setEditForm(p => ({ ...p, amount: v }))} />
                   <AmountInput placeholder="VAT amount" value={editForm.vat_amount ?? ''} onChange={v => setEditForm(p => ({ ...p, vat_amount: v }))} />
                 </div>
+                <PaidByCardToggle checked={!!editForm.paid_by_card} onChange={v => setEditForm(p => ({ ...p, paid_by_card: v }))} />
                 <TextInput placeholder="Notes" value={editForm.notes ?? ''} onChange={v => setEditForm(p => ({ ...p, notes: v }))} />
                 <PhotoInput photo={editPhoto} setPhoto={setEditPhoto} fileRef={editFileRef} label={exp.receipt_url ? 'Replace photo' : 'Add photo'} />
                 <div className="flex gap-2">
@@ -1643,6 +1707,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                     </span>
                   )}
                   {!cat && exp.category && <div className="text-xs text-muted-foreground">{exp.category}</div>}
+                  {exp.paid_by_card && <div className="mt-0.5"><CardBadge /></div>}
                   {exp.notes && <div className="text-xs text-muted-foreground mt-0.5">{exp.notes}</div>}
                 </div>
                 <div className="text-right shrink-0">
@@ -1692,7 +1757,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                   <IconBtn onClick={() => {
                     setEditId(exp.id)
                     setEditPhoto(null)
-                    setEditForm({ description: exp.description, category_id: exp.category_id ?? null, amount: exp.amount ?? '', vat_amount: exp.vat_amount ?? '', notes: exp.notes ?? '' })
+                    setEditForm({ description: exp.description, category_id: exp.category_id ?? null, amount: exp.amount ?? '', vat_amount: exp.vat_amount ?? '', paid_by_card: !!exp.paid_by_card, notes: exp.notes ?? '' })
                   }} title="Edit">
                     <Pencil className="w-4 h-4" />
                   </IconBtn>
@@ -1714,6 +1779,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
               <AmountInput placeholder="Gross amount *" value={newForm.amount} onChange={v => setNewForm(p => ({ ...p, amount: v }))} />
               <AmountInput placeholder="VAT amount" value={newForm.vat_amount} onChange={v => setNewForm(p => ({ ...p, vat_amount: v }))} />
             </div>
+            <PaidByCardToggle checked={!!newForm.paid_by_card} onChange={v => setNewForm(p => ({ ...p, paid_by_card: v }))} />
             <TextInput placeholder="Notes" value={newForm.notes} onChange={v => setNewForm(p => ({ ...p, notes: v }))} />
             <PhotoInput photo={newPhoto} setPhoto={setNewPhoto} fileRef={newFileRef} />
             <div className="flex gap-2">
@@ -1721,7 +1787,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                 className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation">Save</button>
               <button type="button" onClick={() => {
                 setAddOpen(false)
-                setNewForm({ description: '', category_id: null, amount: '', vat_amount: '', notes: '' })
+                setNewForm({ description: '', category_id: null, amount: '', vat_amount: '', paid_by_card: false, notes: '' })
                 if (newPhoto?.preview) URL.revokeObjectURL(newPhoto.preview)
                 setNewPhoto(null)
               }} className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
