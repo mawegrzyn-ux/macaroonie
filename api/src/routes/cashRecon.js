@@ -23,11 +23,6 @@
 //   PATCH  /:venueId/cash-recon/config/sc-sources/:id
 //   PUT    /:venueId/cash-recon/config/sc-sources/:id
 //   DELETE /:venueId/cash-recon/config/sc-sources/:id
-//   POST   /:venueId/cash-recon/config/staff
-//   PUT    /:venueId/cash-recon/config/staff/reorder
-//   PATCH  /:venueId/cash-recon/config/staff/:id
-//   PUT    /:venueId/cash-recon/config/staff/:id
-//   DELETE /:venueId/cash-recon/config/staff/:id
 //
 // Week summary:
 //   GET    /:venueId/cash-recon/week/:week_start
@@ -137,22 +132,6 @@ const CategoryPatch = z.object({
   colour:     z.string().max(20).nullable().optional(),
   is_active:  z.coerce.boolean().optional(),
   sort_order: z.coerce.number().int().optional(),
-})
-
-// pay_type decides what default_rate means: £ per hour (hourly) or £ per
-// week (fixed). It seeds entry_type when the staff member is added to a week.
-const StaffBody = z.object({
-  name:         z.string().min(1).max(200),
-  default_rate: z.coerce.number().min(0).nullable().optional(),
-  pay_type:     z.enum(['hourly', 'fixed']).default('fixed'),
-})
-
-const StaffPatch = z.object({
-  name:         z.string().min(1).max(200).optional(),
-  default_rate: z.coerce.number().min(0).nullable().optional(),
-  pay_type:     z.enum(['hourly', 'fixed']).optional(),
-  is_active:    z.coerce.boolean().optional(),
-  sort_order:   z.coerce.number().int().optional(),
 })
 
 // Daily report schemas
@@ -870,119 +849,7 @@ export default async function cashReconRoutes(app) {
     return reply.code(204).send()
   })
 
-  // ────────────────────────────────────────────────────────────
-  // STAFF CRUD
-  // ────────────────────────────────────────────────────────────
-
-  // POST /:venueId/cash-recon/config/staff
-  app.post('/:venueId/cash-recon/config/staff', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
-  }, async (req, reply) => {
-    const { venueId } = req.params
-    const body = StaffBody.parse(req.body)
-
-    const [row] = await withTenant(req.tenantId, async tx => {
-      await assertVenueOwnership(tx, req.tenantId, venueId)
-      return tx`
-        INSERT INTO cash_staff (tenant_id, venue_id, name, default_rate, pay_type)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.default_rate ?? null}, ${body.pay_type})
-        RETURNING *
-      `
-    })
-
-    return reply.code(201).send(row)
-  })
-
-  // PUT /:venueId/cash-recon/config/staff/reorder
-  app.put('/:venueId/cash-recon/config/staff/reorder', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
-  }, async (req) => {
-    const { venueId } = req.params
-    const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
-
-    await withTenant(req.tenantId, async tx => {
-      await assertVenueOwnership(tx, req.tenantId, venueId)
-      for (let i = 0; i < ids.length; i++) {
-        await tx`
-          UPDATE cash_staff
-             SET sort_order = ${i}
-           WHERE id        = ${ids[i]}
-             AND venue_id  = ${venueId}
-             AND tenant_id = ${req.tenantId}
-        `
-      }
-    })
-
-    return { ok: true }
-  })
-
-  // PATCH /:venueId/cash-recon/config/staff/:id
-  // PUT   /:venueId/cash-recon/config/staff/:id  (alias)
-  const staffUpdateHandler = async (req) => {
-    const { venueId, id } = req.params
-    const body = StaffPatch.parse(req.body)
-    const fields = Object.keys(body)
-    if (!fields.length) throw httpError(400, 'No fields to update')
-
-    const [row] = await withTenant(req.tenantId, async tx => {
-      await assertVenueOwnership(tx, req.tenantId, venueId)
-      const result = await tx`
-        UPDATE cash_staff
-           SET ${tx(body, ...fields)}
-         WHERE id        = ${id}
-           AND venue_id  = ${venueId}
-           AND tenant_id = ${req.tenantId}
-        RETURNING *
-      `
-      if (!result.length) throw httpError(404, 'Staff member not found')
-      return result
-    })
-
-    return row
-  }
-  app.patch('/:venueId/cash-recon/config/staff/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, staffUpdateHandler)
-  app.put('/:venueId/cash-recon/config/staff/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, staffUpdateHandler)
-
-  // DELETE /:venueId/cash-recon/config/staff/:id
-  app.delete('/:venueId/cash-recon/config/staff/:id', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
-  }, async (req, reply) => {
-    const { venueId, id } = req.params
-
-    await withTenant(req.tenantId, async tx => {
-      await assertVenueOwnership(tx, req.tenantId, venueId)
-
-      const [usage] = await tx`
-        SELECT 1 FROM cash_wage_entries
-         WHERE staff_id  = ${id}
-           AND tenant_id = ${req.tenantId}
-         LIMIT 1
-      `
-
-      if (usage) {
-        const [updated] = await tx`
-          UPDATE cash_staff
-             SET is_active = false
-           WHERE id        = ${id}
-             AND venue_id  = ${venueId}
-             AND tenant_id = ${req.tenantId}
-          RETURNING id
-        `
-        if (!updated) throw httpError(404, 'Staff member not found')
-      } else {
-        const [deleted] = await tx`
-          DELETE FROM cash_staff
-           WHERE id        = ${id}
-             AND venue_id  = ${venueId}
-             AND tenant_id = ${req.tenantId}
-          RETURNING id
-        `
-        if (!deleted) throw httpError(404, 'Staff member not found')
-      }
-    })
-
-    return reply.code(204).send()
-  })
+  // Staff CRUD moved to routes/rota.js (/api/rota/venues/:venueId/staff).
 
   // ────────────────────────────────────────────────────────────
   // EXPENSE CATEGORIES CRUD

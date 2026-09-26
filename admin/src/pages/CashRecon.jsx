@@ -123,24 +123,29 @@ export const PAY_TYPES = [
   { value: 'hourly', label: 'Hourly' },
 ]
 
+const BASIS_SUFFIX = { week: '/wk', day: '/day', shift: '/shift' }
+
 export function staffRateLabel(staff) {
   if (staff?.default_rate == null || staff.default_rate === '') return null
   return (staff.pay_type ?? 'fixed') === 'hourly'
     ? `${fmt(staff.default_rate)}/hr`
-    : `${fmt(staff.default_rate)}/wk`
+    : `${fmt(staff.default_rate)}${BASIS_SUFFIX[staff.pay_basis ?? 'week'] ?? '/wk'}`
 }
 
 /** A fresh wage entry for one staff member, seeded from their pay type and default rate. */
 export function wageEntryForStaff(staff, entryType = staff.pay_type ?? 'fixed') {
   const hourly = entryType === 'hourly'
   const rate = staff.default_rate != null ? String(staff.default_rate) : ''
+  // A per-day or per-shift fixed rate isn't a week's pay: leave the amount
+  // blank (the Rota's "Fill wages" works it out from the shifts worked).
+  const weekly = !hourly && (staff.pay_basis ?? 'week') === 'week'
   return {
     staff_id:    staff.id,
     name:        staff.name,
     entry_type:  entryType,
     hours:       '',
     rate:        hourly ? rate : '',
-    total:       hourly ? '' : rate,
+    total:       weekly ? rate : '',
     cash_amount: '',
     notes:       '',
   }
@@ -2321,7 +2326,6 @@ function SettingsView({ venueId, onBack }) {
     { key: 'income',   label: 'Income Sources' },
     { key: 'channels', label: 'Payment Channels' },
     { key: 'sc',       label: 'Service Charges' },
-    { key: 'staff',    label: 'Staff' },
     { key: 'expenses', label: 'Categories' },
   ]
 
@@ -2357,7 +2361,6 @@ function SettingsView({ venueId, onBack }) {
         {tab === 'income'   && <IncomeSourcesTab     venueId={venueId} items={config?.income_sources      ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'channels' && <PaymentChannelsTab   venueId={venueId} items={config?.payment_channels  ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'sc'       && <ScSourcesTab         venueId={venueId} items={config?.sc_sources        ?? []} onRefetch={refetchConfig} api={api} />}
-        {tab === 'staff'    && <StaffTab             venueId={venueId} items={config?.staff             ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'expenses' && <ExpenseCategoriesTab venueId={venueId} items={config?.expense_categories ?? []} onRefetch={refetchConfig} api={api} />}
       </div>
     </div>
@@ -2742,101 +2745,6 @@ function ScSourcesTab({ venueId, items, onRefetch, api }) {
       renderForm={renderForm}
       emptyLabel="No service charge sources yet."
       addLabel="Add service charge source"
-    />
-  )
-}
-
-// ── Staff tab ────────────────────────────────────────────────────────────────
-
-function StaffTab({ venueId, items, onRefetch, api }) {
-  const [localItems, setLocalItems] = useState(items)
-  useEffect(() => setLocalItems(items), [items])
-
-  async function handleSave(id, vals) {
-    const body = {
-      ...vals,
-      pay_type:     vals.pay_type ?? 'fixed',
-      default_rate: vals.default_rate === '' ? null : vals.default_rate,
-    }
-    if (id) {
-      await api.put(`/venues/${venueId}/cash-recon/config/staff/${id}`, body)
-    } else {
-      await api.post(`/venues/${venueId}/cash-recon/config/staff`, body)
-    }
-    onRefetch()
-  }
-
-  async function handleDelete(id) {
-    await api.delete(`/venues/${venueId}/cash-recon/config/staff/${id}`)
-    onRefetch()
-  }
-
-  async function handleToggleActive(id, val) {
-    await api.patch(`/venues/${venueId}/cash-recon/config/staff/${id}`, { is_active: val })
-    onRefetch()
-  }
-
-  async function handleMove(idx, dir) {
-    const next = [...localItems]
-    const swapIdx = idx + dir
-    if (swapIdx < 0 || swapIdx >= next.length) return;
-    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
-    setLocalItems(next)
-    await api.put(`/venues/${venueId}/cash-recon/config/staff/reorder`, { ids: next.map(i => i.id) })
-    onRefetch()
-  }
-
-  function renderForm({ vals, setVals }) {
-    const payType = vals.pay_type ?? 'fixed'
-    return (
-      <>
-        <TextInput placeholder="Name *" value={vals.name ?? ''} onChange={v => setVals(p => ({ ...p, name: v }))} />
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">Pay type</label>
-          <div className="grid grid-cols-2 gap-2">
-            {PAY_TYPES.map(t => (
-              <button key={t.value} type="button"
-                onClick={() => setVals(p => ({ ...p, pay_type: t.value }))}
-                className={cn(
-                  'h-11 rounded-xl border text-sm font-medium touch-manipulation transition-colors',
-                  payType === t.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted',
-                )}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <label className="text-xs text-muted-foreground block mb-1">
-            {payType === 'hourly' ? 'Hourly rate (£ per hour, optional)' : 'Weekly amount (£ per week, optional)'}
-          </label>
-          <AmountInput placeholder="0.00" value={vals.default_rate ?? ''} onChange={v => setVals(p => ({ ...p, default_rate: v }))} />
-        </div>
-        <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
-      </>
-    )
-  }
-
-  function renderMeta(item) {
-    const rate = staffRateLabel(item)
-    return (
-      <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-        {(item.pay_type ?? 'fixed') === 'hourly' ? 'Hourly' : 'Fixed'}{rate ? ` · ${rate}` : ''}
-      </span>
-    )
-  }
-
-  return (
-    <SettingsListManager
-      items={localItems}
-      onMove={handleMove}
-      onToggleActive={handleToggleActive}
-      onDelete={handleDelete}
-      onSave={handleSave}
-      renderForm={renderForm}
-      renderMeta={renderMeta}
-      emptyLabel="No staff yet."
-      addLabel="Add staff member"
     />
   )
 }
