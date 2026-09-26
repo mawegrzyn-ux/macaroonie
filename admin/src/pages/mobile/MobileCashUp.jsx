@@ -41,11 +41,8 @@ function MobileDayDeclaration({ venueId, date, onBack }) {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex-1 min-w-0">
-          <h1 className="text-base font-semibold truncate">{format(parseISO(date), 'd MMM')}</h1>
-          <div className="flex items-center gap-1.5">
-            <StatusBadge status={dayState.status ?? 'none'} />
-            <SaveIndicator saving={dayState.saving} saved={dayState.saved} error={dayState.saveErr} />
-          </div>
+          <h1 className="text-base font-semibold truncate">{format(parseISO(date), 'EEE, dd MMM')}</h1>
+          <SaveIndicator saving={dayState.saving} saved={dayState.saved} error={dayState.saveErr} />
         </div>
         {!dayState.isSubmitted ? (
           <button type="button" disabled={dayState.submitPending} onClick={dayState.submit}

@@ -1538,12 +1538,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>onStateChange</Mono>): with <Mono>hideHeader</Mono>, it skips its own header
               div entirely and instead reports <Mono>{'{ status, saving, saved, saveErr, isSubmitted, submitPending, submit, unsubmit }'}</Mono>{' '}
               via <Mono>onStateChange</Mono> on every change, so <Mono>MobileDayDeclaration</Mono>{' '}
-              can render one unified header — back arrow (to the day list), a short{' '}
-              <Mono>d MMM</Mono> date, the status badge and save indicator, a Submit/Unsubmit
-              button, and sign-out — with <Mono>DayView</Mono>'s body rendered underneath it,
-              header-less. The status/save indicator IS the day's submission-status pill (
-              <Mono>none</Mono>/<Mono>draft</Mono>/<Mono>submitted</Mono>) plus a transient
-              autosave indicator — same as everywhere else in Cash Recon, just relocated. The
+              can render one unified header — back arrow (to the day list), an{' '}
+              <Mono>EEE, dd MMM</Mono> date (e.g. "Mon, 21 Sep") with the autosave indicator
+              underneath, a Submit/Unsubmit button, and sign-out — with <Mono>DayView</Mono>'s
+              body rendered underneath it, header-less. No <Mono>StatusBadge</Mono> pill here —
+              the Submit/Unsubmit button's own label and colour already say submitted-vs-not, so
+              a separate status pill next to the date was redundant (the week-list view above
+              keeps its own <Mono>StatusBadge</Mono> per day, since that view has no per-day
+              submit button to read the state off instead). The
               underlying visibility toggle is a plain boolean context (mount sets it, unmount
               clears it) — no page content passed through context, so there's no render-loop risk
               from passing JSX/objects through it. <Mono>MobileOrderSheets.jsx</Mono>'s{' '}

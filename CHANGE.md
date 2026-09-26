@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-26 — Mobile Cash Up day header tweaks]
+
+### Mobile App
+- Cash Up's day view header now shows the day and date as "Mon, 21 Sep" instead of just "21 Sep".
+- Removed the status badge from the day header — the Submit/Unsubmit button already shows that.
+
+---
+
 ## [2026-09-26 — Mobile Cash Up's day view is now a single header]
 
 ### Mobile App
