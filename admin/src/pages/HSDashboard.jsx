@@ -12,7 +12,7 @@
 // Food safety pages via their shared components, so there is only
 // one implementation of each check type anywhere in the app.
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import {
@@ -179,12 +179,9 @@ const MIN_COL_SPAN = 1
 const MIN_HEIGHT_PX = 240
 const MAX_HEIGHT_PX = 1200
 const HEIGHT_STEP_PX = 120
-// Narrowest a grid column may get before the dashboard shows fewer columns.
-const MIN_COL_WIDTH = 240
-const GRID_GAP = 16
 
 function WidgetCard({
-  widget, venueId, date, editing, columnCount, visibleColumns = columnCount,
+  widget, venueId, date, editing, columnCount,
   onRemove, onMoveUp, onMoveDown, isFirst, isLast,
   onResizeWidth, onResizeHeight,
 }) {
@@ -209,7 +206,7 @@ function WidgetCard({
 
   return (
     <div
-      style={{ gridColumn: `span ${Math.min(colSpan, visibleColumns)}` }}
+      style={{ gridColumn: `span ${colSpan}` }}
       className={cn(
         'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
         editing && 'ring-1 ring-primary/30 border-dashed',
@@ -371,19 +368,6 @@ export default function HSDashboard() {
     }
   }
 
-  // The grid can't show more columns than fit: each column needs at least
-  // MIN_COL_WIDTH, so on a narrower screen (e.g. a portrait iPad) a
-  // 4-column dashboard drops to fewer columns instead of overflowing.
-  const [gridWidth, setGridWidth] = useState(0)
-  const gridObserverRef = useRef(null)
-  const gridRef = useCallback(node => {
-    gridObserverRef.current?.disconnect()
-    gridObserverRef.current = null
-    if (!node || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(entries => setGridWidth(entries[0].contentRect.width))
-    ro.observe(node)
-    gridObserverRef.current = ro
-  }, [])
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -474,9 +458,6 @@ export default function HSDashboard() {
   const activeDashboard = dashboards.find(d => d.id === activeDashboardId) ?? null
   const activeIdx = dashboards.findIndex(d => d.id === activeDashboardId)
   const columnCount = activeDashboard?.column_count ?? 4
-  const visibleColumns = gridWidth > 0
-    ? Math.max(1, Math.min(columnCount, Math.floor((gridWidth + GRID_GAP) / (MIN_COL_WIDTH + GRID_GAP))))
-    : columnCount
 
   function setColumnCount(delta) {
     if (!activeDashboard) return
@@ -658,10 +639,15 @@ export default function HSDashboard() {
               </button>
             </div>
           ) : (
-            <div ref={gridRef}>
+            <div>
+              {/* Always exactly column_count columns, shrinking to fit the
+                  screen, so the layout the operator built (e.g. two
+                  half-width widgets side by side) is kept on a narrower
+                  tablet. minmax(0, 1fr) rather than a pixel minimum so the
+                  grid never overflows sideways. */}
               <div
-                className="grid"
-                style={{ gap: GRID_GAP, gridTemplateColumns: `repeat(${visibleColumns}, minmax(0, 1fr))` }}>
+                className="grid gap-4"
+                style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
                 {widgets.map((w, idx) => (
                   <WidgetCard
                     key={w.id}
@@ -670,7 +656,6 @@ export default function HSDashboard() {
                     date={date}
                     editing={editing}
                     columnCount={columnCount}
-                    visibleColumns={visibleColumns}
                     isFirst={idx === 0}
                     isLast={idx === widgets.length - 1}
                     onMoveUp={() => moveWidget(idx, -1)}

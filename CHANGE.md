@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — H&S Dashboard keeps its column layout on narrow screens]
+
+### Admin Portal
+- H&S Dashboard: widgets you placed side by side stay side by side on a narrower screen (e.g. an iPad held upright). The columns shrink to fit instead of the dashboard dropping to fewer columns.
+
 ## [2026-09-27 — iPad fixes: menu button, H&S Dashboard layout and full screen]
 
 ### Admin Portal

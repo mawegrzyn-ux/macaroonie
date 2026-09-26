@@ -1309,9 +1309,11 @@ export default function Help() {
               true full screen there); tap <strong>Exit</strong> to go back.
             </InfoBox>
             <P>
-              The dashboard tabs sit on the same row as the date selector. If a dashboard is set
-              to more columns than fit on the screen (for example a 4-column dashboard on an iPad
-              held upright), it shows fewer columns instead of running off the edge.
+              The dashboard tabs sit on the same row as the date selector. A dashboard always
+              keeps the column layout you set up. On a narrower screen (for example an iPad held
+              upright) the columns get narrower, so widgets you placed side by side stay side by
+              side. If a table inside a narrow widget doesn't fit, scroll it sideways within the
+              widget.
             </P>
           </section>
 
