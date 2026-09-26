@@ -1313,17 +1313,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               tablet.
             </P>
             <P>
-              <strong>Columns that fit.</strong> A dashboard's <Mono>column_count</Mono> (1-6) is a
-              maximum, not a fixed track count. A <Mono>ResizeObserver</Mono> on the grid wrapper
-              measures its width, and <Mono>visibleColumns</Mono> ={' '}
-              <Mono>min(column_count, floor((width + GRID_GAP) / (MIN_COL_WIDTH + GRID_GAP)))</Mono>{' '}
-              (<Mono>MIN_COL_WIDTH</Mono> 240px, <Mono>GRID_GAP</Mono> 16px). The grid is{' '}
-              <Mono>repeat(visibleColumns, minmax(0, 1fr))</Mono>, and <Mono>WidgetCard</Mono>{' '}
-              clamps its span to <Mono>visibleColumns</Mono> for layout only. The edit-mode width
-              controls still show and save the span against <Mono>column_count</Mono>. This replaced{' '}
-              <Mono>repeat(column_count, minmax(240px, 1fr))</Mono> inside{' '}
-              <Mono>overflow-x-auto</Mono>, which overflowed sideways whenever the screen was
-              narrower than <Mono>column_count</Mono> × 240px.
+              <strong>Columns shrink, never drop.</strong> The grid is always exactly{' '}
+              <Mono>column_count</Mono> columns: <Mono>repeat(column_count, minmax(0, 1fr))</Mono>.
+              On a narrower screen, each column gets narrower, so the layout the operator built is
+              kept. Two half-width widgets stay side by side on a portrait iPad instead of
+              stacking. Content wider than its card (e.g. a temperature table) scrolls inside the
+              card body. This replaced <Mono>repeat(column_count, minmax(240px, 1fr))</Mono>{' '}
+              inside <Mono>overflow-x-auto</Mono>, which overflowed sideways. It also replaced a
+              short-lived <Mono>ResizeObserver</Mono> version that dropped to fewer columns on
+              narrow screens, which broke the side-by-side layout.
             </P>
             <P>
               <strong>Date and tabs row.</strong> The date navigator and the dashboard tabs share
