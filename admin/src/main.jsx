@@ -59,6 +59,7 @@ import LegacyImport     from '@/pages/LegacyImport'
 import FoodSafety      from '@/pages/FoodSafety'
 import Checklists      from '@/pages/Checklists'
 import HSDashboard     from '@/pages/HSDashboard'
+import CashDashboard   from '@/pages/CashDashboard'
 import HSActionLog     from '@/pages/HSActionLog'
 import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
@@ -147,6 +148,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="food-safety" element={<FoodSafety />} />
                 <Route path="checklists" element={<Checklists />} />
                 <Route path="hs-dashboard" element={<HSDashboard />} />
+                <Route path="cash-dashboard" element={<CashDashboard />} />
                 <Route path="hs-action-log" element={<HSActionLog />} />
                 <Route path="email-templates" element={<EmailTemplates />} />
                 <Route path="email-monitoring" element={<EmailMonitoring />} />

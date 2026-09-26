@@ -34,6 +34,7 @@ const ROUTE_CATALOG = [
   { route: '/order-sheets/templates', label: 'Order sheet templates', icon: 'ClipboardList', module: 'order_sheet_setup' },
   { route: '/order-sheets/categories', label: 'Order sheet categories', icon: 'Tag', module: 'order_sheet_setup' },
   { route: '/cash-recon', label: 'Cash recon', icon: 'Wallet', module: 'cash_recon' },
+  { route: '/cash-dashboard', label: 'Cash dashboard', icon: 'LayoutGrid', module: 'cash_dashboard' },
   { route: '/food-safety', label: 'Food safety', icon: 'Thermometer', module: 'food_safety' },
   { route: '/checklists', label: 'Checklists', icon: 'ListChecks', module: 'checklists' },
   { route: '/hs-dashboard', label: 'H&S Dashboard', icon: 'LayoutGrid', module: 'hs_dashboard' },

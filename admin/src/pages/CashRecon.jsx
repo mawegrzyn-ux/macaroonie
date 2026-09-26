@@ -346,59 +346,38 @@ function VenueSelector({ venues, venueId, setVenueId }) {
   )
 }
 
-// ── SPREADSHEET VIEW ──────────────────────────────────────────────────────────
+// ── WEEK RECON MATHS (shared) ─────────────────────────────────────────────────
+//
+// The one implementation of the week grid's figures: day/week totals,
+// variance, Net Cash and Cash to bank. SpreadsheetView calls it with its
+// own override-aware cell reader (uncommitted edits); the Cash Recon
+// Dashboard widgets (components/cashRecon/widgets.jsx) call it through
+// useReconWeek() with the saved values only. Keep any change to these
+// formulas here so the grid and the dashboard can never disagree.
 
-function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSelectDay, onSelectWages, onSettings, onToggleMode }) {
-  const api = useApi()
-  const qc  = useQueryClient()
+function savedCellVal(detail, date, cat, id) {
+  const day = detail?.days?.[date]
+  if (!day) return ''
+  if (cat === 'income')  return String(day.income.find(r => r.source_id  === id)?.gross_amount ?? '')
+  if (cat === 'sc')      return String(day.sc.find(r => r.source_id      === id)?.amount       ?? '')
+  if (cat === 'takings') return String(day.takings.find(r => r.channel_id === id)?.amount      ?? '')
+  return ''
+}
 
-  const { data: config } = useQuery({
-    queryKey: ['cash-recon-config', venueId],
-    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/config`),
-    enabled:  !!venueId,
-  })
-
-  const { data: detail, isLoading } = useQuery({
-    queryKey: ['cash-recon-week-detail', venueId, weekStart],
-    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/week-detail/${weekStart}`),
-    enabled:  !!venueId && !!weekStart,
-    staleTime: 0,
-  })
-
-  // Per-cell local overrides (uncommitted edits)
-  const [overrides,     setOverrides]     = useState({})
-  const [editCell,      setEditCell]      = useState(null)   // { date, cat, id }
-  const [editVal,       setEditVal]       = useState('')
-  const [saving,        setSaving]        = useState({})      // { date: bool }
-  const [submittingAll, setSubmittingAll] = useState(false)
-
-  const allowBulkSubmit = config?.venue_settings?.allow_bulk_submit ?? false
-
-  useEffect(() => { setOverrides({}); setEditCell(null) }, [weekStart])
+export function reconCalc({ config, detail, weekStart, getCellVal }) {
+  const readCell = getCellVal ?? ((date, cat, id) => savedCellVal(detail, date, cat, id))
 
   const dates        = detail?.dates     ?? isoWeekDates(weekStart)
   const visibleDates = detail?.open_dates ?? dates   // only days the venue is open
 
-  const activeSources  = useMemo(() => (config?.income_sources   ?? []).filter(s => s.is_active), [config])
-  const activeSc       = useMemo(() => (config?.sc_sources       ?? []).filter(s => s.is_active), [config])
-  const activeChannels = useMemo(() => (config?.payment_channels ?? []).filter(s => s.is_active), [config])
+  const activeSources  = (config?.income_sources   ?? []).filter(s => s.is_active)
+  const activeSc       = (config?.sc_sources       ?? []).filter(s => s.is_active)
+  const activeChannels = (config?.payment_channels ?? []).filter(s => s.is_active)
   // Only channels flagged as contributing to cash-in-hand feed Net Cash / Cash to bank —
   // card, voucher and online channels never become physical cash in the till.
-  const cashChannels   = useMemo(() => activeChannels.filter(c => c.counts_as_cash !== false), [activeChannels])
+  const cashChannels   = activeChannels.filter(c => c.counts_as_cash !== false)
 
-  // Get cell value: local override → loaded data → ''
-  function getCellVal(date, cat, id) {
-    const ov = overrides[date]?.[cat]?.[id]
-    if (ov != null) return ov
-    const day = detail?.days?.[date]
-    if (!day) return ''
-    if (cat === 'income')  return String(day.income.find(r => r.source_id  === id)?.gross_amount ?? '')
-    if (cat === 'sc')      return String(day.sc.find(r => r.source_id      === id)?.amount       ?? '')
-    if (cat === 'takings') return String(day.takings.find(r => r.channel_id === id)?.amount      ?? '')
-    return ''
-  }
-
-  function cellNum(date, cat, id) { return parseNum(getCellVal(date, cat, id)) }
+  function cellNum(date, cat, id) { return parseNum(readCell(date, cat, id)) }
 
   // Day totals
   function dayTotal(date, cat) {
@@ -433,11 +412,83 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   function weekExpenses()    { return visibleDates.reduce((s, d) => s + dayExpenses(d), 0) }
   function weekCardExpenses() { return visibleDates.reduce((s, d) => s + dayCardExpenses(d), 0) }
   function weekCashTakings() { return visibleDates.reduce((s, d) => s + cashTakingsTotal(d), 0) }
+  function weekVariance()    { return visibleDates.reduce((s, d) => s + variance(d), 0) }
   function weekNetCash()     { return weekCashTakings() - weekExpenses() }
-  function weekNetPosition() {
-    const cashWages = parseNum(detail?.wages_cash_total ?? 0)
-    return weekNetCash() - cashWages
+  function weekCashWages()   { return parseNum(detail?.wages_cash_total ?? 0) }
+  function weekNetPosition() { return weekNetCash() - weekCashWages() }
+
+  return {
+    dates, visibleDates, activeSources, activeSc, activeChannels, cashChannels,
+    cellNum, dayTotal, dayExpenses, dayCardExpenses, variance, cashTakingsTotal, netCash,
+    weekTotal, weekDayTotal, weekExpenses, weekCardExpenses, weekCashTakings, weekVariance,
+    weekNetCash, weekCashWages, weekNetPosition,
   }
+}
+
+/** Config + week-detail queries (same cache keys as the week grid) plus reconCalc on saved values. */
+export function useReconWeek(venueId, weekStart) {
+  const api = useApi()
+  const { data: config } = useQuery({
+    queryKey: ['cash-recon-config', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/config`),
+    enabled:  !!venueId,
+  })
+  const { data: detail, isLoading } = useQuery({
+    queryKey: ['cash-recon-week-detail', venueId, weekStart],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/week-detail/${weekStart}`),
+    enabled:  !!venueId && !!weekStart,
+    staleTime: 0,
+  })
+  const calc = useMemo(() => reconCalc({ config, detail, weekStart }), [config, detail, weekStart])
+  return { config, detail, isLoading, calc }
+}
+
+// ── SPREADSHEET VIEW ──────────────────────────────────────────────────────────
+//
+// `hideHeader` drops the venue/week/submit toolbar so the grid can be
+// embedded (Cash Recon Dashboard's grid widget), where the host supplies
+// the venue and week instead.
+
+export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSelectDay, onSelectWages, onSettings, onToggleMode, hideHeader }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+
+  const { data: config } = useQuery({
+    queryKey: ['cash-recon-config', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/config`),
+    enabled:  !!venueId,
+  })
+
+  const { data: detail, isLoading } = useQuery({
+    queryKey: ['cash-recon-week-detail', venueId, weekStart],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/week-detail/${weekStart}`),
+    enabled:  !!venueId && !!weekStart,
+    staleTime: 0,
+  })
+
+  // Per-cell local overrides (uncommitted edits)
+  const [overrides,     setOverrides]     = useState({})
+  const [editCell,      setEditCell]      = useState(null)   // { date, cat, id }
+  const [editVal,       setEditVal]       = useState('')
+  const [saving,        setSaving]        = useState({})      // { date: bool }
+  const [submittingAll, setSubmittingAll] = useState(false)
+
+  const allowBulkSubmit = config?.venue_settings?.allow_bulk_submit ?? false
+
+  useEffect(() => { setOverrides({}); setEditCell(null) }, [weekStart])
+
+  // Get cell value: local override → loaded data → ''
+  function getCellVal(date, cat, id) {
+    const ov = overrides[date]?.[cat]?.[id]
+    if (ov != null) return ov
+    return savedCellVal(detail, date, cat, id)
+  }
+
+  const {
+    visibleDates, activeSources, activeSc, activeChannels,
+    cellNum, dayTotal, dayExpenses, dayCardExpenses, variance, netCash,
+    weekTotal, weekDayTotal, weekExpenses, weekCardExpenses, weekNetCash, weekNetPosition,
+  } = reconCalc({ config, detail, weekStart, getCellVal })
 
   function startEdit(date, cat, id) {
     if (detail?.days?.[date]?.status === 'submitted') return
@@ -633,41 +684,43 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-background border-b px-4 max-lg:notouch:pl-14 py-2 flex items-center gap-2 shrink-0">
-        <VenueSelector venues={venues} venueId={venueId} setVenueId={setVenueId} />
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setWeekStart(getMonday(subWeeks(parseISO(weekStart), 1)))}
-            className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronLeft className="w-4 h-4" /></button>
-          <span className="text-sm font-medium px-1 whitespace-nowrap">
-            {format(parseISO(weekStart), 'd MMM')}–{format(addDays(parseISO(weekStart), 6), 'd MMM yyyy')}
-          </span>
-          <button type="button" onClick={() => setWeekStart(getMonday(addWeeks(parseISO(weekStart), 1)))}
-            className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronRight className="w-4 h-4" /></button>
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          {pendingCount > 0 && (
-            <button
-              type="button"
-              onClick={handleSubmitAll}
-              disabled={submittingAll}
-              className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold touch-manipulation hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
-            >
-              {submittingAll
-                ? <><Loader2 className="w-3 h-3 animate-spin" /> Submitting…</>
-                : <><Check className="w-3 h-3" /> Submit Week</>
-              }
+      {!hideHeader && (
+        <div className="sticky top-0 z-20 bg-background border-b px-4 max-lg:notouch:pl-14 py-2 flex items-center gap-2 shrink-0">
+          <VenueSelector venues={venues} venueId={venueId} setVenueId={setVenueId} />
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setWeekStart(getMonday(subWeeks(parseISO(weekStart), 1)))}
+              className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronLeft className="w-4 h-4" /></button>
+            <span className="text-sm font-medium px-1 whitespace-nowrap">
+              {format(parseISO(weekStart), 'd MMM')}–{format(addDays(parseISO(weekStart), 6), 'd MMM yyyy')}
+            </span>
+            <button type="button" onClick={() => setWeekStart(getMonday(addWeeks(parseISO(weekStart), 1)))}
+              className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronRight className="w-4 h-4" /></button>
+          </div>
+          <div className="ml-auto flex items-center gap-1.5">
+            {pendingCount > 0 && (
+              <button
+                type="button"
+                onClick={handleSubmitAll}
+                disabled={submittingAll}
+                className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold touch-manipulation hover:bg-primary/90 disabled:opacity-50 flex items-center gap-1.5 whitespace-nowrap"
+              >
+                {submittingAll
+                  ? <><Loader2 className="w-3 h-3 animate-spin" /> Submitting…</>
+                  : <><Check className="w-3 h-3" /> Submit Week</>
+                }
+              </button>
+            )}
+            <button type="button" onClick={onToggleMode} title="Card view"
+              className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
+              <ChevronDown className="w-4 h-4 rotate-0" />
             </button>
-          )}
-          <button type="button" onClick={onToggleMode} title="Card view"
-            className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
-            <ChevronDown className="w-4 h-4 rotate-0" />
-          </button>
-          <button type="button" onClick={onSettings}
-            className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
-            <Settings className="w-4 h-4" />
-          </button>
+            <button type="button" onClick={onSettings}
+              className="flex items-center justify-center w-9 h-9 rounded-xl touch-manipulation hover:bg-muted">
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">

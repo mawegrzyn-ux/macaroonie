@@ -20,6 +20,7 @@ const SECTIONS = [
   { id: 'food-safety',  label: 'Food Safety Logs' },
   { id: 'checklists',   label: 'Checklists' },
   { id: 'hs-dashboard', label: 'H&S Dashboard' },
+  { id: 'cash-dashboard', label: 'Cash Dashboard' },
   { id: 'mobile-app', label: 'Mobile App (/mobile)' },
   { id: 'hs-action-log', label: 'H&S Action Log' },
   { id: 'navigation',   label: 'Navigation & Launcher' },
@@ -1347,15 +1348,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               a custom calendar component.
             </InfoBox>
             <InfoBox type="warn">
-              The widget body's height style is <Mono>height: heightPx</Mono>, not{' '}
-              <Mono>maxHeight: heightPx</Mono>. A max-height lets short content shrink the card
-              below the size the operator picked with the width/height resize controls, which
-              defeats the point of a fixed layout grid (cards visually jump around as widgets
-              gain/lose content across the day). A fixed <Mono>height</Mono> plus{' '}
-              <Mono>overflow-y-auto</Mono> enforces the chosen size in both directions — taller
-              content scrolls, shorter content leaves blank space rather than collapsing the
-              card. The Overview tile system (<Mono>Dashboard.jsx</Mono>'s <Mono>TileCard</Mono>)
-              uses the identical fix for the same reason — see Overview Tiles below.
+              A card's size is fixed by the grid, never by its content. It spans a whole
+              number of fixed-height rows (see "Row spanning" under Cash Dashboard), and the body
+              is <Mono>flex-1 min-h-0 overflow-auto</Mono>, so taller content scrolls and shorter
+              content leaves blank space instead of collapsing the card. This replaced an explicit{' '}
+              <Mono>height: heightPx</Mono> on the body, which in turn had replaced{' '}
+              <Mono>maxHeight</Mono> (a max-height let short content shrink the card below the
+              chosen size). The Overview tiles (<Mono>Dashboard.jsx</Mono>'s <Mono>TileCard</Mono>)
+              use the same grid.
             </InfoBox>
             <P>
               Each widget's header bar uses <Mono>var(--site-accent-soft)</Mono> background /{' '}
@@ -1366,6 +1366,80 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               works if something in the current route tree has actually called{' '}
               <Mono>applySiteTheme()</Mono> — see the Mobile App section for why{' '}
               <Mono>MobileShell.jsx</Mono> needed its own copy of that fetch-and-apply effect.
+            </P>
+          </section>
+
+          {/* ── CASH DASHBOARD ─────────────────────────────── */}
+          <section id="cash-dashboard" data-doc="">
+            <H2>Cash Dashboard</H2>
+            <P>
+              <Mono>/cash-dashboard</Mono> (<Mono>pages/CashDashboard.jsx</Mono>) runs on the same
+              engine as the H&amp;S Dashboard. <Mono>HSDashboard.jsx</Mono> exports{' '}
+              <Mono>DashboardPage({'{ config }'})</Mono>, which owns tabs, edit mode, widget CRUD,
+              the grid and full screen. A config supplies <Mono>apiBase</Mono>,{' '}
+              <Mono>keyPrefix</Mono> (query keys), <Mono>widgetTypes</Mono>, a{' '}
+              <Mono>useNav()</Mono> hook returning <Mono>{'{ ctx, element }'}</Mono>, and{' '}
+              <Mono>renderWidget({'{ widget, venueId, ctx, ... }'})</Mono>.{' '}
+              <Mono>HS_DASHBOARD_CONFIG</Mono> uses a day navigator (<Mono>ctx.date</Mono>);{' '}
+              <Mono>CASH_DASHBOARD_CONFIG</Mono> uses <Mono>useWeekNav()</Mono> from{' '}
+              <Mono>components/cashRecon/widgets.jsx</Mono> (<Mono>ctx.weekStart</Mono>,{' '}
+              <Mono>ctx.selectedDay</Mono>, <Mono>ctx.setSelectedDay</Mono>). A widget type with{' '}
+              <Mono>flush: true</Mono> renders without body padding (the grid widget).
+            </P>
+            <H3>Storage and API (migration 101)</H3>
+            <P>
+              No new tables. <Mono>hs_dashboards.kind</Mono> (<Mono>'hs' | 'cash'</Mono>, default{' '}
+              <Mono>'hs'</Mono>) splits the two. <Mono>routes/hsDashboards.js</Mono> is registered
+              twice in <Mono>app.js</Mono>: <Mono>/api/hs-dashboards</Mono> with{' '}
+              <Mono>{"{ kind: 'hs', moduleKey: 'hs_dashboard' }"}</Mono> and{' '}
+              <Mono>/api/cash-dashboards</Mono> with{' '}
+              <Mono>{"{ kind: 'cash', moduleKey: 'cash_dashboard' }"}</Mono>. Each mount filters
+              every query by its kind (including widget PATCH/DELETE, which load the parent
+              dashboard first), only accepts its own <Mono>WIDGET_TYPES_BY_KIND[kind]</Mono>, and is
+              gated by its own module. The <Mono>widget_type</Mono> CHECK constraint now lists
+              both kinds' types.
+            </P>
+            <P>
+              New module <Mono>cash_dashboard</Mono> in the <Mono>cash_recon</Mono> group (one tenant
+              switch covers both). The migration copies each tenant's <Mono>cash_recon</Mono>{' '}
+              switch and each role's <Mono>cash_recon</Mono> permission onto it, and inserts a{' '}
+              <Mono>/cash-dashboard</Mono> nav link straight after <Mono>/cash-recon</Mono>.{' '}
+              <Mono>ROUTE_CATALOG</Mono>, <Mono>defaultNav.js</Mono> and the Overview{' '}
+              <Mono>SHORTCUT_OPTIONS</Mono> include it too.
+            </P>
+            <H3>Widgets</H3>
+            <DataTable
+              head={['widget_type', 'Source']}
+              rows={[
+                ['cash_day_tiles', 'useReconWeek() — tile per date, status, dayTotal(income), variance(); sets ctx.selectedDay'],
+                ['cash_day_balance', 'useReconWeek() — day figures for ctx.selectedDay'],
+                ['cash_week_balance', 'useReconWeek() — weekDayTotal, weekVariance, weekCashTakings, weekExpenses, weekNetCash, weekCashWages, weekNetPosition'],
+                ['cash_recon_grid', 'SpreadsheetView with hideHeader (editable; saves through PUT /daily/:date)'],
+                ['cash_wages_paid', 'GET /wages/:week_start + PATCH .../entries/:id/paid (works when submitted)'],
+                ['cash_petty_cash', 'PettyCashPanel (exported from MobileExpenses.jsx) for ctx.selectedDay'],
+              ]}
+            />
+            <InfoBox type="warn">
+              <Mono>reconCalc()</Mono> in <Mono>CashRecon.jsx</Mono> is the single implementation of
+              the week grid maths (totals, variance, Net Cash, Cash to bank). SpreadsheetView calls
+              it with its override-aware cell reader; <Mono>useReconWeek(venueId, weekStart)</Mono>{' '}
+              calls it with saved values for the widgets, using the same{' '}
+              <Mono>cash-recon-config</Mono> / <Mono>cash-recon-week-detail</Mono> query keys, so an
+              edit in the grid refreshes every balance widget. Change a formula there, never in a
+              widget.
+            </InfoBox>
+            <H3>Row spanning (all dashboards)</H3>
+            <P>
+              <Mono>lib/dashboardGrid.js</Mono> gives the H&amp;S Dashboard, the Cash Dashboard and
+              the Overview tiles one grid model: fixed-height implicit rows (<Mono>ROW_UNIT</Mono>{' '}
+              120px, <Mono>GRID_GAP</Mono> 16px) with <Mono>grid-auto-flow: row dense</Mono>. A
+              card spans <Mono>rowSpanFor(height_px)</Mono> rows (2 to 8) as well as its{' '}
+              <Mono>col_span</Mono> columns, and its body is <Mono>flex-1 min-h-0</Mono>, filling
+              the card and scrolling inside it. The height controls step one row at a time and write{' '}
+              <Mono>heightForRows(n)</Mono> back to the existing <Mono>height_px</Mono> column, so
+              no migration was needed and older free-form values snap to the nearest row count.
+              Dense packing lets shorter cards fill the space beside a tall one, so on-screen
+              order can differ slightly from sort order.
             </P>
           </section>
 

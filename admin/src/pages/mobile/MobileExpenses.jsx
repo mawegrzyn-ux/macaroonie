@@ -165,21 +165,13 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
   )
 }
 
-export default function MobileExpenses() {
+// Everything below the venue/date pickers: day totals, expense list, and
+// the add/edit modal for one venue + date. Exported so the Cash Recon
+// Dashboard's petty cash widget renders exactly the same panel.
+export function PettyCashPanel({ venueId, date }) {
   const api = useApi()
   const qc = useQueryClient()
-
-  const [venueId, setVenueId] = useState('')
-  const [date, setDate] = useState(todayStr())
   const [modalTarget, setModalTarget] = useState(null) // 'new' | expense row | null
-
-  const { data: venues = [] } = useQuery({
-    queryKey: ['venues'],
-    queryFn: () => api.get('/venues'),
-  })
-  useEffect(() => {
-    if (!venueId && venues.length) setVenueId(venues[0].id)
-  }, [venues, venueId])
 
   const { data: config } = useQuery({
     queryKey: ['cash-recon-config', venueId],
@@ -190,7 +182,7 @@ export default function MobileExpenses() {
   const { data: daily } = useQuery({
     queryKey: ['cash-recon-daily', venueId, date],
     queryFn: () => api.get(`/venues/${venueId}/cash-recon/daily/${date}`),
-    enabled: !!venueId,
+    enabled: !!venueId && !!date,
   })
 
   const categories = (config?.expense_categories ?? []).filter(c => c.is_active)
@@ -202,7 +194,12 @@ export default function MobileExpenses() {
   const cardTotal = expenses.filter(e =>  e.paid_by_card).reduce((s, e) => s + Number(e.amount || 0), 0)
   const isSubmitted = daily?.status === 'submitted'
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] })
+  // The week grid and dashboard balance widgets read expense totals from
+  // week-detail, so refresh that too.
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] })
+    qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId] })
+  }
 
   const createExpense = useMutation({
     mutationFn: async ({ body, photoFile }) => {
@@ -230,22 +227,7 @@ export default function MobileExpenses() {
   })
 
   return (
-    <div className="p-3 pb-8 space-y-3">
-      {venues.length > 0 && (
-        <select value={venueId} onChange={e => setVenueId(e.target.value)}
-          className="w-full border rounded-lg px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation">
-          {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
-      )}
-
-      <div className="relative">
-        <button type="button" className="w-full px-3 py-2.5 text-sm font-medium rounded-lg border touch-manipulation text-center">
-          {date === todayStr() ? 'Today' : format(new Date(date + 'T12:00:00'), 'EEE d MMM yyyy')}
-        </button>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
-          className="absolute inset-0 opacity-0 cursor-pointer w-full" />
-      </div>
-
+    <div className="space-y-3">
       <div className="rounded-lg border px-3 py-2.5 space-y-1">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">Cash total for this day</span>
@@ -315,6 +297,42 @@ export default function MobileExpenses() {
           isDeleting={deleteExpense.isPending}
         />
       )}
+    </div>
+  )
+}
+
+export default function MobileExpenses() {
+  const api = useApi()
+
+  const [venueId, setVenueId] = useState('')
+  const [date, setDate] = useState(todayStr())
+
+  const { data: venues = [] } = useQuery({
+    queryKey: ['venues'],
+    queryFn: () => api.get('/venues'),
+  })
+  useEffect(() => {
+    if (!venueId && venues.length) setVenueId(venues[0].id)
+  }, [venues, venueId])
+
+  return (
+    <div className="p-3 pb-8 space-y-3">
+      {venues.length > 0 && (
+        <select value={venueId} onChange={e => setVenueId(e.target.value)}
+          className="w-full border rounded-lg px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation">
+          {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+      )}
+
+      <div className="relative">
+        <button type="button" className="w-full px-3 py-2.5 text-sm font-medium rounded-lg border touch-manipulation text-center">
+          {date === todayStr() ? 'Today' : format(new Date(date + 'T12:00:00'), 'EEE d MMM yyyy')}
+        </button>
+        <input type="date" value={date} onChange={e => setDate(e.target.value)}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full" />
+      </div>
+
+      {venueId && <PettyCashPanel venueId={venueId} date={date} />}
     </div>
   )
 }

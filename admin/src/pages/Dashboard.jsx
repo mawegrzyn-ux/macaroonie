@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
+import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
 
 function resolveIcon(name) {
   return LucideIcons[name] || LucideIcons.Circle
@@ -55,6 +56,7 @@ const SHORTCUT_OPTIONS = [
   { to: '/order-sheets',         label: 'Order sheets',         icon: ClipboardList,   colour: 'bg-violet-100 text-violet-600' },
   { to: '/order-sheets/templates', label: 'Order templates',   icon: ClipboardList,   colour: 'bg-purple-100 text-purple-600' },
   { to: '/cash-recon',           label: 'Cash recon',           icon: Wallet,          colour: 'bg-emerald-100 text-emerald-600' },
+  { to: '/cash-dashboard',       label: 'Cash dashboard',       icon: LayoutGrid,      colour: 'bg-green-100 text-green-700' },
   { to: '/food-safety',          label: 'Food safety',          icon: Thermometer,     colour: 'bg-red-100 text-red-600' },
   { to: '/checklists',           label: 'Checklists',           icon: ListChecks,      colour: 'bg-teal-100 text-teal-700' },
   { to: '/hs-dashboard',         label: 'H&S Dashboard',        icon: LayoutGrid,      colour: 'bg-orange-100 text-orange-700' },
@@ -254,11 +256,15 @@ const SPAN_CLASSES = {
 
 function TileCard({
   icon: Icon, title, editing, colSpan, height,
-  onRemove, onMoveUp, onMoveDown, isFirst, isLast, onResizeWidth, onResizeHeight,
+  onRemove, onMoveUp, onMoveDown, isFirst, isLast, onResizeWidth, onResizeRows,
   headerExtra, children,
 }) {
+  // Height snaps to whole grid rows (lib/dashboardGrid.js): a tall tile
+  // spans several rows and shorter tiles pack in beside it.
+  const rows = rowSpanFor(height)
   return (
     <div
+      style={{ gridRow: `span ${rows}` }}
       className={cn(
         SPAN_CLASSES[colSpan] ?? 'col-span-1',
         'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
@@ -307,12 +313,12 @@ function TileCard({
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-muted-foreground">Height</span>
-            <button type="button" onClick={() => onResizeHeight(-80)} disabled={height <= 160}
+            <button type="button" onClick={() => onResizeRows(rows - 1)} disabled={rows <= MIN_ROWS}
               className="w-7 h-7 flex items-center justify-center rounded border hover:bg-accent disabled:opacity-30 touch-manipulation">
               <Minus className="w-3.5 h-3.5" />
             </button>
-            <span className="w-14 text-center font-medium">{height}px</span>
-            <button type="button" onClick={() => onResizeHeight(80)} disabled={height >= 1200}
+            <span className="w-16 text-center font-medium">{rows} rows</span>
+            <button type="button" onClick={() => onResizeRows(rows + 1)} disabled={rows >= MAX_ROWS}
               className="w-7 h-7 flex items-center justify-center rounded border hover:bg-accent disabled:opacity-30 touch-manipulation">
               <Plus className="w-3.5 h-3.5" />
             </button>
@@ -320,7 +326,7 @@ function TileCard({
         </div>
       )}
 
-      <div className="p-4 overflow-y-auto" style={{ height }}>
+      <div className="flex-1 min-h-0 p-4 overflow-y-auto">
         {children}
       </div>
     </div>
@@ -661,7 +667,7 @@ export default function Dashboard() {
             {canManage ? 'No tiles on this page yet — click "Customise layout" to add some.' : 'Nothing to show here yet.'}
           </p>
         )}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4" style={gridStyle()}>
           {tiles.map((tile, i) => {
             const meta = TILE_META[tile.tile_type]
             if (!meta) return null
@@ -679,7 +685,7 @@ export default function Dashboard() {
                 onMoveDown={() => moveTile(i, 1)}
                 onRemove={() => removeTile.mutate(tile.id)}
                 onResizeWidth={(delta) => patchTile.mutate({ id: tile.id, col_span: Math.min(4, Math.max(1, (tile.col_span ?? meta.default_col_span) + delta)) })}
-                onResizeHeight={(delta) => patchTile.mutate({ id: tile.id, height_px: Math.min(1200, Math.max(160, (tile.height_px ?? meta.default_height_px) + delta)) })}
+                onResizeRows={(rows) => patchTile.mutate({ id: tile.id, height_px: heightForRows(Math.min(MAX_ROWS, Math.max(MIN_ROWS, rows))) })}
                 headerExtra={editing && (
                   <button type="button" onClick={() => setVisibilityFor(tile)}
                     className="text-[11px] text-muted-foreground hover:text-foreground shrink-0 touch-manipulation px-1.5 py-1 rounded hover:bg-accent">
@@ -694,6 +700,7 @@ export default function Dashboard() {
 
           {editing && (
             <button onClick={() => setAddTileOpen(true)}
+              style={{ gridRow: `span ${MIN_ROWS}` }}
               className="col-span-1 sm:col-span-2 border-2 border-dashed rounded-xl flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground hover:border-primary/40 hover:bg-accent touch-manipulation">
               <Plus className="w-6 h-6" />
               <span className="text-sm font-medium">Add tile</span>

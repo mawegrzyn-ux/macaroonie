@@ -115,6 +115,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'none' },
   },
   {
+    key:    'cash_dashboard',
+    label:  'Cash dashboard',
+    group:  'cash_recon',
+    description: 'Customisable dashboards of cash reconciliation widgets: week grid, balances, day tiles, wages paid, petty cash.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'none' },
+  },
+  {
     key:    'team',
     label:  'Team',
     core:   true,
@@ -256,7 +263,7 @@ export const MODULE_GROUPS = [
     key:    'cash_recon',
     label:  'Cash reconciliation',
     description: 'Daily close-out, weekly grid, service-charge sources.',
-    moduleKeys: ['cash_recon'],
+    moduleKeys: ['cash_recon', 'cash_dashboard'],
   },
   {
     key:    'support',
