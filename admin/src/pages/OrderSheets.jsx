@@ -867,7 +867,7 @@ export default function OrderSheets() {
       >
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 pl-14 lg:pl-4 border-b shrink-0">
+        <div className="flex items-center justify-between px-4 py-3 max-lg:notouch:pl-14 border-b shrink-0">
           <div className="flex items-center gap-2">
             <ClipboardList className="w-4 h-4 text-muted-foreground" />
             <h1 className="font-semibold text-sm">Order Sheets</h1>

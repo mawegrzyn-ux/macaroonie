@@ -5,6 +5,13 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
+// Flag touch devices on <html> before first render so the Tailwind
+// `notouch:` variant (tailwind.config.js) can gate styles the same way
+// AppShell's IS_TOUCH check does.
+if (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) {
+  document.documentElement.setAttribute('data-touch', '')
+}
+
 import AppShell    from '@/components/layout/AppShell'
 import MobileShell from '@/components/mobile/MobileShell'
 import MobileHub   from '@/pages/mobile/MobileHub'

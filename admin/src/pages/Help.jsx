@@ -143,6 +143,14 @@ export default function Help() {
               arrow) to open the restaurant picker. If your account only has one restaurant, the
               name is shown without an arrow — there's nothing to switch to.
             </P>
+
+            <H3>Menu on tablets</H3>
+            <P>
+              On a tablet (or any touch screen) the menu stays tucked away behind the{' '}
+              <strong>menu button</strong> in a narrow strip down the left edge, so every page
+              gets the full width of the screen. Tap it to slide the menu open, and tap outside
+              the menu to close it again.
+            </P>
           </section>
 
           {/* ── OVERVIEW PAGE ─────────────────────────────── */}
@@ -1296,8 +1304,15 @@ export default function Help() {
             </P>
             <InfoBox type="tip">
               Use <strong>Full screen</strong> (top right) to hide the sidebar entirely — good
-              for a wall-mounted or kitchen-pass tablet running one dashboard all day.
+              for a wall-mounted or kitchen-pass tablet running one dashboard all day. On an iPad
+              added to the home screen, Full screen fills the whole app window (iPads don't allow
+              true full screen there); tap <strong>Exit</strong> to go back.
             </InfoBox>
+            <P>
+              The dashboard tabs sit on the same row as the date selector. If a dashboard is set
+              to more columns than fit on the screen (for example a 4-column dashboard on an iPad
+              held upright), it shows fewer columns instead of running off the edge.
+            </P>
           </section>
 
           {/* ── MOBILE APP ────────────────────────────── */}

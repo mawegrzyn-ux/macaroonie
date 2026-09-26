@@ -1308,8 +1308,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono> DeliveryChecksPanel</Mono>, <Mono>HoldChecksTable</Mono>,
               <Mono> CookingChecksPanel</Mono>) — one implementation of each check type reused in
               three places (its own page, this dashboard, and nowhere else). The container is
-              sized to 90% of the panel width (<Mono>w-[90%] mx-auto</Mono>) rather than a fixed
-              <Mono> max-w</Mono> cap, matching the width convention used by other wide admin pages.
+              full width (<Mono>w-full</Mono> plus <Mono>p-4 md:p-6</Mono>); it used to be{' '}
+              <Mono>w-[90%] mx-auto</Mono>, which left a visible empty strip down the left on a
+              tablet.
+            </P>
+            <P>
+              <strong>Columns that fit.</strong> A dashboard's <Mono>column_count</Mono> (1-6) is a
+              maximum, not a fixed track count. A <Mono>ResizeObserver</Mono> on the grid wrapper
+              measures its width, and <Mono>visibleColumns</Mono> ={' '}
+              <Mono>min(column_count, floor((width + GRID_GAP) / (MIN_COL_WIDTH + GRID_GAP)))</Mono>{' '}
+              (<Mono>MIN_COL_WIDTH</Mono> 240px, <Mono>GRID_GAP</Mono> 16px). The grid is{' '}
+              <Mono>repeat(visibleColumns, minmax(0, 1fr))</Mono>, and <Mono>WidgetCard</Mono>{' '}
+              clamps its span to <Mono>visibleColumns</Mono> for layout only. The edit-mode width
+              controls still show and save the span against <Mono>column_count</Mono>. This replaced{' '}
+              <Mono>repeat(column_count, minmax(240px, 1fr))</Mono> inside{' '}
+              <Mono>overflow-x-auto</Mono>, which overflowed sideways whenever the screen was
+              narrower than <Mono>column_count</Mono> × 240px.
+            </P>
+            <P>
+              <strong>Date and tabs row.</strong> The date navigator and the dashboard tabs share
+              one row that wraps only below <Mono>sm</Mono> (<Mono>flex-wrap sm:flex-nowrap</Mono>).
+              From <Mono>sm</Mono> up, the tabs strip is <Mono>flex-1 min-w-0 overflow-x-auto</Mono>,
+              so it scrolls sideways instead of dropping to a second line. The date label is{' '}
+              <Mono>w-44</Mono>, with the shorter <Mono>EEE d MMM yyyy</Mono> format.
+            </P>
+            <P>
+              <strong>Full screen.</strong> <Mono>toggleFullscreen()</Mono> uses{' '}
+              <Mono>requestFullscreen</Mono> or <Mono>webkitRequestFullscreen</Mono> (iPad
+              Safari) and listens to both <Mono>fullscreenchange</Mono> and{' '}
+              <Mono>webkitfullscreenchange</Mono>. If neither API exists, or the request promise
+              rejects, it falls back to a "pseudo" full screen instead. That pins the container
+              over the whole app (<Mono>fixed inset-0 z-50</Mono>) and is tracked in{' '}
+              <Mono>pseudoFullscreen</Mono> state. This is the only mode that works on an iPad
+              home-screen (standalone) app, which has no Fullscreen API at all.
             </P>
             <InfoBox type="info">
               The date navigator (prev/next day, Today, click-to-open native date picker) uses a
@@ -1892,10 +1923,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               lookup on <Mono>TileCard</Mono> (<Mono>{"{1: 'col-span-1', 2: 'col-span-1 sm:col-span-2', 3: '... lg:col-span-3', 4: '... lg:col-span-4'}"}</Mono>)
               instead of a raw <Mono>{"style={{ gridColumn: `span ${colSpan}` }}"}</Mono>, so a
               tile configured 4-wide degrades to full-width on a 1- or 2-column grid rather than
-              overflowing it. The page header also reserves <Mono>pl-14 lg:pl-6</Mono> so its
-              title doesn't sit under <Mono>AppShell</Mono>'s fixed hamburger button below{' '}
-              <Mono>lg</Mono> — see the Common-mistakes entry on this in CLAUDE.md for the general
-              pattern every new page header under <Mono>AppShell</Mono> should follow.
+              overflowing it. The page header also reserves{' '}
+              <Mono>max-lg:notouch:pl-14</Mono> so its title doesn't sit under{' '}
+              <Mono>AppShell</Mono>'s floating hamburger button. See "Hamburger placement" in the
+              Admin portal layout notes for the general pattern every new page header under{' '}
+              <Mono>AppShell</Mono> should follow.
+            </P>
+            <H3>Hamburger placement (AppShell)</H3>
+            <P>
+              The collapsed-sidebar menu button behaves differently on touch and non-touch
+              devices, matching <Mono>AppShell</Mono>'s <Mono>IS_TOUCH</Mono> check{' '}
+              (<Mono>navigator.maxTouchPoints &gt; 0</Mono>):
+            </P>
+            <ul className="list-disc pl-5 space-y-1 text-sm text-muted-foreground mb-3">
+              <li><strong>Touch devices (any width):</strong> the button sits in a{' '}
+              <Mono>w-14</Mono> in-flow rail at the left edge of the shell, centred in an{' '}
+              <Mono>h-14</Mono> cell so it lines up with the standard <Mono>h-14</Mono> page
+              headers. Page content starts to the right of the rail, so no page needs to reserve
+              space for the button. The sidebar itself still opens as a <Mono>fixed</Mono>{' '}
+              overlay with a backdrop.</li>
+              <li><strong>Non-touch devices below <Mono>lg</Mono>:</strong> a floating{' '}
+              <Mono>fixed top-2.5 left-3.5 z-40</Mono> button. Page headers reserve room for it
+              with <Mono>max-lg:notouch:pl-14</Mono>.</li>
+              <li><strong>Non-touch devices at <Mono>lg</Mono> and up:</strong> the{' '}
+              <Mono>w-14</Mono> icon-rail sidebar. There's no floating button.</li>
+            </ul>
+            <P>
+              <Mono>notouch:</Mono> is a custom Tailwind variant (<Mono>tailwind.config.js</Mono>,{' '}
+              <Mono>{":root:not([data-touch]) &"}</Mono>). <Mono>main.jsx</Mono> sets{' '}
+              <Mono>{'<html data-touch>'}</Mono> before first render using the same{' '}
+              <Mono>maxTouchPoints</Mono> test. Its selector specificity also beats a header's own
+              responsive padding such as <Mono>sm:px-6</Mono>. The old <Mono>pl-14 lg:pl-6</Mono>{' '}
+              on the Overview lost to <Mono>sm:px-6</Mono>, which is why "Overview" sat under the
+              button.
             </P>
           </section>
 

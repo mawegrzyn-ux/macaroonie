@@ -633,7 +633,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-4 sm:px-6 pl-14 lg:pl-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between gap-2 px-4 sm:px-6 max-lg:notouch:pl-14 h-14 border-b shrink-0">
         <div className="min-w-0">
           <h1 className="font-semibold truncate">Overview</h1>
           <p className="text-xs text-muted-foreground truncate">{format(new Date(), 'EEEE d MMMM yyyy')}</p>
