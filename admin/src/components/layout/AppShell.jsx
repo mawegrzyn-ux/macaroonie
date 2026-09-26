@@ -70,6 +70,15 @@ function toNavItem(node) {
   }
 }
 
+// Tablets are touch devices but often land in the same width bracket as a
+// small laptop (landscape iPad ~= the `lg` breakpoint), which would
+// otherwise get the desktop "icon rail" / pushes-content sidebar treatment.
+// Front-of-house staff hold these like a phone, not a laptop, so touch
+// devices always get the phone-style behaviour instead: collapsed by
+// default, a floating hamburger to open it, and an overlay drawer that
+// never reserves permanent width — regardless of how wide the tablet is.
+const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
+
 const PLATFORM_NAV = [
   { label: 'Tenants',   to: '/platform', icon: Shield },
   { label: 'Backlog',   to: '/backlog',  icon: KanbanSquare },
@@ -141,11 +150,12 @@ export default function AppShell() {
   const { sidebarExpandedDefault } = useSettings()
   const isOnTimeline     = location.pathname === '/timeline'
 
-  const [open, setOpen] = useState(
-    () => typeof window !== 'undefined'
+  const [open, setOpen] = useState(() => {
+    if (IS_TOUCH) return false
+    return typeof window !== 'undefined'
       ? window.innerWidth >= 1024 ? sidebarExpandedDefault : false
       : sidebarExpandedDefault
-  )
+  })
 
   const [isFullscreen, setIsFullscreen] = useState(false)
   useEffect(() => {
@@ -194,14 +204,15 @@ export default function AppShell() {
     <div className="flex h-screen overflow-hidden bg-background">
       {open && (
         <div
-          className="fixed inset-0 bg-black/40 z-20 lg:hidden"
+          className={cn('fixed inset-0 bg-black/40 z-20', !IS_TOUCH && 'lg:hidden')}
           onClick={() => setOpen(false)}
         />
       )}
       <aside className={cn(
         'flex flex-col border-r bg-background z-30 transition-[width] duration-200 overflow-hidden shrink-0',
-        'fixed inset-y-0 left-0 lg:relative',
-        open ? 'w-56' : 'w-0 lg:w-14',
+        'fixed inset-y-0 left-0',
+        !IS_TOUCH && 'lg:relative',
+        open ? 'w-56' : (IS_TOUCH ? 'w-0' : 'w-0 lg:w-14'),
       )}>
         <div className={cn(
           'flex items-center h-14 border-b shrink-0',
@@ -531,7 +542,7 @@ export default function AppShell() {
       </main>
       {!open && (
         <button
-          className="fixed top-3.5 left-3.5 z-40 p-2 rounded-md bg-background border shadow-sm lg:hidden"
+          className={cn('fixed top-3.5 left-3.5 z-40 p-2 rounded-md bg-background border shadow-sm', !IS_TOUCH && 'lg:hidden')}
           onClick={() => setOpen(true)}
           aria-label="Open menu"
         >

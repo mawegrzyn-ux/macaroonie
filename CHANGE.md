@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Sidebar always collapses to a hamburger on tablets]
+
+### Admin Portal
+- On any touch device (tablet or phone), the sidebar now always starts collapsed and opens via the floating hamburger button — regardless of screen width. Previously, a landscape tablet at ~1024px wide got the desktop sidebar (a permanent icon rail, or the expanded sidebar reserving layout width) instead.
+
+---
+
 ## [2026-09-26 — H&S Dashboard tabs moved next to date selector]
 
 ### Admin Portal
