@@ -1560,9 +1560,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>overflow-x-auto</Mono> horizontal scrolling — not a real reflow. The mobile
               page instead renders a single-row-per-entry table (one bordered card, column labels
               "Staff" / "To be paid" / "Paid" shown once in a header row rather than repeated per
-              entry) with just two editable fields per row: <Mono>total</Mono> ("To be paid") and{' '}
-              <Mono>cash_amount</Mono> ("Paid"), plus a delete icon — name, both amounts and the
-              delete action all on one line. Every other
+              entry) with two controls per row: <Mono>total</Mono> ("To be paid", a number field)
+              and a "Paid" <b>checkbox</b> — not a second amount field, plus a delete icon. Ticking
+              "Paid" counts the entry's full <Mono>total</Mono> toward cash reconciliation;
+              unticked counts nothing. The checkbox is a UI simplification over the underlying{' '}
+              <Mono>cash_amount</Mono> column (which can still hold a partial amount on desktop) —{' '}
+              <Mono>buildPayload()</Mono> derives <Mono>cash_amount</Mono> as{' '}
+              <Mono>paid ? total : 0</Mono> from a local <Mono>paid</Mono> boolean, itself
+              initialised from the loaded entry as <Mono>cash_amount &gt; 0</Mono>. Every other
               field on an entry (<Mono>entry_type</Mono>, <Mono>hours</Mono>, <Mono>rate</Mono>,{' '}
               <Mono>notes</Mono>) is read from the loaded entry and passed straight back through on
               every save unchanged — this page never edits them, so an hourly entry configured on
@@ -1571,7 +1576,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               active-staff roster, in that order), same add-staff (from the staff list, or
               ad-hoc)/remove/submit/unsubmit/"Set as default" actions, same{' '}
               <Mono>/venues/:id/cash-recon/wages/:week_start[/submit|/unsubmit|/set-default]</Mono>{' '}
-              endpoints.
+              endpoints for everything except marking paid.
+            </P>
+            <P>
+              <b>Editing a submitted report.</b> The whole-tree{' '}
+              <Mono>PUT /venues/:id/cash-recon/wages/:week_start</Mono> rejects any save once the
+              week's report status is <Mono>submitted</Mono> ("unsubmit first") — this locks{' '}
+              <Mono>total</Mono>/<Mono>hours</Mono>/<Mono>rate</Mono>/staff list as intended, but
+              marking staff actually paid in cash is a separate step that routinely happens{' '}
+              <i>after</i> submission, not before it. So the "Paid" checkbox does not go through
+              that endpoint once submitted — it calls a dedicated{' '}
+              <Mono>PATCH /venues/:id/cash-recon/wages/:week_start/entries/:entryId/paid</Mono>{' '}
+              (body <Mono>{'{ paid: boolean }'}</Mono>) that sets just that one entry's{' '}
+              <Mono>cash_amount</Mono> to its own <Mono>total</Mono> (paid) or <Mono>0</Mono> (not
+              paid), with no submitted-status check at all. Before submission, the checkbox still
+              goes through the normal debounced whole-tree <Mono>PUT</Mono> like any other field.
+              "To be paid" editing and add/remove staff are disabled (add/remove hidden entirely)
+              on this page while the report is submitted, with a one-line note explaining why —
+              closing off the "type into a locked field, autosave silently 422s, 'Save failed'
+              with no explanation" trap that existed before this. Desktop's <Mono>WagesView</Mono>{' '}
+              does not yet have either the checkbox or the submitted-input lock — see
+              CLAUDE.md's Outstanding items.
             </P>
           </section>
 

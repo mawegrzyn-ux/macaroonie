@@ -1,12 +1,24 @@
 // src/pages/mobile/MobileWages.jsx
 //
 // Phone-first Wages view — the same weekly wage report as CashRecon.jsx's
-// WagesView, but narrowed to the three fields that matter away from a
-// desk: staff name, what they're owed ("To be paid"), and what's actually
-// been handed over in cash ("Paid"). Hours/rate/type/notes stay exactly as
-// they were set on desktop — this page never touches them, it only edits
-// total and cash_amount — same "hide the columns that don't fit, keep the
-// data intact" idea as the food-safety temp-check tables' mobile layout.
+// WagesView, but narrowed to the fields that matter away from a desk:
+// staff name, what they're owed ("To be paid"), and whether it's actually
+// been handed over in cash ("Paid" — a checkbox, not an amount: a wage
+// counts toward cash reconciliation for its full "To be paid" total once
+// ticked, or not at all). Hours/rate/type/notes stay exactly as they were
+// set on desktop — this page never touches them.
+//
+// "Paid" is derived from cash_amount (paid = cash_amount > 0) rather than
+// stored as its own column — ticking it just sets cash_amount to the
+// entry's own total (or 0), computed in buildPayload() from the `paid`
+// flag kept in local state. Once the report is submitted, amounts
+// (total/hours/rate) are locked server-side — see the whole-tree PUT's
+// submitted check in cashRecon.js — but marking staff paid is a separate,
+// later step that routinely happens AFTER submission, so the paid toggle
+// goes through a dedicated PATCH .../entries/:id/paid endpoint that
+// bypasses that lock instead of the whole-tree PUT. Before submission it
+// still goes through the normal autosave, same as any other field.
+//
 // Reuses the exact same /venues/:id/cash-recon/wages/:week_start and
 // /cash-recon/config endpoints as the desktop page (fmt/parseNum/getMonday/
 // StatusBadge/SaveIndicator imported from CashRecon.jsx rather than
@@ -15,7 +27,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addWeeks, subWeeks, parseISO } from 'date-fns'
-import { ChevronLeft, ChevronRight, Plus, Trash2, Star, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Star, Check, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { fmt, parseNum, getMonday, StatusBadge, SaveIndicator } from '@/pages/CashRecon'
@@ -23,7 +35,7 @@ import { fmt, parseNum, getMonday, StatusBadge, SaveIndicator } from '@/pages/Ca
 // Compact, label-less input for a single-row entry layout — the column
 // labels are rendered once, above the whole list, instead of repeating on
 // every row (see the header row in the entries list below).
-function RowAmountField({ value, onChange, onBlur, ariaLabel }) {
+function RowAmountField({ value, onChange, onBlur, ariaLabel, disabled }) {
   return (
     <input
       type="number"
@@ -34,9 +46,31 @@ function RowAmountField({ value, onChange, onBlur, ariaLabel }) {
       value={value}
       onChange={e => onChange(e.target.value)}
       onBlur={onBlur}
+      disabled={disabled}
       aria-label={ariaLabel}
-      className="w-[84px] h-11 rounded-lg border bg-background px-2 text-sm text-right touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
+      className="w-[84px] h-11 rounded-lg border bg-background px-2 text-sm text-right touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50 disabled:bg-muted"
     />
+  )
+}
+
+// Checkbox-style "Paid" toggle — see the file header for why this is a
+// boolean rather than a second amount field.
+function PaidToggle({ checked, onChange, pending, ariaLabel }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={pending}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'w-9 h-9 shrink-0 flex items-center justify-center rounded-lg border touch-manipulation transition-colors disabled:opacity-60',
+        checked ? 'bg-green-600 border-green-600 text-white' : 'bg-background hover:bg-muted',
+      )}
+    >
+      {pending ? <Loader2 className="w-4 h-4 animate-spin" /> : (checked ? <Check className="w-4 h-4" /> : null)}
+    </button>
   )
 }
 
@@ -89,7 +123,7 @@ export default function MobileWages() {
 
     const serverEntries = wagesData?.entries ?? []
     if (serverEntries.length > 0) {
-      setEntries(serverEntries)
+      setEntries(serverEntries.map(e => ({ ...e, paid: parseNum(e.cash_amount) > 0 })))
     } else if (wageDefaults.length > 0) {
       setEntries(wageDefaults.map(d => ({
         staff_id:    d.staff_id,
@@ -98,7 +132,7 @@ export default function MobileWages() {
         hours:       '',
         rate:        '',
         total:       d.entry_type !== 'hourly' && d.staff_default_rate != null ? String(d.staff_default_rate) : '',
-        cash_amount: '',
+        paid:        false,
         notes:       '',
       })))
     } else if (activeStaff.length > 0) {
@@ -109,7 +143,7 @@ export default function MobileWages() {
         hours:       '',
         rate:        '',
         total:       s.default_rate != null ? String(s.default_rate) : '',
-        cash_amount: '',
+        paid:        false,
         notes:       '',
       })))
     } else {
@@ -118,23 +152,25 @@ export default function MobileWages() {
   }, [wagesData, config, venueId, weekStart, activeStaff, wageDefaults])
 
   const totalWages     = useMemo(() => entries.reduce((s, e) => s + parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))), 0), [entries])
-  const totalCashWages = useMemo(() => entries.reduce((s, e) => s + parseNum(e.cash_amount ?? 0), 0), [entries])
+  const totalCashWages = useMemo(() => entries.reduce((s, e) => s + (e.paid ? parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))) : 0), 0), [entries])
 
   // Preserves whatever hours/rate/notes an entry already had — this page
-  // never edits them, only total and cash_amount. Takes an explicit list so
-  // add/remove can save the NEW array immediately, before the next render.
+  // never edits them, only total and the paid flag (which becomes
+  // cash_amount here). Takes an explicit list so add/remove can save the
+  // NEW array immediately, before the next render.
   function buildPayload(list = entries) {
     return {
       entries: list.map(e => {
         const et = e.entry_type ?? 'fixed'
+        const total = parseNum(e.total ?? (et === 'hourly' ? parseNum(e.hours) * parseNum(e.rate) : 0))
         return {
           staff_id:    e.staff_id ?? null,
           name:        e.name,
           entry_type:  et,
           hours:       et === 'fixed' ? null : parseNum(e.hours),
           rate:        et === 'fixed' ? null : parseNum(e.rate),
-          total:       parseNum(e.total ?? (et === 'hourly' ? parseNum(e.hours) * parseNum(e.rate) : 0)),
-          cash_amount: parseNum(e.cash_amount ?? 0),
+          total,
+          cash_amount: e.paid ? total : 0,
           notes:       e.notes ?? '',
         }
       }),
@@ -172,7 +208,7 @@ export default function MobileWages() {
     if (!member) return
     const newEntry = {
       staff_id: member.id, name: member.name, entry_type: 'fixed',
-      hours: '', rate: '', total: member.default_rate != null ? String(member.default_rate) : '', cash_amount: '', notes: '',
+      hours: '', rate: '', total: member.default_rate != null ? String(member.default_rate) : '', paid: false, notes: '',
     }
     const next = [...entries, newEntry]
     setEntries(next)
@@ -183,7 +219,7 @@ export default function MobileWages() {
 
   function addAdhocEntry() {
     if (!addAdhoc.trim()) return
-    const newEntry = { staff_id: null, name: addAdhoc.trim(), entry_type: 'fixed', hours: '', rate: '', total: '', cash_amount: '', notes: '' }
+    const newEntry = { staff_id: null, name: addAdhoc.trim(), entry_type: 'fixed', hours: '', rate: '', total: '', paid: false, notes: '' }
     const next = [...entries, newEntry]
     setEntries(next)
     setAddAdhoc('')
@@ -195,6 +231,38 @@ export default function MobileWages() {
     const next = entries.filter((_, i) => i !== idx)
     setEntries(next)
     triggerSave(buildPayload(next))
+  }
+
+  // Marking an entry paid/unpaid before submission is just another field
+  // edit — goes through the normal debounced whole-tree autosave. After
+  // submission that autosave is rejected server-side (amounts are locked),
+  // so this instead calls the dedicated per-entry endpoint that bypasses
+  // the lock — see the file header and cashRecon.js's PATCH .../paid route.
+  const [payingId, setPayingId] = useState(null)
+  const markPaidMutation = useMutation({
+    mutationFn: ({ id, paid }) => api.patch(`/venues/${venueId}/cash-recon/wages/${weekStart}/entries/${id}/paid`, { paid }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+      setSaved(true); setSaveErr(false)
+      setTimeout(() => setSaved(false), 2000)
+    },
+    onError: () => setSaveErr(true),
+  })
+
+  function togglePaid(idx, nextPaid) {
+    const entry = entries[idx]
+    setEntries(p => p.map((e, i) => i === idx ? { ...e, paid: nextPaid } : e))
+
+    if (isSubmitted) {
+      if (!entry.id) return
+      setPayingId(entry.id)
+      markPaidMutation.mutate({ id: entry.id, paid: nextPaid }, {
+        onSettled: () => setPayingId(null),
+      })
+    } else {
+      triggerSave(buildPayload(entries.map((e, i) => i === idx ? { ...e, paid: nextPaid } : e)))
+    }
   }
 
   const submitMutation = useMutation({
@@ -266,20 +334,28 @@ export default function MobileWages() {
             {entries.map((entry, idx) => (
               <div key={idx} className="flex items-center gap-2 px-3 py-2">
                 <span className="flex-1 min-w-0 text-sm font-medium truncate" title={entry.name}>{entry.name}</span>
-                <RowAmountField ariaLabel={`${entry.name} — to be paid`} value={entry.total} onChange={v => updateEntry(idx, 'total', v)} onBlur={handleEntryBlur} />
-                <RowAmountField ariaLabel={`${entry.name} — paid`} value={entry.cash_amount} onChange={v => updateEntry(idx, 'cash_amount', v)} onBlur={handleEntryBlur} />
-                <button type="button" onClick={() => removeEntry(idx)}
-                  className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 touch-manipulation"
-                  aria-label={`Remove ${entry.name}`}>
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <RowAmountField ariaLabel={`${entry.name} — to be paid`} value={entry.total} onChange={v => updateEntry(idx, 'total', v)} onBlur={handleEntryBlur} disabled={isSubmitted} />
+                <PaidToggle ariaLabel={`${entry.name} — paid`} checked={!!entry.paid} onChange={v => togglePaid(idx, v)} pending={payingId === entry.id} />
+                {!isSubmitted && (
+                  <button type="button" onClick={() => removeEntry(idx)}
+                    className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 touch-manipulation"
+                    aria-label={`Remove ${entry.name}`}>
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {addOpen ? (
+      {isSubmitted && (
+        <p className="text-xs text-muted-foreground text-center px-2">
+          Amounts and staff are locked while submitted — unsubmit to change them. Paid status can still be ticked off.
+        </p>
+      )}
+
+      {!isSubmitted && (addOpen ? (
         <div className="rounded-xl border p-3 bg-muted/20 space-y-2">
           <div className="flex gap-2">
             <button type="button" onClick={() => setAddMode('template')}
@@ -325,7 +401,7 @@ export default function MobileWages() {
           className="w-full h-12 rounded-xl border-2 border-dashed text-sm text-muted-foreground touch-manipulation hover:border-primary/60 hover:text-foreground transition-colors flex items-center justify-center gap-2">
           <Plus className="w-4 h-4" /> Add staff member
         </button>
-      )}
+      ))}
 
       {entries.length > 0 && (
         <button
