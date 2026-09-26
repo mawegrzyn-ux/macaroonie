@@ -10,7 +10,7 @@
 // tile on the hub screen automatically — this shell + registry pair is the
 // reusable piece, not a one-off page.
 
-import { useEffect } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery } from '@tanstack/react-query'
@@ -19,6 +19,42 @@ import { useApi } from '@/lib/api'
 import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
 import MobileViewToggle from '@/components/MobileViewToggle'
+
+// Lets a mobile page (e.g. a full-page detail drilled into from a list —
+// see MobileCashUp's day view) suppress this shell's own header when it
+// needs to render a single unified header of its own (back arrow + a
+// page-specific title/status/action + sign out) instead of stacking a
+// second header underneath this one. The shell keeps rendering its own
+// header by default; a page opts out only while it's actually mounted.
+const HeaderVisibilityContext = createContext({ setHidden: () => {} })
+
+export function useHideMobileHeader() {
+  const { setHidden } = useContext(HeaderVisibilityContext)
+  useEffect(() => {
+    setHidden(true)
+    return () => setHidden(false)
+  }, [setHidden])
+}
+
+// Reusable sign-out button matching the shell header's own — for a page
+// that hides the shell header and needs to fold sign-out into its own.
+export function MobileLogoutButton({ className }) {
+  const { logout } = useAuth0()
+  function handleLogout() {
+    try { localStorage.removeItem('maca_auth0_org_hint') } catch { /* ignore */ }
+    logout({ logoutParams: { returnTo: window.location.origin } })
+  }
+  return (
+    <button
+      type="button"
+      onClick={handleLogout}
+      className={className ?? 'w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation'}
+      aria-label="Sign out"
+    >
+      <LogOut className="w-5 h-5" />
+    </button>
+  )
+}
 
 const MAIN_MANIFEST_HREF = '/manifest.webmanifest'
 const MOBILE_MANIFEST_HREF = '/mobile.webmanifest'
@@ -83,41 +119,48 @@ export default function MobileShell() {
     logout({ logoutParams: { returnTo: window.location.origin } })
   }
 
+  const [headerHidden, setHeaderHidden] = useState(false)
+  const headerVisibility = useMemo(() => ({ setHidden: setHeaderHidden }), [])
+
   return (
     <div
       className="flex flex-col bg-background text-foreground"
       style={{ height: '100dvh' }}
     >
-      <header
-        className="shrink-0 flex items-center gap-2 border-b px-3 bg-background z-10"
-        style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))', paddingBottom: '0.625rem' }}
-      >
-        {isHub ? (
-          <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-[#0f5c4f]/10 text-[#0f5c4f] shrink-0">
-            <LayoutGrid className="w-5 h-5" />
-          </span>
-        ) : (
-          <NavLink
-            to="/mobile"
-            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent shrink-0 touch-manipulation"
-            aria-label="Back to Ops home"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </NavLink>
-        )}
-        <h1 className="flex-1 min-w-0 text-base font-semibold truncate">{title}</h1>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation"
-          aria-label="Sign out"
+      {!headerHidden && (
+        <header
+          className="shrink-0 flex items-center gap-2 border-b px-3 bg-background z-10"
+          style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))', paddingBottom: '0.625rem' }}
         >
-          <LogOut className="w-5 h-5" />
-        </button>
-      </header>
+          {isHub ? (
+            <span className="w-10 h-10 flex items-center justify-center rounded-lg bg-[#0f5c4f]/10 text-[#0f5c4f] shrink-0">
+              <LayoutGrid className="w-5 h-5" />
+            </span>
+          ) : (
+            <NavLink
+              to="/mobile"
+              className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent shrink-0 touch-manipulation"
+              aria-label="Back to Ops home"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </NavLink>
+          )}
+          <h1 className="flex-1 min-w-0 text-base font-semibold truncate">{title}</h1>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent text-muted-foreground shrink-0 touch-manipulation"
+            aria-label="Sign out"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </header>
+      )}
 
       <main className="flex-1 overflow-y-auto overscroll-contain">
-        <Outlet />
+        <HeaderVisibilityContext.Provider value={headerVisibility}>
+          <Outlet />
+        </HeaderVisibilityContext.Provider>
       </main>
       <MobileViewToggle target="standard" />
     </div>
