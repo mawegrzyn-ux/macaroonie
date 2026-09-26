@@ -110,6 +110,58 @@ function todayStr() {
   return format(new Date(), 'yyyy-MM-dd')
 }
 
+// ── Staff pay type + week wage entries ───────────────────────────────────────
+//
+// cash_staff.pay_type decides what default_rate means: £ per hour for hourly
+// staff, £ per week for fixed staff. These helpers are the one place that
+// turns a staff member (or the venue's default wage list) into wage entries
+// for a week, shared by WagesView, MobileWages and the Cash Dashboard's week
+// staff widget.
+
+export const PAY_TYPES = [
+  { value: 'fixed',  label: 'Fixed' },
+  { value: 'hourly', label: 'Hourly' },
+]
+
+export function staffRateLabel(staff) {
+  if (staff?.default_rate == null || staff.default_rate === '') return null
+  return (staff.pay_type ?? 'fixed') === 'hourly'
+    ? `${fmt(staff.default_rate)}/hr`
+    : `${fmt(staff.default_rate)}/wk`
+}
+
+/** A fresh wage entry for one staff member, seeded from their pay type and default rate. */
+export function wageEntryForStaff(staff, entryType = staff.pay_type ?? 'fixed') {
+  const hourly = entryType === 'hourly'
+  const rate = staff.default_rate != null ? String(staff.default_rate) : ''
+  return {
+    staff_id:    staff.id,
+    name:        staff.name,
+    entry_type:  entryType,
+    hours:       '',
+    rate:        hourly ? rate : '',
+    total:       hourly ? '' : rate,
+    cash_amount: '',
+    notes:       '',
+  }
+}
+
+/**
+ * Entries for a week with nothing saved yet: the venue's default wage list
+ * if one has been set, otherwise every active staff member.
+ */
+export function defaultWageEntries(config) {
+  const defaults = config?.wage_defaults ?? []
+  if (defaults.length > 0) {
+    const staffById = Object.fromEntries((config?.staff ?? []).map(s => [s.id, s]))
+    return defaults.map(d => wageEntryForStaff(
+      staffById[d.staff_id] ?? { id: d.staff_id, name: d.staff_name, default_rate: d.staff_default_rate },
+      d.entry_type ?? 'fixed',
+    ))
+  }
+  return (config?.staff ?? []).filter(s => s.is_active).map(s => wageEntryForStaff(s))
+}
+
 // ── Shared UI primitives ─────────────────────────────────────────────────────
 
 // The header bar uses the tenant's own website brand accent colour (see
@@ -1891,7 +1943,6 @@ function WagesView({ venueId, weekStart, onBack }) {
   const [addAdhoc, setAddAdhoc] = useState('')
 
   const activeStaff  = useMemo(() => (config?.staff ?? []).filter(s => s.is_active), [config])
-  const wageDefaults = useMemo(() => config?.wage_defaults ?? [], [config])
 
   // Track which week we've already initialised so refetching config doesn't wipe entered data
   const initializedWeek = useRef(null)
@@ -1910,38 +1961,11 @@ function WagesView({ venueId, weekStart, onBack }) {
       initializedWeek.current = weekStart
       setNotes(wagesData?.notes ?? '')
       const serverEntries = wagesData?.entries ?? []
-      if (serverEntries.length > 0) {
-        // Week has saved entries — load them
-        setEntries(serverEntries)
-      } else if (wageDefaults.length > 0) {
-        // New week — auto-populate from the venue's default wage list
-        setEntries(wageDefaults.map(d => ({
-          staff_id:    d.staff_id,
-          name:        d.staff_name,
-          entry_type:  d.entry_type ?? 'fixed',
-          hours:       '',
-          rate:        '',
-          total:       d.entry_type !== 'hourly' && d.staff_default_rate != null ? String(d.staff_default_rate) : '',
-          cash_amount: '',
-          notes:       '',
-        })))
-      } else if (activeStaff.length > 0) {
-        // No default set yet — fall back to the full active-staff roster
-        setEntries(activeStaff.map(s => ({
-          staff_id:    s.id,
-          name:        s.name,
-          entry_type:  'fixed',
-          hours:       '',
-          rate:        '',
-          total:       s.default_rate != null ? String(s.default_rate) : '',
-          cash_amount: '',
-          notes:       '',
-        })))
-      } else {
-        setEntries([])
-      }
+      // Saved entries win; a new week fills from the default wage list, or
+      // the active staff roster when no default has been set.
+      setEntries(serverEntries.length > 0 ? serverEntries : defaultWageEntries(config))
     }
-  }, [wagesData, config, weekStart, activeStaff, wageDefaults])
+  }, [wagesData, config, weekStart])
 
   const totalWages     = useMemo(() => entries.reduce((s, e) => s + parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))), 0), [entries])
   const totalCashWages = useMemo(() => entries.reduce((s, e) => s + parseNum(e.cash_amount ?? 0), 0), [entries])
@@ -1963,8 +1987,8 @@ function WagesView({ venueId, weekStart, onBack }) {
     }, 800)
   }
 
-  function buildPayload() {
-    return { entries: entries.map(e => {
+  function buildPayload(list = entries) {
+    return { entries: list.map(e => {
       const et = e.entry_type ?? 'fixed'
       return {
         staff_id:    e.staff_id ?? null,
@@ -1999,14 +2023,11 @@ function WagesView({ venueId, weekStart, onBack }) {
   function addFromTemplate() {
     const member = activeStaff.find(s => s.id === addStaff)
     if (!member) return
-    const newEntry = {
-      staff_id: member.id, name: member.name, entry_type: 'fixed',
-      hours: '', rate: '', total: member.default_rate != null ? String(member.default_rate) : '', cash_amount: '', notes: '',
-    }
-    setEntries(p => [...p, newEntry])
+    const next = [...entries, wageEntryForStaff(member)]
+    setEntries(next)
     setAddStaff('')
     setAddOpen(false)
-    triggerSave({ entries: [...entries, { staff_id: member.id, name: member.name, entry_type: 'fixed', hours: null, rate: null, total: parseNum(member.default_rate), cash_amount: 0, notes: '' }], notes })
+    triggerSave(buildPayload(next))
   }
 
   function addAdhocEntry() {
@@ -2188,7 +2209,7 @@ function WagesView({ venueId, weekStart, onBack }) {
                     >
                       <option value="">Select staff member…</option>
                       {activeStaff.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}{s.default_rate ? ` (£${s.default_rate}/hr)` : ''}</option>
+                        <option key={s.id} value={s.id}>{s.name}{staffRateLabel(s) ? ` (${staffRateLabel(s)})` : ''}</option>
                       ))}
                     </select>
                     <div className="flex gap-2">
@@ -2384,7 +2405,7 @@ function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
 
 // ── Generic list manager for settings tabs ────────────────────────────────────
 
-function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, renderForm, emptyLabel, addLabel }) {
+function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, renderForm, renderMeta, emptyLabel, addLabel }) {
   const [editId,  setEditId]  = useState(null)
   const [editVals, setEditVals] = useState({})
   const [addOpen, setAddOpen] = useState(false)
@@ -2454,6 +2475,7 @@ function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, 
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-medium">{item.name}</span>
                 {item.type && <TypeBadge type={item.type} />}
+                {renderMeta?.(item)}
               </div>
             </div>
 
@@ -2731,10 +2753,15 @@ function StaffTab({ venueId, items, onRefetch, api }) {
   useEffect(() => setLocalItems(items), [items])
 
   async function handleSave(id, vals) {
+    const body = {
+      ...vals,
+      pay_type:     vals.pay_type ?? 'fixed',
+      default_rate: vals.default_rate === '' ? null : vals.default_rate,
+    }
     if (id) {
-      await api.put(`/venues/${venueId}/cash-recon/config/staff/${id}`, vals)
+      await api.put(`/venues/${venueId}/cash-recon/config/staff/${id}`, body)
     } else {
-      await api.post(`/venues/${venueId}/cash-recon/config/staff`, vals)
+      await api.post(`/venues/${venueId}/cash-recon/config/staff`, body)
     }
     onRefetch()
   }
@@ -2755,19 +2782,47 @@ function StaffTab({ venueId, items, onRefetch, api }) {
     if (swapIdx < 0 || swapIdx >= next.length) return;
     [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
     setLocalItems(next)
+    await api.put(`/venues/${venueId}/cash-recon/config/staff/reorder`, { ids: next.map(i => i.id) })
     onRefetch()
   }
 
   function renderForm({ vals, setVals }) {
+    const payType = vals.pay_type ?? 'fixed'
     return (
       <>
         <TextInput placeholder="Name *" value={vals.name ?? ''} onChange={v => setVals(p => ({ ...p, name: v }))} />
         <div>
-          <label className="text-xs text-muted-foreground block mb-1">Default Rate (£/hr, optional)</label>
+          <label className="text-xs text-muted-foreground block mb-1">Pay type</label>
+          <div className="grid grid-cols-2 gap-2">
+            {PAY_TYPES.map(t => (
+              <button key={t.value} type="button"
+                onClick={() => setVals(p => ({ ...p, pay_type: t.value }))}
+                className={cn(
+                  'h-11 rounded-xl border text-sm font-medium touch-manipulation transition-colors',
+                  payType === t.value ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted',
+                )}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs text-muted-foreground block mb-1">
+            {payType === 'hourly' ? 'Hourly rate (£ per hour, optional)' : 'Weekly amount (£ per week, optional)'}
+          </label>
           <AmountInput placeholder="0.00" value={vals.default_rate ?? ''} onChange={v => setVals(p => ({ ...p, default_rate: v }))} />
         </div>
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
+    )
+  }
+
+  function renderMeta(item) {
+    const rate = staffRateLabel(item)
+    return (
+      <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+        {(item.pay_type ?? 'fixed') === 'hourly' ? 'Hourly' : 'Fixed'}{rate ? ` · ${rate}` : ''}
+      </span>
     )
   }
 
@@ -2779,7 +2834,8 @@ function StaffTab({ venueId, items, onRefetch, api }) {
       onDelete={handleDelete}
       onSave={handleSave}
       renderForm={renderForm}
-      emptyLabel="No staff templates yet."
+      renderMeta={renderMeta}
+      emptyLabel="No staff yet."
       addLabel="Add staff member"
     />
   )

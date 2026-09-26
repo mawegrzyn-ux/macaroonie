@@ -30,7 +30,10 @@ import { format, addWeeks, subWeeks, parseISO } from 'date-fns'
 import { ChevronLeft, ChevronRight, Plus, Trash2, Star, Check, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { fmt, parseNum, getMonday, StatusBadge, SaveIndicator } from '@/pages/CashRecon'
+import {
+  fmt, parseNum, getMonday, StatusBadge, SaveIndicator,
+  defaultWageEntries, wageEntryForStaff, staffRateLabel,
+} from '@/pages/CashRecon'
 
 // Compact, label-less input for a single-row entry layout — the column
 // labels are rendered once, above the whole list, instead of repeating on
@@ -109,7 +112,6 @@ export default function MobileWages() {
   })
 
   const activeStaff  = useMemo(() => (config?.staff ?? []).filter(s => s.is_active), [config])
-  const wageDefaults = useMemo(() => config?.wage_defaults ?? [], [config])
 
   // Keyed by venue+week so switching either re-initialises from server data
   // (or the default staff list) exactly once, without a later config
@@ -124,32 +126,11 @@ export default function MobileWages() {
     const serverEntries = wagesData?.entries ?? []
     if (serverEntries.length > 0) {
       setEntries(serverEntries.map(e => ({ ...e, paid: parseNum(e.cash_amount) > 0 })))
-    } else if (wageDefaults.length > 0) {
-      setEntries(wageDefaults.map(d => ({
-        staff_id:    d.staff_id,
-        name:        d.staff_name,
-        entry_type:  d.entry_type ?? 'fixed',
-        hours:       '',
-        rate:        '',
-        total:       d.entry_type !== 'hourly' && d.staff_default_rate != null ? String(d.staff_default_rate) : '',
-        paid:        false,
-        notes:       '',
-      })))
-    } else if (activeStaff.length > 0) {
-      setEntries(activeStaff.map(s => ({
-        staff_id:    s.id,
-        name:        s.name,
-        entry_type:  'fixed',
-        hours:       '',
-        rate:        '',
-        total:       s.default_rate != null ? String(s.default_rate) : '',
-        paid:        false,
-        notes:       '',
-      })))
     } else {
-      setEntries([])
+      // Default wage list, or the active staff roster (shared with CashRecon.jsx)
+      setEntries(defaultWageEntries(config).map(e => ({ ...e, paid: false })))
     }
-  }, [wagesData, config, venueId, weekStart, activeStaff, wageDefaults])
+  }, [wagesData, config, venueId, weekStart])
 
   const totalWages     = useMemo(() => entries.reduce((s, e) => s + parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))), 0), [entries])
   const totalCashWages = useMemo(() => entries.reduce((s, e) => s + (e.paid ? parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))) : 0), 0), [entries])
@@ -206,10 +187,7 @@ export default function MobileWages() {
   function addFromTemplate() {
     const member = activeStaff.find(s => s.id === addStaff)
     if (!member) return
-    const newEntry = {
-      staff_id: member.id, name: member.name, entry_type: 'fixed',
-      hours: '', rate: '', total: member.default_rate != null ? String(member.default_rate) : '', paid: false, notes: '',
-    }
+    const newEntry = { ...wageEntryForStaff(member), paid: false }
     const next = [...entries, newEntry]
     setEntries(next)
     setAddStaff('')
@@ -373,7 +351,7 @@ export default function MobileWages() {
                 className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
                 <option value="">Select staff member…</option>
                 {activeStaff.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}{s.default_rate ? ` (£${s.default_rate}/hr)` : ''}</option>
+                  <option key={s.id} value={s.id}>{s.name}{staffRateLabel(s) ? ` (${staffRateLabel(s)})` : ''}</option>
                 ))}
               </select>
               <div className="flex gap-2">

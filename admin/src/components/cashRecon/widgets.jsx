@@ -15,19 +15,20 @@
 // plus a selected day that the day tiles widget sets and the day balance
 // and petty cash widgets read.
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, addWeeks, subWeeks, parseISO } from 'date-fns'
 import {
   ChevronLeft, ChevronRight, Check, Loader2,
   Users, Receipt, Table2, Scale, CalendarDays, LayoutGrid, ListChecks, Sigma,
-  AlertTriangle,
+  AlertTriangle, UserCog, Plus, Trash2, Copy, Star, X,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
   fmt, parseNum, getMonday, isoWeekDates, StatusBadge, CardBadge, ScEffectBadge,
   SpreadsheetView, useReconWeek,
+  PAY_TYPES, staffRateLabel, wageEntryForStaff, defaultWageEntries,
 } from '@/pages/CashRecon'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 
@@ -40,6 +41,7 @@ export const CASH_WIDGET_TYPES = [
   { key: 'cash_petty_cash',   label: 'Petty cash',             icon: Receipt,      defaultTitle: 'Petty cash' },
   { key: 'cash_week_expenses', label: 'Week expenses',         icon: ListChecks,   defaultTitle: 'Expenses this week' },
   { key: 'cash_week_summary_grid', label: 'Week summary grid', icon: Sigma,        defaultTitle: 'Week summary', flush: true },
+  { key: 'cash_week_staff',   label: 'Week staff list',        icon: UserCog,      defaultTitle: 'Staff this week' },
 ]
 
 function todayStr() {
@@ -347,6 +349,370 @@ function WeekSummaryGridWidget({ venueId, ctx }) {
   )
 }
 
+// ── Week staff list ────────────────────────────────────────────
+
+// Manage who is on this week's wages and what they're paid: pay type,
+// hours x rate or a fixed amount, add/remove, copy the list from another
+// week, and set it as the default for future weeks. Edits are held in a
+// local draft and only written by Save (the whole-tree PUT the Wages page
+// uses); Paid status (cash_amount) is carried over from the server, so the
+// Wages paid widget's ticks survive a save here.
+
+function weekEntryTotal(e) {
+  return e.entry_type === 'hourly'
+    ? Math.round(parseNum(e.hours) * parseNum(e.rate) * 100) / 100
+    : parseNum(e.total)
+}
+
+function NumField({ value, onChange, placeholder, prefix, suffix, disabled, label }) {
+  return (
+    <label className={cn(
+      'h-11 flex items-center gap-1 rounded-lg border bg-background px-2 text-sm focus-within:ring-2 focus-within:ring-primary/40',
+      disabled && 'opacity-60',
+    )}>
+      {prefix && <span className="text-muted-foreground">{prefix}</span>}
+      <input
+        type="text"
+        inputMode="decimal"
+        aria-label={label}
+        value={value ?? ''}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={e => onChange(e.target.value.replace(/[^0-9.]/g, ''))}
+        className="w-16 bg-transparent text-right tabular-nums outline-none touch-manipulation"
+      />
+      {suffix && <span className="text-muted-foreground">{suffix}</span>}
+    </label>
+  )
+}
+
+function PayTypeSwitch({ value, onChange, disabled }) {
+  return (
+    <div className="flex rounded-lg border overflow-hidden shrink-0">
+      {PAY_TYPES.map(t => (
+        <button key={t.value} type="button" disabled={disabled}
+          onClick={() => onChange(t.value)}
+          className={cn(
+            'h-11 px-3 text-xs font-medium touch-manipulation transition-colors disabled:cursor-default',
+            value === t.value ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted',
+          )}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function WeekStaffWidget({ venueId, ctx }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { weekStart } = ctx
+
+  const { data: config } = useQuery({
+    queryKey: ['cash-recon-config', venueId],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/config`),
+    enabled:  !!venueId,
+  })
+  const { data: wagesData } = useQuery({
+    queryKey: ['cash-recon-wages', venueId, weekStart],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/wages/${weekStart}`),
+    enabled:  !!venueId && !!weekStart,
+  })
+
+  // null = showing what's saved (or the default list for a new week);
+  // an array = unsaved edits. Reset whenever the venue or week changes.
+  const [draft, setDraft] = useState(null)
+  const [panel, setPanel] = useState(null)       // null | 'add' | 'copy'
+  const [notice, setNotice] = useState(null)
+  const [addStaffId, setAddStaffId] = useState('')
+  const [addName, setAddName] = useState('')
+  const [copyWeek, setCopyWeek] = useState('')
+  const [copying, setCopying] = useState(false)
+  const key = `${venueId}|${weekStart}`
+  const [draftKey, setDraftKey] = useState(key)
+  if (draftKey !== key) {
+    setDraftKey(key); setDraft(null); setPanel(null); setNotice(null)
+  }
+
+  const savedEntries = wagesData?.entries ?? []
+  const isNew = savedEntries.length === 0
+  const baseEntries = useMemo(
+    () => (isNew ? defaultWageEntries(config) : savedEntries),
+    [isNew, config, savedEntries],
+  )
+  const entries = draft ?? baseEntries
+  const isSubmitted = wagesData?.status === 'submitted'
+  const canSave = !isSubmitted && (draft !== null || (isNew && entries.length > 0))
+  const staffById = useMemo(() => Object.fromEntries((config?.staff ?? []).map(s => [s.id, s])), [config])
+  const savedById = useMemo(() => Object.fromEntries(savedEntries.map(e => [e.id, e])), [savedEntries])
+
+  const copyOptions = useMemo(() => Array.from({ length: 8 }, (_, i) => {
+    const wk = getMonday(subWeeks(parseISO(weekStart), i + 1))
+    return { value: wk, label: `w/c ${format(parseISO(wk), 'd MMM yyyy')}${i === 0 ? ' (last week)' : ''}` }
+  }), [weekStart])
+
+  function edit(next) { setDraft(next); setNotice(null) }
+  function updateEntry(idx, patch) { edit(entries.map((e, i) => (i === idx ? { ...e, ...patch } : e))) }
+
+  function changeType(idx, type) {
+    const e = entries[idx]
+    if ((e.entry_type ?? 'fixed') === type) return
+    if (type === 'fixed') {
+      const t = weekEntryTotal(e)
+      updateEntry(idx, { entry_type: 'fixed', total: t > 0 ? t.toFixed(2) : '' })
+    } else {
+      const staff = e.staff_id ? staffById[e.staff_id] : null
+      const rate = e.rate || ((staff?.pay_type === 'hourly' && staff.default_rate != null) ? String(staff.default_rate) : '')
+      updateEntry(idx, { entry_type: 'hourly', rate })
+    }
+  }
+
+  const invalidateWeek = () => {
+    qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] })
+    qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId] })
+    qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+  }
+
+  const save = useMutation({
+    mutationFn: () => api.put(`/venues/${venueId}/cash-recon/wages/${weekStart}`, {
+      notes: wagesData?.notes ?? null,
+      entries: entries.map(e => {
+        const hourly = e.entry_type === 'hourly'
+        const saved = e.id ? savedById[e.id] : null
+        const total = weekEntryTotal(e)
+        // Someone ticked Paid (cash_amount = their full total) stays fully
+        // paid when their amount changes; a partial cash split is kept as is.
+        const savedCash = parseNum(saved?.cash_amount ?? e.cash_amount)
+        const fullyPaid = saved && savedCash > 0 && savedCash === parseNum(saved.total)
+        return {
+          staff_id:    e.staff_id ?? null,
+          name:        e.name,
+          entry_type:  hourly ? 'hourly' : 'fixed',
+          hours:       hourly ? parseNum(e.hours) : null,
+          rate:        hourly ? parseNum(e.rate) : null,
+          total,
+          cash_amount: fullyPaid ? total : savedCash,
+          notes:       e.notes || null,
+        }
+      }),
+    }),
+    onSuccess: () => { setDraft(null); setNotice({ tone: 'ok', text: 'Saved' }); invalidateWeek() },
+    onError: err => setNotice({ tone: 'error', text: err?.message || 'Save failed' }),
+  })
+
+  const setDefault = useMutation({
+    mutationFn: () => api.post(`/venues/${venueId}/cash-recon/wages/${weekStart}/set-default`, {
+      entries: entries.map(e => ({ staff_id: e.staff_id ?? null, entry_type: e.entry_type ?? 'fixed' })),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-recon-config', venueId] })
+      const adhoc = entries.some(e => !e.staff_id)
+      setNotice({ tone: 'ok', text: adhoc ? 'Set as default (ad-hoc names are not included)' : 'Set as the default list for new weeks' })
+    },
+    onError: err => setNotice({ tone: 'error', text: err?.message || 'Could not set default' }),
+  })
+
+  function addEntry() {
+    if (addStaffId) {
+      const member = staffById[addStaffId]
+      if (member) edit([...entries, wageEntryForStaff(member)])
+    } else if (addName.trim()) {
+      edit([...entries, { staff_id: null, name: addName.trim(), entry_type: 'fixed', hours: '', rate: '', total: '', cash_amount: '', notes: '' }])
+    }
+    setAddStaffId(''); setAddName(''); setPanel(null)
+  }
+
+  async function copyFrom() {
+    const wk = copyWeek || copyOptions[0].value
+    setCopying(true)
+    try {
+      const src = await qc.fetchQuery({
+        queryKey: ['cash-recon-wages', venueId, wk],
+        queryFn:  () => api.get(`/venues/${venueId}/cash-recon/wages/${wk}`),
+      })
+      const list = src?.entries ?? []
+      const label = `w/c ${format(parseISO(wk), 'd MMM')}`
+      if (list.length === 0) {
+        setNotice({ tone: 'error', text: `No wages saved for ${label}` })
+      } else {
+        edit(list.map(e => ({
+          staff_id:    e.staff_id ?? null,
+          name:        e.name,
+          entry_type:  e.entry_type ?? 'fixed',
+          hours:       e.hours != null ? String(e.hours) : '',
+          rate:        e.rate != null ? String(e.rate) : '',
+          total:       e.total != null ? String(e.total) : '',
+          cash_amount: '',
+          notes:       '',
+        })))
+        setNotice({ tone: 'info', text: `Copied ${list.length} from ${label}. Save to keep it.` })
+        setPanel(null)
+      }
+    } catch (err) {
+      setNotice({ tone: 'error', text: err?.message || 'Could not load that week' })
+    } finally {
+      setCopying(false)
+    }
+  }
+
+  if (wagesData === undefined || !config) return <Loading />
+
+  const onList = new Set(entries.map(e => e.staff_id).filter(Boolean))
+  const addable = (config.staff ?? []).filter(s => s.is_active && !onList.has(s.id))
+  const total = entries.reduce((sum, e) => sum + weekEntryTotal(e), 0)
+
+  return (
+    <div className="space-y-2">
+      {isSubmitted && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          This week's wages are submitted. Unsubmit them on the Cash Recon Wages page to change the list.
+        </p>
+      )}
+      {!isSubmitted && isNew && draft === null && entries.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Nothing saved for this week yet. Filled from your {config.wage_defaults?.length ? 'default list' : 'active staff'}; Save to keep it.
+        </p>
+      )}
+
+      {entries.length === 0 && (
+        <p className="text-sm text-muted-foreground py-2">No staff on this week yet.</p>
+      )}
+
+      {entries.map((e, idx) => {
+        const hourly = e.entry_type === 'hourly'
+        return (
+          <div key={e.id ?? `${e.staff_id ?? 'adhoc'}-${idx}`} className="rounded-xl border p-2 space-y-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="flex-1 min-w-0 truncate text-sm font-medium" title={e.name}>
+                {e.name}
+                {!e.staff_id && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">ad-hoc</span>}
+              </span>
+              <span className="text-sm font-semibold tabular-nums shrink-0">{fmt(weekEntryTotal(e))}</span>
+              {!isSubmitted && (
+                <button type="button" aria-label={`Remove ${e.name}`}
+                  onClick={() => edit(entries.filter((_, i) => i !== idx))}
+                  className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 touch-manipulation">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <PayTypeSwitch value={hourly ? 'hourly' : 'fixed'} disabled={isSubmitted} onChange={t => changeType(idx, t)} />
+              {hourly ? (
+                <>
+                  <NumField label="Hours" value={e.hours} placeholder="0" suffix="h" disabled={isSubmitted}
+                    onChange={v => updateEntry(idx, { hours: v })} />
+                  <span className="text-muted-foreground text-sm">×</span>
+                  <NumField label="Rate" value={e.rate} placeholder="0.00" prefix="£" suffix="/hr" disabled={isSubmitted}
+                    onChange={v => updateEntry(idx, { rate: v })} />
+                </>
+              ) : (
+                <NumField label="Amount" value={e.total} placeholder="0.00" prefix="£" disabled={isSubmitted}
+                  onChange={v => updateEntry(idx, { total: v })} />
+              )}
+            </div>
+          </div>
+        )
+      })}
+
+      <div className="flex items-center justify-between px-1 pt-1 text-sm font-semibold">
+        <span>Total wages</span><span className="tabular-nums">{fmt(total)}</span>
+      </div>
+
+      {panel === 'add' && (
+        <div className="rounded-xl border p-3 bg-muted/20 space-y-2">
+          {addable.length > 0 && (
+            <select value={addStaffId} onChange={ev => { setAddStaffId(ev.target.value); setAddName('') }}
+              className="h-11 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation">
+              <option value="">Pick from staff list…</option>
+              {addable.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.name} ({(s.pay_type ?? 'fixed') === 'hourly' ? 'Hourly' : 'Fixed'}{staffRateLabel(s) ? `, ${staffRateLabel(s)}` : ''})
+                </option>
+              ))}
+            </select>
+          )}
+          <input type="text" value={addName} placeholder={addable.length > 0 ? 'or type a one-off name' : 'Name'}
+            onChange={ev => { setAddName(ev.target.value); setAddStaffId('') }}
+            className="h-11 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation" />
+          <div className="flex gap-2">
+            <button type="button" onClick={addEntry} disabled={!addStaffId && !addName.trim()}
+              className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50">Add</button>
+            <button type="button" onClick={() => setPanel(null)}
+              className="flex-1 h-11 rounded-lg border text-sm touch-manipulation hover:bg-muted">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {panel === 'copy' && (
+        <div className="rounded-xl border p-3 bg-muted/20 space-y-2">
+          <p className="text-xs text-muted-foreground">Replaces this week's list with the staff, pay types, hours and amounts from:</p>
+          <select value={copyWeek || copyOptions[0].value} onChange={ev => setCopyWeek(ev.target.value)}
+            className="h-11 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation">
+            {copyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <div className="flex gap-2">
+            <button type="button" onClick={copyFrom} disabled={copying}
+              className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
+              {copying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />} Copy
+            </button>
+            <button type="button" onClick={() => setPanel(null)}
+              className="flex-1 h-11 rounded-lg border text-sm touch-manipulation hover:bg-muted">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {notice && (
+        <div className={cn(
+          'flex items-start gap-2 rounded-lg px-3 py-2 text-xs',
+          notice.tone === 'error' ? 'bg-red-50 text-red-700' : notice.tone === 'ok' ? 'bg-green-50 text-green-700' : 'bg-muted text-foreground',
+        )}>
+          <span className="flex-1">{notice.text}</span>
+          <button type="button" aria-label="Dismiss" onClick={() => setNotice(null)} className="shrink-0 touch-manipulation">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2 pt-1">
+        {!isSubmitted && panel === null && (
+          <>
+            <button type="button" onClick={() => setPanel('add')}
+              className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+              <Plus className="w-4 h-4" /> Add staff
+            </button>
+            <button type="button" onClick={() => setPanel('copy')}
+              className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+              <Copy className="w-4 h-4" /> Copy from…
+            </button>
+          </>
+        )}
+        <button type="button" onClick={() => setDefault.mutate()}
+          disabled={setDefault.isPending || !entries.some(e => e.staff_id)}
+          title="Use this list (who is on it, and Fixed/Hourly) for new weeks"
+          className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted disabled:opacity-50 flex items-center gap-1.5">
+          {setDefault.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4" />} Set as default
+        </button>
+      </div>
+
+      {canSave && (
+        <div className="flex gap-2 pt-1">
+          <button type="button" onClick={() => save.mutate()} disabled={save.isPending}
+            className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
+            {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save
+          </button>
+          {draft !== null && (
+            <button type="button" onClick={() => { setDraft(null); setNotice(null) }} disabled={save.isPending}
+              className="flex-1 h-11 rounded-lg border text-sm touch-manipulation hover:bg-muted disabled:opacity-50">
+              Discard changes
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Wages paid ─────────────────────────────────────────────────
 
 function entryTotal(e) {
@@ -521,6 +887,7 @@ export function renderCashWidget({ widget, venueId, ctx }) {
     case 'cash_petty_cash':   return <PettyCashWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_expenses': return <WeekExpensesWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_summary_grid': return <WeekSummaryGridWidget venueId={venueId} ctx={ctx} />
+    case 'cash_week_staff':   return <WeekStaffWidget venueId={venueId} ctx={ctx} />
     default:                  return null
   }
 }
