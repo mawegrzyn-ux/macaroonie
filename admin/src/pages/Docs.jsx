@@ -1516,11 +1516,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               showing the day name/date, a <Mono>StatusBadge</Mono>, total income, and variance —
               fetched from the same <Mono>GET /venues/:id/cash-recon/week/:week_start</Mono>{' '}
               endpoint the desktop <Mono>WeekView</Mono>'s day cards already use. Tapping a day
-              renders <Mono>CashRecon.jsx</Mono>'s <Mono>DayView</Mono> full-page (exported for
-              this) for the complete daily declaration — the same "list, then a reused full-page
-              detail component" shape <Mono>MobileOrderSheets.jsx</Mono> uses with{' '}
-              <Mono>OrderDetail</Mono>. A "Week total" tile below the list sums income, takings
-              and variance across whichever days have a report yet.
+              opens the module-local <Mono>MobileDayDeclaration</Mono> for the complete daily
+              declaration — the same "list, then a reused full-page detail component" shape{' '}
+              <Mono>MobileOrderSheets.jsx</Mono> uses with <Mono>OrderDetail</Mono>. A "Week total"
+              tile below the list sums income, takings and variance across whichever days have a
+              report yet.
+            </P>
+            <H3>Single header on the day-detail view</H3>
+            <P>
+              <Mono>CashRecon.jsx</Mono>'s <Mono>DayView</Mono> renders its own sticky header
+              (back arrow, full date, status/save indicator, Submit/Unsubmit) — fine on desktop,
+              but under <Mono>MobileShell</Mono> it stacked directly underneath the shell's own
+              header, producing two back arrows and two bars. Fixed with a small mechanism rather
+              than a rebuild: <Mono>MobileShell.jsx</Mono> exports{' '}
+              <Mono>useHideMobileHeader()</Mono> — called by <Mono>MobileDayDeclaration</Mono> to
+              suppress the shell's header for as long as it's mounted — and{' '}
+              <Mono>MobileLogoutButton</Mono>, the same sign-out button the shell header uses, so
+              the replacement header can fold sign-out back in. <Mono>DayView</Mono> itself gained
+              a <Mono>hideHeader</Mono> + <Mono>onStateChange</Mono> prop pair (the same shape as{' '}
+              <Mono>ChecklistRunPanel</Mono>'s existing <Mono>hideHeader</Mono>/
+              <Mono>onStateChange</Mono>): with <Mono>hideHeader</Mono>, it skips its own header
+              div entirely and instead reports <Mono>{'{ status, saving, saved, saveErr, isSubmitted, submitPending, submit, unsubmit }'}</Mono>{' '}
+              via <Mono>onStateChange</Mono> on every change, so <Mono>MobileDayDeclaration</Mono>{' '}
+              can render one unified header — back arrow (to the day list), a short{' '}
+              <Mono>d MMM</Mono> date, the status badge and save indicator, a Submit/Unsubmit
+              button, and sign-out — with <Mono>DayView</Mono>'s body rendered underneath it,
+              header-less. The status/save indicator IS the day's submission-status pill (
+              <Mono>none</Mono>/<Mono>draft</Mono>/<Mono>submitted</Mono>) plus a transient
+              autosave indicator — same as everywhere else in Cash Recon, just relocated. The
+              underlying visibility toggle is a plain boolean context (mount sets it, unmount
+              clears it) — no page content passed through context, so there's no render-loop risk
+              from passing JSX/objects through it. <Mono>MobileOrderSheets.jsx</Mono>'s{' '}
+              <Mono>OrderDetail</Mono> drill-in has the same reused-header shape and was not
+              audited as part of this fix.
             </P>
             <H3>Mobile Wages</H3>
             <P>

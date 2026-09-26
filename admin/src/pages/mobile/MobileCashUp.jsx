@@ -13,12 +13,59 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format, addWeeks, subWeeks, parseISO } from 'date-fns'
-import { ChevronLeft, ChevronRight, Check } from 'lucide-react'
+import { ArrowLeft, ChevronLeft, ChevronRight, Check, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { fmt, getMonday, isoWeekDates, StatusBadge, DayView } from '@/pages/CashRecon'
+import { fmt, getMonday, isoWeekDates, StatusBadge, SaveIndicator, DayView } from '@/pages/CashRecon'
+import { useHideMobileHeader, MobileLogoutButton } from '@/components/mobile/MobileShell'
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+// Full-page daily declaration — hides MobileShell's own header and renders
+// one unified header instead (back to the day list, short date + status,
+// Submit/Unsubmit, sign out), rather than stacking DayView's own header
+// underneath the shell's.
+function MobileDayDeclaration({ venueId, date, onBack }) {
+  useHideMobileHeader()
+  const [dayState, setDayState] = useState({})
+
+  return (
+    <div className="h-full flex flex-col">
+      <header
+        className="shrink-0 flex items-center gap-2 border-b px-3 bg-background z-10"
+        style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))', paddingBottom: '0.625rem' }}
+      >
+        <button type="button" onClick={onBack}
+          className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent shrink-0 touch-manipulation"
+          aria-label="Back to Cash Up">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-base font-semibold truncate">{format(parseISO(date), 'd MMM')}</h1>
+          <div className="flex items-center gap-1.5">
+            <StatusBadge status={dayState.status ?? 'none'} />
+            <SaveIndicator saving={dayState.saving} saved={dayState.saved} error={dayState.saveErr} />
+          </div>
+        </div>
+        {!dayState.isSubmitted ? (
+          <button type="button" disabled={dayState.submitPending} onClick={dayState.submit}
+            className="h-10 px-3 rounded-lg bg-green-600 text-white text-sm font-medium touch-manipulation hover:bg-green-700 disabled:opacity-50 shrink-0">
+            {dayState.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit'}
+          </button>
+        ) : (
+          <button type="button" disabled={dayState.submitPending} onClick={dayState.unsubmit}
+            className="h-10 px-3 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0">
+            {dayState.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Unsubmit'}
+          </button>
+        )}
+        <MobileLogoutButton />
+      </header>
+      <div className="flex-1 min-h-0">
+        <DayView venueId={venueId} date={date} hideHeader onStateChange={setDayState} />
+      </div>
+    </div>
+  )
+}
 
 export default function MobileCashUp() {
   const api = useApi()
@@ -37,11 +84,7 @@ export default function MobileCashUp() {
   })
 
   if (selectedDate) {
-    return (
-      <div className="h-full">
-        <DayView venueId={venueId} date={selectedDate} onBack={() => setSelectedDate(null)} />
-      </div>
-    )
+    return <MobileDayDeclaration venueId={venueId} date={selectedDate} onBack={() => setSelectedDate(null)} />
   }
 
   const dates = isoWeekDates(weekStart)

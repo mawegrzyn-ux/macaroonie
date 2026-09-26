@@ -960,7 +960,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
 
 // ── DAY VIEW ─────────────────────────────────────────────────────────────────
 
-export function DayView({ venueId, date, onBack }) {
+export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
   const api = useApi()
   const qc  = useQueryClient()
 
@@ -1170,6 +1170,20 @@ export function DayView({ venueId, date, onBack }) {
   const currentStatus = daily?.status ?? 'none'
   const isSubmitted = currentStatus === 'submitted'
 
+  // hideHeader hosts (e.g. MobileCashUp) render their own header combining
+  // this state with their own back/logout affordances — same "hideHeader +
+  // onStateChange" pattern as ChecklistRunPanel.
+  useEffect(() => {
+    onStateChange?.({
+      status: currentStatus,
+      saving, saved, saveErr,
+      isSubmitted,
+      submitPending: submitMutation.isPending,
+      submit:   () => submitMutation.mutate('submit'),
+      unsubmit: () => submitMutation.mutate('unsubmit'),
+    })
+  }, [currentStatus, saving, saved, saveErr, isSubmitted, submitMutation.isPending, onStateChange])
+
   if (configLoading || dailyLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -1181,38 +1195,40 @@ export function DayView({ venueId, date, onBack }) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-background border-b px-4 pl-14 lg:pl-4 py-3 flex items-center gap-3">
-        <IconBtn onClick={onBack} title="Back to week"><ArrowLeft className="w-5 h-5" /></IconBtn>
-        <div>
-          <div className="text-sm font-semibold">{format(parseISO(date), 'EEEE d MMMM yyyy')}</div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <StatusBadge status={currentStatus} />
-            <SaveIndicator saving={saving} saved={saved} error={saveErr} />
+      {!hideHeader && (
+        <div className="sticky top-0 z-10 bg-background border-b px-4 pl-14 lg:pl-4 py-3 flex items-center gap-3">
+          <IconBtn onClick={onBack} title="Back to week"><ArrowLeft className="w-5 h-5" /></IconBtn>
+          <div>
+            <div className="text-sm font-semibold">{format(parseISO(date), 'EEEE d MMMM yyyy')}</div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <StatusBadge status={currentStatus} />
+              <SaveIndicator saving={saving} saved={saved} error={saveErr} />
+            </div>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {!isSubmitted && (
+              <button
+                type="button"
+                disabled={submitMutation.isPending}
+                onClick={() => submitMutation.mutate('submit')}
+                className="h-10 px-4 rounded-xl bg-green-600 text-white text-sm font-medium touch-manipulation hover:bg-green-700 disabled:opacity-50"
+              >
+                {submitMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit Declaration'}
+              </button>
+            )}
+            {isSubmitted && (
+              <button
+                type="button"
+                disabled={submitMutation.isPending}
+                onClick={() => submitMutation.mutate('unsubmit')}
+                className="h-10 px-4 rounded-xl border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50"
+              >
+                Unsubmit
+              </button>
+            )}
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          {!isSubmitted && (
-            <button
-              type="button"
-              disabled={submitMutation.isPending}
-              onClick={() => submitMutation.mutate('submit')}
-              className="h-10 px-4 rounded-xl bg-green-600 text-white text-sm font-medium touch-manipulation hover:bg-green-700 disabled:opacity-50"
-            >
-              {submitMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit Declaration'}
-            </button>
-          )}
-          {isSubmitted && (
-            <button
-              type="button"
-              disabled={submitMutation.isPending}
-              onClick={() => submitMutation.mutate('unsubmit')}
-              className="h-10 px-4 rounded-xl border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50"
-            >
-              Unsubmit
-            </button>
-          )}
-        </div>
-      </div>
+      )}
 
       <div className="p-4 space-y-4 pb-32">
 

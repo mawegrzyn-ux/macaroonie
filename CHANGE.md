@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-26 — Mobile Cash Up's day view is now a single header]
+
+### Mobile App
+- Fixed the Cash Up mobile module showing two stacked headers when you opened a day's declaration. It's now one header: back arrow, a short date (e.g. "21 Sep"), the day's status and save indicator, a Submit/Unsubmit button, and sign out.
+
+---
+
 ## [2026-09-25 — Mobile Cash Up, Wages and Expenses now always show the venue picker]
 
 ### Mobile App
