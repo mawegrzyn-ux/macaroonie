@@ -1345,6 +1345,7 @@ export default function Help() {
                 ['Wages paid', 'This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
                 ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
                 ['Week expenses', 'Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
+                ['Week summary grid', 'The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then expenses, variance, Net cash, wages paid in cash and Cash to bank. Read only, and always matches the WEEK column of the full grid.'],
               ]}
             />
             <InfoBox type="tip">

@@ -90,7 +90,7 @@ const SC_EFFECTS = [
   { value: 'subtract', label: 'Deduct' },
 ]
 
-function ScEffectBadge({ effect, label, colourClass }) {
+export function ScEffectBadge({ effect, label, colourClass }) {
   if (effect === 'none') return null
   const sign = effect === 'add' ? '+' : '−'
   return <span className={cn('ml-1 text-[10px]', colourClass)}>↳ {label} {sign}</span>
