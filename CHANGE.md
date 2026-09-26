@@ -13,6 +13,8 @@ Migrations are listed where a database change is required.
 
 ### Admin Portal
 - Dashboard widgets can now have their own display options, shown as switches on the widget in Edit layout.
+- Rename any widget (H&S and Cash dashboards) or Overview tile in Edit layout / Customise layout: a Name box with Save, and Use default to go back to the built-in name.
+- Fixed: the Overview's per-tile "Visible to" button never showed in Customise layout.
 
 ### Database
 - Migration `105_dashboard_widget_settings.sql`: `hs_dashboard_widgets.settings` (jsonb).

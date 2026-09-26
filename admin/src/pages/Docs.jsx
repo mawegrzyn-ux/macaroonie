@@ -1443,6 +1443,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               edit in the grid refreshes every balance widget. Change a formula there, never in a
               widget.
             </InfoBox>
+            <H3>Renaming widgets and tiles</H3>
+            <P>
+              <Mono>components/dashboards/TitleRename.jsx</Mono> is the Edit-layout name row used by{' '}
+              <Mono>WidgetCard</Mono> (H&amp;S and Cash dashboards) and the Overview&apos;s{' '}
+              <Mono>TileCard</Mono>. It PATCHes <Mono>title_override</Mono> on explicit Save; an empty
+              name, a name equal to the default, or <strong>Use default</strong> sends{' '}
+              <Mono>null</Mono>, so the built-in title (or the checklist name) shows again. Both PATCH
+              routes already accepted <Mono>title_override</Mono>; there was just no UI for it.
+            </P>
             <H3>Per-widget options (all dashboards)</H3>
             <P>
               <Mono>hs_dashboard_widgets.settings</Mono> (jsonb, default <Mono>{'{}'}</Mono>, migration

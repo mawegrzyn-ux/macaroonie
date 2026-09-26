@@ -29,6 +29,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
 import { ChecklistRunPanel, FREQUENCY_LABELS } from '@/components/checklists/shared'
+import { TitleRename } from '@/components/dashboards/TitleRename'
 import {
   TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
 } from '@/components/foodSafety/shared'
@@ -189,11 +190,12 @@ const MIN_COL_SPAN = 1
 function WidgetCard({
   widget, venueId, ctx, editing, columnCount, typeByKey, renderWidget,
   onRemove, onMoveUp, onMoveDown, isFirst, isLast,
-  onResizeWidth, onResizeRows, onSetting,
+  onResizeWidth, onResizeRows, onSetting, onRename, isRenaming,
 }) {
   const isChecklist = widget.widget_type === 'checklist'
   const meta  = typeByKey[widget.widget_type] ?? { label: widget.widget_type, icon: LayoutGrid, defaultTitle: widget.widget_type }
-  const title = widget.title_override || (isChecklist ? widget.checklist_name : meta.defaultTitle)
+  const defaultTitle = isChecklist ? widget.checklist_name : meta.defaultTitle
+  const title = widget.title_override || defaultTitle
   const Icon  = meta.icon
 
   const template = isChecklist
@@ -275,6 +277,17 @@ function WidgetCard({
           </div>
         )}
       </div>
+
+      {editing && (
+        <TitleRename
+          title={title}
+          defaultTitle={defaultTitle}
+          isCustom={!!widget.title_override}
+          maxLength={200}
+          isSaving={isRenaming}
+          onSave={onRename}
+        />
+      )}
 
       {editing && (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-4 py-2 border-b bg-muted/10 text-xs">
@@ -733,6 +746,8 @@ export function DashboardPage({ config }) {
                     onResizeWidth={delta => resizeWidget(w, 'col_span', Math.min(columnCount, Math.max(1, (w.col_span ?? 1) + delta)))}
                     onResizeRows={rows => resizeWidget(w, 'height_px', heightForRows(Math.min(MAX_ROWS, Math.max(MIN_ROWS, rows))))}
                     onSetting={(key, value) => patchWidget.mutate({ id: w.id, settings: { ...(w.settings ?? {}), [key]: value } })}
+                    onRename={title_override => patchWidget.mutate({ id: w.id, title_override })}
+                    isRenaming={patchWidget.isPending && patchWidget.variables?.id === w.id && 'title_override' in (patchWidget.variables ?? {})}
                   />
                 ))}
               </div>

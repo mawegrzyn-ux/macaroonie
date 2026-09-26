@@ -161,8 +161,9 @@ export default function Help() {
               <strong>Overview</strong> (the home page, sidebar nav) is built from tiles — Quick
               access shortcuts, today's stats, upcoming bookings, venue status, and (if your
               owner has added them) H&amp;S status tiles. An owner or admin can click
-              <strong> Customise layout</strong> to add, remove, resize, reorder, and set which
-              roles can see each tile.
+              <strong> Customise layout</strong> to add, remove, resize, reorder, rename, and set which
+              roles can see each tile. To rename a tile, type in its <strong>Name</strong> box and tap
+              Save; <strong>Use default</strong> puts the built-in name back.
             </P>
             <H3>Available tiles</H3>
             <DataTable
@@ -1299,8 +1300,10 @@ export default function Help() {
             <H3>Dashboards and widgets</H3>
             <P>
               You can create any number of named dashboards, shown as tabs across the top. Click
-              <strong> Edit layout</strong> to add widgets, reorder them, resize their width (in
-              grid columns) and height (in rows), or remove them. A tall widget spans several
+              <strong> Edit layout</strong> to add widgets, rename, reorder, resize their width (in
+              grid columns) and height (in rows), or remove them. To rename a widget, type in its{' '}
+              <strong>Name</strong> box and tap Save; <strong>Use default</strong> puts the built-in
+              name back. The same works on the Cash dashboard. A tall widget spans several
               rows, and shorter widgets stack beside it instead of leaving a gap. Each widget is one of:
             </P>
             <DataTable
