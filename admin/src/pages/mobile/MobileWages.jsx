@@ -20,22 +20,23 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { fmt, parseNum, getMonday, StatusBadge, SaveIndicator } from '@/pages/CashRecon'
 
-function AmountField({ label, value, onChange, onBlur }) {
+// Compact, label-less input for a single-row entry layout — the column
+// labels are rendered once, above the whole list, instead of repeating on
+// every row (see the header row in the entries list below).
+function RowAmountField({ value, onChange, onBlur, ariaLabel }) {
   return (
-    <div className="flex-1 min-w-0">
-      <label className="block text-[11px] font-medium text-muted-foreground mb-1">{label}</label>
-      <input
-        type="number"
-        inputMode="decimal"
-        step="0.01"
-        min="0"
-        placeholder="0.00"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        onBlur={onBlur}
-        className="w-full h-11 rounded-lg border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
-      />
-    </div>
+    <input
+      type="number"
+      inputMode="decimal"
+      step="0.01"
+      min="0"
+      placeholder="0.00"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      onBlur={onBlur}
+      aria-label={ariaLabel}
+      className="w-[84px] h-11 rounded-lg border bg-background px-2 text-sm text-right touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
+    />
   )
 }
 
@@ -254,23 +255,27 @@ export default function MobileWages() {
           {activeStaff.length > 0 ? 'No staff entries yet — add staff below.' : 'No staff configured for this venue yet.'}
         </p>
       ) : (
-        <div className="space-y-2">
-          {entries.map((entry, idx) => (
-            <div key={idx} className="rounded-xl border bg-card p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium truncate" title={entry.name}>{entry.name}</span>
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="flex items-center gap-2 px-3 pt-2 pb-1 text-[11px] font-medium text-muted-foreground">
+            <span className="flex-1 min-w-0">Staff</span>
+            <span className="w-[84px] text-right">To be paid</span>
+            <span className="w-[84px] text-right">Paid</span>
+            <span className="w-9 shrink-0" />
+          </div>
+          <div className="divide-y">
+            {entries.map((entry, idx) => (
+              <div key={idx} className="flex items-center gap-2 px-3 py-2">
+                <span className="flex-1 min-w-0 text-sm font-medium truncate" title={entry.name}>{entry.name}</span>
+                <RowAmountField ariaLabel={`${entry.name} — to be paid`} value={entry.total} onChange={v => updateEntry(idx, 'total', v)} onBlur={handleEntryBlur} />
+                <RowAmountField ariaLabel={`${entry.name} — paid`} value={entry.cash_amount} onChange={v => updateEntry(idx, 'cash_amount', v)} onBlur={handleEntryBlur} />
                 <button type="button" onClick={() => removeEntry(idx)}
                   className="w-9 h-9 shrink-0 flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 touch-manipulation"
                   aria-label={`Remove ${entry.name}`}>
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-              <div className="flex gap-2">
-                <AmountField label="To be paid (£)" value={entry.total} onChange={v => updateEntry(idx, 'total', v)} onBlur={handleEntryBlur} />
-                <AmountField label="Paid (£)" value={entry.cash_amount} onChange={v => updateEntry(idx, 'cash_amount', v)} onBlur={handleEntryBlur} />
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
 

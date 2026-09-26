@@ -5,11 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
-## [2026-09-26 — Mobile Cash Up day header tweaks]
+## [2026-09-26 — Mobile Cash Up day header + Mobile Wages row layout]
 
 ### Mobile App
 - Cash Up's day view header now shows the day and date as "Mon, 21 Sep" instead of just "21 Sep".
 - Removed the status badge from the day header — the Submit/Unsubmit button already shows that.
+- Mobile Wages now shows each staff entry as a single compact row (name + to-be-paid + paid + delete) instead of a taller card with the amount fields on their own line — column labels moved to a header row shown once above the list.
 
 ---
 

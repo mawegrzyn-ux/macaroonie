@@ -1558,8 +1558,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Desktop's <Mono>WagesView</Mono> shows an 8-column grid (Staff / Type / Hours / Rate
               / Total / Cash paid / Notes / Remove) that only survives phone width via{' '}
               <Mono>overflow-x-auto</Mono> horizontal scrolling — not a real reflow. The mobile
-              page instead renders one card per staff entry with just two editable fields:{' '}
-              <Mono>total</Mono> ("To be paid") and <Mono>cash_amount</Mono> ("Paid"). Every other
+              page instead renders a single-row-per-entry table (one bordered card, column labels
+              "Staff" / "To be paid" / "Paid" shown once in a header row rather than repeated per
+              entry) with just two editable fields per row: <Mono>total</Mono> ("To be paid") and{' '}
+              <Mono>cash_amount</Mono> ("Paid"), plus a delete icon — name, both amounts and the
+              delete action all on one line. Every other
               field on an entry (<Mono>entry_type</Mono>, <Mono>hours</Mono>, <Mono>rate</Mono>,{' '}
               <Mono>notes</Mono>) is read from the loaded entry and passed straight back through on
               every save unchanged — this page never edits them, so an hourly entry configured on
