@@ -428,7 +428,7 @@ function weekEntryTotal(e) {
     : parseNum(e.total)
 }
 
-function NumField({ value, onChange, placeholder, prefix, suffix, disabled, label }) {
+function NumField({ value, onChange, placeholder, prefix, suffix, disabled, label, inputClassName = 'w-16' }) {
   return (
     <label className={cn(
       'h-11 flex items-center gap-1 rounded-lg border bg-background px-2 text-sm focus-within:ring-2 focus-within:ring-primary/40',
@@ -443,7 +443,7 @@ function NumField({ value, onChange, placeholder, prefix, suffix, disabled, labe
         placeholder={placeholder}
         disabled={disabled}
         onChange={e => onChange(e.target.value.replace(/[^0-9.]/g, ''))}
-        className="w-16 bg-transparent text-right tabular-nums outline-none touch-manipulation"
+        className={cn(inputClassName, 'bg-transparent text-right tabular-nums outline-none touch-manipulation')}
       />
       {suffix && <span className="text-muted-foreground">{suffix}</span>}
     </label>
@@ -457,7 +457,7 @@ function PayTypeSwitch({ value, onChange, disabled }) {
         <button key={t.value} type="button" disabled={disabled}
           onClick={() => onChange(t.value)}
           className={cn(
-            'h-11 px-3 text-xs font-medium touch-manipulation transition-colors disabled:cursor-default',
+            'h-11 px-2 text-xs font-medium touch-manipulation transition-colors disabled:cursor-default',
             value === t.value ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted',
           )}>
           {t.label}
@@ -642,42 +642,52 @@ function WeekStaffWidget({ venueId, ctx }) {
         <p className="text-sm text-muted-foreground py-2">No staff on this week yet.</p>
       )}
 
-      {entries.map((e, idx) => {
-        const hourly = e.entry_type === 'hourly'
-        return (
-          <div key={e.id ?? `${e.staff_id ?? 'adhoc'}-${idx}`} className="rounded-xl border p-2 space-y-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="flex-1 min-w-0 truncate text-sm font-medium" title={e.name}>
-                {e.name}
-                {!e.staff_id && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">ad-hoc</span>}
-              </span>
-              <span className="text-sm font-semibold tabular-nums shrink-0">{fmt(weekEntryTotal(e))}</span>
-              {!isSubmitted && (
-                <button type="button" aria-label={`Remove ${e.name}`}
-                  onClick={() => edit(entries.filter((_, i) => i !== idx))}
-                  className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 touch-manipulation">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <PayTypeSwitch value={hourly ? 'hourly' : 'fixed'} disabled={isSubmitted} onChange={t => changeType(idx, t)} />
-              {hourly ? (
-                <>
-                  <NumField label="Hours" value={e.hours} placeholder="0" suffix="h" disabled={isSubmitted}
-                    onChange={v => updateEntry(idx, { hours: v })} />
-                  <span className="text-muted-foreground text-sm">×</span>
-                  <NumField label="Rate" value={e.rate} placeholder="0.00" prefix="£" suffix="/hr" disabled={isSubmitted}
-                    onChange={v => updateEntry(idx, { rate: v })} />
-                </>
-              ) : (
-                <NumField label="Amount" value={e.total} placeholder="0.00" prefix="£" disabled={isSubmitted}
-                  onChange={v => updateEntry(idx, { total: v })} />
-              )}
-            </div>
-          </div>
-        )
-      })}
+      {/* One row per person when the widget is wide enough; the row wraps
+          (name first, controls below) only when it isn't. The amount area
+          has a fixed width so pay type, amounts and totals line up. */}
+      {entries.length > 0 && (
+        <div className="rounded-xl border divide-y">
+          {entries.map((e, idx) => {
+            const hourly = e.entry_type === 'hourly'
+            return (
+              <div key={e.id ?? `${e.staff_id ?? 'adhoc'}-${idx}`}
+                className="flex flex-wrap items-center gap-x-2 gap-y-1.5 px-2 py-1.5">
+                <span className="flex-1 basis-28 min-w-[7rem] truncate text-sm font-medium" title={e.name}>
+                  {e.name}
+                  {!e.staff_id && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">ad-hoc</span>}
+                </span>
+                <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
+                  <PayTypeSwitch value={hourly ? 'hourly' : 'fixed'} disabled={isSubmitted} onChange={t => changeType(idx, t)} />
+                  <div className="w-[11.5rem] flex items-center justify-end gap-1">
+                    {hourly ? (
+                      <>
+                        <NumField label="Hours" value={e.hours} placeholder="0" suffix="h" disabled={isSubmitted}
+                          inputClassName="w-10" onChange={v => updateEntry(idx, { hours: v })} />
+                        <span className="text-muted-foreground text-sm">×</span>
+                        <NumField label="Rate" value={e.rate} placeholder="0.00" prefix="£" suffix="/hr" disabled={isSubmitted}
+                          inputClassName="w-11" onChange={v => updateEntry(idx, { rate: v })} />
+                      </>
+                    ) : (
+                      <NumField label="Amount" value={e.total} placeholder="0.00" prefix="£" disabled={isSubmitted}
+                        onChange={v => updateEntry(idx, { total: v })} />
+                    )}
+                  </div>
+                  <span className="w-[4.5rem] text-right text-sm font-semibold tabular-nums shrink-0">{fmt(weekEntryTotal(e))}</span>
+                  {isSubmitted ? (
+                    <span className="w-11 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <button type="button" aria-label={`Remove ${e.name}`}
+                      onClick={() => edit(entries.filter((_, i) => i !== idx))}
+                      className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg text-destructive hover:bg-destructive/10 touch-manipulation">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       <div className="flex items-center justify-between px-1 pt-1 text-sm font-semibold">
         <span>Total wages</span><span className="tabular-nums">{fmt(total)}</span>
