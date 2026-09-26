@@ -50,6 +50,7 @@
 // Weekly wages:
 //   GET    /:venueId/cash-recon/wages/:week_start
 //   PUT    /:venueId/cash-recon/wages/:week_start
+//   PATCH  /:venueId/cash-recon/wages/:week_start/entries/:entryId/paid
 //   POST   /:venueId/cash-recon/wages/:week_start/set-default
 //   POST   /:venueId/cash-recon/wages/:week_start/submit
 //   POST   /:venueId/cash-recon/wages/:week_start/unsubmit
@@ -1784,6 +1785,51 @@ export default async function cashReconRoutes(app) {
           })))}
         `
       }
+
+      return loadWageReport(tx, req.tenantId, report.id)
+    })
+  })
+
+  // PATCH /:venueId/cash-recon/wages/:week_start/entries/:entryId/paid
+  // Marks a single wage entry paid/unpaid — sets cash_amount to the entry's
+  // own `total` when paid, or 0 when not. Deliberately bypasses the
+  // "submitted" lock the whole-tree PUT above enforces: submitting a wage
+  // report finalises the AMOUNTS (total/hours/rate), but ticking staff off
+  // as actually handed their cash is a separate step that routinely happens
+  // after submission, not before it. Locking this too just produced a
+  // silent "Save failed" every time an operator ticked someone off post-
+  // submission — see the mobile Wages "Save failed" gotcha in CLAUDE.md.
+  app.patch('/:venueId/cash-recon/wages/:week_start/entries/:entryId/paid', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req) => {
+    const { venueId, week_start, entryId } = req.params
+    const { paid } = z.object({ paid: z.boolean() }).parse(req.body)
+    const mondayStr = toMondayStr(week_start)
+
+    return withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+
+      const [report] = await tx`
+        SELECT id FROM cash_wage_reports
+         WHERE venue_id   = ${venueId}
+           AND tenant_id  = ${req.tenantId}
+           AND week_start = ${mondayStr}::date
+      `
+      if (!report) throw httpError(404, 'Wage report not found')
+
+      const [entry] = await tx`
+        SELECT id, total FROM cash_wage_entries
+         WHERE id             = ${entryId}
+           AND wage_report_id = ${report.id}
+           AND tenant_id      = ${req.tenantId}
+      `
+      if (!entry) throw httpError(404, 'Wage entry not found')
+
+      await tx`
+        UPDATE cash_wage_entries
+           SET cash_amount = ${paid ? entry.total : 0}
+         WHERE id = ${entryId}
+      `
 
       return loadWageReport(tx, req.tenantId, report.id)
     })

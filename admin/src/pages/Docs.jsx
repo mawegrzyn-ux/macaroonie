@@ -1538,12 +1538,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>onStateChange</Mono>): with <Mono>hideHeader</Mono>, it skips its own header
               div entirely and instead reports <Mono>{'{ status, saving, saved, saveErr, isSubmitted, submitPending, submit, unsubmit }'}</Mono>{' '}
               via <Mono>onStateChange</Mono> on every change, so <Mono>MobileDayDeclaration</Mono>{' '}
-              can render one unified header — back arrow (to the day list), a short{' '}
-              <Mono>d MMM</Mono> date, the status badge and save indicator, a Submit/Unsubmit
-              button, and sign-out — with <Mono>DayView</Mono>'s body rendered underneath it,
-              header-less. The status/save indicator IS the day's submission-status pill (
-              <Mono>none</Mono>/<Mono>draft</Mono>/<Mono>submitted</Mono>) plus a transient
-              autosave indicator — same as everywhere else in Cash Recon, just relocated. The
+              can render one unified header — back arrow (to the day list), an{' '}
+              <Mono>EEE, dd MMM</Mono> date (e.g. "Mon, 21 Sep") with the autosave indicator
+              underneath, a Submit/Unsubmit button, and sign-out — with <Mono>DayView</Mono>'s
+              body rendered underneath it, header-less. No <Mono>StatusBadge</Mono> pill here —
+              the Submit/Unsubmit button's own label and colour already say submitted-vs-not, so
+              a separate status pill next to the date was redundant (the week-list view above
+              keeps its own <Mono>StatusBadge</Mono> per day, since that view has no per-day
+              submit button to read the state off instead). The
               underlying visibility toggle is a plain boolean context (mount sets it, unmount
               clears it) — no page content passed through context, so there's no render-loop risk
               from passing JSX/objects through it. <Mono>MobileOrderSheets.jsx</Mono>'s{' '}
@@ -1556,8 +1558,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Desktop's <Mono>WagesView</Mono> shows an 8-column grid (Staff / Type / Hours / Rate
               / Total / Cash paid / Notes / Remove) that only survives phone width via{' '}
               <Mono>overflow-x-auto</Mono> horizontal scrolling — not a real reflow. The mobile
-              page instead renders one card per staff entry with just two editable fields:{' '}
-              <Mono>total</Mono> ("To be paid") and <Mono>cash_amount</Mono> ("Paid"). Every other
+              page instead renders a single-row-per-entry table (one bordered card, column labels
+              "Staff" / "To be paid" / "Paid" shown once in a header row rather than repeated per
+              entry) with two controls per row: <Mono>total</Mono> ("To be paid", a number field)
+              and a "Paid" <b>checkbox</b> — not a second amount field, plus a delete icon. Ticking
+              "Paid" counts the entry's full <Mono>total</Mono> toward cash reconciliation;
+              unticked counts nothing. The checkbox is a UI simplification over the underlying{' '}
+              <Mono>cash_amount</Mono> column (which can still hold a partial amount on desktop) —{' '}
+              <Mono>buildPayload()</Mono> derives <Mono>cash_amount</Mono> as{' '}
+              <Mono>paid ? total : 0</Mono> from a local <Mono>paid</Mono> boolean, itself
+              initialised from the loaded entry as <Mono>cash_amount &gt; 0</Mono>. Every other
               field on an entry (<Mono>entry_type</Mono>, <Mono>hours</Mono>, <Mono>rate</Mono>,{' '}
               <Mono>notes</Mono>) is read from the loaded entry and passed straight back through on
               every save unchanged — this page never edits them, so an hourly entry configured on
@@ -1566,7 +1576,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               active-staff roster, in that order), same add-staff (from the staff list, or
               ad-hoc)/remove/submit/unsubmit/"Set as default" actions, same{' '}
               <Mono>/venues/:id/cash-recon/wages/:week_start[/submit|/unsubmit|/set-default]</Mono>{' '}
-              endpoints.
+              endpoints for everything except marking paid.
+            </P>
+            <P>
+              <b>Editing a submitted report.</b> The whole-tree{' '}
+              <Mono>PUT /venues/:id/cash-recon/wages/:week_start</Mono> rejects any save once the
+              week's report status is <Mono>submitted</Mono> ("unsubmit first") — this locks{' '}
+              <Mono>total</Mono>/<Mono>hours</Mono>/<Mono>rate</Mono>/staff list as intended, but
+              marking staff actually paid in cash is a separate step that routinely happens{' '}
+              <i>after</i> submission, not before it. So the "Paid" checkbox does not go through
+              that endpoint once submitted — it calls a dedicated{' '}
+              <Mono>PATCH /venues/:id/cash-recon/wages/:week_start/entries/:entryId/paid</Mono>{' '}
+              (body <Mono>{'{ paid: boolean }'}</Mono>) that sets just that one entry's{' '}
+              <Mono>cash_amount</Mono> to its own <Mono>total</Mono> (paid) or <Mono>0</Mono> (not
+              paid), with no submitted-status check at all. Before submission, the checkbox still
+              goes through the normal debounced whole-tree <Mono>PUT</Mono> like any other field.
+              "To be paid" editing and add/remove staff are disabled (add/remove hidden entirely)
+              on this page while the report is submitted, with a one-line note explaining why —
+              closing off the "type into a locked field, autosave silently 422s, 'Save failed'
+              with no explanation" trap that existed before this. Desktop's <Mono>WagesView</Mono>{' '}
+              does not yet have either the checkbox or the submitted-input lock — see
+              CLAUDE.md's Outstanding items.
             </P>
           </section>
 

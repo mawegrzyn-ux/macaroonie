@@ -5,6 +5,25 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-26 — Mobile Wages "Paid" checkbox + submitted-report fixes]
+
+### Mobile App
+- Mobile Wages' "Paid" field is now a checkbox instead of a second amount field — ticking it counts the staff member's full "To be paid" amount toward cash reconciliation, unticking counts nothing.
+- The "Paid" checkbox now works correctly even after a week's wage report has been submitted, fixing a bug where ticking it (or editing any other wages field) on a submitted report silently failed to save ("Save failed", no explanation).
+- "To be paid" editing and adding/removing staff are now disabled while a report is submitted, with a note explaining why, instead of silently failing to save.
+
+### API
+- New `PATCH /venues/:id/cash-recon/wages/:week_start/entries/:entryId/paid` endpoint marks a single wage entry paid or unpaid, independent of the report's submitted status.
+
+## [2026-09-26 — Mobile Cash Up day header + Mobile Wages row layout]
+
+### Mobile App
+- Cash Up's day view header now shows the day and date as "Mon, 21 Sep" instead of just "21 Sep".
+- Removed the status badge from the day header — the Submit/Unsubmit button already shows that.
+- Mobile Wages now shows each staff entry as a single compact row (name + to-be-paid + paid + delete) instead of a taller card with the amount fields on their own line — column labels moved to a header row shown once above the list.
+
+---
+
 ## [2026-09-26 — Mobile Cash Up's day view is now a single header]
 
 ### Mobile App

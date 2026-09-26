@@ -1321,7 +1321,11 @@ export default function Help() {
               instead of a side panel. <strong>Cash Up</strong> is the fourth: a plain list of the
               week's days with status, income and variance at a glance — tap a day to open the
               full declaration. <strong>Wages</strong> is the fifth: this week's staff list
-              stripped down to just names, what's owed, and what's been paid in cash.
+              stripped down to just names, what's owed, and a <strong>Paid</strong> checkbox —
+              tick it once you've actually handed someone their cash, and that amount counts
+              toward this week's cash reconciliation; leave it unticked and it doesn't. You can
+              still tick or untick "Paid" after you've submitted the week's report — submitting
+              only locks the amounts themselves, not who's been paid since.
             </P>
             <P>
               If you open the regular desktop admin portal on a phone held upright, you'll see a
