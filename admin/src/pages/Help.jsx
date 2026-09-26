@@ -163,7 +163,7 @@ export default function Help() {
                 ['Today\'s stats', 'Bookings today, covers today, deposit revenue, upcoming today.'],
                 ['Upcoming bookings', 'Today\'s remaining bookings from now, soonest first.'],
                 ['Venues status', 'One card per venue with an active/inactive dot and table count.'],
-                ['H&S checks today', 'Combined Checklists + Food safety status for today. Below the overall badge, every checklist is listed by name (done/not done), plus one line each for fridge/freezer checks, hot/cold hold checks, and cooking checks (only the categories you actually have configured) — grouped by venue if you have more than one.'],
+                ['H&S checks today', 'Combined Checklists + Food safety status for today. Below the overall badge, every checklist is listed by name (done/not done), plus one line each for fridge/freezer checks, hot/cold hold checks, and cooking checks (only the categories you actually have configured), and a delivery checks line showing how many deliveries were logged that day — grouped by venue if you have more than one. A delivery that failed a check with no corrective action noted turns the day red.'],
                 ['Week\'s H&S status', 'The same status as a Monday-to-Sunday strip for the current week — one coloured cell per day.'],
               ]}
             />

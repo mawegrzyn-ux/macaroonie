@@ -1823,8 +1823,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>unresolved</Mono> is computed separately: any row in fs_temp_logs /
               fs_hold_checks / fs_cooking_checks for that date with
               <Mono> is_within_range = false AND corrective_action IS NULL</Mono> — the exact same
-              predicate <Mono>EndOfDayReview</Mono> already uses client-side. Deliveries are
-              excluded entirely (no "expected count" concept — logged ad hoc).
+              predicate <Mono>EndOfDayReview</Mono> already uses client-side. Deliveries are logged
+              ad hoc (no schedule, so no "expected count"), so they never count toward
+              expected/completed — but a <Mono>fs_delivery_checks</Mono> row for that date that
+              failed any check (<Mono>NOT (packaging_ok AND damage_ok AND quality_ok AND temp_ok AND
+              accepted)</Mono>) with <Mono>corrective_action IS NULL</Mono> does count toward{' '}
+              <Mono>unresolved</Mono>, so a rejected delivery nobody dealt with turns the day red.
             </P>
             <P>
               Each venue result also carries a per-check-type breakdown, used by the{' '}
@@ -1835,8 +1839,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>categories: [{'{'}key, label, expected, completed, unresolved, status{'}'}]</Mono>{' '}
               — one aggregate entry each for equipment/hold/cooking, included only when that
               category has <Mono>expected &gt; 0</Mono> for the venue (skips clutter for check
-              types the venue hasn't configured). This is computed from data already loaded for the
-              existing expected/completed sums — no extra queries.
+              types the venue hasn't configured). A fourth <Mono>delivery</Mono> category appears
+              only when at least one delivery was logged that day; its expected/completed both equal
+              the number logged, it carries a <Mono>summary</Mono> string ("3 logged · 1 issue")
+              that the tile shows instead of the usual <Mono>completed/expected</Mono> fraction, and
+              its status is simply red (any unresolved) or green.
             </P>
             <H3>Status derivation</H3>
             <DataTable

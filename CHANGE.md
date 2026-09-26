@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Delivery checks in Overview H&S status + Action log widget fix]
+
+### Admin Portal
+- The Overview page's "H&S checks today" and "Week's H&S status" tiles now include delivery checks. Today's tile shows a "Delivery checks — N logged" line, and a delivery that failed a check with no corrective action turns the day red.
+- Fixed: adding an "Action log" widget to an H&S Dashboard always failed. The API now accepts it.
+
 ## [2026-09-27 — Sidebar always collapses to a hamburger on tablets]
 
 ### Admin Portal
