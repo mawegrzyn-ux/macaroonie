@@ -159,13 +159,21 @@ export default function AppShell() {
 
   const [isFullscreen, setIsFullscreen] = useState(false)
   useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    const handler = () => setIsFullscreen(!!(document.fullscreenElement || document.webkitFullscreenElement))
     document.addEventListener('fullscreenchange', handler)
-    return () => document.removeEventListener('fullscreenchange', handler)
+    document.addEventListener('webkitfullscreenchange', handler)
+    return () => {
+      document.removeEventListener('fullscreenchange', handler)
+      document.removeEventListener('webkitfullscreenchange', handler)
+    }
   }, [])
   function toggleFullscreen() {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.()
-    else document.exitFullscreen?.()
+    const el = document.documentElement
+    if (!(document.fullscreenElement || document.webkitFullscreenElement)) {
+      (el.requestFullscreen ?? el.webkitRequestFullscreen)?.call(el)
+    } else {
+      (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document)
+    }
   }
 
   const { data: venues = [] } = useQuery({
@@ -537,12 +545,30 @@ export default function AppShell() {
           )}
         </div>
       </aside>
+      {IS_TOUCH && (
+        // Touch devices: a slim, always-present rail holding the burger, so
+        // the button never floats over page content (every page's own
+        // header starts to the right of it). The sidebar itself still
+        // opens as an overlay.
+        <div className="w-14 shrink-0 border-r bg-background flex flex-col items-center">
+          <div className="h-14 w-full flex items-center justify-center border-b">
+            <button
+              type="button"
+              className="w-11 h-11 flex items-center justify-center rounded-md hover:bg-accent touch-manipulation"
+              onClick={() => setOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         <Outlet />
       </main>
-      {!open && (
+      {!open && !IS_TOUCH && (
         <button
-          className={cn('fixed top-3.5 left-3.5 z-40 p-2 rounded-md bg-background border shadow-sm', !IS_TOUCH && 'lg:hidden')}
+          className="fixed top-2.5 left-3.5 z-40 p-2 rounded-md bg-background border shadow-sm lg:hidden"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
         >

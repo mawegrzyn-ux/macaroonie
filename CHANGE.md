@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — iPad fixes: menu button, H&S Dashboard layout and full screen]
+
+### Admin Portal
+- On tablets and other touch screens, the menu button now sits in a narrow strip down the left edge instead of floating over the page, so it no longer covers page titles such as "Overview". The button is also better aligned with page headers.
+- H&S Dashboard: the date selector and dashboard tabs now stay on one row; the dashboard uses the full screen width (no empty strip on the left); and a dashboard with more columns than fit on screen shows fewer columns instead of running off the edge.
+- H&S Dashboard: Full screen now works on iPad, including when the app is added to the home screen.
+
 ## [2026-09-27 — Petty cash: paid by card]
 
 ### Cash Reconciliation

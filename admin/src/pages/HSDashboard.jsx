@@ -12,7 +12,7 @@
 // Food safety pages via their shared components, so there is only
 // one implementation of each check type anywhere in the app.
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import {
@@ -179,9 +179,12 @@ const MIN_COL_SPAN = 1
 const MIN_HEIGHT_PX = 240
 const MAX_HEIGHT_PX = 1200
 const HEIGHT_STEP_PX = 120
+// Narrowest a grid column may get before the dashboard shows fewer columns.
+const MIN_COL_WIDTH = 240
+const GRID_GAP = 16
 
 function WidgetCard({
-  widget, venueId, date, editing, columnCount,
+  widget, venueId, date, editing, columnCount, visibleColumns = columnCount,
   onRemove, onMoveUp, onMoveDown, isFirst, isLast,
   onResizeWidth, onResizeHeight,
 }) {
@@ -206,7 +209,7 @@ function WidgetCard({
 
   return (
     <div
-      style={{ gridColumn: `span ${colSpan}` }}
+      style={{ gridColumn: `span ${Math.min(colSpan, visibleColumns)}` }}
       className={cn(
         'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
         editing && 'ring-1 ring-primary/30 border-dashed',
@@ -329,17 +332,58 @@ export default function HSDashboard() {
   const [dashModal, setDashModal] = useState(null) // 'new' | dashboard row | null
   const [confirmDeleteDash, setConfirmDeleteDash] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
-  const [isFullscreen, setIsFullscreen] = useState(false)
+  // Full screen: the real Fullscreen API where the browser offers it
+  // (webkit-prefixed on iPad Safari), otherwise a "pseudo" full screen that
+  // pins the dashboard over the whole app (fixed, above the sidebar rail).
+  // An iPad home-screen app has no Fullscreen API at all, and there the
+  // pseudo mode is effectively full screen anyway since there's no browser
+  // chrome to hide.
+  const [nativeFullscreen, setNativeFullscreen] = useState(false)
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false)
+  const isFullscreen = nativeFullscreen || pseudoFullscreen
 
   useEffect(() => {
-    function handler() { setIsFullscreen(document.fullscreenElement === containerRef.current) }
+    function handler() {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement
+      setNativeFullscreen(!!fsEl && fsEl === containerRef.current)
+    }
     document.addEventListener('fullscreenchange', handler)
-    return () => document.removeEventListener('fullscreenchange', handler)
+    document.addEventListener('webkitfullscreenchange', handler)
+    return () => {
+      document.removeEventListener('fullscreenchange', handler)
+      document.removeEventListener('webkitfullscreenchange', handler)
+    }
   }, [])
   function toggleFullscreen() {
-    if (!document.fullscreenElement) containerRef.current?.requestFullscreen?.()
-    else document.exitFullscreen?.()
+    if (pseudoFullscreen) { setPseudoFullscreen(false); return }
+    if (nativeFullscreen) {
+      (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document)
+      return
+    }
+    const el = containerRef.current
+    const request = el?.requestFullscreen ?? el?.webkitRequestFullscreen
+    if (!request) { setPseudoFullscreen(true); return }
+    try {
+      const result = request.call(el)
+      if (result && typeof result.catch === 'function') result.catch(() => setPseudoFullscreen(true))
+    } catch {
+      setPseudoFullscreen(true)
+    }
   }
+
+  // The grid can't show more columns than fit: each column needs at least
+  // MIN_COL_WIDTH, so on a narrower screen (e.g. a portrait iPad) a
+  // 4-column dashboard drops to fewer columns instead of overflowing.
+  const [gridWidth, setGridWidth] = useState(0)
+  const gridObserverRef = useRef(null)
+  const gridRef = useCallback(node => {
+    gridObserverRef.current?.disconnect()
+    gridObserverRef.current = null
+    if (!node || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(entries => setGridWidth(entries[0].contentRect.width))
+    ro.observe(node)
+    gridObserverRef.current = ro
+  }, [])
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -430,6 +474,9 @@ export default function HSDashboard() {
   const activeDashboard = dashboards.find(d => d.id === activeDashboardId) ?? null
   const activeIdx = dashboards.findIndex(d => d.id === activeDashboardId)
   const columnCount = activeDashboard?.column_count ?? 4
+  const visibleColumns = gridWidth > 0
+    ? Math.max(1, Math.min(columnCount, Math.floor((gridWidth + GRID_GAP) / (MIN_COL_WIDTH + GRID_GAP))))
+    : columnCount
 
   function setColumnCount(delta) {
     if (!activeDashboard) return
@@ -447,10 +494,12 @@ export default function HSDashboard() {
       ref={containerRef}
       className={cn(
         'p-4 md:p-6 bg-background overflow-y-auto',
-        isFullscreen ? 'w-screen h-screen' : 'h-full w-[90%] mx-auto',
+        pseudoFullscreen ? 'fixed inset-0 z-50'
+          : nativeFullscreen ? 'w-screen h-screen'
+          : 'h-full w-full',
       )}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+        <h1 className="text-2xl font-bold flex items-center gap-2 max-lg:notouch:pl-10">
           <LayoutGrid className="w-6 h-6 text-primary" /> H&amp;S Dashboard
         </h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -478,15 +527,17 @@ export default function HSDashboard() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 mb-5">
+      {/* Date navigator and dashboard tabs share one row (from sm up). The tabs
+          scroll sideways if they run out of room rather than wrapping below. */}
+      <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 mb-5">
         <div className="flex items-center gap-1.5 shrink-0">
           <button type="button" onClick={() => goDay(-1)}
             className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg border hover:bg-accent touch-manipulation">
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="relative">
-            <button type="button" className="w-60 shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg hover:bg-accent touch-manipulation text-center whitespace-nowrap overflow-hidden text-ellipsis">
-              {isToday ? 'Today' : format(parseISO(date), 'EEEE d MMMM yyyy')}
+            <button type="button" className="w-44 shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg hover:bg-accent touch-manipulation text-center whitespace-nowrap overflow-hidden text-ellipsis">
+              {isToday ? 'Today' : format(parseISO(date), 'EEE d MMM yyyy')}
             </button>
             <input type="date" value={date} onChange={e => setDate(e.target.value)}
               className="absolute inset-0 opacity-0 cursor-pointer w-full" />
@@ -504,7 +555,7 @@ export default function HSDashboard() {
         </div>
 
         {dashboards.length > 0 && (
-          <div className="flex items-center gap-1 overflow-x-auto min-w-0">
+          <div className="flex-1 flex items-center gap-1 overflow-x-auto min-w-0">
             {dashboards.map(d => (
               <button key={d.id} type="button" onClick={() => setActiveDashboardId(d.id)} title={d.name}
                 className={cn(
@@ -607,10 +658,10 @@ export default function HSDashboard() {
               </button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div ref={gridRef}>
               <div
-                className="grid gap-4"
-                style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(240px, 1fr))` }}>
+                className="grid"
+                style={{ gap: GRID_GAP, gridTemplateColumns: `repeat(${visibleColumns}, minmax(0, 1fr))` }}>
                 {widgets.map((w, idx) => (
                   <WidgetCard
                     key={w.id}
@@ -619,6 +670,7 @@ export default function HSDashboard() {
                     date={date}
                     editing={editing}
                     columnCount={columnCount}
+                    visibleColumns={visibleColumns}
                     isFirst={idx === 0}
                     isLast={idx === widgets.length - 1}
                     onMoveUp={() => moveWidget(idx, -1)}

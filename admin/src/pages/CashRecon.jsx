@@ -633,7 +633,7 @@ function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart,
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-background border-b px-4 pl-14 lg:pl-4 py-2 flex items-center gap-2 shrink-0">
+      <div className="sticky top-0 z-20 bg-background border-b px-4 max-lg:notouch:pl-14 py-2 flex items-center gap-2 shrink-0">
         <VenueSelector venues={venues} venueId={venueId} setVenueId={setVenueId} />
         <div className="flex items-center gap-1">
           <button type="button" onClick={() => setWeekStart(getMonday(subWeeks(parseISO(weekStart), 1)))}
@@ -893,7 +893,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-background border-b px-4 pl-14 lg:pl-4 py-3 flex items-center gap-2">
+      <div className="sticky top-0 z-10 bg-background border-b px-4 max-lg:notouch:pl-14 py-3 flex items-center gap-2">
         <VenueSelector venues={venues} venueId={venueId} setVenueId={setVenueId} />
         <div className="flex items-center gap-1 ml-auto">
           <IconBtn onClick={() => setWeekStart(format(subWeeks(parseISO(weekStart), 1), 'yyyy-MM-dd'))} title="Previous week">
@@ -1256,7 +1256,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header */}
       {!hideHeader && (
-        <div className="sticky top-0 z-10 bg-background border-b px-4 pl-14 lg:pl-4 py-3 flex items-center gap-3">
+        <div className="sticky top-0 z-10 bg-background border-b px-4 max-lg:notouch:pl-14 py-3 flex items-center gap-3">
           <IconBtn onClick={onBack} title="Back to week"><ArrowLeft className="w-5 h-5" /></IconBtn>
           <div>
             <div className="text-sm font-semibold">{format(parseISO(date), 'EEEE d MMMM yyyy')}</div>
@@ -2003,7 +2003,7 @@ function WagesView({ venueId, weekStart, onBack }) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-background border-b px-4 pl-14 lg:pl-4 py-3 flex items-center gap-3">
+      <div className="sticky top-0 z-10 bg-background border-b px-4 max-lg:notouch:pl-14 py-3 flex items-center gap-3">
         <IconBtn onClick={onBack} title="Back"><ArrowLeft className="w-5 h-5" /></IconBtn>
         <div>
           <div className="text-sm font-semibold">Wages — Week of {format(parseISO(weekStart), 'd MMMM yyyy')}</div>
@@ -2254,7 +2254,7 @@ function SettingsView({ venueId, onBack }) {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-background border-b px-4 pl-14 lg:pl-4 py-3 flex items-center gap-3">
+      <div className="sticky top-0 z-10 bg-background border-b px-4 max-lg:notouch:pl-14 py-3 flex items-center gap-3">
         <IconBtn onClick={onBack} title="Back"><ArrowLeft className="w-5 h-5" /></IconBtn>
         <span className="text-sm font-semibold">Cash Recon Settings</span>
       </div>

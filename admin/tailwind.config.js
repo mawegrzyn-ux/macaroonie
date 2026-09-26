@@ -1,3 +1,5 @@
+import plugin from 'tailwindcss/plugin'
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
@@ -31,5 +33,15 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    // `notouch:` applies only on non-touch devices. main.jsx sets
+    // <html data-touch> when navigator.maxTouchPoints > 0 (the same IS_TOUCH
+    // test AppShell uses), so this matches AppShell's sidebar behaviour
+    // exactly. Main use: `max-lg:notouch:pl-14` reserves room for the
+    // floating hamburger, which only exists on non-touch screens below lg
+    // (touch devices get a dedicated burger rail instead).
+    plugin(({ addVariant }) => {
+      addVariant('notouch', ':root:not([data-touch]) &')
+    }),
+  ],
 }
