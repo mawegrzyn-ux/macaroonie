@@ -20,12 +20,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, addWeeks, subWeeks, parseISO } from 'date-fns'
 import {
   ChevronLeft, ChevronRight, Check, Loader2,
-  Users, Receipt, Table2, Scale, CalendarDays, LayoutGrid, ListChecks,
+  Users, Receipt, Table2, Scale, CalendarDays, LayoutGrid, ListChecks, Sigma,
+  AlertTriangle,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  fmt, parseNum, getMonday, isoWeekDates, StatusBadge, CardBadge,
+  fmt, parseNum, getMonday, isoWeekDates, StatusBadge, CardBadge, ScEffectBadge,
   SpreadsheetView, useReconWeek,
 } from '@/pages/CashRecon'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
@@ -38,6 +39,7 @@ export const CASH_WIDGET_TYPES = [
   { key: 'cash_wages_paid',   label: 'Wages paid',             icon: Users,        defaultTitle: 'Wages paid' },
   { key: 'cash_petty_cash',   label: 'Petty cash',             icon: Receipt,      defaultTitle: 'Petty cash' },
   { key: 'cash_week_expenses', label: 'Week expenses',         icon: ListChecks,   defaultTitle: 'Expenses this week' },
+  { key: 'cash_week_summary_grid', label: 'Week summary grid', icon: Sigma,        defaultTitle: 'Week summary', flush: true },
 ]
 
 function todayStr() {
@@ -238,6 +240,113 @@ function ReconGridWidget({ venueId, ctx }) {
   )
 }
 
+// ── Week summary grid ──────────────────────────────────────────
+
+// The reconciliation grid's rows with only its WEEK column: every income
+// source, SC source and payment channel, the section totals, expenses and
+// the summary rows down to Cash to bank. Read-only; every figure comes from
+// reconCalc() so it always matches the full grid's WEEK column.
+function SummaryRow({ label, value, strong, tone, muted, children }) {
+  const n = parseNum(value)
+  return (
+    <tr className={cn('border-b border-border/40', strong && 'bg-muted/10 border-border', muted && 'text-muted-foreground')}>
+      <td className={cn('px-3 py-1.5 text-xs', strong ? 'font-bold' : 'font-medium')}>
+        <span className="flex items-center gap-1 min-w-0">
+          <span className="truncate">{label}</span>
+          {children}
+        </span>
+      </td>
+      <td className={cn(
+        'px-3 py-1.5 text-xs text-right tabular-nums whitespace-nowrap',
+        strong ? 'font-bold' : 'font-semibold',
+        n === 0 && !strong && 'text-muted-foreground/40',
+        tone === 'var' && (n > 0 ? 'text-amber-600' : n < 0 ? 'text-red-600' : 'text-green-700'),
+      )}>
+        {n !== 0 || strong || tone ? fmt(n) : '—'}
+      </td>
+    </tr>
+  )
+}
+
+function SummarySection({ label }) {
+  return (
+    <tr className="bg-muted/70 border-y border-border">
+      <td colSpan={2} className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </td>
+    </tr>
+  )
+}
+
+function WeekSummaryGridWidget({ venueId, ctx }) {
+  const { detail, isLoading, calc } = useReconWeek(venueId, ctx.weekStart)
+  if (isLoading && !detail) return <Loading />
+  const { activeSources, activeSc, activeChannels, weekTotal, weekDayTotal } = calc
+  const scTotal = activeSc.reduce((s, r) => s + weekTotal('sc', r.id), 0)
+  const card = calc.weekCardExpenses()
+  const wagesMismatch = parseNum(detail?.wages_total) !== parseNum(detail?.wages_cash_total)
+
+  return (
+    <table className="w-full border-collapse text-sm">
+      <thead className="sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border))]">
+        <tr>
+          <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">
+            {calc.visibleDates.filter(d => detail?.days?.[d]?.status === 'submitted').length}/{calc.visibleDates.length} days submitted
+          </th>
+          <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground bg-muted/30 w-[110px]">WEEK</th>
+        </tr>
+      </thead>
+      <tbody>
+        <SummarySection label="Income" />
+        {activeSources.map(s => (
+          <SummaryRow key={s.id} label={s.name} value={weekTotal('income', s.id)}>
+            {s.exclude_from_recon && <span className="text-[10px] text-muted-foreground shrink-0">(excl.)</span>}
+          </SummaryRow>
+        ))}
+        <SummaryRow label="Total Income" value={weekDayTotal('income')} strong />
+
+        {activeSc.length > 0 && <>
+          <SummarySection label="Service Charges" />
+          {activeSc.map(s => (
+            <SummaryRow key={s.id} label={s.name} value={weekTotal('sc', s.id)}>
+              <ScEffectBadge effect={s.takings_effect} label="takings" colourClass="text-amber-600 shrink-0" />
+              <ScEffectBadge effect={s.income_effect} label="income" colourClass="text-emerald-600 shrink-0" />
+            </SummaryRow>
+          ))}
+          <SummaryRow label="Total SC" value={scTotal} strong />
+        </>}
+
+        <SummarySection label="Takings" />
+        {activeChannels.map(c => (
+          <SummaryRow key={c.id} label={c.name} value={weekTotal('takings', c.id)}>
+            {c.counts_as_cash === false && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">Non-cash</span>
+            )}
+          </SummaryRow>
+        ))}
+        <SummaryRow label="Total Takings" value={weekDayTotal('takings')} strong />
+
+        <SummarySection label="Expenses" />
+        <SummaryRow label="Total Expenses (cash)" value={calc.weekExpenses()} />
+        {card > 0 && <SummaryRow label="Paid by card (not in recon)" value={card} muted />}
+
+        <SummarySection label="Summary" />
+        <SummaryRow label="Variance" value={calc.weekVariance()} tone="var" />
+        <SummaryRow label="Net Cash" value={calc.weekNetCash()} />
+        <SummaryRow label="Wages (cash paid)" value={calc.weekCashWages()}>
+          {wagesMismatch && (
+            <AlertTriangle
+              className="w-3.5 h-3.5 text-amber-600 shrink-0"
+              title={`Total wages ${fmt(parseNum(detail?.wages_total))} does not match cash paid ${fmt(parseNum(detail?.wages_cash_total))}`}
+            />
+          )}
+        </SummaryRow>
+        <SummaryRow label="Cash to bank" value={calc.weekNetPosition()} strong />
+      </tbody>
+    </table>
+  )
+}
+
 // ── Wages paid ─────────────────────────────────────────────────
 
 function entryTotal(e) {
@@ -411,6 +520,7 @@ export function renderCashWidget({ widget, venueId, ctx }) {
     case 'cash_wages_paid':   return <WagesPaidWidget venueId={venueId} ctx={ctx} />
     case 'cash_petty_cash':   return <PettyCashWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_expenses': return <WeekExpensesWidget venueId={venueId} ctx={ctx} />
+    case 'cash_week_summary_grid': return <WeekSummaryGridWidget venueId={venueId} ctx={ctx} />
     default:                  return null
   }
 }

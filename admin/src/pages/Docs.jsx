@@ -1418,6 +1418,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['cash_wages_paid', 'GET /wages/:week_start + PATCH .../entries/:id/paid (works when submitted)'],
                 ['cash_petty_cash', 'PettyCashPanel (exported from MobileExpenses.jsx) for ctx.selectedDay'],
                 ['cash_week_expenses', 'useReconWeek() — detail.days[date].expenses grouped by day (read-only), dayExpenses/weekExpenses/weekCardExpenses totals; day heading sets ctx.selectedDay. Added in migration 102 (CHECK constraint only)'],
+                ['cash_week_summary_grid', 'useReconWeek() — the SpreadsheetView row set with only the WEEK column (weekTotal per source/SC/channel, weekDayTotal, weekExpenses, weekCardExpenses, weekVariance, weekNetCash, weekCashWages, weekNetPosition); read-only. ScEffectBadge exported from CashRecon.jsx for it. Added in migration 103 (CHECK constraint only)'],
               ]}
             />
             <InfoBox type="warn">

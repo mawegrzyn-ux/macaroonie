@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Cash Dashboard: week summary grid widget]
+
+### Cash Reconciliation
+- New **Week summary grid** widget for the Cash dashboard: the reconciliation grid's rows (income sources, service charges, payment channels, expenses, variance, Net cash, wages, Cash to bank) with only the week total, no individual days. Read only.
+
+### Database
+- Migration `103_cash_week_summary_grid_widget.sql`: adds `cash_week_summary_grid` to the widget type check.
+
 ## [2026-09-27 — Cash Dashboard: week expenses widget]
 
 ### Cash Reconciliation
