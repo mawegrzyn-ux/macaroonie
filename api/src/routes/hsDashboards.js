@@ -57,7 +57,7 @@ import { httpError } from '../middleware/error.js'
 
 export const WIDGET_TYPES_BY_KIND = {
   hs:   ['checklist', 'temp_checks', 'delivery_checks', 'hold_checks', 'cooking_checks', 'action_log'],
-  cash: ['cash_wages_paid', 'cash_petty_cash', 'cash_recon_grid', 'cash_week_balance', 'cash_day_balance', 'cash_day_tiles'],
+  cash: ['cash_wages_paid', 'cash_petty_cash', 'cash_recon_grid', 'cash_week_balance', 'cash_day_balance', 'cash_day_tiles', 'cash_week_expenses'],
 }
 
 const DashboardBody = z.object({

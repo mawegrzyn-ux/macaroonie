@@ -1344,6 +1344,7 @@ export default function Help() {
                 ['Reconciliation grid', 'The full week grid from Cash Recon. You can type into it the same way; tap a day heading to select that day.'],
                 ['Wages paid', 'This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
                 ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
+                ['Week expenses', 'Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
               ]}
             />
             <InfoBox type="tip">

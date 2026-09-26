@@ -20,12 +20,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, addWeeks, subWeeks, parseISO } from 'date-fns'
 import {
   ChevronLeft, ChevronRight, Check, Loader2,
-  Users, Receipt, Table2, Scale, CalendarDays, LayoutGrid,
+  Users, Receipt, Table2, Scale, CalendarDays, LayoutGrid, ListChecks,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  fmt, parseNum, getMonday, isoWeekDates, StatusBadge,
+  fmt, parseNum, getMonday, isoWeekDates, StatusBadge, CardBadge,
   SpreadsheetView, useReconWeek,
 } from '@/pages/CashRecon'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
@@ -37,6 +37,7 @@ export const CASH_WIDGET_TYPES = [
   { key: 'cash_recon_grid',   label: 'Reconciliation grid',    icon: Table2,       defaultTitle: 'Reconciliation', flush: true },
   { key: 'cash_wages_paid',   label: 'Wages paid',             icon: Users,        defaultTitle: 'Wages paid' },
   { key: 'cash_petty_cash',   label: 'Petty cash',             icon: Receipt,      defaultTitle: 'Petty cash' },
+  { key: 'cash_week_expenses', label: 'Week expenses',         icon: ListChecks,   defaultTitle: 'Expenses this week' },
 ]
 
 function todayStr() {
@@ -329,6 +330,76 @@ function PettyCashWidget({ venueId, ctx }) {
   )
 }
 
+// ── Week expenses ──────────────────────────────────────────────
+
+// Every expense logged in the week, grouped by day, from the same
+// week-detail response the balance widgets use (so it refreshes whenever
+// an expense is added in the petty cash widget or Cash Recon). Tapping a
+// day heading selects that day, which the petty cash widget follows.
+function WeekExpensesWidget({ venueId, ctx }) {
+  const { config, detail, isLoading, calc } = useReconWeek(venueId, ctx.weekStart)
+  if (isLoading && !detail) return <Loading />
+
+  const catById = Object.fromEntries((config?.expense_categories ?? []).map(c => [c.id, c]))
+  const days = calc.dates
+    .map(date => ({ date, expenses: detail?.days?.[date]?.expenses ?? [] }))
+    .filter(d => d.expenses.length > 0)
+
+  if (days.length === 0) {
+    return <p className="text-sm text-muted-foreground">No expenses logged this week.</p>
+  }
+
+  const all = days.flatMap(d => d.expenses)
+  const vat = all.reduce((s, e) => s + parseNum(e.vat_amount), 0)
+  const card = calc.weekCardExpenses()
+
+  return (
+    <div>
+      <div className="space-y-3">
+        {days.map(({ date, expenses }) => (
+          <div key={date}>
+            <button type="button" onClick={() => ctx.setSelectedDay(date)}
+              className={cn(
+                'w-full flex items-center justify-between gap-2 px-1 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide touch-manipulation hover:bg-accent',
+                date === ctx.selectedDay ? 'text-primary' : 'text-muted-foreground',
+              )}>
+              <span>{format(parseISO(date), 'EEE d MMM')}</span>
+              <span className="tabular-nums normal-case">{fmt(calc.dayExpenses(date))}</span>
+            </button>
+            <div className="divide-y border rounded-lg">
+              {expenses.map(exp => {
+                const cat = exp.category_id ? catById[exp.category_id]?.name : exp.category
+                return (
+                  <div key={exp.id} className="flex items-center gap-3 px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm truncate">{exp.description}</div>
+                      {(cat || exp.paid_by_card || parseNum(exp.vat_amount) > 0) && (
+                        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground min-w-0">
+                          {cat && <span className="truncate">{cat}</span>}
+                          {parseNum(exp.vat_amount) > 0 && <span className="shrink-0">VAT {fmt(exp.vat_amount)}</span>}
+                          {exp.paid_by_card && <CardBadge />}
+                        </div>
+                      )}
+                    </div>
+                    <span className={cn('text-sm tabular-nums shrink-0', exp.paid_by_card && 'text-muted-foreground')}>
+                      {fmt(exp.amount)}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="border-t mt-3 pt-1">
+        <Row label="Expenses (cash)" value={calc.weekExpenses()} bold />
+        {card > 0 && <Row label="Paid by card (not in recon)" value={card} muted />}
+        {vat > 0 && <Row label="Includes VAT" value={vat} muted />}
+      </div>
+    </div>
+  )
+}
+
 // ── Dispatcher ─────────────────────────────────────────────────
 
 export function renderCashWidget({ widget, venueId, ctx }) {
@@ -339,6 +410,7 @@ export function renderCashWidget({ widget, venueId, ctx }) {
     case 'cash_recon_grid':   return <ReconGridWidget venueId={venueId} ctx={ctx} />
     case 'cash_wages_paid':   return <WagesPaidWidget venueId={venueId} ctx={ctx} />
     case 'cash_petty_cash':   return <PettyCashWidget venueId={venueId} ctx={ctx} />
+    case 'cash_week_expenses': return <WeekExpensesWidget venueId={venueId} ctx={ctx} />
     default:                  return null
   }
 }

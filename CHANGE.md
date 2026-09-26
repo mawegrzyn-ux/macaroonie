@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Cash Dashboard: week expenses widget]
+
+### Cash Reconciliation
+- New **Week expenses** widget for the Cash dashboard: every expense logged in the week, grouped by day, with category, VAT and card-paid badges, plus cash, card and VAT totals. Tap a day heading to select that day.
+
+### Database
+- Migration `102_cash_week_expenses_widget.sql`: adds `cash_week_expenses` to the widget type check.
+
 ## [2026-09-27 — Cash Dashboard + row spanning on dashboards]
 
 ### Cash Reconciliation
