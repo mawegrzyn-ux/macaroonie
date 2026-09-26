@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Cash Dashboard + row spanning on dashboards]
+
+### Cash Reconciliation
+- New **Cash dashboard** page (sidebar, next to Cash recon). Build your own dashboards from six widgets: days of the week (tap a day to select it), day balance, week balance (down to Cash to bank), the reconciliation grid (editable), wages paid (with Paid tick boxes) and petty cash for the selected day.
+
+### Admin Portal
+- H&S Dashboard, Cash Dashboard and the Overview page: widgets can now span several rows as well as columns. A tall widget sits beside a stack of shorter ones instead of leaving a gap. Height is set in rows.
+
+### Database
+- Migration `101_cash_dashboard.sql`: `hs_dashboards.kind`, the cash widget types, and the `cash_dashboard` module + nav link.
+
 ## [2026-09-27 — H&S Dashboard keeps its column layout on narrow screens]
 
 ### Admin Portal

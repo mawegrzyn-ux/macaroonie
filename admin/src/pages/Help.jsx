@@ -20,6 +20,7 @@ const SECTIONS = [
   { id: 'food-safety',         label: 'Food Safety Logs' },
   { id: 'checklists',          label: 'Checklists' },
   { id: 'hs-dashboard',        label: 'H&S Dashboard' },
+  { id: 'cash-dashboard',      label: 'Cash Dashboard' },
   { id: 'mobile-app',          label: 'Mobile App' },
   { id: 'hs-action-log',       label: 'H&S Action Log' },
   { id: 'settings',            label: 'Settings' },
@@ -1284,7 +1285,8 @@ export default function Help() {
             <P>
               You can create any number of named dashboards, shown as tabs across the top. Click
               <strong> Edit layout</strong> to add widgets, reorder them, resize their width (in
-              grid columns) and height, or remove them. Each widget is one of:
+              grid columns) and height (in rows), or remove them. A tall widget spans several
+              rows, and shorter widgets stack beside it instead of leaving a gap. Each widget is one of:
             </P>
             <DataTable
               head={['Widget', 'Shows']}
@@ -1315,6 +1317,40 @@ export default function Help() {
               side. If a table inside a narrow widget doesn't fit, scroll it sideways within the
               widget.
             </P>
+          </section>
+
+          {/* ── CASH DASHBOARD ─────────────────────────────── */}
+          <section id="cash-dashboard" data-help="">
+            <H2>Cash Dashboard</H2>
+            <P>
+              The <strong>Cash dashboard</strong> page (sidebar nav, next to Cash recon) lets you
+              lay out your cash reconciliation on one screen, the same way the H&amp;S Dashboard
+              works for checks. Create named dashboards (tabs), then tap <strong>Edit layout</strong>{' '}
+              to add, reorder, resize or remove widgets. Every figure is the same one the Cash
+              Recon pages show, so the dashboard never disagrees with them.
+            </P>
+            <P>
+              The navigator at the top picks the <strong>week</strong>. Tap a day in the{' '}
+              <strong>Days of the week</strong> widget to select it; the Day balance and Petty cash
+              widgets then show that day. The selected day starts as today (or the Monday when
+              you move to another week).
+            </P>
+            <DataTable
+              head={['Widget', 'Shows']}
+              rows={[
+                ['Days of the week', 'One tile per day with its status, income and variance. Tap a tile to select that day. Closed days are faded.'],
+                ['Day balance', 'The selected day: income, service charges, takings, variance, cash takings, cash expenses, card expenses and Net cash.'],
+                ['Week balance', 'The week down to Cash to bank: income, takings, variance, cash takings, expenses, Net cash, wages paid in cash, plus how many days are submitted.'],
+                ['Reconciliation grid', 'The full week grid from Cash Recon. You can type into it the same way; tap a day heading to select that day.'],
+                ['Wages paid', 'This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
+                ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              A dashboard keeps the column layout you set up, and each widget can span several
+              columns and several rows. Make the grid tall and the balances short, and the
+              shorter widgets stack beside it instead of leaving a gap.
+            </InfoBox>
           </section>
 
           {/* ── MOBILE APP ────────────────────────────── */}

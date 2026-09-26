@@ -23,6 +23,7 @@ export const DEFAULT_NAV_TREE = [
         ],
       },
       { label: 'Cash recon', icon: 'Wallet', route: '/cash-recon', module: 'cash_recon' },
+      { label: 'Cash dashboard', icon: 'LayoutGrid', route: '/cash-dashboard', module: 'cash_dashboard' },
       { label: 'Food safety', icon: 'Thermometer', route: '/food-safety', module: 'food_safety' },
       { label: 'Checklists', icon: 'ListChecks', route: '/checklists', module: 'checklists' },
       { label: 'H&S Dashboard', icon: 'LayoutGrid', route: '/hs-dashboard', module: 'hs_dashboard' },
