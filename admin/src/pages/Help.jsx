@@ -1346,14 +1346,15 @@ export default function Help() {
             </P>
             <P>
               The navigator at the top picks the <strong>week</strong>. Tap a day in the{' '}
-              <strong>Days of the week</strong> widget to select it; the Day balance and Petty cash
-              widgets then show that day. The selected day starts as today (or the Monday when
-              you move to another week).
+              <strong>Days of the week</strong> widget to open that day's full declaration (the same
+              screen as on the Cash Recon page); the back arrow returns to the dashboard. The tapped
+              day is also selected, so the Day balance and Petty cash widgets show it. The selected
+              day starts as today (or the Monday when you move to another week).
             </P>
             <DataTable
               head={['Widget', 'Shows']}
               rows={[
-                ['Days of the week', 'One tile per day with its status, income and variance. Tap a tile to select that day. Closed days are faded.'],
+                ['Days of the week', 'One tile per day with its status, income and variance. Tap a tile to open that day\'s declaration. Closed days are faded. In Edit layout, two switches on the widget: Hide closed days (leave out days the venue is closed) and Compact (smaller tiles showing the day, a status dot and the variance: green submitted, amber draft, grey not started).'],
                 ['Day balance', 'The selected day: income, service charges, takings, variance, cash takings, cash expenses, card expenses and Net cash.'],
                 ['Week balance', 'The week down to Cash to bank: income, takings, variance, cash takings, expenses, Net cash, wages paid in cash, plus how many days are submitted.'],
                 ['Reconciliation grid', 'The full week grid from Cash Recon. You can type into it the same way; tap a day heading to select that day.'],

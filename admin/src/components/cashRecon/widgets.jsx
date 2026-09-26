@@ -27,13 +27,17 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
   fmt, parseNum, getMonday, isoWeekDates, StatusBadge, CardBadge, ScEffectBadge,
-  SpreadsheetView, useReconWeek,
+  SpreadsheetView, DayView, useReconWeek,
   PAY_TYPES, staffRateLabel, wageEntryForStaff, defaultWageEntries,
 } from '@/pages/CashRecon'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 
 export const CASH_WIDGET_TYPES = [
-  { key: 'cash_day_tiles',    label: 'Days of the week',       icon: LayoutGrid,   defaultTitle: 'This week' },
+  { key: 'cash_day_tiles',    label: 'Days of the week',       icon: LayoutGrid,   defaultTitle: 'This week',
+    options: [
+      { key: 'hide_closed', label: 'Hide closed days', hint: 'Leave out days the venue is closed' },
+      { key: 'compact',     label: 'Compact',          hint: 'Smaller tiles: day, status and variance only' },
+    ] },
   { key: 'cash_day_balance',  label: 'Day balance',            icon: Scale,        defaultTitle: 'Day balance' },
   { key: 'cash_week_balance', label: 'Week balance',           icon: CalendarDays, defaultTitle: 'Week balance' },
   { key: 'cash_recon_grid',   label: 'Reconciliation grid',    icon: Table2,       defaultTitle: 'Reconciliation', flush: true },
@@ -117,48 +121,108 @@ function Loading() {
 
 // ── Days of the week ───────────────────────────────────────────
 
-function DayTilesWidget({ venueId, ctx }) {
+// Tapping a day selects it (the day balance and petty cash widgets follow)
+// and opens that day's full declaration (DayView) over the dashboard.
+// Rendered inline rather than in a portal so it stays inside the
+// dashboard's full-screen element. Options (widget.settings):
+//   hide_closed  leave out days the venue is closed
+//   compact      small tiles: day, status dot, variance
+
+const STATUS_DOT = {
+  submitted: 'bg-green-500',
+  draft:     'bg-amber-500',
+}
+
+function DayTilesWidget({ venueId, ctx, settings }) {
+  const qc = useQueryClient()
   const { detail, isLoading, calc } = useReconWeek(venueId, ctx.weekStart)
+  const [openDate, setOpenDate] = useState(null)
   if (isLoading && !detail) return <Loading />
   const open = new Set(calc.visibleDates)
   const today = todayStr()
+  const compact = !!settings?.compact
+  const dates = settings?.hide_closed ? calc.dates.filter(d => open.has(d)) : calc.dates
+
+  function openDay(date) {
+    ctx.setSelectedDay(date)
+    setOpenDate(date)
+  }
+
+  function closeDay() {
+    setOpenDate(null)
+    // DayView refreshes the day and the week cards; the dashboard's
+    // widgets read week-detail, so refresh that too.
+    qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId] })
+  }
 
   return (
-    <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))' }}>
-      {calc.dates.map(date => {
-        const day = detail?.days?.[date]
-        const isOpen = open.has(date)
-        const selected = date === ctx.selectedDay
-        const v = calc.variance(date)
-        return (
-          <button key={date} type="button" onClick={() => ctx.setSelectedDay(date)}
-            className={cn(
-              'text-left rounded-xl border p-3 min-h-[96px] touch-manipulation transition-colors',
-              selected ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'hover:bg-accent',
-              !isOpen && 'opacity-60',
-            )}>
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-sm font-semibold">{format(parseISO(date), 'EEE')}</span>
-              {date === today && <span className="text-[10px] font-medium text-primary">Today</span>}
-            </div>
-            <div className="text-xs text-muted-foreground mb-1.5">{format(parseISO(date), 'd MMM')}</div>
-            {!isOpen ? (
-              <div className="text-xs text-muted-foreground">Closed</div>
-            ) : (
-              <>
-                <StatusBadge status={day?.status ?? 'none'} />
-                <div className="mt-1.5 text-xs tabular-nums">
-                  <div>Income {fmt(calc.dayTotal(date, 'income'))}</div>
-                  <div className={cn(v > 0 ? 'text-amber-600' : v < 0 ? 'text-red-600' : 'text-green-700')}>
-                    Var {fmt(v)}
-                  </div>
-                </div>
-              </>
-            )}
-          </button>
-        )
-      })}
-    </div>
+    <>
+      {dates.length === 0 ? (
+        <p className="text-sm text-muted-foreground">The venue is closed all week.</p>
+      ) : (
+        <div className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${compact ? 76 : 118}px, 1fr))` }}>
+          {dates.map(date => {
+            const day = detail?.days?.[date]
+            const isOpen = open.has(date)
+            const selected = date === ctx.selectedDay
+            const v = calc.variance(date)
+            const vTone = v > 0 ? 'text-amber-600' : v < 0 ? 'text-red-600' : 'text-green-700'
+            return (
+              <button key={date} type="button" onClick={() => openDay(date)}
+                aria-label={`Open ${format(parseISO(date), 'EEEE d MMMM')}`}
+                className={cn(
+                  'text-left rounded-xl border touch-manipulation transition-colors',
+                  compact ? 'p-2 min-h-[56px]' : 'p-3 min-h-[96px]',
+                  selected ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'hover:bg-accent',
+                  !isOpen && 'opacity-60',
+                )}>
+                {compact ? (
+                  <>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-sm font-semibold">{format(parseISO(date), 'EEE d')}</span>
+                      {isOpen && (
+                        <span className={cn('w-2.5 h-2.5 rounded-full shrink-0', STATUS_DOT[day?.status] ?? 'bg-muted-foreground/30')}
+                          title={day?.status === 'submitted' ? 'Submitted' : day?.status === 'draft' ? 'Draft' : 'Not started'} />
+                      )}
+                    </div>
+                    <div className={cn('mt-1 text-xs tabular-nums', isOpen ? vTone : 'text-muted-foreground')}>
+                      {isOpen ? fmt(v) : 'Closed'}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-sm font-semibold">{format(parseISO(date), 'EEE')}</span>
+                      {date === today && <span className="text-[10px] font-medium text-primary">Today</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-1.5">{format(parseISO(date), 'd MMM')}</div>
+                    {!isOpen ? (
+                      <div className="text-xs text-muted-foreground">Closed</div>
+                    ) : (
+                      <>
+                        <StatusBadge status={day?.status ?? 'none'} />
+                        <div className="mt-1.5 text-xs tabular-nums">
+                          <div>Income {fmt(calc.dayTotal(date, 'income'))}</div>
+                          <div className={vTone}>Var {fmt(v)}</div>
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {openDate && (
+        <div className="fixed inset-0 z-50 bg-background flex flex-col" role="dialog" aria-modal="true"
+          aria-label={`Declaration for ${format(parseISO(openDate), 'EEEE d MMMM')}`}>
+          <DayView venueId={venueId} date={openDate} onBack={closeDay} />
+        </div>
+      )}
+    </>
   )
 }
 
@@ -879,7 +943,7 @@ function WeekExpensesWidget({ venueId, ctx }) {
 
 export function renderCashWidget({ widget, venueId, ctx }) {
   switch (widget.widget_type) {
-    case 'cash_day_tiles':    return <DayTilesWidget venueId={venueId} ctx={ctx} />
+    case 'cash_day_tiles':    return <DayTilesWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
     case 'cash_day_balance':  return <DayBalanceWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_balance': return <WeekBalanceWidget venueId={venueId} ctx={ctx} />
     case 'cash_recon_grid':   return <ReconGridWidget venueId={venueId} ctx={ctx} />

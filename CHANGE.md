@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Days of the week widget: open the day, hide closed days, compact mode]
+
+### Cash Reconciliation
+- Cash dashboard, **Days of the week** widget: tapping a day now opens that day's full declaration over the dashboard (back arrow returns). The day is still selected for the Day balance and Petty cash widgets.
+- Two new switches on the widget in Edit layout: **Hide closed days** and **Compact** (smaller tiles with the day, a status dot and the variance).
+
+### Admin Portal
+- Dashboard widgets can now have their own display options, shown as switches on the widget in Edit layout.
+
+### Database
+- Migration `105_dashboard_widget_settings.sql`: `hs_dashboard_widgets.settings` (jsonb).
+
 ## [2026-09-27 — Staff pay type + week staff list widget]
 
 ### Cash Reconciliation

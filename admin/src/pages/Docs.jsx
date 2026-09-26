@@ -1423,7 +1423,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['widget_type', 'Source']}
               rows={[
-                ['cash_day_tiles', 'useReconWeek() — tile per date, status, dayTotal(income), variance(); sets ctx.selectedDay'],
+                ['cash_day_tiles', 'useReconWeek() — tile per date, status, dayTotal(income), variance(). Tap sets ctx.selectedDay and opens DayView (exported from CashRecon.jsx) in a fixed inset-0 z-50 overlay rendered inline, so it stays inside the dashboard\'s full-screen element; closing invalidates cash-recon-week-detail. Options (settings): hide_closed (filter to calc.visibleDates), compact (76px tiles, status dot + variance)'],
                 ['cash_day_balance', 'useReconWeek() — day figures for ctx.selectedDay'],
                 ['cash_week_balance', 'useReconWeek() — weekDayTotal, weekVariance, weekCashTakings, weekExpenses, weekNetCash, weekCashWages, weekNetPosition'],
                 ['cash_recon_grid', 'SpreadsheetView with hideHeader (editable; saves through PUT /daily/:date)'],
@@ -1443,6 +1443,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               edit in the grid refreshes every balance widget. Change a formula there, never in a
               widget.
             </InfoBox>
+            <H3>Per-widget options (all dashboards)</H3>
+            <P>
+              <Mono>hs_dashboard_widgets.settings</Mono> (jsonb, default <Mono>{'{}'}</Mono>, migration
+              105) holds a widget's display options. A widget type declares them in its type list
+              (<Mono>{"options: [{ key, label, hint }]"}</Mono> on <Mono>CASH_WIDGET_TYPES</Mono> /
+              the H&amp;S list); <Mono>WidgetCard</Mono> renders one toggle per option in Edit layout
+              and saves the whole object through <Mono>PATCH /dashboards/:id/widgets/:widgetId</Mono>{' '}
+              (<Mono>{'{ settings }'}</Mono>). The API accepts a flat map of booleans, numbers and short
+              strings (at most 20 keys) and writes it with <Mono>tx.json()</Mono>; it does not know what
+              any key means. The renderer receives <Mono>widget.settings</Mono>. Options are
+              boolean toggles only for now.
+            </P>
             <H3>Row spanning (all dashboards)</H3>
             <P>
               <Mono>lib/dashboardGrid.js</Mono> gives the H&amp;S Dashboard, the Cash Dashboard and

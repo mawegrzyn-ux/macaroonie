@@ -189,7 +189,7 @@ const MIN_COL_SPAN = 1
 function WidgetCard({
   widget, venueId, ctx, editing, columnCount, typeByKey, renderWidget,
   onRemove, onMoveUp, onMoveDown, isFirst, isLast,
-  onResizeWidth, onResizeRows,
+  onResizeWidth, onResizeRows, onSetting,
 }) {
   const isChecklist = widget.widget_type === 'checklist'
   const meta  = typeByKey[widget.widget_type] ?? { label: widget.widget_type, icon: LayoutGrid, defaultTitle: widget.widget_type }
@@ -306,6 +306,28 @@ function WidgetCard({
               <Plus className="w-3.5 h-3.5" />
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Per-type display options (widget type meta `options`, saved to
+          hs_dashboard_widgets.settings). Toggles only for now. */}
+      {editing && meta.options?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b bg-muted/10">
+          {meta.options.map(opt => {
+            const on = !!widget.settings?.[opt.key]
+            return (
+              <button key={opt.key} type="button" role="switch" aria-checked={on}
+                onClick={() => onSetting(opt.key, !on)}
+                title={opt.hint}
+                className={cn(
+                  'h-9 px-3 rounded-full border text-xs font-medium touch-manipulation transition-colors flex items-center gap-1.5',
+                  on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-accent',
+                )}>
+                {on && <Check className="w-3.5 h-3.5" />}
+                {opt.label}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -710,6 +732,7 @@ export function DashboardPage({ config }) {
                     onRemove={() => removeWidget.mutate(w.id)}
                     onResizeWidth={delta => resizeWidget(w, 'col_span', Math.min(columnCount, Math.max(1, (w.col_span ?? 1) + delta)))}
                     onResizeRows={rows => resizeWidget(w, 'height_px', heightForRows(Math.min(MAX_ROWS, Math.max(MIN_ROWS, rows))))}
+                    onSetting={(key, value) => patchWidget.mutate({ id: w.id, settings: { ...(w.settings ?? {}), [key]: value } })}
                   />
                 ))}
               </div>
