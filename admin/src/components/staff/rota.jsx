@@ -17,7 +17,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO, subWeeks } from 'date-fns'
-import { Loader2, Plus, Trash2, Copy, Check, AlertTriangle, ArrowRight, RotateCcw, Wallet, Printer, ImageDown } from 'lucide-react'
+import { Loader2, Plus, Minus, Trash2, Copy, Check, AlertTriangle, ArrowRight, RotateCcw, Wallet, Printer, ImageDown } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { fmt, getMonday } from '@/pages/CashRecon'
@@ -690,7 +690,7 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
 const DIST_LABEL = { points: 'By points', manual: 'Manual', house: 'Kept by house' }
 
 function tipRows(data) {
-  return data.rows.filter(r => r.entry_count > 0 || r.tip_share > 0 || r.points_adjustment !== 0 || r.tip_adjustment !== 0)
+  return data.rows.filter(r => r.entry_count > 0 || r.tip_share > 0 || r.points_adjustment !== 0 || r.tip_adjustment !== 0 || r.tip_unallocated !== 0)
 }
 
 function moneyInput(v) {
@@ -1177,6 +1177,37 @@ function TipMovesList({ moves, base, setPay, canEdit }) {
   )
 }
 
+const NUDGE_STEP = 0.5
+
+/** A person's tip total with -/+ buttons that move 0.50 to / from the unallocated pot. */
+function NudgeTotal({ row, unallocated, canEdit, busy, onNudge }) {
+  const btn = 'w-11 h-11 shrink-0 rounded-lg border flex items-center justify-center touch-manipulation hover:bg-muted disabled:opacity-30 disabled:pointer-events-none'
+  const total = (
+    <span className="tabular-nums font-semibold">
+      {fmt(row.tip_share)}
+      {row.tip_unallocated !== 0 && (
+        <span className={cn('block text-[10px] font-normal', row.tip_unallocated > 0 ? 'text-green-700' : 'text-red-600')}>
+          {row.tip_unallocated > 0 ? '+' : '−'}{fmt(Math.abs(row.tip_unallocated))}
+        </span>
+      )}
+    </span>
+  )
+  if (!canEdit) return total
+  return (
+    <div className="flex items-center justify-end gap-1.5">
+      <button type="button" aria-label={`Take ${fmt(NUDGE_STEP)} from ${row.name} into unallocated`}
+        disabled={busy || row.tip_share < NUDGE_STEP} onClick={() => onNudge(row.staff_id, 'minus')} className={btn}>
+        <Minus className="w-4 h-4" />
+      </button>
+      <div className="min-w-[4.5rem] text-right">{total}</div>
+      <button type="button" aria-label={`Give ${row.name} ${fmt(NUDGE_STEP)} from unallocated`}
+        disabled={busy || unallocated < NUDGE_STEP} onClick={() => onNudge(row.staff_id, 'plus')} className={btn}>
+        <Plus className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
 /** Tip pots for the week, each person's share of every pot, and tip moves. */
 export function RotaTipsTable({ venueId, weekStart, canEdit }) {
   const api = useApi()
@@ -1185,8 +1216,18 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
   const [moveOpen, setMoveOpen] = useState(false)
   const [confirmReset, setConfirmReset] = useState(null) // null | 'points' | 'money'
   const [manualPot, setManualPot] = useState(null)
+  const [confirmHandBack, setConfirmHandBack] = useState(false)
   const setPay = d => qc.setQueryData(['rota-pay', venueId, weekStart], d)
   const base = `/rota/venues/${venueId}/weeks/${weekStart}`
+
+  const nudge = useMutation({
+    mutationFn: b => api.post(`${base}/tip-nudge`, b),
+    onSuccess: setPay,
+  })
+  const handBack = useMutation({
+    mutationFn: () => api.post(`${base}/reset-unallocated`, {}),
+    onSuccess: d => { setPay(d); setConfirmHandBack(false) },
+  })
 
   const reset = useMutation({
     mutationFn: kind => api.post(`${base}/reset-moves`, { kind }),
@@ -1206,7 +1247,10 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
   const moves = data.moves ?? []
   const hasPointMoves = moves.some(m => m.kind === 'points')
   const hasMoneyMoves = data.rows.some(r => r.tip_adjustment !== 0)
-  const showTotal = sharedPots.length > 1 || hasMoneyMoves
+  const unallocated = data.totals.tips_unallocated ?? 0
+  const hasNudges = data.rows.some(r => r.tip_unallocated !== 0)
+  const showTotal = sharedPots.length > 1 || hasMoneyMoves || hasNudges || canEdit
+  const onNudge = (staff_id, direction) => nudge.mutate({ staff_id, direction })
 
   return (
     <div className="space-y-3">
@@ -1222,7 +1266,37 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         {data.totals.kept_by_house > 0 && ` · kept by the house ${fmt(data.totals.kept_by_house)}`}
         {data.totals.tips_added > 0 && ` · added ${fmt(data.totals.tips_added)}`}
         {data.totals.tips_taken_out > 0 && ` · taken out ${fmt(data.totals.tips_taken_out)}`}
+        {unallocated > 0 && ` · unallocated ${fmt(unallocated)}`}
       </p>
+
+      {sharedPots.length > 0 && rows.length > 0 && (canEdit || hasNudges) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Unallocated <span className="tabular-nums">{fmt(unallocated)}</span></p>
+            <p className="text-[11px] text-muted-foreground">
+              {canEdit
+                ? `Tap − next to someone's total to put ${fmt(NUDGE_STEP)} of their tips here, + to give ${fmt(NUDGE_STEP)} from here to them. Anything left stays unallocated.`
+                : 'Tips taken off people and not given to anyone else.'}
+            </p>
+          </div>
+          {canEdit && hasNudges && !confirmHandBack && (
+            <button type="button" onClick={() => setConfirmHandBack(true)}
+              className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+              <RotateCcw className="w-4 h-4" /> Undo all
+            </button>
+          )}
+          {confirmHandBack && (
+            <>
+              <span className="text-xs text-muted-foreground">Put every +/− back as it was?</span>
+              <button type="button" onClick={() => handBack.mutate()} disabled={handBack.isPending}
+                className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Yes, undo</button>
+              <button type="button" onClick={() => setConfirmHandBack(false)}
+                className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Cancel</button>
+            </>
+          )}
+          {(nudge.error || handBack.error) && <div className="basis-full"><ErrorNote error={nudge.error || handBack.error} /></div>}
+        </div>
+      )}
 
       {sharedPots.length > 0 && (rows.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">Nobody on the rota this week.</p>
@@ -1280,7 +1354,11 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
                       {r.tip_adjustment ? `${r.tip_adjustment > 0 ? '+' : '−'}${fmt(Math.abs(r.tip_adjustment))}` : '–'}
                     </td>
                   )}
-                  {showTotal && <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{fmt(r.tip_share)}</td>}
+                  {showTotal && (
+                    <td className="px-3 py-1.5 text-right">
+                      <NudgeTotal row={r} unallocated={unallocated} canEdit={canEdit} busy={nudge.isPending} onNudge={onNudge} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

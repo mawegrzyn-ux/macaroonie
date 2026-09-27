@@ -36,6 +36,8 @@
 //   POST   /venues/:venueId/weeks/:week/tip-moves       { kind: points | money, action: move | add | remove, from_staff_id (move only), lines: [{ to_staff_id, amount }], note (required for add/remove) }
 //   DELETE /venues/:venueId/weeks/:week/tip-moves/:id
 //   POST   /venues/:venueId/weeks/:week/reset-moves     { kind: points | money | all }
+//   POST   /venues/:venueId/weeks/:week/tip-nudge       { staff_id, direction: plus | minus }  0.50 to / from the unallocated pot
+//   POST   /venues/:venueId/weeks/:week/reset-unallocated  hand the unallocated pot back (every nudge to 0)
 //   POST   /venues/:venueId/weeks/:week/fill-wages      writes Cash Recon wages
 
 import { z } from 'zod'
@@ -287,14 +289,14 @@ async function computeWeek(tx, tenantId, venueId, monday) {
   }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount !== 0) || Object.keys(p.manual).length)
 
   const weekStaff = await tx`
-    SELECT staff_id, pay_override::float8 AS pay_override
+    SELECT staff_id, pay_override::float8 AS pay_override, tip_unallocated::float8 AS tip_unallocated
       FROM rota_week_staff
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
   `
   const moves = await loadMoves(tx, tenantId, venueId, monday)
   const withEntries = [...new Set([
     ...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id),
-    ...weekStaff.filter(w => w.pay_override != null).map(w => w.staff_id),
+    ...weekStaff.filter(w => w.pay_override != null || w.tip_unallocated !== 0).map(w => w.staff_id),
     ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]).filter(Boolean),
   ])]
   const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
@@ -317,10 +319,10 @@ async function computeWeek(tx, tenantId, venueId, monday) {
 // `rota_tips` (pots, points, shares, moves). Strip whichever the caller
 // can't view, so a role can be given one without the other.
 const PAY_ROW_FIELDS = ['pay_type', 'pay_basis', 'computed_pay', 'pay_override', 'pay']
-const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'tip_adjustment', 'points',
+const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'tip_adjustment', 'tip_unallocated', 'points',
   'pot_shares', 'pot_shares_exact', 'tip_share', 'tip_share_from_pots']
 const TIP_TOTAL_FIELDS = ['points', 'tips_gross', 'surcharges', 'tips_in', 'tips_shared',
-  'kept_by_house', 'tips_added', 'tips_taken_out']
+  'kept_by_house', 'tips_added', 'tips_taken_out', 'tips_unallocated']
 
 export function redactWeek(week, { pay, tips }) {
   const out = { ...week, access: { pay, tips } }
@@ -1010,6 +1012,53 @@ export default async function rotaRoutes(app) {
         DELETE FROM rota_tip_moves
          WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
            AND tenant_id = ${req.tenantId} AND kind = ANY(${kinds})
+      `
+      return weekFor(req, tx, monday)
+    })
+  })
+
+  // +/- nudge: moves NUDGE_STEP between one person's tip total and the
+  // week's unallocated pot. Minus needs the person to have at least the step;
+  // plus needs the pot to hold at least the step. The advisory lock
+  // serialises rapid taps on the same venue week so two can't both pass the
+  // balance check.
+  const NUDGE_STEP = 0.5
+  app.post('/venues/:venueId/weeks/:week/tip-nudge', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    const b = z.object({ staff_id: UUID, direction: z.enum(['plus', 'minus']) }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'tip-nudge:' + req.params.venueId + ':' + monday}))`
+      const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      const row = before.rows.find(r => r.staff_id === b.staff_id)
+      if (!row) throw httpError(404, 'Staff member not on this week')
+      if (b.direction === 'minus' && row.tip_share < NUDGE_STEP - 1e-9) {
+        throw httpError(422, `${row.name} only has £${row.tip_share.toFixed(2)} in tips`)
+      }
+      if (b.direction === 'plus' && before.totals.tips_unallocated < NUDGE_STEP - 1e-9) {
+        throw httpError(422, `Only £${before.totals.tips_unallocated.toFixed(2)} left unallocated`)
+      }
+      const delta = b.direction === 'plus' ? NUDGE_STEP : -NUDGE_STEP
+      await ensureWeekStaff(tx, req.tenantId, req.params.venueId, monday, b.staff_id)
+      await tx`
+        UPDATE rota_week_staff SET tip_unallocated = tip_unallocated + ${delta}, updated_at = now()
+         WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
+           AND staff_id = ${b.staff_id} AND tenant_id = ${req.tenantId}
+      `
+      return weekFor(req, tx, monday)
+    })
+  })
+
+  // Puts every nudge back to 0, so the unallocated pot is handed back to
+  // the people it came from.
+  app.post('/venues/:venueId/weeks/:week/reset-unallocated', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      await tx`
+        UPDATE rota_week_staff SET tip_unallocated = 0, updated_at = now()
+         WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
+           AND tenant_id = ${req.tenantId} AND tip_unallocated <> 0
       `
       return weekFor(req, tx, monday)
     })
