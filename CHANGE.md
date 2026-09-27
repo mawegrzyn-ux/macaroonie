@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Tip pot lines: deductions and percentages]
+
+### Rota
+- Tip pot manual lines can be negative, to take money out of a pot (e.g. a breakage deduction).
+- A manual line can be a **% of pot** instead of a £ amount (choose when adding the line in Rota setup). It is a percentage of the pot's Cash Recon sources plus its £ lines, and the pot card shows what it comes to in £.
+- On the Rota page, a **+ / −** button next to each line switches between adding and deducting. A pot never goes below £0.
+
+### Database
+- Migration `115_pot_line_percent.sql`: `tip_pot_lines.kind`; drops the `amount >= 0` check on `rota_week_pot_lines`.
+
+---
+
 ## [2026-09-27 — Rota print: hide totals]
 
 ### Rota

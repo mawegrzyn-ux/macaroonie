@@ -4,8 +4,9 @@
 // A pot has a name, a distribution method (kept by the house / by points /
 // manual amounts per person), the Cash Recon service charge / tips sources
 // allocated to it (each source feeds at most one pot; sources belong to a
-// venue, so the list is grouped by venue), and manual lines whose amounts
-// are entered each week on the Rota page.
+// venue, so the list is grouped by venue), and manual lines whose values
+// are entered each week on the Rota page: £ or % (migration 115), and
+// either may be negative to take money out of the pot.
 
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -23,6 +24,11 @@ export const POT_DISTRIBUTIONS = [
 ]
 export const POT_DIST_LABEL = Object.fromEntries(POT_DISTRIBUTIONS.map(d => [d.value, d.label]))
 
+const LINE_KINDS = [
+  { value: 'amount',  label: '£ amount' },
+  { value: 'percent', label: '% of pot' },
+]
+
 function useScSources() {
   const api = useApi()
   return useQuery({ queryKey: ['rota-sc-sources'], queryFn: () => api.get('/rota/sc-sources') })
@@ -38,9 +44,10 @@ function PotLines({ pot }) {
   const api = useApi()
   const qc = useQueryClient()
   const [name, setName] = useState('')
+  const [kind, setKind] = useState('amount')
   const add = useMutation({
-    mutationFn: () => api.post(`/rota/pots/${pot.id}/lines`, { name: name.trim() }),
-    onSuccess: () => { setName(''); invalidateAll(qc) },
+    mutationFn: () => api.post(`/rota/pots/${pot.id}/lines`, { name: name.trim(), kind }),
+    onSuccess: () => { setName(''); setKind('amount'); invalidateAll(qc) },
   })
   const remove = useMutation({ mutationFn: id => api.delete(`/rota/pot-lines/${id}`), onSuccess: () => invalidateAll(qc) })
   const reorder = useMutation({
@@ -52,18 +59,24 @@ function PotLines({ pot }) {
     <div className="space-y-2">
       <p className="text-xs font-medium text-muted-foreground">Manual lines</p>
       <p className="text-[11px] text-muted-foreground">
-        Money that is not in Cash Recon, e.g. a cash tips jar. Name the line here; its amount is entered each week on the Rota page.
+        Adjustments to what Cash Recon brings in, e.g. a cash tips jar (£) or a card fee deduction (%).
+        Name the line here; its value is entered each week on the Rota page, and can be negative to take money out.
+        A % line is a percentage of the pot's Cash Recon sources plus its £ lines.
       </p>
       {pot.lines.length > 0 && (
         <SortableRows items={pot.lines} onReorder={ids => reorder.mutate(ids)} renderItem={l => (
           <div className="flex items-center gap-2 min-h-[44px]">
             <span className="flex-1 min-w-0 truncate text-sm">{l.name}</span>
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
+              {l.kind === 'percent' ? '%' : '£'}
+            </span>
             <ConfirmDelete onConfirm={() => remove.mutate(l.id)} disabled={remove.isPending} label={`Delete ${l.name}`} />
           </div>
         )} />
       )}
-      <div className="flex items-center gap-2">
-        <input className={inputCls} placeholder="e.g. Cash tips jar" value={name} maxLength={100}
+      <div className="flex flex-wrap items-center gap-2">
+        <Segmented value={kind} options={LINE_KINDS} onChange={setKind} />
+        <input className={cn(inputCls, 'flex-1 min-w-[160px]')} placeholder={kind === 'percent' ? 'e.g. Card fees' : 'e.g. Cash tips jar'} value={name} maxLength={100}
           aria-label="New manual line name" onChange={e => setName(e.target.value)} />
         <button type="button" onClick={() => add.mutate()} disabled={!name.trim() || add.isPending}
           className="h-11 px-4 shrink-0 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 flex items-center gap-1.5">

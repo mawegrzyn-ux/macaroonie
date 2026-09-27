@@ -695,6 +695,23 @@ function moneyInput(v) {
   return v.replace(/[^0-9.]/g, '')
 }
 
+/** Like moneyInput but keeps a leading minus (pot lines can be deductions). */
+function signedInput(v) {
+  const neg = v.trim().startsWith('-')
+  const n = v.replace(/[^0-9.]/g, '')
+  return neg ? `-${n}` : n
+}
+
+/** Flip the sign of a typed value; tablets' decimal keypads have no minus key. */
+function flipSign(v) {
+  const s = String(v ?? '')
+  return s.startsWith('-') ? s.slice(1) : `-${s}`
+}
+
+function pctLabel(n) {
+  return `${n > 0 ? '+' : ''}${n}%`
+}
+
 /** One pot: where its money comes from (sources, manual lines) and what happened to it. */
 function PotCard({ pot, data, canEdit, base, setPay, onEditManual }) {
   const api = useApi()
@@ -702,9 +719,17 @@ function PotCard({ pot, data, canEdit, base, setPay, onEditManual }) {
   const [draft, setDraft] = useState(saved)
   useEffect(() => setDraft(saved), [saved])
   const dirty = pot.lines.some(l => (draft[l.id] ?? '') !== (saved[l.id] ?? ''))
+  const lineProblem = pot.lines.find(l => {
+    const n = Number(draft[l.id])
+    return l.kind === 'percent' && draft[l.id] && !Number.isNaN(n) && (n < -100 || n > 100)
+  })
   const saveLines = useMutation({
     mutationFn: () => api.put(`${base}/pot-lines`, {
-      amounts: pot.lines.map(l => ({ line_id: l.id, amount: draft[l.id] === '' || draft[l.id] == null ? null : Number(draft[l.id]) })),
+      amounts: pot.lines.map(l => {
+        const v = draft[l.id]
+        const n = v === '' || v === '-' || v == null ? null : Number(v)
+        return { line_id: l.id, amount: n == null || Number.isNaN(n) ? null : n }
+      }),
     }),
     onSuccess: setPay,
   })
@@ -726,23 +751,51 @@ function PotCard({ pot, data, canEdit, base, setPay, onEditManual }) {
             <span className="tabular-nums">{fmt(src.amount)}</span>
           </div>
         ))}
-        {pot.lines.map(l => (
-          <div key={l.id} className="flex items-center gap-2 min-h-[44px]">
-            <span className="flex-1 min-w-0 truncate">{l.name}</span>
-            {canEdit ? (
-              <input className="h-10 w-28 rounded-lg border bg-background px-2 text-sm text-right tabular-nums touch-manipulation"
-                inputMode="decimal" placeholder="0.00" aria-label={`${l.name} amount`}
-                value={draft[l.id] ?? ''} onChange={e => setDraft(d => ({ ...d, [l.id]: moneyInput(e.target.value) }))} />
-            ) : <span className="tabular-nums">{fmt(l.amount)}</span>}
-          </div>
-        ))}
+        {pot.lines.map(l => {
+          const pct = l.kind === 'percent'
+          const neg = String(draft[l.id] ?? '').startsWith('-')
+          return (
+            <div key={l.id} className="flex items-center gap-2 min-h-[44px]">
+              <span className="flex-1 min-w-0 truncate">
+                {l.name}
+                {pct && l.amount !== 0 && (
+                  <span className={cn('ml-1 text-[11px] tabular-nums', l.value < 0 ? 'text-red-700' : 'text-muted-foreground')}>
+                    = {fmt(l.value)}
+                  </span>
+                )}
+              </span>
+              {canEdit ? (
+                <>
+                  <button type="button" onClick={() => setDraft(d => ({ ...d, [l.id]: flipSign(d[l.id]) }))}
+                    aria-label={neg ? `Make ${l.name} an addition` : `Make ${l.name} a deduction`}
+                    className={cn('h-10 w-11 rounded-lg border text-sm font-semibold touch-manipulation shrink-0',
+                      neg ? 'bg-red-50 border-red-300 text-red-700' : 'hover:bg-muted')}>
+                    {neg ? '−' : '+'}
+                  </button>
+                  <div className="relative shrink-0">
+                    <input className={cn('h-10 w-28 rounded-lg border bg-background pl-2 text-sm text-right tabular-nums touch-manipulation',
+                      pct ? 'pr-6' : 'pr-2', neg && 'text-red-700')}
+                      inputMode="decimal" placeholder={pct ? '0' : '0.00'} aria-label={`${l.name} ${pct ? 'percent' : 'amount'}`}
+                      value={draft[l.id] ?? ''} onChange={e => setDraft(d => ({ ...d, [l.id]: signedInput(e.target.value) }))} />
+                    {pct && <span className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">%</span>}
+                  </div>
+                </>
+              ) : (
+                <span className={cn('tabular-nums', l.value < 0 && 'text-red-700')}>{pct ? pctLabel(l.amount) : fmt(l.amount)}</span>
+              )}
+            </div>
+          )
+        })}
         {canEdit && dirty && (
           <div className="flex justify-end gap-2 pt-1">
             <button type="button" onClick={() => setDraft(saved)}
               className="h-10 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Discard</button>
-            <button type="button" onClick={() => saveLines.mutate()} disabled={saveLines.isPending}
+            <button type="button" onClick={() => saveLines.mutate()} disabled={saveLines.isPending || !!lineProblem}
               className="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-xs font-medium touch-manipulation disabled:opacity-50">Save amounts</button>
           </div>
+        )}
+        {canEdit && dirty && lineProblem && (
+          <p className="text-xs text-red-700">{lineProblem.name}: enter a percentage between -100 and 100.</p>
         )}
         <ErrorNote error={saveLines.error} />
         {pot.surcharge > 0 && (
