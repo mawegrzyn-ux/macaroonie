@@ -21,6 +21,7 @@ const SECTIONS = [
   { id: 'checklists',          label: 'Checklists' },
   { id: 'hs-dashboard',        label: 'H&S Dashboard' },
   { id: 'cash-dashboard',      label: 'Cash Dashboard' },
+  { id: 'staff-rota',          label: 'Staff & Rota' },
   { id: 'mobile-app',          label: 'Mobile App' },
   { id: 'hs-action-log',       label: 'H&S Action Log' },
   { id: 'settings',            label: 'Settings' },
@@ -1155,19 +1156,23 @@ export default function Help() {
             <H3>Settings</H3>
             <P>
               The gear icon manages your income sources, payment channels, service charge
-              sources, expense categories, and staff list — all drag-reorderable.
+              sources and expense categories, all drag-reorderable. The staff list has moved to its
+              own <strong>Staff</strong> page in the sidebar (see Staff &amp; Rota).
             </P>
             <H3>Staff list — Fixed or Hourly</H3>
             <P>
-              Each person in Settings, then Staff, has a <strong>pay type</strong>. Fixed staff are paid a set
-              amount each week, so their default rate is a weekly amount. Hourly staff are paid hours
-              times rate, so their default rate is per hour. The list shows each person's type and
-              rate (for example "Hourly, £12.50/hr").
+              Each person on the Staff page has a <strong>pay type</strong>. Hourly staff are paid hours
+              times rate, so their default rate is per hour. Fixed staff are paid a set amount per week,
+              per day worked, or per shift. The list shows each person's type and rate (for example
+              "Hourly, £12.50/hr" or "Fixed, £80.00/day").
             </P>
             <P>
               The pay type is used whenever that person is added to a week: a new week filled from
               your staff list, or someone added on the Wages page or the Week staff list widget, starts
-              as Fixed with their weekly amount, or as Hourly with their rate ready for the hours. You
+              as Fixed with their weekly amount (per-day and per-shift staff start blank, since the
+              amount depends on the rota), or as Hourly with their rate ready for the hours. The
+              quickest way to fill a week from the rota is the <strong>Fill Cash Recon wages</strong>{' '}
+              button on the Rota page. You
               can still switch a single week's entry between Fixed and Hourly without changing the
               staff record. If you have saved a default wage list, its Fixed/Hourly choices are used
               for new weeks instead.
@@ -1372,6 +1377,112 @@ export default function Help() {
               A dashboard keeps the column layout you set up, and each widget can span several
               columns and several rows. Make the grid tall and the balances short, and the
               shorter widgets stack beside it instead of leaving a gap.
+            </InfoBox>
+          </section>
+
+          {/* ── STAFF & ROTA ────────────────────────────── */}
+          <section id="staff-rota" data-help="">
+            <H2>Staff &amp; Rota</H2>
+            <P>
+              The <strong>Staff</strong> section of the sidebar holds your staff list, job roles, the
+              weekly rota, rota setup and the Rota dashboard. Roles, shifts and the rota settings are
+              shared by every venue in your company; staff and the rota itself are per venue.
+            </P>
+            <H3>Roles</H3>
+            <P>
+              Staff, then <strong>Roles</strong>. Add each job title (Manager, Chef, Waiter, Pot wash)
+              with a <strong>tip points multiplier</strong>: 1.0 is a standard share, 1.1 gets 10% more
+              points for the same shift. Drag to reorder. Deleting a role removes it from anyone who has it.
+            </P>
+            <H3>Staff</H3>
+            <P>
+              Pick the venue, then tap <strong>Add staff</strong> or tap a person to edit their name,
+              role and pay. Pay options:
+            </P>
+            <DataTable
+              head={['Pay type', 'How it is worked out']}
+              rows={[
+                ['Hourly', 'Hours worked times their hourly rate. You can set a different hourly rate per shift (for example more for Dinner); hours outside any shift use the default rate.'],
+                ['Fixed per week', 'Their amount, once, for any week they work at all.'],
+                ['Fixed per day', 'Their amount for each day they work, however many shifts that day.'],
+                ['Fixed per shift', 'An amount per shift worked, with an optional different amount per shift (for example Lunch £40, Dinner £60).'],
+              ]}
+            />
+            <P>
+              Someone who already has wages or rota history is made inactive rather than deleted, so
+              past weeks keep their figures.
+            </P>
+            <H3>Rota setup</H3>
+            <P>
+              Rota, then <strong>Rota setup</strong>. Choose how the rota is entered:
+              <strong> Day parts</strong> (each day split into your shifts, and each person is ON or OFF
+              for a shift) or <strong>Hours</strong> (start and end times, at 15 minute, 30 minute or 1
+              hour steps). Then add your <strong>day parts / shifts</strong>, for example Lunch 11:30 to
+              15:00 and Dinner 18:00 to 23:00, each with its <strong>tip points</strong> (for example
+              Lunch 0.5, Dinner 1). A shift that ends at or before its start runs past midnight.
+              Shifts are used in both modes: in Hours mode they decide per-shift rates and tip points
+              for the hours that fall inside them.
+            </P>
+            <H3>The rota</H3>
+            <P>
+              <strong>Rota</strong> shows names down the side and the days of the week across the top.
+              Pick the venue and use the arrows to change week.
+            </P>
+            <DataTable
+              head={['Mode', 'How to enter it']}
+              rows={[
+                ['Day parts', 'Each day has a column per shift. Tap a cell to switch the person ON or OFF for that shift. The bottom row counts who is on each shift.'],
+                ['Hours', 'Tap a person\'s day to open their times. Add as many periods as fit without overlapping (for example 11:00 to 15:00 and 18:00 to 23:00), or tap a shift name to add its times in one go. Clear day takes them off that day.'],
+              ]}
+            />
+            <P>
+              Nothing is saved until you tap <strong>Save rota</strong>; <strong>Discard changes</strong>{' '}
+              throws them away. Unsaved changes are kept if you look at another week and come back.
+              <strong> Copy from week</strong> replaces this week with one of the last 8 weeks (it asks
+              first if this week already has entries). If you switch mode in Rota setup, entries made
+              in the old mode still count for pay and are listed in a notice until you save that week.
+            </P>
+            <H3>Hours and pay</H3>
+            <P>
+              Below the rota (for anyone with rota pay access) each rostered person's hours and pay
+              for the week. Tap a pay figure to override it for this week; <strong>Use calculated</strong>{' '}
+              goes back. <strong>Fill Cash Recon wages</strong> writes everyone's pay into that week's
+              Cash Recon wages: existing rows are updated (someone already marked Paid stays paid at
+              the new amount), missing people are added, and other rows are left alone. It is blocked
+              once the week's wages are submitted.
+            </P>
+            <H3>Tips by points</H3>
+            <P>
+              Each shift worked earns its tip points, times the person's role multiplier (Hours mode
+              counts part of a shift in proportion). Everyone's points are added up and the tip pot is
+              shared out by each person's share of the total. The <strong>tip pot</strong> comes from
+              the week's Cash Recon service charge and tips sources set to "Distributed to Staff";
+              "Split" sources are shown separately. Tap the pot to set it by hand.
+            </P>
+            <P>
+              <strong>Move points</strong> takes points from one person and gives them to another
+              (the total stays the same), for payroll to reward or correct a week.{' '}
+              <strong>Undo all moves</strong> puts everyone back to what they earned. Tips are shown
+              here only; they are not added to Cash Recon wages.
+            </P>
+            <H3>Rota dashboard</H3>
+            <P>
+              The <strong>Rota dashboard</strong> works like the Cash and H&amp;S dashboards: named
+              tabs, Edit layout to add, resize and reorder widgets.
+            </P>
+            <DataTable
+              head={['Widget', 'Shows']}
+              rows={[
+                ['Rota grid', 'The week\'s rota, editable the same way as the Rota page. Tap a day heading to select that day.'],
+                ['Who\'s on', 'Everyone working the selected day, grouped by shift, plus anyone entered by hours. Day buttons along the top pick the day.'],
+                ['Hours and pay', 'The pay table from the Rota page; the title bar shows the week\'s total pay.'],
+                ['Tips', 'The tips table from the Rota page; the title bar shows the tip pot.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              Access is set per module in Access: Staff (staff list, roles, rota setup), Rota (view or
+              edit the rota), Rota pay (pay, tips and filling wages; owners and admins only by
+              default) and Rota dashboard.
             </InfoBox>
           </section>
 

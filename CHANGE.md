@@ -5,6 +5,26 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Staff & Rota]
+
+### Staff
+- New **Staff** section in the sidebar. The staff list moved out of Cash Recon settings to its own **Staff** page (per venue, drag to reorder).
+- **Roles** page: company-wide job titles, each with a tip points multiplier (e.g. Manager x1.1, Pot wash x1.0).
+- Each person has a role and a pay type: **Hourly** (optional different rate per shift) or **Fixed** per week, per day worked, or per shift (optional amount per shift).
+
+### Rota
+- **Rota setup**: choose Day parts (ON/OFF per shift) or Hours (start and end times at 15 / 30 / 60 minute steps), and define day parts / shifts with start, end and tip points (e.g. Lunch 11:30-15:00 0.5 pts, Dinner 18:00-23:00 1 pt).
+- **Rota** page: names as rows, days as columns. Day parts mode splits each day into shift columns with an ON/OFF tap; Hours mode opens a day's times, with as many non-overlapping periods as needed. Explicit Save / Discard, copy from one of the last 8 weeks.
+- **Hours and pay** per person for the week, with a per-week pay override and **Fill Cash Recon wages**, which writes the pay into that week's wages (Paid ticks kept).
+- **Tips by points**: shift points x role multiplier, tip pot from service charge / tips sources distributed to staff (or set by hand), share per person. Payroll can move points between people (zero-sum) and undo all moves.
+- **Rota dashboard** with Rota grid, Who's on, Hours and pay, and Tips widgets.
+
+### Access
+- New module group "Staff & rota": Staff, Rota, Rota pay (owner/admin only by default), Rota dashboard.
+
+### Database
+- Migration `106_staff_rota.sql`: `staff_roles`, `rota_settings`, `rota_shifts`, `staff_shift_rates`, `rota_entries`, `rota_weeks`, `rota_week_staff`; `cash_staff.role_id` + `pay_basis`; `hs_dashboards.kind` gains `rota`; four rota widget types; Staff nav section for existing tenants.
+
 ## [2026-09-27 — Days of the week widget: open the day, hide closed days, compact mode]
 
 ### Cash Reconciliation

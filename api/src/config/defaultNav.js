@@ -31,6 +31,23 @@ export const DEFAULT_NAV_TREE = [
     ],
   },
   {
+    label: 'Staff', children: [
+      {
+        label: 'Staff', icon: 'UsersRound', route: '/staff', module: 'staff',
+        children: [
+          { label: 'Roles', icon: 'BadgeCheck', route: '/staff/roles', module: 'staff' },
+        ],
+      },
+      {
+        label: 'Rota', icon: 'CalendarRange', route: '/rota', module: 'rota',
+        children: [
+          { label: 'Rota setup', icon: 'Settings2', route: '/rota/setup', module: 'staff' },
+        ],
+      },
+      { label: 'Rota dashboard', icon: 'LayoutGrid', route: '/rota-dashboard', module: 'rota_dashboard' },
+    ],
+  },
+  {
     label: 'Website', children: [
       { label: 'Website', icon: 'Globe', route: '/website', module: 'website' },
       {

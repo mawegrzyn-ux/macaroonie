@@ -122,6 +122,34 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'none' },
   },
   {
+    key:    'staff',
+    label:  'Staff & rota setup',
+    group:  'staff',
+    description: 'Staff list with roles and pay rates, the roles list, and rota setup (day parts / hourly, shifts, points).',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
+    key:    'rota',
+    label:  'Rota',
+    group:  'staff',
+    description: 'Weekly rota: who works which shift or hours.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
+  {
+    key:    'rota_pay',
+    label:  'Rota pay & tips',
+    group:  'staff',
+    description: 'Weekly pay, tip points and tip shares from the rota; fill Cash Recon wages.',
+    default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
+  },
+  {
+    key:    'rota_dashboard',
+    label:  'Rota dashboard',
+    group:  'staff',
+    description: 'Customisable dashboards of rota widgets: week grid, who is on, pay, tips.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
+  {
     key:    'team',
     label:  'Team',
     core:   true,
@@ -264,6 +292,12 @@ export const MODULE_GROUPS = [
     label:  'Cash reconciliation',
     description: 'Daily close-out, weekly grid, service-charge sources.',
     moduleKeys: ['cash_recon', 'cash_dashboard'],
+  },
+  {
+    key:    'staff',
+    label:  'Staff & rota',
+    description: 'Staff list, roles, weekly rota, pay and tip sharing.',
+    moduleKeys: ['staff', 'rota', 'rota_pay', 'rota_dashboard'],
   },
   {
     key:    'support',

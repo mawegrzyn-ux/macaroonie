@@ -21,6 +21,7 @@ const SECTIONS = [
   { id: 'checklists',   label: 'Checklists' },
   { id: 'hs-dashboard', label: 'H&S Dashboard' },
   { id: 'cash-dashboard', label: 'Cash Dashboard' },
+  { id: 'staff-rota', label: 'Staff & Rota' },
   { id: 'mobile-app', label: 'Mobile App (/mobile)' },
   { id: 'hs-action-log', label: 'H&S Action Log' },
   { id: 'navigation',   label: 'Navigation & Launcher' },
@@ -1035,7 +1036,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'Purpose']}
               rows={[
-                ['cash_staff', 'Per-venue staff list with a default_rate and pay_type (hourly | fixed, migration 104): default_rate is £/hr for hourly, £/week for fixed. pay_type seeds entry_type when the person is added to a week. sort_order for reorder (PUT /config/staff/reorder).'],
+                ['cash_staff', 'Per-venue staff list with a default_rate, pay_type (hourly | fixed, migration 104), and since migration 106 role_id (staff_roles) and pay_basis (week | day | shift, used by fixed staff). default_rate is £/hr for hourly, £ per week/day/shift for fixed. pay_type seeds entry_type when the person is added to a week. CRUD and reorder moved to /api/rota/venues/:venueId/staff* (see Staff & Rota); GET /cash-recon/config still returns the rows.'],
                 ['cash_wage_reports', 'One per venue per ISO week (week_start), status draft/submitted.'],
                 ['cash_wage_entries', 'One per staff member per report. total is the full wage cost; cash_amount is only the cash-paid portion — the two legitimately differ when part or all of a wage goes by bank transfer.'],
                 ['cash_wage_defaults', "(migration 093) tenant_id, venue_id, staff_id, entry_type, sort_order — UNIQUE(venue_id, staff_id). The venue's saved default staff list for 'Set as default'; entries without a staff_id (ad-hoc) are never included since there's no stable identity to carry over week to week."],
@@ -1488,6 +1489,106 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               no migration was needed and older free-form values snap to the nearest row count.
               Dense packing lets shorter cards fill the space beside a tall one, so on-screen
               order can differ slightly from sort order.
+            </P>
+          </section>
+
+          {/* ── STAFF & ROTA ────────────────────────────── */}
+          <section id="staff-rota" data-doc="">
+            <H2>Staff &amp; Rota</H2>
+            <P>
+              Migration 106. Pages: <Mono>/staff</Mono> (<Mono>Staff.jsx</Mono>),{' '}
+              <Mono>/staff/roles</Mono> (<Mono>StaffRoles.jsx</Mono>), <Mono>/rota</Mono>{' '}
+              (<Mono>Rota.jsx</Mono>), <Mono>/rota/setup</Mono> (<Mono>RotaSetup.jsx</Mono>),{' '}
+              <Mono>/rota-dashboard</Mono> (<Mono>RotaDashboard.jsx</Mono>). Shared UI in{' '}
+              <Mono>components/staff/shared.jsx</Mono> (venue choice, sortable rows, modal, time
+              select) and <Mono>components/staff/rota.jsx</Mono> (<Mono>RotaGrid</Mono>,{' '}
+              <Mono>RotaDayList</Mono>, <Mono>RotaPayTable</Mono>, <Mono>RotaTipsTable</Mono>), used
+              unchanged by both the Rota page and the dashboard widgets. API:{' '}
+              <Mono>routes/rota.js</Mono> at <Mono>/api/rota</Mono>; maths in{' '}
+              <Mono>services/rotaCalc.js</Mono> (<Mono>computeRotaWeek()</Mono>, pure, the one
+              implementation used by GET pay and fill-wages).
+            </P>
+            <H3>Scope</H3>
+            <P>
+              Tenant-wide: roles, shifts, rota settings (one company, one set of rules; a new tenant
+              starts empty). Per venue: staff (<Mono>cash_staff</Mono>, the same rows Cash Recon wages
+              use), rota entries, weekly pay/points adjustments.
+            </P>
+            <H3>Schema</H3>
+            <DataTable
+              head={['Table', 'Purpose']}
+              rows={[
+                ['staff_roles', 'Tenant job titles: name, points_multiplier numeric(5,2) default 1, sort_order, is_active. cash_staff.role_id references it ON DELETE SET NULL.'],
+                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60). Missing row = day_parts / 30.'],
+                ['rota_shifts', 'Day parts: name, start_time, end_time (end <= start runs past midnight), points, sort_order, is_active. Deleting a shift used by any entry only hides it.'],
+                ['staff_shift_rates', 'Per staff per shift rate (PK staff_id, shift_id): hourly rate for hourly staff, amount per shift for fixed/shift staff. Replaced wholesale by the staff PATCH shift_rates array.'],
+                ['rota_entries', 'venue_id, staff_id, work_date, and either shift_id (day-part tick) or start_time + end_time (hourly period); CHECK enforces one or the other. Partial unique index on (staff_id, work_date, shift_id).'],
+                ['rota_weeks', 'Per venue per week_start: tip_pot_override (null = use the service charge figure).'],
+                ['rota_week_staff', 'Per venue, week, staff: points_adjustment (zero-sum moves) and pay_override.'],
+              ]}
+            />
+            <H3>API</H3>
+            <DataTable
+              head={['Route', 'Module', 'Notes']}
+              rows={[
+                ['GET /setup', 'any signed-in user', 'settings + shifts + roles'],
+                ['PATCH /settings; POST/PATCH/DELETE /shifts[/:id]; PUT /shifts/reorder; same for /roles', 'staff manage', ''],
+                ['GET/POST/PATCH/DELETE /venues/:venueId/staff[/:id]; PUT .../staff/reorder', 'staff', 'Staff with wage or rota history are deactivated, not deleted.'],
+                ['GET /venues/:venueId/weeks/:week', 'rota view', 'week_start, dates, settings, shifts, staff (active plus anyone with entries), entries. :week may be any date; it snaps to Monday.'],
+                ['PUT .../weeks/:week/entries', 'rota manage', 'Whole-week replace (both modes). 400 for a date outside the week, 422 for overlapping periods for one person on one day; duplicate shift ticks are dropped.'],
+                ['POST .../weeks/:week/copy { from_week }', 'rota manage', 'Replaces the week with another week\'s entries, shifted by whole weeks.'],
+                ['GET .../weeks/:week/pay', 'rota_pay view', 'computeRotaWeek result: rows, totals, tip_pot { from_service_charge, split_sources, override, value }.'],
+                ['PATCH .../tip-pot, PATCH .../staff/:staffId { pay_override }, POST .../move-points, POST .../reset-points', 'rota_pay manage', 'Each returns the recomputed pay payload. Moving more points than the person has is 422.'],
+                ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header (422 if submitted), updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Hourly people get hours and rate = pay / hours; everyone else a fixed total. Tips are not written.'],
+              ]}
+            />
+            <H3>Calculation (services/rotaCalc.js)</H3>
+            <P>
+              Times are minutes from the start of the work date; an end at or before the start adds
+              24h. A day-part entry counts its whole shift. An hourly period counts its own minutes
+              and, for each shift it overlaps, that shift in proportion (overlap / shift length);
+              minutes outside every shift count as hours but earn no points.
+            </P>
+            <DataTable
+              head={['Figure', 'Rule']}
+              rows={[
+                ['Hourly pay', 'Minutes in a shift at that shift\'s staff_shift_rates rate (else default_rate); minutes outside any shift at default_rate.'],
+                ['Fixed / week', 'default_rate if the person has any entry that week.'],
+                ['Fixed / day', 'default_rate x distinct days worked.'],
+                ['Fixed / shift', 'Sum of (shift amount x fraction worked); shift amount = staff_shift_rates rate, else default_rate.'],
+                ['Pay override', 'rota_week_staff.pay_override replaces the computed pay for that week.'],
+                ['Points', 'Sum of shift.points x fraction x role multiplier (1 with no role), plus points_adjustment, floored at 0.'],
+                ['Tip share', 'tip pot x person points / total points.'],
+              ]}
+            />
+            <P>
+              Tip pot: sum of <Mono>cash_sc_entries.amount</Mono> for the week's daily reports whose
+              source has <Mono>distribution = 'staff'</Mono>; <Mono>'split'</Mono> sources have no
+              percentage in Cash Recon, so they are returned separately as <Mono>split_sources</Mono>{' '}
+              for payroll to include via the override.
+            </P>
+            <H3>Frontend</H3>
+            <P>
+              <Mono>RotaGrid</Mono> holds a local draft of the week in the current mode only and
+              saves it with one PUT. Drafts are kept in a module-level <Mono>draftCache</Mono> keyed
+              by venue, week and mode, so switching weeks does not lose edits; saving or discarding
+              clears it. Entries from the other mode are counted in a notice and are replaced on
+              save. Hourly cells open <Mono>PeriodEditor</Mono>, which validates overlap client-side
+              with the same rule as the API (<Mono>periodProblem()</Mono>). Permissions come from{' '}
+              <Mono>/me</Mono> via <Mono>useRotaPerms()</Mono>.
+            </P>
+            <H3>Modules, nav, dashboard</H3>
+            <P>
+              New module group <Mono>staff</Mono> ("Staff &amp; rota"): <Mono>staff</Mono>,{' '}
+              <Mono>rota</Mono>, <Mono>rota_pay</Mono> (owner/admin only by default),{' '}
+              <Mono>rota_dashboard</Mono>. The migration adds a "Staff" nav section after "Service"
+              for tenants that already have a nav tree; <Mono>defaultNav.js</Mono> has the same tree
+              for new tenants; <Mono>ROUTE_CATALOG</Mono> lists the five routes. The dashboard is a
+              third <Mono>DashboardPage</Mono> config: <Mono>hs_dashboards.kind = 'rota'</Mono>,
+              mounted at <Mono>/api/rota-dashboards</Mono>, widget types <Mono>rota_grid</Mono>,{' '}
+              <Mono>rota_today</Mono>, <Mono>rota_week_pay</Mono>, <Mono>rota_tips</Mono>{' '}
+              (CHECK constraint, <Mono>WIDGET_TYPES_BY_KIND.rota</Mono> and{' '}
+              <Mono>ROTA_WIDGET_TYPES</Mono>). Navigation reuses <Mono>useWeekNav()</Mono>.
             </P>
           </section>
 
