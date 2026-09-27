@@ -24,21 +24,42 @@ const rangeMin = (s, e) => { let d = toMin(e) - toMin(s); if (d <= 0) d += 1440;
 const hoursLabel = mins => `${Math.round((mins / 60) * 100) / 100}h`
 
 /**
+ * Days to show: every day, or (hideClosed) only the days the venue is open,
+ * per week.open_dates from its booking schedule. A closed day that still
+ * has someone rostered is always kept. open_dates null = no schedule, show all.
+ */
+export function visibleRotaDates({ week, entries, hideClosed }) {
+  if (!hideClosed || !Array.isArray(week.open_dates)) return week.dates
+  const open = new Set(week.open_dates)
+  const worked = new Set(entries.map(e => e.work_date))
+  return week.dates.filter(d => open.has(d) || worked.has(d))
+}
+
+/** True when the venue's schedule says it is closed that day (null schedule = never). */
+export function isClosedDay(week, date) {
+  return Array.isArray(week.open_dates) && !week.open_dates.includes(date)
+}
+
+/**
  * @param {object} p
  * @param {object} p.week       GET /rota/.../weeks/:week payload
  * @param {Array}  p.entries    entries shown on the grid (current mode, may be a draft)
  * @param {string} p.mode       'day_parts' | 'hourly'
  * @param {string} p.venueName
  * @param {boolean} p.unsaved   the grid has unsaved changes
+ * @param {boolean} p.hideClosed leave out closed days (rota_settings.hide_closed_on_print)
  */
-export function buildRotaSheet({ week, entries, mode, venueName, unsaved }) {
+export function buildRotaSheet({ week, entries, mode, venueName, unsaved, hideClosed = false }) {
   const shiftById = Object.fromEntries(week.shifts.map(s => [s.id, s]))
   const shiftOrder = Object.fromEntries(week.shifts.map((s, i) => [s.id, i]))
-  const days = week.dates.map(d => ({ date: d, label: format(parseISO(d), 'EEE d MMM') }))
+  const dates = visibleRotaDates({ week, entries, hideClosed })
+  const days = dates.map(d => ({
+    date: d, label: format(parseISO(d), 'EEE d MMM') + (isClosedDay(week, d) ? ' (closed)' : ''),
+  }))
 
   const rows = week.staff.map(st => {
     let minutes = 0
-    const cells = week.dates.map(d => {
+    const cells = dates.map(d => {
       const mine = entries.filter(e => e.staff_id === st.id && e.work_date === d)
       if (mode === 'day_parts') {
         return mine.filter(e => e.shift_id && shiftById[e.shift_id])
@@ -59,7 +80,7 @@ export function buildRotaSheet({ week, entries, mode, venueName, unsaved }) {
     return { name: st.name, role: st.role_name ?? '', cells, hours: hoursLabel(minutes), working: minutes > 0 }
   })
 
-  const counts = week.dates.map((_, i) => rows.filter(r => r.cells[i].length > 0).length)
+  const counts = dates.map((_, i) => rows.filter(r => r.cells[i].length > 0).length)
   const usedShiftIds = new Set(entries.filter(e => e.shift_id).map(e => e.shift_id))
   const legend = mode === 'day_parts'
     ? week.shifts.filter(s => s.is_active || usedShiftIds.has(s.id)).map(s => `${s.name} ${hhmm(s.start_time)}–${hhmm(s.end_time)}`)

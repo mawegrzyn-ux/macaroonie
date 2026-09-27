@@ -24,7 +24,7 @@ import { fmt, getMonday } from '@/pages/CashRecon'
 import {
   Modal, TimeSelect, ErrorNote, hhmm, toMin, rangeMinutes, fmtHours, inputCls, useVenues, Segmented,
 } from '@/components/staff/shared'
-import { buildRotaSheet, printRota, saveRotaImage } from '@/components/staff/rotaExport'
+import { buildRotaSheet, printRota, saveRotaImage, visibleRotaDates, isClosedDay } from '@/components/staff/rotaExport'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
@@ -201,7 +201,8 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   }
   if (error) return <ErrorNote error={error} />
 
-  const dates = week.dates
+  const dates = visibleRotaDates({ week, entries, hideClosed: !!week.settings?.hide_closed_on_rota })
+  const hiddenDays = week.dates.length - dates.length
   const staff = week.staff
   const today = format(new Date(), 'yyyy-MM-dd')
   const minutesFor = staffId => entries.filter(e => e.staff_id === staffId).reduce((s, e) => s + entryMinutes(e, shiftById), 0)
@@ -211,7 +212,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
 
   function sheet() {
     const venueName = venues.find(v => v.id === venueId)?.name ?? ''
-    return buildRotaSheet({ week, entries, mode, venueName, unsaved: dirty })
+    return buildRotaSheet({ week, entries, mode, venueName, unsaved: dirty, hideClosed: !!week.settings?.hide_closed_on_print })
   }
   async function exportImage() {
     setExportError(null)
@@ -253,6 +254,11 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           </span>
         </p>
       )}
+      {hiddenDays > 0 && (
+        <p className="text-[11px] text-muted-foreground">
+          {hiddenDays} closed day{hiddenDays === 1 ? '' : 's'} hidden (Rota setup). A closed day with someone on it still shows.
+        </p>
+      )}
       {staff.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center">No active staff for this venue. Add people on the Staff page.</p>
       ) : mode === 'day_parts' && shifts.length === 0 ? (
@@ -272,6 +278,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
                         {format(parseISO(d), 'EEE d')}
                       </button>
                     ) : format(parseISO(d), 'EEE d')}
+                    {isClosedDay(week, d) && <span className="block text-[10px] font-normal text-muted-foreground">Closed</span>}
                   </th>
                 ))}
                 <th rowSpan={mode === 'day_parts' ? 2 : 1} className="border-l px-2 py-2 font-medium text-right whitespace-nowrap">Week</th>

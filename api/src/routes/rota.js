@@ -23,7 +23,7 @@
 //   PUT    /venues/:venueId/staff/reorder       { ids }
 //
 // Rota (per venue + ISO week; `rota` module):
-//   GET    /venues/:venueId/weeks/:week         settings, shifts, staff, entries
+//   GET    /venues/:venueId/weeks/:week         settings, shifts, staff, entries, open_dates
 //   PUT    /venues/:venueId/weeks/:week/entries  whole-week replace
 //   POST   /venues/:venueId/weeks/:week/copy     { from_week }
 //
@@ -42,6 +42,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { computeRotaWeek, periodsOverlap, span } from '../services/rotaCalc.js'
+import { resolveOpenDaysForWeek } from '../services/openDays.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$|^24:00(:00)?$/
@@ -53,6 +54,8 @@ const SettingsBody = z.object({
   slot_minutes:   z.union([z.literal(15), z.literal(30), z.literal(60)]).optional(),
   tip_round_to:   z.coerce.number().positive().max(1000).nullable().optional(),
   tip_round_mode: z.enum(['nearest', 'up', 'down']).optional(),
+  hide_closed_on_rota:  z.boolean().optional(),
+  hide_closed_on_print: z.boolean().optional(),
 })
 
 const ShiftBody = z.object({
@@ -127,10 +130,14 @@ async function assertVenue(tx, tenantId, venueId) {
 
 async function loadSettings(tx, tenantId) {
   const [row] = await tx`
-    SELECT mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode
+    SELECT mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode,
+           hide_closed_on_rota, hide_closed_on_print
       FROM rota_settings WHERE tenant_id = ${tenantId}
   `
-  return row ?? { mode: 'day_parts', slot_minutes: 30, tip_round_to: null, tip_round_mode: 'nearest' }
+  return row ?? {
+    mode: 'day_parts', slot_minutes: 30, tip_round_to: null, tip_round_mode: 'nearest',
+    hide_closed_on_rota: false, hide_closed_on_print: false,
+  }
 }
 
 function loadShifts(tx, tenantId) {
@@ -324,13 +331,18 @@ export default async function rotaRoutes(app) {
       const current = await loadSettings(tx, req.tenantId)
       const next = { ...current, ...Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) }
       const [row] = await tx`
-        INSERT INTO rota_settings (tenant_id, mode, slot_minutes, tip_round_to, tip_round_mode)
-        VALUES (${req.tenantId}, ${next.mode}, ${next.slot_minutes}, ${next.tip_round_to}, ${next.tip_round_mode})
+        INSERT INTO rota_settings (tenant_id, mode, slot_minutes, tip_round_to, tip_round_mode,
+                                   hide_closed_on_rota, hide_closed_on_print)
+        VALUES (${req.tenantId}, ${next.mode}, ${next.slot_minutes}, ${next.tip_round_to}, ${next.tip_round_mode},
+                ${next.hide_closed_on_rota}, ${next.hide_closed_on_print})
         ON CONFLICT (tenant_id) DO UPDATE
           SET mode = EXCLUDED.mode, slot_minutes = EXCLUDED.slot_minutes,
               tip_round_to = EXCLUDED.tip_round_to, tip_round_mode = EXCLUDED.tip_round_mode,
+              hide_closed_on_rota = EXCLUDED.hide_closed_on_rota,
+              hide_closed_on_print = EXCLUDED.hide_closed_on_print,
               updated_at = now()
-        RETURNING mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode
+        RETURNING mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode,
+                  hide_closed_on_rota, hide_closed_on_print
       `
       return row
     })
@@ -626,7 +638,17 @@ export default async function rotaRoutes(app) {
       const withEntries = [...new Set(entries.map(e => e.staff_id))]
       const staff = (await loadStaff(tx, req.tenantId, req.params.venueId, { activeOnly: true, alsoIds: withEntries }))
         .map(({ id, name, role_name, is_active }) => ({ id, name, role_name, is_active }))
-      return { week_start: monday, dates: weekDates(monday), settings, shifts, staff, entries }
+      const dates = weekDates(monday)
+      // open_dates is null when the venue has no weekly schedule at all, so
+      // "hide closed days" never hides a whole week of an unscheduled venue.
+      const [{ n: templateCount }] = await tx`
+        SELECT count(*)::int AS n FROM venue_schedule_templates
+         WHERE venue_id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
+      `
+      const openDates = templateCount > 0
+        ? await resolveOpenDaysForWeek(tx, req.tenantId, req.params.venueId, dates)
+        : null
+      return { week_start: monday, dates, open_dates: openDates, settings, shifts, staff, entries }
     })
   })
 
