@@ -40,6 +40,26 @@ const PAPER_MM = { A4: [210, 297], A3: [297, 420] }
 const paperDims = PAPER_MM[paperSize]
 const pageWidthMm = orientation === 'landscape' ? paperDims[1] : paperDims[0]
 const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
+
+/* Print layout (menus.print_settings + menu_sections.print_*, migration 120).
+   A missing setting keeps the original layout. */
+const ps = m.print_settings || {}
+const fontScale = Math.min(150, Math.max(70, Number(ps.font_scale) || 100)) / 100
+const marginMm = (ps.margin_mm == null || ps.margin_mm === '') ? null : Number(ps.margin_mm)
+const pagePadding = marginMm == null ? '8mm 12mm' : (marginMm + 'mm')
+const repeatHeader = (ps.repeat_header === 'full' || ps.repeat_header === 'compact') ? ps.repeat_header : 'first'
+const repeatFooter = !!ps.repeat_footer
+const pageNumbers = !!ps.page_numbers
+const keepAll = !!ps.keep_sections
+
+/* Designed pages: a section set to start on a new page opens a new sheet.
+   Each sheet gets its own header, columns and footer. */
+const pages = []
+sections.forEach(function (s) {
+  if (!pages.length || (s.print_break_before === 'page' && pages[pages.length - 1].length)) pages.push([])
+  pages[pages.length - 1].push(s)
+})
+if (!pages.length) pages.push([])
 %><!DOCTYPE html>
 <html lang="en">
 <head>
@@ -58,6 +78,7 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
       --ink: #2a1c1a;
       --muted: #7a6b62;
       --chilli: #c9302c;
+      --fs: <%= fontScale %>;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -66,15 +87,25 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
       font-weight: 400; line-height: 1.45;
       -webkit-font-smoothing: antialiased;
     }
+    /* One .page per printed sheet. Same size and padding on screen and in
+       print, so the preview is what prints and the fit check below can
+       measure it. Flex column so the footer sits at the bottom of the sheet. */
     .page {
       width: <%= pageWidthMm %>mm; max-width: 100%;
       min-height: <%= pageHeightMm %>mm;
       margin: 16px auto;
-      padding: 16mm 16mm 12mm;
+      padding: <%= pagePadding %>;
       background: var(--paper);
       box-shadow: 0 4px 20px rgba(0,0,0,0.12);
       position: relative;
+      display: flex; flex-direction: column;
     }
+    .page.spills { display: block; }
+    .page-bottom { margin-top: auto; }
+    .page-num { text-align: right; font-size: 9px; color: var(--muted); padding-top: 1.5mm; }
+    .fit-note { background: #fde8e8; border: 1px solid #f5b5b5; color: #8a1c1c; font-size: 12px; padding: 6px 10px; border-radius: 4px; margin-bottom: 3mm; }
+    .fit-note[hidden] { display: none; }
+    .fit-summary { font-size: 12px; opacity: 0.9; margin-left: 12px; }
     /* Print bar — visible on screen, hidden on print. */
     .print-bar {
       position: sticky; top: 0; z-index: 50;
@@ -104,18 +135,23 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
          needed, so moderately denser menus than this test case still fit
          one page. Re-measure with the same method before loosening any
          of these if a menu still spills to a second sheet. */
-      .page { box-shadow: none; margin: 0; padding: 8mm 12mm; min-height: auto; }
+      .page { box-shadow: none; margin: 0; min-height: calc(<%= pageHeightMm %>mm - 1mm); break-after: page; }
+      .page:last-child { break-after: auto; }
+      .fit-note { display: none !important; }
       @page { size: <%= paperSize %> <%= orientation %>; margin: 0; }
     }
     /* Header */
     .menu-head { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 4mm; border-bottom: 1px solid var(--line); margin-bottom: 4mm; gap: 12mm; }
-    .menu-head h1 { font-family: 'Fraunces', serif; font-size: 28px; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; line-height: 1; }
-    .menu-head .tagline { font-family: 'Caveat', cursive; font-size: 18px; color: var(--plum); margin-top: 2px; }
-    .menu-head .right { text-align: right; font-size: 11px; color: var(--muted); line-height: 1.5; }
-    .menu-head .right strong { color: var(--ink); display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
+    .menu-head h1 { font-family: 'Fraunces', serif; font-size: calc(28px * var(--fs)); font-weight: 500; color: var(--ink); letter-spacing: -0.01em; line-height: 1; }
+    .menu-head .tagline { font-family: 'Caveat', cursive; font-size: calc(18px * var(--fs)); color: var(--plum); margin-top: 2px; }
+    .menu-head .right { text-align: right; font-size: calc(11px * var(--fs)); color: var(--muted); line-height: 1.5; }
+    .menu-head .right strong { color: var(--ink); display: block; font-size: calc(11px * var(--fs)); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
     .menu-logo { width: 18mm; height: 18mm; object-fit: contain; flex-shrink: 0; }
-    .menu-intro { background: var(--paper-warm); padding: 6px 10px; font-size: 11px; color: var(--muted); border-radius: 3px; margin-bottom: 3mm; }
-    .menu-intro strong { color: var(--ink); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+    .menu-head.compact { align-items: baseline; padding-bottom: 2mm; margin-bottom: 3mm; }
+    .menu-head.compact .compact-name { font-family: 'Fraunces', serif; font-size: calc(14px * var(--fs)); font-weight: 500; color: var(--ink); }
+    .menu-head.compact .compact-right { font-size: calc(10px * var(--fs)); color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
+    .menu-intro { background: var(--paper-warm); padding: 6px 10px; font-size: calc(11px * var(--fs)); color: var(--muted); border-radius: 3px; margin-bottom: 3mm; }
+    .menu-intro strong { color: var(--ink); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.08em; font-size: calc(10px * var(--fs)); }
 
     /* Columns grid */
     .cols { column-count: <%= cols %>; column-gap: 6mm; column-fill: balance; }
@@ -127,9 +163,13 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
        @page below sets landscape. Never drop "screen and" here. */
     @media screen and (max-width: 800px) { .cols { column-count: 1 !important; } }
     .section { margin-bottom: 4mm; }
+    /* Keep a section in one piece (per section, or every section via
+       print_settings.keep_sections), and start a section in a new column. */
+    .section.keep { break-inside: avoid; }
+    .section.col-break { break-before: column; }
     .section.highlight { background: #fff7e6; padding: 4mm; border-radius: 4px; }
-    .section h2 { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
-    .section .sub { font-size: 10px; font-weight: 400; color: var(--muted); margin-left: 6px; text-transform: none; letter-spacing: 0; }
+    .section h2 { font-family: 'Inter', sans-serif; font-size: calc(12px * var(--fs)); font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
+    .section .sub { font-size: calc(10px * var(--fs)); font-weight: 400; color: var(--muted); margin-left: 6px; text-transform: none; letter-spacing: 0; }
     .section .head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding-bottom: 1.5mm; margin-bottom: 2mm; border-bottom: 1px solid var(--line); break-after: avoid; }
 
     /* Items. break-inside is on the item (not the section): a section
@@ -145,38 +185,44 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
     .item { padding: 1.2mm 0; break-inside: avoid; }
     .item-thumb { width: 9mm; height: 9mm; object-fit: cover; border-radius: 2px; flex-shrink: 0; }
     .item-body { flex: 1; min-width: 0; }
-    .group-name { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 1.5mm; }
+    .group-name { font-size: calc(9px * var(--fs)); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 1.5mm; }
     .item.featured { background: var(--paper-warm); padding: 2mm 3mm; border-radius: 3px; margin-bottom: 1.5mm; }
     .item-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-    .item-name { font-size: 11.5px; font-weight: 500; color: var(--ink); }
-    .item-name .native { font-style: italic; font-weight: 300; color: var(--muted); font-size: 10px; margin-left: 4px; }
-    .item-price { font-family: 'Fraunces', serif; font-size: 11.5px; font-weight: 500; color: var(--plum); font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .item-desc { font-size: 10.5px; color: var(--muted); margin-top: 1px; line-height: 1.4; }
-    .item-notes { font-size: 9.5px; color: var(--plum-soft); font-style: italic; margin-top: 1px; }
+    .item-name { font-size: calc(11.5px * var(--fs)); font-weight: 500; color: var(--ink); }
+    .item-name .native { font-style: italic; font-weight: 300; color: var(--muted); font-size: calc(10px * var(--fs)); margin-left: 4px; }
+    .item-price { font-family: 'Fraunces', serif; font-size: calc(11.5px * var(--fs)); font-weight: 500; color: var(--plum); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .item-desc { font-size: calc(10.5px * var(--fs)); color: var(--muted); margin-top: 1px; line-height: 1.4; }
+    .item-notes { font-size: calc(9.5px * var(--fs)); color: var(--plum-soft); font-style: italic; margin-top: 1px; }
     .item-tags { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
-    .tag-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 3px; color: #fff; font-size: 9px; font-weight: 700; line-height: 1; }
+    .tag-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 3px; color: #fff; font-size: calc(9px * var(--fs)); font-weight: 700; line-height: 1; }
     /* Variants */
     .variants { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; margin-top: 1mm; }
-    .variant-label { font-size: 10.5px; color: var(--ink); }
-    .variant-price { font-family: 'Fraunces', serif; font-size: 10.5px; color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; }
+    .variant-label { font-size: calc(10.5px * var(--fs)); color: var(--ink); }
+    .variant-price { font-family: 'Fraunces', serif; font-size: calc(10.5px * var(--fs)); color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; }
 
     /* Callouts (footer notes) */
-    .callouts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; margin-top: 4mm; padding-top: 3mm; border-top: 1px solid var(--line); font-size: 10px; }
-    .callout strong { display: block; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin-bottom: 2px; font-weight: 600; }
+    .callouts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; margin-top: 4mm; padding-top: 3mm; border-top: 1px solid var(--line); font-size: calc(10px * var(--fs)); }
+    .callout strong { display: block; font-size: calc(10px * var(--fs)); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink); margin-bottom: 2px; font-weight: 600; }
     .callout p { color: var(--muted); white-space: pre-line; line-height: 1.45; }
     .callout .key { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2mm; }
-    .callout .key .pair { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; }
+    .callout .key .pair { display: inline-flex; align-items: center; gap: 4px; font-size: calc(9.5px * var(--fs)); }
 
     /* Footer line */
-    .menu-foot { text-align: center; padding-top: 3mm; font-family: 'Fraunces', serif; font-style: italic; color: var(--muted); font-size: 10px; }
+    .menu-foot { text-align: center; padding-top: 3mm; font-family: 'Fraunces', serif; font-style: italic; color: var(--muted); font-size: calc(10px * var(--fs)); }
   </style>
 </head>
 <body>
   <div class="print-bar">
-    <span><%= m.name %> — <%= tenantName %> <% if (m.service_times) { %> · <%= m.service_times %><% } %></span>
+    <span><%= m.name %> — <%= tenantName %> <% if (m.service_times) { %> · <%= m.service_times %><% } %>
+      <span class="fit-summary" id="fit-summary"></span></span>
     <button onclick="window.print()">Save as PDF / Print</button>
   </div>
-  <div class="page">
+  <% pages.forEach(function(group, pi){ %>
+  <% const isFirst = pi === 0 %>
+  <% const isLast = pi === pages.length - 1 %>
+  <div class="page" data-page="<%= pi + 1 %>" data-w="<%= pageWidthMm %>" data-h="<%= pageHeightMm %>">
+    <div class="fit-note" hidden></div>
+    <% if (isFirst || repeatHeader === 'full') { %>
     <div class="menu-head">
       <div>
         <h1><%= m.name %></h1>
@@ -190,14 +236,22 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
         <% if (m.service_times) { %><div><%= m.service_times %></div><% } %>
       </div>
     </div>
+    <% } else if (repeatHeader === 'compact') { %>
+    <div class="menu-head compact">
+      <span class="compact-name"><%= m.name %></span>
+      <span class="compact-right"><%= tenantName %></span>
+    </div>
+    <% } %>
 
-    <% if (m.intro_line) { %>
+    <% if (isFirst && m.intro_line) { %>
       <div class="menu-intro"><%~ m.intro_line %></div>
     <% } %>
 
     <div class="cols">
-      <% sections.forEach(function(s){ %>
-        <div class="section<%= s.highlight ? ' highlight' : '' %>">
+      <% group.forEach(function(s, si){ %>
+        <% const _keep = keepAll || !!s.print_keep_together %>
+        <% const _colBreak = si > 0 && s.print_break_before === 'column' %>
+        <div class="section<%= s.highlight ? ' highlight' : '' %><%= _keep ? ' keep' : '' %><%= _colBreak ? ' col-break' : '' %>">
           <div class="head-row">
             <h2>
               <% if (s.image_url) { %><img src="<%= s.image_url %>" alt="" style="width:1.6em; height:1.6em; object-fit:cover; border-radius:3px; vertical-align:middle; margin-right:4px;" /><% } %>
@@ -273,6 +327,9 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
       <% }) %>
     </div>
 
+    <% if (isLast || repeatFooter || pageNumbers) { %>
+    <div class="page-bottom">
+    <% if (isLast || repeatFooter) { %>
     <% if (callouts.length) { %>
       <div class="callouts">
         <% callouts.forEach(function(c){ %>
@@ -300,6 +357,53 @@ const pageHeightMm = orientation === 'landscape' ? paperDims[0] : paperDims[1]
     <% } else { %>
       <div class="menu-foot">— honest cooking, made fresh in our kitchen —</div>
     <% } %>
+    <% } %>
+    <% if (pageNumbers) { %><div class="page-num">Page <%= pi + 1 %> of <%= pages.length %></div><% } %>
+    </div>
+    <% } %>
   </div>
+  <% }) %>
+
+  <script>
+  /* Fit check (screen only). Each .page is one printed sheet: if its content
+     is taller than the sheet it would spill onto an extra, header-less sheet
+     when printed, so say so on the page. A spilling page also drops its
+     flex layout (class "spills") so the print engine can break it cleanly.
+     Skipped when the window is too narrow to show the page at full size,
+     since the layout then differs from print. */
+  (function () {
+    var MM = 96 / 25.4;
+    function check() {
+      var pages = document.querySelectorAll('.page');
+      var bad = [];
+      var measured = true;
+      pages.forEach(function (pg) {
+        var note = pg.querySelector('.fit-note');
+        pg.classList.remove('spills');
+        note.hidden = true;
+        var wantW = parseFloat(pg.getAttribute('data-w')) * MM;
+        var wantH = parseFloat(pg.getAttribute('data-h')) * MM;
+        if (Math.abs(pg.offsetWidth - wantW) > 2) { measured = false; return; }
+        var over = pg.offsetHeight - wantH;
+        if (over > 2) {
+          var mm = Math.ceil(over / MM);
+          pg.classList.add('spills');
+          note.textContent = 'This page doesn\'t fit on one sheet: about ' + mm + 'mm too long. Start a section on a new page, let long sections split, or make the font smaller.';
+          note.hidden = false;
+          bad.push(pg.getAttribute('data-page'));
+        }
+      });
+      var sum = document.getElementById('fit-summary');
+      if (!sum) return;
+      var n = pages.length + (pages.length === 1 ? ' page' : ' pages');
+      if (!measured) sum.textContent = '· ' + n + ' · widen the window to check the fit';
+      else if (bad.length) sum.textContent = '· ' + n + ' · page ' + bad.join(', ') + ' too long';
+      else sum.textContent = '· ' + n + ' · all fit';
+    }
+    function run() { if (document.fonts && document.fonts.ready) document.fonts.ready.then(check); else check(); }
+    window.addEventListener('load', run);
+    window.addEventListener('resize', run);
+  })();
+  </script>
 </body>
 </html>

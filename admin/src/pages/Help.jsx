@@ -2341,6 +2341,24 @@ export default function Help() {
               renders straight from the browser's print dialog. Columns, paper size and
               orientation are configurable per menu.
             </P>
+            <P>
+              <strong>Print layout.</strong> Under <strong>Settings</strong> on a menu you can also
+              set the <strong>font size</strong> (80% to 130%), the <strong>page margins</strong>,
+              what header later pages get (none, a one-line menu name, or the full header),
+              whether the <strong>footer repeats</strong> on every page (allergen key, notes and
+              footer line), <strong>page numbers</strong>, and <strong>Keep every section in one
+              piece</strong>. Under each section's title in the menu, choose whether it continues
+              after the previous section, <strong>starts in a new column</strong> or{' '}
+              <strong>starts on a new page</strong>, and whether to keep that section in one piece.
+            </P>
+            <P>
+              The print page shows each printed sheet separately and says at the top how many
+              pages there are. If a page is too long for one sheet it is marked in red with how
+              much too long it is. Fix it by starting a section on a new page, letting a long
+              section split, or making the font smaller. Otherwise that page runs onto an extra
+              sheet without its header and footer. The check needs a window wide enough to show
+              the page at full size.
+            </P>
           </section>
 
           {/* ── ORDER SHEETS ──────────────────────────────── */}

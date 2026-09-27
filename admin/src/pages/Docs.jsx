@@ -2324,6 +2324,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table / column', 'Purpose']}
               rows={[
                 ['menu_items.calories', 'Migration 094. Nullable int (kcal), CHECK >= 0. Shown next to the price wherever price is shown — website block, print, and the page-builder canvas preview.'],
+                ['menus.print_settings', 'Migration 120. jsonb, default {}. Optional keys: font_scale (int 70-150, %), margin_mm (3-25, null = 8mm/12mm), repeat_header (first | compact | full), repeat_footer, page_numbers, keep_sections (bools). Zod PrintSettings in menus.js strips unknown keys; written with tx.json(). A missing key keeps the original layout.'],
+                ['menu_sections.print_break_before / print_keep_together', 'Migration 120. none | column | page (CHECK), and a boolean. Print only: the website menu_inline block and the canvas ignore them.'],
                 ['menu_sections.image_url', 'Migration 095. Nullable text (a Media library URL). A small category icon/image next to the section heading — capped at 1.3em (website block / canvas) or 1.6em (print) so it never renders larger than the heading font next to it, regardless of the uploaded image\'s actual resolution.'],
               ]}
             />
@@ -2351,6 +2353,29 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>MenuInlineCanvas</Mono> (page-builder live preview) — the canvas/SSR-parity
               gotcha applies here same as the variant-visibility toggles: grep all three render
               sites, not just one, before considering a menu-item display change done.
+            </P>
+            <H3>Print layout (menu_print.eta)</H3>
+            <P>
+              The print page is built from designed pages: sections are split into page groups
+              wherever a section has <Mono>print_break_before = 'page'</Mono>, and each group
+              renders as its own <Mono>.page</Mono> sheet (paper-sized, the same padding on screen
+              and in print) with its header (full on page 1; later pages per{' '}
+              <Mono>repeat_header</Mono>), its own multi-column <Mono>.cols</Mono>, and a{' '}
+              <Mono>.page-bottom</Mono> pushed to the bottom by flex (callouts + footer line on the
+              last page, or every page with <Mono>repeat_footer</Mono>, plus "Page x of y"). Column
+              breaks are <Mono>break-before: column</Mono> (not on a page group's first section);
+              keep-together is <Mono>break-inside: avoid</Mono> on the section. Font scale is a{' '}
+              <Mono>--fs</Mono> CSS variable multiplied into every font size after the print bar.
+            </P>
+            <P>
+              A small inline script measures each sheet after fonts load: a page taller than the
+              paper gets a red <Mono>.fit-note</Mono> (screen only) with the excess in mm, the
+              print bar shows a summary, and the page gets class <Mono>spills</Mono>, which drops
+              its flex layout so the print engine can break it onto a second sheet (header and
+              footer then only appear once). The check is skipped when the window is narrower than
+              the page, since the screen layout then differs from print. Tested by rendering the
+              template in headless Chromium and counting PDF pages: fitting designed pages give
+              exactly one sheet each.
             </P>
           </section>
 

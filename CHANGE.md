@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Menu printing: page layout controls]
+
+### Menus
+- Menu **Settings** has a new **Print layout** group: font size (80% to 130%), page margins, a header on later pages (none, one line or the full header), repeating the footer (allergen key, notes, footer line) on every page, page numbers, and keeping every section in one piece.
+- Each section can **start in a new column** or **on a new page**, and can be **kept in one piece**.
+- The print page now shows each printed sheet separately and marks any page that is too long for one sheet in red, with how much too long it is.
+
+### Database
+- Migration `120_menu_print_layout.sql`: `menus.print_settings` (jsonb), `menu_sections.print_break_before` and `print_keep_together`.
+
+---
+
 ## [2026-09-27 — Tip pot cards fit the space]
 
 ### Rota

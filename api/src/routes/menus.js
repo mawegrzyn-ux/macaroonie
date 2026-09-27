@@ -60,7 +60,22 @@ const SectionBody = z.object({
   highlight:  z.boolean().default(false),
   image_url:  z.string().max(2000).nullable().optional(),
   sort_order: z.number().int().default(0),
+  // Print layout (migration 120): start in a new column / on a new
+  // printed page, and never split this section.
+  print_break_before:  z.enum(['none', 'column', 'page']).default('none'),
+  print_keep_together: z.boolean().default(false),
   items:      z.array(ItemBody).default([]),
+})
+
+// menus.print_settings (migration 120). Every key optional; a missing key
+// means the original layout, so an untouched menu prints as it always did.
+const PrintSettings = z.object({
+  font_scale:    z.number().int().min(70).max(150).optional(),
+  margin_mm:     z.number().min(3).max(25).nullable().optional(),
+  repeat_header: z.enum(['first', 'full', 'compact']).optional(),
+  repeat_footer: z.boolean().optional(),
+  page_numbers:  z.boolean().optional(),
+  keep_sections: z.boolean().optional(),
 })
 
 const CalloutBody = z.object({
@@ -84,6 +99,7 @@ const MenuMetaBody = z.object({
   print_orientation: z.enum(['landscape', 'portrait']).default('landscape'),
   print_paper_size:  z.enum(['A4', 'A3']).default('A4'),
   print_hide_variant_group_headers: z.boolean().default(false),
+  print_settings:                   PrintSettings.default({}),
   hide_zero_priced_variants:        z.boolean().default(false),
   hide_unpriced_variants:           z.boolean().default(false),
 })
@@ -248,10 +264,12 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
 
   for (const [si, section] of (body.sections || []).entries()) {
     const [s] = await tx`
-      INSERT INTO menu_sections (menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order)
+      INSERT INTO menu_sections (menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order,
+                                 print_break_before, print_keep_together)
       VALUES (${menuId}, ${tenantId}, ${section.title},
               ${section.subtitle ?? null}, ${section.highlight ?? false}, ${section.image_url ?? null},
-              ${section.sort_order ?? si})
+              ${section.sort_order ?? si},
+              ${section.print_break_before ?? 'none'}, ${section.print_keep_together ?? false})
       RETURNING id
     `
     for (const [ii, item] of (section.items || []).entries()) {
@@ -431,11 +449,11 @@ export default async function menusRoutes(app) {
   app.post('/', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = MenuMetaBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, hide_zero_priced_variants, hide_unpriced_variants)
+      INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, print_settings, hide_zero_priced_variants, hide_unpriced_variants)
       VALUES (${req.tenantId}, ${body.venue_id ?? null}, ${body.name}, ${body.slug},
               ${body.tagline ?? null}, ${body.service_times ?? null}, ${body.intro_line ?? null},
               ${body.is_published}, ${body.sort_order}, ${body.print_columns}, ${body.print_orientation}, ${body.print_paper_size},
-              ${body.print_hide_variant_group_headers}, ${body.hide_zero_priced_variants}, ${body.hide_unpriced_variants})
+              ${body.print_hide_variant_group_headers}, ${tx.json(body.print_settings)}, ${body.hide_zero_priced_variants}, ${body.hide_unpriced_variants})
       RETURNING *
     `)
     return reply.code(201).send(row)
@@ -461,17 +479,19 @@ export default async function menusRoutes(app) {
       for (let n = 2; taken.has(slug); n++) slug = `${full.slug}-copy-${n}`
 
       const [row] = await tx`
-        INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, hide_zero_priced_variants, hide_unpriced_variants)
+        INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, print_settings, hide_zero_priced_variants, hide_unpriced_variants)
         VALUES (${req.tenantId}, ${full.venue_id ?? null}, ${full.name + ' (copy)'}, ${slug},
                 ${full.tagline ?? null}, ${full.service_times ?? null}, ${full.intro_line ?? null},
                 false, ${full.sort_order ?? 0}, ${full.print_columns ?? 4},
                 ${full.print_orientation ?? 'landscape'}, ${full.print_paper_size ?? 'A4'},
-                ${!!full.print_hide_variant_group_headers}, ${!!full.hide_zero_priced_variants}, ${!!full.hide_unpriced_variants})
+                ${!!full.print_hide_variant_group_headers}, ${tx.json(full.print_settings ?? {})},
+                ${!!full.hide_zero_priced_variants}, ${!!full.hide_unpriced_variants})
         RETURNING *
       `
 
       const sections = (full.sections || []).map(s => ({
         title: s.title, subtitle: s.subtitle ?? null, highlight: !!s.highlight, image_url: s.image_url ?? null, sort_order: s.sort_order,
+        print_break_before: s.print_break_before ?? 'none', print_keep_together: !!s.print_keep_together,
         items: (s.items || []).map(it => ({
           name: it.name, native_name: it.native_name ?? null, description: it.description ?? null,
           price_pence: it.price_pence ?? null, calories: it.calories ?? null, notes: it.notes ?? null, is_featured: !!it.is_featured,
@@ -516,6 +536,7 @@ export default async function menusRoutes(app) {
                print_orientation = ${body.print_orientation},
                print_paper_size = ${body.print_paper_size},
                print_hide_variant_group_headers = ${body.print_hide_variant_group_headers},
+               print_settings = ${tx.json(body.print_settings)},
                hide_zero_priced_variants = ${body.hide_zero_priced_variants},
                hide_unpriced_variants = ${body.hide_unpriced_variants},
                updated_at = now()
