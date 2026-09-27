@@ -1431,6 +1431,14 @@ export default function Help() {
               to slightly more or less than the pot; the Tips table says by how much, and shows each
               person's exact share under the rounded one. Always down never pays out more than the pot.
             </P>
+            <P>
+              <strong>Closed days</strong> (also in Rota setup): two separate switches, <strong>Hide closed
+              days on the rota</strong> (the Rota page grid) and <strong>Hide closed days on printouts and
+              images</strong> (Print / PDF and Save image). Closed days come from each venue's booking
+              schedule (the weekly schedule, date overrides and exceptions), the same days Cash Recon treats
+              as closed. A closed day with someone rostered on it is always shown, marked "Closed", so nobody
+              disappears from the rota. A venue with no weekly schedule set up never hides any days.
+            </P>
             <H3>The rota</H3>
             <P>
               <strong>Rota</strong> shows names down the side and the days of the week across the top.

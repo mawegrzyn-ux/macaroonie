@@ -1519,7 +1519,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'Purpose']}
               rows={[
                 ['staff_roles', 'Tenant job titles: name, points_multiplier numeric(5,2) default 1, sort_order, is_active. cash_staff.role_id references it ON DELETE SET NULL.'],
-                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60), tip_round_to (numeric, null = to the penny) and tip_round_mode (nearest | up | down), migration 107. Missing row = day_parts / 30 / no rounding.'],
+                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60), tip_round_to (numeric, null = to the penny) and tip_round_mode (nearest | up | down), migration 107; hide_closed_on_rota and hide_closed_on_print (booleans, default false), migration 110. Missing row = day_parts / 30 / no rounding / show every day.'],
                 ['rota_shifts', 'Day parts: name, start_time, end_time (end <= start runs past midnight), points, sort_order, is_active. Deleting a shift used by any entry only hides it.'],
                 ['staff_shift_rates', 'Per staff per shift rate (PK staff_id, shift_id): hourly rate for hourly staff, amount per shift for fixed/shift staff. Replaced wholesale by the staff PATCH shift_rates array.'],
                 ['rota_entries', 'venue_id, staff_id, work_date, and either shift_id (day-part tick) or start_time + end_time (hourly period); CHECK enforces one or the other. Partial unique index on (staff_id, work_date, shift_id).'],
@@ -1536,7 +1536,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /setup', 'any signed-in user', 'settings + shifts + roles'],
                 ['PATCH /settings; POST/PATCH/DELETE /shifts[/:id]; PUT /shifts/reorder; same for /roles', 'staff manage', ''],
                 ['GET/POST/PATCH/DELETE /venues/:venueId/staff[/:id]; PUT .../staff/reorder', 'staff', 'Staff with wage or rota history are deactivated, not deleted.'],
-                ['GET /venues/:venueId/weeks/:week', 'rota view', 'week_start, dates, settings, shifts, staff (active plus anyone with entries), entries. :week may be any date; it snaps to Monday.'],
+                ['GET /venues/:venueId/weeks/:week', 'rota view', 'week_start, dates, open_dates, settings, shifts, staff (active plus anyone with entries), entries. :week may be any date; it snaps to Monday. open_dates is null when the venue has no venue_schedule_templates rows (nothing is hidden), otherwise the open dates from resolveOpenDaysForWeek().'],
                 ['PUT .../weeks/:week/entries', 'rota manage', 'Whole-week replace (both modes). 400 for a date outside the week, 422 for overlapping periods for one person on one day; duplicate shift ticks are dropped.'],
                 ['POST .../weeks/:week/copy { from_week }', 'rota manage', 'Replaces the week with another week\'s entries, shifted by whole weeks.'],
                 ['GET .../weeks/:week/pay', 'rota_pay view', 'computeRotaWeek result: rows (incl. pot_shares / pot_shares_exact by pot id, tip_share total), pots (sources, lines, total, distributed, difference, kept_by_house), totals (hours, pay, points, tips_in, tips_shared, kept_by_house), tip_rounding.'],
@@ -1589,6 +1589,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               browser's "Save as PDF". <Mono>saveRotaImage()</Mono> draws the same model on a 2x canvas
               (<Mono>drawRotaCanvas()</Mono>) and downloads a PNG, or on touch devices uses{' '}
               <Mono>navigator.share</Mono> with the file when <Mono>canShare</Mono> allows it.
+            </P>
+            <P>
+              Closed days: <Mono>services/openDays.js</Mono> exports{' '}
+              <Mono>resolveOpenDaysForWeek(tx, tenantId, venueId, dates)</Mono> (exception, then date
+              override, then weekly template), shared by Cash Recon's week-detail and the rota's{' '}
+              <Mono>GET .../weeks/:week</Mono> so both agree on which days are closed.{' '}
+              <Mono>visibleRotaDates({'{'} week, entries, hideClosed {'}'})</Mono> in rotaExport.js drops
+              dates not in <Mono>open_dates</Mono> unless an entry falls on them; <Mono>RotaGrid</Mono> calls
+              it with <Mono>hide_closed_on_rota</Mono> and <Mono>buildRotaSheet()</Mono> with{' '}
+              <Mono>hide_closed_on_print</Mono>. A closed day that stays visible is labelled Closed.
             </P>
             <H3>Modules, nav, dashboard</H3>
             <P>

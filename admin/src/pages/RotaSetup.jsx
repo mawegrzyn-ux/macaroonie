@@ -42,19 +42,25 @@ function SettingsCard({ settings }) {
   const [slot, setSlot] = useState(settings.slot_minutes)
   const [roundTo, setRoundTo] = useState(savedRound)
   const [roundMode, setRoundMode] = useState(settings.tip_round_mode ?? 'nearest')
+  const [hideOnRota, setHideOnRota] = useState(!!settings.hide_closed_on_rota)
+  const [hideOnPrint, setHideOnPrint] = useState(!!settings.hide_closed_on_print)
   useEffect(() => {
     setMode(settings.mode); setSlot(settings.slot_minutes)
     setRoundTo(savedRound); setRoundMode(settings.tip_round_mode ?? 'nearest')
-  }, [settings.mode, settings.slot_minutes, savedRound, settings.tip_round_mode])
+    setHideOnRota(!!settings.hide_closed_on_rota); setHideOnPrint(!!settings.hide_closed_on_print)
+  }, [settings.mode, settings.slot_minutes, savedRound, settings.tip_round_mode, settings.hide_closed_on_rota, settings.hide_closed_on_print])
   const roundNum = roundTo === '' ? null : Number(roundTo)
   const roundInvalid = roundTo !== '' && !(roundNum > 0)
   const dirty = mode !== settings.mode || slot !== settings.slot_minutes
     || (roundNum ?? null) !== (settings.tip_round_to ?? null)
     || roundMode !== (settings.tip_round_mode ?? 'nearest')
+    || hideOnRota !== !!settings.hide_closed_on_rota
+    || hideOnPrint !== !!settings.hide_closed_on_print
 
   const save = useMutation({
     mutationFn: () => api.patch('/rota/settings', {
       mode, slot_minutes: slot, tip_round_to: roundNum, tip_round_mode: roundMode,
+      hide_closed_on_rota: hideOnRota, hide_closed_on_print: hideOnPrint,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rota-setup'] })
@@ -80,6 +86,20 @@ function SettingsCard({ settings }) {
             <Segmented value={slot} options={SLOTS} onChange={setSlot} />
           </Field>
         )}
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Closed days</p>
+          <label className="flex items-center gap-3 min-h-[44px] touch-manipulation">
+            <input type="checkbox" className="w-5 h-5" checked={hideOnRota} onChange={e => setHideOnRota(e.target.checked)} />
+            <span className="text-sm">Hide closed days on the rota</span>
+          </label>
+          <label className="flex items-center gap-3 min-h-[44px] touch-manipulation">
+            <input type="checkbox" className="w-5 h-5" checked={hideOnPrint} onChange={e => setHideOnPrint(e.target.checked)} />
+            <span className="text-sm">Hide closed days on printouts and images</span>
+          </label>
+          <p className="text-[11px] text-muted-foreground">
+            Closed days come from each venue's booking schedule (weekly schedule, date overrides and exceptions). A closed day with someone rostered is always shown.
+          </p>
+        </div>
         <Field label="Round tip shares to (£)"
           hint={roundTo === ''
             ? 'Applies to tip pots shared by points. Blank = to the penny. e.g. 0.50 rounds each share to the nearest 50p, 5 to the nearest £5.'

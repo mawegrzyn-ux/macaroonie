@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Hide closed days on the rota]
+
+### Rota
+- Two new switches in **Rota setup**: **Hide closed days on the rota** and **Hide closed days on printouts and images**, set separately.
+- Closed days come from the venue's booking schedule (weekly schedule, date overrides, exceptions), the same rule Cash Recon uses. A closed day with someone rostered is always shown and marked Closed. A venue with no weekly schedule never hides days.
+
+### Database
+- Migration `110_rota_hide_closed_days.sql`: `rota_settings.hide_closed_on_rota`, `rota_settings.hide_closed_on_print`.
+
 ## [2026-09-27 — Move tips by £]
 
 ### Rota
