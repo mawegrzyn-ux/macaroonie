@@ -1592,7 +1592,7 @@ export default function Help() {
                 ['Rota grid', 'The week\'s rota, editable the same way as the Rota page. Tap a day heading to select that day.'],
                 ['Who\'s on', 'Everyone working the selected day, grouped by shift, plus anyone entered by hours. Day buttons along the top pick the day.'],
                 ['Hours and pay', 'The pay table from the Rota page; the title bar shows the week\'s total pay.'],
-                ['Tips', 'The tip pots and each person\'s share from the Rota page; the title bar shows the total shared with staff this week.'],
+                ['Tips', 'The tip pots and each person\'s share from the Rota page; the title bar shows the total shared with staff this week. In Edit layout, Hide pots / Hide staff shares / Hide moves pick which of its three parts show, so you can add the widget more than once and lay the parts out separately.'],
               ]}
             />
             <InfoBox type="tip">

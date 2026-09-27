@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Rota dashboard: choose which parts of the Tips widget show]
+
+### Rota
+- The Rota dashboard's **Tips** widget has three options in Edit layout: **Hide pots**, **Hide staff shares** and **Hide moves**. Add the widget more than once to put the pots, the staff table and the moves list in separate places on the dashboard.
+
+---
+
 ## [2026-09-27 — Tips: quick +/− nudges]
 
 ### Rota

@@ -34,7 +34,12 @@ export const ROTA_WIDGET_TYPES = [
   { key: 'rota_grid',     label: 'Rota grid',       icon: CalendarRange, defaultTitle: 'Rota' },
   { key: 'rota_today',    label: "Who's on",        icon: Users,         defaultTitle: "Who's on" },
   { key: 'rota_week_pay', label: 'Hours and pay',   icon: Wallet,        defaultTitle: 'Hours and pay', HeaderValue: PayHeader },
-  { key: 'rota_tips',     label: 'Tips',            icon: Coins,         defaultTitle: 'Tips', HeaderValue: TipsHeader },
+  { key: 'rota_tips',     label: 'Tips',            icon: Coins,         defaultTitle: 'Tips', HeaderValue: TipsHeader,
+    options: [
+      { key: 'hide_pots',   label: 'Hide pots',         hint: 'Leave out the tip pot cards and the tips summary line' },
+      { key: 'hide_shares', label: 'Hide staff shares', hint: 'Leave out the per-person table, +/- buttons and the Unallocated pot' },
+      { key: 'hide_moves',  label: 'Hide moves',        hint: 'Leave out tip moves and adjustments' },
+    ] },
 ]
 
 function DayChips({ ctx }) {
@@ -74,7 +79,12 @@ function RotaWidget({ widget, venueId, ctx }) {
     case 'rota_week_pay':
       return <PayGate><RotaPayTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} /></PayGate>
     case 'rota_tips':
-      return <TipsGate><RotaTipsTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditTips} /></TipsGate>
+      return (
+        <TipsGate>
+          <RotaTipsTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditTips}
+            sections={{ pots: !widget.settings?.hide_pots, shares: !widget.settings?.hide_shares, moves: !widget.settings?.hide_moves }} />
+        </TipsGate>
+      )
     default:
       return null
   }
