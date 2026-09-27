@@ -5,6 +5,21 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Menu print designer]
+
+### Menus
+- New **Design print** button on a menu opens a designer where you lay out the printed menu yourself. Each page is a grid; drag the menu header, section titles, whole sections, single dishes, text, images, lines, footer notes, the allergen key and page numbers onto it, then move and resize them. Everything snaps to the grid.
+- Any block can **show on every page** (a header, footer or page number, say), and a page can hide those repeated blocks. Section titles can be placed again on later pages, with text such as "(continued)" after them.
+- The design stays linked to the menu: names, prices and allergens always come from the menu, and dishes added later appear in a **Not placed yet** list.
+- Once saved, the menu's Print button and the **Open as printable PDF** link on the website use the design. **Use the automatic layout** goes back.
+- Page setup: A4 or A3, landscape or portrait, margins, grid size and text size.
+- Menu sections and dishes now keep their ids when the menu is saved.
+
+### Database
+- Migration `121_menu_print_layout_designer.sql`: `menus.print_layout` (jsonb, empty = automatic layout).
+
+---
+
 ## [2026-09-27 — Menu printing: page layout controls]
 
 ### Menus

@@ -16,6 +16,11 @@ import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS } from '../services/menuSeeds.js'
+import { randomUUID } from 'node:crypto'
+import {
+  BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS, MENU_LAYOUT_FONTS_URL,
+  normalizeLayout, layoutGeometry, buildContext, renderPageHtml,
+} from '../../../shared/menuLayout.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -76,6 +81,62 @@ const PrintSettings = z.object({
   repeat_footer: z.boolean().optional(),
   page_numbers:  z.boolean().optional(),
   keep_sections: z.boolean().optional(),
+})
+
+// menus.print_layout (migration 121) — the menu designer's hand-placed
+// layout. Rendered by shared/menuLayout.js; see the shape there.
+const LayoutBlock = z.object({
+  id:   z.string().min(1).max(64),
+  type: z.enum(BLOCK_TYPES),
+  ref:  z.string().uuid().nullable().optional(),
+  x:    z.number().int().min(0),
+  y:    z.number().int().min(0),
+  w:    z.number().int().min(1),
+  h:    z.number().int().min(1),
+  opts: z.object({
+    font_scale:       z.number().int().min(50).max(300).optional(),
+    align:            z.enum(['left', 'center', 'right']).optional(),
+    box:              z.enum(['none', 'tint', 'outline']).optional(),
+    mode:             z.enum(['title', 'full']).optional(),
+    columns:          z.number().int().min(1).max(6).optional(),
+    show_subtitle:    z.boolean().optional(),
+    show_image:       z.boolean().optional(),
+    show_rule:        z.boolean().optional(),
+    show_description: z.boolean().optional(),
+    show_logo:        z.boolean().optional(),
+    suffix:           z.string().max(40).optional(),
+    variant:          z.enum(['full', 'compact']).optional(),
+    text:             z.string().max(2000).optional(),
+    style:            z.enum(['heading', 'subheading', 'body', 'script', 'small', 'thin', 'thick', 'dotted', 'double']).optional(),
+    url:              z.string().max(2000).optional(),
+    fit:              z.enum(['contain', 'cover']).optional(),
+  }).default({}),
+})
+
+const LayoutBody = z.object({
+  paper_size:  z.enum(['A4', 'A3']).default('A4'),
+  orientation: z.enum(['landscape', 'portrait']).default('landscape'),
+  margin_mm:   z.number().min(0).max(25).default(10),
+  cols:        z.union([z.literal(6), z.literal(12), z.literal(24)]).default(12),
+  row_mm:      z.union([z.literal(2.5), z.literal(5), z.literal(10)]).default(5),
+  font_scale:  z.number().int().min(70).max(150).default(100),
+  master:      z.array(LayoutBlock).max(100).default([]),
+  pages:       z.array(z.object({
+    id:          z.string().min(1).max(64),
+    hide_master: z.boolean().default(false),
+    blocks:      z.array(LayoutBlock).max(MAX_BLOCKS).default([]),
+  })).min(1).max(MAX_PAGES),
+}).superRefine((l, ctx) => {
+  const g = layoutGeometry(l)
+  const all = [...l.master, ...l.pages.flatMap(p => p.blocks)]
+  for (const b of all) {
+    if (b.x + b.w > g.cols || b.y + b.h > g.rows) {
+      ctx.addIssue({ code: 'custom', message: `Block ${b.id} is outside the page` })
+    }
+    if ((b.type === 'section' || b.type === 'item') && !b.ref) {
+      ctx.addIssue({ code: 'custom', message: `Block ${b.id} needs a section or dish` })
+    }
+  }
 })
 
 const CalloutBody = z.object({
@@ -248,6 +309,38 @@ async function loadMenuFull(tx, menuId, tenantId) {
   }
 }
 
+// The menu plus what the printed header shows: tenant name, logo and brand
+// colour, and for a venue-scoped menu the venue's address and phone.
+// Used by the print page and by the menu designer, so both show the same.
+async function loadPrintMenu(tx, menuId, tenantId) {
+  const menu = await loadMenuFull(tx, menuId, tenantId)
+  if (!menu) return null
+  const [meta] = await tx`
+    SELECT t.name AS tenant_name, ts.logo_url, ts.primary_colour
+      FROM tenants t
+      LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
+     WHERE t.id = ${tenantId}
+     LIMIT 1
+  `
+  let address_line1 = null, postcode = null, phone = null
+  if (menu.venue_id) {
+    const [v] = await tx`
+      SELECT wc.address_line1, wc.postcode, wc.phone
+        FROM venues v
+        LEFT JOIN website_config wc ON wc.venue_id = v.id
+       WHERE v.id = ${menu.venue_id} LIMIT 1
+    `
+    if (v) { address_line1 = v.address_line1; postcode = v.postcode; phone = v.phone }
+  }
+  return {
+    ...menu,
+    tenant_name:    meta?.tenant_name ?? null,
+    logo_url:       meta?.logo_url ?? null,
+    primary_colour: meta?.primary_colour ?? null,
+    address_line1, postcode, phone,
+  }
+}
+
 // ── Bulk upsert: rewrite the menu tree under one menu_id ─────
 
 async function upsertMenuTree(tx, tenantId, menuId, body) {
@@ -259,14 +352,17 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
   // Wipe + re-insert. Sections cascade to items → variants → dietary,
   // and callouts cascade from menu_id, so a single delete clears the
   // whole tree. Acceptable because only one admin edits at a time.
+  // Sections and dishes are re-inserted under the ids the client sent
+  // (new ones get a fresh id), so the designed print layout
+  // (menus.print_layout), which points at them by id, survives a save.
   await tx`DELETE FROM menu_sections WHERE menu_id = ${menuId}`
   await tx`DELETE FROM menu_callouts WHERE menu_id = ${menuId}`
 
   for (const [si, section] of (body.sections || []).entries()) {
     const [s] = await tx`
-      INSERT INTO menu_sections (menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order,
+      INSERT INTO menu_sections (id, menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order,
                                  print_break_before, print_keep_together)
-      VALUES (${menuId}, ${tenantId}, ${section.title},
+      VALUES (${section.id ?? randomUUID()}, ${menuId}, ${tenantId}, ${section.title},
               ${section.subtitle ?? null}, ${section.highlight ?? false}, ${section.image_url ?? null},
               ${section.sort_order ?? si},
               ${section.print_break_before ?? 'none'}, ${section.print_keep_together ?? false})
@@ -274,8 +370,8 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
     `
     for (const [ii, item] of (section.items || []).entries()) {
       const [it] = await tx`
-        INSERT INTO menu_items (section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order)
-        VALUES (${s.id}, ${tenantId}, ${item.name},
+        INSERT INTO menu_items (id, section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order)
+        VALUES (${item.id ?? randomUUID()}, ${s.id}, ${tenantId}, ${item.name},
                 ${item.native_name ?? null}, ${item.description ?? null},
                 ${item.price_pence ?? null}, ${item.calories ?? null}, ${item.notes ?? null},
                 ${item.is_featured ?? false}, ${item.image_url ?? null},
@@ -370,50 +466,35 @@ export default async function menusRoutes(app) {
   // Returns a self-contained printable page; the browser handles "Save
   // as PDF" via its own print dialog. No external PDF dependency.
   app.get('/:id/print', async (req, reply) => {
-    const [meta] = await sql`
-      SELECT m.tenant_id, m.is_published,
-             t.name AS tenant_name,
-             ts.logo_url, ts.primary_colour
-        FROM menus m
-        LEFT JOIN tenants t      ON t.id = m.tenant_id
-        LEFT JOIN tenant_site ts ON ts.tenant_id = m.tenant_id
-       WHERE m.id = ${req.params.id}
-       LIMIT 1
-    `
-    if (!meta) {
+    const notFound = () => {
       reply.code(404)
       return reply.view('site/not-found.eta', { message: 'Menu not found', rootDomain: 'macaroonie.com' })
     }
-    const menu = await withTenant(meta.tenant_id, tx => loadMenuFull(tx, req.params.id, meta.tenant_id))
-    if (!menu) {
-      reply.code(404)
-      return reply.view('site/not-found.eta', { message: 'Menu not found', rootDomain: 'macaroonie.com' })
-    }
-
-    // If the menu's scope is a venue, fold in venue address + phone for
-    // the printed header. Tenant-scoped menus skip this — the operator
-    // can put address text on the menu's intro_line instead.
-    let address_line1 = null, postcode = null, phone = null
-    if (menu.venue_id) {
-      const [v] = await sql`
-        SELECT wc.address_line1, wc.postcode, wc.phone
-          FROM venues v
-          LEFT JOIN website_config wc ON wc.venue_id = v.id
-         WHERE v.id = ${menu.venue_id} LIMIT 1
-      `
-      if (v) { address_line1 = v.address_line1; postcode = v.postcode; phone = v.phone }
-    }
+    if (!z.string().uuid().safeParse(req.params.id).success) return notFound()
+    const [meta] = await sql`SELECT tenant_id FROM menus WHERE id = ${req.params.id} LIMIT 1`
+    if (!meta) return notFound()
+    const menu = await withTenant(meta.tenant_id, tx => loadPrintMenu(tx, req.params.id, meta.tenant_id))
+    if (!menu) return notFound()
 
     reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
-    return reply.view('menu_print.eta', {
-      menu: {
-        ...menu,
-        tenant_name:    meta.tenant_name,
-        logo_url:       meta.logo_url,
-        primary_colour: meta.primary_colour,
-        address_line1, postcode, phone,
-      },
-    })
+
+    // A designed layout (menu designer) replaces the automatic one.
+    // ?auto=1 still shows the automatic layout, for comparison.
+    if (menu.print_layout && !req.query?.auto) {
+      const layout = normalizeLayout(menu.print_layout)
+      const ctx = buildContext(menu, layout)
+      const g = layoutGeometry(layout)
+      return reply.view('menu_print_designed.eta', {
+        menu,
+        css: MENU_LAYOUT_CSS,
+        fontsUrl: MENU_LAYOUT_FONTS_URL,
+        pagesHtml: layout.pages.map((_, i) => renderPageHtml(layout, ctx, i)),
+        pageH: g.pageH,
+        paperSize: layout.paper_size,
+        orientation: layout.orientation,
+      })
+    }
+    return reply.view('menu_print.eta', { menu })
   })
 
   // ── Authenticated admin routes — scoped so addHook doesn't ──
@@ -444,6 +525,30 @@ export default async function menusRoutes(app) {
     const data = await withTenant(req.tenantId, tx => loadMenuFull(tx, req.params.id, req.tenantId))
     if (!data) throw httpError(404, 'Menu not found')
     return data
+  })
+
+  // Menu designer: the menu with its print header details, and saving the
+  // designed layout on its own (never through the whole-tree PATCH).
+  app.get('/:id/design', async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
+    const data = await withTenant(req.tenantId, tx => loadPrintMenu(tx, req.params.id, req.tenantId))
+    if (!data) throw httpError(404, 'Menu not found')
+    return data
+  })
+
+  // { layout: {...} } saves a designed layout; { layout: null } goes back
+  // to the automatic one.
+  app.put('/:id/print-layout', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
+    const { layout } = z.object({ layout: LayoutBody.nullable() }).parse(req.body)
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE menus
+         SET print_layout = ${layout ? tx.json(layout) : null}, updated_at = now()
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+       RETURNING id, print_layout
+    `)
+    if (!row) throw httpError(404, 'Menu not found')
+    return row
   })
 
   app.post('/', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
@@ -489,10 +594,15 @@ export default async function menusRoutes(app) {
         RETURNING *
       `
 
+      // Fresh ids for the copy, remembered so the designed print layout
+      // can be pointed at the copy's sections and dishes.
+      const newId = {}
       const sections = (full.sections || []).map(s => ({
+        id: (newId[s.id] = randomUUID()),
         title: s.title, subtitle: s.subtitle ?? null, highlight: !!s.highlight, image_url: s.image_url ?? null, sort_order: s.sort_order,
         print_break_before: s.print_break_before ?? 'none', print_keep_together: !!s.print_keep_together,
         items: (s.items || []).map(it => ({
+          id: (newId[it.id] = randomUUID()),
           name: it.name, native_name: it.native_name ?? null, description: it.description ?? null,
           price_pence: it.price_pence ?? null, calories: it.calories ?? null, notes: it.notes ?? null, is_featured: !!it.is_featured,
           image_url: it.image_url ?? null, sort_order: it.sort_order,
@@ -513,6 +623,17 @@ export default async function menusRoutes(app) {
       const callouts = (full.callouts || []).map(c => ({ kind: c.kind, title: c.title, body: c.body ?? null, sort_order: c.sort_order }))
 
       await upsertMenuTree(tx, req.tenantId, row.id, { sections, callouts })
+      if (full.print_layout) {
+        const remap = b => ({ ...b, ref: b.ref ? (newId[b.ref] ?? null) : null })
+        const keep = b => !(b.type === 'section' || b.type === 'item') || b.ref
+        const layout = {
+          ...full.print_layout,
+          master: (full.print_layout.master || []).map(remap).filter(keep),
+          pages: (full.print_layout.pages || []).map(p => ({ ...p, blocks: (p.blocks || []).map(remap).filter(keep) })),
+        }
+        await tx`UPDATE menus SET print_layout = ${tx.json(layout)} WHERE id = ${row.id}`
+        row.print_layout = layout
+      }
       return row
     })
     if (!created) throw httpError(404, 'Menu not found')

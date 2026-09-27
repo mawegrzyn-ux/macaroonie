@@ -2377,6 +2377,39 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               template in headless Chromium and counting PDF pages: fitting designed pages give
               exactly one sheet each.
             </P>
+            <H3>Menu designer (menus.print_layout)</H3>
+            <P>
+              Migration 121 adds <Mono>menus.print_layout</Mono> (jsonb, NULL = automatic layout).
+              When set, <Mono>GET /api/menus/:id/print</Mono> renders{' '}
+              <Mono>menu_print_designed.eta</Mono> instead of <Mono>menu_print.eta</Mono>, so the
+              admin Print button and the website <Mono>menu_inline</Mono> block's PDF link both
+              show the design. <Mono>?auto=1</Mono> still shows the automatic layout.
+            </P>
+            <DataTable
+              head={['Piece', 'Detail']}
+              rows={[
+                ['Layout shape', '{ paper_size, orientation, margin_mm, cols (6|12|24), row_mm (2.5|5|10), font_scale, master: [block], pages: [{ id, hide_master, blocks: [block] }] }. block = { id, type, ref, x, y, w, h, opts }, x/w in grid columns, y/h in grid rows. master blocks draw on every page (under the page\'s own blocks) unless the page has hide_master.'],
+                ['Block types', 'header, intro, section (opts.mode title | full, columns), item, text, image, divider, callouts, key, footer, page_number. ref = menu_sections.id or menu_items.id for section / item.'],
+                ['Validation', 'LayoutBody in menus.js: every block inside the grid (x + w <= cols, y + h <= rows for the paper, margin and row height), section/item need a ref, opts is a whitelisted object (unknown keys stripped). Max 20 pages, 400 blocks a page, 100 repeated.'],
+                ['Routes', 'GET /api/menus/:id/design (the menu plus print header details: tenant name, logo, brand colour, venue address; shared loadPrintMenu() with the print route). PUT /api/menus/:id/print-layout { layout } saves, { layout: null } deletes. The whole-tree PATCH never touches print_layout.'],
+                ['One renderer', 'shared/menuLayout.js (repo root, plain ESM, own package.json with type module). The print view calls renderPageHtml(); MenuDesigner.jsx draws its own draggable wrappers but fills them with renderBlockInner() and positions them with blockStyle(), and injects the same MENU_LAYOUT_CSS. Admin imports it through the @shared Vite alias; the API by relative path.'],
+                ['Stable ids', 'upsertMenuTree() still deletes and re-inserts the tree, but inserts sections and items under the ids the client sends (Menus.jsx sends s.id / it.id; new ones are crypto.randomUUID()). A duplicate id in one save is a 23505, 409. /duplicate gives the copy fresh ids and remaps its print_layout refs, dropping blocks whose section or dish is gone.'],
+                ['Stays linked', 'Blocks store only a ref and grid position; content is read from the live menu. A ref that no longer exists renders nothing in print and a red "deleted" placeholder in the designer. A full section leaves out dishes that have their own item block (ctx.placedItemIds). placementSummary() drives the designer\'s "Not placed yet" tray.'],
+                ['Print CSS', 'Each .ml-page is the paper size, blocks are absolutely positioned in mm inside .ml-content, overflow hidden. In print the page is height - 1mm with break-after: page. A screen-only script outlines blocks whose content is taller than the block and lists the pages in the print bar.'],
+              ]}
+            />
+            <P>
+              Designer interaction uses pointer events, not @dnd-kit (a free 2D canvas with snap,
+              cross-page moves and corner resizing is not an ordered list). The page is drawn at
+              real mm size inside a <Mono>transform: scale()</Mono> wrapper; pointer maths divides
+              by the zoom. On touch the first tap selects a block and only a selected block has{' '}
+              <Mono>touch-action: none</Mono>, so the canvas still scrolls. Newly dropped
+              text-bearing blocks (FITTABLE) are measured after render and set to their content
+              height. Tested: API routes against Postgres, the designed print as a PDF in headless
+              Chromium (one sheet per designed page), and the designer driven in Chromium with a
+              mocked API (tap-add, tray drag with snap preview, move, resize, repeat on every page,
+              add page, save payload).
+            </P>
           </section>
 
           {/* ── WEBSITE CMS ───────────────────────────────── */}

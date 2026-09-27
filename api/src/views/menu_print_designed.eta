@@ -1,0 +1,80 @@
+<%
+/* Designed print layout (menus.print_layout, migration 121). Every page is
+   built by shared/menuLayout.js renderPageHtml(), the same renderer the
+   admin menu designer draws with. This file only wraps the pages. */
+const m = it.menu
+%><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title><%= m.name %> — <%= m.tenant_name || '' %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="<%= it.fontsUrl %>" rel="stylesheet">
+  <style>
+    html, body { margin: 0; padding: 0; background: #f0ece5; }
+    .print-bar {
+      position: sticky; top: 0; z-index: 50;
+      background: <%= m.primary_colour || '#630812' %>; color: #f5efe6;
+      padding: 10px 24px; font-family: 'Inter', sans-serif;
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 13px;
+    }
+    .print-bar button {
+      background: #f5efe6; color: <%= m.primary_colour || '#630812' %>;
+      border: none; padding: 8px 18px; border-radius: 4px;
+      font-weight: 600; cursor: pointer; font-family: inherit; font-size: 13px;
+    }
+    .fit-summary { font-size: 12px; opacity: 0.9; margin-left: 12px; }
+    .pages { padding: 16px 0; }
+    .ml-page { margin: 0 auto 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); }
+    .ml-block.ml-overflow { outline: 2px solid #d33; outline-offset: -2px; }
+<%~ it.css %>
+    @media print {
+      html, body { background: #faf6ef; }
+      .print-bar { display: none; }
+      .pages { padding: 0; }
+      .ml-page { margin: 0; box-shadow: none; height: calc(<%= it.pageH %>mm - 1mm) !important; break-after: page; }
+      .ml-page:last-child { break-after: auto; }
+      .ml-block.ml-overflow { outline: 0; }
+      @page { size: <%= it.paperSize %> <%= it.orientation %>; margin: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="print-bar">
+    <span><%= m.name %> — <%= m.tenant_name || '' %><span class="fit-summary" id="fit-summary"></span></span>
+    <button onclick="window.print()">Save as PDF / Print</button>
+  </div>
+  <div class="pages">
+<% it.pagesHtml.forEach(function (html) { %>
+    <%~ html %>
+<% }) %>
+  </div>
+  <script>
+  /* Screen only: outline any block whose content is taller than its box
+     (it is cut off when printed) and say which pages have one. */
+  (function () {
+    function check() {
+      var bad = [];
+      document.querySelectorAll('.ml-page').forEach(function (pg) {
+        var over = false;
+        pg.querySelectorAll('.ml-block').forEach(function (b) {
+          var inner = b.firstElementChild;
+          var cut = inner && inner.offsetHeight > b.clientHeight + 1;
+          b.classList.toggle('ml-overflow', !!cut);
+          if (cut) over = true;
+        });
+        if (over) bad.push(pg.getAttribute('data-page'));
+      });
+      var n = document.querySelectorAll('.ml-page').length;
+      var sum = document.getElementById('fit-summary');
+      if (sum) sum.textContent = '· ' + n + (n === 1 ? ' page' : ' pages') +
+        (bad.length ? ' · text cut off on page ' + bad.join(', ') : '');
+    }
+    function run() { if (document.fonts && document.fonts.ready) document.fonts.ready.then(check); else check(); }
+    window.addEventListener('load', run);
+  })();
+  </script>
+</body>
+</html>
