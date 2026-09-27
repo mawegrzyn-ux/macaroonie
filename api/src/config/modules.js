@@ -137,9 +137,16 @@ export const MODULES = [
   },
   {
     key:    'rota_pay',
-    label:  'Rota pay & tips',
+    label:  'Rota pay',
     group:  'staff',
-    description: 'Weekly pay, tip points and tip shares from the rota; fill Cash Recon wages.',
+    description: 'Weekly hours and pay (wages) from the rota, pay overrides, fill Cash Recon wages.',
+    default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
+  },
+  {
+    key:    'rota_tips',
+    label:  'Rota tips',
+    group:  'staff',
+    description: 'Weekly tip pots, points and tip shares; manual pot amounts, tip moves and adjustments.',
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
   {
@@ -297,7 +304,7 @@ export const MODULE_GROUPS = [
     key:    'staff',
     label:  'Staff & rota',
     description: 'Staff list, roles, weekly rota, pay and tip sharing.',
-    moduleKeys: ['staff', 'rota', 'rota_pay', 'rota_dashboard'],
+    moduleKeys: ['staff', 'rota', 'rota_pay', 'rota_tips', 'rota_dashboard'],
   },
   {
     key:    'support',

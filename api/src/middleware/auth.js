@@ -303,41 +303,66 @@ export async function requirePlatformAdmin(req, reply) {
  */
 const PERMISSION_RANK = { none: 0, view: 1, manage: 2 }
 
+/**
+ * The caller's effective level ('none' | 'view' | 'manage') for a module:
+ * 'none' when the tenant has the module switched off, else the role's
+ * permission (custom role first, then the built-in role for users.role,
+ * then the registry default). Platform admins always get 'manage'.
+ */
+export async function permissionLevel(req, moduleKey) {
+  if (req.isPlatformAdmin) return 'manage'
+  if (!req.tenantId) return 'none'
+
+  const [moduleRow] = await sql`
+    SELECT is_enabled FROM tenant_modules
+     WHERE tenant_id = ${req.tenantId} AND module_key = ${moduleKey}
+     LIMIT 1
+  `
+  // Default to enabled if no row exists yet (legacy tenants).
+  if (moduleRow && !moduleRow.is_enabled) return 'none'
+
+  // Lookup permissions: prefer custom_role_id, fall back to built-in matching users.role.
+  const [permRow] = await sql`
+    SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions,
+           COALESCE(r_custom.key, r_builtin.key) AS role_key
+      FROM users u
+ LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
+ LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
+                                 AND r_builtin.key       = u.role::text
+                                 AND r_builtin.is_builtin = true
+     WHERE u.auth0_user_id = ${req.user.sub}
+       AND u.tenant_id     = ${req.tenantId}
+       AND u.is_active     = true
+     LIMIT 1
+  `
+  // Fall back to the module registry default for the role's key when the
+  // role has no explicit entry (e.g. a module added after the role existed,
+  // before its data migration ran).
+  return resolvePermission(moduleKey, permRow?.permissions, permRow?.role_key)
+}
+
 export function requirePermission(moduleKey, requiredLevel = 'view') {
   return async function (req, reply) {
     if (req.isPlatformAdmin) return
     if (!req.tenantId) return reply.code(400).send({ error: 'No tenant context' })
 
-    const [moduleRow] = await sql`
-      SELECT is_enabled FROM tenant_modules
-       WHERE tenant_id = ${req.tenantId} AND module_key = ${moduleKey}
-       LIMIT 1
-    `
-    // Default to enabled if no row exists yet (legacy tenants).
-    if (moduleRow && !moduleRow.is_enabled) {
-      return reply.code(403).send({ error: `Module "${moduleKey}" is disabled for this tenant` })
-    }
-
-    // Lookup permissions: prefer custom_role_id, fall back to built-in matching users.role.
-    const [permRow] = await sql`
-      SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions,
-             COALESCE(r_custom.key, r_builtin.key) AS role_key
-        FROM users u
-   LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
-   LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
-                                   AND r_builtin.key       = u.role::text
-                                   AND r_builtin.is_builtin = true
-       WHERE u.auth0_user_id = ${req.user.sub}
-         AND u.tenant_id     = ${req.tenantId}
-         AND u.is_active     = true
-       LIMIT 1
-    `
-    // Fall back to the module registry default for the role's key when the
-    // role has no explicit entry (e.g. a module added after the role existed,
-    // before its data migration ran).
-    const actual = resolvePermission(moduleKey, permRow?.permissions, permRow?.role_key)
+    const actual = await permissionLevel(req, moduleKey)
     if (PERMISSION_RANK[actual] < PERMISSION_RANK[requiredLevel]) {
       return reply.code(403).send({ error: `Insufficient permission for ${moduleKey} (have: ${actual}, need: ${requiredLevel})` })
     }
+  }
+}
+
+/** Passes when the caller has `requiredLevel` on at least one of `moduleKeys`. */
+export function requireAnyPermission(moduleKeys, requiredLevel = 'view') {
+  return async function (req, reply) {
+    if (req.isPlatformAdmin) return
+    if (!req.tenantId) return reply.code(400).send({ error: 'No tenant context' })
+
+    for (const key of moduleKeys) {
+      const actual = await permissionLevel(req, key)
+      if (PERMISSION_RANK[actual] >= PERMISSION_RANK[requiredLevel]) return
+    }
+    return reply.code(403).send({ error: `Insufficient permission (need ${requiredLevel} on one of: ${moduleKeys.join(', ')})` })
   }
 }

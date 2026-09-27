@@ -1574,10 +1574,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /venues/:venueId/weeks/:week', 'rota view', 'week_start, dates, open_dates, settings, shifts, staff (active plus anyone with entries), entries. :week may be any date; it snaps to Monday. open_dates is null when the venue has no venue_schedule_templates rows (nothing is hidden), otherwise the open dates from resolveOpenDaysForWeek().'],
                 ['PUT .../weeks/:week/entries', 'rota manage', 'Whole-week replace (both modes). 400 for a date outside the week, 422 for overlapping periods for one person on one day; duplicate shift ticks are dropped.'],
                 ['POST .../weeks/:week/copy { from_week }', 'rota manage', 'Replaces the week with another week\'s entries, shifted by whole weeks.'],
-                ['GET .../weeks/:week/pay', 'rota_pay view', 'computeRotaWeek result: rows (incl. pot_shares / pot_shares_exact by pot id, tip_share total), pots (sources, lines, total, distributed, difference, kept_by_house), totals (hours, pay, points, tips_in, tips_shared, kept_by_house), tip_rounding.'],
+                ['GET .../weeks/:week/pay', 'rota_pay or rota_tips view', 'computeRotaWeek result: rows (incl. pot_shares / pot_shares_exact by pot id, tip_share total), pots (sources, lines, total, distributed, difference, kept_by_house), totals (hours, pay, points, tips_in, tips_shared, kept_by_house), tip_rounding.'],
                 ['GET /setup pots; GET /sc-sources; POST/PATCH/DELETE /pots[/:id]; PUT /pots/reorder; PUT /pots/:id/sources { source_ids }; POST /pots/:id/lines; PATCH/DELETE /pot-lines/:id; PUT /pots/:id/lines/reorder', 'staff', 'Tip pot setup. Listing a source in PUT sources moves it from any other pot; sources no longer listed are unassigned. Deleting a pot unassigns its sources and cascades its lines and weekly amounts.'],
-                ['PUT .../weeks/:week/pot-lines { amounts: [{ line_id, amount }] }; PUT .../weeks/:week/pots/:potId/manual { amounts: [{ staff_id, amount }] }', 'rota_pay manage', 'Weekly manual line values (null clears; may be negative; percent lines 400 outside -100..100) and manual shares (422 unless the pot is manual). Both return the recomputed pay payload. POST /pots/:id/lines takes { name, kind }.'],
-                ['PATCH .../staff/:staffId { pay_override }, POST .../tip-moves { kind, action (move | add | remove, default move), from_staff_id (move only), lines: [{ to_staff_id, amount }], note (required for add / remove) }, DELETE .../tip-moves/:id, POST .../reset-moves { kind: points | money | all }', 'rota_pay manage', 'Each returns the recomputed pay payload (which includes moves: each with from_name, lines with names, total). A move whose lines add up to more than the giver has now (points, or tip_share for money) is 422, and so is a remove line bigger than that person\'s balance; moving to yourself or listing a person twice is 400. The UI (TipMoveModal in rota.jsx) turns equal / by amount / by % into final amounts with splitEvenly() / splitByPercent(), which work in hundredths so the lines add up exactly.'],
+                ['PUT .../weeks/:week/pot-lines { amounts: [{ line_id, amount }] }; PUT .../weeks/:week/pots/:potId/manual { amounts: [{ staff_id, amount }] }', 'rota_tips manage', 'Weekly manual line values (null clears; may be negative; percent lines 400 outside -100..100) and manual shares (422 unless the pot is manual). Both return the recomputed pay payload. POST /pots/:id/lines takes { name, kind }.'],
+                ['PATCH .../staff/:staffId { pay_override }, POST .../tip-moves { kind, action (move | add | remove, default move), from_staff_id (move only), lines: [{ to_staff_id, amount }], note (required for add / remove) }, DELETE .../tip-moves/:id, POST .../reset-moves { kind: points | money | all }', 'rota_pay manage (pay override); rota_tips manage (moves, reset)', 'Each returns the recomputed pay payload (which includes moves: each with from_name, lines with names, total). A move whose lines add up to more than the giver has now (points, or tip_share for money) is 422, and so is a remove line bigger than that person\'s balance; moving to yourself or listing a person twice is 400. The UI (TipMoveModal in rota.jsx) turns equal / by amount / by % into final amounts with splitEvenly() / splitByPercent(), which work in hundredths so the lines add up exactly.'],
                 ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header (422 if submitted), updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Hourly people get hours and rate = pay / hours; everyone else a fixed total. Tips are not written.'],
               ]}
             />
@@ -1645,8 +1645,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Modules, nav, dashboard</H3>
             <P>
               New module group <Mono>staff</Mono> ("Staff &amp; rota"): <Mono>staff</Mono>,{' '}
-              <Mono>rota</Mono>, <Mono>rota_pay</Mono> (owner/admin only by default),{' '}
-              <Mono>rota_dashboard</Mono>. The migration adds a "Staff" nav section after "Service"
+              <Mono>rota</Mono>, <Mono>rota_pay</Mono> and <Mono>rota_tips</Mono> (owner/admin only by
+              default), <Mono>rota_dashboard</Mono>. Migration 118 split tips out of{' '}
+              <Mono>rota_pay</Mono>: each role's <Mono>rota_tips</Mono> started equal to its{' '}
+              <Mono>rota_pay</Mono>. Every pay-payload response goes through{' '}
+              <Mono>redactWeek()</Mono> (<Mono>rota.js</Mono>), which uses{' '}
+              <Mono>permissionLevel(req, key)</Mono> (<Mono>middleware/auth.js</Mono>, also behind{' '}
+              <Mono>requirePermission</Mono> and the new <Mono>requireAnyPermission</Mono>) to drop row
+              pay fields and <Mono>totals.pay</Mono> without <Mono>rota_pay</Mono>, or tip fields, tip
+              totals, <Mono>pots</Mono> and <Mono>moves</Mono> without <Mono>rota_tips</Mono>, and adds{' '}
+              <Mono>access: {'{'} pay, tips {'}'}</Mono>. <Mono>useRotaPerms()</Mono> exposes{' '}
+              <Mono>canSeePay/canEditPay</Mono> and <Mono>canSeeTips/canEditTips</Mono>. The migration adds a "Staff" nav section after "Service"
               for tenants that already have a nav tree; <Mono>defaultNav.js</Mono> has the same tree
               for new tenants; <Mono>ROUTE_CATALOG</Mono> lists the five routes. The dashboard is a
               third <Mono>DashboardPage</Mono> config: <Mono>hs_dashboards.kind = 'rota'</Mono>,

@@ -19,14 +19,14 @@ import {
 function PayHeader({ venueId, ctx }) {
   const { canSeePay } = useRotaPerms()
   const { data } = useRotaPay(venueId, ctx.weekStart, canSeePay)
-  if (!data) return null
+  if (!data || data.totals.pay == null) return null
   return <span className="text-sm font-semibold tabular-nums">{fmt(data.totals.pay)}</span>
 }
 
 function TipsHeader({ venueId, ctx }) {
-  const { canSeePay } = useRotaPerms()
-  const { data } = useRotaPay(venueId, ctx.weekStart, canSeePay)
-  if (!data) return null
+  const { canSeeTips } = useRotaPerms()
+  const { data } = useRotaPay(venueId, ctx.weekStart, canSeeTips)
+  if (!data || data.totals.tips_shared == null) return null
   return <span className="text-sm font-semibold tabular-nums">{fmt(data.totals.tips_shared)}</span>
 }
 
@@ -57,8 +57,14 @@ function PayGate({ children }) {
   return children
 }
 
+function TipsGate({ children }) {
+  const { canSeeTips } = useRotaPerms()
+  if (!canSeeTips) return <p className="text-sm text-muted-foreground py-4 text-center">You don't have access to rota tips.</p>
+  return children
+}
+
 function RotaWidget({ widget, venueId, ctx }) {
-  const { canEditRota, canEditPay } = useRotaPerms()
+  const { canEditRota, canEditPay, canEditTips } = useRotaPerms()
   switch (widget.widget_type) {
     case 'rota_grid':
       return <RotaGrid venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditRota} dense
@@ -68,7 +74,7 @@ function RotaWidget({ widget, venueId, ctx }) {
     case 'rota_week_pay':
       return <PayGate><RotaPayTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} /></PayGate>
     case 'rota_tips':
-      return <PayGate><RotaTipsTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} /></PayGate>
+      return <TipsGate><RotaTipsTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditTips} /></TipsGate>
     default:
       return null
   }
