@@ -1523,11 +1523,14 @@ export default function Help() {
               ]}
             />
             <P>
-              A pot can also have a <strong>surcharge</strong>, for example tax or card fees: give it a
-              name and a percentage in the pot's settings. The surcharge is taken off the pot's total
-              (sources plus manual lines) before anything is shared, so staff share what is left. The
-              pot's card on the Rota page shows the total before deductions, the surcharge, and the
-              amount available to share.
+              A pot can also have <strong>fees and surcharges</strong>, for example card fees and tax:
+              in the pot's settings tap <strong>Add fee</strong> for each one and give it a name and a
+              percentage. They are taken off the pot's total (sources plus manual lines) before anything
+              is shared, so staff share what is left. Fees stack: each one is taken from what is left
+              after the ones above it, so 2% card fees then 20% tax takes 21.6% in total, not 22%.
+              Dragging them into a different order does not change the total, only how much each fee
+              shows as. The pot's card on the Rota page shows the total before deductions, each fee,
+              and the amount available to share.
             </P>
             <P>
               <strong>Manual lines</strong> are either a <strong>£ amount</strong> or a{' '}

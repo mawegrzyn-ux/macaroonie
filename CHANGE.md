@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Tip pots: several stacking fees]
+
+### Rota
+- A tip pot can have any number of **fees and surcharges** (e.g. card fees, then tax), each with a name and a percentage. They stack: each is taken from what is left after the ones above it (2% then 20% takes 21.6% in total). Drag to reorder; the pot card on the Rota page lists each fee.
+
+### Database
+- Migration `116_tip_pot_surcharges.sql`: `tip_pots.surcharges` (jsonb list); an existing surcharge is copied into it, and `surcharge_name` / `surcharge_pct` are dropped.
+
+---
+
 ## [2026-09-27 — Tip pot lines: deductions and percentages]
 
 ### Rota

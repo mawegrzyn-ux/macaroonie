@@ -804,10 +804,12 @@ function PotCard({ pot, data, canEdit, base, setPay, onEditManual }) {
               <span className="flex-1">Pot before deductions</span>
               <span className="tabular-nums">{fmt(pot.gross)}</span>
             </div>
-            <div className="flex items-center gap-2 text-amber-800">
-              <span className="flex-1">{pot.surcharge_name || 'Surcharge'} ({pot.surcharge_pct}%)</span>
-              <span className="tabular-nums">−{fmt(pot.surcharge)}</span>
-            </div>
+            {pot.surcharges.filter(s => s.amount > 0).map((s, i) => (
+              <div key={i} className="flex items-center gap-2 text-amber-800">
+                <span className="flex-1">{s.name || 'Fee'} ({s.pct}%{i > 0 ? ' of what is left' : ''})</span>
+                <span className="tabular-nums">−{fmt(s.amount)}</span>
+              </div>
+            ))}
             <div className="flex items-center gap-2 font-medium">
               <span className="flex-1">Available to share</span>
               <span className="tabular-nums">{fmt(pot.total)}</span>

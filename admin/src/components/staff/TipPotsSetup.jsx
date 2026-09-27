@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Loader2, Coins } from 'lucide-react'
+import { Plus, Loader2, Coins, X } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
@@ -33,6 +33,9 @@ function useScSources() {
   const api = useApi()
   return useQuery({ queryKey: ['rota-sc-sources'], queryFn: () => api.get('/rota/sc-sources') })
 }
+
+let feeSeq = 0
+const newFeeId = () => `fee-${++feeSeq}`
 
 function invalidateAll(qc) {
   qc.invalidateQueries({ queryKey: ['rota-setup'] })
@@ -109,10 +112,21 @@ function PotForm({ pot, pots, onClose, onCreated }) {
   const [name, setName] = useState(pot?.name ?? '')
   const [distribution, setDistribution] = useState(pot?.distribution ?? 'points')
   const [active, setActive] = useState(pot?.is_active ?? true)
-  const [surchargeName, setSurchargeName] = useState(pot?.surcharge_name ?? '')
-  const [surchargePct, setSurchargePct] = useState(pot?.surcharge_pct ? String(pot.surcharge_pct) : '')
-  const pctNum = surchargePct === '' ? 0 : Number(surchargePct)
-  const pctValid = Number.isFinite(pctNum) && pctNum >= 0 && pctNum <= 100
+  const [fees, setFees] = useState(() => (pot?.surcharges ?? []).map(s => ({ id: newFeeId(), name: s.name ?? '', pct: String(s.pct) })))
+  const feesValid = fees.every(f => {
+    const n = f.pct === '' ? 0 : Number(f.pct)
+    return Number.isFinite(n) && n >= 0 && n <= 100
+  })
+  const setFee = (id, patch) => setFees(list => list.map(f => (f.id === id ? { ...f, ...patch } : f)))
+  const feeExample = useMemo(() => {
+    let left = 100
+    const steps = fees.filter(f => Number(f.pct) > 0).map(f => {
+      const off = Math.round(left * Number(f.pct)) / 100
+      left = Math.round((left - off) * 100) / 100
+      return { name: f.name.trim() || 'Fee', off }
+    })
+    return steps.length > 1 ? { steps, left } : null
+  }, [fees])
   const [picked, setPicked] = useState(() => new Set(pot?.source_ids ?? []))
 
   const potName = useMemo(() => Object.fromEntries(pots.map(p => [p.id, p.name])), [pots])
@@ -129,8 +143,9 @@ function PotForm({ pot, pots, onClose, onCreated }) {
     mutationFn: async () => {
       const body = {
         name: name.trim(), distribution,
-        surcharge_name: surchargeName.trim() || null,
-        surcharge_pct: pctNum,
+        surcharges: fees
+          .map(f => ({ name: f.name.trim() || null, pct: f.pct === '' ? 0 : Number(f.pct) }))
+          .filter(f => f.pct > 0),
       }
       let id = pot?.id
       if (id) await api.patch(`/rota/pots/${id}`, { ...body, is_active: active })
@@ -162,7 +177,7 @@ function PotForm({ pot, pots, onClose, onCreated }) {
   return (
     <Modal title={pot ? `Edit ${pot.name}` : 'Add tip pot'} onClose={onClose}
       footer={<>
-        <button type="button" onClick={() => save.mutate()} disabled={!name.trim() || !pctValid || save.isPending}
+        <button type="button" onClick={() => save.mutate()} disabled={!name.trim() || !feesValid || save.isPending}
           className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {pot ? 'Save' : 'Create pot'}
         </button>
@@ -174,20 +189,50 @@ function PotForm({ pot, pots, onClose, onCreated }) {
       <Field label="How the pot is shared" hint={dist?.hint}>
         <Segmented value={distribution} options={POT_DISTRIBUTIONS} onChange={setDistribution} />
       </Field>
-      <Field label="Surcharge (optional)"
-        hint={pctValid
-          ? 'A percentage taken off the pot before it is shared, e.g. tax or card fees. Leave blank for none.'
-          : 'Enter a percentage between 0 and 100.'}>
-        <div className="flex gap-2">
-          <input className={cn(inputCls, 'flex-1 min-w-0')} value={surchargeName} maxLength={60}
-            onChange={e => setSurchargeName(e.target.value)} placeholder="Name, e.g. Tax" />
-          <div className="relative w-28 shrink-0">
-            <input className={cn(inputCls, 'pr-7 text-right')} type="text" inputMode="decimal"
-              value={surchargePct} onChange={e => setSurchargePct(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">%</span>
-          </div>
-        </div>
-      </Field>
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-muted-foreground">Fees and surcharges (optional)</p>
+        <p className="text-[11px] text-muted-foreground">
+          Percentages taken off the pot before it is shared, e.g. card fees or tax. They stack: each one is taken
+          from what is left after the ones above it, so 2% then 20% takes 21.6% in total, not 22%. The order only
+          changes how much each fee shows as; drag to reorder.
+        </p>
+        {fees.length > 0 && (
+          <SortableRows items={fees} onReorder={ids => setFees(list => ids.map(id => list.find(f => f.id === id)))}
+            renderItem={f => {
+              const n = f.pct === '' ? 0 : Number(f.pct)
+              const bad = !(Number.isFinite(n) && n >= 0 && n <= 100)
+              return (
+                <div className="flex items-center gap-2 py-1">
+                  <input className={cn(inputCls, 'flex-1 min-w-0')} value={f.name} maxLength={60}
+                    aria-label="Fee name" placeholder="Name, e.g. Card fees" onChange={e => setFee(f.id, { name: e.target.value })} />
+                  <div className="relative w-24 shrink-0">
+                    <input className={cn(inputCls, 'pr-7 text-right', bad && 'border-red-400')} type="text" inputMode="decimal"
+                      aria-label="Fee percentage" value={f.pct} placeholder="0"
+                      onChange={e => setFee(f.id, { pct: e.target.value.replace(/[^0-9.]/g, '') })} />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">%</span>
+                  </div>
+                  <button type="button" onClick={() => setFees(list => list.filter(x => x.id !== f.id))}
+                    aria-label={`Remove ${f.name || 'fee'}`}
+                    className="h-11 w-11 shrink-0 rounded-lg border flex items-center justify-center touch-manipulation hover:bg-muted">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )
+            }} />
+        )}
+        {!feesValid && <p className="text-xs text-red-700">Each percentage must be between 0 and 100.</p>}
+        {feeExample && feesValid && (
+          <p className="text-[11px] text-muted-foreground">
+            Example on £100: {feeExample.steps.map(s => `${s.name} −£${s.off.toFixed(2)}`).join(', then ')}, leaving £{feeExample.left.toFixed(2)} to share.
+          </p>
+        )}
+        {fees.length < 10 && (
+          <button type="button" onClick={() => setFees(list => [...list, { id: newFeeId(), name: '', pct: '' }])}
+            className="h-11 px-4 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted flex items-center gap-1.5">
+            <Plus className="w-4 h-4" /> Add fee
+          </button>
+        )}
+      </div>
 
       <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground">Service charges and tips from Cash Recon</p>
@@ -267,11 +312,11 @@ export function TipPotsSection({ pots }) {
             <Coins className="w-4 h-4 text-muted-foreground shrink-0" />
             <span className="flex-1 basis-24 min-w-0 truncate text-sm font-medium">{p.name}</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{POT_DIST_LABEL[p.distribution]}</span>
-            {p.surcharge_pct > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                {p.surcharge_name || 'Surcharge'} {p.surcharge_pct}%
+            {(p.surcharges ?? []).map((s, i) => (
+              <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                {s.name || 'Fee'} {s.pct}%
               </span>
-            )}
+            ))}
             <span className="text-xs text-muted-foreground">
               {p.source_ids.length} source{p.source_ids.length === 1 ? '' : 's'} · {p.lines.length} manual line{p.lines.length === 1 ? '' : 's'}
             </span>
