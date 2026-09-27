@@ -1612,9 +1612,12 @@ export default function Help() {
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
               over time — it's a home screen of tiles, one per available mobile module.
-              <strong> Expenses</strong> is the second one: log a petty cash expense and snap a
-              photo of the receipt with your phone's camera, without opening the full Cash
-              Reconciliation page. <strong>Order Sheets</strong> is the third: browse orders,
+              <strong> Expenses</strong> is the second one: it shows a whole week (Monday to
+              Sunday) of petty cash expenses, with the week's cash, card and VAT totals at the top.
+              Use the arrows to move a week back or forward, tap the week to jump to any date, or
+              <strong> Back to this week</strong>. Each day has its own <strong>Add</strong> button,
+              and tapping an expense opens it to edit (snap a receipt photo with your phone's
+              camera). Submitted days are marked and locked. <strong>Order Sheets</strong> is the third: browse orders,
               filter by status or venue, tap into one to fill in quantities and mark it Ready or
               Placed — the same order screen as the desktop page, just full-screen on your phone
               instead of a side panel. <strong>Cash Up</strong> is the fourth: a plain list of the

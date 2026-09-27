@@ -1,23 +1,23 @@
 // src/pages/mobile/MobileExpenses.jsx
 //
-// Phone-first "record an expense" page — a single-purpose slice of Cash
-// Reconciliation's Petty Cash Expenses section, for logging an expense
-// (and optionally snapping a photo of the receipt) away from a desk.
-// Reuses the exact same API endpoints as CashRecon.jsx's ExpensesSection
-// (GET config, GET/POST/PUT/DELETE .../cash-recon/expenses[/:id][/receipt])
-// — one implementation of the underlying data, this is just a narrower
-// entry point into it.
+// Phone-first petty cash page: a week (Mon-Sun) of expenses with week to
+// week navigation, each day's list, and add / edit (with a receipt photo)
+// per day. Reuses the same API endpoints as CashRecon.jsx's ExpensesSection
+// (POST/PUT/DELETE .../cash-recon/expenses[/:id][/receipt]) and reads the
+// week from week-detail through useReconWeek(), the same data the Cash
+// Dashboard's widgets use. PettyCashPanel (one day) is kept for the Cash
+// Dashboard's petty cash widget.
 
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import { Plus, X, Camera, Trash2, Receipt } from 'lucide-react'
+import { format, addDays, parseISO } from 'date-fns'
+import { Plus, X, Camera, Trash2, Receipt, ChevronLeft, ChevronRight, Lock } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { PaidByCardToggle, CardBadge } from '@/pages/CashRecon'
+import { PaidByCardToggle, CardBadge, useReconWeek, getMonday } from '@/pages/CashRecon'
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10)
+  return format(new Date(), 'yyyy-MM-dd')
 }
 
 function fmt(n) {
@@ -165,13 +165,97 @@ function ExpenseModal({ venueId, date, categories, initial, onClose, onSave, onD
   )
 }
 
-// Everything below the venue/date pickers: day totals, expense list, and
-// the add/edit modal for one venue + date. Exported so the Cash Recon
-// Dashboard's petty cash widget renders exactly the same panel.
-export function PettyCashPanel({ venueId, date }) {
+// Create / update / delete for any day of a venue. Refreshes the day query
+// (PettyCashPanel) and week-detail (the week list, week grid and dashboard
+// balance widgets).
+function useExpenseActions(venueId, onDone) {
   const api = useApi()
   const qc = useQueryClient()
-  const [modalTarget, setModalTarget] = useState(null) // 'new' | expense row | null
+  const invalidate = date => {
+    qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] })
+    qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId] })
+  }
+  const upload = async (id, photoFile) => {
+    if (!photoFile) return
+    try { await api.upload(`/venues/${venueId}/cash-recon/expenses/${id}/receipt`, photoFile) } catch {}
+  }
+  const create = useMutation({
+    mutationFn: async ({ date, body, photoFile }) => {
+      const created = await api.post(`/venues/${venueId}/cash-recon/expenses`, { ...body, date })
+      await upload(created.id, photoFile)
+      return created
+    },
+    onSuccess: (_, v) => { invalidate(v.date); onDone() },
+  })
+  const update = useMutation({
+    mutationFn: async ({ id, body, photoFile }) => {
+      const updated = await api.put(`/venues/${venueId}/cash-recon/expenses/${id}`, body)
+      await upload(id, photoFile)
+      return updated
+    },
+    onSuccess: (_, v) => { invalidate(v.date); onDone() },
+  })
+  const remove = useMutation({
+    mutationFn: ({ id }) => api.delete(`/venues/${venueId}/cash-recon/expenses/${id}`),
+    onSuccess: (_, v) => { invalidate(v.date); onDone() },
+  })
+  return { create, update, remove, error: create.error || update.error || remove.error }
+}
+
+// Opens ExpenseModal for `target` ({ date, expense | null }) and saves it.
+function ExpenseEditor({ venueId, categories, target, onClose, actions }) {
+  if (!target) return null
+  const { date, expense } = target
+  return (
+    <ExpenseModal
+      venueId={venueId}
+      date={date}
+      categories={categories}
+      initial={expense}
+      onClose={onClose}
+      onSave={(body, photoFile) => expense
+        ? actions.update.mutate({ id: expense.id, date, body, photoFile })
+        : actions.create.mutate({ date, body, photoFile })}
+      onDelete={id => actions.remove.mutate({ id, date })}
+      isSaving={actions.create.isPending || actions.update.isPending}
+      isDeleting={actions.remove.isPending}
+    />
+  )
+}
+
+function ExpenseRow({ exp, cat, onClick }) {
+  const body = (
+    <>
+      {exp.receipt_url ? (
+        <img src={exp.receipt_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
+      ) : (
+        <span className="w-10 h-10 rounded bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
+          <Receipt className="w-4 h-4" />
+        </span>
+      )}
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-medium truncate">{exp.description}</span>
+        {cat && <span className="block text-xs text-muted-foreground truncate">{cat.name}</span>}
+        {exp.paid_by_card && <span className="block mt-0.5"><CardBadge /></span>}
+      </span>
+      <span className="text-right shrink-0">
+        <span className="block text-sm font-semibold">{fmt(exp.amount)}</span>
+        {Number(exp.vat_amount) > 0 && <span className="block text-[11px] text-muted-foreground">VAT {fmt(exp.vat_amount)}</span>}
+      </span>
+    </>
+  )
+  const cls = 'w-full flex items-center gap-3 border rounded-lg px-3 py-2.5 text-left bg-background min-h-[56px]'
+  return onClick
+    ? <button type="button" onClick={onClick} className={cn(cls, 'hover:bg-accent touch-manipulation')}>{body}</button>
+    : <div className={cls}>{body}</div>
+}
+
+// One venue + date: day totals, expense list, add / edit. Exported so the
+// Cash Recon Dashboard's petty cash widget renders exactly the same panel.
+export function PettyCashPanel({ venueId, date }) {
+  const api = useApi()
+  const [target, setTarget] = useState(null) // { date, expense | null }
+  const actions = useExpenseActions(venueId, () => setTarget(null))
 
   const { data: config } = useQuery({
     queryKey: ['cash-recon-config', venueId],
@@ -193,38 +277,6 @@ export function PettyCashPanel({ venueId, date }) {
   const total     = expenses.filter(e => !e.paid_by_card).reduce((s, e) => s + Number(e.amount || 0), 0)
   const cardTotal = expenses.filter(e =>  e.paid_by_card).reduce((s, e) => s + Number(e.amount || 0), 0)
   const isSubmitted = daily?.status === 'submitted'
-
-  // The week grid and dashboard balance widgets read expense totals from
-  // week-detail, so refresh that too.
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId, date] })
-    qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId] })
-  }
-
-  const createExpense = useMutation({
-    mutationFn: async ({ body, photoFile }) => {
-      const created = await api.post(`/venues/${venueId}/cash-recon/expenses`, { ...body, date })
-      if (photoFile) {
-        try { await api.upload(`/venues/${venueId}/cash-recon/expenses/${created.id}/receipt`, photoFile) } catch {}
-      }
-      return created
-    },
-    onSuccess: () => { invalidate(); setModalTarget(null) },
-  })
-  const updateExpense = useMutation({
-    mutationFn: async ({ id, body, photoFile }) => {
-      const updated = await api.put(`/venues/${venueId}/cash-recon/expenses/${id}`, body)
-      if (photoFile) {
-        try { await api.upload(`/venues/${venueId}/cash-recon/expenses/${id}/receipt`, photoFile) } catch {}
-      }
-      return updated
-    },
-    onSuccess: () => { invalidate(); setModalTarget(null) },
-  })
-  const deleteExpense = useMutation({
-    mutationFn: id => api.delete(`/venues/${venueId}/cash-recon/expenses/${id}`),
-    onSuccess: () => { invalidate(); setModalTarget(null) },
-  })
 
   return (
     <div className="space-y-3">
@@ -251,52 +303,115 @@ export function PettyCashPanel({ venueId, date }) {
         <p className="text-sm text-muted-foreground py-8 text-center">No expenses logged for this day.</p>
       ) : (
         <div className="space-y-2">
-          {expenses.map(exp => {
-            const cat = exp.category_id ? catById[exp.category_id] : null
-            return (
-              <button key={exp.id} type="button" onClick={() => setModalTarget(exp)}
-                className="w-full flex items-center gap-3 border rounded-lg px-3 py-2.5 text-left bg-background hover:bg-accent touch-manipulation min-h-[56px]">
-                {exp.receipt_url ? (
-                  <img src={exp.receipt_url} alt="" className="w-10 h-10 rounded object-cover shrink-0" />
-                ) : (
-                  <span className="w-10 h-10 rounded bg-muted flex items-center justify-center shrink-0 text-muted-foreground">
-                    <Receipt className="w-4 h-4" />
-                  </span>
-                )}
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-medium truncate">{exp.description}</span>
-                  {cat && <span className="block text-xs text-muted-foreground truncate">{cat.name}</span>}
-                  {exp.paid_by_card && <span className="block mt-0.5"><CardBadge /></span>}
-                </span>
-                <span className="text-sm font-semibold shrink-0">{fmt(exp.amount)}</span>
-              </button>
-            )
-          })}
+          {expenses.map(exp => (
+            <ExpenseRow key={exp.id} exp={exp} cat={exp.category_id ? catById[exp.category_id] : null}
+              onClick={() => setTarget({ date, expense: exp })} />
+          ))}
         </div>
       )}
 
       {!isSubmitted && (
-        <button type="button" onClick={() => setModalTarget('new')}
+        <button type="button" onClick={() => setTarget({ date, expense: null })}
           className="w-full inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium min-h-[48px] touch-manipulation">
           <Plus className="w-4 h-4" /> Add expense
         </button>
       )}
 
-      {modalTarget && venueId && (
-        <ExpenseModal
-          venueId={venueId}
-          date={date}
-          categories={categories}
-          initial={modalTarget === 'new' ? null : modalTarget}
-          onClose={() => setModalTarget(null)}
-          onSave={(body, photoFile) => modalTarget === 'new'
-            ? createExpense.mutate({ body, photoFile })
-            : updateExpense.mutate({ id: modalTarget.id, body, photoFile })}
-          onDelete={id => deleteExpense.mutate(id)}
-          isSaving={createExpense.isPending || updateExpense.isPending}
-          isDeleting={deleteExpense.isPending}
-        />
+      <ExpenseEditor venueId={venueId} categories={categories} target={target} onClose={() => setTarget(null)} actions={actions} />
+    </div>
+  )
+}
+
+// The whole week (Mon-Sun) for one venue: week totals, then each day's
+// expenses with its own Add button. Submitted days are read-only.
+function WeekExpensesPanel({ venueId, weekStart }) {
+  const [target, setTarget] = useState(null)
+  const actions = useExpenseActions(venueId, () => setTarget(null))
+  const { config, detail, isLoading } = useReconWeek(venueId, weekStart)
+
+  const categories = (config?.expense_categories ?? []).filter(c => c.is_active)
+  const catById = Object.fromEntries((config?.expense_categories ?? []).map(c => [c.id, c]))
+  const today = todayStr()
+  const dates = detail?.dates ?? Array.from({ length: 7 }, (_, i) => format(addDays(parseISO(weekStart), i), 'yyyy-MM-dd'))
+  const open = Array.isArray(detail?.open_dates) ? new Set(detail.open_dates) : null
+  const all = dates.flatMap(d => detail?.days?.[d]?.expenses ?? [])
+  const sum = rows => rows.reduce((s, e) => s + Number(e.amount || 0), 0)
+  const cashTotal = sum(all.filter(e => !e.paid_by_card))
+  const cardTotal = sum(all.filter(e => e.paid_by_card))
+  const vatTotal  = all.reduce((s, e) => s + Number(e.vat_amount || 0), 0)
+
+  if (isLoading && !detail) return <p className="text-sm text-muted-foreground py-8 text-center">Loading…</p>
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border px-3 py-2.5 space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium">Cash total for the week</span>
+          <span className="text-sm font-semibold">{fmt(cashTotal)}</span>
+        </div>
+        {cardTotal > 0 && (
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span className="text-xs">Paid by card (not in recon)</span>
+            <span className="text-xs font-medium">{fmt(cardTotal)}</span>
+          </div>
+        )}
+        {vatTotal > 0 && (
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span className="text-xs">VAT included</span>
+            <span className="text-xs font-medium">{fmt(vatTotal)}</span>
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground">{all.length} expense{all.length === 1 ? '' : 's'} this week</p>
+      </div>
+
+      {dates.map(date => {
+        const day = detail?.days?.[date]
+        const expenses = day?.expenses ?? []
+        const submitted = day?.status === 'submitted'
+        const closed = open && !open.has(date)
+        const dayCash = sum(expenses.filter(e => !e.paid_by_card))
+        return (
+          <section key={date} className={cn('rounded-xl border overflow-hidden', date === today && 'border-primary')}>
+            <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 border-b">
+              <span className="flex-1 min-w-0">
+                <span className="text-sm font-semibold">{format(parseISO(date), 'EEE d MMM')}</span>
+                {date === today && <span className="ml-1.5 text-[11px] text-primary font-medium">Today</span>}
+                {closed && <span className="ml-1.5 text-[11px] text-muted-foreground">Closed</span>}
+                {submitted && (
+                  <span className="ml-1.5 inline-flex items-center gap-0.5 text-[11px] text-amber-700">
+                    <Lock className="w-3 h-3" /> Submitted
+                  </span>
+                )}
+              </span>
+              <span className="text-sm font-semibold tabular-nums">{expenses.length ? fmt(dayCash) : ''}</span>
+              {!submitted && (
+                <button type="button" onClick={() => setTarget({ date, expense: null })}
+                  aria-label={`Add expense on ${format(parseISO(date), 'EEEE d MMMM')}`}
+                  className="h-11 px-3 rounded-lg border bg-background text-sm font-medium inline-flex items-center gap-1 touch-manipulation hover:bg-muted">
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              )}
+            </div>
+            {expenses.length > 0 && (
+              <div className="p-2 space-y-2">
+                {expenses.map(exp => (
+                  <ExpenseRow key={exp.id} exp={exp} cat={exp.category_id ? catById[exp.category_id] : null}
+                    onClick={submitted ? null : () => setTarget({ date, expense: exp })} />
+                ))}
+              </div>
+            )}
+          </section>
+        )
+      })}
+
+      {dates.some(d => detail?.days?.[d]?.status === 'submitted') && (
+        <p className="text-xs text-muted-foreground">
+          Submitted days are locked. Unsubmit them on the desktop Cash Reconciliation page to add or change expenses.
+        </p>
       )}
+      {actions.error && <p className="text-xs text-red-700">{actions.error.message || 'Could not save'}</p>}
+
+      <ExpenseEditor venueId={venueId} categories={categories} target={target} onClose={() => setTarget(null)} actions={actions} />
     </div>
   )
 }
@@ -305,7 +420,10 @@ export default function MobileExpenses() {
   const api = useApi()
 
   const [venueId, setVenueId] = useState('')
-  const [date, setDate] = useState(todayStr())
+  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()))
+  const thisWeek = getMonday(new Date())
+  const shift = n => setWeekStart(w => format(addDays(parseISO(w), n * 7), 'yyyy-MM-dd'))
+  const weekEnd = format(addDays(parseISO(weekStart), 6), 'yyyy-MM-dd')
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -314,6 +432,8 @@ export default function MobileExpenses() {
   useEffect(() => {
     if (!venueId && venues.length) setVenueId(venues[0].id)
   }, [venues, venueId])
+
+  const label = `${format(parseISO(weekStart), 'd MMM')} – ${format(parseISO(weekEnd), 'd MMM yyyy')}`
 
   return (
     <div className="p-3 pb-8 space-y-3">
@@ -324,15 +444,32 @@ export default function MobileExpenses() {
         </select>
       )}
 
-      <div className="relative">
-        <button type="button" className="w-full px-3 py-2.5 text-sm font-medium rounded-lg border touch-manipulation text-center">
-          {date === todayStr() ? 'Today' : format(new Date(date + 'T12:00:00'), 'EEE d MMM yyyy')}
+      <div className="flex items-center gap-2">
+        <button type="button" onClick={() => shift(-1)} aria-label="Previous week"
+          className="h-11 w-11 shrink-0 rounded-lg border flex items-center justify-center touch-manipulation hover:bg-muted">
+          <ChevronLeft className="w-5 h-5" />
         </button>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
-          className="absolute inset-0 opacity-0 cursor-pointer w-full" />
+        <div className="relative flex-1 min-w-0">
+          <button type="button" className="w-full h-11 px-3 text-sm font-medium rounded-lg border touch-manipulation text-center truncate">
+            {weekStart === thisWeek ? `This week · ${label}` : label}
+          </button>
+          <input type="date" value={weekStart} aria-label="Jump to a week"
+            onChange={e => e.target.value && setWeekStart(getMonday(parseISO(e.target.value)))}
+            className="absolute inset-0 opacity-0 cursor-pointer w-full" />
+        </div>
+        <button type="button" onClick={() => shift(1)} aria-label="Next week"
+          className="h-11 w-11 shrink-0 rounded-lg border flex items-center justify-center touch-manipulation hover:bg-muted">
+          <ChevronRight className="w-5 h-5" />
+        </button>
       </div>
+      {weekStart !== thisWeek && (
+        <button type="button" onClick={() => setWeekStart(thisWeek)}
+          className="w-full h-10 rounded-lg text-sm text-primary font-medium touch-manipulation hover:bg-muted">
+          Back to this week
+        </button>
+      )}
 
-      {venueId && <PettyCashPanel venueId={venueId} date={date} />}
+      {venueId && <WeekExpensesPanel venueId={venueId} weekStart={weekStart} />}
     </div>
   )
 }

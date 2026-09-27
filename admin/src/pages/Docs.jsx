@@ -1764,8 +1764,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Mobile Expenses</H3>
             <P>
               <Mono>admin/src/pages/mobile/MobileExpenses.jsx</Mono> — the second mobile module.
-              Venue picker (if &gt;1) + date button/overlay, a running total for the day, a tap-to-
-              edit list of that day's <Mono>cash_expenses</Mono> rows, and an Add/Edit modal with a
+              Venue picker + a week navigator (prev / next, a date overlay that jumps to that
+              date's Monday via <Mono>getMonday()</Mono>, Back to this week). <Mono>WeekExpensesPanel</Mono>{' '}
+              reads the week through <Mono>useReconWeek()</Mono> (week-detail, which now also returns
+              each expense's <Mono>receipt_url</Mono>): week cash / card / VAT totals, then one card per
+              day (Mon-Sun, closed days labelled from <Mono>open_dates</Mono>, submitted days locked)
+              with a per-day Add and tap-to-edit rows. <Mono>useExpenseActions(venueId)</Mono> holds the
+              create / update / delete mutations (date passed per call; each invalidates that day
+              and week-detail) and is shared with <Mono>PettyCashPanel</Mono>, the single-day panel the
+              Cash Dashboard's petty cash widget still uses. The Add/Edit modal has a
               category chip picker and a <Mono>capture="environment"</Mono> file input for
               snapping a receipt photo straight from the phone camera. Reuses the exact same API
               surface as <Mono>CashRecon.jsx</Mono>'s <Mono>ExpensesSection</Mono> (
