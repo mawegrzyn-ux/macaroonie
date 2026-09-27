@@ -732,6 +732,16 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         </p>
       </div>
 
+      {data.tip_rounding && (
+        <p className="text-xs text-muted-foreground">
+          {data.tip_rounding.mode === 'nearest'
+            ? `Shares rounded to the nearest ${fmt(data.tip_rounding.to)}`
+            : `Shares rounded ${data.tip_rounding.mode} to a multiple of ${fmt(data.tip_rounding.to)}`} (set in Rota setup).{' '}
+          {data.totals.rounding_difference > 0 && <span className="text-amber-700 font-medium">Pays out {fmt(data.totals.rounding_difference)} more than the pot.</span>}
+          {data.totals.rounding_difference < 0 && <span className="text-amber-700 font-medium">{fmt(-data.totals.rounding_difference)} of the pot left over.</span>}
+          {data.totals.rounding_difference === 0 && <span>Adds up exactly to the pot.</span>}
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">Nobody on the rota this week.</p>
       ) : (
@@ -762,7 +772,12 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
                   <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
                     {data.totals.points > 0 ? `${Math.round((r.points / data.totals.points) * 1000) / 10}%` : '–'}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">{fmt(r.tip_share)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">
+                    {fmt(r.tip_share)}
+                    {data.tip_rounding && r.tip_share !== r.tip_share_exact && (
+                      <span className="block text-[10px] font-normal text-muted-foreground">exact {fmt(r.tip_share_exact)}</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

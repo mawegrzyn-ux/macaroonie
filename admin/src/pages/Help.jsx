@@ -1423,6 +1423,14 @@ export default function Help() {
               Shifts are used in both modes: in Hours mode they decide per-shift rates and tip points
               for the hours that fall inside them.
             </P>
+            <P>
+              <strong>Round tip shares to</strong> (also in Rota setup): leave blank to share tips to the
+              penny, or enter an amount (for example 0.50 for the nearest 50p, 1 for the nearest pound, 5
+              for the nearest £5; quick buttons are provided). Choose <strong>Nearest</strong>,{' '}
+              <strong>Always up</strong> or <strong>Always down</strong>. Rounding can make the shares add up
+              to slightly more or less than the pot; the Tips table says by how much, and shows each
+              person's exact share under the rounded one. Always down never pays out more than the pot.
+            </P>
             <H3>The rota</H3>
             <P>
               <strong>Rota</strong> shows names down the side and the days of the week across the top.

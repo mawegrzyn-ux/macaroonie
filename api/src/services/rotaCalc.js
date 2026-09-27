@@ -26,7 +26,10 @@
 //     fixed / shift      sum(shift amount x fraction worked); shift amount =
 //                        staff_shift_rates.rate, else default_rate.
 //     A pay_override for the week replaces the computed pay.
-//   Tip share = tip pot x person's points / everyone's points.
+//   Tip share = tip pot x person's points / everyone's points, then rounded
+//             to a multiple of tipRounding.to (nearest / up / down) when set.
+//             Rounding can make the shares add up to slightly more or less
+//             than the pot; totals.rounding_difference reports it.
 
 export function toMinutes(t) {
   if (t == null) return null
@@ -49,6 +52,20 @@ function overlap([a1, a2], [b1, b2]) {
 const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100
 const num = v => (v == null || v === '' ? 0 : Number(v) || 0)
 
+/**
+ * Round an amount to a multiple of `to` (e.g. 0.5, 1, 5), in whole pence so
+ * floating point never produces 12.499999. mode: 'nearest' | 'up' | 'down'.
+ * No `to` (null / 0) = to the penny.
+ */
+export function roundTip(amount, to, mode = 'nearest') {
+  const pence = Math.round(num(amount) * 100)
+  const unit = Math.round(num(to) * 100)
+  if (!unit || unit <= 0) return pence / 100
+  const q = pence / unit
+  const n = mode === 'up' ? Math.ceil(q - 1e-9) : mode === 'down' ? Math.floor(q + 1e-9) : Math.round(q)
+  return (n * unit) / 100
+}
+
 /** True when any two hourly periods (same person, same day) overlap. */
 export function periodsOverlap(periods) {
   const spans = periods.map(p => span(p.start_time, p.end_time)).sort((a, b) => a[0] - b[0])
@@ -66,7 +83,7 @@ export function periodsOverlap(periods) {
  * @param {Array}  p.weekStaff  rota_week_staff rows (points_adjustment, pay_override)
  * @param {number} p.tipPot     amount to share out
  */
-export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], tipPot = 0 }) {
+export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], tipPot = 0, tipRounding = null }) {
   const shiftById = new Map(shifts.map(s => [s.id, { ...s, span: span(s.start_time, s.end_time) }]))
   const adjByStaff = new Map(weekStaff.map(w => [w.staff_id, w]))
 
@@ -158,9 +175,13 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], tipPot
 
   const totalPoints = round2(rows.reduce((s, r) => s + r.points, 0))
   const pot = round2(num(tipPot))
+  const roundTo = tipRounding?.to ? num(tipRounding.to) : null
+  const roundMode = tipRounding?.mode ?? 'nearest'
   for (const r of rows) {
-    r.tip_share = totalPoints > 0 ? round2(pot * r.points / totalPoints) : 0
+    r.tip_share_exact = totalPoints > 0 ? round2(pot * r.points / totalPoints) : 0
+    r.tip_share = roundTo ? roundTip(r.tip_share_exact, roundTo, roundMode) : r.tip_share_exact
   }
+  const tipsShared = round2(rows.reduce((s, r) => s + r.tip_share, 0))
 
   return {
     rows,
@@ -169,7 +190,9 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], tipPot
       pay:    round2(rows.reduce((s, r) => s + r.pay, 0)),
       points: totalPoints,
       tip_pot: pot,
-      tips_shared: round2(rows.reduce((s, r) => s + r.tip_share, 0)),
+      tips_shared: tipsShared,
+      rounding_difference: round2(tipsShared - pot),
     },
+    tip_rounding: roundTo ? { to: roundTo, mode: roundMode } : null,
   }
 }

@@ -20,6 +20,13 @@ const MODES = [
   { value: 'day_parts', label: 'Day parts' },
   { value: 'hourly',    label: 'Hours' },
 ]
+const ROUND_MODES = [
+  { value: 'nearest', label: 'Nearest' },
+  { value: 'up',      label: 'Always up' },
+  { value: 'down',    label: 'Always down' },
+]
+const ROUND_PRESETS = ['0.10', '0.50', '1', '5']
+
 const SLOTS = [
   { value: 15, label: '15 min' },
   { value: 30, label: '30 min' },
@@ -29,23 +36,36 @@ const SLOTS = [
 function SettingsCard({ settings }) {
   const api = useApi()
   const qc = useQueryClient()
+  const savedRound = settings.tip_round_to == null ? '' : String(settings.tip_round_to)
   const [mode, setMode] = useState(settings.mode)
   const [slot, setSlot] = useState(settings.slot_minutes)
-  useEffect(() => { setMode(settings.mode); setSlot(settings.slot_minutes) }, [settings.mode, settings.slot_minutes])
+  const [roundTo, setRoundTo] = useState(savedRound)
+  const [roundMode, setRoundMode] = useState(settings.tip_round_mode ?? 'nearest')
+  useEffect(() => {
+    setMode(settings.mode); setSlot(settings.slot_minutes)
+    setRoundTo(savedRound); setRoundMode(settings.tip_round_mode ?? 'nearest')
+  }, [settings.mode, settings.slot_minutes, savedRound, settings.tip_round_mode])
+  const roundNum = roundTo === '' ? null : Number(roundTo)
+  const roundInvalid = roundTo !== '' && !(roundNum > 0)
   const dirty = mode !== settings.mode || slot !== settings.slot_minutes
+    || (roundNum ?? null) !== (settings.tip_round_to ?? null)
+    || roundMode !== (settings.tip_round_mode ?? 'nearest')
 
   const save = useMutation({
-    mutationFn: () => api.patch('/rota/settings', { mode, slot_minutes: slot }),
+    mutationFn: () => api.patch('/rota/settings', {
+      mode, slot_minutes: slot, tip_round_to: roundNum, tip_round_mode: roundMode,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['rota-setup'] })
       qc.invalidateQueries({ queryKey: ['rota-week'] })
+      qc.invalidateQueries({ queryKey: ['rota-pay'] })
     },
   })
 
   return (
     <section className="rounded-xl border overflow-hidden">
       <div className="px-4 py-3 border-b bg-muted/30">
-        <h2 className="text-sm font-semibold">How the rota is entered</h2>
+        <h2 className="text-sm font-semibold">Rota settings</h2>
       </div>
       <div className="p-4 space-y-4">
         <Field label="Schedule by"
@@ -59,11 +79,39 @@ function SettingsCard({ settings }) {
             <Segmented value={slot} options={SLOTS} onChange={setSlot} />
           </Field>
         )}
+        <Field label="Round tip shares to (£)"
+          hint={roundTo === ''
+            ? 'Blank = to the penny. e.g. 0.50 rounds each share to the nearest 50p, 5 to the nearest £5.'
+            : 'Each person\'s share is rounded to a multiple of this. The Tips table shows how far the rounded total is from the pot.'}>
+          <div className="flex flex-wrap items-center gap-2">
+            <input className="h-11 w-28 rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40" inputMode="decimal" placeholder="0.01" value={roundTo}
+              aria-label="Round tip shares to"
+              onChange={e => setRoundTo(e.target.value.replace(/[^0-9.]/g, ''))} />
+            {ROUND_PRESETS.map(v => (
+              <button key={v} type="button" onClick={() => setRoundTo(v)}
+                className={`h-11 px-3 rounded-lg border text-sm touch-manipulation ${Number(roundTo) === Number(v) ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted'}`}>
+                £{v}
+              </button>
+            ))}
+            {roundTo !== '' && (
+              <button type="button" onClick={() => setRoundTo('')}
+                className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted">No rounding</button>
+            )}
+          </div>
+        </Field>
+        {roundTo !== '' && (
+          <Field label="Rounding direction"
+            hint={roundMode === 'down' ? 'Never pays out more than the pot; any remainder is left over.'
+              : roundMode === 'up' ? 'Can pay out a little more than the pot.' : 'Closest multiple; the total can be a little over or under the pot.'}>
+            <Segmented value={roundMode} options={ROUND_MODES} onChange={setRoundMode} />
+          </Field>
+        )}
+        {roundInvalid && <p className="text-xs text-red-700">Enter an amount above 0, or leave blank for no rounding.</p>}
         <p className="text-[11px] text-muted-foreground">
           Switching mode does not delete anything, but saving a week in the new mode replaces that week's entries from the other mode.
         </p>
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => save.mutate()} disabled={!dirty || save.isPending}
+          <button type="button" onClick={() => save.mutate()} disabled={!dirty || roundInvalid || save.isPending}
             className="h-11 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center gap-1.5">
             {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
           </button>
