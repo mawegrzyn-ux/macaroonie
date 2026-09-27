@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Mobile Expenses: whole week]
+
+### Mobile
+- The mobile **Expenses** page now shows a whole week (Monday to Sunday) instead of one day: week cash, card and VAT totals, then each day's expenses with its own Add button. Arrows move a week back or forward; tap the week to jump to any date. Submitted days are marked and locked; closed days are labelled.
+
+---
+
 ## [2026-09-27 — Tip adjustments: add and take out]
 
 ### Rota

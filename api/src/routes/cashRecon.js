@@ -1047,7 +1047,7 @@ export default async function cashReconRoutes(app) {
             tx`SELECT report_id, source_id, amount, notes
                  FROM cash_sc_entries
                 WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}`,
-            tx`SELECT report_id, id, description, category, category_id, amount, vat_amount, paid_by_card, notes
+            tx`SELECT report_id, id, description, category, category_id, amount, vat_amount, paid_by_card, notes, receipt_url
                  FROM cash_expenses
                 WHERE report_id = ANY(${reportIds}::uuid[]) AND tenant_id = ${req.tenantId}
                 ORDER BY created_at`,

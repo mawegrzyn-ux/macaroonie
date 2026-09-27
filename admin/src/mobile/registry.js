@@ -18,7 +18,7 @@ export const MOBILE_MODULES = [
   {
     key: 'expenses',
     label: 'Expenses',
-    description: 'Log a petty cash expense and snap a photo of the receipt',
+    description: 'The week\'s petty cash expenses; add one and snap the receipt',
     icon: Receipt,
     path: '/mobile/expenses',
   },
