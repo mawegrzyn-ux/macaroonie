@@ -26,9 +26,10 @@
 //     fixed / shift      sum(shift amount x fraction worked); shift amount =
 //                        staff_shift_rates.rate, else default_rate.
 //     A pay_override for the week replaces the computed pay.
-//   Tip pots (tip_pots, migration 108): each pot's total is its allocated
-//   service charge sources plus its manual lines for the week. By the pot's
-//   distribution:
+//   Tip pots (tip_pots, migration 108): each pot's gross is its allocated
+//   service charge sources plus its manual lines for the week. A surcharge
+//   (migration 111, e.g. tax) takes surcharge_pct % off the gross; what is
+//   left (total) is what gets shared. By the pot's distribution:
 //     house   kept by the house, nobody gets a share.
 //     points  pot x person's points / everyone's points, then rounded to a
 //             multiple of tipRounding.to (nearest / up / down) when set.
@@ -190,7 +191,10 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], pots =
   const potSummaries = pots.map(pot => {
     const lines = (pot.lines ?? []).map(l => ({ ...l, amount: round2(num(l.amount)) }))
     const sourcesTotal = round2(num(pot.sources_total))
-    const total = round2(sourcesTotal + lines.reduce((s, l) => s + l.amount, 0))
+    const gross = round2(sourcesTotal + lines.reduce((s, l) => s + l.amount, 0))
+    const surchargePct = Math.min(100, Math.max(0, num(pot.surcharge_pct)))
+    const surcharge = round2(gross * surchargePct / 100)
+    const total = round2(gross - surcharge)   // available to share
     let distributed = 0
     if (pot.distribution === 'points') {
       for (const r of rows) {
@@ -216,6 +220,10 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], pots =
       sources_total: sourcesTotal,
       sources: pot.sources ?? [],
       lines,
+      gross,
+      surcharge_name: pot.surcharge_name || null,
+      surcharge_pct: surchargePct,
+      surcharge,
       total,
       distributed,
       kept_by_house: pot.distribution === 'house' ? total : 0,
@@ -234,6 +242,8 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], pots =
       hours:  round2(rows.reduce((s, r) => s + r.hours, 0)),
       pay:    round2(rows.reduce((s, r) => s + r.pay, 0)),
       points: totalPoints,
+      tips_gross:  round2(potSummaries.reduce((s, p) => s + p.gross, 0)),
+      surcharges:  round2(potSummaries.reduce((s, p) => s + p.surcharge, 0)),
       tips_in:     round2(potSummaries.reduce((s, p) => s + p.total, 0)),
       tips_shared: round2(rows.reduce((s, r) => s + r.tip_share, 0)),
       kept_by_house: round2(potSummaries.reduce((s, p) => s + p.kept_by_house, 0)),

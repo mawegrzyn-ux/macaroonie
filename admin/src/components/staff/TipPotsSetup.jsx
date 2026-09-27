@@ -96,6 +96,10 @@ function PotForm({ pot, pots, onClose, onCreated }) {
   const [name, setName] = useState(pot?.name ?? '')
   const [distribution, setDistribution] = useState(pot?.distribution ?? 'points')
   const [active, setActive] = useState(pot?.is_active ?? true)
+  const [surchargeName, setSurchargeName] = useState(pot?.surcharge_name ?? '')
+  const [surchargePct, setSurchargePct] = useState(pot?.surcharge_pct ? String(pot.surcharge_pct) : '')
+  const pctNum = surchargePct === '' ? 0 : Number(surchargePct)
+  const pctValid = Number.isFinite(pctNum) && pctNum >= 0 && pctNum <= 100
   const [picked, setPicked] = useState(() => new Set(pot?.source_ids ?? []))
 
   const potName = useMemo(() => Object.fromEntries(pots.map(p => [p.id, p.name])), [pots])
@@ -110,7 +114,11 @@ function PotForm({ pot, pots, onClose, onCreated }) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const body = { name: name.trim(), distribution }
+      const body = {
+        name: name.trim(), distribution,
+        surcharge_name: surchargeName.trim() || null,
+        surcharge_pct: pctNum,
+      }
       let id = pot?.id
       if (id) await api.patch(`/rota/pots/${id}`, { ...body, is_active: active })
       else id = (await api.post('/rota/pots', body)).id
@@ -141,7 +149,7 @@ function PotForm({ pot, pots, onClose, onCreated }) {
   return (
     <Modal title={pot ? `Edit ${pot.name}` : 'Add tip pot'} onClose={onClose}
       footer={<>
-        <button type="button" onClick={() => save.mutate()} disabled={!name.trim() || save.isPending}
+        <button type="button" onClick={() => save.mutate()} disabled={!name.trim() || !pctValid || save.isPending}
           className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {pot ? 'Save' : 'Create pot'}
         </button>
@@ -152,6 +160,20 @@ function PotForm({ pot, pots, onClose, onCreated }) {
       </Field>
       <Field label="How the pot is shared" hint={dist?.hint}>
         <Segmented value={distribution} options={POT_DISTRIBUTIONS} onChange={setDistribution} />
+      </Field>
+      <Field label="Surcharge (optional)"
+        hint={pctValid
+          ? 'A percentage taken off the pot before it is shared, e.g. tax or card fees. Leave blank for none.'
+          : 'Enter a percentage between 0 and 100.'}>
+        <div className="flex gap-2">
+          <input className={cn(inputCls, 'flex-1 min-w-0')} value={surchargeName} maxLength={60}
+            onChange={e => setSurchargeName(e.target.value)} placeholder="Name, e.g. Tax" />
+          <div className="relative w-28 shrink-0">
+            <input className={cn(inputCls, 'pr-7 text-right')} type="text" inputMode="decimal"
+              value={surchargePct} onChange={e => setSurchargePct(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground pointer-events-none">%</span>
+          </div>
+        </div>
       </Field>
 
       <div className="space-y-2">
@@ -232,6 +254,11 @@ export function TipPotsSection({ pots }) {
             <Coins className="w-4 h-4 text-muted-foreground shrink-0" />
             <span className="flex-1 basis-24 min-w-0 truncate text-sm font-medium">{p.name}</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{POT_DIST_LABEL[p.distribution]}</span>
+            {p.surcharge_pct > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                {p.surcharge_name || 'Surcharge'} {p.surcharge_pct}%
+              </span>
+            )}
             <span className="text-xs text-muted-foreground">
               {p.source_ids.length} source{p.source_ids.length === 1 ? '' : 's'} · {p.lines.length} manual line{p.lines.length === 1 ? '' : 's'}
             </span>

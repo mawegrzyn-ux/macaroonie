@@ -744,6 +744,22 @@ function PotCard({ pot, data, canEdit, base, setPay, onEditManual }) {
           </div>
         )}
         <ErrorNote error={saveLines.error} />
+        {pot.surcharge > 0 && (
+          <div className="pt-1 border-t mt-1 space-y-1">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <span className="flex-1">Pot before deductions</span>
+              <span className="tabular-nums">{fmt(pot.gross)}</span>
+            </div>
+            <div className="flex items-center gap-2 text-amber-800">
+              <span className="flex-1">{pot.surcharge_name || 'Surcharge'} ({pot.surcharge_pct}%)</span>
+              <span className="tabular-nums">−{fmt(pot.surcharge)}</span>
+            </div>
+            <div className="flex items-center gap-2 font-medium">
+              <span className="flex-1">Available to share</span>
+              <span className="tabular-nums">{fmt(pot.total)}</span>
+            </div>
+          </div>
+        )}
         <div className="pt-1 border-t mt-1 text-xs">
           {pot.distribution === 'house' && <p className="text-muted-foreground">Kept by the house, not shared with staff.</p>}
           {pot.distribution === 'points' && (
@@ -888,7 +904,9 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
-        Tips in {fmt(data.totals.tips_in)} · shared with staff {fmt(data.totals.tips_shared)}
+        Tips in {fmt(data.totals.tips_in)}
+        {data.totals.surcharges > 0 && ` (after ${fmt(data.totals.surcharges)} surcharges)`}
+        {' '}· shared with staff {fmt(data.totals.tips_shared)}
         {data.totals.kept_by_house > 0 && ` · kept by the house ${fmt(data.totals.kept_by_house)}`}
       </p>
 

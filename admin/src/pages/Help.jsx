@@ -1510,6 +1510,13 @@ export default function Help() {
               ]}
             />
             <P>
+              A pot can also have a <strong>surcharge</strong>, for example tax or card fees: give it a
+              name and a percentage in the pot's settings. The surcharge is taken off the pot's total
+              (sources plus manual lines) before anything is shared, so staff share what is left. The
+              pot's card on the Rota page shows the total before deductions, the surcharge, and the
+              amount available to share.
+            </P>
+            <P>
               On the Rota page, the <strong>Tips</strong> section shows a card per pot with where its
               money came from; type this week's amount for each manual line and tap{' '}
               <strong>Save amounts</strong>. Below the cards, a table shows each person's points and
