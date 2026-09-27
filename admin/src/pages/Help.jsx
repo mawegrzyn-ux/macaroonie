@@ -1551,8 +1551,13 @@ export default function Help() {
               were set to "Distributed to Staff" were moved into a "Staff tips" pot shared by points.
             </P>
             <P>
-              <strong>Tip moves</strong>, below the table, lets payroll reward or correct a week without
-              changing the total. Tap <strong>New move</strong>, choose <strong>Points</strong> (changes
+              <strong>Tip moves and adjustments</strong>, below the table, lets payroll reward or correct
+              a week. Tap <strong>New</strong> and choose what to do: <strong>Move</strong> (take from one
+              person and give to others, the total stays the same), <strong>Add</strong> (give people
+              extra on top of their tips, e.g. a £25 bonus; nobody else loses anything) or{' '}
+              <strong>Take out</strong> (remove an amount from people, e.g. £25 for a till shortage; it
+              is not passed to anyone). Add and Take out need a reason, which is shown in the list. You
+              can't take out more than someone has. For a move, choose <strong>Points</strong> (changes
               everyone's share of every pot shared by points) or <strong>£ amount</strong> (moved after
               all the pots are shared), pick who to take from, then tick one or more people to give to.
               Split it <strong>Equally</strong> (enter the total; pennies left over go to the first
@@ -1560,8 +1565,9 @@ export default function Help() {
               or <strong>By %</strong> (enter the total and each person's percentage, which must add up
               to 100). You can't move more than the person has, and you can add a note. Every move is
               listed with who, how much, when and the note, and each can be undone on its own (bin
-              icon). <strong>Undo all point moves</strong> / <strong>Undo all £ moves</strong> clear a
-              week in one go. £ moves show in the <strong>Moved £</strong> column. Tips are shown here
+              icon). <strong>Undo all point entries</strong> / <strong>Undo all £ entries</strong> clear a
+              week in one go. £ moves and adjustments show in the <strong>Adjusted £</strong> column, and
+              the line under the pots shows the total added and taken out. Tips are shown here
               only; they are not added to Cash Recon wages.
             </P>
             <H3>Rota dashboard</H3>
