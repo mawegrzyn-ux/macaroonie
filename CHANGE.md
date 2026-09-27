@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Tips: quick +/− nudges]
+
+### Rota
+- Each person's tip **Total** on the Rota page (and the Rota dashboard tips widget) has **−** and **+** buttons. **−** moves £0.50 of their tips into the week's **Unallocated** pot; **+** gives £0.50 from that pot to them. Money can be left unallocated. **Undo all** puts every nudge back.
+
+### Database
+- Migration `119_tip_unallocated.sql`: `rota_week_staff.tip_unallocated`.
+
+---
+
 ## [2026-09-27 — Rota: separate pay and tips permissions]
 
 ### Access

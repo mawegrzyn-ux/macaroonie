@@ -45,7 +45,11 @@
 //   loses. They are summed into
 //   points_adjustment (added to earned points, floored at 0) and
 //   tip_adjustment (£). A person's tip_share is the sum of their shares
-//   across pots plus tip_adjustment, never below 0. Each pot
+//   across pots plus tip_adjustment plus tip_unallocated, never below 0.
+//   tip_unallocated (migration 119) is the person's net +/- nudge: a minus
+//   tap moves money from them to the week's unallocated pot, a plus tap
+//   moves it back out to someone. totals.tips_unallocated is what is left
+//   in that pot (minus the sum of everyone's nudges). Each pot
 //   reports distributed and difference (distributed - total): rounding can
 //   push a points pot slightly over or under; a manual pot is under while
 //   not everything has been handed out.
@@ -99,7 +103,7 @@ export function periodsOverlap(periods) {
  * @param {Array}  p.shifts     rota_shifts rows (all, incl. inactive, so old entries still price)
  * @param {Array}  p.staff      cash_staff rows + role_multiplier + shift_rates {shift_id: rate}
  * @param {Array}  p.entries    rota_entries rows for the week
- * @param {Array}  p.weekStaff  rota_week_staff rows (pay_override)
+ * @param {Array}  p.weekStaff  rota_week_staff rows (pay_override, tip_unallocated)
  * @param {Array}  p.moves      tip moves [{ kind: 'points'|'money', action: 'move'|'add'|'remove', from_staff_id, lines: [{ to_staff_id, amount }] }]
  * @param {number} p.tipPot     amount to share out
  */
@@ -209,6 +213,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       base_points:     points,
       points_adjustment: adjustment,
       tip_adjustment:  round2(moved.money.get(st.id) ?? 0),
+      tip_unallocated: round2(num(adj?.tip_unallocated)),
       points:          round2(Math.max(0, points + adjustment)),
     }
   })
@@ -270,7 +275,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
   })
   for (const r of rows) {
     r.tip_share_from_pots = round2(Object.values(r.pot_shares).reduce((s, v) => s + v, 0))
-    r.tip_share = round2(Math.max(0, r.tip_share_from_pots + r.tip_adjustment))
+    r.tip_share = round2(Math.max(0, r.tip_share_from_pots + r.tip_adjustment + r.tip_unallocated))
   }
 
   return {
@@ -287,6 +292,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       kept_by_house: round2(potSummaries.reduce((s, p) => s + p.kept_by_house, 0)),
       tips_added:    round2(adjusted.added),
       tips_taken_out: round2(adjusted.removed),
+      tips_unallocated: round2(-rows.reduce((s, r) => s + r.tip_unallocated, 0)),
     },
     tip_rounding: roundTo ? { to: roundTo, mode: roundMode } : null,
   }

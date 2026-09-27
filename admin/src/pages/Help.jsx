@@ -1570,6 +1570,17 @@ export default function Help() {
               the line under the pots shows the total added and taken out. Tips are shown here
               only; they are not added to Cash Recon wages.
             </P>
+            <P>
+              <strong>Quick +/− nudges.</strong> For small corrections, each person's{' '}
+              <strong>Total</strong> in the tips table has a <strong>−</strong> and a{' '}
+              <strong>+</strong> button. <strong>−</strong> takes £0.50 of their tips and puts it in the
+              week's <strong>Unallocated</strong> pot, shown just above the table.{' '}
+              <strong>+</strong> takes £0.50 out of the Unallocated pot and gives it to that person, so
+              you can only add what you have taken off someone first. The small red or green figure under
+              a total is that person's net change. Money can be left in the Unallocated pot at the end of
+              the week; it isn't paid to anyone. <strong>Undo all</strong> (with a confirm) puts every
+              +/− back as it was. Nudges are separate from the tip moves list.
+            </P>
             <H3>Rota dashboard</H3>
             <P>
               The <strong>Rota dashboard</strong> works like the Cash and H&amp;S dashboards: named
