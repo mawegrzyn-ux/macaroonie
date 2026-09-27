@@ -106,7 +106,6 @@ const ScSourceBody = z.object({
   type:            z.enum(['tips', 'service_charge']).default('tips'),
   takings_effect:  ScEffect.default('none'),
   income_effect:   ScEffect.default('none'),
-  distribution:    z.enum(['house', 'staff', 'split']).default('house'),
   tooltip:         z.string().max(500).nullable().optional(),
 })
 
@@ -115,7 +114,6 @@ const ScSourcePatch = z.object({
   type:            z.enum(['tips', 'service_charge']).optional(),
   takings_effect:  ScEffect.optional(),
   income_effect:   ScEffect.optional(),
-  distribution:    z.enum(['house', 'staff', 'split']).optional(),
   tooltip:         z.string().max(500).nullable().optional(),
   is_active:       z.coerce.boolean().optional(),
   sort_order:      z.coerce.number().int().optional(),
@@ -266,7 +264,7 @@ async function loadDailyReport(tx, tenantId, reportId) {
     `,
     tx`
       SELECT e.*, s.name AS source_name, s.type AS source_type,
-             s.takings_effect, s.income_effect, s.distribution
+             s.takings_effect, s.income_effect, s.tip_pot_id
         FROM cash_sc_entries e
         JOIN cash_sc_sources s ON s.id = e.source_id
        WHERE e.report_id  = ${reportId}
@@ -746,11 +744,10 @@ export default async function cashReconRoutes(app) {
       return tx`
         INSERT INTO cash_sc_sources
                (tenant_id, venue_id, name, type,
-                takings_effect, income_effect,
-                distribution, tooltip)
+                takings_effect, income_effect, tooltip)
         VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.type},
                 ${body.takings_effect}, ${body.income_effect},
-                ${body.distribution}, ${body.tooltip ?? null})
+                ${body.tooltip ?? null})
         RETURNING *
       `
     })

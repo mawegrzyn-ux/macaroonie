@@ -1469,13 +1469,29 @@ export default function Help() {
               the new amount), missing people are added, and other rows are left alone. It is blocked
               once the week's wages are submitted.
             </P>
-            <H3>Tips by points</H3>
+            <H3>Tip pots</H3>
             <P>
-              Each shift worked earns its tip points, times the person's role multiplier (Hours mode
-              counts part of a shift in proportion). Everyone's points are added up and the tip pot is
-              shared out by each person's share of the total. The <strong>tip pot</strong> comes from
-              the week's Cash Recon service charge and tips sources set to "Distributed to Staff";
-              "Split" sources are shown separately. Tap the pot to set it by hand.
+              Set up in Rota setup, then <strong>Tip pots</strong>. A pot has a name and collects money
+              from two places: the Cash Recon <strong>service charge and tips sources</strong> you tick
+              for it (a source can only be in one pot; sources are listed by venue), and any{' '}
+              <strong>manual lines</strong> you add (for example a cash tips jar that is not in Cash
+              Recon). Each pot is shared one of three ways:
+            </P>
+            <DataTable
+              head={['Sharing', 'What happens']}
+              rows={[
+                ['By points', 'Each shift worked earns its tip points, times the person\'s role multiplier (Hours mode counts part of a shift in proportion). The pot is split by each person\'s share of all the points. Tip rounding in Rota setup applies here.'],
+                ['Manual', 'Payroll enters each person\'s amount every week (Share amounts on the pot). Split evenly fills in equal amounts for everyone on the rota. The pot shows how much is still to share.'],
+                ['Kept by house', 'Counted as tips in, but not shared with staff.'],
+              ]}
+            />
+            <P>
+              On the Rota page, the <strong>Tips</strong> section shows a card per pot with where its
+              money came from; type this week's amount for each manual line and tap{' '}
+              <strong>Save amounts</strong>. Below the cards, a table shows each person's points and
+              their share of every pot, with a total per person. The "Distribution" choice that used
+              to sit on each Cash Recon service charge source is gone: tip pots replace it. Sources that
+              were set to "Distributed to Staff" were moved into a "Staff tips" pot shared by points.
             </P>
             <P>
               <strong>Move points</strong> takes points from one person and gives them to another
@@ -1494,7 +1510,7 @@ export default function Help() {
                 ['Rota grid', 'The week\'s rota, editable the same way as the Rota page. Tap a day heading to select that day.'],
                 ['Who\'s on', 'Everyone working the selected day, grouped by shift, plus anyone entered by hours. Day buttons along the top pick the day.'],
                 ['Hours and pay', 'The pay table from the Rota page; the title bar shows the week\'s total pay.'],
-                ['Tips', 'The tips table from the Rota page; the title bar shows the tip pot.'],
+                ['Tips', 'The tip pots and each person\'s share from the Rota page; the title bar shows the total shared with staff this week.'],
               ]}
             />
             <InfoBox type="tip">

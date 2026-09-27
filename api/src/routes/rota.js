@@ -8,6 +8,12 @@
 //   PATCH  /settings                             { mode, slot_minutes, tip_round_to, tip_round_mode }
 //   POST   /shifts   PATCH /shifts/:id   DELETE /shifts/:id   PUT /shifts/reorder { ids }
 //   POST   /roles    PATCH /roles/:id    DELETE /roles/:id    PUT /roles/reorder  { ids }
+//   Tip pots (migration 108):
+//   POST   /pots     PATCH /pots/:id     DELETE /pots/:id     PUT /pots/reorder   { ids }
+//   PUT    /pots/:id/sources           { source_ids }  Cash Recon SC sources feeding the pot
+//   POST   /pots/:id/lines             { name }        manual line (amount entered weekly)
+//   PATCH  /pot-lines/:id  DELETE /pot-lines/:id  PUT /pots/:id/lines/reorder { ids }
+//   GET    /sc-sources                 every venue's SC sources with their pot
 //
 // Staff (per venue; `staff` module):
 //   GET    /venues/:venueId/staff               with role + per-shift rates
@@ -23,7 +29,8 @@
 //
 // Pay, points and tips (`rota_pay` module):
 //   GET    /venues/:venueId/weeks/:week/pay
-//   PATCH  /venues/:venueId/weeks/:week/tip-pot         { tip_pot_override }
+//   PUT    /venues/:venueId/weeks/:week/pot-lines       { amounts: [{ line_id, amount }] }
+//   PUT    /venues/:venueId/weeks/:week/pots/:potId/manual  { amounts: [{ staff_id, amount }] }
 //   PATCH  /venues/:venueId/weeks/:week/staff/:staffId  { pay_override }
 //   POST   /venues/:venueId/weeks/:week/move-points     { from_staff_id, to_staff_id, points }
 //   POST   /venues/:venueId/weeks/:week/reset-points
@@ -60,6 +67,15 @@ const RoleBody = z.object({
   points_multiplier: z.coerce.number().min(0).max(100).default(1),
 })
 const RolePatch = RoleBody.partial().extend({ is_active: z.boolean().optional() })
+
+const PotBody = z.object({
+  name:         z.string().trim().min(1).max(100),
+  distribution: z.enum(['house', 'points', 'manual']).default('points'),
+})
+const PotPatch = PotBody.partial().extend({ is_active: z.boolean().optional() })
+const LineBody = z.object({ name: z.string().trim().min(1).max(100) })
+const LinePatch = LineBody.partial().extend({ is_active: z.boolean().optional() })
+const AmountRow = key => z.object({ [key]: UUID, amount: Money.nullable() })
 
 const StaffBody = z.object({
   name:         z.string().trim().min(1).max(200),
@@ -135,6 +151,29 @@ function loadRoles(tx, tenantId) {
   `
 }
 
+/** Tip pots with their manual lines and allocated SC source ids (all venues). */
+async function loadPots(tx, tenantId) {
+  const [pots, lines, sources] = await Promise.all([
+    tx`SELECT id, name, distribution, sort_order, is_active FROM tip_pots
+        WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
+    tx`SELECT id, pot_id, name, sort_order, is_active FROM tip_pot_lines
+        WHERE tenant_id = ${tenantId} ORDER BY sort_order, created_at`,
+    tx`SELECT id, tip_pot_id FROM cash_sc_sources
+        WHERE tenant_id = ${tenantId} AND tip_pot_id IS NOT NULL`,
+  ])
+  return pots.map(p => ({
+    ...p,
+    lines:      lines.filter(l => l.pot_id === p.id),
+    source_ids: sources.filter(x => x.tip_pot_id === p.id).map(x => x.id),
+  }))
+}
+
+async function assertPot(tx, tenantId, potId) {
+  const [p] = await tx`SELECT id, distribution FROM tip_pots WHERE id = ${potId} AND tenant_id = ${tenantId}`
+  if (!p) throw httpError(404, 'Tip pot not found')
+  return p
+}
+
 /** Staff with role + per-shift rates; `alsoIds` keeps inactive staff that have rota entries. */
 async function loadStaff(tx, tenantId, venueId, { activeOnly = false, alsoIds = [] } = {}) {
   const rows = await tx`
@@ -175,42 +214,58 @@ function loadEntries(tx, tenantId, venueId, monday) {
 
 /** Everything the pay calculation needs for one venue week. */
 async function computeWeek(tx, tenantId, venueId, monday) {
-  const [shifts, entries, settings] = await Promise.all([
+  const sunday = addDays(monday, 6)
+  const [shifts, entries, settings, pots] = await Promise.all([
     loadShifts(tx, tenantId), loadEntries(tx, tenantId, venueId, monday), loadSettings(tx, tenantId),
+    loadPots(tx, tenantId),
   ])
-  const withEntries = [...new Set(entries.map(e => e.staff_id))]
+  // This venue's service charge / tips for the week, per SC source.
+  const scRows = await tx`
+    SELECT s.id, s.name, s.tip_pot_id, COALESCE(SUM(e.amount), 0)::float8 AS amount
+      FROM cash_sc_sources s
+      LEFT JOIN cash_sc_entries e ON e.source_id = s.id AND e.tenant_id = ${tenantId}
+       AND e.report_id IN (
+         SELECT id FROM cash_daily_reports
+          WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+            AND report_date BETWEEN ${monday}::date AND ${sunday}::date)
+     WHERE s.tenant_id = ${tenantId} AND s.venue_id = ${venueId} AND s.tip_pot_id IS NOT NULL
+     GROUP BY s.id, s.name, s.tip_pot_id, s.sort_order
+     ORDER BY s.sort_order, s.name
+  `
+  const lineAmounts = await tx`
+    SELECT line_id, amount::float8 AS amount FROM rota_week_pot_lines
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
+  `
+  const manualRows = await tx`
+    SELECT pot_id, staff_id, amount::float8 AS amount FROM rota_week_pot_manual
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
+  `
+  const lineAmt = new Map(lineAmounts.map(l => [l.line_id, l.amount]))
+
+  // Active pots, plus inactive ones that still hold money this week.
+  const potInputs = pots.map(p => {
+    const sources = scRows.filter(r => r.tip_pot_id === p.id).map(r => ({ id: r.id, name: r.name, amount: r.amount }))
+    const lines = p.lines
+      .filter(l => l.is_active || lineAmt.has(l.id))
+      .map(l => ({ id: l.id, name: l.name, amount: lineAmt.get(l.id) ?? 0, is_active: l.is_active }))
+    const manual = {}
+    for (const m of manualRows.filter(m => m.pot_id === p.id)) manual[m.staff_id] = m.amount
+    return {
+      id: p.id, name: p.name, distribution: p.distribution, is_active: p.is_active,
+      sources, sources_total: sources.reduce((s, x) => s + x.amount, 0), lines, manual,
+    }
+  }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount > 0) || Object.keys(p.manual).length)
+
+  const withEntries = [...new Set([...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id)])]
   const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const weekStaff = await tx`
     SELECT staff_id, points_adjustment::float8 AS points_adjustment, pay_override::float8 AS pay_override
       FROM rota_week_staff
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
   `
-  const [week] = await tx`
-    SELECT tip_pot_override::float8 AS tip_pot_override FROM rota_weeks
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
-  `
-  // Tip pot source: the week's service charge / tips entries from sources
-  // marked "Distributed to Staff". "Split" sources have no percentage in
-  // Cash Recon, so they're reported separately for payroll to decide.
-  const [sc] = await tx`
-    SELECT COALESCE(SUM(e.amount) FILTER (WHERE s.distribution = 'staff'), 0)::float8 AS staff_total,
-           COALESCE(SUM(e.amount) FILTER (WHERE s.distribution = 'split'), 0)::float8 AS split_total
-      FROM cash_sc_entries e
-      JOIN cash_sc_sources s    ON s.id = e.source_id
-      JOIN cash_daily_reports d ON d.id = e.report_id
-     WHERE e.tenant_id = ${tenantId}
-       AND d.venue_id  = ${venueId}
-       AND d.report_date BETWEEN ${monday}::date AND ${addDays(monday, 6)}::date
-  `
-  const override = week?.tip_pot_override ?? null
-  const tipPot = override ?? sc.staff_total
   const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
-  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, tipPot, tipRounding })
-  return {
-    ...result,
-    week_start: monday,
-    tip_pot: { from_service_charge: sc.staff_total, split_sources: sc.split_total, override, value: tipPot },
-  }
+  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, pots: potInputs, tipRounding })
+  return { ...result, week_start: monday }
 }
 
 async function ensureWeekStaff(tx, tenantId, venueId, monday, staffId) {
@@ -251,10 +306,11 @@ export default async function rotaRoutes(app) {
   // ── Setup ──────────────────────────────────────────────────
 
   app.get('/setup', async (req) => withTenant(req.tenantId, async tx => {
-    const [settings, shifts, roles] = await Promise.all([
+    const [settings, shifts, roles, pots] = await Promise.all([
       loadSettings(tx, req.tenantId), loadShifts(tx, req.tenantId), loadRoles(tx, req.tenantId),
+      loadPots(tx, req.tenantId),
     ])
-    return { settings, shifts, roles }
+    return { settings, shifts, roles, pots }
   }))
 
   app.patch('/settings', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
@@ -360,6 +416,123 @@ export default async function rotaRoutes(app) {
       DELETE FROM staff_roles WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} RETURNING id
     `)
     if (!row) throw httpError(404, 'Role not found')
+    return reply.code(204).send()
+  })
+
+  // Tip pots
+  app.get('/sc-sources', { preHandler: requirePermission('staff', 'view') }, async (req) =>
+    withTenant(req.tenantId, tx => tx`
+      SELECT s.id, s.name, s.type, s.is_active, s.tip_pot_id, s.venue_id, v.name AS venue_name
+        FROM cash_sc_sources s
+        JOIN venues v ON v.id = s.venue_id
+       WHERE s.tenant_id = ${req.tenantId}
+       ORDER BY v.name, s.sort_order, s.name
+    `))
+
+  app.post('/pots', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
+    const b = PotBody.parse(req.body)
+    const [row] = await withTenant(req.tenantId, async tx => {
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tip_pots WHERE tenant_id = ${req.tenantId}`
+      return tx`
+        INSERT INTO tip_pots (tenant_id, name, distribution, sort_order)
+        VALUES (${req.tenantId}, ${b.name}, ${b.distribution}, ${n})
+        RETURNING id
+      `
+    })
+    return row
+  })
+
+  app.put('/pots/reorder', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
+    const { ids } = z.object({ ids: z.array(UUID) }).parse(req.body)
+    await withTenant(req.tenantId, tx => reorder(tx, 'tip_pots', req.tenantId, ids))
+    return { ok: true }
+  })
+
+  app.patch('/pots/:id', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
+    const b = PotPatch.parse(req.body)
+    const fields = Object.keys(b).filter(k => b[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE tip_pots SET ${tx({ ...Object.fromEntries(fields.map(k => [k, b[k]])), updated_at: new Date() }, ...fields, 'updated_at')}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      RETURNING id
+    `)
+    if (!row) throw httpError(404, 'Tip pot not found')
+    return row
+  })
+
+  // Deleting a pot unassigns its sources and removes its lines and weekly amounts.
+  app.delete('/pots/:id', { preHandler: requirePermission('staff', 'manage') }, async (req, reply) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM tip_pots WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} RETURNING id
+    `)
+    if (!row) throw httpError(404, 'Tip pot not found')
+    return reply.code(204).send()
+  })
+
+  // A source feeds at most one pot: listing it here moves it from any other pot.
+  app.put('/pots/:id/sources', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
+    const { source_ids } = z.object({ source_ids: z.array(UUID).max(500) }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await assertPot(tx, req.tenantId, req.params.id)
+      if (source_ids.length) {
+        const ok = await tx`SELECT id FROM cash_sc_sources WHERE tenant_id = ${req.tenantId} AND id = ANY(${source_ids}::uuid[])`
+        if (ok.length !== source_ids.length) throw httpError(400, 'Unknown service charge source')
+      }
+      await tx`
+        UPDATE cash_sc_sources SET tip_pot_id = NULL
+         WHERE tenant_id = ${req.tenantId} AND tip_pot_id = ${req.params.id}
+           AND NOT (id = ANY(${source_ids}::uuid[]))
+      `
+      if (source_ids.length) {
+        await tx`
+          UPDATE cash_sc_sources SET tip_pot_id = ${req.params.id}
+           WHERE tenant_id = ${req.tenantId} AND id = ANY(${source_ids}::uuid[])
+        `
+      }
+      return { ok: true }
+    })
+  })
+
+  app.post('/pots/:id/lines', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
+    const b = LineBody.parse(req.body)
+    const [row] = await withTenant(req.tenantId, async tx => {
+      await assertPot(tx, req.tenantId, req.params.id)
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tip_pot_lines WHERE pot_id = ${req.params.id}`
+      return tx`
+        INSERT INTO tip_pot_lines (tenant_id, pot_id, name, sort_order)
+        VALUES (${req.tenantId}, ${req.params.id}, ${b.name}, ${n})
+        RETURNING id
+      `
+    })
+    return row
+  })
+
+  app.put('/pots/:id/lines/reorder', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
+    const { ids } = z.object({ ids: z.array(UUID) }).parse(req.body)
+    await withTenant(req.tenantId, tx =>
+      reorder(tx, 'tip_pot_lines', req.tenantId, ids, tx`AND pot_id = ${req.params.id}`))
+    return { ok: true }
+  })
+
+  app.patch('/pot-lines/:id', { preHandler: requirePermission('staff', 'manage') }, async (req) => {
+    const b = LinePatch.parse(req.body)
+    const fields = Object.keys(b).filter(k => b[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE tip_pot_lines SET ${tx(Object.fromEntries(fields.map(k => [k, b[k]])), ...fields)}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      RETURNING id
+    `)
+    if (!row) throw httpError(404, 'Line not found')
+    return row
+  })
+
+  app.delete('/pot-lines/:id', { preHandler: requirePermission('staff', 'manage') }, async (req, reply) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      DELETE FROM tip_pot_lines WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} RETURNING id
+    `)
+    if (!row) throw httpError(404, 'Line not found')
     return reply.code(204).send()
   })
 
@@ -547,17 +720,64 @@ export default async function rotaRoutes(app) {
     })
   })
 
-  app.patch('/venues/:venueId/weeks/:week/tip-pot', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  // This week's amounts for the pots' manual lines (blank / null clears one).
+  app.put('/venues/:venueId/weeks/:week/pot-lines', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
-    const { tip_pot_override } = z.object({ tip_pot_override: Money.nullable() }).parse(req.body)
+    const { amounts } = z.object({ amounts: z.array(AmountRow('line_id')).max(500) }).parse(req.body)
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
+      const ids = amounts.map(a => a.line_id)
+      if (ids.length) {
+        const ok = await tx`SELECT id FROM tip_pot_lines WHERE tenant_id = ${req.tenantId} AND id = ANY(${ids}::uuid[])`
+        if (ok.length !== new Set(ids).size) throw httpError(400, 'Unknown pot line')
+      }
+      for (const a of amounts) {
+        if (a.amount == null) {
+          await tx`
+            DELETE FROM rota_week_pot_lines
+             WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
+               AND week_start = ${monday}::date AND line_id = ${a.line_id}
+          `
+        } else {
+          await tx`
+            INSERT INTO rota_week_pot_lines (tenant_id, venue_id, week_start, line_id, amount)
+            VALUES (${req.tenantId}, ${req.params.venueId}, ${monday}::date, ${a.line_id}, ${a.amount})
+            ON CONFLICT (venue_id, week_start, line_id) DO UPDATE SET amount = EXCLUDED.amount, updated_at = now()
+          `
+        }
+      }
+      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+    })
+  })
+
+  // Manual distribution: replaces this week's per-person amounts for one pot.
+  app.put('/venues/:venueId/weeks/:week/pots/:potId/manual', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    const { amounts } = z.object({ amounts: z.array(AmountRow('staff_id')).max(500) }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      const pot = await assertPot(tx, req.tenantId, req.params.potId)
+      if (pot.distribution !== 'manual') throw httpError(422, 'This pot is not shared manually')
+      const rows = amounts.filter(a => a.amount != null && a.amount > 0)
+      if (rows.length) {
+        const ok = await tx`
+          SELECT id FROM cash_staff
+           WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
+             AND id = ANY(${rows.map(r => r.staff_id)}::uuid[])
+        `
+        if (ok.length !== new Set(rows.map(r => r.staff_id)).size) throw httpError(400, 'Unknown staff member for this venue')
+      }
       await tx`
-        INSERT INTO rota_weeks (tenant_id, venue_id, week_start, tip_pot_override)
-        VALUES (${req.tenantId}, ${req.params.venueId}, ${monday}::date, ${tip_pot_override})
-        ON CONFLICT (venue_id, week_start) DO UPDATE
-          SET tip_pot_override = EXCLUDED.tip_pot_override, updated_at = now()
+        DELETE FROM rota_week_pot_manual
+         WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
+           AND week_start = ${monday}::date AND pot_id = ${req.params.potId}
       `
+      if (rows.length) {
+        await tx`INSERT INTO rota_week_pot_manual ${tx(rows.map(r => ({
+          tenant_id: req.tenantId, venue_id: req.params.venueId, week_start: monday,
+          pot_id: req.params.potId, staff_id: r.staff_id, amount: r.amount,
+        })))}`
+      }
       return computeWeek(tx, req.tenantId, req.params.venueId, monday)
     })
   })

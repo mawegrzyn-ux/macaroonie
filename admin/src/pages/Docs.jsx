@@ -1523,7 +1523,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['rota_shifts', 'Day parts: name, start_time, end_time (end <= start runs past midnight), points, sort_order, is_active. Deleting a shift used by any entry only hides it.'],
                 ['staff_shift_rates', 'Per staff per shift rate (PK staff_id, shift_id): hourly rate for hourly staff, amount per shift for fixed/shift staff. Replaced wholesale by the staff PATCH shift_rates array.'],
                 ['rota_entries', 'venue_id, staff_id, work_date, and either shift_id (day-part tick) or start_time + end_time (hourly period); CHECK enforces one or the other. Partial unique index on (staff_id, work_date, shift_id).'],
-                ['rota_weeks', 'Per venue per week_start: tip_pot_override (null = use the service charge figure).'],
+                ['tip_pots', 'Migration 108. Tenant-wide pots: name, distribution (house | points | manual), sort_order, is_active. cash_sc_sources.tip_pot_id (ON DELETE SET NULL) says which pot a Cash Recon source feeds; it replaced cash_sc_sources.distribution (house/staff/split), which only ever fed the old single rota pot.'],
+                ['tip_pot_lines', 'Named manual lines per pot (cascade). Amounts per venue week in rota_week_pot_lines (PK venue_id, week_start, line_id).'],
+                ['rota_week_pot_manual', 'Manual distribution: amount per venue, week, pot and staff. Replaced per pot by PUT .../pots/:potId/manual.'],
                 ['rota_week_staff', 'Per venue, week, staff: points_adjustment (zero-sum moves) and pay_override.'],
               ]}
             />
@@ -1537,8 +1539,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /venues/:venueId/weeks/:week', 'rota view', 'week_start, dates, settings, shifts, staff (active plus anyone with entries), entries. :week may be any date; it snaps to Monday.'],
                 ['PUT .../weeks/:week/entries', 'rota manage', 'Whole-week replace (both modes). 400 for a date outside the week, 422 for overlapping periods for one person on one day; duplicate shift ticks are dropped.'],
                 ['POST .../weeks/:week/copy { from_week }', 'rota manage', 'Replaces the week with another week\'s entries, shifted by whole weeks.'],
-                ['GET .../weeks/:week/pay', 'rota_pay view', 'computeRotaWeek result: rows, totals, tip_pot { from_service_charge, split_sources, override, value }.'],
-                ['PATCH .../tip-pot, PATCH .../staff/:staffId { pay_override }, POST .../move-points, POST .../reset-points', 'rota_pay manage', 'Each returns the recomputed pay payload. Moving more points than the person has is 422.'],
+                ['GET .../weeks/:week/pay', 'rota_pay view', 'computeRotaWeek result: rows (incl. pot_shares / pot_shares_exact by pot id, tip_share total), pots (sources, lines, total, distributed, difference, kept_by_house), totals (hours, pay, points, tips_in, tips_shared, kept_by_house), tip_rounding.'],
+                ['GET /setup pots; GET /sc-sources; POST/PATCH/DELETE /pots[/:id]; PUT /pots/reorder; PUT /pots/:id/sources { source_ids }; POST /pots/:id/lines; PATCH/DELETE /pot-lines/:id; PUT /pots/:id/lines/reorder', 'staff', 'Tip pot setup. Listing a source in PUT sources moves it from any other pot; sources no longer listed are unassigned. Deleting a pot unassigns its sources and cascades its lines and weekly amounts.'],
+                ['PUT .../weeks/:week/pot-lines { amounts: [{ line_id, amount }] }; PUT .../weeks/:week/pots/:potId/manual { amounts: [{ staff_id, amount }] }', 'rota_pay manage', 'Weekly manual line amounts (null clears) and manual shares (422 unless the pot is manual). Both return the recomputed pay payload.'],
+                ['PATCH .../staff/:staffId { pay_override }, POST .../move-points, POST .../reset-points', 'rota_pay manage', 'Each returns the recomputed pay payload. Moving more points than the person has is 422.'],
                 ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header (422 if submitted), updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Hourly people get hours and rate = pay / hours; everyone else a fixed total. Tips are not written.'],
               ]}
             />
@@ -1558,15 +1562,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Fixed / shift', 'Sum of (shift amount x fraction worked); shift amount = staff_shift_rates rate, else default_rate.'],
                 ['Pay override', 'rota_week_staff.pay_override replaces the computed pay for that week.'],
                 ['Points', 'Sum of shift.points x fraction x role multiplier (1 with no role), plus points_adjustment, floored at 0.'],
-                ['Tip share', 'tip pot x person points / total points (tip_share_exact), then rounded to a multiple of rota_settings.tip_round_to with tip_round_mode nearest | up | down (migration 107; roundTip() works in whole pence). totals.rounding_difference = rounded total minus pot; tip_rounding echoes the setting (null = to the penny).'],
+                ['Pot total', 'Sum of the venue\'s week cash_sc_entries for sources with that tip_pot_id, plus the pot\'s manual line amounts for the week. Active pots are listed, plus inactive ones still holding money that week.'],
+                ['Points pot share', 'pot total x person points / total points (pot_shares_exact), rounded to a multiple of rota_settings.tip_round_to with tip_round_mode nearest | up | down (migration 107; roundTip() works in whole pence).'],
+                ['Manual pot share', 'rota_week_pot_manual amount for the person (staff with an amount are loaded even if inactive).'],
+                ['House pot', 'No shares; its total is reported as kept_by_house.'],
+                ['Per pot', 'distributed = sum of shares; difference = distributed - total (rounding over/under for points, still to share for manual). A person\'s tip_share is the sum across pots.'],
               ]}
             />
-            <P>
-              Tip pot: sum of <Mono>cash_sc_entries.amount</Mono> for the week's daily reports whose
-              source has <Mono>distribution = 'staff'</Mono>; <Mono>'split'</Mono> sources have no
-              percentage in Cash Recon, so they are returned separately as <Mono>split_sources</Mono>{' '}
-              for payroll to include via the override.
-            </P>
             <H3>Frontend</H3>
             <P>
               <Mono>RotaGrid</Mono> holds a local draft of the week in the current mode only and

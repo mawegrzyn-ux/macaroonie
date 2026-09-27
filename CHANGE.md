@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Tip pots]
+
+### Rota
+- **Tip pots** in Rota setup: give each pot a name, tick which Cash Recon service charge / tips sources feed it (listed by venue; a source is in at most one pot), and add manual lines (e.g. a cash tips jar) whose amounts are entered each week.
+- Each pot is shared **by points**, **manually** (payroll types each person's amount; Split evenly helps), or **kept by the house**.
+- The Rota page's Tips section shows a card per pot (sources, manual line amounts with Save, and what is left to share) and a table with every person's share of each pot plus their total.
+
+### Cash Reconciliation
+- Removed the "Distribution" choice from service charge sources. Tip pots replace it; sources that were "Distributed to Staff" were moved into a "Staff tips" pot shared by points.
+
+### Database
+- Migration `108_tip_pots.sql`: `tip_pots`, `tip_pot_lines`, `rota_week_pot_lines`, `rota_week_pot_manual`; `cash_sc_sources.tip_pot_id`; drops `cash_sc_sources.distribution` and `rota_weeks`.
+
 ## [2026-09-27 — Print rota + tip rounding]
 
 ### Rota

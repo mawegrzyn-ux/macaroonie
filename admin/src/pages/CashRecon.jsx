@@ -2287,15 +2287,10 @@ const SC_TYPES = [
   { value: 'tips',           label: 'Tips' },
   { value: 'service_charge', label: 'Service Charge' },
 ]
-const SC_DIST = [
-  { value: 'house', label: 'Kept by House' },
-  { value: 'staff', label: 'Distributed to Staff' },
-  { value: 'split', label: 'Split' },
-]
 
 // Maps from DB value → display label (used in TypeBadge)
 const TYPE_LABELS = Object.fromEntries([
-  ...INCOME_TYPES, ...CHANNEL_TYPES, ...SC_TYPES, ...SC_DIST,
+  ...INCOME_TYPES, ...CHANNEL_TYPES, ...SC_TYPES,
 ].map(o => [o.value, o.label]))
 
 function SettingsView({ venueId, onBack }) {
@@ -2721,11 +2716,6 @@ function ScSourcesTab({ venueId, items, onRefetch, api }) {
             {SC_EFFECTS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
           </select>
         </div>
-        <select value={vals.distribution ?? ''} onChange={e => setVals(p => ({ ...p, distribution: e.target.value }))}
-          className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40">
-          <option value="">Distribution…</option>
-          {SC_DIST.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-        </select>
         <div>
           <label className="text-xs text-muted-foreground block mb-1">Description / tooltip shown in daily view</label>
           <TextInput placeholder="e.g. 12.5% added to all covers" value={vals.tooltip ?? ''} onChange={v => setVals(p => ({ ...p, tooltip: v || null }))} />
