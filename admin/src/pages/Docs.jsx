@@ -1019,7 +1019,25 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               were left unchanged; flipping the underlying number's sign alone was enough to make
               them read correctly (shortfall → red, surplus → amber).
             </InfoBox>
-            <H3>Net Cash / Cash to bank — cash-only channels</H3>
+            <H3>Variance with till payouts (supersedes the formula above)</H3>
+            <P>
+              Staff pay the day's expenses and the week's cash wages out of the till before counting,
+              so counted cash is what is banked and is already short by those payouts. Variance adds
+              them back. Day: <Mono>Takings + cash expenses − (Income + scAdjustment)</Mono>. Week:{' '}
+              sum of day variances <Mono>+ wages_cash_total</Mono> (wages have no day). Implemented
+              once in <Mono>reconCalc()</Mono> (<Mono>variance(date)</Mono>,{' '}
+              <Mono>weekVariance()</Mono>), mirrored by the day view's <Mono>const variance</Mono>{' '}
+              and by the <Mono>GET .../week/:week_start</Mono> route's per-day <Mono>variance</Mono>{' '}
+              (used by <Mono>WeekView</Mono> and <Mono>MobileCashUp.jsx</Mono>, which adds{' '}
+              <Mono>wages.total_cash_wages</Mono> for its week figure). That route now computes each
+              total in its own subquery with the same filters as <Mono>reconCalc()</Mono> (active
+              sources/channels, <Mono>exclude_from_recon</Mono> income left out, SC effects,{' '}
+              <Mono>!paid_by_card</Mono> expenses); the old version joined income and takings entries
+              together and summed, which multiplied both totals whenever a day had more than one row
+              of each. Net Cash and Cash to bank were removed: the grid, the day view and the
+              dashboard balance widgets end at the variance.
+            </P>
+            <H3>Net Cash / Cash to bank — cash-only channels (removed)</H3>
             <P>
               <Mono>cash_payment_channels.counts_as_cash</Mono> (migration 097, boolean, default{' '}
               <Mono>true</Mono> only where <Mono>type = 'cash'</Mono>) flags which Takings channels
@@ -1107,8 +1125,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               route's per-day <Mono>total_expenses</Mono> now sums only{' '}
               <Mono>!paid_by_card</Mono> rows and returns the card sum separately as{' '}
               <Mono>total_card_expenses</Mono>. Because <Mono>SpreadsheetView</Mono>'s{' '}
-              <Mono>dayExpenses()</Mono> reads <Mono>total_expenses</Mono>, Net Cash and Cash to
-              bank drop card expenses with no further change. The day view's{' '}
+              <Mono>dayExpenses()</Mono> reads <Mono>total_expenses</Mono>, the variance drops card
+              expenses with no further change. The day view's{' '}
               <Mono>totalExpenses</Mono> memo filters the same way client-side, and so does{' '}
               <Mono>MobileExpenses.jsx</Mono>'s day total. All three write paths accept the flag
               (<Mono>ExpenseEntrySchema</Mono> for the whole-day PUT, plus the individual POST/PUT
@@ -1426,18 +1444,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['cash_day_tiles', 'useReconWeek() — tile per date, status, dayTotal(income), variance(). Tap sets ctx.selectedDay and opens DayView (exported from CashRecon.jsx) in a fixed inset-0 z-50 overlay rendered inline, so it stays inside the dashboard\'s full-screen element; closing invalidates cash-recon-week-detail. Options (settings): hide_closed (filter to calc.visibleDates), compact (76px tiles, status dot + variance)'],
                 ['cash_day_balance', 'useReconWeek() — day figures for ctx.selectedDay'],
-                ['cash_week_balance', 'useReconWeek() — weekDayTotal, weekVariance, weekCashTakings, weekExpenses, weekNetCash, weekCashWages, weekNetPosition'],
+                ['cash_week_balance', 'useReconWeek() — weekDayTotal, weekExpenses, weekCardExpenses, weekCashWages, weekVariance'],
                 ['cash_recon_grid', 'SpreadsheetView with hideHeader (editable; saves through PUT /daily/:date)'],
                 ['cash_wages_paid', 'GET /wages/:week_start + PATCH .../entries/:id/paid (works when submitted)'],
                 ['cash_petty_cash', 'PettyCashPanel (exported from MobileExpenses.jsx) for ctx.selectedDay'],
                 ['cash_week_expenses', 'useReconWeek() — detail.days[date].expenses grouped by day (read-only), dayExpenses/weekExpenses/weekCardExpenses totals; day heading sets ctx.selectedDay. Added in migration 102 (CHECK constraint only)'],
                 ['cash_week_staff', 'GET /wages/:week_start + config. Local draft of the week\'s entries (pay type, hours x rate or fixed total, add/remove, copy from one of the last 8 weeks via qc.fetchQuery on the same wages key); Save sends the whole-tree PUT /wages/:week_start, carrying cash_amount over from the saved entry by id (an entry that was fully paid stays fully paid at its new total). Set as default posts /wages/:week_start/set-default. New weeks fill from defaultWageEntries(config). Read-only when the report is submitted. Added in migration 104'],
-                ['cash_week_summary_grid', 'useReconWeek() — the SpreadsheetView row set with only the WEEK column (weekTotal per source/SC/channel, weekDayTotal, weekExpenses, weekCardExpenses, weekVariance, weekNetCash, weekCashWages, weekNetPosition); read-only. ScEffectBadge exported from CashRecon.jsx for it. Added in migration 103 (CHECK constraint only)'],
+                ['cash_week_summary_grid', 'useReconWeek() — the SpreadsheetView row set with only the WEEK column (weekTotal per source/SC/channel, weekDayTotal, weekExpenses, weekCardExpenses, weekCashWages, weekVariance); read-only. ScEffectBadge exported from CashRecon.jsx for it. Added in migration 103 (CHECK constraint only)'],
               ]}
             />
             <InfoBox type="warn">
               <Mono>reconCalc()</Mono> in <Mono>CashRecon.jsx</Mono> is the single implementation of
-              the week grid maths (totals, variance, Net Cash, Cash to bank). SpreadsheetView calls
+              the week grid maths (totals and the variance). SpreadsheetView calls
               it with its override-aware cell reader; <Mono>useReconWeek(venueId, weekStart)</Mono>{' '}
               calls it with saved values for the widgets, using the same{' '}
               <Mono>cash-recon-config</Mono> / <Mono>cash-recon-week-detail</Mono> query keys, so an
@@ -1811,9 +1829,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               endpoint the desktop <Mono>WeekView</Mono>'s day cards already use. Tapping a day
               opens the module-local <Mono>MobileDayDeclaration</Mono> for the complete daily
               declaration — the same "list, then a reused full-page detail component" shape{' '}
-              <Mono>MobileOrderSheets.jsx</Mono> uses with <Mono>OrderDetail</Mono>. A "Week total"
-              tile below the list sums income, takings and variance across whichever days have a
-              report yet.
+              <Mono>MobileOrderSheets.jsx</Mono> uses with <Mono>OrderDetail</Mono>. A "Week variance"
+              tile below the list sums the days' variances plus the week's cash wages.
             </P>
             <H3>Single header on the day-detail view</H3>
             <P>

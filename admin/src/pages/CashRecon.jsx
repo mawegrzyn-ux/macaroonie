@@ -27,7 +27,7 @@ import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 // Checkbox-style toggle for a petty cash expense paid by card rather than from
 // the till. Card-paid expenses are still recorded but excluded from every cash
-// reconciliation total (Total Expenses, Net Cash, Cash to bank).
+// reconciliation (Total Expenses and the variance).
 export function PaidByCardToggle({ checked, onChange }) {
   return (
     <button
@@ -405,8 +405,8 @@ function VenueSelector({ venues, venueId, setVenueId }) {
 
 // ── WEEK RECON MATHS (shared) ─────────────────────────────────────────────────
 //
-// The one implementation of the week grid's figures: day/week totals,
-// variance, Net Cash and Cash to bank. SpreadsheetView calls it with its
+// The one implementation of the week grid's figures: day/week totals and
+// the variance. SpreadsheetView calls it with its
 // own override-aware cell reader (uncommitted edits); the Cash Recon
 // Dashboard widgets (components/cashRecon/widgets.jsx) call it through
 // useReconWeek() with the saved values only. Keep any change to these
@@ -430,8 +430,8 @@ export function reconCalc({ config, detail, weekStart, getCellVal }) {
   const activeSources  = (config?.income_sources   ?? []).filter(s => s.is_active)
   const activeSc       = (config?.sc_sources       ?? []).filter(s => s.is_active)
   const activeChannels = (config?.payment_channels ?? []).filter(s => s.is_active)
-  // Only channels flagged as contributing to cash-in-hand feed Net Cash / Cash to bank —
-  // card, voucher and online channels never become physical cash in the till.
+  // Channels flagged as cash-in-hand (what is counted and banked); card,
+  // voucher and online channels never become physical cash in the till.
   const cashChannels   = activeChannels.filter(c => c.counts_as_cash !== false)
 
   function cellNum(date, cat, id) { return parseNum(readCell(date, cat, id)) }
@@ -447,19 +447,21 @@ export function reconCalc({ config, detail, weekStart, getCellVal }) {
   function dayExpenses(date) { return parseNum(detail?.days?.[date]?.total_expenses ?? 0) }
   function dayCardExpenses(date) { return parseNum(detail?.days?.[date]?.total_card_expenses ?? 0) }
 
-  // variance = actual (Takings) − expected (Income, adjusted for SC effects).
-  // Positive = surplus (took more than declared), negative = shortfall (took less).
+  // Staff pay expenses and cash wages out of the till before counting, so
+  // the counted cash is what goes to the bank and is already short by those
+  // payouts. Variance adds them back:
+  //   day  = Takings + cash expenses that day − (Income + SC adjustment)
+  //   week = sum of day variances + cash wages (wages are weekly, no day)
+  // Positive = surplus, negative = shortfall.
   function variance(date) {
     const adj = activeSc.reduce((sum, s) => {
       const a = cellNum(date, 'sc', s.id)
       return sum + scEffectAmount(s.takings_effect, a) + scEffectAmount(s.income_effect, a)
     }, 0)
-    return dayTotal(date, 'takings') - (dayTotal(date, 'income') + adj)
+    return dayTotal(date, 'takings') + dayExpenses(date) - (dayTotal(date, 'income') + adj)
   }
 
   function cashTakingsTotal(date) { return cashChannels.reduce((s, r) => s + cellNum(date, 'takings', r.id), 0) }
-
-  function netCash(date) { return cashTakingsTotal(date) - dayExpenses(date) }
 
   // Week totals
   function weekTotal(cat, id) {
@@ -469,16 +471,14 @@ export function reconCalc({ config, detail, weekStart, getCellVal }) {
   function weekExpenses()    { return visibleDates.reduce((s, d) => s + dayExpenses(d), 0) }
   function weekCardExpenses() { return visibleDates.reduce((s, d) => s + dayCardExpenses(d), 0) }
   function weekCashTakings() { return visibleDates.reduce((s, d) => s + cashTakingsTotal(d), 0) }
-  function weekVariance()    { return visibleDates.reduce((s, d) => s + variance(d), 0) }
-  function weekNetCash()     { return weekCashTakings() - weekExpenses() }
   function weekCashWages()   { return parseNum(detail?.wages_cash_total ?? 0) }
-  function weekNetPosition() { return weekNetCash() - weekCashWages() }
+  function weekVariance()    { return visibleDates.reduce((s, d) => s + variance(d), 0) + weekCashWages() }
 
   return {
     dates, visibleDates, activeSources, activeSc, activeChannels, cashChannels,
-    cellNum, dayTotal, dayExpenses, dayCardExpenses, variance, cashTakingsTotal, netCash,
+    cellNum, dayTotal, dayExpenses, dayCardExpenses, variance, cashTakingsTotal,
     weekTotal, weekDayTotal, weekExpenses, weekCardExpenses, weekCashTakings, weekVariance,
-    weekNetCash, weekCashWages, weekNetPosition,
+    weekCashWages,
   }
 }
 
@@ -543,8 +543,8 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
 
   const {
     visibleDates, activeSources, activeSc, activeChannels,
-    cellNum, dayTotal, dayExpenses, dayCardExpenses, variance, netCash,
-    weekTotal, weekDayTotal, weekExpenses, weekCardExpenses, weekNetCash, weekNetPosition,
+    cellNum, dayTotal, dayExpenses, dayCardExpenses, variance,
+    weekTotal, weekDayTotal, weekExpenses, weekCardExpenses, weekVariance,
   } = reconCalc({ config, detail, weekStart, getCellVal })
 
   function startEdit(date, cat, id) {
@@ -892,8 +892,8 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
               <td className="px-2 py-1.5 text-xs text-right font-bold bg-muted/30 tabular-nums">{fmt(weekDayTotal('takings'))}</td>
             </tr>
 
-            {/* ── EXPENSES ── */}
-            <SectionRow label="Expenses" />
+            {/* ── PAID OUT OF THE TILL (before the cash is counted) ── */}
+            <SectionRow label="Paid out of till" />
             <tr className="border-b border-border/40">
               <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">
                 Total Expenses (cash)
@@ -923,22 +923,6 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
               </tr>
             )}
 
-            {/* ── SUMMARY ── */}
-            <SectionRow label="Summary" />
-            <tr className="border-b border-border/40">
-              <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">Variance</td>
-              {visibleDates.map(d => <TotalCell key={d} value={variance(d)} highlight="var" />)}
-              <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums">
-                <span className={cn(visibleDates.reduce((s, d) => s + variance(d), 0) > 0 ? 'text-amber-600' : visibleDates.reduce((s, d) => s + variance(d), 0) < 0 ? 'text-red-600' : 'text-green-700')}>
-                  {fmt(visibleDates.reduce((s, d) => s + variance(d), 0))}
-                </span>
-              </td>
-            </tr>
-            <tr className="border-b border-border/40">
-              <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">Net Cash</td>
-              {visibleDates.map(d => <TotalCell key={d} value={netCash(d)} />)}
-              <td className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums">{fmt(weekNetCash())}</td>
-            </tr>
             <tr className="border-b border-border/40">
               <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">
                 <span className="flex items-center gap-1">
@@ -963,10 +947,16 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
                 {detail?.wages_cash_total ? fmt(detail.wages_cash_total) : '—'}
               </td>
             </tr>
+            {/* ── SUMMARY: variance only. Week = day variances + cash wages. ── */}
+            <SectionRow label="Summary" />
             <tr className="border-b-2 border-border">
-              <td className="sticky left-0 bg-background px-3 py-2 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Cash to bank</td>
-              {visibleDates.map(d => <td key={d} className="border-r border-border/60 w-[86px] min-w-[86px]" />)}
-              <td className="px-2 py-2 text-xs text-right font-bold bg-muted/20 tabular-nums">{fmt(weekNetPosition())}</td>
+              <td className="sticky left-0 bg-background px-3 py-2 text-xs font-bold border-r border-border/60 min-w-[150px] z-10">Variance</td>
+              {visibleDates.map(d => <TotalCell key={d} value={variance(d)} highlight="var" />)}
+              <td className="px-2 py-2 text-xs text-right font-bold bg-muted/20 tabular-nums">
+                <span className={cn(weekVariance() > 0 ? 'text-amber-600' : weekVariance() < 0 ? 'text-red-600' : 'text-green-700')}>
+                  {fmt(weekVariance())}
+                </span>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -1046,7 +1036,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
           {days.map((dateStr, i) => {
             const d = getDayData(dateStr)
             const isToday = dateStr === today
-            // Server already computes variance as Takings − Income (surplus positive, shortfall negative).
+            // Server computes the day variance (Takings + cash expenses − Income, SC-adjusted).
             const variance = d?.total_income != null ? d.variance : null
             return (
               <button
@@ -1222,11 +1212,6 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
     activeSc.filter(s => s.takings_effect !== 'none').reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
     [activeSc, scValues]
   )
-  const totalScInIncome = useMemo(() =>
-    activeSc.filter(s => s.income_effect !== 'none').reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
-    [activeSc, scValues]
-  )
-
   const totalSc = useMemo(() =>
     activeSc.reduce((sum, s) => sum + parseNum(scValues[s.id] ?? 0), 0),
     [activeSc, scValues]
@@ -1242,22 +1227,10 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
     expenses.filter(e => !e.paid_by_card).reduce((sum, e) => sum + parseNum(e.amount ?? 0), 0),
     [expenses]
   )
-  const cardExpenses = useMemo(() =>
-    expenses.filter(e => e.paid_by_card).reduce((sum, e) => sum + parseNum(e.amount ?? 0), 0),
-    [expenses]
-  )
-
-  // variance = actual till (Takings) − expected till (Income + scAdjustment).
-  // Positive = surplus (took more than declared), negative = shortfall (took less).
-  const variance = totalTakings - (totalIncome + scAdjustment)
-  // Net cash only counts channels flagged as contributing to cash-in-hand
-  // (e.g. card/voucher/online channels never become physical cash in the till).
-  const cashChannels = useMemo(() => activeChannels.filter(c => c.counts_as_cash !== false), [activeChannels])
-  const cashTakings = useMemo(() =>
-    cashChannels.reduce((sum, c) => sum + parseNum(takingsValues[c.id] ?? 0), 0),
-    [cashChannels, takingsValues]
-  )
-  const netCash  = cashTakings - totalExpenses
+  // Same rule as reconCalc()'s day variance: expenses are paid out of the
+  // till before the cash is counted, so they are added back to Takings.
+  // Positive = surplus (took more than declared), negative = shortfall.
+  const variance = totalTakings + totalExpenses - (totalIncome + scAdjustment)
 
   // Auto-save on blur (debounced 800ms)
   function triggerSave(data) {
@@ -1568,38 +1541,19 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
           config={config}
         />
 
-        {/* Summary */}
-        <div className="rounded-2xl border bg-card shadow-sm p-4 space-y-2">
-          <h3 className="text-sm font-semibold mb-3">Summary</h3>
-          <div className="flex justify-between text-sm"><span>Total Income</span><span className="font-medium">{fmt(totalIncome)}</span></div>
-          {totalScInIncome > 0 && (
-            <div className="flex justify-between text-xs text-emerald-700"><span className="pl-3">of which SC affects income</span><span>{fmt(totalScInIncome)}</span></div>
-          )}
-          {totalScIncluded > 0 && (
-            <div className="flex justify-between text-sm text-muted-foreground"><span>SC affecting takings</span><span>{fmt(totalScIncluded)}</span></div>
-          )}
-          {scAdjustment !== 0 && (
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>SC adjustment</span>
-              <span>{scAdjustment > 0 ? '+' : ''}{fmt(scAdjustment)}</span>
-            </div>
-          )}
-          <div className="flex justify-between text-sm"><span>Total Takings</span><span className="font-medium">{fmt(totalTakings)}</span></div>
-          <div className={cn('flex justify-between text-sm font-semibold pt-1 border-t', variance === 0 ? 'text-green-600' : 'text-red-600')}>
+        {/* Summary: the variance only. Cash wages are weekly, so they count
+            in the week's variance on the grid, not here. */}
+        <div className="rounded-2xl border bg-card shadow-sm p-4 space-y-1">
+          <div className={cn('flex justify-between text-sm font-semibold', variance === 0 ? 'text-green-600' : 'text-red-600')}>
             <span>Variance</span>
             <span className="flex items-center gap-1">
               {variance === 0 ? <Check className="w-4 h-4" /> : null}
               {variance === 0 ? 'Balanced' : `${variance > 0 ? '+' : ''}${fmt(variance)}`}
             </span>
           </div>
-          <div className="flex justify-between text-sm pt-1"><span>Total Expenses (cash)</span><span className="font-medium">{fmt(totalExpenses)}</span></div>
-          {cardExpenses > 0 && (
-            <div className="flex justify-between text-xs text-muted-foreground"><span>Paid by card (not in recon)</span><span>{fmt(cardExpenses)}</span></div>
-          )}
-          <div className="flex justify-between text-sm font-bold pt-1 border-t">
-            <span>Net Cash Position</span>
-            <span>{fmt(netCash)}</span>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Takings plus cash expenses paid from the till, against income. Cash wages count in the week's variance.
+          </p>
         </div>
       </div>
     </div>
@@ -2636,9 +2590,9 @@ function PaymentChannelsTab({ venueId, items, onRefetch, api }) {
         <Toggle
           checked={vals.counts_as_cash ?? (vals.type ? vals.type === 'cash' : true)}
           onChange={v => setVals(p => ({ ...p, counts_as_cash: v }))}
-          label="Counts toward Net Cash"
+          label="Counted as cash"
         />
-        <p className="text-xs text-muted-foreground -mt-2">Turn off for channels that never become physical cash in the till (card, voucher, online links).</p>
+        <p className="text-xs text-muted-foreground -mt-2">Cash that is counted and banked. Turn off for channels that never become physical cash in the till (card, voucher, online links).</p>
         <Toggle checked={vals.is_active !== false} onChange={v => setVals(p => ({ ...p, is_active: v }))} label="Active" />
       </>
     )

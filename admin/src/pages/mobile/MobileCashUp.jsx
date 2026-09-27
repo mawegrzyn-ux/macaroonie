@@ -92,15 +92,13 @@ export default function MobileCashUp() {
     return weekData?.days?.find(d => d.date === dateStr)
   }
 
-  const weekTotals = dates.reduce((acc, dateStr) => {
+  // Same rule as reconCalc() in CashRecon.jsx: each day's server variance
+  // already adds back that day's cash expenses; cash wages are weekly and
+  // are added to the week only.
+  const weekVariance = dates.reduce((sum, dateStr) => {
     const d = getDay(dateStr)
-    if (d?.total_income != null) {
-      acc.income  += d.total_income
-      acc.takings += d.total_takings
-    }
-    return acc
-  }, { income: 0, takings: 0 })
-  const weekVariance = weekTotals.takings - weekTotals.income
+    return d?.total_income != null ? sum + d.variance : sum
+  }, 0) + Number(weekData?.wages?.total_cash_wages ?? 0)
 
   return (
     <div className="p-3 pb-8 space-y-3">
@@ -172,17 +170,15 @@ export default function MobileCashUp() {
         })}
       </div>
 
-      <div className="rounded-2xl border bg-card shadow-sm p-4 space-y-2">
-        <h3 className="text-sm font-semibold mb-1">Week total</h3>
-        <div className="flex justify-between text-sm"><span>Income</span><span className="font-medium">{fmt(weekTotals.income)}</span></div>
-        <div className="flex justify-between text-sm"><span>Takings</span><span className="font-medium">{fmt(weekTotals.takings)}</span></div>
+      <div className="rounded-2xl border bg-card shadow-sm p-4 space-y-1">
         <div className={cn(
-          'flex justify-between text-sm font-semibold pt-1 border-t',
+          'flex justify-between text-sm font-semibold',
           weekVariance === 0 ? 'text-green-600' : weekVariance < 0 ? 'text-red-600' : 'text-amber-600',
         )}>
-          <span>Variance</span>
+          <span>Week variance</span>
           <span>{weekVariance === 0 ? 'Balanced' : `${weekVariance > 0 ? '+' : ''}${fmt(weekVariance)}`}</span>
         </div>
+        <p className="text-xs text-muted-foreground">Includes cash expenses and cash wages paid from the till.</p>
       </div>
     </div>
   )
