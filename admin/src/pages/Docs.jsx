@@ -1526,7 +1526,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['tip_pots', 'Migration 108. Tenant-wide pots: name, distribution (house | points | manual), sort_order, is_active. cash_sc_sources.tip_pot_id (ON DELETE SET NULL) says which pot a Cash Recon source feeds; it replaced cash_sc_sources.distribution (house/staff/split), which only ever fed the old single rota pot.'],
                 ['tip_pot_lines', 'Named manual lines per pot (cascade). Amounts per venue week in rota_week_pot_lines (PK venue_id, week_start, line_id).'],
                 ['rota_week_pot_manual', 'Manual distribution: amount per venue, week, pot and staff. Replaced per pot by PUT .../pots/:potId/manual.'],
-                ['rota_week_staff', 'Per venue, week, staff: points_adjustment (zero-sum moves) and pay_override.'],
+                ['rota_week_staff', 'Per venue, week, staff: points_adjustment (zero-sum point moves), tip_adjustment (zero-sum £ moves, migration 109) and pay_override.'],
               ]}
             />
             <H3>API</H3>
@@ -1542,7 +1542,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET .../weeks/:week/pay', 'rota_pay view', 'computeRotaWeek result: rows (incl. pot_shares / pot_shares_exact by pot id, tip_share total), pots (sources, lines, total, distributed, difference, kept_by_house), totals (hours, pay, points, tips_in, tips_shared, kept_by_house), tip_rounding.'],
                 ['GET /setup pots; GET /sc-sources; POST/PATCH/DELETE /pots[/:id]; PUT /pots/reorder; PUT /pots/:id/sources { source_ids }; POST /pots/:id/lines; PATCH/DELETE /pot-lines/:id; PUT /pots/:id/lines/reorder', 'staff', 'Tip pot setup. Listing a source in PUT sources moves it from any other pot; sources no longer listed are unassigned. Deleting a pot unassigns its sources and cascades its lines and weekly amounts.'],
                 ['PUT .../weeks/:week/pot-lines { amounts: [{ line_id, amount }] }; PUT .../weeks/:week/pots/:potId/manual { amounts: [{ staff_id, amount }] }', 'rota_pay manage', 'Weekly manual line amounts (null clears) and manual shares (422 unless the pot is manual). Both return the recomputed pay payload.'],
-                ['PATCH .../staff/:staffId { pay_override }, POST .../move-points, POST .../reset-points', 'rota_pay manage', 'Each returns the recomputed pay payload. Moving more points than the person has is 422.'],
+                ['PATCH .../staff/:staffId { pay_override }, POST .../move-points { points }, POST .../move-tips { amount }, POST .../reset-moves { kind: points | money | all }', 'rota_pay manage', 'Each returns the recomputed pay payload. Moving more points (or more £ than the person\'s current tip_share) than the person has is 422.'],
                 ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header (422 if submitted), updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Hourly people get hours and rate = pay / hours; everyone else a fixed total. Tips are not written.'],
               ]}
             />
@@ -1566,7 +1566,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Points pot share', 'pot total x person points / total points (pot_shares_exact), rounded to a multiple of rota_settings.tip_round_to with tip_round_mode nearest | up | down (migration 107; roundTip() works in whole pence).'],
                 ['Manual pot share', 'rota_week_pot_manual amount for the person (staff with an amount are loaded even if inactive).'],
                 ['House pot', 'No shares; its total is reported as kept_by_house.'],
-                ['Per pot', 'distributed = sum of shares; difference = distributed - total (rounding over/under for points, still to share for manual). A person\'s tip_share is the sum across pots.'],
+                ['Per pot', 'distributed = sum of shares; difference = distributed - total (rounding over/under for points, still to share for manual). A person\'s tip_share is the sum across pots (tip_share_from_pots) plus tip_adjustment, floored at 0.'],
               ]}
             />
             <H3>Frontend</H3>

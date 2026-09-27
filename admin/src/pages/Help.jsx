@@ -1494,10 +1494,14 @@ export default function Help() {
               were set to "Distributed to Staff" were moved into a "Staff tips" pot shared by points.
             </P>
             <P>
-              <strong>Move points</strong> takes points from one person and gives them to another
-              (the total stays the same), for payroll to reward or correct a week.{' '}
-              <strong>Undo all moves</strong> puts everyone back to what they earned. Tips are shown
-              here only; they are not added to Cash Recon wages.
+              <strong>Move tips</strong>, below the table, lets payroll reward or correct a week without
+              changing the total. Choose <strong>Points</strong> to take points from one person and give
+              them to another (this changes everyone's share of every pot shared by points), or{' '}
+              <strong>£ amount</strong> to move a fixed sum of money from one person's tips to another's,
+              after all the pots are shared. You can't move more than the person has. £ moves show in a{' '}
+              <strong>Moved £</strong> column. <strong>Undo point moves</strong> and{' '}
+              <strong>Undo £ moves</strong> put things back. Tips are shown here only; they are not added
+              to Cash Recon wages.
             </P>
             <H3>Rota dashboard</H3>
             <P>

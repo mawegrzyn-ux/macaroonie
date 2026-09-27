@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Move tips by £]
+
+### Rota
+- **Move tips** (Rota page, Tips section) can now move a **£ amount** from one person's tips to another's, as well as points. £ moves apply after every pot is shared, keep the total the same, and show in a new **Moved £** column. Separate **Undo point moves** and **Undo £ moves** buttons.
+
+### Database
+- Migration `109_rota_tip_money_moves.sql`: `rota_week_staff.tip_adjustment`.
+
 ## [2026-09-27 — Tip pots]
 
 ### Rota
