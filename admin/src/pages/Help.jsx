@@ -1586,8 +1586,11 @@ export default function Help() {
             />
             <InfoBox type="tip">
               Access is set per module in Access: Staff (staff list, roles, rota setup), Rota (view or
-              edit the rota), Rota pay (pay, tips and filling wages; owners and admins only by
-              default) and Rota dashboard.
+              edit the rota), Rota pay (hours and pay, pay overrides and filling Cash Recon wages),
+              Rota tips (tip pots, points, tip shares, moves and adjustments) and Rota dashboard.
+              Rota pay and Rota tips are separate, so you can, for example, let operators view tips
+              without seeing wages. Both are owners and admins only by default. Someone who can see
+              only one of them sees just that section on the Rota page and dashboard.
             </InfoBox>
           </section>
 

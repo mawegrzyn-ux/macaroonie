@@ -2,9 +2,9 @@
 //
 // Weekly rota (/rota, `rota` module): staff as rows, days as columns.
 // Day-parts mode = ON/OFF per shift; hourly mode = start/end periods.
-// Below the grid, for people with `rota_pay`: hours and pay per person
-// (with overrides and "Fill Cash Recon wages") and the tip pot split by
-// points. Components live in components/staff/rota.jsx and are shared
+// Below the grid: hours and pay per person (with overrides and "Fill Cash
+// Recon wages") for people with `rota_pay`, and tips (pots, shares, moves)
+// for people with `rota_tips`; each shows on its own. Components live in components/staff/rota.jsx and are shared
 // with the Rota dashboard widgets.
 
 import { CalendarRange } from 'lucide-react'
@@ -16,7 +16,7 @@ export default function Rota() {
   const { data: venues = [] } = useVenues()
   const [venueId, setVenueId] = useVenueChoice(venues)
   const { ctx, element: weekNav } = useWeekNav()
-  const { canEditRota, canSeePay, canEditPay } = useRotaPerms()
+  const { canEditRota, canSeePay, canEditPay, canSeeTips, canEditTips } = useRotaPerms()
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -28,16 +28,20 @@ export default function Rota() {
         {venueId && (
           <div className="p-4 space-y-6">
             <RotaGrid venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditRota} />
-            {canSeePay && (
-              <div className="grid gap-6 xl:grid-cols-2">
-                <section className="space-y-2 min-w-0">
-                  <h2 className="text-sm font-semibold">Hours and pay</h2>
-                  <RotaPayTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} />
-                </section>
-                <section className="space-y-2 min-w-0">
-                  <h2 className="text-sm font-semibold">Tips</h2>
-                  <RotaTipsTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} />
-                </section>
+            {(canSeePay || canSeeTips) && (
+              <div className={canSeePay && canSeeTips ? 'grid gap-6 xl:grid-cols-2' : 'grid gap-6'}>
+                {canSeePay && (
+                  <section className="space-y-2 min-w-0">
+                    <h2 className="text-sm font-semibold">Hours and pay</h2>
+                    <RotaPayTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} />
+                  </section>
+                )}
+                {canSeeTips && (
+                  <section className="space-y-2 min-w-0">
+                    <h2 className="text-sm font-semibold">Tips</h2>
+                    <RotaTipsTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditTips} />
+                  </section>
+                )}
               </div>
             )}
           </div>

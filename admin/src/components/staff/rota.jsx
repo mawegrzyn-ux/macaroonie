@@ -35,7 +35,7 @@ export function useMe() {
   return useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
 }
 
-/** { canEditRota, canSeePay, canEditPay } from /me permissions. */
+/** Rota permissions from /me: rota (grid), rota_pay (hours and pay), rota_tips (tips). */
 export function useRotaPerms() {
   const { data: me } = useMe()
   const admin = !!me?.is_platform_admin
@@ -44,6 +44,8 @@ export function useRotaPerms() {
     canEditRota: admin || p.rota === 'manage',
     canSeePay:   admin || p.rota_pay === 'view' || p.rota_pay === 'manage',
     canEditPay:  admin || p.rota_pay === 'manage',
+    canSeeTips:  admin || p.rota_tips === 'view' || p.rota_tips === 'manage',
+    canEditTips: admin || p.rota_tips === 'manage',
   }
 }
 
@@ -554,7 +556,7 @@ export function RotaDayList({ venueId, weekStart, day }) {
 // ── Pay ───────────────────────────────────────────────────────
 
 function rostered(rows) {
-  return rows.filter(r => r.entry_count > 0 || r.pay_override != null || r.points_adjustment !== 0)
+  return rows.filter(r => r.entry_count > 0 || r.pay_override != null)
 }
 
 function MoneyEdit({ value, onSave, onClear, saving, placeholder }) {

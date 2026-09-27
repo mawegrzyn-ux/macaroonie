@@ -27,7 +27,8 @@
 //   PUT    /venues/:venueId/weeks/:week/entries  whole-week replace
 //   POST   /venues/:venueId/weeks/:week/copy     { from_week }
 //
-// Pay, points and tips (`rota_pay` module):
+// Pay (`rota_pay` module) and tips (`rota_tips` module, migration 118); GET .../pay
+// needs either and strips the half the caller can't view (redactWeek):
 //   GET    /venues/:venueId/weeks/:week/pay
 //   PUT    /venues/:venueId/weeks/:week/pot-lines       { amounts: [{ line_id, amount }] }
 //   PUT    /venues/:venueId/weeks/:week/pots/:potId/manual  { amounts: [{ staff_id, amount }] }
@@ -39,7 +40,7 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requireAnyPermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { computeRotaWeek, periodsOverlap, span } from '../services/rotaCalc.js'
 import { resolveOpenDaysForWeek } from '../services/openDays.js'
@@ -310,6 +311,41 @@ async function computeWeek(tx, tenantId, venueId, monday) {
       total: Math.round(m.lines.reduce((s, l) => s + l.amount, 0) * 100) / 100,
     })),
   }
+}
+
+// The pay payload covers two permissions: `rota_pay` (hours and pay) and
+// `rota_tips` (pots, points, shares, moves). Strip whichever the caller
+// can't view, so a role can be given one without the other.
+const PAY_ROW_FIELDS = ['pay_type', 'pay_basis', 'computed_pay', 'pay_override', 'pay']
+const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'tip_adjustment', 'points',
+  'pot_shares', 'pot_shares_exact', 'tip_share', 'tip_share_from_pots']
+const TIP_TOTAL_FIELDS = ['points', 'tips_gross', 'surcharges', 'tips_in', 'tips_shared',
+  'kept_by_house', 'tips_added', 'tips_taken_out']
+
+export function redactWeek(week, { pay, tips }) {
+  const out = { ...week, access: { pay, tips } }
+  const seePay = pay !== 'none'
+  const seeTips = tips !== 'none'
+  out.rows = week.rows.map(r => {
+    const row = { ...r }
+    if (!seePay) for (const f of PAY_ROW_FIELDS) delete row[f]
+    if (!seeTips) for (const f of TIP_ROW_FIELDS) delete row[f]
+    return row
+  })
+  out.totals = { ...week.totals }
+  if (!seePay) delete out.totals.pay
+  if (!seeTips) {
+    for (const f of TIP_TOTAL_FIELDS) delete out.totals[f]
+    out.pots = []
+    out.moves = []
+    out.tip_rounding = null
+  }
+  return out
+}
+
+async function weekFor(req, tx, monday) {
+  const [pay, tips] = await Promise.all([permissionLevel(req, 'rota_pay'), permissionLevel(req, 'rota_tips')])
+  return redactWeek(await computeWeek(tx, req.tenantId, req.params.venueId, monday), { pay, tips })
 }
 
 /** The week's tip moves, oldest first, each with its recipient lines. */
@@ -792,16 +828,16 @@ export default async function rotaRoutes(app) {
 
   // ── Pay, points, tips ──────────────────────────────────────
 
-  app.get('/venues/:venueId/weeks/:week/pay', { preHandler: requirePermission('rota_pay', 'view') }, async (req) => {
+  app.get('/venues/:venueId/weeks/:week/pay', { preHandler: requireAnyPermission(['rota_pay', 'rota_tips'], 'view') }, async (req) => {
     const monday = mondayOf(req.params.week)
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
-      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      return weekFor(req, tx, monday)
     })
   })
 
   // This week's amounts for the pots' manual lines (blank / null clears one).
-  app.put('/venues/:venueId/weeks/:week/pot-lines', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  app.put('/venues/:venueId/weeks/:week/pot-lines', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
     // Values may be negative (a deduction). £ for amount lines, % for percent lines.
     const { amounts } = z.object({
@@ -839,12 +875,12 @@ export default async function rotaRoutes(app) {
           `
         }
       }
-      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      return weekFor(req, tx, monday)
     })
   })
 
   // Manual distribution: replaces this week's per-person amounts for one pot.
-  app.put('/venues/:venueId/weeks/:week/pots/:potId/manual', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  app.put('/venues/:venueId/weeks/:week/pots/:potId/manual', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
     const { amounts } = z.object({ amounts: z.array(AmountRow('staff_id')).max(500) }).parse(req.body)
     return withTenant(req.tenantId, async tx => {
@@ -871,7 +907,7 @@ export default async function rotaRoutes(app) {
           pot_id: req.params.potId, staff_id: r.staff_id, amount: r.amount,
         })))}`
       }
-      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      return weekFor(req, tx, monday)
     })
   })
 
@@ -886,7 +922,7 @@ export default async function rotaRoutes(app) {
          WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
            AND staff_id = ${req.params.staffId} AND tenant_id = ${req.tenantId}
       `
-      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      return weekFor(req, tx, monday)
     })
   })
 
@@ -894,7 +930,7 @@ export default async function rotaRoutes(app) {
   // others. Zero-sum: the lines add up to exactly what the giver loses. The
   // UI works out an equal / by amount / by % split; the API stores the final
   // amount per recipient (2 decimals).
-  app.post('/venues/:venueId/weeks/:week/tip-moves', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  app.post('/venues/:venueId/weeks/:week/tip-moves', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
     const b = z.object({
       kind:          z.enum(['points', 'money']),
@@ -944,11 +980,11 @@ export default async function rotaRoutes(app) {
           move_id: move.id, tenant_id: req.tenantId, to_staff_id: l.to_staff_id, amount: l.amount,
         })))}
       `
-      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      return weekFor(req, tx, monday)
     })
   })
 
-  app.delete('/venues/:venueId/weeks/:week/tip-moves/:id', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  app.delete('/venues/:venueId/weeks/:week/tip-moves/:id', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
@@ -959,12 +995,12 @@ export default async function rotaRoutes(app) {
         RETURNING id
       `
       if (!row) throw httpError(404, 'Move not found')
-      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      return weekFor(req, tx, monday)
     })
   })
 
   // Undo point moves, £ moves, or both for the week.
-  app.post('/venues/:venueId/weeks/:week/reset-moves', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  app.post('/venues/:venueId/weeks/:week/reset-moves', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
     const { kind } = z.object({ kind: z.enum(['points', 'money', 'all']).default('all') }).parse(req.body ?? {})
     return withTenant(req.tenantId, async tx => {
@@ -975,7 +1011,7 @@ export default async function rotaRoutes(app) {
          WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
            AND tenant_id = ${req.tenantId} AND kind = ANY(${kinds})
       `
-      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      return weekFor(req, tx, monday)
     })
   })
 

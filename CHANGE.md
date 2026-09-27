@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Rota: separate pay and tips permissions]
+
+### Access
+- The rota's "Rota pay & tips" permission is now two: **Rota pay** (hours and pay, pay overrides, fill Cash Recon wages) and **Rota tips** (tip pots, points, shares, moves and adjustments). Set each to None / View / Manage per role on the Access page, e.g. let operators view tips without seeing wages. Existing roles keep their current access to both.
+- Someone with only one of them sees just that section on the Rota page and dashboard; the other half is removed from what the server sends.
+
+### Database
+- Migration `118_rota_tips_permission.sql`: `rota_tips` module; each role's `rota_tips` copied from its `rota_pay`.
+
+---
+
 ## [2026-09-27 — Mobile Expenses: whole week]
 
 ### Mobile
