@@ -296,11 +296,14 @@ function MenuEditor({ id, onBack }) {
         print_orientation: draft.print_orientation || 'landscape',
         print_paper_size: draft.print_paper_size || 'A4',
         print_hide_variant_group_headers: !!draft.print_hide_variant_group_headers,
+        print_settings: draft.print_settings || {},
         hide_zero_priced_variants: !!draft.hide_zero_priced_variants,
         hide_unpriced_variants: !!draft.hide_unpriced_variants,
         sections: (draft.sections || []).map((s, si) => ({
           title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
           image_url: s.image_url || null,
+          print_break_before: s.print_break_before || 'none',
+          print_keep_together: !!s.print_keep_together,
           sort_order: si,
           items: (s.items || []).map((it, ii) => ({
             name: it.name,
@@ -506,6 +509,7 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
               {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
             </select>
           </Field>
+          <PrintLayoutFields draft={draft} onChange={onChange} />
           <div className="sm:col-span-2">
             <Field label="Intro line" hint="Short note shown at the top of the menu. Formatting and font choices apply on the website — the printable PDF always uses the menu's print styling.">
               <RichTextEditor
@@ -549,6 +553,68 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
   )
 }
 
+// Print layout (menus.print_settings, migration 120). Missing keys mean the
+// original layout, so an untouched menu prints as before.
+const FONT_SCALES = [80, 85, 90, 95, 100, 105, 110, 115, 120, 130]
+const MARGINS = [
+  { value: '', label: 'Standard (8mm top and bottom, 12mm sides)' },
+  { value: '5', label: 'Narrow (5mm)' },
+  { value: '10', label: '10mm' },
+  { value: '15', label: 'Wide (15mm)' },
+  { value: '20', label: 'Extra wide (20mm)' },
+]
+const selectCls = 'w-full text-sm border rounded-md px-2 py-1.5 bg-background min-h-[44px] touch-manipulation'
+
+function PrintLayoutFields({ draft, onChange }) {
+  const ps = draft.print_settings || {}
+  const setPs = (k, v) => onChange('print_settings', { ...ps, [k]: v })
+  return (
+    <div className="sm:col-span-2 border-t pt-3 space-y-3">
+      <div>
+        <p className="text-sm font-semibold">Print layout</p>
+        <p className="text-xs text-muted-foreground">
+          Each section can also start on a new page or column, or be kept in one piece (under its title in the menu).
+          The print page marks any page that is too long for one sheet.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Font size">
+          <select value={ps.font_scale ?? 100} onChange={e => setPs('font_scale', Number(e.target.value))} className={selectCls}>
+            {FONT_SCALES.map(n => <option key={n} value={n}>{n}%{n === 100 ? ' (standard)' : ''}</option>)}
+          </select>
+        </Field>
+        <Field label="Page margins">
+          <select value={ps.margin_mm == null ? '' : String(ps.margin_mm)}
+            onChange={e => setPs('margin_mm', e.target.value === '' ? null : Number(e.target.value))} className={selectCls}>
+            {MARGINS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Header on later pages">
+          <select value={ps.repeat_header || 'first'} onChange={e => setPs('repeat_header', e.target.value)} className={selectCls}>
+            <option value="first">None (first page only)</option>
+            <option value="compact">One line: menu name</option>
+            <option value="full">Full header on every page</option>
+          </select>
+        </Field>
+      </div>
+      <div className="space-y-1">
+        <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
+          <input type="checkbox" checked={!!ps.repeat_footer} onChange={e => setPs('repeat_footer', e.target.checked)} />
+          Repeat the footer (allergen key, notes and footer line) on every page
+        </label>
+        <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
+          <input type="checkbox" checked={!!ps.page_numbers} onChange={e => setPs('page_numbers', e.target.checked)} />
+          Page numbers ("Page 1 of 3")
+        </label>
+        <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
+          <input type="checkbox" checked={!!ps.keep_sections} onChange={e => setPs('keep_sections', e.target.checked)} />
+          Keep every section in one piece
+        </label>
+      </div>
+    </div>
+  )
+}
+
 // ── Sections + dish list (compact rows, click to open the drawer) ──
 
 function SectionsPanel({ sections, selectedItemId, onSelectItem, onChange }) {
@@ -556,7 +622,10 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, onChange }) {
     const next = sections.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
   }
   const setItems = (i, items) => set(i, { items })
-  const addSection = () => onChange([...sections, { id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, image_url: null, items: [] }])
+  const addSection = () => onChange([...sections, {
+    id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, image_url: null,
+    print_break_before: 'none', print_keep_together: false, items: [],
+  }])
   const removeSection = (i) => onChange(sections.filter((_, j) => j !== i))
   const moveSection = (i, dir) => {
     const j = i + dir; if (j < 0 || j >= sections.length) return
@@ -636,6 +705,24 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, on
       </div>
       {open && (
         <div className="p-2 space-y-1">
+          {/* Print layout for this section (migration 120). */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 pb-1 text-xs text-sky-900">
+            <label className="inline-flex items-center gap-2">
+              <span className="font-medium">Print:</span>
+              <select value={section.print_break_before || 'none'}
+                onChange={e => onChange({ print_break_before: e.target.value })}
+                className="text-xs border rounded-md px-2 bg-white min-h-[44px] touch-manipulation">
+                <option value="none">Continue after the previous section</option>
+                <option value="column">Start in a new column</option>
+                <option value="page">Start on a new page</option>
+              </select>
+            </label>
+            <label className="inline-flex items-center gap-2 min-h-[44px] touch-manipulation">
+              <input type="checkbox" checked={!!section.print_keep_together}
+                onChange={e => onChange({ print_keep_together: e.target.checked })} />
+              Keep in one piece (don't split across columns or pages)
+            </label>
+          </div>
           {items.map((it, i) => (
             <ItemRow key={it.id} item={it}
               index={i} total={items.length}
