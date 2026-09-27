@@ -1463,6 +1463,11 @@ export default function Help() {
               as closed. A closed day with someone rostered on it is always shown, marked "Closed", so nobody
               disappears from the rota. A venue with no weekly schedule set up never hides any days.
             </P>
+            <P>
+              <strong>Hide totals on printouts and images</strong> (also in Rota setup) leaves the
+              totals off Print / PDF and Save image: the Working count under each day and each
+              person's Hours column. The rota page itself still shows them.
+            </P>
             <H3>The rota</H3>
             <P>
               <strong>Rota</strong> shows names down the side and the days of the week across the top.

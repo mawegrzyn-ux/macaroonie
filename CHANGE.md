@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Rota print: hide totals]
+
+### Rota
+- New Rota setup checkbox, **Hide totals on printouts and images**: leaves the Working count under each day and each person's Hours column off Print / PDF and Save image. The rota page still shows them.
+
+### Database
+- Migration `114_rota_hide_print_totals.sql`: `rota_settings.hide_totals_on_print`.
+
+---
+
 ## [2026-09-27 — Wages paid on day; tip moves one to many]
 
 ### Cash Reconciliation

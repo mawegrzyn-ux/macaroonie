@@ -1553,7 +1553,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'Purpose']}
               rows={[
                 ['staff_roles', 'Tenant job titles: name, points_multiplier numeric(5,2) default 1, sort_order, is_active. cash_staff.role_id references it ON DELETE SET NULL.'],
-                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60), tip_round_to (numeric, null = to the penny) and tip_round_mode (nearest | up | down), migration 107; hide_closed_on_rota and hide_closed_on_print (booleans, default false), migration 110. Missing row = day_parts / 30 / no rounding / show every day.'],
+                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60), tip_round_to (numeric, null = to the penny) and tip_round_mode (nearest | up | down), migration 107; hide_closed_on_rota and hide_closed_on_print (booleans, default false), migration 110; hide_totals_on_print (boolean, default false), migration 114. Missing row = day_parts / 30 / no rounding / show every day.'],
                 ['rota_shifts', 'Day parts: name, start_time, end_time (end <= start runs past midnight), points, sort_order, is_active. Deleting a shift used by any entry only hides it.'],
                 ['staff_shift_rates', 'Per staff per shift rate (PK staff_id, shift_id): hourly rate for hourly staff, amount per shift for fixed/shift staff. Replaced wholesale by the staff PATCH shift_rates array.'],
                 ['rota_entries', 'venue_id, staff_id, work_date, and either shift_id (day-part tick) or start_time + end_time (hourly period); CHECK enforces one or the other. Partial unique index on (staff_id, work_date, shift_id).'],
@@ -1634,6 +1634,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               dates not in <Mono>open_dates</Mono> unless an entry falls on them; <Mono>RotaGrid</Mono> calls
               it with <Mono>hide_closed_on_rota</Mono> and <Mono>buildRotaSheet()</Mono> with{' '}
               <Mono>hide_closed_on_print</Mono>. A closed day that stays visible is labelled Closed.
+            </P>
+            <P>
+              Totals: <Mono>buildRotaSheet({'{'} hideTotals {'}'})</Mono> (from{' '}
+              <Mono>rota_settings.hide_totals_on_print</Mono>, migration 114) sets{' '}
+              <Mono>sheet.showTotals = false</Mono>; <Mono>rotaHtml()</Mono> then omits the Hours column
+              and the Working <Mono>tfoot</Mono>, and <Mono>drawRotaCanvas()</Mono> sizes the canvas
+              without them (hours column width and footer height 0).
             </P>
             <H3>Modules, nav, dashboard</H3>
             <P>

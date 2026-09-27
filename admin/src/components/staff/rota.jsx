@@ -212,7 +212,8 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
 
   function sheet() {
     const venueName = venues.find(v => v.id === venueId)?.name ?? ''
-    return buildRotaSheet({ week, entries, mode, venueName, unsaved: dirty, hideClosed: !!week.settings?.hide_closed_on_print })
+    return buildRotaSheet({ week, entries, mode, venueName, unsaved: dirty,
+      hideClosed: !!week.settings?.hide_closed_on_print, hideTotals: !!week.settings?.hide_totals_on_print })
   }
   async function exportImage() {
     setExportError(null)

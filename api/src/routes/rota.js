@@ -56,6 +56,7 @@ const SettingsBody = z.object({
   tip_round_mode: z.enum(['nearest', 'up', 'down']).optional(),
   hide_closed_on_rota:  z.boolean().optional(),
   hide_closed_on_print: z.boolean().optional(),
+  hide_totals_on_print: z.boolean().optional(),
 })
 
 const ShiftBody = z.object({
@@ -133,12 +134,12 @@ async function assertVenue(tx, tenantId, venueId) {
 async function loadSettings(tx, tenantId) {
   const [row] = await tx`
     SELECT mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode,
-           hide_closed_on_rota, hide_closed_on_print
+           hide_closed_on_rota, hide_closed_on_print, hide_totals_on_print
       FROM rota_settings WHERE tenant_id = ${tenantId}
   `
   return row ?? {
     mode: 'day_parts', slot_minutes: 30, tip_round_to: null, tip_round_mode: 'nearest',
-    hide_closed_on_rota: false, hide_closed_on_print: false,
+    hide_closed_on_rota: false, hide_closed_on_print: false, hide_totals_on_print: false,
   }
 }
 
@@ -364,17 +365,18 @@ export default async function rotaRoutes(app) {
       const next = { ...current, ...Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) }
       const [row] = await tx`
         INSERT INTO rota_settings (tenant_id, mode, slot_minutes, tip_round_to, tip_round_mode,
-                                   hide_closed_on_rota, hide_closed_on_print)
+                                   hide_closed_on_rota, hide_closed_on_print, hide_totals_on_print)
         VALUES (${req.tenantId}, ${next.mode}, ${next.slot_minutes}, ${next.tip_round_to}, ${next.tip_round_mode},
-                ${next.hide_closed_on_rota}, ${next.hide_closed_on_print})
+                ${next.hide_closed_on_rota}, ${next.hide_closed_on_print}, ${next.hide_totals_on_print})
         ON CONFLICT (tenant_id) DO UPDATE
           SET mode = EXCLUDED.mode, slot_minutes = EXCLUDED.slot_minutes,
               tip_round_to = EXCLUDED.tip_round_to, tip_round_mode = EXCLUDED.tip_round_mode,
               hide_closed_on_rota = EXCLUDED.hide_closed_on_rota,
               hide_closed_on_print = EXCLUDED.hide_closed_on_print,
+              hide_totals_on_print = EXCLUDED.hide_totals_on_print,
               updated_at = now()
         RETURNING mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode,
-                  hide_closed_on_rota, hide_closed_on_print
+                  hide_closed_on_rota, hide_closed_on_print, hide_totals_on_print
       `
       return row
     })
