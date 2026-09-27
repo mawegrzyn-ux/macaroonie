@@ -17,13 +17,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO, subWeeks } from 'date-fns'
-import { Loader2, Plus, Trash2, Copy, Check, AlertTriangle, ArrowRight, RotateCcw, Wallet } from 'lucide-react'
+import { Loader2, Plus, Trash2, Copy, Check, AlertTriangle, ArrowRight, RotateCcw, Wallet, Printer, ImageDown } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { fmt, getMonday } from '@/pages/CashRecon'
 import {
-  Modal, TimeSelect, ErrorNote, hhmm, toMin, rangeMinutes, fmtHours, inputCls,
+  Modal, TimeSelect, ErrorNote, hhmm, toMin, rangeMinutes, fmtHours, inputCls, useVenues,
 } from '@/components/staff/shared'
+import { buildRotaSheet, printRota, saveRotaImage } from '@/components/staff/rotaExport'
+
+const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 // ── Data ──────────────────────────────────────────────────────
 
@@ -114,6 +117,8 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   const api = useApi()
   const qc = useQueryClient()
   const { data: week, isLoading, error } = useRotaWeek(venueId, weekStart)
+  const { data: venues = [] } = useVenues()
+  const [exportError, setExportError] = useState(null)
   const cacheKey = `${venueId}|${weekStart}`
   const mode = week?.settings?.mode ?? 'day_parts'
   const step = week?.settings?.slot_minutes ?? 30
@@ -204,13 +209,41 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   const cellW = dense ? 'w-11 min-w-[44px]' : 'w-14 min-w-[56px]'
   const nameCol = 'sticky left-0 z-10 bg-background border-r'
 
+  function sheet() {
+    const venueName = venues.find(v => v.id === venueId)?.name ?? ''
+    return buildRotaSheet({ week, entries, mode, venueName, unsaved: dirty })
+  }
+  async function exportImage() {
+    setExportError(null)
+    try { await saveRotaImage(sheet(), { preferShare: IS_TOUCH }) } catch (e) { setExportError(e) }
+  }
+  function exportPrint() {
+    setExportError(null)
+    try { printRota(sheet()) } catch (e) { setExportError(e) }
+  }
+  const exportButtons = staff.length > 0 && (
+    <div className="flex items-center gap-2">
+      <button type="button" onClick={exportPrint}
+        className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+        <Printer className="w-4 h-4" /> Print / PDF
+      </button>
+      <button type="button" onClick={exportImage}
+        className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+        <ImageDown className="w-4 h-4" /> {IS_TOUCH ? 'Share image' : 'Save image'}
+      </button>
+    </div>
+  )
+
   return (
     <div className="space-y-3">
-      {canEdit && (
+      {canEdit ? (
         <RotaToolbar venueId={venueId} weekStart={weekStart} dirty={dirty} saving={save.isPending}
-          onSave={() => save.mutate()} onDiscard={discard} hasEntries={entries.length > 0} />
+          onSave={() => save.mutate()} onDiscard={discard} hasEntries={entries.length > 0}
+          extra={exportButtons} />
+      ) : exportButtons && (
+        <div className="flex justify-end">{exportButtons}</div>
       )}
-      <ErrorNote error={save.error} />
+      <ErrorNote error={save.error || exportError} />
       {otherModeCount > 0 && (
         <p className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-px" />
@@ -329,7 +362,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   )
 }
 
-function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, hasEntries }) {
+function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, hasEntries, extra }) {
   const api = useApi()
   const qc = useQueryClient()
   const [copyFrom, setCopyFrom] = useState('')
@@ -362,6 +395,7 @@ function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, has
         </>
       )}
       <div className="flex-1" />
+      {extra}
       <select value={copyFrom} onChange={e => { setCopyFrom(e.target.value); setConfirming(false) }} disabled={dirty}
         aria-label="Copy from week"
         className="h-11 rounded-lg border bg-background px-2 text-sm touch-manipulation disabled:opacity-50">
@@ -698,6 +732,16 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         </p>
       </div>
 
+      {data.tip_rounding && (
+        <p className="text-xs text-muted-foreground">
+          {data.tip_rounding.mode === 'nearest'
+            ? `Shares rounded to the nearest ${fmt(data.tip_rounding.to)}`
+            : `Shares rounded ${data.tip_rounding.mode} to a multiple of ${fmt(data.tip_rounding.to)}`} (set in Rota setup).{' '}
+          {data.totals.rounding_difference > 0 && <span className="text-amber-700 font-medium">Pays out {fmt(data.totals.rounding_difference)} more than the pot.</span>}
+          {data.totals.rounding_difference < 0 && <span className="text-amber-700 font-medium">{fmt(-data.totals.rounding_difference)} of the pot left over.</span>}
+          {data.totals.rounding_difference === 0 && <span>Adds up exactly to the pot.</span>}
+        </p>
+      )}
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">Nobody on the rota this week.</p>
       ) : (
@@ -728,7 +772,12 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
                   <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
                     {data.totals.points > 0 ? `${Math.round((r.points / data.totals.points) * 1000) / 10}%` : '–'}
                   </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">{fmt(r.tip_share)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">
+                    {fmt(r.tip_share)}
+                    {data.tip_rounding && r.tip_share !== r.tip_share_exact && (
+                      <span className="block text-[10px] font-normal text-muted-foreground">exact {fmt(r.tip_share_exact)}</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -1519,7 +1519,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'Purpose']}
               rows={[
                 ['staff_roles', 'Tenant job titles: name, points_multiplier numeric(5,2) default 1, sort_order, is_active. cash_staff.role_id references it ON DELETE SET NULL.'],
-                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60). Missing row = day_parts / 30.'],
+                ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60), tip_round_to (numeric, null = to the penny) and tip_round_mode (nearest | up | down), migration 107. Missing row = day_parts / 30 / no rounding.'],
                 ['rota_shifts', 'Day parts: name, start_time, end_time (end <= start runs past midnight), points, sort_order, is_active. Deleting a shift used by any entry only hides it.'],
                 ['staff_shift_rates', 'Per staff per shift rate (PK staff_id, shift_id): hourly rate for hourly staff, amount per shift for fixed/shift staff. Replaced wholesale by the staff PATCH shift_rates array.'],
                 ['rota_entries', 'venue_id, staff_id, work_date, and either shift_id (day-part tick) or start_time + end_time (hourly period); CHECK enforces one or the other. Partial unique index on (staff_id, work_date, shift_id).'],
@@ -1558,7 +1558,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Fixed / shift', 'Sum of (shift amount x fraction worked); shift amount = staff_shift_rates rate, else default_rate.'],
                 ['Pay override', 'rota_week_staff.pay_override replaces the computed pay for that week.'],
                 ['Points', 'Sum of shift.points x fraction x role multiplier (1 with no role), plus points_adjustment, floored at 0.'],
-                ['Tip share', 'tip pot x person points / total points.'],
+                ['Tip share', 'tip pot x person points / total points (tip_share_exact), then rounded to a multiple of rota_settings.tip_round_to with tip_round_mode nearest | up | down (migration 107; roundTip() works in whole pence). totals.rounding_difference = rounded total minus pot; tip_rounding echoes the setting (null = to the penny).'],
               ]}
             />
             <P>
@@ -1576,6 +1576,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               save. Hourly cells open <Mono>PeriodEditor</Mono>, which validates overlap client-side
               with the same rule as the API (<Mono>periodProblem()</Mono>). Permissions come from{' '}
               <Mono>/me</Mono> via <Mono>useRotaPerms()</Mono>.
+            </P>
+            <P>
+              Export: <Mono>components/staff/rotaExport.js</Mono>, no libraries.{' '}
+              <Mono>buildRotaSheet()</Mono> turns the grid's current entries (the draft, flagged as such
+              when unsaved) into one table model: a row per person, a column per day, each cell the
+              shift names (day parts) or periods (hourly). <Mono>printRota()</Mono> writes{' '}
+              <Mono>rotaHtml(sheet)</Mono> (A4 landscape <Mono>@page</Mono>) into a hidden{' '}
+              <Mono>srcdoc</Mono> iframe and calls its <Mono>print()</Mono>, so the PDF comes from the
+              browser's "Save as PDF". <Mono>saveRotaImage()</Mono> draws the same model on a 2x canvas
+              (<Mono>drawRotaCanvas()</Mono>) and downloads a PNG, or on touch devices uses{' '}
+              <Mono>navigator.share</Mono> with the file when <Mono>canShare</Mono> allows it.
             </P>
             <H3>Modules, nav, dashboard</H3>
             <P>

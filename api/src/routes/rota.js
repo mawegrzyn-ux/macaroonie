@@ -5,7 +5,7 @@
 //
 // Setup (tenant-wide; `staff` module):
 //   GET    /setup                               settings + shifts + roles (any signed-in user)
-//   PATCH  /settings                             { mode, slot_minutes }
+//   PATCH  /settings                             { mode, slot_minutes, tip_round_to, tip_round_mode }
 //   POST   /shifts   PATCH /shifts/:id   DELETE /shifts/:id   PUT /shifts/reorder { ids }
 //   POST   /roles    PATCH /roles/:id    DELETE /roles/:id    PUT /roles/reorder  { ids }
 //
@@ -41,8 +41,10 @@ const UUID = z.string().uuid()
 const Money = z.coerce.number().min(0).max(1_000_000)
 
 const SettingsBody = z.object({
-  mode:         z.enum(['day_parts', 'hourly']).optional(),
-  slot_minutes: z.union([z.literal(15), z.literal(30), z.literal(60)]).optional(),
+  mode:           z.enum(['day_parts', 'hourly']).optional(),
+  slot_minutes:   z.union([z.literal(15), z.literal(30), z.literal(60)]).optional(),
+  tip_round_to:   z.coerce.number().positive().max(1000).nullable().optional(),
+  tip_round_mode: z.enum(['nearest', 'up', 'down']).optional(),
 })
 
 const ShiftBody = z.object({
@@ -107,8 +109,11 @@ async function assertVenue(tx, tenantId, venueId) {
 }
 
 async function loadSettings(tx, tenantId) {
-  const [row] = await tx`SELECT mode, slot_minutes FROM rota_settings WHERE tenant_id = ${tenantId}`
-  return row ?? { mode: 'day_parts', slot_minutes: 30 }
+  const [row] = await tx`
+    SELECT mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode
+      FROM rota_settings WHERE tenant_id = ${tenantId}
+  `
+  return row ?? { mode: 'day_parts', slot_minutes: 30, tip_round_to: null, tip_round_mode: 'nearest' }
 }
 
 function loadShifts(tx, tenantId) {
@@ -170,7 +175,9 @@ function loadEntries(tx, tenantId, venueId, monday) {
 
 /** Everything the pay calculation needs for one venue week. */
 async function computeWeek(tx, tenantId, venueId, monday) {
-  const [shifts, entries] = await Promise.all([loadShifts(tx, tenantId), loadEntries(tx, tenantId, venueId, monday)])
+  const [shifts, entries, settings] = await Promise.all([
+    loadShifts(tx, tenantId), loadEntries(tx, tenantId, venueId, monday), loadSettings(tx, tenantId),
+  ])
   const withEntries = [...new Set(entries.map(e => e.staff_id))]
   const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const weekStaff = await tx`
@@ -197,7 +204,8 @@ async function computeWeek(tx, tenantId, venueId, monday) {
   `
   const override = week?.tip_pot_override ?? null
   const tipPot = override ?? sc.staff_total
-  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, tipPot })
+  const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
+  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, tipPot, tipRounding })
   return {
     ...result,
     week_start: monday,
@@ -255,11 +263,13 @@ export default async function rotaRoutes(app) {
       const current = await loadSettings(tx, req.tenantId)
       const next = { ...current, ...Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined)) }
       const [row] = await tx`
-        INSERT INTO rota_settings (tenant_id, mode, slot_minutes)
-        VALUES (${req.tenantId}, ${next.mode}, ${next.slot_minutes})
+        INSERT INTO rota_settings (tenant_id, mode, slot_minutes, tip_round_to, tip_round_mode)
+        VALUES (${req.tenantId}, ${next.mode}, ${next.slot_minutes}, ${next.tip_round_to}, ${next.tip_round_mode})
         ON CONFLICT (tenant_id) DO UPDATE
-          SET mode = EXCLUDED.mode, slot_minutes = EXCLUDED.slot_minutes, updated_at = now()
-        RETURNING mode, slot_minutes
+          SET mode = EXCLUDED.mode, slot_minutes = EXCLUDED.slot_minutes,
+              tip_round_to = EXCLUDED.tip_round_to, tip_round_mode = EXCLUDED.tip_round_mode,
+              updated_at = now()
+        RETURNING mode, slot_minutes, tip_round_to::float8 AS tip_round_to, tip_round_mode
       `
       return row
     })

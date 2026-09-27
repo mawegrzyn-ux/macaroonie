@@ -1423,6 +1423,14 @@ export default function Help() {
               Shifts are used in both modes: in Hours mode they decide per-shift rates and tip points
               for the hours that fall inside them.
             </P>
+            <P>
+              <strong>Round tip shares to</strong> (also in Rota setup): leave blank to share tips to the
+              penny, or enter an amount (for example 0.50 for the nearest 50p, 1 for the nearest pound, 5
+              for the nearest £5; quick buttons are provided). Choose <strong>Nearest</strong>,{' '}
+              <strong>Always up</strong> or <strong>Always down</strong>. Rounding can make the shares add up
+              to slightly more or less than the pot; the Tips table says by how much, and shows each
+              person's exact share under the rounded one. Always down never pays out more than the pot.
+            </P>
             <H3>The rota</H3>
             <P>
               <strong>Rota</strong> shows names down the side and the days of the week across the top.
@@ -1441,6 +1449,16 @@ export default function Help() {
               <strong> Copy from week</strong> replaces this week with one of the last 8 weeks (it asks
               first if this week already has entries). If you switch mode in Rota setup, entries made
               in the old mode still count for pay and are listed in a notice until you save that week.
+            </P>
+            <P>
+              <strong>Print / PDF</strong> opens your device's print dialog with the week laid out on
+              one A4 landscape page (names down the side, days across, each person's shifts or times in
+              the day's box, hours per person and how many are working each day). Pick a printer, or
+              "Save as PDF" to keep a copy. <strong>Save image</strong> saves the same sheet as a picture
+              (on a tablet or phone it is <strong>Share image</strong>, which opens the share sheet so you
+              can send it straight to a staff group chat). Both print exactly what is on screen; if you
+              have unsaved changes the sheet is marked "DRAFT, not saved". The buttons are also on the
+              Rota grid dashboard widget, and anyone who can view the rota can use them.
             </P>
             <H3>Hours and pay</H3>
             <P>
