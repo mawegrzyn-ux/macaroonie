@@ -30,9 +30,10 @@
 //   service charge sources plus its manual lines for the week. A line is £
 //   (kind 'amount') or % (kind 'percent', migration 115); either may be
 //   negative. Percent lines are a % of sources + £ lines (never below 0),
-//   so they never compound with each other. The gross never goes below 0. A surcharge
-//   (migration 111, e.g. tax) takes surcharge_pct % off the gross; what is
-//   left (total) is what gets shared. By the pot's distribution:
+//   so they never compound with each other. The gross never goes below 0.
+//   Surcharges (migration 116, e.g. card fees then tax) are applied in order,
+//   each taking its pct off what is left after the ones before it, so they
+//   stack; what is left (total) is what gets shared. By the pot's distribution:
 //     house   kept by the house, nobody gets a share.
 //     points  pot x person's points / everyone's points, then rounded to a
 //             multiple of tipRounding.to (nearest / up / down) when set.
@@ -213,9 +214,15 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     const base = round2(Math.max(0, sourcesTotal + raw.filter(l => l.kind === 'amount').reduce((s, l) => s + l.amount, 0)))
     const lines = raw.map(l => ({ ...l, value: l.kind === 'percent' ? round2(base * l.amount / 100) : l.amount }))
     const gross = round2(Math.max(0, lines.reduce((s, l) => s + l.value, sourcesTotal)))
-    const surchargePct = Math.min(100, Math.max(0, num(pot.surcharge_pct)))
-    const surcharge = round2(gross * surchargePct / 100)
-    const total = round2(gross - surcharge)   // available to share
+    let remaining = gross
+    const surcharges = (Array.isArray(pot.surcharges) ? pot.surcharges : []).map(s => {
+      const pct = Math.min(100, Math.max(0, num(s.pct)))
+      const amount = round2(remaining * pct / 100)
+      remaining = round2(remaining - amount)
+      return { name: s.name || null, pct, amount }
+    })
+    const surcharge = round2(gross - remaining)
+    const total = remaining   // available to share
     let distributed = 0
     if (pot.distribution === 'points') {
       for (const r of rows) {
@@ -242,8 +249,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       sources: pot.sources ?? [],
       lines,
       gross,
-      surcharge_name: pot.surcharge_name || null,
-      surcharge_pct: surchargePct,
+      surcharges,
       surcharge,
       total,
       distributed,

@@ -76,8 +76,11 @@ const RolePatch = RoleBody.partial().extend({ is_active: z.boolean().optional() 
 const PotBody = z.object({
   name:           z.string().trim().min(1).max(100),
   distribution:   z.enum(['house', 'points', 'manual']).default('points'),
-  surcharge_name: z.string().trim().max(60).nullable().optional(),
-  surcharge_pct:  z.coerce.number().min(0).max(100).optional(),
+  // Applied in this order, each on what is left after the ones before it.
+  surcharges: z.array(z.object({
+    name: z.string().trim().max(60).nullable().optional(),
+    pct:  z.coerce.number().min(0).max(100),
+  })).max(10).optional(),
 })
 const PotPatch = PotBody.partial().extend({ is_active: z.boolean().optional() })
 const LineBody = z.object({
@@ -172,8 +175,7 @@ function loadRoles(tx, tenantId) {
 /** Tip pots with their manual lines and allocated SC source ids (all venues). */
 async function loadPots(tx, tenantId) {
   const [pots, lines, sources] = await Promise.all([
-    tx`SELECT id, name, distribution, surcharge_name, surcharge_pct::float8 AS surcharge_pct,
-              sort_order, is_active FROM tip_pots
+    tx`SELECT id, name, distribution, surcharges, sort_order, is_active FROM tip_pots
         WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
     tx`SELECT id, pot_id, name, kind, sort_order, is_active FROM tip_pot_lines
         WHERE tenant_id = ${tenantId} ORDER BY sort_order, created_at`,
@@ -185,6 +187,13 @@ async function loadPots(tx, tenantId) {
     lines:      lines.filter(l => l.pot_id === p.id),
     source_ids: sources.filter(x => x.tip_pot_id === p.id).map(x => x.id),
   }))
+}
+
+/** Surcharges as stored: blank names become null, 0% rows are dropped. */
+function cleanSurcharges(list) {
+  return (list ?? [])
+    .map(s => ({ name: s.name?.trim() || null, pct: Math.round(Number(s.pct) * 100) / 100 }))
+    .filter(s => s.pct > 0)
 }
 
 async function assertPot(tx, tenantId, potId) {
@@ -271,7 +280,7 @@ async function computeWeek(tx, tenantId, venueId, monday) {
     for (const m of manualRows.filter(m => m.pot_id === p.id)) manual[m.staff_id] = m.amount
     return {
       id: p.id, name: p.name, distribution: p.distribution, is_active: p.is_active,
-      surcharge_name: p.surcharge_name, surcharge_pct: p.surcharge_pct,
+      surcharges: p.surcharges,
       sources, sources_total: sources.reduce((s, x) => s + x.amount, 0), lines, manual,
     }
   }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount !== 0) || Object.keys(p.manual).length)
@@ -492,9 +501,8 @@ export default async function rotaRoutes(app) {
     const [row] = await withTenant(req.tenantId, async tx => {
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tip_pots WHERE tenant_id = ${req.tenantId}`
       return tx`
-        INSERT INTO tip_pots (tenant_id, name, distribution, surcharge_name, surcharge_pct, sort_order)
-        VALUES (${req.tenantId}, ${b.name}, ${b.distribution}, ${b.surcharge_name || null},
-                ${b.surcharge_pct ?? 0}, ${n})
+        INSERT INTO tip_pots (tenant_id, name, distribution, surcharges, sort_order)
+        VALUES (${req.tenantId}, ${b.name}, ${b.distribution}, ${tx.json(cleanSurcharges(b.surcharges))}, ${n})
         RETURNING id
       `
     })
@@ -512,7 +520,10 @@ export default async function rotaRoutes(app) {
     const fields = Object.keys(b).filter(k => b[k] !== undefined)
     if (!fields.length) throw httpError(400, 'No fields to update')
     const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE tip_pots SET ${tx({ ...Object.fromEntries(fields.map(k => [k, b[k]])), updated_at: new Date() }, ...fields, 'updated_at')}
+      UPDATE tip_pots SET ${tx({
+        ...Object.fromEntries(fields.map(k => [k, k === 'surcharges' ? tx.json(cleanSurcharges(b[k])) : b[k]])),
+        updated_at: new Date(),
+      }, ...fields, 'updated_at')}
        WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
       RETURNING id
     `)
