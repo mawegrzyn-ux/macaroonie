@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Tip adjustments: add and take out]
+
+### Rota
+- Besides moving tips between people, payroll can now **Add** an amount to people (e.g. a £25 bonus) or **Take out** an amount (e.g. £25 for a till shortage), in £ or points, with a reason. Nothing is passed to or taken from anyone else. Each entry is listed with its reason and can be undone on its own; the line under the pots shows the total added and taken out.
+
+### Database
+- Migration `117_tip_adjustments.sql`: `rota_tip_moves.action`; `from_staff_id` is now only set for a move.
+
+---
+
 ## [2026-09-27 — Tip pots: several stacking fees]
 
 ### Rota

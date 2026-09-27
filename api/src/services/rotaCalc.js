@@ -39,7 +39,10 @@
 //             multiple of tipRounding.to (nearest / up / down) when set.
 //     manual  whatever payroll entered per person for that pot.
 //   Tip moves (rota_tip_moves, migration 113): each move takes points or £
-//   from one person and gives it to one or more others. They are summed into
+//   from one person and gives it to one or more others. Migration 117 adds
+//   one-sided adjustments: action 'add' gives the lines extra (a bonus) and
+//   'remove' takes the lines' amounts off those people; nobody else gains or
+//   loses. They are summed into
 //   points_adjustment (added to earned points, floored at 0) and
 //   tip_adjustment (£). A person's tip_share is the sum of their shares
 //   across pots plus tip_adjustment, never below 0. Each pot
@@ -97,7 +100,7 @@ export function periodsOverlap(periods) {
  * @param {Array}  p.staff      cash_staff rows + role_multiplier + shift_rates {shift_id: rate}
  * @param {Array}  p.entries    rota_entries rows for the week
  * @param {Array}  p.weekStaff  rota_week_staff rows (pay_override)
- * @param {Array}  p.moves      tip moves [{ kind: 'points'|'money', from_staff_id, lines: [{ to_staff_id, amount }] }]
+ * @param {Array}  p.moves      tip moves [{ kind: 'points'|'money', action: 'move'|'add'|'remove', from_staff_id, lines: [{ to_staff_id, amount }] }]
  * @param {number} p.tipPot     amount to share out
  */
 export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves = [], pots = [], tipRounding = null }) {
@@ -105,13 +108,21 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
   const adjByStaff = new Map(weekStaff.map(w => [w.staff_id, w]))
   const moved = { points: new Map(), money: new Map() }
   const bump = (map, id, v) => map.set(id, (map.get(id) ?? 0) + v)
+  const adjusted = { added: 0, removed: 0 }   // £ added / taken out (not moves)
   for (const m of moves) {
     const map = moved[m.kind]
     if (!map) continue
+    const action = m.action ?? 'move'
     for (const l of m.lines ?? []) {
       const a = num(l.amount)
-      bump(map, m.from_staff_id, -a)
-      bump(map, l.to_staff_id, a)
+      if (action === 'remove') {
+        bump(map, l.to_staff_id, -a)
+        if (m.kind === 'money') adjusted.removed += a
+      } else {
+        bump(map, l.to_staff_id, a)
+        if (action === 'move') bump(map, m.from_staff_id, -a)
+        else if (m.kind === 'money') adjusted.added += a
+      }
     }
   }
 
@@ -274,6 +285,8 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       tips_in:     round2(potSummaries.reduce((s, p) => s + p.total, 0)),
       tips_shared: round2(rows.reduce((s, r) => s + r.tip_share, 0)),
       kept_by_house: round2(potSummaries.reduce((s, p) => s + p.kept_by_house, 0)),
+      tips_added:    round2(adjusted.added),
+      tips_taken_out: round2(adjusted.removed),
     },
     tip_rounding: roundTo ? { to: roundTo, mode: roundMode } : null,
   }

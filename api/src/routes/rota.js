@@ -32,7 +32,7 @@
 //   PUT    /venues/:venueId/weeks/:week/pot-lines       { amounts: [{ line_id, amount }] }
 //   PUT    /venues/:venueId/weeks/:week/pots/:potId/manual  { amounts: [{ staff_id, amount }] }
 //   PATCH  /venues/:venueId/weeks/:week/staff/:staffId  { pay_override }
-//   POST   /venues/:venueId/weeks/:week/tip-moves       { kind: points | money, from_staff_id, lines: [{ to_staff_id, amount }], note }
+//   POST   /venues/:venueId/weeks/:week/tip-moves       { kind: points | money, action: move | add | remove, from_staff_id (move only), lines: [{ to_staff_id, amount }], note (required for add/remove) }
 //   DELETE /venues/:venueId/weeks/:week/tip-moves/:id
 //   POST   /venues/:venueId/weeks/:week/reset-moves     { kind: points | money | all }
 //   POST   /venues/:venueId/weeks/:week/fill-wages      writes Cash Recon wages
@@ -294,7 +294,7 @@ async function computeWeek(tx, tenantId, venueId, monday) {
   const withEntries = [...new Set([
     ...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id),
     ...weekStaff.filter(w => w.pay_override != null).map(w => w.staff_id),
-    ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]),
+    ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]).filter(Boolean),
   ])]
   const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
@@ -305,7 +305,7 @@ async function computeWeek(tx, tenantId, venueId, monday) {
     week_start: monday,
     moves: moves.map(m => ({
       ...m,
-      from_name: nameOf.get(m.from_staff_id) ?? 'Unknown',
+      from_name: m.from_staff_id ? (nameOf.get(m.from_staff_id) ?? 'Unknown') : null,
       lines: m.lines.map(l => ({ ...l, name: nameOf.get(l.to_staff_id) ?? 'Unknown' })),
       total: Math.round(m.lines.reduce((s, l) => s + l.amount, 0) * 100) / 100,
     })),
@@ -315,7 +315,7 @@ async function computeWeek(tx, tenantId, venueId, monday) {
 /** The week's tip moves, oldest first, each with its recipient lines. */
 async function loadMoves(tx, tenantId, venueId, monday) {
   const moves = await tx`
-    SELECT id, kind, from_staff_id, note, created_by, created_at
+    SELECT id, kind, action, from_staff_id, note, created_by, created_at
       FROM rota_tip_moves
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
      ORDER BY created_at, id
@@ -898,7 +898,8 @@ export default async function rotaRoutes(app) {
     const monday = mondayOf(req.params.week)
     const b = z.object({
       kind:          z.enum(['points', 'money']),
-      from_staff_id: UUID,
+      action:        z.enum(['move', 'add', 'remove']).default('move'),
+      from_staff_id: UUID.nullable().optional(),
       lines: z.array(z.object({
         to_staff_id: UUID,
         amount:      z.coerce.number().positive().max(100_000),
@@ -908,25 +909,33 @@ export default async function rotaRoutes(app) {
     const lines = b.lines.map(l => ({ ...l, amount: Math.round(l.amount * 100) / 100 }))
     if (lines.some(l => l.amount <= 0)) throw httpError(400, 'Each amount must be at least 0.01')
     if (new Set(lines.map(l => l.to_staff_id)).size !== lines.length) throw httpError(400, 'Each person can only be picked once')
-    if (lines.some(l => l.to_staff_id === b.from_staff_id)) throw httpError(400, 'Cannot move to the same person')
+    const isMove = b.action === 'move'
+    if (isMove && !b.from_staff_id) throw httpError(400, 'Pick who to take from')
+    if (!isMove && b.from_staff_id) throw httpError(400, 'Only a move has someone to take from')
+    if (!isMove && !b.note) throw httpError(400, 'Enter a reason')
+    if (isMove && lines.some(l => l.to_staff_id === b.from_staff_id)) throw httpError(400, 'Cannot move to the same person')
     const total = Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100
+    const unit = (kind, v) => (kind === 'money' ? `£${v.toFixed(2)} in tips` : `${v} points`)
 
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
       const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
-      const from = before.rows.find(r => r.staff_id === b.from_staff_id)
-      if (!from || lines.some(l => !before.rows.find(r => r.staff_id === l.to_staff_id))) {
+      const rowOf = id => before.rows.find(r => r.staff_id === id)
+      const balance = r => (b.kind === 'money' ? r.tip_share : r.points)
+      const from = isMove ? rowOf(b.from_staff_id) : null
+      if ((isMove && !from) || lines.some(l => !rowOf(l.to_staff_id))) {
         throw httpError(404, 'Staff member not on this week')
       }
-      const available = b.kind === 'money' ? from.tip_share : from.points
-      if (total > available + 1e-9) {
-        throw httpError(422, b.kind === 'money'
-          ? `${from.name} only has £${available.toFixed(2)} in tips this week`
-          : `${from.name} only has ${available} points this week`)
+      if (isMove && total > balance(from) + 1e-9) {
+        throw httpError(422, `${from.name} only has ${unit(b.kind, balance(from))} this week`)
+      }
+      if (b.action === 'remove') {
+        const short = lines.map(l => rowOf(l.to_staff_id)).find((r, i) => lines[i].amount > balance(r) + 1e-9)
+        if (short) throw httpError(422, `${short.name} only has ${unit(b.kind, balance(short))} this week`)
       }
       const [move] = await tx`
-        INSERT INTO rota_tip_moves (tenant_id, venue_id, week_start, kind, from_staff_id, note, created_by)
-        VALUES (${req.tenantId}, ${req.params.venueId}, ${monday}::date, ${b.kind}, ${b.from_staff_id},
+        INSERT INTO rota_tip_moves (tenant_id, venue_id, week_start, kind, action, from_staff_id, note, created_by)
+        VALUES (${req.tenantId}, ${req.params.venueId}, ${monday}::date, ${b.kind}, ${b.action}, ${isMove ? b.from_staff_id : null},
                 ${b.note || null}, ${req.user?.email ?? null})
         RETURNING id
       `

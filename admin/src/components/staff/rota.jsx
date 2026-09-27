@@ -914,7 +914,9 @@ function ManualShareModal({ pot, data, base, setPay, onClose }) {
 // ── Tip moves ──────────────────────────────────────────────────
 //
 // A move takes points or £ from one person and gives it to one or more
-// people. The split (equally, by amount, by %) is worked out here and sent as
+// people. An "add" gives people extra (a bonus) and a "take out" removes an
+// amount from people, neither passing it on (migration 117); both need a
+// reason. The split (equally, by amount, by %) is worked out here and sent as
 // final amounts per recipient, in hundredths, so the lines always add up to
 // exactly what the giver loses.
 
@@ -940,9 +942,16 @@ export function splitByPercent(total, pcts) {
   return raw.map(v => v / 100)
 }
 
+const MOVE_ACTIONS = [
+  { value: 'move',   label: 'Move' },
+  { value: 'add',    label: 'Add' },
+  { value: 'remove', label: 'Take out' },
+]
+
 function TipMoveModal({ data, base, setPay, hasPoints, onClose }) {
   const api = useApi()
-  const [kind, setKind] = useState(hasPoints ? 'points' : 'money')
+  const [action, setAction] = useState('move')
+  const [kind, setKind] = useState('money')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState([])            // recipient staff ids, in tap order
   const [split, setSplit] = useState('equal') // equal | amount | percent
@@ -956,8 +965,12 @@ function TipMoveModal({ data, base, setPay, hasPoints, onClose }) {
   const fromRow = data.rows.find(r => r.staff_id === from)
   const available = fromRow ? valueOf(fromRow) : 0
   const fromOptions = data.rows.filter(r => valueOf(r) > 0)
-  const others = data.rows.filter(r => r.staff_id !== from)
+  const isMove = action === 'move'
+  const people = isMove ? data.rows.filter(r => r.staff_id !== from)
+    : action === 'remove' ? data.rows.filter(r => valueOf(r) > 0 || to.includes(r.staff_id))
+    : data.rows
   const show = v => (kind === 'money' ? fmt(v) : `${Math.round(v * 100) / 100} pts`)
+  const verb = isMove ? 'Move' : action === 'add' ? 'Add' : 'Take out'
 
   const lines = useMemo(() => {
     if (!to.length) return []
@@ -968,55 +981,74 @@ function TipMoveModal({ data, base, setPay, hasPoints, onClose }) {
   const sum = lines.reduce((s, l) => s + toHundredths(l.amount), 0) / 100
   const pctSum = to.reduce((s, id) => s + Number(pcts[id] || 0), 0)
 
+  const shortRow = action === 'remove'
+    ? lines.map(l => data.rows.find(r => r.staff_id === l.to_staff_id)).find((r, i) => r && lines[i].amount > valueOf(r) + 1e-9)
+    : null
+
   let problem = null
-  if (!from) problem = 'Pick who to take from.'
-  else if (!to.length) problem = 'Pick at least one person to give to.'
+  if (isMove && !from) problem = 'Pick who to take from.'
+  else if (!to.length) problem = isMove || action === 'add' ? 'Pick at least one person to give to.' : 'Pick at least one person to take from.'
   else if (split === 'percent' && Math.abs(pctSum - 100) > 0.001) problem = `Percentages add up to ${Math.round(pctSum * 100) / 100}%, not 100%.`
   else if (lines.some(l => !(l.amount > 0))) problem = 'Every person needs an amount of at least 0.01.'
-  else if (sum > available + 1e-9) problem = `${fromRow.name} only has ${show(available)}.`
+  else if (isMove && sum > available + 1e-9) problem = `${fromRow.name} only has ${show(available)}.`
+  else if (shortRow) problem = `${shortRow.name} only has ${show(valueOf(shortRow))}.`
+  else if (!isMove && !note.trim()) problem = 'Enter a reason.'
 
   function toggle(id) {
     setTo(t => (t.includes(id) ? t.filter(x => x !== id) : [...t, id]))
   }
 
   const save = useMutation({
-    mutationFn: () => api.post(`${base}/tip-moves`, { kind, from_staff_id: from, lines, note: note.trim() || null }),
+    mutationFn: () => api.post(`${base}/tip-moves`, {
+      kind, action, from_staff_id: isMove ? from : null, lines, note: note.trim() || null,
+    }),
     onSuccess: d => { setPay(d); onClose() },
   })
 
   return (
-    <Modal title="Move tips" onClose={onClose}
+    <Modal title={isMove ? 'Move tips' : action === 'add' ? 'Add to tips' : 'Take out of tips'} onClose={onClose}
       footer={<>
         <button type="button" onClick={() => save.mutate()} disabled={!!problem || save.isPending}
           className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-          Move {sum > 0 ? show(sum) : ''}
+          {verb} {sum > 0 ? show(sum) : ''}
         </button>
       </>}>
+      <Segmented value={action} options={MOVE_ACTIONS} className="w-full [&>button]:flex-1"
+        onChange={a => { setAction(a); setFrom(''); setTo([]) }} />
       {hasPoints && (
         <Segmented value={kind} onChange={k => { setKind(k); setFrom(''); setTo([]) }}
-          options={[{ value: 'points', label: 'Points' }, { value: 'money', label: '£ amount' }]} />
+          options={[{ value: 'money', label: '£ amount' }, { value: 'points', label: 'Points' }]} />
       )}
       <p className="text-xs text-muted-foreground">
-        {kind === 'money'
+        {isMove && (kind === 'money'
           ? 'Takes a £ amount off one person\'s total tips after every pot is shared, and gives it to the people you pick.'
-          : 'Takes points off one person and gives them to the people you pick. Changes everyone\'s share of every pot shared by points.'}
+          : 'Takes points off one person and gives them to the people you pick. Changes everyone\'s share of every pot shared by points.')}
+        {action === 'add' && (kind === 'money'
+          ? 'Gives the people you pick an extra £ amount on top of their tips, e.g. a bonus. Nobody else loses anything.'
+          : 'Gives the people you pick extra points. Everyone else\'s share of pots shared by points goes down a little.')}
+        {action === 'remove' && (kind === 'money'
+          ? 'Takes a £ amount off the people you pick. It is not passed to anyone else.'
+          : 'Takes points off the people you pick. Everyone else\'s share of pots shared by points goes up a little.')}
       </p>
 
-      <label className="block">
+      {isMove && <label className="block">
         <span className="block text-xs font-medium text-muted-foreground mb-1">Take from</span>
         <select value={from} onChange={e => { setFrom(e.target.value); setTo(t => t.filter(x => x !== e.target.value)) }}
           className="h-11 w-full rounded-lg border bg-background px-2 text-sm touch-manipulation">
           <option value="">Choose…</option>
           {fromOptions.map(r => <option key={r.staff_id} value={r.staff_id}>{r.name} ({show(valueOf(r))})</option>)}
         </select>
-      </label>
+      </label>}
 
-      {from && <>
+      {(!isMove || from) && <>
         <div>
-          <span className="block text-xs font-medium text-muted-foreground mb-1">Give to ({to.length} picked)</span>
+          <span className="block text-xs font-medium text-muted-foreground mb-1">
+            {action === 'remove' ? 'Take from' : 'Give to'} ({to.length} picked)
+          </span>
           <div className="rounded-lg border divide-y max-h-56 overflow-y-auto">
-            {others.map(r => {
+            {people.length === 0 && <p className="px-3 py-2 text-sm text-muted-foreground">Nobody has any {kind === 'money' ? 'tips' : 'points'} this week.</p>}
+            {people.map(r => {
               const on = to.includes(r.staff_id)
               return (
                 <button key={r.staff_id} type="button" role="checkbox" aria-checked={on} onClick={() => toggle(r.staff_id)}
@@ -1043,13 +1075,15 @@ function TipMoveModal({ data, base, setPay, hasPoints, onClose }) {
           {split !== 'amount' && (
             <label className="block">
               <span className="block text-xs font-medium text-muted-foreground mb-1">
-                Total to move ({unitLabel}, up to {show(available)})
+                {isMove ? `Total to move (${unitLabel}, up to ${show(available)})` : `Total to ${action === 'add' ? 'add' : 'take out'} (${unitLabel})`}
               </span>
               <div className="flex gap-2">
                 <input className={cn(inputCls, 'flex-1')} inputMode="decimal" placeholder="0.00"
                   value={total} onChange={e => setTotal(moneyInput(e.target.value))} />
-                <button type="button" onClick={() => setTotal(String(available))}
-                  className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">All</button>
+                {isMove && (
+                  <button type="button" onClick={() => setTotal(String(available))}
+                    className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">All</button>
+                )}
               </div>
             </label>
           )}
@@ -1088,8 +1122,9 @@ function TipMoveModal({ data, base, setPay, hasPoints, onClose }) {
         </>}
 
         <label className="block">
-          <span className="block text-xs font-medium text-muted-foreground mb-1">Note (optional)</span>
-          <input className={inputCls} value={note} maxLength={300} onChange={e => setNote(e.target.value)} placeholder="e.g. covered the late shift" />
+          <span className="block text-xs font-medium text-muted-foreground mb-1">{isMove ? 'Note (optional)' : 'Reason'}</span>
+          <input className={inputCls} value={note} maxLength={300} onChange={e => setNote(e.target.value)}
+            placeholder={isMove ? 'e.g. covered the late shift' : action === 'add' ? 'e.g. employee of the month bonus' : 'e.g. till shortage'} />
         </label>
       </>}
 
@@ -1112,19 +1147,27 @@ function TipMovesList({ moves, base, setPay, canEdit }) {
         <div key={m.id} className="flex items-start gap-2 rounded-lg border px-3 py-2">
           <div className="flex-1 min-w-0 text-sm">
             <div className="flex flex-wrap items-center gap-x-1.5">
-              <span className="font-medium">{m.from_name}</span>
-              <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
+              {m.action === 'move' || !m.action ? <>
+                <span className="font-medium">{m.from_name}</span>
+                <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
+              </> : (
+                <span className={cn('text-[11px] font-semibold px-1.5 py-0.5 rounded',
+                  m.action === 'add' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')}>
+                  {m.action === 'add' ? 'Added' : 'Taken out'}
+                </span>
+              )}
               <span className="text-muted-foreground">
                 {m.lines.map(l => `${l.name} ${m.kind === 'money' ? fmt(l.amount) : `${l.amount} pts`}`).join(', ')}
               </span>
             </div>
             <div className="text-[11px] text-muted-foreground">
-              {m.kind === 'money' ? `${fmt(m.total)} moved` : `${m.total} points moved`}
+              {m.kind === 'money' ? fmt(m.total) : `${m.total} points`}{' '}
+              {m.action === 'add' ? 'added' : m.action === 'remove' ? 'taken out' : 'moved'}
               {' · '}{format(new Date(m.created_at), 'EEE d MMM HH:mm')}
               {m.note && ` · ${m.note}`}
             </div>
           </div>
-          {canEdit && <ConfirmDelete label="Delete this move" confirmLabel="Yes, undo" onConfirm={() => remove.mutate(m.id)} disabled={remove.isPending} />}
+          {canEdit && <ConfirmDelete label="Delete this entry" confirmLabel="Yes, undo" onConfirm={() => remove.mutate(m.id)} disabled={remove.isPending} />}
         </div>
       ))}
       <ErrorNote error={remove.error} />
@@ -1175,6 +1218,8 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         {data.totals.surcharges > 0 && ` (after ${fmt(data.totals.surcharges)} surcharges)`}
         {' '}· shared with staff {fmt(data.totals.tips_shared)}
         {data.totals.kept_by_house > 0 && ` · kept by the house ${fmt(data.totals.kept_by_house)}`}
+        {data.totals.tips_added > 0 && ` · added ${fmt(data.totals.tips_added)}`}
+        {data.totals.tips_taken_out > 0 && ` · taken out ${fmt(data.totals.tips_taken_out)}`}
       </p>
 
       {sharedPots.length > 0 && (rows.length === 0 ? (
@@ -1191,7 +1236,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
                   <th className="text-right px-2 py-2 font-medium">Points</th>
                 </>}
                 {sharedPots.map(p => <th key={p.id} className="text-right px-2 py-2 font-medium whitespace-nowrap">{p.name}</th>)}
-                {hasMoneyMoves && <th className="text-right px-2 py-2 font-medium whitespace-nowrap">Moved £</th>}
+                {hasMoneyMoves && <th className="text-right px-2 py-2 font-medium whitespace-nowrap">Adjusted £</th>}
                 {showTotal && <th className="text-right px-3 py-2 font-medium">Total</th>}
               </tr>
             </thead>
@@ -1250,20 +1295,20 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         </div>
       ))}
 
-      {sharedPots.length > 0 && (moves.length > 0 || (canEdit && data.rows.length > 1)) && (
+      {sharedPots.length > 0 && (moves.length > 0 || (canEdit && data.rows.length > 0)) && (
         <div className="rounded-xl border p-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold flex-1">Tip moves{moves.length > 0 ? ` (${moves.length})` : ''}</p>
-            {canEdit && data.rows.length > 1 && (
+            <p className="text-sm font-semibold flex-1">Tip moves and adjustments{moves.length > 0 ? ` (${moves.length})` : ''}</p>
+            {canEdit && data.rows.length > 0 && (
               <button type="button" onClick={() => setMoveOpen(true)}
                 className="h-11 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation flex items-center gap-1.5">
-                <Plus className="w-4 h-4" /> New move
+                <Plus className="w-4 h-4" /> New
               </button>
             )}
           </div>
           {moves.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              Move points or £ from one person to one or more others, split equally, by amount or by %. Each move is kept here and can be undone on its own.
+              Move points or £ from one person to others, add extra (e.g. a bonus) or take an amount out, split equally, by amount or by %. Each entry is kept here and can be undone on its own.
             </p>
           ) : (
             <TipMovesList moves={moves} base={base} setPay={setPay} canEdit={canEdit} />
@@ -1273,19 +1318,19 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
               {!confirmReset && hasPointMoves && (
                 <button type="button" onClick={() => setConfirmReset('points')}
                   className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
-                  <RotateCcw className="w-4 h-4" /> Undo all point moves
+                  <RotateCcw className="w-4 h-4" /> Undo all point entries
                 </button>
               )}
               {!confirmReset && moves.some(m => m.kind === 'money') && (
                 <button type="button" onClick={() => setConfirmReset('money')}
                   className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
-                  <RotateCcw className="w-4 h-4" /> Undo all £ moves
+                  <RotateCcw className="w-4 h-4" /> Undo all £ entries
                 </button>
               )}
               {confirmReset && (
                 <>
                   <span className="text-xs text-muted-foreground">
-                    {confirmReset === 'points' ? 'Delete every point move this week?' : 'Delete every £ move this week?'}
+                    {confirmReset === 'points' ? 'Delete every point move and adjustment this week?' : 'Delete every £ move and adjustment this week?'}
                   </span>
                   <button type="button" onClick={() => reset.mutate(confirmReset)} disabled={reset.isPending}
                     className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Yes, undo</button>
