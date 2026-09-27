@@ -1121,7 +1121,7 @@ export default function Help() {
               If an expense was paid with a card rather than cash from the till, tick{' '}
               <strong>Paid by card</strong> on the expense. It's still recorded, with its receipt
               and VAT, and shows a small <strong>Card</strong> tag in the list. But it's left out
-              of Total Expenses, Net Cash and Cash to bank, because that money never came out of
+              of Total Expenses and the variance, because that money never came out of
               the till. The day summary and the week grid list card-paid expenses separately as
               "Paid by card (not in recon)" so you can still see what was spent.
             </P>
@@ -1129,8 +1129,24 @@ export default function Help() {
             <P>
               Toggle between a card-based week overview and a dense <strong>spreadsheet
               view</strong> (table icon) showing every day of the week as columns with income,
-              takings, variance, net cash, and wages as rows — useful for spotting a day that
-              doesn't balance at a glance.
+              service charges, takings, and what was paid out of the till (cash expenses and cash
+              wages) as rows, ending in a single <strong>Variance</strong> row — useful for spotting
+              a day that doesn't balance at a glance.
+            </P>
+            <H3>How the variance works</H3>
+            <P>
+              Before the cash is counted, staff pay the day's expenses and the cash wages out of the
+              till, so the cash they count is exactly what goes to the bank. The variance adds
+              those payouts back: <strong>Takings + cash expenses (+ cash wages for the week) −
+              Income</strong>, adjusted for service charges. Zero means balanced, a minus figure is a
+              shortfall (red) and a plus figure is a surplus (amber).
+            </P>
+            <P>
+              Each day's variance includes that day's cash expenses. Wages are recorded for the
+              week, not for a day, so they are added to the <strong>week's</strong> variance only.
+              If the wages came out of one day's till, that day shows short by the wages, and the
+              week total balances it. Expenses paid by card never came out of the till, so they are
+              not added back.
             </P>
             <H3>Wages</H3>
             <P>
@@ -1363,14 +1379,14 @@ export default function Help() {
               head={['Widget', 'Shows']}
               rows={[
                 ['Days of the week', 'One tile per day with its status, income and variance. Tap a tile to open that day\'s declaration. Closed days are faded. In Edit layout, two switches on the widget: Hide closed days (leave out days the venue is closed) and Compact (smaller tiles showing the day, a status dot and the variance: green submitted, amber draft, grey not started).'],
-                ['Day balance', 'The selected day: income, service charges, takings, variance, cash takings, cash expenses, card expenses and Net cash.'],
-                ['Week balance', 'The week down to Cash to bank: income, takings, variance, cash takings, expenses, Net cash, wages paid in cash, plus how many days are submitted.'],
+                ['Day balance', 'The selected day: income, service charges, takings, cash expenses, card expenses and the variance.'],
+                ['Week balance', 'The week: income, takings, cash expenses, wages paid in cash and the variance, plus how many days are submitted.'],
                 ['Reconciliation grid', 'The full week grid from Cash Recon. You can type into it the same way; tap a day heading to select that day.'],
                 ['Wages paid', 'The title bar shows the total paid in cash so far. This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
                 ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
                 ['Week expenses', 'The title bar shows the week\'s cash expenses total. Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
                 ['Week staff list', 'Manage who is on this week\'s wages: switch each person between Fixed and Hourly, enter hours and rate or a fixed amount, add someone from your staff list (or a one-off name), remove someone, copy the list from one of the last 8 weeks, and Set as default for new weeks. Changes are only written when you tap Save (Discard changes throws them away). Paid ticks are kept. Locked once the week\'s wages are submitted, except Set as default.'],
-                ['Week summary grid', 'The title bar shows the week\'s variance. The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then expenses, variance, Net cash, wages paid in cash and Cash to bank. Read only, and always matches the WEEK column of the full grid.'],
+                ['Week summary grid', 'The title bar shows the week\'s variance. The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then cash expenses and wages paid out of the till, and the variance. Read only, and always matches the WEEK column of the full grid.'],
               ]}
             />
             <InfoBox type="tip">

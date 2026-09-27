@@ -5,7 +5,7 @@
 //
 // Every figure comes from the same place as Cash Recon itself:
 //   - reconCalc()/useReconWeek() in CashRecon.jsx for the week grid maths
-//     (totals, variance, Net Cash, Cash to bank)
+//     (totals and the variance)
 //   - SpreadsheetView (hideHeader) for the editable grid
 //   - PettyCashPanel from MobileExpenses.jsx for petty cash
 //   - the wages PATCH .../entries/:id/paid endpoint for the Paid checkbox
@@ -298,11 +298,9 @@ function DayBalanceWidget({ venueId, ctx }) {
           <Row label="Total income" value={calc.dayTotal(date, 'income')} />
           {calc.activeSc.length > 0 && <Row label="Service charges" value={calc.dayTotal(date, 'sc')} />}
           <Row label="Total takings" value={calc.dayTotal(date, 'takings')} />
-          <Row label="Variance" value={calc.variance(date)} tone="var" />
-          <Row label="Cash takings" value={calc.cashTakingsTotal(date)} />
           <Row label="Expenses (cash)" value={calc.dayExpenses(date)} />
           {card > 0 && <Row label="Paid by card (not in recon)" value={card} muted />}
-          <Row label="Net cash" value={calc.netCash(date)} bold />
+          <Row label="Variance" value={calc.variance(date)} tone="var" bold />
         </>
       )}
     </div>
@@ -325,18 +323,15 @@ function WeekBalanceWidget({ venueId, ctx }) {
       </div>
       <Row label="Total income" value={calc.weekDayTotal('income')} />
       <Row label="Total takings" value={calc.weekDayTotal('takings')} />
-      <Row label="Variance" value={calc.weekVariance()} tone="var" />
-      <Row label="Cash takings" value={calc.weekCashTakings()} />
       <Row label="Expenses (cash)" value={calc.weekExpenses()} />
       {card > 0 && <Row label="Paid by card (not in recon)" value={card} muted />}
-      <Row label="Net cash" value={calc.weekNetCash()} />
       <Row label="Wages (cash paid)" value={calc.weekCashWages()} />
       {wagesMismatch && (
         <p className="text-xs text-amber-700 -mt-0.5 mb-1">
           Wages to pay {fmt(parseNum(detail?.wages_total))}, cash paid {fmt(parseNum(detail?.wages_cash_total))}.
         </p>
       )}
-      <Row label="Cash to bank" value={calc.weekNetPosition()} bold />
+      <Row label="Variance" value={calc.weekVariance()} tone="var" bold />
     </div>
   )
 }
@@ -358,8 +353,8 @@ function ReconGridWidget({ venueId, ctx }) {
 // ── Week summary grid ──────────────────────────────────────────
 
 // The reconciliation grid's rows with only its WEEK column: every income
-// source, SC source and payment channel, the section totals, expenses and
-// the summary rows down to Cash to bank. Read-only; every figure comes from
+// source, SC source and payment channel, the section totals, what was paid
+// out of the till, and the variance. Read-only; every figure comes from
 // reconCalc() so it always matches the full grid's WEEK column.
 function SummaryRow({ label, value, strong, tone, muted, children }) {
   const n = parseNum(value)
@@ -441,13 +436,9 @@ function WeekSummaryGridWidget({ venueId, ctx }) {
         ))}
         <SummaryRow label="Total Takings" value={weekDayTotal('takings')} strong />
 
-        <SummarySection label="Expenses" />
+        <SummarySection label="Paid out of till" />
         <SummaryRow label="Total Expenses (cash)" value={calc.weekExpenses()} />
         {card > 0 && <SummaryRow label="Paid by card (not in recon)" value={card} muted />}
-
-        <SummarySection label="Summary" />
-        <SummaryRow label="Variance" value={calc.weekVariance()} tone="var" />
-        <SummaryRow label="Net Cash" value={calc.weekNetCash()} />
         <SummaryRow label="Wages (cash paid)" value={calc.weekCashWages()}>
           {wagesMismatch && (
             <AlertTriangle
@@ -456,7 +447,9 @@ function WeekSummaryGridWidget({ venueId, ctx }) {
             />
           )}
         </SummaryRow>
-        <SummaryRow label="Cash to bank" value={calc.weekNetPosition()} strong />
+
+        <SummarySection label="Summary" />
+        <SummaryRow label="Variance" value={calc.weekVariance()} tone="var" strong />
       </tbody>
     </table>
   )

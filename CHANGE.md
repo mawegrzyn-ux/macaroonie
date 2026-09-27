@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Variance includes till payouts]
+
+### Cash Reconciliation
+- The variance now accounts for cash paid out of the till before counting: each day adds back its cash expenses, and the week also adds back the cash wages. Counted cash is what goes to the bank.
+- The summary ends at a single **Variance** row. Net Cash and Cash to bank are gone from the week grid, the day view, the dashboard balance widgets and the week summary grid widget.
+- The week grid's Expenses section is now **Paid out of till** (cash expenses, card expenses for reference, cash wages).
+- Mobile Cash Up's week tile shows the week variance only.
+- Fixed the week view's per-day income and takings totals, which were multiplied when a day had several income and takings lines.
+
 ## [2026-09-27 — Hide closed days on the rota]
 
 ### Rota

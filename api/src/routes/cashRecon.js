@@ -886,33 +886,56 @@ export default async function cashReconRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
-      // Fetch all daily reports for the week in one query
+      // Fetch all daily reports for the week in one query. Each total is its
+      // own subquery (joining two child tables and summing would multiply
+      // rows). Filters match reconCalc() in CashRecon.jsx: active sources /
+      // channels only, income sources excluded from recon left out.
       const reports = await tx`
         SELECT r.id,
                r.report_date::text AS report_date,
                r.status,
-               COALESCE(SUM(ie.gross_amount), 0) AS total_income,
-               COALESCE(SUM(te.amount),       0) AS total_takings
+               (SELECT COALESCE(SUM(ie.gross_amount), 0)
+                  FROM cash_income_entries ie
+                  JOIN cash_income_sources s ON s.id = ie.source_id
+                 WHERE ie.report_id = r.id AND s.is_active AND NOT s.exclude_from_recon) AS total_income,
+               (SELECT COALESCE(SUM(te.amount), 0)
+                  FROM cash_takings_entries te
+                  JOIN cash_payment_channels c ON c.id = te.channel_id
+                 WHERE te.report_id = r.id AND c.is_active) AS total_takings,
+               (SELECT COALESCE(SUM(
+                         (CASE s.takings_effect WHEN 'add' THEN se.amount WHEN 'subtract' THEN -se.amount ELSE 0 END)
+                       + (CASE s.income_effect  WHEN 'add' THEN se.amount WHEN 'subtract' THEN -se.amount ELSE 0 END)), 0)
+                  FROM cash_sc_entries se
+                  JOIN cash_sc_sources s ON s.id = se.source_id
+                 WHERE se.report_id = r.id AND s.is_active) AS sc_adjustment,
+               (SELECT COALESCE(SUM(ex.amount), 0)
+                  FROM cash_expenses ex
+                 WHERE ex.report_id = r.id AND NOT ex.paid_by_card) AS total_expenses
           FROM cash_daily_reports r
-          LEFT JOIN cash_income_entries  ie ON ie.report_id = r.id AND ie.tenant_id = r.tenant_id
-          LEFT JOIN cash_takings_entries te ON te.report_id = r.id AND te.tenant_id = r.tenant_id
          WHERE r.venue_id    = ${venueId}
            AND r.tenant_id   = ${req.tenantId}
            AND r.report_date = ANY(${weekDates}::date[])
-         GROUP BY r.id, r.report_date, r.status
       `
 
       const reportByDate = Object.fromEntries(reports.map(r => [r.report_date, r]))
 
+      // Day variance = Takings + cash paid out of the till that day (expenses)
+      // − (Income + SC adjustment). Staff pay expenses before counting, so the
+      // counted takings are already short by that amount. Cash wages are weekly
+      // and are added to the week's variance only (wages.total_cash_wages).
       const days = weekDates.map(date => {
         const r = reportByDate[date]
         if (!r) return { date, status: null }
+        const income   = Number(r.total_income)
+        const takings  = Number(r.total_takings)
+        const expenses = Number(r.total_expenses)
         return {
           date,
-          status:       r.status,
-          total_income:  Number(r.total_income),
-          total_takings: Number(r.total_takings),
-          variance:      Number(r.total_takings) - Number(r.total_income),
+          status:         r.status,
+          total_income:   income,
+          total_takings:  takings,
+          total_expenses: expenses,
+          variance:       takings + expenses - (income + Number(r.sc_adjustment)),
         }
       })
 
