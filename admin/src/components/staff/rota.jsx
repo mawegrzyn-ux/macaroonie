@@ -1264,7 +1264,11 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
   return (
     <div className="space-y-3">
       {sections.pots && <>
-      <div className="grid gap-3 sm:grid-cols-2">
+      {/* Columns follow the space the table actually has (a narrow dashboard
+          widget, a phone), not the screen width: as many pots side by side as
+          fit at the minimum card width. */}
+      <div className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${canEdit ? 250 : 180}px), 1fr))` }}>
         {pots.map(p => (
           <PotCard key={p.id} pot={p} data={data} canEdit={canEdit} base={base} setPay={setPay} onEditManual={setManualPot} />
         ))}

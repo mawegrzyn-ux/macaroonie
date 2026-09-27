@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Tip pot cards fit the space]
+
+### Rota
+- Tip pot cards now sit side by side whenever there is room for them (as many per row as fit), based on the width of the tips area rather than the screen. A narrow dashboard widget or a phone still stacks them; a wide one shows three or more across.
+
+---
+
 ## [2026-09-27 — Rota dashboard: choose which parts of the Tips widget show]
 
 ### Rota
