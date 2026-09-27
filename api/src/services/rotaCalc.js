@@ -27,7 +27,10 @@
 //                        staff_shift_rates.rate, else default_rate.
 //     A pay_override for the week replaces the computed pay.
 //   Tip pots (tip_pots, migration 108): each pot's gross is its allocated
-//   service charge sources plus its manual lines for the week. A surcharge
+//   service charge sources plus its manual lines for the week. A line is £
+//   (kind 'amount') or % (kind 'percent', migration 115); either may be
+//   negative. Percent lines are a % of sources + £ lines (never below 0),
+//   so they never compound with each other. The gross never goes below 0. A surcharge
 //   (migration 111, e.g. tax) takes surcharge_pct % off the gross; what is
 //   left (total) is what gets shared. By the pot's distribution:
 //     house   kept by the house, nobody gets a share.
@@ -204,9 +207,12 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
   for (const r of rows) { r.pot_shares = {}; r.pot_shares_exact = {}; r.tip_share = 0 }
 
   const potSummaries = pots.map(pot => {
-    const lines = (pot.lines ?? []).map(l => ({ ...l, amount: round2(num(l.amount)) }))
     const sourcesTotal = round2(num(pot.sources_total))
-    const gross = round2(sourcesTotal + lines.reduce((s, l) => s + l.amount, 0))
+    const raw = (pot.lines ?? []).map(l => ({ ...l, kind: l.kind === 'percent' ? 'percent' : 'amount', amount: round2(num(l.amount)) }))
+    // £ lines first; % lines are a percentage of sources + £ lines.
+    const base = round2(Math.max(0, sourcesTotal + raw.filter(l => l.kind === 'amount').reduce((s, l) => s + l.amount, 0)))
+    const lines = raw.map(l => ({ ...l, value: l.kind === 'percent' ? round2(base * l.amount / 100) : l.amount }))
+    const gross = round2(Math.max(0, lines.reduce((s, l) => s + l.value, sourcesTotal)))
     const surchargePct = Math.min(100, Math.max(0, num(pot.surcharge_pct)))
     const surcharge = round2(gross * surchargePct / 100)
     const total = round2(gross - surcharge)   // available to share

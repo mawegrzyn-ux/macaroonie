@@ -11,7 +11,7 @@
 //   Tip pots (migration 108):
 //   POST   /pots     PATCH /pots/:id     DELETE /pots/:id     PUT /pots/reorder   { ids }
 //   PUT    /pots/:id/sources           { source_ids }  Cash Recon SC sources feeding the pot
-//   POST   /pots/:id/lines             { name }        manual line (amount entered weekly)
+//   POST   /pots/:id/lines             { name, kind: amount | percent }  manual line (value entered weekly, may be negative)
 //   PATCH  /pot-lines/:id  DELETE /pot-lines/:id  PUT /pots/:id/lines/reorder { ids }
 //   GET    /sc-sources                 every venue's SC sources with their pot
 //
@@ -80,8 +80,15 @@ const PotBody = z.object({
   surcharge_pct:  z.coerce.number().min(0).max(100).optional(),
 })
 const PotPatch = PotBody.partial().extend({ is_active: z.boolean().optional() })
-const LineBody = z.object({ name: z.string().trim().min(1).max(100) })
-const LinePatch = LineBody.partial().extend({ is_active: z.boolean().optional() })
+const LineBody = z.object({
+  name: z.string().trim().min(1).max(100),
+  kind: z.enum(['amount', 'percent']).default('amount'),
+})
+const LinePatch = z.object({
+  name:      z.string().trim().min(1).max(100).optional(),
+  kind:      z.enum(['amount', 'percent']).optional(),
+  is_active: z.boolean().optional(),
+})
 const AmountRow = key => z.object({ [key]: UUID, amount: Money.nullable() })
 
 const StaffBody = z.object({
@@ -168,7 +175,7 @@ async function loadPots(tx, tenantId) {
     tx`SELECT id, name, distribution, surcharge_name, surcharge_pct::float8 AS surcharge_pct,
               sort_order, is_active FROM tip_pots
         WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
-    tx`SELECT id, pot_id, name, sort_order, is_active FROM tip_pot_lines
+    tx`SELECT id, pot_id, name, kind, sort_order, is_active FROM tip_pot_lines
         WHERE tenant_id = ${tenantId} ORDER BY sort_order, created_at`,
     tx`SELECT id, tip_pot_id FROM cash_sc_sources
         WHERE tenant_id = ${tenantId} AND tip_pot_id IS NOT NULL`,
@@ -259,7 +266,7 @@ async function computeWeek(tx, tenantId, venueId, monday) {
     const sources = scRows.filter(r => r.tip_pot_id === p.id).map(r => ({ id: r.id, name: r.name, amount: r.amount }))
     const lines = p.lines
       .filter(l => l.is_active || lineAmt.has(l.id))
-      .map(l => ({ id: l.id, name: l.name, amount: lineAmt.get(l.id) ?? 0, is_active: l.is_active }))
+      .map(l => ({ id: l.id, name: l.name, kind: l.kind, amount: lineAmt.get(l.id) ?? 0, is_active: l.is_active }))
     const manual = {}
     for (const m of manualRows.filter(m => m.pot_id === p.id)) manual[m.staff_id] = m.amount
     return {
@@ -267,7 +274,7 @@ async function computeWeek(tx, tenantId, venueId, monday) {
       surcharge_name: p.surcharge_name, surcharge_pct: p.surcharge_pct,
       sources, sources_total: sources.reduce((s, x) => s + x.amount, 0), lines, manual,
     }
-  }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount > 0) || Object.keys(p.manual).length)
+  }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount !== 0) || Object.keys(p.manual).length)
 
   const weekStaff = await tx`
     SELECT staff_id, pay_override::float8 AS pay_override
@@ -552,8 +559,8 @@ export default async function rotaRoutes(app) {
       await assertPot(tx, req.tenantId, req.params.id)
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tip_pot_lines WHERE pot_id = ${req.params.id}`
       return tx`
-        INSERT INTO tip_pot_lines (tenant_id, pot_id, name, sort_order)
-        VALUES (${req.tenantId}, ${req.params.id}, ${b.name}, ${n})
+        INSERT INTO tip_pot_lines (tenant_id, pot_id, name, kind, sort_order)
+        VALUES (${req.tenantId}, ${req.params.id}, ${b.name}, ${b.kind}, ${n})
         RETURNING id
       `
     })
@@ -785,13 +792,26 @@ export default async function rotaRoutes(app) {
   // This week's amounts for the pots' manual lines (blank / null clears one).
   app.put('/venues/:venueId/weeks/:week/pot-lines', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
-    const { amounts } = z.object({ amounts: z.array(AmountRow('line_id')).max(500) }).parse(req.body)
+    // Values may be negative (a deduction). £ for amount lines, % for percent lines.
+    const { amounts } = z.object({
+      amounts: z.array(z.object({
+        line_id: UUID,
+        amount:  z.coerce.number().min(-1_000_000).max(1_000_000).nullable(),
+      })).max(500),
+    }).parse(req.body)
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
       const ids = amounts.map(a => a.line_id)
       if (ids.length) {
-        const ok = await tx`SELECT id FROM tip_pot_lines WHERE tenant_id = ${req.tenantId} AND id = ANY(${ids}::uuid[])`
+        const ok = await tx`SELECT id, name, kind FROM tip_pot_lines WHERE tenant_id = ${req.tenantId} AND id = ANY(${ids}::uuid[])`
         if (ok.length !== new Set(ids).size) throw httpError(400, 'Unknown pot line')
+        const kindOf = new Map(ok.map(l => [l.id, l]))
+        for (const a of amounts) {
+          const l = kindOf.get(a.line_id)
+          if (a.amount != null && l.kind === 'percent' && (a.amount < -100 || a.amount > 100)) {
+            throw httpError(400, `${l.name}: enter a percentage between -100 and 100`)
+          }
+        }
       }
       for (const a of amounts) {
         if (a.amount == null) {

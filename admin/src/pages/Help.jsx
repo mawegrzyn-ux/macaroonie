@@ -1530,6 +1530,16 @@ export default function Help() {
               amount available to share.
             </P>
             <P>
+              <strong>Manual lines</strong> are either a <strong>£ amount</strong> or a{' '}
+              <strong>% of pot</strong> (pick when you add the line). Both can be negative, to take
+              money out: for example a cash tips jar of £40, a breakage deduction of −£10, or a card
+              fee of −2%. A % line is worked out on the pot's Cash Recon sources plus its £ lines, and
+              the card shows what it comes to in £. On the Rota page, tap the <strong>+</strong> /{' '}
+              <strong>−</strong> button next to a line to switch between adding and deducting (a
+              tablet's number keypad has no minus key). A percentage must be between −100% and 100%.
+              A pot never goes below £0.
+            </P>
+            <P>
               On the Rota page, the <strong>Tips</strong> section shows a card per pot with where its
               money came from; type this week's amount for each manual line and tap{' '}
               <strong>Save amounts</strong>. Below the cards, a table shows each person's points and
