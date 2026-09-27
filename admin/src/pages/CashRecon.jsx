@@ -25,6 +25,25 @@ import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+// "Paid on" day for a cash wage: which day of the week the cash came out of
+// the till (cash_wage_entries.paid_date). That day's variance adds it back.
+// '' = no day, so the wage only balances in the week's variance.
+export function PaidDaySelect({ weekStart, value, onChange, disabled, className, allowEmpty = true, emptyLabel = 'No day' }) {
+  const days = weekStart ? isoWeekDates(weekStart) : []
+  return (
+    <select
+      value={value ?? ''}
+      disabled={disabled}
+      onChange={e => onChange(e.target.value || null)}
+      aria-label="Paid on"
+      className={cn('h-10 rounded-lg border bg-background px-2 text-sm touch-manipulation disabled:opacity-50', className)}
+    >
+      {allowEmpty && <option value="">{emptyLabel}</option>}
+      {days.map(d => <option key={d} value={d}>{format(parseISO(d), 'EEE d')}</option>)}
+    </select>
+  )
+}
+
 // Checkbox-style toggle for a petty cash expense paid by card rather than from
 // the till. Card-paid expenses are still recorded but excluded from every cash
 // reconciliation (Total Expenses and the variance).
@@ -446,19 +465,22 @@ export function reconCalc({ config, detail, weekStart, getCellVal }) {
 
   function dayExpenses(date) { return parseNum(detail?.days?.[date]?.total_expenses ?? 0) }
   function dayCardExpenses(date) { return parseNum(detail?.days?.[date]?.total_card_expenses ?? 0) }
+  // Cash wages paid out of the till on this day (cash_wage_entries.paid_date).
+  function dayWages(date) { return parseNum(detail?.wages_cash_by_date?.[date] ?? 0) }
 
   // Staff pay expenses and cash wages out of the till before counting, so
   // the counted cash is what goes to the bank and is already short by those
   // payouts. Variance adds them back:
-  //   day  = Takings + cash expenses that day − (Income + SC adjustment)
-  //   week = sum of day variances + cash wages (wages are weekly, no day)
+  //   day  = Takings + cash expenses + cash wages paid that day − (Income + SC adjustment)
+  //   week = sum of day variances + cash wages not paid on an open day
+  //          (no paid_date, or a date outside the visible days)
   // Positive = surplus, negative = shortfall.
   function variance(date) {
     const adj = activeSc.reduce((sum, s) => {
       const a = cellNum(date, 'sc', s.id)
       return sum + scEffectAmount(s.takings_effect, a) + scEffectAmount(s.income_effect, a)
     }, 0)
-    return dayTotal(date, 'takings') + dayExpenses(date) - (dayTotal(date, 'income') + adj)
+    return dayTotal(date, 'takings') + dayExpenses(date) + dayWages(date) - (dayTotal(date, 'income') + adj)
   }
 
   function cashTakingsTotal(date) { return cashChannels.reduce((s, r) => s + cellNum(date, 'takings', r.id), 0) }
@@ -472,13 +494,14 @@ export function reconCalc({ config, detail, weekStart, getCellVal }) {
   function weekCardExpenses() { return visibleDates.reduce((s, d) => s + dayCardExpenses(d), 0) }
   function weekCashTakings() { return visibleDates.reduce((s, d) => s + cashTakingsTotal(d), 0) }
   function weekCashWages()   { return parseNum(detail?.wages_cash_total ?? 0) }
-  function weekVariance()    { return visibleDates.reduce((s, d) => s + variance(d), 0) + weekCashWages() }
+  function weekUnassignedWages() { return weekCashWages() - visibleDates.reduce((s, d) => s + dayWages(d), 0) }
+  function weekVariance()    { return visibleDates.reduce((s, d) => s + variance(d), 0) + weekUnassignedWages() }
 
   return {
     dates, visibleDates, activeSources, activeSc, activeChannels, cashChannels,
-    cellNum, dayTotal, dayExpenses, dayCardExpenses, variance, cashTakingsTotal,
+    cellNum, dayTotal, dayExpenses, dayCardExpenses, dayWages, variance, cashTakingsTotal,
     weekTotal, weekDayTotal, weekExpenses, weekCardExpenses, weekCashTakings, weekVariance,
-    weekCashWages,
+    weekCashWages, weekUnassignedWages,
   }
 }
 
@@ -543,8 +566,8 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
 
   const {
     visibleDates, activeSources, activeSc, activeChannels,
-    cellNum, dayTotal, dayExpenses, dayCardExpenses, variance,
-    weekTotal, weekDayTotal, weekExpenses, weekCardExpenses, weekVariance,
+    cellNum, dayTotal, dayExpenses, dayCardExpenses, dayWages, variance,
+    weekTotal, weekDayTotal, weekExpenses, weekCardExpenses, weekVariance, weekUnassignedWages,
   } = reconCalc({ config, detail, weekStart, getCellVal })
 
   function startEdit(date, cat, id) {
@@ -940,11 +963,21 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
                   )}
                 </span>
               </td>
-              {visibleDates.map(d => <td key={d} className="px-2 py-1 text-xs text-right text-muted-foreground/40 border-r border-border/60 w-[86px] min-w-[86px]">—</td>)}
+              {visibleDates.map(d => (
+                <td key={d}
+                  onClick={onSelectWages}
+                  className="px-2 py-1 text-xs text-right border-r border-border/60 w-[86px] min-w-[86px] tabular-nums cursor-pointer hover:bg-muted/60">
+                  {dayWages(d) !== 0 ? fmt(dayWages(d)) : '—'}
+                </td>
+              ))}
               <td
+                title={weekUnassignedWages() > 0.004 ? `${fmt(weekUnassignedWages())} has no paid on day, so it only balances in the week total` : undefined}
                 onClick={onSelectWages}
                 className="px-2 py-1 text-xs text-right font-semibold bg-muted/20 tabular-nums cursor-pointer hover:bg-muted/40">
                 {detail?.wages_cash_total ? fmt(detail.wages_cash_total) : '—'}
+                {weekUnassignedWages() > 0.004 && (
+                  <div className="text-[10px] font-normal text-amber-700">{fmt(weekUnassignedWages())} no day</div>
+                )}
               </td>
             </tr>
             {/* ── SUMMARY: variance only. Week = day variances + cash wages. ── */}
@@ -1136,6 +1169,16 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
     enabled:  !!venueId && !!date,
   })
 
+  // Cash wages paid out of the till on this day (same query as the week grid).
+  const weekOfDay = date ? getMonday(parseISO(date)) : null
+  const { data: weekDetail } = useQuery({
+    queryKey: ['cash-recon-week-detail', venueId, weekOfDay],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/week-detail/${weekOfDay}`),
+    enabled:  !!venueId && !!weekOfDay,
+    staleTime: 0,
+  })
+  const wagesPaidToday = parseNum(weekDetail?.wages_cash_by_date?.[date] ?? 0)
+
   // Local form state
   const [incomeValues,  setIncomeValues]  = useState({})
   const [incomeNotes,   setIncomeNotes]   = useState({})
@@ -1227,10 +1270,10 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
     expenses.filter(e => !e.paid_by_card).reduce((sum, e) => sum + parseNum(e.amount ?? 0), 0),
     [expenses]
   )
-  // Same rule as reconCalc()'s day variance: expenses are paid out of the
-  // till before the cash is counted, so they are added back to Takings.
+  // Same rule as reconCalc()'s day variance: expenses and wages paid today
+  // come out of the till before the cash is counted, so they are added back.
   // Positive = surplus (took more than declared), negative = shortfall.
-  const variance = totalTakings + totalExpenses - (totalIncome + scAdjustment)
+  const variance = totalTakings + totalExpenses + wagesPaidToday - (totalIncome + scAdjustment)
 
   // Auto-save on blur (debounced 800ms)
   function triggerSave(data) {
@@ -1552,7 +1595,8 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            Takings plus cash expenses paid from the till, against income. Cash wages count in the week's variance.
+            Takings plus cash expenses and wages paid from the till today, against income.
+            {wagesPaidToday > 0 && ` Includes ${fmt(wagesPaidToday)} wages paid today.`}
           </p>
         </div>
       </div>
@@ -1936,6 +1980,7 @@ function WagesView({ venueId, weekStart, onBack }) {
       try {
         await api.put(`/venues/${venueId}/cash-recon/wages/${weekStart}`, data)
         qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+        qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
       } catch {
@@ -1957,9 +2002,43 @@ function WagesView({ venueId, weekStart, onBack }) {
         rate:        et === 'fixed' ? null : parseNum(e.rate),
         total:       parseNum(e.total ?? (et === 'hourly' ? parseNum(e.hours) * parseNum(e.rate) : 0)),
         cash_amount: parseNum(e.cash_amount ?? 0),
+        paid_date:   e.paid_date || null,
         notes:       e.notes ?? '',
       }
     }), notes }
+  }
+
+  // Paid on day. Before submission it saves with everything else; once the
+  // week is submitted the whole-list save is locked, so each entry's day goes
+  // through PATCH .../entries/:id/paid-date instead.
+  async function savePaidDays(next, changed) {
+    setEntries(next)
+    if (!isSubmitted) { triggerSave(buildPayload(next)); return }
+    setSaving(true); setSaved(false); setSaveErr(false)
+    try {
+      for (const e of changed.filter(x => x.id)) {
+        await api.patch(`/venues/${venueId}/cash-recon/wages/${weekStart}/entries/${e.id}/paid-date`, { paid_date: e.paid_date || null })
+      }
+      qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {
+      setSaveErr(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function setPaidDay(idx, day) {
+    const next = entries.map((e, i) => i === idx ? { ...e, paid_date: day } : e)
+    savePaidDays(next, [next[idx]])
+  }
+
+  function setAllPaidDays(day) {
+    const next = entries.map(e => ({ ...e, paid_date: day }))
+    savePaidDays(next, next)
   }
 
   function handleEntryBlur() {
@@ -1995,18 +2074,22 @@ function WagesView({ venueId, weekStart, onBack }) {
     setEntries(p => [...p, newEntry])
     setAddAdhoc('')
     setAddOpen(false)
-    triggerSave({ entries: [...entries, { staff_id: null, name: addAdhoc.trim(), entry_type: 'fixed', hours: null, rate: null, total: 0, cash_amount: 0, notes: '' }], notes })
+    triggerSave(buildPayload([...entries, newEntry]))
   }
 
   function removeEntry(idx) {
     const next = entries.filter((_, i) => i !== idx)
     setEntries(next)
-    triggerSave({ entries: next.map(e => ({ ...e, hours: parseNum(e.hours), rate: parseNum(e.rate), total: parseNum(e.total), cash_amount: parseNum(e.cash_amount) })), notes })
+    triggerSave(buildPayload(next))
   }
 
   const submitMutation = useMutation({
     mutationFn: (action) => api.post(`/venues/${venueId}/cash-recon/wages/${weekStart}/${action}`, buildPayload()),
-    onSuccess:  () => { qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] }); qc.invalidateQueries({ queryKey: ['cash-recon-week'] }) },
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
+    },
   })
 
   const [defaultSaved, setDefaultSaved] = useState(false)
@@ -2087,24 +2170,36 @@ function WagesView({ venueId, weekStart, onBack }) {
             )}
 
             {entries.length > 0 && (
-              <div className="hidden sm:grid grid-cols-[minmax(120px,1fr)_92px_64px_76px_84px_84px_minmax(100px,1fr)_40px] gap-2 px-1 text-[11px] font-medium text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <span>Cash wages come out of the till on the <strong>Paid on</strong> day, so that day's variance counts them.</span>
+                <label className="ml-auto flex items-center gap-2">
+                  Set all to
+                  <PaidDaySelect weekStart={weekStart} value="" emptyLabel="Choose…"
+                    onChange={day => { if (day) setAllPaidDays(day) }} />
+                </label>
+              </div>
+            )}
+
+            {entries.length > 0 && (
+              <div className="hidden sm:grid grid-cols-[minmax(120px,1fr)_92px_64px_76px_84px_84px_96px_minmax(100px,1fr)_40px] gap-2 px-1 text-[11px] font-medium text-muted-foreground">
                 <span>Staff</span>
                 <span>Type</span>
                 <span>Hours</span>
                 <span>Rate</span>
                 <span>Total (£)</span>
                 <span>Cash paid (£)</span>
+                <span>Paid on</span>
                 <span>Notes</span>
                 <span></span>
               </div>
             )}
 
             <div className="overflow-x-auto">
-              <div className="space-y-1.5 min-w-[760px] sm:min-w-0">
+              <div className="space-y-1.5 min-w-[860px] sm:min-w-0">
                 {entries.map((entry, idx) => {
                   const isHourly = (entry.entry_type ?? 'fixed') === 'hourly'
                   return (
-                    <div key={idx} className="grid grid-cols-[minmax(120px,1fr)_92px_64px_76px_84px_84px_minmax(100px,1fr)_40px] gap-2 items-center rounded-xl border p-1.5">
+                    <div key={idx} className="grid grid-cols-[minmax(120px,1fr)_92px_64px_76px_84px_84px_96px_minmax(100px,1fr)_40px] gap-2 items-center rounded-xl border p-1.5">
                       <span className="text-sm font-medium truncate px-1.5" title={entry.name}>{entry.name}</span>
 
                       <button
@@ -2134,6 +2229,8 @@ function WagesView({ venueId, weekStart, onBack }) {
                       <AmountInput value={entry.total} onChange={v => updateEntry(idx, 'total', v)} onBlur={handleEntryBlur} placeholder="auto" />
 
                       <AmountInput value={entry.cash_amount} onChange={v => updateEntry(idx, 'cash_amount', v)} onBlur={handleEntryBlur} placeholder="0.00" />
+
+                      <PaidDaySelect weekStart={weekStart} value={entry.paid_date} onChange={day => setPaidDay(idx, day)} />
 
                       <TextInput placeholder="Notes" value={entry.notes ?? ''} onChange={v => updateEntry(idx, 'notes', v)} onBlur={handleEntryBlur} />
 

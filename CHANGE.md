@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Wages paid on day; tip moves one to many]
+
+### Cash Reconciliation
+- Each cash wage has a **Paid on** day (the day the cash came out of the till). That day's variance adds it back, so each day balances. Set it per person or with **Set all to** on the Wages page; ticking **Paid** on the phone Wages page or the dashboard's Wages paid widget fills in today (or the selected day). Works after the week is submitted.
+- The week grid shows cash wages per day under "Paid out of till", and flags any amount with no day. The dashboard's Day balance widget shows wages paid that day.
+
+### Rota
+- **Tip moves** are now a list of separate moves. Each takes points or £ from one person and gives it to one or more people, split equally, by amount or by %, with an optional note. Each move can be undone on its own.
+
+### Database
+- Migration `112_wage_paid_date.sql`: `cash_wage_entries.paid_date`.
+- Migration `113_rota_tip_moves.sql`: `rota_tip_moves`, `rota_tip_move_lines`; drops `rota_week_staff.points_adjustment` and `tip_adjustment`.
+
 ## [2026-09-27 — Tip pot surcharge]
 
 ### Rota
