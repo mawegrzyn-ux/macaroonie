@@ -33,7 +33,8 @@
 //   PUT    /venues/:venueId/weeks/:week/pots/:potId/manual  { amounts: [{ staff_id, amount }] }
 //   PATCH  /venues/:venueId/weeks/:week/staff/:staffId  { pay_override }
 //   POST   /venues/:venueId/weeks/:week/move-points     { from_staff_id, to_staff_id, points }
-//   POST   /venues/:venueId/weeks/:week/reset-points
+//   POST   /venues/:venueId/weeks/:week/move-tips       { from_staff_id, to_staff_id, amount }  (£)
+//   POST   /venues/:venueId/weeks/:week/reset-moves     { kind: points | money | all }
 //   POST   /venues/:venueId/weeks/:week/fill-wages      writes Cash Recon wages
 
 import { z } from 'zod'
@@ -256,13 +257,17 @@ async function computeWeek(tx, tenantId, venueId, monday) {
     }
   }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount > 0) || Object.keys(p.manual).length)
 
-  const withEntries = [...new Set([...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id)])]
-  const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const weekStaff = await tx`
-    SELECT staff_id, points_adjustment::float8 AS points_adjustment, pay_override::float8 AS pay_override
+    SELECT staff_id, points_adjustment::float8 AS points_adjustment,
+           tip_adjustment::float8 AS tip_adjustment, pay_override::float8 AS pay_override
       FROM rota_week_staff
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
   `
+  const withEntries = [...new Set([
+    ...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id),
+    ...weekStaff.filter(w => w.tip_adjustment || w.points_adjustment || w.pay_override != null).map(w => w.staff_id),
+  ])]
+  const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
   const result = computeRotaWeek({ shifts, staff, entries, weekStaff, pots: potInputs, tipRounding })
   return { ...result, week_start: monday }
@@ -822,12 +827,46 @@ export default async function rotaRoutes(app) {
     })
   })
 
-  app.post('/venues/:venueId/weeks/:week/reset-points', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  // Moving tips by a £ amount is zero-sum too; it applies on top of every pot's shares.
+  app.post('/venues/:venueId/weeks/:week/move-tips', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
+    const b = z.object({
+      from_staff_id: UUID, to_staff_id: UUID, amount: z.coerce.number().positive().max(100_000),
+    }).parse(req.body)
+    if (b.from_staff_id === b.to_staff_id) throw httpError(400, 'Pick two different people')
+    const amount = Math.round(b.amount * 100) / 100
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
+      const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      const from = before.rows.find(r => r.staff_id === b.from_staff_id)
+      if (!before.rows.find(r => r.staff_id === b.to_staff_id) || !from) throw httpError(404, 'Staff member not on this week')
+      if (amount > from.tip_share + 1e-9) {
+        throw httpError(422, `${from.name} only has £${from.tip_share.toFixed(2)} in tips this week`)
+      }
+      for (const [id, delta] of [[b.from_staff_id, -amount], [b.to_staff_id, amount]]) {
+        await ensureWeekStaff(tx, req.tenantId, req.params.venueId, monday, id)
+        await tx`
+          UPDATE rota_week_staff SET tip_adjustment = tip_adjustment + ${delta}, updated_at = now()
+           WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
+             AND staff_id = ${id} AND tenant_id = ${req.tenantId}
+        `
+      }
+      return computeWeek(tx, req.tenantId, req.params.venueId, monday)
+    })
+  })
+
+  // Undo point moves, £ moves, or both for the week.
+  app.post('/venues/:venueId/weeks/:week/reset-moves', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    const { kind } = z.object({ kind: z.enum(['points', 'money', 'all']).default('all') }).parse(req.body ?? {})
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      const set = kind === 'points' ? { points_adjustment: 0 }
+        : kind === 'money' ? { tip_adjustment: 0 }
+        : { points_adjustment: 0, tip_adjustment: 0 }
+      const cols = Object.keys(set)
       await tx`
-        UPDATE rota_week_staff SET points_adjustment = 0, updated_at = now()
+        UPDATE rota_week_staff SET ${tx({ ...set, updated_at: new Date() }, ...cols, 'updated_at')}
          WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date AND tenant_id = ${req.tenantId}
       `
       return computeWeek(tx, req.tenantId, req.params.venueId, monday)

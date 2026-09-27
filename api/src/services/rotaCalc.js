@@ -33,7 +33,8 @@
 //     points  pot x person's points / everyone's points, then rounded to a
 //             multiple of tipRounding.to (nearest / up / down) when set.
 //     manual  whatever payroll entered per person for that pot.
-//   A person's tip_share is the sum of their shares across pots. Each pot
+//   A person's tip_share is the sum of their shares across pots, plus the
+//   week's £ tip_adjustment (zero-sum £ moves between people), never below 0. Each pot
 //   reports distributed and difference (distributed - total): rounding can
 //   push a points pot slightly over or under; a manual pot is under while
 //   not everything has been handed out.
@@ -87,7 +88,7 @@ export function periodsOverlap(periods) {
  * @param {Array}  p.shifts     rota_shifts rows (all, incl. inactive, so old entries still price)
  * @param {Array}  p.staff      cash_staff rows + role_multiplier + shift_rates {shift_id: rate}
  * @param {Array}  p.entries    rota_entries rows for the week
- * @param {Array}  p.weekStaff  rota_week_staff rows (points_adjustment, pay_override)
+ * @param {Array}  p.weekStaff  rota_week_staff rows (points_adjustment, tip_adjustment, pay_override)
  * @param {number} p.tipPot     amount to share out
  */
 export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], pots = [], tipRounding = null }) {
@@ -176,6 +177,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], pots =
       pay:             payOverride ?? computedPay,
       base_points:     points,
       points_adjustment: adjustment,
+      tip_adjustment:  round2(num(adj?.tip_adjustment)),
       points:          round2(Math.max(0, points + adjustment)),
     }
   })
@@ -221,7 +223,8 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], pots =
     }
   })
   for (const r of rows) {
-    r.tip_share = round2(Object.values(r.pot_shares).reduce((s, v) => s + v, 0))
+    r.tip_share_from_pots = round2(Object.values(r.pot_shares).reduce((s, v) => s + v, 0))
+    r.tip_share = round2(Math.max(0, r.tip_share_from_pots + r.tip_adjustment))
   }
 
   return {
