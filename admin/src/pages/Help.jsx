@@ -1137,16 +1137,17 @@ export default function Help() {
             <P>
               Before the cash is counted, staff pay the day's expenses and the cash wages out of the
               till, so the cash they count is exactly what goes to the bank. The variance adds
-              those payouts back: <strong>Takings + cash expenses (+ cash wages for the week) −
+              those payouts back: <strong>Takings + cash expenses + cash wages paid that day −
               Income</strong>, adjusted for service charges. Zero means balanced, a minus figure is a
               shortfall (red) and a plus figure is a surplus (amber).
             </P>
             <P>
-              Each day's variance includes that day's cash expenses. Wages are recorded for the
-              week, not for a day, so they are added to the <strong>week's</strong> variance only.
-              If the wages came out of one day's till, that day shows short by the wages, and the
-              week total balances it. Expenses paid by card never came out of the till, so they are
-              not added back.
+              Each day's variance includes that day's cash expenses and the cash wages whose{' '}
+              <strong>Paid on</strong> day is that day (set it on the Wages page, see below). A cash
+              wage with no Paid on day is only added to the <strong>week's</strong> variance, so the
+              day its cash came out would show short. The week grid shows wages per day in the
+              "Paid out of till" section, with any amount that has no day flagged under the week
+              total. Expenses paid by card never came out of the till, so they are not added back.
             </P>
             <H3>Wages</H3>
             <P>
@@ -1154,6 +1155,13 @@ export default function Help() {
               compact row: Fixed or Hourly, hours/rate (hourly only), total cost, and how much of
               that was actually <strong>paid in cash</strong> — the two can differ when part or
               all of a wage goes by bank transfer instead of the till.
+            </P>
+            <P>
+              <strong>Paid on</strong> is the day the cash came out of the till. Pick it per person, or
+              use <strong>Set all to</strong> for everyone at once. It can still be changed after the
+              week is submitted. On the phone Wages page and the dashboard's Wages paid widget,
+              ticking <strong>Paid</strong> fills in today (or the day selected on the dashboard), with
+              a day picker under the name to change it.
             </P>
             <DataTable
               head={['Control', 'What it does']}
@@ -1525,14 +1533,18 @@ export default function Help() {
               were set to "Distributed to Staff" were moved into a "Staff tips" pot shared by points.
             </P>
             <P>
-              <strong>Move tips</strong>, below the table, lets payroll reward or correct a week without
-              changing the total. Choose <strong>Points</strong> to take points from one person and give
-              them to another (this changes everyone's share of every pot shared by points), or{' '}
-              <strong>£ amount</strong> to move a fixed sum of money from one person's tips to another's,
-              after all the pots are shared. You can't move more than the person has. £ moves show in a{' '}
-              <strong>Moved £</strong> column. <strong>Undo point moves</strong> and{' '}
-              <strong>Undo £ moves</strong> put things back. Tips are shown here only; they are not added
-              to Cash Recon wages.
+              <strong>Tip moves</strong>, below the table, lets payroll reward or correct a week without
+              changing the total. Tap <strong>New move</strong>, choose <strong>Points</strong> (changes
+              everyone's share of every pot shared by points) or <strong>£ amount</strong> (moved after
+              all the pots are shared), pick who to take from, then tick one or more people to give to.
+              Split it <strong>Equally</strong> (enter the total; pennies left over go to the first
+              people), <strong>By £</strong> / <strong>By points</strong> (type each person's amount),
+              or <strong>By %</strong> (enter the total and each person's percentage, which must add up
+              to 100). You can't move more than the person has, and you can add a note. Every move is
+              listed with who, how much, when and the note, and each can be undone on its own (bin
+              icon). <strong>Undo all point moves</strong> / <strong>Undo all £ moves</strong> clear a
+              week in one go. £ moves show in the <strong>Moved £</strong> column. Tips are shown here
+              only; they are not added to Cash Recon wages.
             </P>
             <H3>Rota dashboard</H3>
             <P>

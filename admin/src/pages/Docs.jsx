@@ -1023,13 +1023,29 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Staff pay the day's expenses and the week's cash wages out of the till before counting,
               so counted cash is what is banked and is already short by those payouts. Variance adds
-              them back. Day: <Mono>Takings + cash expenses − (Income + scAdjustment)</Mono>. Week:{' '}
-              sum of day variances <Mono>+ wages_cash_total</Mono> (wages have no day). Implemented
+              them back. Day: <Mono>Takings + cash expenses + cash wages paid that day − (Income +
+              scAdjustment)</Mono>. Week: sum of day variances <Mono>+ weekUnassignedWages()</Mono>{' '}
+              (cash wages with no <Mono>paid_date</Mono>, or one outside the visible days).
+              <Mono>cash_wage_entries.paid_date</Mono> (migration 112) is the day a wage came out of
+              the till; <Mono>GET .../week-detail</Mono> returns <Mono>wages_cash_by_date</Mono>{' '}
+              (<Mono>reconCalc().dayWages()</Mono>), <Mono>GET .../week</Mono> returns each day's{' '}
+              <Mono>wages_cash</Mono> and <Mono>wages.unassigned_cash_wages</Mono> (wages on a day
+              with no daily report count as unassigned there, since that route only has variances for
+              reported days). The day view reads the same week-detail query. Paid date is validated to
+              the week (422 otherwise) on the whole-list <Mono>PUT /wages/:week_start</Mono>,{' '}
+              <Mono>PATCH .../entries/:id/paid</Mono> (<Mono>{'{ paid, paid_date? }'}</Mono>: omitted
+              keeps the day, unpaid clears it) and the new{' '}
+              <Mono>PATCH .../entries/:id/paid-date</Mono> (<Mono>{'{ paid_date }'}</Mono>, works on a
+              submitted report like /paid). <Mono>PaidDaySelect</Mono> is exported from{' '}
+              <Mono>CashRecon.jsx</Mono> and used by WagesView, MobileWages and the Wages paid widget.
+              Every whole-list PUT caller passes <Mono>paid_date</Mono> through (WagesView, MobileWages,
+              the week staff widget carries the saved one by entry id); rota fill-wages never touches
+              it. Implemented
               once in <Mono>reconCalc()</Mono> (<Mono>variance(date)</Mono>,{' '}
               <Mono>weekVariance()</Mono>), mirrored by the day view's <Mono>const variance</Mono>{' '}
               and by the <Mono>GET .../week/:week_start</Mono> route's per-day <Mono>variance</Mono>{' '}
               (used by <Mono>WeekView</Mono> and <Mono>MobileCashUp.jsx</Mono>, which adds{' '}
-              <Mono>wages.total_cash_wages</Mono> for its week figure). That route now computes each
+              <Mono>wages.unassigned_cash_wages</Mono> for its week figure). That route now computes each
               total in its own subquery with the same filters as <Mono>reconCalc()</Mono> (active
               sources/channels, <Mono>exclude_from_recon</Mono> income left out, SC effects,{' '}
               <Mono>!paid_by_card</Mono> expenses); the old version joined income and takings entries
@@ -1544,7 +1560,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['tip_pots', 'Migration 108. Tenant-wide pots: name, distribution (house | points | manual), sort_order, is_active; surcharge_name + surcharge_pct (numeric 0-100, default 0), migration 111. cash_sc_sources.tip_pot_id (ON DELETE SET NULL) says which pot a Cash Recon source feeds; it replaced cash_sc_sources.distribution (house/staff/split), which only ever fed the old single rota pot.'],
                 ['tip_pot_lines', 'Named manual lines per pot (cascade). Amounts per venue week in rota_week_pot_lines (PK venue_id, week_start, line_id).'],
                 ['rota_week_pot_manual', 'Manual distribution: amount per venue, week, pot and staff. Replaced per pot by PUT .../pots/:potId/manual.'],
-                ['rota_week_staff', 'Per venue, week, staff: points_adjustment (zero-sum point moves), tip_adjustment (zero-sum £ moves, migration 109) and pay_override.'],
+                ['rota_week_staff', 'Per venue, week, staff: pay_override. (points_adjustment and tip_adjustment were dropped in migration 113.)'],
+                ['rota_tip_moves / rota_tip_move_lines', 'Migration 113. One row per move: venue, week_start, kind (points | money), from_staff_id, note, created_by, created_at; lines: to_staff_id + amount (> 0, 2 decimals). ON DELETE CASCADE from the move. computeRotaWeek() sums them into each person\'s points_adjustment / tip_adjustment.'],
               ]}
             />
             <H3>API</H3>
@@ -1560,7 +1577,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET .../weeks/:week/pay', 'rota_pay view', 'computeRotaWeek result: rows (incl. pot_shares / pot_shares_exact by pot id, tip_share total), pots (sources, lines, total, distributed, difference, kept_by_house), totals (hours, pay, points, tips_in, tips_shared, kept_by_house), tip_rounding.'],
                 ['GET /setup pots; GET /sc-sources; POST/PATCH/DELETE /pots[/:id]; PUT /pots/reorder; PUT /pots/:id/sources { source_ids }; POST /pots/:id/lines; PATCH/DELETE /pot-lines/:id; PUT /pots/:id/lines/reorder', 'staff', 'Tip pot setup. Listing a source in PUT sources moves it from any other pot; sources no longer listed are unassigned. Deleting a pot unassigns its sources and cascades its lines and weekly amounts.'],
                 ['PUT .../weeks/:week/pot-lines { amounts: [{ line_id, amount }] }; PUT .../weeks/:week/pots/:potId/manual { amounts: [{ staff_id, amount }] }', 'rota_pay manage', 'Weekly manual line amounts (null clears) and manual shares (422 unless the pot is manual). Both return the recomputed pay payload.'],
-                ['PATCH .../staff/:staffId { pay_override }, POST .../move-points { points }, POST .../move-tips { amount }, POST .../reset-moves { kind: points | money | all }', 'rota_pay manage', 'Each returns the recomputed pay payload. Moving more points (or more £ than the person\'s current tip_share) than the person has is 422.'],
+                ['PATCH .../staff/:staffId { pay_override }, POST .../tip-moves { kind, from_staff_id, lines: [{ to_staff_id, amount }], note }, DELETE .../tip-moves/:id, POST .../reset-moves { kind: points | money | all }', 'rota_pay manage', 'Each returns the recomputed pay payload (which includes moves: each with from_name, lines with names, total). A move whose lines add up to more than the giver has now (points, or tip_share for money) is 422; moving to yourself or listing a person twice is 400. The UI (TipMoveModal in rota.jsx) turns equal / by amount / by % into final amounts with splitEvenly() / splitByPercent(), which work in hundredths so the lines add up exactly.'],
                 ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header (422 if submitted), updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Hourly people get hours and rate = pay / hours; everyone else a fixed total. Tips are not written.'],
               ]}
             />
@@ -1579,7 +1596,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Fixed / day', 'default_rate x distinct days worked.'],
                 ['Fixed / shift', 'Sum of (shift amount x fraction worked); shift amount = staff_shift_rates rate, else default_rate.'],
                 ['Pay override', 'rota_week_staff.pay_override replaces the computed pay for that week.'],
-                ['Points', 'Sum of shift.points x fraction x role multiplier (1 with no role), plus points_adjustment, floored at 0.'],
+                ['Points', 'Sum of shift.points x fraction x role multiplier (1 with no role), plus points_adjustment (sum of point moves in minus out), floored at 0.'],
                 ['Pot total', 'gross = sum of the venue\'s week cash_sc_entries for sources with that tip_pot_id, plus the pot\'s manual line amounts for the week. surcharge = round2(gross x surcharge_pct / 100); total (what is shared, and what difference is measured against) = gross - surcharge. Pot summaries return gross, surcharge_name, surcharge_pct, surcharge and total; totals add tips_gross and surcharges (tips_in stays after surcharges). Active pots are listed, plus inactive ones still holding money that week.'],
                 ['Points pot share', 'pot total x person points / total points (pot_shares_exact), rounded to a multiple of rota_settings.tip_round_to with tip_round_mode nearest | up | down (migration 107; roundTip() works in whole pence).'],
                 ['Manual pot share', 'rota_week_pot_manual amount for the person (staff with an amount are loaded even if inactive).'],

@@ -32,8 +32,8 @@
 //   PUT    /venues/:venueId/weeks/:week/pot-lines       { amounts: [{ line_id, amount }] }
 //   PUT    /venues/:venueId/weeks/:week/pots/:potId/manual  { amounts: [{ staff_id, amount }] }
 //   PATCH  /venues/:venueId/weeks/:week/staff/:staffId  { pay_override }
-//   POST   /venues/:venueId/weeks/:week/move-points     { from_staff_id, to_staff_id, points }
-//   POST   /venues/:venueId/weeks/:week/move-tips       { from_staff_id, to_staff_id, amount }  (£)
+//   POST   /venues/:venueId/weeks/:week/tip-moves       { kind: points | money, from_staff_id, lines: [{ to_staff_id, amount }], note }
+//   DELETE /venues/:venueId/weeks/:week/tip-moves/:id
 //   POST   /venues/:venueId/weeks/:week/reset-moves     { kind: points | money | all }
 //   POST   /venues/:venueId/weeks/:week/fill-wages      writes Cash Recon wages
 
@@ -269,19 +269,47 @@ async function computeWeek(tx, tenantId, venueId, monday) {
   }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount > 0) || Object.keys(p.manual).length)
 
   const weekStaff = await tx`
-    SELECT staff_id, points_adjustment::float8 AS points_adjustment,
-           tip_adjustment::float8 AS tip_adjustment, pay_override::float8 AS pay_override
+    SELECT staff_id, pay_override::float8 AS pay_override
       FROM rota_week_staff
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
   `
+  const moves = await loadMoves(tx, tenantId, venueId, monday)
   const withEntries = [...new Set([
     ...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id),
-    ...weekStaff.filter(w => w.tip_adjustment || w.points_adjustment || w.pay_override != null).map(w => w.staff_id),
+    ...weekStaff.filter(w => w.pay_override != null).map(w => w.staff_id),
+    ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]),
   ])]
   const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
-  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, pots: potInputs, tipRounding })
-  return { ...result, week_start: monday }
+  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, moves, pots: potInputs, tipRounding })
+  const nameOf = new Map(staff.map(s => [s.id, s.name]))
+  return {
+    ...result,
+    week_start: monday,
+    moves: moves.map(m => ({
+      ...m,
+      from_name: nameOf.get(m.from_staff_id) ?? 'Unknown',
+      lines: m.lines.map(l => ({ ...l, name: nameOf.get(l.to_staff_id) ?? 'Unknown' })),
+      total: Math.round(m.lines.reduce((s, l) => s + l.amount, 0) * 100) / 100,
+    })),
+  }
+}
+
+/** The week's tip moves, oldest first, each with its recipient lines. */
+async function loadMoves(tx, tenantId, venueId, monday) {
+  const moves = await tx`
+    SELECT id, kind, from_staff_id, note, created_by, created_at
+      FROM rota_tip_moves
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
+     ORDER BY created_at, id
+  `
+  if (!moves.length) return []
+  const lines = await tx`
+    SELECT move_id, to_staff_id, amount::float8 AS amount
+      FROM rota_tip_move_lines
+     WHERE tenant_id = ${tenantId} AND move_id = ANY(${moves.map(m => m.id)}::uuid[])
+  `
+  return moves.map(m => ({ ...m, lines: lines.filter(l => l.move_id === m.id).map(({ move_id, ...l }) => l) }))
 }
 
 async function ensureWeekStaff(tx, tenantId, venueId, monday, staffId) {
@@ -829,55 +857,66 @@ export default async function rotaRoutes(app) {
     })
   })
 
-  // Moving points is zero-sum: what one person loses, another gains.
-  app.post('/venues/:venueId/weeks/:week/move-points', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  // A tip move takes points or £ from one person and gives it to one or more
+  // others. Zero-sum: the lines add up to exactly what the giver loses. The
+  // UI works out an equal / by amount / by % split; the API stores the final
+  // amount per recipient (2 decimals).
+  app.post('/venues/:venueId/weeks/:week/tip-moves', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
     const b = z.object({
-      from_staff_id: UUID, to_staff_id: UUID, points: z.coerce.number().positive().max(1000),
+      kind:          z.enum(['points', 'money']),
+      from_staff_id: UUID,
+      lines: z.array(z.object({
+        to_staff_id: UUID,
+        amount:      z.coerce.number().positive().max(100_000),
+      })).min(1).max(100),
+      note: z.string().trim().max(300).nullable().optional(),
     }).parse(req.body)
-    if (b.from_staff_id === b.to_staff_id) throw httpError(400, 'Pick two different people')
+    const lines = b.lines.map(l => ({ ...l, amount: Math.round(l.amount * 100) / 100 }))
+    if (lines.some(l => l.amount <= 0)) throw httpError(400, 'Each amount must be at least 0.01')
+    if (new Set(lines.map(l => l.to_staff_id)).size !== lines.length) throw httpError(400, 'Each person can only be picked once')
+    if (lines.some(l => l.to_staff_id === b.from_staff_id)) throw httpError(400, 'Cannot move to the same person')
+    const total = Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100
+
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
       const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
       const from = before.rows.find(r => r.staff_id === b.from_staff_id)
-      if (!before.rows.find(r => r.staff_id === b.to_staff_id) || !from) throw httpError(404, 'Staff member not on this week')
-      if (b.points > from.points + 1e-9) throw httpError(422, `${from.name} only has ${from.points} points this week`)
-      for (const [id, delta] of [[b.from_staff_id, -b.points], [b.to_staff_id, b.points]]) {
-        await ensureWeekStaff(tx, req.tenantId, req.params.venueId, monday, id)
-        await tx`
-          UPDATE rota_week_staff SET points_adjustment = points_adjustment + ${delta}, updated_at = now()
-           WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
-             AND staff_id = ${id} AND tenant_id = ${req.tenantId}
-        `
+      if (!from || lines.some(l => !before.rows.find(r => r.staff_id === l.to_staff_id))) {
+        throw httpError(404, 'Staff member not on this week')
       }
+      const available = b.kind === 'money' ? from.tip_share : from.points
+      if (total > available + 1e-9) {
+        throw httpError(422, b.kind === 'money'
+          ? `${from.name} only has £${available.toFixed(2)} in tips this week`
+          : `${from.name} only has ${available} points this week`)
+      }
+      const [move] = await tx`
+        INSERT INTO rota_tip_moves (tenant_id, venue_id, week_start, kind, from_staff_id, note, created_by)
+        VALUES (${req.tenantId}, ${req.params.venueId}, ${monday}::date, ${b.kind}, ${b.from_staff_id},
+                ${b.note || null}, ${req.user?.email ?? null})
+        RETURNING id
+      `
+      await tx`
+        INSERT INTO rota_tip_move_lines ${tx(lines.map(l => ({
+          move_id: move.id, tenant_id: req.tenantId, to_staff_id: l.to_staff_id, amount: l.amount,
+        })))}
+      `
       return computeWeek(tx, req.tenantId, req.params.venueId, monday)
     })
   })
 
-  // Moving tips by a £ amount is zero-sum too; it applies on top of every pot's shares.
-  app.post('/venues/:venueId/weeks/:week/move-tips', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+  app.delete('/venues/:venueId/weeks/:week/tip-moves/:id', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
-    const b = z.object({
-      from_staff_id: UUID, to_staff_id: UUID, amount: z.coerce.number().positive().max(100_000),
-    }).parse(req.body)
-    if (b.from_staff_id === b.to_staff_id) throw httpError(400, 'Pick two different people')
-    const amount = Math.round(b.amount * 100) / 100
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
-      const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
-      const from = before.rows.find(r => r.staff_id === b.from_staff_id)
-      if (!before.rows.find(r => r.staff_id === b.to_staff_id) || !from) throw httpError(404, 'Staff member not on this week')
-      if (amount > from.tip_share + 1e-9) {
-        throw httpError(422, `${from.name} only has £${from.tip_share.toFixed(2)} in tips this week`)
-      }
-      for (const [id, delta] of [[b.from_staff_id, -amount], [b.to_staff_id, amount]]) {
-        await ensureWeekStaff(tx, req.tenantId, req.params.venueId, monday, id)
-        await tx`
-          UPDATE rota_week_staff SET tip_adjustment = tip_adjustment + ${delta}, updated_at = now()
-           WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
-             AND staff_id = ${id} AND tenant_id = ${req.tenantId}
-        `
-      }
+      const [row] = await tx`
+        DELETE FROM rota_tip_moves
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+           AND venue_id = ${req.params.venueId} AND week_start = ${monday}::date
+        RETURNING id
+      `
+      if (!row) throw httpError(404, 'Move not found')
       return computeWeek(tx, req.tenantId, req.params.venueId, monday)
     })
   })
@@ -888,13 +927,11 @@ export default async function rotaRoutes(app) {
     const { kind } = z.object({ kind: z.enum(['points', 'money', 'all']).default('all') }).parse(req.body ?? {})
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
-      const set = kind === 'points' ? { points_adjustment: 0 }
-        : kind === 'money' ? { tip_adjustment: 0 }
-        : { points_adjustment: 0, tip_adjustment: 0 }
-      const cols = Object.keys(set)
+      const kinds = kind === 'all' ? ['points', 'money'] : [kind]
       await tx`
-        UPDATE rota_week_staff SET ${tx({ ...set, updated_at: new Date() }, ...cols, 'updated_at')}
-         WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date AND tenant_id = ${req.tenantId}
+        DELETE FROM rota_tip_moves
+         WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
+           AND tenant_id = ${req.tenantId} AND kind = ANY(${kinds})
       `
       return computeWeek(tx, req.tenantId, req.params.venueId, monday)
     })

@@ -22,7 +22,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { fmt, getMonday } from '@/pages/CashRecon'
 import {
-  Modal, TimeSelect, ErrorNote, hhmm, toMin, rangeMinutes, fmtHours, inputCls, useVenues, Segmented,
+  Modal, TimeSelect, ErrorNote, hhmm, toMin, rangeMinutes, fmtHours, inputCls, useVenues, Segmented, ConfirmDelete,
 } from '@/components/staff/shared'
 import { buildRotaSheet, printRota, saveRotaImage, visibleRotaDates, isClosedDay } from '@/components/staff/rotaExport'
 
@@ -855,23 +855,238 @@ function ManualShareModal({ pot, data, base, setPay, onClose }) {
   )
 }
 
-/** Tip pots for the week, each person's share of every pot, and point moves. */
+// ── Tip moves ──────────────────────────────────────────────────
+//
+// A move takes points or £ from one person and gives it to one or more
+// people. The split (equally, by amount, by %) is worked out here and sent as
+// final amounts per recipient, in hundredths, so the lines always add up to
+// exactly what the giver loses.
+
+const toHundredths = v => Math.round(Number(v || 0) * 100)
+
+/** Split `total` into `n` parts (hundredths), remainder to the first parts. */
+export function splitEvenly(total, n) {
+  const t = toHundredths(total)
+  if (n <= 0 || t <= 0) return []
+  const base = Math.floor(t / n)
+  return Array.from({ length: n }, (_, i) => (base + (i < t - base * n ? 1 : 0)) / 100)
+}
+
+/** Split `total` by percentages (should add up to 100); rounding lands on the largest share. */
+export function splitByPercent(total, pcts) {
+  const t = toHundredths(total)
+  const raw = pcts.map(p => Math.floor((t * Number(p || 0)) / 100))
+  const diff = t - raw.reduce((s, v) => s + v, 0)
+  if (raw.length && diff !== 0) {
+    const i = raw.indexOf(Math.max(...raw))
+    raw[i] += diff
+  }
+  return raw.map(v => v / 100)
+}
+
+function TipMoveModal({ data, base, setPay, hasPoints, onClose }) {
+  const api = useApi()
+  const [kind, setKind] = useState(hasPoints ? 'points' : 'money')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState([])            // recipient staff ids, in tap order
+  const [split, setSplit] = useState('equal') // equal | amount | percent
+  const [total, setTotal] = useState('')
+  const [amounts, setAmounts] = useState({})  // by amount: staff_id -> value
+  const [pcts, setPcts] = useState({})        // by %: staff_id -> value
+  const [note, setNote] = useState('')
+
+  const unitLabel = kind === 'money' ? '£' : 'points'
+  const valueOf = r => (kind === 'money' ? r.tip_share : r.points)
+  const fromRow = data.rows.find(r => r.staff_id === from)
+  const available = fromRow ? valueOf(fromRow) : 0
+  const fromOptions = data.rows.filter(r => valueOf(r) > 0)
+  const others = data.rows.filter(r => r.staff_id !== from)
+  const show = v => (kind === 'money' ? fmt(v) : `${Math.round(v * 100) / 100} pts`)
+
+  const lines = useMemo(() => {
+    if (!to.length) return []
+    if (split === 'equal') return splitEvenly(total, to.length).map((a, i) => ({ to_staff_id: to[i], amount: a }))
+    if (split === 'percent') return splitByPercent(total, to.map(id => pcts[id])).map((a, i) => ({ to_staff_id: to[i], amount: a }))
+    return to.map(id => ({ to_staff_id: id, amount: toHundredths(amounts[id]) / 100 }))
+  }, [to, split, total, amounts, pcts])
+  const sum = lines.reduce((s, l) => s + toHundredths(l.amount), 0) / 100
+  const pctSum = to.reduce((s, id) => s + Number(pcts[id] || 0), 0)
+
+  let problem = null
+  if (!from) problem = 'Pick who to take from.'
+  else if (!to.length) problem = 'Pick at least one person to give to.'
+  else if (split === 'percent' && Math.abs(pctSum - 100) > 0.001) problem = `Percentages add up to ${Math.round(pctSum * 100) / 100}%, not 100%.`
+  else if (lines.some(l => !(l.amount > 0))) problem = 'Every person needs an amount of at least 0.01.'
+  else if (sum > available + 1e-9) problem = `${fromRow.name} only has ${show(available)}.`
+
+  function toggle(id) {
+    setTo(t => (t.includes(id) ? t.filter(x => x !== id) : [...t, id]))
+  }
+
+  const save = useMutation({
+    mutationFn: () => api.post(`${base}/tip-moves`, { kind, from_staff_id: from, lines, note: note.trim() || null }),
+    onSuccess: d => { setPay(d); onClose() },
+  })
+
+  return (
+    <Modal title="Move tips" onClose={onClose}
+      footer={<>
+        <button type="button" onClick={() => save.mutate()} disabled={!!problem || save.isPending}
+          className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+          Move {sum > 0 ? show(sum) : ''}
+        </button>
+      </>}>
+      {hasPoints && (
+        <Segmented value={kind} onChange={k => { setKind(k); setFrom(''); setTo([]) }}
+          options={[{ value: 'points', label: 'Points' }, { value: 'money', label: '£ amount' }]} />
+      )}
+      <p className="text-xs text-muted-foreground">
+        {kind === 'money'
+          ? 'Takes a £ amount off one person\'s total tips after every pot is shared, and gives it to the people you pick.'
+          : 'Takes points off one person and gives them to the people you pick. Changes everyone\'s share of every pot shared by points.'}
+      </p>
+
+      <label className="block">
+        <span className="block text-xs font-medium text-muted-foreground mb-1">Take from</span>
+        <select value={from} onChange={e => { setFrom(e.target.value); setTo(t => t.filter(x => x !== e.target.value)) }}
+          className="h-11 w-full rounded-lg border bg-background px-2 text-sm touch-manipulation">
+          <option value="">Choose…</option>
+          {fromOptions.map(r => <option key={r.staff_id} value={r.staff_id}>{r.name} ({show(valueOf(r))})</option>)}
+        </select>
+      </label>
+
+      {from && <>
+        <div>
+          <span className="block text-xs font-medium text-muted-foreground mb-1">Give to ({to.length} picked)</span>
+          <div className="rounded-lg border divide-y max-h-56 overflow-y-auto">
+            {others.map(r => {
+              const on = to.includes(r.staff_id)
+              return (
+                <button key={r.staff_id} type="button" role="checkbox" aria-checked={on} onClick={() => toggle(r.staff_id)}
+                  className="w-full min-h-[44px] flex items-center gap-3 px-3 text-left text-sm touch-manipulation hover:bg-muted">
+                  <span className={cn('w-5 h-5 rounded border-2 flex items-center justify-center shrink-0', on ? 'bg-primary border-primary text-primary-foreground' : 'bg-background')}>
+                    {on && <Check className="w-3.5 h-3.5" />}
+                  </span>
+                  <span className="flex-1 min-w-0 truncate">{r.name}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">{show(valueOf(r))}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {to.length > 0 && <>
+          <Segmented value={split} onChange={setSplit}
+            options={[
+              { value: 'equal', label: 'Equally' },
+              { value: 'amount', label: kind === 'money' ? 'By £' : 'By points' },
+              { value: 'percent', label: 'By %' },
+            ]} />
+
+          {split !== 'amount' && (
+            <label className="block">
+              <span className="block text-xs font-medium text-muted-foreground mb-1">
+                Total to move ({unitLabel}, up to {show(available)})
+              </span>
+              <div className="flex gap-2">
+                <input className={cn(inputCls, 'flex-1')} inputMode="decimal" placeholder="0.00"
+                  value={total} onChange={e => setTotal(moneyInput(e.target.value))} />
+                <button type="button" onClick={() => setTotal(String(available))}
+                  className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">All</button>
+              </div>
+            </label>
+          )}
+
+          <div className="rounded-lg border divide-y">
+            {to.map((id, i) => {
+              const r = data.rows.find(x => x.staff_id === id)
+              const amount = lines[i]?.amount ?? 0
+              return (
+                <div key={id} className="flex items-center gap-2 px-3 py-1.5 min-h-[48px]">
+                  <span className="flex-1 min-w-0 truncate text-sm">{r?.name}</span>
+                  {split === 'amount' && (
+                    <input className="h-10 w-24 rounded-lg border bg-background px-2 text-sm text-right tabular-nums touch-manipulation"
+                      inputMode="decimal" placeholder="0.00" aria-label={`${r?.name} amount`}
+                      value={amounts[id] ?? ''} onChange={e => setAmounts(a => ({ ...a, [id]: moneyInput(e.target.value) }))} />
+                  )}
+                  {split === 'percent' && <>
+                    <input className="h-10 w-20 rounded-lg border bg-background px-2 text-sm text-right tabular-nums touch-manipulation"
+                      inputMode="decimal" placeholder="0" aria-label={`${r?.name} percent`}
+                      value={pcts[id] ?? ''} onChange={e => setPcts(p => ({ ...p, [id]: moneyInput(e.target.value) }))} />
+                    <span className="text-sm text-muted-foreground">%</span>
+                  </>}
+                  {split !== 'amount' && <span className="w-20 text-right text-sm tabular-nums">{amount > 0 ? show(amount) : '–'}</span>}
+                </div>
+              )
+            })}
+            <div className="flex items-center justify-between px-3 py-2 text-sm font-semibold bg-muted/40">
+              <span>Total</span>
+              <span className="tabular-nums">{show(sum)}{split === 'percent' && ` · ${Math.round(pctSum * 100) / 100}%`}</span>
+            </div>
+          </div>
+          {split === 'percent' && (
+            <button type="button" onClick={() => setPcts(Object.fromEntries(to.map((id, i) => [id, String(splitEvenly(100, to.length)[i])])))}
+              className="h-10 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Split % evenly</button>
+          )}
+        </>}
+
+        <label className="block">
+          <span className="block text-xs font-medium text-muted-foreground mb-1">Note (optional)</span>
+          <input className={inputCls} value={note} maxLength={300} onChange={e => setNote(e.target.value)} placeholder="e.g. covered the late shift" />
+        </label>
+      </>}
+
+      {problem && (from || to.length > 0) && <p className="text-xs text-amber-700">{problem}</p>}
+      <ErrorNote error={save.error} />
+    </Modal>
+  )
+}
+
+/** The week's tip moves, newest last, each deletable on its own. */
+function TipMovesList({ moves, base, setPay, canEdit }) {
+  const api = useApi()
+  const remove = useMutation({
+    mutationFn: id => api.delete(`${base}/tip-moves/${id}`),
+    onSuccess: setPay,
+  })
+  return (
+    <div className="space-y-1.5">
+      {moves.map(m => (
+        <div key={m.id} className="flex items-start gap-2 rounded-lg border px-3 py-2">
+          <div className="flex-1 min-w-0 text-sm">
+            <div className="flex flex-wrap items-center gap-x-1.5">
+              <span className="font-medium">{m.from_name}</span>
+              <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">
+                {m.lines.map(l => `${l.name} ${m.kind === 'money' ? fmt(l.amount) : `${l.amount} pts`}`).join(', ')}
+              </span>
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              {m.kind === 'money' ? `${fmt(m.total)} moved` : `${m.total} points moved`}
+              {' · '}{format(new Date(m.created_at), 'EEE d MMM HH:mm')}
+              {m.note && ` · ${m.note}`}
+            </div>
+          </div>
+          {canEdit && <ConfirmDelete label="Delete this move" confirmLabel="Yes, undo" onConfirm={() => remove.mutate(m.id)} disabled={remove.isPending} />}
+        </div>
+      ))}
+      <ErrorNote error={remove.error} />
+    </div>
+  )
+}
+
+/** Tip pots for the week, each person's share of every pot, and tip moves. */
 export function RotaTipsTable({ venueId, weekStart, canEdit }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data, isLoading, error } = useRotaPay(venueId, weekStart)
-  const [move, setMove] = useState({ unit: null, from: '', to: '', value: '' })
+  const [moveOpen, setMoveOpen] = useState(false)
   const [confirmReset, setConfirmReset] = useState(null) // null | 'points' | 'money'
   const [manualPot, setManualPot] = useState(null)
   const setPay = d => qc.setQueryData(['rota-pay', venueId, weekStart], d)
   const base = `/rota/venues/${venueId}/weeks/${weekStart}`
 
-  const moveM = useMutation({
-    mutationFn: unit => unit === 'money'
-      ? api.post(`${base}/move-tips`, { from_staff_id: move.from, to_staff_id: move.to, amount: Number(move.value) })
-      : api.post(`${base}/move-points`, { from_staff_id: move.from, to_staff_id: move.to, points: Number(move.value) }),
-    onSuccess: d => { setPay(d); setMove(m => ({ ...m, from: '', to: '', value: '' })) },
-  })
   const reset = useMutation({
     mutationFn: kind => api.post(`${base}/reset-moves`, { kind }),
     onSuccess: d => { setPay(d); setConfirmReset(null) },
@@ -887,14 +1102,10 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
   const sharedPots = pots.filter(p => p.distribution !== 'house')
   const hasPoints = pots.some(p => p.distribution === 'points')
   const rows = tipRows(data)
-  const hasPointMoves = data.rows.some(r => r.points_adjustment !== 0)
+  const moves = data.moves ?? []
+  const hasPointMoves = moves.some(m => m.kind === 'points')
   const hasMoneyMoves = data.rows.some(r => r.tip_adjustment !== 0)
   const showTotal = sharedPots.length > 1 || hasMoneyMoves
-  const unit = move.unit ?? (hasPoints ? 'points' : 'money')
-  const fromRow = data.rows.find(r => r.staff_id === move.from)
-  const available = fromRow ? (unit === 'money' ? fromRow.tip_share : fromRow.points) : 0
-  const moveOk = move.from && move.to && move.from !== move.to && Number(move.value) > 0 && fromRow && Number(move.value) <= available + 1e-9
-  const fromOptions = data.rows.filter(r => (unit === 'money' ? r.tip_share : r.points) > 0)
 
   return (
     <div className="space-y-3">
@@ -983,71 +1194,57 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         </div>
       ))}
 
-      {canEdit && sharedPots.length > 0 && data.rows.length > 1 && (
+      {sharedPots.length > 0 && (moves.length > 0 || (canEdit && data.rows.length > 1)) && (
         <div className="rounded-xl border p-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold flex-1">Move tips</p>
-            {hasPoints && (
-              <Segmented value={unit} onChange={u => setMove({ unit: u, from: '', to: '', value: '' })}
-                options={[{ value: 'points', label: 'Points' }, { value: 'money', label: '£ amount' }]} />
+            <p className="text-sm font-semibold flex-1">Tip moves{moves.length > 0 ? ` (${moves.length})` : ''}</p>
+            {canEdit && data.rows.length > 1 && (
+              <button type="button" onClick={() => setMoveOpen(true)}
+                className="h-11 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation flex items-center gap-1.5">
+                <Plus className="w-4 h-4" /> New move
+              </button>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select value={move.from} onChange={e => setMove(m => ({ ...m, from: e.target.value }))} aria-label="Take from"
-              className="h-11 rounded-lg border bg-background px-2 text-sm touch-manipulation min-w-[140px]">
-              <option value="">From…</option>
-              {fromOptions.map(r => (
-                <option key={r.staff_id} value={r.staff_id}>{r.name} ({unit === 'money' ? fmt(r.tip_share) : r.points})</option>
-              ))}
-            </select>
-            <ArrowRight className="w-4 h-4 text-muted-foreground" />
-            <select value={move.to} onChange={e => setMove(m => ({ ...m, to: e.target.value }))} aria-label="Give to"
-              className="h-11 rounded-lg border bg-background px-2 text-sm touch-manipulation min-w-[140px]">
-              <option value="">To…</option>
-              {data.rows.filter(r => r.staff_id !== move.from).map(r => <option key={r.staff_id} value={r.staff_id}>{r.name}</option>)}
-            </select>
-            <input className={cn(inputCls, 'w-24')} inputMode="decimal" placeholder={unit === 'money' ? '£0.00' : 'Points'}
-              aria-label={unit === 'money' ? 'Amount to move' : 'Points to move'}
-              value={move.value} onChange={e => setMove(m => ({ ...m, value: moneyInput(e.target.value) }))} />
-            <button type="button" onClick={() => moveM.mutate(unit)} disabled={!moveOk || moveM.isPending}
-              className="h-11 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50">Move</button>
-          </div>
-          {fromRow && Number(move.value) > available + 1e-9 && (
-            <p className="text-xs text-amber-700">{fromRow.name} only has {unit === 'money' ? fmt(available) : `${available} points`}.</p>
+          {moves.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Move points or £ from one person to one or more others, split equally, by amount or by %. Each move is kept here and can be undone on its own.
+            </p>
+          ) : (
+            <TipMovesList moves={moves} base={base} setPay={setPay} canEdit={canEdit} />
           )}
-          <div className="flex flex-wrap items-center gap-2">
-            {!confirmReset && hasPointMoves && (
-              <button type="button" onClick={() => setConfirmReset('points')}
-                className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
-                <RotateCcw className="w-4 h-4" /> Undo point moves
-              </button>
-            )}
-            {!confirmReset && hasMoneyMoves && (
-              <button type="button" onClick={() => setConfirmReset('money')}
-                className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
-                <RotateCcw className="w-4 h-4" /> Undo £ moves
-              </button>
-            )}
-            {confirmReset && (
-              <>
-                <span className="text-xs text-muted-foreground">
-                  {confirmReset === 'points' ? 'Put everyone back to their earned points?' : 'Undo every £ move this week?'}
-                </span>
-                <button type="button" onClick={() => reset.mutate(confirmReset)} disabled={reset.isPending}
-                  className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Yes, undo</button>
-                <button type="button" onClick={() => setConfirmReset(null)}
-                  className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Cancel</button>
-              </>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            {unit === 'money'
-              ? 'A £ move takes an amount off one person\'s total tips and gives it to another, after every pot is shared. The total stays the same.'
-              : 'Moving points is zero-sum and changes everyone\'s share of every pot shared by points.'}
-          </p>
+          {canEdit && moves.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2">
+              {!confirmReset && hasPointMoves && (
+                <button type="button" onClick={() => setConfirmReset('points')}
+                  className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+                  <RotateCcw className="w-4 h-4" /> Undo all point moves
+                </button>
+              )}
+              {!confirmReset && moves.some(m => m.kind === 'money') && (
+                <button type="button" onClick={() => setConfirmReset('money')}
+                  className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+                  <RotateCcw className="w-4 h-4" /> Undo all £ moves
+                </button>
+              )}
+              {confirmReset && (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    {confirmReset === 'points' ? 'Delete every point move this week?' : 'Delete every £ move this week?'}
+                  </span>
+                  <button type="button" onClick={() => reset.mutate(confirmReset)} disabled={reset.isPending}
+                    className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Yes, undo</button>
+                  <button type="button" onClick={() => setConfirmReset(null)}
+                    className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Cancel</button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
-      <ErrorNote error={moveM.error || reset.error} />
+      {moveOpen && (
+        <TipMoveModal data={data} base={base} setPay={setPay} hasPoints={hasPoints} onClose={() => setMoveOpen(false)} />
+      )}
+      <ErrorNote error={reset.error} />
       {manualPot && (
         <ManualShareModal pot={manualPot} data={data} base={base} setPay={setPay} onClose={() => setManualPot(null)} />
       )}

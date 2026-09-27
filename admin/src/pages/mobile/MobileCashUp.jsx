@@ -93,12 +93,12 @@ export default function MobileCashUp() {
   }
 
   // Same rule as reconCalc() in CashRecon.jsx: each day's server variance
-  // already adds back that day's cash expenses; cash wages are weekly and
-  // are added to the week only.
+  // already adds back that day's cash expenses and the wages paid that day;
+  // cash wages with no paid on day are added to the week only.
   const weekVariance = dates.reduce((sum, dateStr) => {
     const d = getDay(dateStr)
     return d?.total_income != null ? sum + d.variance : sum
-  }, 0) + Number(weekData?.wages?.total_cash_wages ?? 0)
+  }, 0) + Number(weekData?.wages?.unassigned_cash_wages ?? 0)
 
   return (
     <div className="p-3 pb-8 space-y-3">

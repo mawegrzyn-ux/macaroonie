@@ -32,7 +32,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
   fmt, parseNum, getMonday, StatusBadge, SaveIndicator,
-  defaultWageEntries, wageEntryForStaff, staffRateLabel,
+  defaultWageEntries, wageEntryForStaff, staffRateLabel, isoWeekDates, PaidDaySelect,
 } from '@/pages/CashRecon'
 
 // Compact, label-less input for a single-row entry layout — the column
@@ -152,6 +152,7 @@ export default function MobileWages() {
           rate:        et === 'fixed' ? null : parseNum(e.rate),
           total,
           cash_amount: e.paid ? total : 0,
+          paid_date:   e.paid ? (e.paid_date || null) : null,
           notes:       e.notes ?? '',
         }
       }),
@@ -166,6 +167,7 @@ export default function MobileWages() {
       try {
         await api.put(`/venues/${venueId}/cash-recon/wages/${weekStart}`, data)
         qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+        qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
         setSaved(true)
         setTimeout(() => setSaved(false), 2000)
       } catch {
@@ -218,30 +220,41 @@ export default function MobileWages() {
   // the lock — see the file header and cashRecon.js's PATCH .../paid route.
   const [payingId, setPayingId] = useState(null)
   const markPaidMutation = useMutation({
-    mutationFn: ({ id, paid }) => api.patch(`/venues/${venueId}/cash-recon/wages/${weekStart}/entries/${id}/paid`, { paid }),
+    mutationFn: ({ id, paid, paid_date }) => api.patch(`/venues/${venueId}/cash-recon/wages/${weekStart}/entries/${id}/paid`, { paid, paid_date }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] })
       qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
+      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
       setSaved(true); setSaveErr(false)
       setTimeout(() => setSaved(false), 2000)
     },
     onError: () => setSaveErr(true),
   })
 
-  function togglePaid(idx, nextPaid) {
+  // Ticking Paid also records the day the cash came out of the till: today
+  // when today is in this week, otherwise the entry keeps whatever day it
+  // had (the operator can change it in the day picker under the name).
+  const todayIso = format(new Date(), 'yyyy-MM-dd')
+  const todayInWeek = isoWeekDates(weekStart).includes(todayIso)
+
+  function applyPaid(idx, nextPaid, paidDate) {
     const entry = entries[idx]
-    setEntries(p => p.map((e, i) => i === idx ? { ...e, paid: nextPaid } : e))
+    const day = nextPaid ? (paidDate !== undefined ? paidDate : (entry.paid_date || (todayInWeek ? todayIso : null))) : null
+    const next = entries.map((e, i) => i === idx ? { ...e, paid: nextPaid, paid_date: day } : e)
+    setEntries(next)
 
     if (isSubmitted) {
       if (!entry.id) return
       setPayingId(entry.id)
-      markPaidMutation.mutate({ id: entry.id, paid: nextPaid }, {
+      markPaidMutation.mutate({ id: entry.id, paid: nextPaid, paid_date: nextPaid ? day : undefined }, {
         onSettled: () => setPayingId(null),
       })
     } else {
-      triggerSave(buildPayload(entries.map((e, i) => i === idx ? { ...e, paid: nextPaid } : e)))
+      triggerSave(buildPayload(next))
     }
   }
+
+  function togglePaid(idx, nextPaid) { applyPaid(idx, nextPaid) }
 
   const submitMutation = useMutation({
     mutationFn: (action) => api.post(`/venues/${venueId}/cash-recon/wages/${weekStart}/${action}`, buildPayload()),
@@ -311,7 +324,14 @@ export default function MobileWages() {
           <div className="divide-y">
             {entries.map((entry, idx) => (
               <div key={idx} className="flex items-center gap-2 px-3 py-2">
-                <span className="flex-1 min-w-0 text-sm font-medium truncate" title={entry.name}>{entry.name}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate" title={entry.name}>{entry.name}</div>
+                  {entry.paid && (
+                    <PaidDaySelect weekStart={weekStart} value={entry.paid_date}
+                      className="h-9 mt-1 text-xs max-w-[120px]"
+                      onChange={day => applyPaid(idx, true, day)} />
+                  )}
+                </div>
                 <RowAmountField ariaLabel={`${entry.name} — to be paid`} value={entry.total} onChange={v => updateEntry(idx, 'total', v)} onBlur={handleEntryBlur} disabled={isSubmitted} />
                 <PaidToggle ariaLabel={`${entry.name} — paid`} checked={!!entry.paid} onChange={v => togglePaid(idx, v)} pending={payingId === entry.id} />
                 {!isSubmitted && (

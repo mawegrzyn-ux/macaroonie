@@ -28,7 +28,7 @@ import { cn } from '@/lib/utils'
 import {
   fmt, parseNum, getMonday, isoWeekDates, StatusBadge, CardBadge, ScEffectBadge,
   SpreadsheetView, DayView, useReconWeek,
-  PAY_TYPES, staffRateLabel, wageEntryForStaff, defaultWageEntries,
+  PAY_TYPES, staffRateLabel, wageEntryForStaff, defaultWageEntries, PaidDaySelect,
 } from '@/pages/CashRecon'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 
@@ -300,6 +300,7 @@ function DayBalanceWidget({ venueId, ctx }) {
           <Row label="Total takings" value={calc.dayTotal(date, 'takings')} />
           <Row label="Expenses (cash)" value={calc.dayExpenses(date)} />
           {card > 0 && <Row label="Paid by card (not in recon)" value={card} muted />}
+          {calc.dayWages(date) > 0 && <Row label="Wages paid (cash)" value={calc.dayWages(date)} />}
           <Row label="Variance" value={calc.variance(date)} tone="var" bold />
         </>
       )}
@@ -598,6 +599,7 @@ function WeekStaffWidget({ venueId, ctx }) {
           rate:        hourly ? parseNum(e.rate) : null,
           total,
           cash_amount: fullyPaid ? total : savedCash,
+          paid_date:   (fullyPaid || savedCash > 0) ? (saved?.paid_date ?? e.paid_date ?? null) : null,
           notes:       e.notes || null,
         }
       }),
@@ -845,7 +847,7 @@ function WagesPaidWidget({ venueId, ctx }) {
   // The dedicated paid endpoint works whether or not the week's wages are
   // submitted — marking staff paid happens after the report is final.
   const markPaid = useMutation({
-    mutationFn: ({ id, paid }) => api.patch(`/venues/${venueId}/cash-recon/wages/${weekStart}/entries/${id}/paid`, { paid }),
+    mutationFn: ({ id, paid, paid_date }) => api.patch(`/venues/${venueId}/cash-recon/wages/${weekStart}/entries/${id}/paid`, { paid, paid_date }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] })
       qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
@@ -854,6 +856,9 @@ function WagesPaidWidget({ venueId, ctx }) {
   })
 
   if (isLoading) return <Loading />
+  // Ticking Paid records the day the cash came out of the till: the entry's
+  // existing day, else the day selected on the dashboard.
+  const dayFor = e => e.paid_date || ctx.selectedDay || null
   const entries = (wagesData?.entries ?? []).filter(e => e.id)
   if (entries.length === 0) {
     return (
@@ -878,11 +883,17 @@ function WagesPaidWidget({ venueId, ctx }) {
           const pending = markPaid.isPending && markPaid.variables?.id === e.id
           return (
             <div key={e.id} className="flex items-center gap-3 py-1.5 px-1">
-              <span className="flex-1 min-w-0 truncate text-sm">{e.name}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block truncate text-sm">{e.name}</span>
+                {isPaid && (
+                  <PaidDaySelect weekStart={weekStart} value={e.paid_date} className="h-9 mt-0.5 text-xs"
+                    onChange={day => markPaid.mutate({ id: e.id, paid: true, paid_date: day })} />
+                )}
+              </span>
               <span className="text-sm tabular-nums">{fmt(entryTotal(e))}</span>
               <button type="button" role="checkbox" aria-checked={isPaid} aria-label={`${e.name} paid`}
                 disabled={pending}
-                onClick={() => markPaid.mutate({ id: e.id, paid: !isPaid })}
+                onClick={() => markPaid.mutate(isPaid ? { id: e.id, paid: false } : { id: e.id, paid: true, paid_date: dayFor(e) })}
                 className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg touch-manipulation hover:bg-accent disabled:opacity-50">
                 <span className={cn(
                   'w-6 h-6 rounded-md border-2 flex items-center justify-center',

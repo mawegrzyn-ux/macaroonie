@@ -183,6 +183,7 @@ const WageEntrySchema = z.object({
   rate:        z.coerce.number().min(0).nullable().optional(),
   total:       z.coerce.number().min(0).default(0),
   cash_amount: z.coerce.number().min(0).default(0),
+  paid_date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   notes:       z.string().max(1000).nullable().optional(),
 })
 
@@ -283,6 +284,36 @@ async function loadDailyReport(tx, tenantId, reportId) {
   return { ...report, income_entries: income, takings_entries: takings, sc_entries: sc, expenses }
 }
 
+/** A `date` column value (postgres.js gives a Date) as 'YYYY-MM-DD', or null. */
+function isoDate(v) {
+  if (v == null) return null
+  return v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10)
+}
+
+/** The seven 'YYYY-MM-DD' dates of the week starting on Monday `mondayStr`. */
+function weekDatesOf(mondayStr) {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(`${mondayStr}T00:00:00Z`)
+    d.setUTCDate(d.getUTCDate() + i)
+    return d.toISOString().slice(0, 10)
+  })
+}
+
+/** Cash wages paid out of the till per day for a venue week: { date: amount }. */
+async function wagesCashByDate(tx, tenantId, venueId, mondayStr) {
+  const rows = await tx`
+    SELECT we.paid_date::text AS paid_date, COALESCE(SUM(we.cash_amount), 0)::float8 AS cash
+      FROM cash_wage_entries we
+      JOIN cash_wage_reports wr ON wr.id = we.wage_report_id
+     WHERE wr.tenant_id  = ${tenantId}
+       AND wr.venue_id   = ${venueId}
+       AND wr.week_start = ${mondayStr}::date
+       AND we.paid_date IS NOT NULL
+     GROUP BY we.paid_date
+  `
+  return Object.fromEntries(rows.map(r => [r.paid_date, r.cash]))
+}
+
 /**
  * Load a wage report header plus all its entries.
  * Must be called from inside a withTenant callback.
@@ -305,6 +336,8 @@ async function loadWageReport(tx, tenantId, wageReportId) {
        AND e.tenant_id      = ${tenantId}
      ORDER BY e.name
   `
+  // paid_date is a plain date: send it as 'YYYY-MM-DD', not a Date object.
+  for (const e of entries) e.paid_date = isoDate(e.paid_date)
   return { ...report, entries }
 }
 
@@ -918,26 +951,33 @@ export default async function cashReconRoutes(app) {
       `
 
       const reportByDate = Object.fromEntries(reports.map(r => [r.report_date, r]))
+      const wagesByDate  = await wagesCashByDate(tx, req.tenantId, venueId, mondayStr)
 
-      // Day variance = Takings + cash paid out of the till that day (expenses)
-      // − (Income + SC adjustment). Staff pay expenses before counting, so the
-      // counted takings are already short by that amount. Cash wages are weekly
-      // and are added to the week's variance only (wages.total_cash_wages).
+      // Day variance = Takings + cash paid out of the till that day (expenses
+      // and wages with that paid_date) − (Income + SC adjustment). Staff pay
+      // these before counting, so the counted takings are already short by
+      // them. Cash wages with no paid_date only count in the week's variance
+      // (wages.unassigned_cash_wages).
       const days = weekDates.map(date => {
         const r = reportByDate[date]
         if (!r) return { date, status: null }
         const income   = Number(r.total_income)
         const takings  = Number(r.total_takings)
         const expenses = Number(r.total_expenses)
+        const wagesPaid = wagesByDate[date] ?? 0
         return {
           date,
           status:         r.status,
           total_income:   income,
           total_takings:  takings,
           total_expenses: expenses,
-          variance:       takings + expenses - (income + Number(r.sc_adjustment)),
+          wages_cash:     wagesPaid,
+          variance:       takings + expenses + wagesPaid - (income + Number(r.sc_adjustment)),
         }
       })
+      // Wages paid on a day with no daily report yet can't balance any day,
+      // so they stay in the week-only figure too.
+      const assignedToReportedDays = days.reduce((s, d) => s + (d.wages_cash ?? 0), 0)
 
       // Fetch wage report for this week
       const [wageReport] = await tx`
@@ -954,8 +994,13 @@ export default async function cashReconRoutes(app) {
       `
 
       const wages = wageReport
-        ? { status: wageReport.status, total_wages: Number(wageReport.total_wages), total_cash_wages: Number(wageReport.total_cash_wages) }
-        : { status: null, total_wages: 0, total_cash_wages: 0 }
+        ? {
+            status: wageReport.status,
+            total_wages: Number(wageReport.total_wages),
+            total_cash_wages: Number(wageReport.total_cash_wages),
+            unassigned_cash_wages: Math.round((Number(wageReport.total_cash_wages) - assignedToReportedDays) * 100) / 100,
+          }
+        : { status: null, total_wages: 0, total_cash_wages: 0, unassigned_cash_wages: 0 }
 
       return { days, wages }
     })
@@ -1063,6 +1108,8 @@ export default async function cashReconRoutes(app) {
         wages_total:      wages ? String(wages.total_wages) : null,
         wages_cash_total: wages ? String(wages.total_cash_wages) : null,
         wages_status:     wages?.status ?? null,
+        // Cash wages paid out of the till per day (by paid_date).
+        wages_cash_by_date: await wagesCashByDate(tx, req.tenantId, venueId, weekStart),
       }
     })
   })
@@ -1574,6 +1621,10 @@ export default async function cashReconRoutes(app) {
       if (report.status === 'submitted') {
         throw httpError(422, 'Cannot edit a submitted wage report — unsubmit first')
       }
+      const inWeek = new Set(weekDatesOf(mondayStr))
+      if (body.entries.some(e => e.paid_date && !inWeek.has(e.paid_date))) {
+        throw httpError(422, 'Paid on must be a day in this week')
+      }
 
       // Replace all entries (DELETE + INSERT)
       await tx`
@@ -1594,6 +1645,7 @@ export default async function cashReconRoutes(app) {
             rate:           e.rate ?? null,
             total:          e.total,
             cash_amount:    e.cash_amount,
+            paid_date:      e.paid_date ?? null,
             notes:          e.notes ?? null,
           })))}
         `
@@ -1616,7 +1668,12 @@ export default async function cashReconRoutes(app) {
     preHandler: requireRole('operator', 'admin', 'owner'),
   }, async (req) => {
     const { venueId, week_start, entryId } = req.params
-    const { paid } = z.object({ paid: z.boolean() }).parse(req.body)
+    // paid_date: the day the cash came out of the till. Omitted = keep the
+    // entry's current day; unticking Paid clears it.
+    const { paid, paid_date } = z.object({
+      paid:      z.boolean(),
+      paid_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    }).parse(req.body)
     const mondayStr = toMondayStr(week_start)
 
     return withTenant(req.tenantId, async tx => {
@@ -1637,13 +1694,60 @@ export default async function cashReconRoutes(app) {
            AND tenant_id      = ${req.tenantId}
       `
       if (!entry) throw httpError(404, 'Wage entry not found')
+      if (paid_date && !weekDatesOf(mondayStr).includes(paid_date)) {
+        throw httpError(422, 'Paid on must be a day in this week')
+      }
 
-      await tx`
-        UPDATE cash_wage_entries
-           SET cash_amount = ${paid ? entry.total : 0}
-         WHERE id = ${entryId}
+      if (!paid) {
+        await tx`
+          UPDATE cash_wage_entries SET cash_amount = 0, paid_date = NULL
+           WHERE id = ${entryId}
+        `
+      } else if (paid_date !== undefined) {
+        await tx`
+          UPDATE cash_wage_entries SET cash_amount = ${entry.total}, paid_date = ${paid_date}
+           WHERE id = ${entryId}
+        `
+      } else {
+        await tx`
+          UPDATE cash_wage_entries SET cash_amount = ${entry.total}
+           WHERE id = ${entryId}
+        `
+      }
+
+      return loadWageReport(tx, req.tenantId, report.id)
+    })
+  })
+
+  // PATCH /:venueId/cash-recon/wages/:week_start/entries/:entryId/paid-date
+  // Sets only the day a wage came out of the till. Like .../paid above, this
+  // works on a submitted report: recording when cash was handed over is a
+  // separate step from finalising the amounts.
+  app.patch('/:venueId/cash-recon/wages/:week_start/entries/:entryId/paid-date', {
+    preHandler: requireRole('operator', 'admin', 'owner'),
+  }, async (req) => {
+    const { venueId, week_start, entryId } = req.params
+    const { paid_date } = z.object({
+      paid_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    }).parse(req.body)
+    const mondayStr = toMondayStr(week_start)
+    if (paid_date && !weekDatesOf(mondayStr).includes(paid_date)) {
+      throw httpError(422, 'Paid on must be a day in this week')
+    }
+
+    return withTenant(req.tenantId, async tx => {
+      await assertVenueOwnership(tx, req.tenantId, venueId)
+      const [report] = await tx`
+        SELECT id FROM cash_wage_reports
+         WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId} AND week_start = ${mondayStr}::date
       `
-
+      if (!report) throw httpError(404, 'Wage report not found')
+      const [row] = await tx`
+        UPDATE cash_wage_entries SET paid_date = ${paid_date}
+         WHERE id = ${entryId} AND wage_report_id = ${report.id} AND tenant_id = ${req.tenantId}
+        RETURNING id
+      `
+      if (!row) throw httpError(404, 'Wage entry not found')
       return loadWageReport(tx, req.tenantId, report.id)
     })
   })
