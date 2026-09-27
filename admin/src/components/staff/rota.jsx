@@ -677,21 +677,172 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
 
 // ── Tips ──────────────────────────────────────────────────────
 
-/** Tip pot, points per person, manual point moves and each person's share. */
+const DIST_LABEL = { points: 'By points', manual: 'Manual', house: 'Kept by house' }
+
+function tipRows(data) {
+  return data.rows.filter(r => r.entry_count > 0 || r.tip_share > 0 || r.points_adjustment !== 0)
+}
+
+function moneyInput(v) {
+  return v.replace(/[^0-9.]/g, '')
+}
+
+/** One pot: where its money comes from (sources, manual lines) and what happened to it. */
+function PotCard({ pot, data, canEdit, base, setPay, onEditManual }) {
+  const api = useApi()
+  const saved = useMemo(() => Object.fromEntries(pot.lines.map(l => [l.id, l.amount ? String(l.amount) : ''])), [pot.lines])
+  const [draft, setDraft] = useState(saved)
+  useEffect(() => setDraft(saved), [saved])
+  const dirty = pot.lines.some(l => (draft[l.id] ?? '') !== (saved[l.id] ?? ''))
+  const saveLines = useMutation({
+    mutationFn: () => api.put(`${base}/pot-lines`, {
+      amounts: pot.lines.map(l => ({ line_id: l.id, amount: draft[l.id] === '' || draft[l.id] == null ? null : Number(draft[l.id]) })),
+    }),
+    onSuccess: setPay,
+  })
+
+  return (
+    <div className="rounded-xl border overflow-hidden">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b bg-muted/40">
+        <span className="text-sm font-semibold flex-1 min-w-0 truncate">{pot.name}</span>
+        <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary">{DIST_LABEL[pot.distribution]}</span>
+        <span className="text-base font-semibold tabular-nums">{fmt(pot.total)}</span>
+      </div>
+      <div className="px-3 py-2 space-y-1 text-sm">
+        {pot.sources.length === 0 && pot.lines.length === 0 && (
+          <p className="text-xs text-muted-foreground">No sources or manual lines for this venue. Set them in Rota setup.</p>
+        )}
+        {pot.sources.map(src => (
+          <div key={src.id} className="flex items-center gap-2">
+            <span className="flex-1 min-w-0 truncate text-muted-foreground">{src.name} <span className="text-[11px]">(Cash Recon)</span></span>
+            <span className="tabular-nums">{fmt(src.amount)}</span>
+          </div>
+        ))}
+        {pot.lines.map(l => (
+          <div key={l.id} className="flex items-center gap-2 min-h-[44px]">
+            <span className="flex-1 min-w-0 truncate">{l.name}</span>
+            {canEdit ? (
+              <input className="h-10 w-28 rounded-lg border bg-background px-2 text-sm text-right tabular-nums touch-manipulation"
+                inputMode="decimal" placeholder="0.00" aria-label={`${l.name} amount`}
+                value={draft[l.id] ?? ''} onChange={e => setDraft(d => ({ ...d, [l.id]: moneyInput(e.target.value) }))} />
+            ) : <span className="tabular-nums">{fmt(l.amount)}</span>}
+          </div>
+        ))}
+        {canEdit && dirty && (
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={() => setDraft(saved)}
+              className="h-10 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Discard</button>
+            <button type="button" onClick={() => saveLines.mutate()} disabled={saveLines.isPending}
+              className="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-xs font-medium touch-manipulation disabled:opacity-50">Save amounts</button>
+          </div>
+        )}
+        <ErrorNote error={saveLines.error} />
+        <div className="pt-1 border-t mt-1 text-xs">
+          {pot.distribution === 'house' && <p className="text-muted-foreground">Kept by the house, not shared with staff.</p>}
+          {pot.distribution === 'points' && (
+            <p className="text-muted-foreground">
+              Shared by points.{' '}
+              {data.tip_rounding && (data.tip_rounding.mode === 'nearest'
+                ? `Rounded to the nearest ${fmt(data.tip_rounding.to)}. `
+                : `Rounded ${data.tip_rounding.mode} to a multiple of ${fmt(data.tip_rounding.to)}. `)}
+              {pot.difference > 0 && <span className="text-amber-700 font-medium">Pays out {fmt(pot.difference)} more than the pot.</span>}
+              {pot.difference < 0 && <span className="text-amber-700 font-medium">{fmt(-pot.difference)} left over.</span>}
+            </p>
+          )}
+          {pot.distribution === 'manual' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={cn('flex-1', pot.difference === 0 ? 'text-green-700' : 'text-amber-700 font-medium')}>
+                Shared {fmt(pot.distributed)} of {fmt(pot.total)}
+                {pot.difference < 0 && ` (${fmt(-pot.difference)} still to share)`}
+                {pot.difference > 0 && ` (${fmt(pot.difference)} more than the pot)`}
+              </span>
+              {canEdit && (
+                <button type="button" onClick={() => onEditManual(pot)}
+                  className="h-10 px-3 rounded-lg border text-xs font-medium touch-manipulation hover:bg-muted">Share amounts</button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ManualShareModal({ pot, data, base, setPay, onClose }) {
+  const api = useApi()
+  const people = data.rows
+  const [amounts, setAmounts] = useState(() => Object.fromEntries(people.map(r => {
+    const v = r.pot_shares[pot.id]
+    return [r.staff_id, v ? String(v) : '']
+  })))
+  const total = Object.values(amounts).reduce((s, v) => s + (Number(v) || 0), 0)
+  const left = Math.round((pot.total - total) * 100) / 100
+  const save = useMutation({
+    mutationFn: () => api.put(`${base}/pots/${pot.id}/manual`, {
+      amounts: Object.entries(amounts).map(([staff_id, v]) => ({ staff_id, amount: v === '' ? null : Number(v) })),
+    }),
+    onSuccess: d => { setPay(d); onClose() },
+  })
+  function splitEvenly() {
+    const withShifts = people.filter(r => r.entry_count > 0)
+    const list = withShifts.length ? withShifts : people
+    if (!list.length) return
+    const pence = Math.round(pot.total * 100)
+    const each = Math.floor(pence / list.length)
+    let rest = pence - each * list.length
+    setAmounts(Object.fromEntries(people.map(r => {
+      if (!list.includes(r)) return [r.staff_id, '']
+      const p = each + (rest-- > 0 ? 1 : 0)
+      return [r.staff_id, (p / 100).toFixed(2)]
+    })))
+  }
+
+  return (
+    <Modal title={`Share ${pot.name}`} onClose={onClose}
+      footer={<>
+        <button type="button" onClick={() => save.mutate()} disabled={save.isPending}
+          className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
+        </button>
+        <button type="button" onClick={splitEvenly}
+          className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted">Split evenly</button>
+      </>}>
+      <div className={cn('rounded-lg px-3 py-2 text-sm', left === 0 ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800')}>
+        Pot {fmt(pot.total)} · shared {fmt(total)} · {left >= 0 ? `${fmt(left)} left` : `${fmt(-left)} over`}
+      </div>
+      <p className="text-[11px] text-muted-foreground">Split evenly shares the pot equally between everyone on the rota this week.</p>
+      <div className="rounded-lg border divide-y">
+        {people.map(r => (
+          <div key={r.staff_id} className="flex items-center gap-2 px-3 min-h-[48px]">
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm truncate">{r.name}</span>
+              <span className="block text-[11px] text-muted-foreground">
+                {r.role_name ?? 'No role'}{r.entry_count ? ` · ${fmtHours(r.hours)}` : ' · not on the rota'}
+              </span>
+            </span>
+            <span className="text-sm text-muted-foreground">£</span>
+            <input className="h-10 w-24 rounded-lg border bg-background px-2 text-sm text-right tabular-nums touch-manipulation"
+              inputMode="decimal" placeholder="0.00" aria-label={`${r.name} amount`}
+              value={amounts[r.staff_id] ?? ''} onChange={e => setAmounts(a => ({ ...a, [r.staff_id]: moneyInput(e.target.value) }))} />
+          </div>
+        ))}
+      </div>
+      <ErrorNote error={save.error} />
+    </Modal>
+  )
+}
+
+/** Tip pots for the week, each person's share of every pot, and point moves. */
 export function RotaTipsTable({ venueId, weekStart, canEdit }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data, isLoading, error } = useRotaPay(venueId, weekStart)
-  const [editPot, setEditPot] = useState(false)
   const [move, setMove] = useState({ from: '', to: '', points: '' })
   const [confirmReset, setConfirmReset] = useState(false)
+  const [manualPot, setManualPot] = useState(null)
   const setPay = d => qc.setQueryData(['rota-pay', venueId, weekStart], d)
   const base = `/rota/venues/${venueId}/weeks/${weekStart}`
 
-  const pot = useMutation({
-    mutationFn: tip_pot_override => api.patch(`${base}/tip-pot`, { tip_pot_override }),
-    onSuccess: d => { setPay(d); setEditPot(false) },
-  })
   const moveM = useMutation({
     mutationFn: () => api.post(`${base}/move-points`, { from_staff_id: move.from, to_staff_id: move.to, points: Number(move.points) }),
     onSuccess: d => { setPay(d); setMove({ from: '', to: '', points: '' }) },
@@ -703,46 +854,31 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
 
   if (isLoading) return <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
   if (error) return <ErrorNote error={error} />
-  const rows = rostered(data.rows)
-  const tp = data.tip_pot
+
+  const pots = data.pots ?? []
+  if (!pots.length) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">No tip pots set up yet. Add one in Rota setup.</p>
+  }
+  const sharedPots = pots.filter(p => p.distribution !== 'house')
+  const hasPoints = pots.some(p => p.distribution === 'points')
+  const rows = tipRows(data)
   const hasAdjustments = data.rows.some(r => r.points_adjustment !== 0)
   const fromRow = data.rows.find(r => r.staff_id === move.from)
   const moveOk = move.from && move.to && move.from !== move.to && Number(move.points) > 0 && fromRow && Number(move.points) <= fromRow.points
 
   return (
     <div className="space-y-3">
-      <div className="rounded-xl border p-3 space-y-1.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold flex-1">Tip pot</span>
-          {editPot ? (
-            <MoneyEdit value={tp.override} placeholder={String(tp.from_service_charge)} saving={pot.isPending}
-              onSave={v => pot.mutate(v)} onClear={tp.override != null ? () => pot.mutate(null) : null} />
-          ) : (
-            <button type="button" disabled={!canEdit} onClick={() => setEditPot(true)}
-              className={cn('min-h-[40px] px-2 rounded-lg text-lg font-semibold tabular-nums touch-manipulation', canEdit && 'hover:bg-muted underline decoration-dotted underline-offset-4')}>
-              {fmt(tp.value)}
-            </button>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {tp.override != null
-            ? <>Set by hand. Service charge / tips to staff this week: {fmt(tp.from_service_charge)}.</>
-            : <>From Cash Recon service charge / tips sources set to "Distributed to Staff".</>}
-          {tp.split_sources > 0 && <> Split sources add a further {fmt(tp.split_sources)}; include any staff part by setting the pot by hand.</>}
-        </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {pots.map(p => (
+          <PotCard key={p.id} pot={p} data={data} canEdit={canEdit} base={base} setPay={setPay} onEditManual={setManualPot} />
+        ))}
       </div>
+      <p className="text-xs text-muted-foreground">
+        Tips in {fmt(data.totals.tips_in)} · shared with staff {fmt(data.totals.tips_shared)}
+        {data.totals.kept_by_house > 0 && ` · kept by the house ${fmt(data.totals.kept_by_house)}`}
+      </p>
 
-      {data.tip_rounding && (
-        <p className="text-xs text-muted-foreground">
-          {data.tip_rounding.mode === 'nearest'
-            ? `Shares rounded to the nearest ${fmt(data.tip_rounding.to)}`
-            : `Shares rounded ${data.tip_rounding.mode} to a multiple of ${fmt(data.tip_rounding.to)}`} (set in Rota setup).{' '}
-          {data.totals.rounding_difference > 0 && <span className="text-amber-700 font-medium">Pays out {fmt(data.totals.rounding_difference)} more than the pot.</span>}
-          {data.totals.rounding_difference < 0 && <span className="text-amber-700 font-medium">{fmt(-data.totals.rounding_difference)} of the pot left over.</span>}
-          {data.totals.rounding_difference === 0 && <span>Adds up exactly to the pot.</span>}
-        </p>
-      )}
-      {rows.length === 0 ? (
+      {sharedPots.length > 0 && (rows.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">Nobody on the rota this week.</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border">
@@ -750,11 +886,13 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
             <thead className="bg-muted text-xs text-muted-foreground">
               <tr>
                 <th className="text-left px-3 py-2 font-medium">Staff</th>
-                <th className="text-right px-2 py-2 font-medium" title="Shift points x role multiplier">Earned</th>
-                <th className="text-right px-2 py-2 font-medium">Moved</th>
-                <th className="text-right px-2 py-2 font-medium">Points</th>
-                <th className="text-right px-2 py-2 font-medium">Share</th>
-                <th className="text-right px-3 py-2 font-medium">Tips</th>
+                {hasPoints && <>
+                  <th className="text-right px-2 py-2 font-medium" title="Shift points x role multiplier">Earned</th>
+                  <th className="text-right px-2 py-2 font-medium">Moved</th>
+                  <th className="text-right px-2 py-2 font-medium">Points</th>
+                </>}
+                {sharedPots.map(p => <th key={p.id} className="text-right px-2 py-2 font-medium whitespace-nowrap">{p.name}</th>)}
+                {sharedPots.length > 1 && <th className="text-right px-3 py-2 font-medium">Total</th>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -762,39 +900,51 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
                 <tr key={r.staff_id}>
                   <td className="px-3 py-1.5">
                     <div className="font-medium truncate max-w-[160px]">{r.name}</div>
-                    <div className="text-[11px] text-muted-foreground">{r.role_name ?? 'No role'} ×{Number(r.role_multiplier).toFixed(2)}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {r.role_name ?? 'No role'}{hasPoints ? ` ×${Number(r.role_multiplier).toFixed(2)}` : ''}
+                    </div>
                   </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{r.base_points}</td>
-                  <td className={cn('px-2 py-1.5 text-right tabular-nums', r.points_adjustment > 0 ? 'text-green-700' : r.points_adjustment < 0 ? 'text-red-600' : 'text-muted-foreground')}>
-                    {r.points_adjustment > 0 ? '+' : ''}{r.points_adjustment || '–'}
-                  </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums font-medium">{r.points}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-muted-foreground">
-                    {data.totals.points > 0 ? `${Math.round((r.points / data.totals.points) * 1000) / 10}%` : '–'}
-                  </td>
-                  <td className="px-3 py-1.5 text-right tabular-nums font-medium">
-                    {fmt(r.tip_share)}
-                    {data.tip_rounding && r.tip_share !== r.tip_share_exact && (
-                      <span className="block text-[10px] font-normal text-muted-foreground">exact {fmt(r.tip_share_exact)}</span>
-                    )}
-                  </td>
+                  {hasPoints && <>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{r.base_points}</td>
+                    <td className={cn('px-2 py-1.5 text-right tabular-nums', r.points_adjustment > 0 ? 'text-green-700' : r.points_adjustment < 0 ? 'text-red-600' : 'text-muted-foreground')}>
+                      {r.points_adjustment > 0 ? '+' : ''}{r.points_adjustment || '–'}
+                    </td>
+                    <td className="px-2 py-1.5 text-right tabular-nums font-medium">
+                      {r.points}
+                      {data.totals.points > 0 && (
+                        <span className="block text-[10px] font-normal text-muted-foreground">{Math.round((r.points / data.totals.points) * 1000) / 10}%</span>
+                      )}
+                    </td>
+                  </>}
+                  {sharedPots.map(p => {
+                    const v = r.pot_shares[p.id] ?? 0
+                    const exact = r.pot_shares_exact?.[p.id]
+                    return (
+                      <td key={p.id} className="px-2 py-1.5 text-right tabular-nums">
+                        {v ? fmt(v) : '–'}
+                        {exact != null && exact !== v && (
+                          <span className="block text-[10px] text-muted-foreground">exact {fmt(exact)}</span>
+                        )}
+                      </td>
+                    )
+                  })}
+                  {sharedPots.length > 1 && <td className="px-3 py-1.5 text-right tabular-nums font-semibold">{fmt(r.tip_share)}</td>}
                 </tr>
               ))}
             </tbody>
             <tfoot className="border-t bg-muted/40 font-semibold">
               <tr>
                 <td className="px-3 py-2">Total</td>
-                <td colSpan={2} />
-                <td className="px-2 py-2 text-right tabular-nums">{data.totals.points}</td>
-                <td />
-                <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.tips_shared)}</td>
+                {hasPoints && <><td colSpan={2} /><td className="px-2 py-2 text-right tabular-nums">{data.totals.points}</td></>}
+                {sharedPots.map(p => <td key={p.id} className="px-2 py-2 text-right tabular-nums">{fmt(p.distributed)}</td>)}
+                {sharedPots.length > 1 && <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.tips_shared)}</td>}
               </tr>
             </tfoot>
           </table>
         </div>
-      )}
+      ))}
 
-      {canEdit && data.rows.length > 1 && (
+      {canEdit && hasPoints && data.rows.length > 1 && (
         <div className="rounded-xl border p-3 space-y-2">
           <p className="text-sm font-semibold">Move points</p>
           <div className="flex flex-wrap items-center gap-2">
@@ -810,7 +960,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
               {data.rows.filter(r => r.staff_id !== move.from).map(r => <option key={r.staff_id} value={r.staff_id}>{r.name}</option>)}
             </select>
             <input className={cn(inputCls, 'w-24')} inputMode="decimal" placeholder="Points" aria-label="Points to move"
-              value={move.points} onChange={e => setMove(m => ({ ...m, points: e.target.value.replace(/[^0-9.]/g, '') }))} />
+              value={move.points} onChange={e => setMove(m => ({ ...m, points: moneyInput(e.target.value) }))} />
             <button type="button" onClick={() => moveM.mutate()} disabled={!moveOk || moveM.isPending}
               className="h-11 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50">Move</button>
           </div>
@@ -831,10 +981,13 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
               </>
             )}
           </div>
-          <p className="text-[11px] text-muted-foreground">Moving points is zero-sum: the total stays the same, only the split changes.</p>
+          <p className="text-[11px] text-muted-foreground">Moving points is zero-sum and applies to every pot shared by points.</p>
         </div>
       )}
-      <ErrorNote error={pot.error || moveM.error || reset.error} />
+      <ErrorNote error={moveM.error || reset.error} />
+      {manualPot && (
+        <ManualShareModal pot={manualPot} data={data} base={base} setPay={setPay} onClose={() => setManualPot(null)} />
+      )}
     </div>
   )
 }

@@ -26,10 +26,17 @@
 //     fixed / shift      sum(shift amount x fraction worked); shift amount =
 //                        staff_shift_rates.rate, else default_rate.
 //     A pay_override for the week replaces the computed pay.
-//   Tip share = tip pot x person's points / everyone's points, then rounded
-//             to a multiple of tipRounding.to (nearest / up / down) when set.
-//             Rounding can make the shares add up to slightly more or less
-//             than the pot; totals.rounding_difference reports it.
+//   Tip pots (tip_pots, migration 108): each pot's total is its allocated
+//   service charge sources plus its manual lines for the week. By the pot's
+//   distribution:
+//     house   kept by the house, nobody gets a share.
+//     points  pot x person's points / everyone's points, then rounded to a
+//             multiple of tipRounding.to (nearest / up / down) when set.
+//     manual  whatever payroll entered per person for that pot.
+//   A person's tip_share is the sum of their shares across pots. Each pot
+//   reports distributed and difference (distributed - total): rounding can
+//   push a points pot slightly over or under; a manual pot is under while
+//   not everything has been handed out.
 
 export function toMinutes(t) {
   if (t == null) return null
@@ -83,7 +90,7 @@ export function periodsOverlap(periods) {
  * @param {Array}  p.weekStaff  rota_week_staff rows (points_adjustment, pay_override)
  * @param {number} p.tipPot     amount to share out
  */
-export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], tipPot = 0, tipRounding = null }) {
+export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], pots = [], tipRounding = null }) {
   const shiftById = new Map(shifts.map(s => [s.id, { ...s, span: span(s.start_time, s.end_time) }]))
   const adjByStaff = new Map(weekStaff.map(w => [w.staff_id, w]))
 
@@ -174,24 +181,59 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], tipPot
   })
 
   const totalPoints = round2(rows.reduce((s, r) => s + r.points, 0))
-  const pot = round2(num(tipPot))
   const roundTo = tipRounding?.to ? num(tipRounding.to) : null
   const roundMode = tipRounding?.mode ?? 'nearest'
+  for (const r of rows) { r.pot_shares = {}; r.pot_shares_exact = {}; r.tip_share = 0 }
+
+  const potSummaries = pots.map(pot => {
+    const lines = (pot.lines ?? []).map(l => ({ ...l, amount: round2(num(l.amount)) }))
+    const sourcesTotal = round2(num(pot.sources_total))
+    const total = round2(sourcesTotal + lines.reduce((s, l) => s + l.amount, 0))
+    let distributed = 0
+    if (pot.distribution === 'points') {
+      for (const r of rows) {
+        const exact = totalPoints > 0 ? round2(total * r.points / totalPoints) : 0
+        const share = roundTo ? roundTip(exact, roundTo, roundMode) : exact
+        r.pot_shares_exact[pot.id] = exact
+        r.pot_shares[pot.id] = share
+        distributed += share
+      }
+    } else if (pot.distribution === 'manual') {
+      const manual = pot.manual ?? {}
+      for (const r of rows) {
+        const share = round2(num(manual[r.staff_id]))
+        r.pot_shares[pot.id] = share
+        distributed += share
+      }
+    }
+    distributed = round2(distributed)
+    return {
+      id: pot.id,
+      name: pot.name,
+      distribution: pot.distribution,
+      sources_total: sourcesTotal,
+      sources: pot.sources ?? [],
+      lines,
+      total,
+      distributed,
+      kept_by_house: pot.distribution === 'house' ? total : 0,
+      difference: pot.distribution === 'house' ? 0 : round2(distributed - total),
+    }
+  })
   for (const r of rows) {
-    r.tip_share_exact = totalPoints > 0 ? round2(pot * r.points / totalPoints) : 0
-    r.tip_share = roundTo ? roundTip(r.tip_share_exact, roundTo, roundMode) : r.tip_share_exact
+    r.tip_share = round2(Object.values(r.pot_shares).reduce((s, v) => s + v, 0))
   }
-  const tipsShared = round2(rows.reduce((s, r) => s + r.tip_share, 0))
 
   return {
     rows,
+    pots: potSummaries,
     totals: {
       hours:  round2(rows.reduce((s, r) => s + r.hours, 0)),
       pay:    round2(rows.reduce((s, r) => s + r.pay, 0)),
       points: totalPoints,
-      tip_pot: pot,
-      tips_shared: tipsShared,
-      rounding_difference: round2(tipsShared - pot),
+      tips_in:     round2(potSummaries.reduce((s, p) => s + p.total, 0)),
+      tips_shared: round2(rows.reduce((s, r) => s + r.tip_share, 0)),
+      kept_by_house: round2(potSummaries.reduce((s, p) => s + p.kept_by_house, 0)),
     },
     tip_rounding: roundTo ? { to: roundTo, mode: roundMode } : null,
   }

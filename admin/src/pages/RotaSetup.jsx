@@ -15,6 +15,7 @@ import {
   useRotaSetup, PageHeader, SortableRows, Modal, Field, inputCls, ConfirmDelete, ErrorNote,
   Segmented, TimeSelect, hhmm, rangeMinutes, fmtHours,
 } from '@/components/staff/shared'
+import { TipPotsSection } from '@/components/staff/TipPotsSetup'
 
 const MODES = [
   { value: 'day_parts', label: 'Day parts' },
@@ -81,7 +82,7 @@ function SettingsCard({ settings }) {
         )}
         <Field label="Round tip shares to (£)"
           hint={roundTo === ''
-            ? 'Blank = to the penny. e.g. 0.50 rounds each share to the nearest 50p, 5 to the nearest £5.'
+            ? 'Applies to tip pots shared by points. Blank = to the penny. e.g. 0.50 rounds each share to the nearest 50p, 5 to the nearest £5.'
             : 'Each person\'s share is rounded to a multiple of this. The Tips table shows how far the rounded total is from the pot.'}>
           <div className="flex flex-wrap items-center gap-2">
             <input className="h-11 w-28 rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40" inputMode="decimal" placeholder="0.01" value={roundTo}
@@ -237,6 +238,7 @@ export default function RotaSetup() {
                   )} />
                 )}
               </section>
+              <TipPotsSection pots={setup.pots ?? []} />
             </>
           )}
         </div>

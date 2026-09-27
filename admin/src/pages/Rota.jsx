@@ -35,7 +35,7 @@ export default function Rota() {
                   <RotaPayTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} />
                 </section>
                 <section className="space-y-2 min-w-0">
-                  <h2 className="text-sm font-semibold">Tips by points</h2>
+                  <h2 className="text-sm font-semibold">Tips</h2>
                   <RotaTipsTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} />
                 </section>
               </div>

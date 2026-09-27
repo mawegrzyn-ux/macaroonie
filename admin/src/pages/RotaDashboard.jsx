@@ -27,14 +27,14 @@ function TipsHeader({ venueId, ctx }) {
   const { canSeePay } = useRotaPerms()
   const { data } = useRotaPay(venueId, ctx.weekStart, canSeePay)
   if (!data) return null
-  return <span className="text-sm font-semibold tabular-nums">{fmt(data.tip_pot.value)}</span>
+  return <span className="text-sm font-semibold tabular-nums">{fmt(data.totals.tips_shared)}</span>
 }
 
 export const ROTA_WIDGET_TYPES = [
   { key: 'rota_grid',     label: 'Rota grid',       icon: CalendarRange, defaultTitle: 'Rota' },
   { key: 'rota_today',    label: "Who's on",        icon: Users,         defaultTitle: "Who's on" },
   { key: 'rota_week_pay', label: 'Hours and pay',   icon: Wallet,        defaultTitle: 'Hours and pay', HeaderValue: PayHeader },
-  { key: 'rota_tips',     label: 'Tips by points',  icon: Coins,         defaultTitle: 'Tips', HeaderValue: TipsHeader },
+  { key: 'rota_tips',     label: 'Tips',            icon: Coins,         defaultTitle: 'Tips', HeaderValue: TipsHeader },
 ]
 
 function DayChips({ ctx }) {
