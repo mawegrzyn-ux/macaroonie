@@ -1208,8 +1208,13 @@ function NudgeTotal({ row, unallocated, canEdit, busy, onNudge }) {
   )
 }
 
-/** Tip pots for the week, each person's share of every pot, and tip moves. */
-export function RotaTipsTable({ venueId, weekStart, canEdit }) {
+/**
+ * Tip pots for the week, each person's share of every pot, and tip moves.
+ * `sections` picks which parts render (the Rota dashboard widget's options);
+ * the Rota page shows all three.
+ */
+const ALL_TIP_SECTIONS = { pots: true, shares: true, moves: true }
+export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_SECTIONS }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data, isLoading, error } = useRotaPay(venueId, weekStart)
@@ -1252,8 +1257,13 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
   const showTotal = sharedPots.length > 1 || hasMoneyMoves || hasNudges || canEdit
   const onNudge = (staff_id, direction) => nudge.mutate({ staff_id, direction })
 
+  if (!sections.pots && !sections.shares && !sections.moves) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Every part of this widget is hidden. Turn one back on in Edit layout.</p>
+  }
+
   return (
     <div className="space-y-3">
+      {sections.pots && <>
       <div className="grid gap-3 sm:grid-cols-2">
         {pots.map(p => (
           <PotCard key={p.id} pot={p} data={data} canEdit={canEdit} base={base} setPay={setPay} onEditManual={setManualPot} />
@@ -1268,8 +1278,9 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         {data.totals.tips_taken_out > 0 && ` · taken out ${fmt(data.totals.tips_taken_out)}`}
         {unallocated > 0 && ` · unallocated ${fmt(unallocated)}`}
       </p>
+      </>}
 
-      {sharedPots.length > 0 && rows.length > 0 && (canEdit || hasNudges) && (
+      {sections.shares && sharedPots.length > 0 && rows.length > 0 && (canEdit || hasNudges) && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold">Unallocated <span className="tabular-nums">{fmt(unallocated)}</span></p>
@@ -1298,7 +1309,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         </div>
       )}
 
-      {sharedPots.length > 0 && (rows.length === 0 ? (
+      {sections.shares && sharedPots.length > 0 && (rows.length === 0 ? (
         <p className="text-sm text-muted-foreground py-4 text-center">Nobody on the rota this week.</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border">
@@ -1375,7 +1386,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit }) {
         </div>
       ))}
 
-      {sharedPots.length > 0 && (moves.length > 0 || (canEdit && data.rows.length > 0)) && (
+      {sections.moves && sharedPots.length > 0 && (moves.length > 0 || (canEdit && data.rows.length > 0)) && (
         <div className="rounded-xl border p-3 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-semibold flex-1">Tip moves and adjustments{moves.length > 0 ? ` (${moves.length})` : ''}</p>

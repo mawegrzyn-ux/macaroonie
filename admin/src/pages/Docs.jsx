@@ -1663,7 +1663,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               mounted at <Mono>/api/rota-dashboards</Mono>, widget types <Mono>rota_grid</Mono>,{' '}
               <Mono>rota_today</Mono>, <Mono>rota_week_pay</Mono>, <Mono>rota_tips</Mono>{' '}
               (CHECK constraint, <Mono>WIDGET_TYPES_BY_KIND.rota</Mono> and{' '}
-              <Mono>ROTA_WIDGET_TYPES</Mono>). Navigation reuses <Mono>useWeekNav()</Mono>.
+              <Mono>ROTA_WIDGET_TYPES</Mono>). Navigation reuses <Mono>useWeekNav()</Mono>. The
+              tips widget has three widget options (<Mono>hs_dashboard_widgets.settings</Mono>):{' '}
+              <Mono>hide_pots</Mono>, <Mono>hide_shares</Mono>, <Mono>hide_moves</Mono>, passed to{' '}
+              <Mono>RotaTipsTable</Mono> as <Mono>sections</Mono> (the Rota page shows all three).
             </P>
           </section>
 
