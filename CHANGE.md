@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Tip pot surcharge]
+
+### Rota
+- A tip pot can have a **surcharge** (e.g. tax or card fees): a name and a percentage, set in the pot's settings in Rota setup. It is taken off the pot's total before sharing. The pot card on the Rota page shows the total before deductions, the surcharge and the amount available to share.
+
+### Database
+- Migration `111_tip_pot_surcharge.sql`: `tip_pots.surcharge_name`, `tip_pots.surcharge_pct`.
+
 ## [2026-09-27 — Variance includes till payouts]
 
 ### Cash Reconciliation
