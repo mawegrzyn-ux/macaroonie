@@ -48,8 +48,10 @@ export function isClosedDay(week, date) {
  * @param {string} p.venueName
  * @param {boolean} p.unsaved   the grid has unsaved changes
  * @param {boolean} p.hideClosed leave out closed days (rota_settings.hide_closed_on_print)
+ * @param {boolean} p.hideTotals leave out the Working count row and the Hours column
+ *                               (rota_settings.hide_totals_on_print)
  */
-export function buildRotaSheet({ week, entries, mode, venueName, unsaved, hideClosed = false }) {
+export function buildRotaSheet({ week, entries, mode, venueName, unsaved, hideClosed = false, hideTotals = false }) {
   const shiftById = Object.fromEntries(week.shifts.map(s => [s.id, s]))
   const shiftOrder = Object.fromEntries(week.shifts.map((s, i) => [s.id, i]))
   const dates = visibleRotaDates({ week, entries, hideClosed })
@@ -95,6 +97,7 @@ export function buildRotaSheet({ week, entries, mode, venueName, unsaved, hideCl
     rows,
     counts,
     legend,
+    showTotals: !hideTotals,
     fileName: `rota-${slug(venueName)}-${week.week_start}`,
   }
 }
@@ -115,7 +118,7 @@ export function rotaHtml(sheet) {
     <tr>
       <td class="name"><strong>${esc(r.name)}</strong>${r.role ? `<div class="role">${esc(r.role)}</div>` : ''}</td>
       ${r.cells.map(c => `<td class="${c.length ? 'on' : 'off'}">${c.length ? c.map(esc).join('<br>') : '–'}</td>`).join('')}
-      <td class="hours">${esc(r.working ? r.hours : '')}</td>
+      ${sheet.showTotals ? `<td class="hours">${esc(r.working ? r.hours : '')}</td>` : ''}
     </tr>`).join('')
   const foot = sheet.counts.map(n => `<td>${n || ''}</td>`).join('')
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(sheet.fileName)}</title>
@@ -141,9 +144,9 @@ export function rotaHtml(sheet) {
   <h1>${esc(sheet.title)}</h1>
   <div class="sub">${esc(sheet.subtitle)}</div>
   <table>
-    <thead><tr><th class="name">Staff</th>${head}<th class="hours">Hours</th></tr></thead>
+    <thead><tr><th class="name">Staff</th>${head}${sheet.showTotals ? '<th class="hours">Hours</th>' : ''}</tr></thead>
     <tbody>${body}</tbody>
-    <tfoot><tr><td class="name">Working</td>${foot}<td></td></tr></tfoot>
+    ${sheet.showTotals ? `<tfoot><tr><td class="name">Working</td>${foot}<td></td></tr></tfoot>` : ''}
   </table>
   <div class="meta"><span>${esc(sheet.legend.join('  ·  '))}</span><span>${esc(sheet.printed)}</span></div>
 </body></html>`
@@ -180,8 +183,10 @@ function fit(ctx, text, maxW) {
 
 /** Draw the sheet onto a canvas (2x for crisp text). Exported for testing. */
 export function drawRotaCanvas(sheet, scale = 2) {
-  const pad = 24, nameW = 190, dayW = 124, hoursW = 70, lineH = 17, cellPad = 7
-  const headH = 32, titleH = 60, footH = 28, metaH = 30
+  const showTotals = sheet.showTotals !== false
+  const pad = 24, nameW = 190, dayW = 124, lineH = 17, cellPad = 7
+  const hoursW = showTotals ? 70 : 0
+  const headH = 32, titleH = 60, footH = showTotals ? 28 : 0, metaH = 30
   const rowHeights = sheet.rows.map(r => {
     const lines = Math.max(1, ...r.cells.map(c => c.length))
     return Math.max(38, lines * lineH + cellPad * 2, r.role ? 38 : 0)
@@ -233,10 +238,12 @@ export function drawRotaCanvas(sheet, scale = 2) {
     ctx.fillText(fit(ctx, d.label, dayW - 8), x + dayW / 2, y + headH / 2)
   })
   const hx = colX[colX.length - 1]
-  cellBox(hx, y, hoursW, headH, '#e5e7eb')
-  ctx.fillStyle = '#111111'
-  ctx.textAlign = 'right'
-  ctx.fillText('Hours', hx + hoursW - cellPad, y + headH / 2)
+  if (showTotals) {
+    cellBox(hx, y, hoursW, headH, '#e5e7eb')
+    ctx.fillStyle = '#111111'
+    ctx.textAlign = 'right'
+    ctx.fillText('Hours', hx + hoursW - cellPad, y + headH / 2)
+  }
   y += headH
 
   // Rows
@@ -267,29 +274,33 @@ export function drawRotaCanvas(sheet, scale = 2) {
       const top = y + (h - lines.length * lineH) / 2 + lineH / 2
       lines.forEach((t, li) => ctx.fillText(fit(ctx, t, dayW - 8), x + dayW / 2, top + li * lineH))
     })
-    cellBox(hx, y, hoursW, h, '#ffffff')
-    ctx.textAlign = 'right'
-    ctx.fillStyle = '#111111'
-    ctx.font = `12px ${FONT}`
-    ctx.fillText(r.working ? r.hours : '', hx + hoursW - cellPad, y + h / 2)
+    if (showTotals) {
+      cellBox(hx, y, hoursW, h, '#ffffff')
+      ctx.textAlign = 'right'
+      ctx.fillStyle = '#111111'
+      ctx.font = `12px ${FONT}`
+      ctx.fillText(r.working ? r.hours : '', hx + hoursW - cellPad, y + h / 2)
+    }
     y += h
   })
 
-  // Footer
-  ctx.font = `12px ${FONT}`
-  cellBox(x0, y, nameW, footH, '#f3f4f6')
-  ctx.textAlign = 'left'
-  ctx.fillStyle = '#444444'
-  ctx.fillText('Working', x0 + cellPad, y + footH / 2)
-  sheet.counts.forEach((n, i) => {
-    const x = colX[i + 1]
-    cellBox(x, y, dayW, footH, '#f3f4f6')
-    ctx.textAlign = 'center'
+  // Footer (Working count per day)
+  if (showTotals) {
+    ctx.font = `12px ${FONT}`
+    cellBox(x0, y, nameW, footH, '#f3f4f6')
+    ctx.textAlign = 'left'
     ctx.fillStyle = '#444444'
-    ctx.fillText(n ? String(n) : '', x + dayW / 2, y + footH / 2)
-  })
-  cellBox(hx, y, hoursW, footH, '#f3f4f6')
-  y += footH
+    ctx.fillText('Working', x0 + cellPad, y + footH / 2)
+    sheet.counts.forEach((n, i) => {
+      const x = colX[i + 1]
+      cellBox(x, y, dayW, footH, '#f3f4f6')
+      ctx.textAlign = 'center'
+      ctx.fillStyle = '#444444'
+      ctx.fillText(n ? String(n) : '', x + dayW / 2, y + footH / 2)
+    })
+    cellBox(hx, y, hoursW, footH, '#f3f4f6')
+    y += footH
+  }
 
   ctx.font = `11px ${FONT}`
   ctx.fillStyle = '#666666'
