@@ -16,11 +16,12 @@
 // Single Save button PATCHes the whole tree (server delete-and-reinserts).
 
 import { useState, useEffect, useMemo } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Trash2, Loader2, X, ChevronDown, ChevronRight,
   Sparkles, Printer, Image as ImageIcon, Layers, GripVertical, Copy,
-  Settings as SettingsIcon,
+  Settings as SettingsIcon, LayoutTemplate,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -38,7 +39,10 @@ const SEEDS = [
 // ════════════════════════════════════════════════════════════
 
 export default function Menus() {
-  const [editingId, setEditingId] = useState(null)
+  // ?edit=<id> opens a menu (the menu designer links back here with it).
+  const [params, setParams] = useSearchParams()
+  const editingId = params.get('edit')
+  const setEditingId = (id) => setParams(id ? { edit: id } : {})
   if (editingId) {
     return <MenuEditor id={editingId} onBack={() => setEditingId(null)} />
   }
@@ -134,6 +138,7 @@ function MenuList({ onEdit }) {
                       {m.is_published
                         ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">PUBLISHED</span>
                         : <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">DRAFT</span>}
+                      {m.print_layout && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">DESIGNED PRINT</span>}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
                       <code>/menus/{m.slug}</code> · {venue}
@@ -239,10 +244,10 @@ function NewMenuModal({ venues, onClose, onCreated }) {
 // ════════════════════════════════════════════════════════════
 
 function ensureIds(menu) {
-  // Existing sections/items carry a server id already. Anything without
-  // one (shouldn't happen from the API, but be defensive) gets a local
-  // id purely for React keys + drawer selection — never sent to the
-  // server (the save payload below reconstructs fields explicitly).
+  // Existing sections/items carry a server id already; new ones get a
+  // fresh uuid here. Both are sent on save and the server keeps them, so
+  // a section or dish keeps its id for good — the print designer
+  // (menus.print_layout) points at them by id.
   return {
     ...menu,
     sections: (menu.sections || []).map(s => ({
@@ -255,6 +260,7 @@ function ensureIds(menu) {
 
 function MenuEditor({ id, onBack }) {
   const api = useApi()
+  const navigate = useNavigate()
   const qc  = useQueryClient()
 
   const { data: menu, isLoading } = useQuery({
@@ -300,12 +306,14 @@ function MenuEditor({ id, onBack }) {
         hide_zero_priced_variants: !!draft.hide_zero_priced_variants,
         hide_unpriced_variants: !!draft.hide_unpriced_variants,
         sections: (draft.sections || []).map((s, si) => ({
+          id: s.id,
           title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
           image_url: s.image_url || null,
           print_break_before: s.print_break_before || 'none',
           print_keep_together: !!s.print_keep_together,
           sort_order: si,
           items: (s.items || []).map((it, ii) => ({
+            id: it.id,
             name: it.name,
             native_name: it.native_name || null,
             description: it.description || null,
@@ -392,6 +400,18 @@ function MenuEditor({ id, onBack }) {
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2 min-h-[44px] touch-manipulation">
             <SettingsIcon className="w-3.5 h-3.5" /> Settings
           </button>
+          {dirty ? (
+            <span title="Save your changes first — the designer shows the saved menu."
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 min-h-[44px] cursor-not-allowed select-none">
+              <LayoutTemplate className="w-3.5 h-3.5" /> Design print
+            </span>
+          ) : (
+            <button onClick={() => navigate(`/menus/${id}/design`)}
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2 min-h-[44px] touch-manipulation">
+              <LayoutTemplate className="w-3.5 h-3.5" /> Design print
+              {draft.print_layout && <span className="text-[10px] px-1 rounded bg-blue-100 text-blue-700">on</span>}
+            </button>
+          )}
           {dirty ? (
             <span title="Save your changes first — the print page shows what's saved, not this draft."
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 cursor-not-allowed select-none">

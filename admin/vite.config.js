@@ -77,10 +77,16 @@ export default defineConfig({
     }),
   ],
   resolve: {
-    alias: { '@': path.resolve(__dirname, './src') },
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+      // Code shared with the API (repo-root shared/), e.g. the menu
+      // designer's layout renderer, which the print page uses too.
+      '@shared': path.resolve(__dirname, '../shared'),
+    },
   },
   server: {
     port: 5173,
+    fs: { allow: [path.resolve(__dirname), path.resolve(__dirname, '../shared')] },
     proxy: {
       '/api':        'http://localhost:3000',
       '/webhooks':   'http://localhost:3000',

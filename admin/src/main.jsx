@@ -44,6 +44,7 @@ import Reviews        from '@/pages/Reviews'
 import Menus          from '@/pages/Menus'
 import MenuVariantGroups from '@/pages/MenuVariantGroups'
 import MenuDietaryGroups from '@/pages/MenuDietaryGroups'
+import MenuDesigner from '@/pages/MenuDesigner'
 import Team           from '@/pages/Team'
 import Access         from '@/pages/Access'
 import Platform       from '@/pages/Platform'
@@ -167,6 +168,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="menus"            element={<Menus />} />
                 <Route path="menus/variant-groups" element={<MenuVariantGroups />} />
                 <Route path="menus/dietary-groups"  element={<MenuDietaryGroups />} />
+                <Route path="menus/:id/design"      element={<MenuDesigner />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="test-data"   element={<TestData />} />
                 <Route path="legacy-import" element={<LegacyImport />} />

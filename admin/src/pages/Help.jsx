@@ -2359,6 +2359,40 @@ export default function Help() {
               sheet without its header and footer. The check needs a window wide enough to show
               the page at full size.
             </P>
+            <H3>Designing the print yourself</H3>
+            <P>
+              For full control, open a menu and tap <strong>Design print</strong> (save the menu
+              first). Tap <strong>Start designing</strong>. Each page is a grid, and you place
+              everything on it yourself: the menu header, section titles, whole sections, single
+              dishes, text, images, lines, the footer notes, the allergen key and page numbers.
+            </P>
+            <DataTable
+              head={['To', 'Do this']}
+              rows={[
+                ['Add something', 'Drag it from the list on the left onto a page, or tap + to add it to the page marked "adding here".'],
+                ['Move it', 'Tap it to select it (blue outline), then drag. It snaps to the grid, and can be dragged onto another page.'],
+                ['Resize it', 'Drag the blue corner of the selected block, or use the Across / Down / Width / Height buttons on the right.'],
+                ['Make it the right height', 'Tap "Fit height to content". New blocks size themselves when you drop them.'],
+                ['Place a whole section', 'Use "Title and dishes". Its dishes flow inside the block (choose 1 to 4 columns). A dish you place on its own is left out of it, so you can pull a dish out and put it somewhere else.'],
+                ['Repeat a section heading', 'Add the section\'s "Section title" again on the next page, and type something like "(continued)" in "Text after the title".'],
+                ['Repeat on every page', 'Select the block and tick "Show on every page", e.g. a header, footer or page number. Tick "Hide repeated blocks on this page" on a page (a cover, say) to leave them off it.'],
+                ['Change paper, margins or the grid', 'Page setup at the top: A4 or A3, landscape or portrait, margins, 6 / 12 / 24 columns, row height and the text size for the whole menu.'],
+              ]}
+            />
+            <P>
+              The list on the left shows every dish that is not on the page yet, so a dish you add to
+              the menu later shows up there. The design stays linked to the menu: names, prices,
+              descriptions and allergens always come from the menu, so editing a price there
+              changes the print too. A red line along the bottom of a block means its text is cut
+              off; an orange outline means two blocks overlap.
+            </P>
+            <InfoBox type="info">
+              Nothing changes until you tap <strong>Save</strong>. Once saved, the menu's Print
+              button and the <strong>Open as printable PDF</strong> link on your website both use
+              your design. To go back to the automatic layout, use{' '}
+              <strong>Use the automatic layout</strong> in the panel on the right (with nothing
+              selected). The Print layout settings above only apply to the automatic layout.
+            </InfoBox>
           </section>
 
           {/* ── ORDER SHEETS ──────────────────────────────── */}
