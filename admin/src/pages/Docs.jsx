@@ -1577,6 +1577,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               with the same rule as the API (<Mono>periodProblem()</Mono>). Permissions come from{' '}
               <Mono>/me</Mono> via <Mono>useRotaPerms()</Mono>.
             </P>
+            <P>
+              Export: <Mono>components/staff/rotaExport.js</Mono>, no libraries.{' '}
+              <Mono>buildRotaSheet()</Mono> turns the grid's current entries (the draft, flagged as such
+              when unsaved) into one table model: a row per person, a column per day, each cell the
+              shift names (day parts) or periods (hourly). <Mono>printRota()</Mono> writes{' '}
+              <Mono>rotaHtml(sheet)</Mono> (A4 landscape <Mono>@page</Mono>) into a hidden{' '}
+              <Mono>srcdoc</Mono> iframe and calls its <Mono>print()</Mono>, so the PDF comes from the
+              browser's "Save as PDF". <Mono>saveRotaImage()</Mono> draws the same model on a 2x canvas
+              (<Mono>drawRotaCanvas()</Mono>) and downloads a PNG, or on touch devices uses{' '}
+              <Mono>navigator.share</Mono> with the file when <Mono>canShare</Mono> allows it.
+            </P>
             <H3>Modules, nav, dashboard</H3>
             <P>
               New module group <Mono>staff</Mono> ("Staff &amp; rota"): <Mono>staff</Mono>,{' '}

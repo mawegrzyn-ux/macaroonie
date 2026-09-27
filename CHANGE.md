@@ -5,6 +5,11 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-27 — Print rota]
+
+### Rota
+- **Print / PDF** and **Save image** buttons on the Rota page and the Rota grid dashboard widget. The week prints on one A4 landscape page (names down the side, days across, each person's shifts or times, hours per person, how many are working each day); choose "Save as PDF" in the print dialog for a PDF. The image is a PNG of the same sheet; on tablets and phones the button is **Share image** and opens the share sheet. Unsaved changes are marked "DRAFT, not saved".
+
 ## [2026-09-27 — Staff & Rota]
 
 ### Staff

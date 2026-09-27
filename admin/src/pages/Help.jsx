@@ -1442,6 +1442,16 @@ export default function Help() {
               first if this week already has entries). If you switch mode in Rota setup, entries made
               in the old mode still count for pay and are listed in a notice until you save that week.
             </P>
+            <P>
+              <strong>Print / PDF</strong> opens your device's print dialog with the week laid out on
+              one A4 landscape page (names down the side, days across, each person's shifts or times in
+              the day's box, hours per person and how many are working each day). Pick a printer, or
+              "Save as PDF" to keep a copy. <strong>Save image</strong> saves the same sheet as a picture
+              (on a tablet or phone it is <strong>Share image</strong>, which opens the share sheet so you
+              can send it straight to a staff group chat). Both print exactly what is on screen; if you
+              have unsaved changes the sheet is marked "DRAFT, not saved". The buttons are also on the
+              Rota grid dashboard widget, and anyone who can view the rota can use them.
+            </P>
             <H3>Hours and pay</H3>
             <P>
               Below the rota (for anyone with rota pay access) each rostered person's hours and pay
