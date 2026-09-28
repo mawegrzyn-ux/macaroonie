@@ -11,46 +11,21 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
+import { googleFontsUrl } from '@shared/fonts.js'
 
 let _fontsLinkInjected = false
 
-// Google Fonts v2 returns HTTP 400 for the entire CSS file if any one
-// requested font is missing a requested weight. So we ask each font
-// only for weights it actually has.
-const FONT_WEIGHTS = {
-  'Inter':              '300;400;500;600;700;800',
-  'Fraunces':           '300;400;500;600;700;800',
-  'Caveat':             '400;500;600;700',
-  'Playfair Display':   '400;500;600;700;800',
-  'Poppins':            '300;400;500;600;700;800',
-  'Lora':               '400;500;600;700',
-  'Montserrat':         '300;400;500;600;700;800',
-  'Roboto':             '300;400;500;700',
-  'Open Sans':          '300;400;500;600;700;800',
-  'Source Sans Pro':    '300;400;600;700',
-  'Raleway':            '300;400;500;600;700;800',
-  'Merriweather':       '300;400;700;900',
-  'Work Sans':          '300;400;500;600;700;800',
-  'Karla':              '300;400;500;600;700;800',
-  'DM Sans':            '400;500;700',
-  'DM Serif Display':   '400',
-  'Space Grotesk':      '300;400;500;600;700',
-  'Manrope':            '300;400;500;600;700;800',
-  'Cormorant Garamond': '300;400;500;600;700',
-  'Libre Baskerville':  '400;700',
-  'Nunito':             '300;400;500;600;700;800',
-  'Rubik':              '300;400;500;600;700;800',
-}
+// Font list and per-font weights live in shared/fonts.js (also used by the
+// menu designer); googleFontsUrl() asks each font only for weights it has.
 
 function ensureFontsLoaded(fonts) {
   if (_fontsLinkInjected) return
   _fontsLinkInjected = true
-  const families = fonts
-    .map(f => `family=${encodeURIComponent(f)}:wght@${FONT_WEIGHTS[f] || '400;500;700'}`)
-    .join('&')
+  const href = googleFontsUrl(fonts)
+  if (!href) return
   const link = document.createElement('link')
   link.rel = 'stylesheet'
-  link.href = `https://fonts.googleapis.com/css2?${families}&display=swap`
+  link.href = href
   link.id = 'pcf-font-picker-fonts'
   document.head.appendChild(link)
 }

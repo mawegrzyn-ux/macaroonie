@@ -34,11 +34,13 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import {
-  BLOCK_LABELS, FITTABLE, GRID_COLS, ROW_MM, MAX_PAGES, MENU_LAYOUT_CSS, MENU_LAYOUT_FONTS_URL,
+  BLOCK_LABELS, FITTABLE, GRID_COLS, ROW_MM, MAX_PAGES, MENU_LAYOUT_CSS, DEFAULT_FONTS, layoutFontsUrl,
   normalizeLayout, layoutGeometry, pageBlocks, pageStyle, contentStyle, blockStyle, blockClass,
   toReactStyle, buildContext, placementSummary, renderBlockInner,
   colAtMm, rowAtMm, crossesFold, foldGapBox,
 } from '@shared/menuLayout.js'
+import { FONT_OPTIONS } from '@shared/fonts.js'
+import { FontPicker } from '@/components/website-builder/FontPicker'
 
 const PX_PER_MM = 96 / 25.4
 
@@ -181,18 +183,31 @@ export default function MenuDesigner() {
     setCurPageId(l?.pages[0]?.id ?? null)
   }, [menu])
 
-  // Shared print styles + fonts, only while the designer is open.
+  // Shared print styles, only while the designer is open.
   useEffect(() => {
     const style = document.createElement('style')
     style.textContent = MENU_LAYOUT_CSS + DESIGNER_CSS
     document.head.appendChild(style)
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'; link.href = MENU_LAYOUT_FONTS_URL
-    document.head.appendChild(link)
-    document.fonts?.ready?.then(() => setFontsTick(t => t + 1))
-    link.onload = () => document.fonts?.ready?.then(() => setFontsTick(t => t + 1))
-    return () => { style.remove(); link.remove() }
+    return () => style.remove()
   }, [])
+
+  // The fonts the layout uses (same stylesheet the print page loads). The
+  // previous stylesheet stays until the new one has loaded, so text never
+  // flashes in a fallback font; then the blocks are measured again.
+  const fontsUrl = layout ? layoutFontsUrl(layout) : null
+  const fontLinks = useRef([])
+  useEffect(() => {
+    if (!fontsUrl) return
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'; link.href = fontsUrl
+    link.onload = link.onerror = () => {
+      fontLinks.current = fontLinks.current.filter(l => { if (l !== link) l.remove(); return l === link })
+      document.fonts?.ready?.then(() => setFontsTick(t => t + 1))
+    }
+    fontLinks.current.push(link)
+    document.head.appendChild(link)
+  }, [fontsUrl])
+  useEffect(() => () => fontLinks.current.forEach(l => l.remove()), [])
 
   const geo = useMemo(() => layout ? layoutGeometry(layout) : null, [layout])
   const ctx = useMemo(() => menu && layout ? buildContext(menu, layout) : null, [menu, layout])
@@ -601,7 +616,7 @@ export default function MenuDesigner() {
       )}
 
       {settingsOpen && layout && (
-        <PageSetupModal layout={layout} onClose={() => setSettingsOpen(false)}
+        <PageSetupModal layout={layout} siteFonts={menu.site_fonts} onClose={() => setSettingsOpen(false)}
           onApply={next => { setLayout(l => regrid(l, next)); setSettingsOpen(false) }} />
       )}
     </div>
@@ -989,6 +1004,19 @@ function BlockInspector({ found, layout, geo, menu, onUpdate, onOpts, onFit, onE
       </PanelSection>
 
       <PanelSection title="Look">
+        {block.type !== 'image' && block.type !== 'divider' && (
+          <div>
+            <p className="text-[11px] text-muted-foreground mb-0.5">Font</p>
+            <FontPicker fonts={FONT_OPTIONS} value={o.font || ''} placeholder="Menu fonts (Page setup)"
+              onChange={v => onOpts({ font: v })} />
+            {o.font && (
+              <button onClick={() => onOpts({ font: undefined })}
+                className="mt-1 text-xs text-primary underline min-h-[32px] touch-manipulation">
+                Use the menu fonts again
+              </button>
+            )}
+          </div>
+        )}
         <div>
           <p className="text-[11px] text-muted-foreground mb-0.5">Text size</p>
           <Select value={String(o.font_scale ?? 100)} onChange={v => onOpts({ font_scale: Number(v) })}>
@@ -1216,14 +1244,20 @@ function StartScreen({ menu, onStart }) {
   )
 }
 
-function PageSetupModal({ layout, onClose, onApply }) {
+function PageSetupModal({ layout, siteFonts, onClose, onApply }) {
   const [f, setF] = useState({
     paper_size: layout.paper_size, orientation: layout.orientation, margin_mm: layout.margin_mm,
     cols: layout.cols, row_mm: layout.row_mm, font_scale: layout.font_scale,
     variant_columns: layout.variant_columns || 1,
     fold: layout.fold || 'none', fold_gap_mm: layout.fold_gap_mm ?? 10, fold_line: !!layout.fold_line,
+    font_body: layout.font_body, font_heading: layout.font_heading, font_script: layout.font_script,
   })
   const set = (k, v) => setF(s => ({ ...s, [k]: v }))
+  // The website's Brand & theme fonts, when it has any we can load.
+  const site = {
+    heading: FONT_OPTIONS.includes(siteFonts?.heading) ? siteFonts.heading : null,
+    body: FONT_OPTIONS.includes(siteFonts?.body) ? siteFonts.body : null,
+  }
   const next = normalizeLayout({ ...layout, ...f })
   const g = layoutGeometry(next)
   return (
@@ -1289,6 +1323,32 @@ function PageSetupModal({ layout, onClose, onApply }) {
             <p className="text-xs font-medium mb-1">Variant options per row</p>
             <Segmented value={String(f.variant_columns)} options={[['1', '1'], ['2', '2'], ['3', '3']]} onChange={v => set('variant_columns', Number(v))} />
             <p className="text-[11px] text-muted-foreground mt-1">Default for every dish. A dish or section block can use its own setting.</p>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Fonts</p>
+            {[
+              ['font_heading', 'Headings and prices'],
+              ['font_body', 'Text'],
+              ['font_script', 'Handwritten (taglines, handwritten text)'],
+            ].map(([k, label]) => (
+              <div key={k}>
+                <p className="text-[11px] text-muted-foreground mb-0.5">{label}</p>
+                <FontPicker fonts={FONT_OPTIONS} value={f[k]} onChange={v => set(k, v)} />
+              </div>
+            ))}
+            <div className="flex flex-wrap gap-2">
+              {(site.heading || site.body) && (
+                <button onClick={() => setF(s => ({ ...s, font_heading: site.heading || s.font_heading, font_body: site.body || s.font_body }))}
+                  className="text-xs border rounded-md px-3 min-h-[40px] hover:bg-accent touch-manipulation">
+                  Use website fonts ({[site.heading, site.body].filter(Boolean).join(' / ')})
+                </button>
+              )}
+              <button onClick={() => setF(s => ({ ...s, font_body: DEFAULT_FONTS.body, font_heading: DEFAULT_FONTS.heading, font_script: DEFAULT_FONTS.script }))}
+                className="text-xs border rounded-md px-3 min-h-[40px] hover:bg-accent touch-manipulation">
+                Standard fonts
+              </button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">Any block can use its own font instead (block panel, Look).</p>
           </div>
           <p className="text-[11px] text-muted-foreground">
             Grid: {g.cols} columns x {g.rows} rows on {next.paper_size} {next.orientation}. Changing the grid keeps
