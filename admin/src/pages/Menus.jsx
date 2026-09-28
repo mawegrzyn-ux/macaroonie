@@ -616,6 +616,13 @@ function PrintLayoutFields({ draft, onChange }) {
             <option value="full">Full header on every page</option>
           </select>
         </Field>
+        <Field label="Variant options per row" hint="Side by side saves space on dishes with several options (Chicken, Prawns, Beef...).">
+          <select value={ps.variant_columns ?? 1} onChange={e => setPs('variant_columns', Number(e.target.value))} className={selectCls}>
+            <option value={1}>1 (one per line)</option>
+            <option value={2}>2 side by side</option>
+            <option value={3}>3 side by side</option>
+          </select>
+        </Field>
       </div>
       <div className="space-y-1">
         <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">

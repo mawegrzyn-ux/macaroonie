@@ -958,7 +958,7 @@ function BlockInspector({ found, layout, geo, menu, onUpdate, onOpts, onFit, onE
         )}
       </PanelSection>
 
-      <TypeOptions block={block} o={o} menu={menu} onOpts={onOpts} openMedia={() => setMediaOpen(true)} />
+      <TypeOptions block={block} o={o} menu={menu} layout={layout} onOpts={onOpts} openMedia={() => setMediaOpen(true)} />
 
       <PanelSection>
         {block.type !== 'item' && (
@@ -978,7 +978,19 @@ function BlockInspector({ found, layout, geo, menu, onUpdate, onOpts, onFit, onE
   )
 }
 
-function TypeOptions({ block, o, menu, onOpts, openMedia }) {
+// Variant options per row for one block; "Default" follows Page setup.
+function VariantColumns({ o, layout, onOpts }) {
+  return (
+    <div>
+      <p className="text-[11px] text-muted-foreground mb-0.5">Variant options per row</p>
+      <Segmented value={o.variant_columns ? String(o.variant_columns) : 'default'}
+        options={[['default', 'Default (' + (layout.variant_columns || 1) + ')'], ['1', '1'], ['2', '2'], ['3', '3']]}
+        onChange={v => onOpts({ variant_columns: v === 'default' ? undefined : Number(v) })} />
+    </div>
+  )
+}
+
+function TypeOptions({ block, o, menu, layout, onOpts, openMedia }) {
   switch (block.type) {
     case 'header':
       return (
@@ -1008,6 +1020,7 @@ function TypeOptions({ block, o, menu, onOpts, openMedia }) {
           <Check2 label="Show section image" checked={o.show_image !== false} onChange={v => onOpts({ show_image: v })} />
           <Check2 label="Line under the title" checked={o.show_rule !== false} onChange={v => onOpts({ show_rule: v })} />
           {o.mode === 'full' && <Check2 label="Show descriptions" checked={o.show_description !== false} onChange={v => onOpts({ show_description: v })} />}
+          {o.mode === 'full' && <VariantColumns o={o} layout={layout} onOpts={onOpts} />}
         </PanelSection>
       )
     case 'item':
@@ -1015,6 +1028,7 @@ function TypeOptions({ block, o, menu, onOpts, openMedia }) {
         <PanelSection title="Dish">
           <Check2 label="Show description" checked={o.show_description !== false} onChange={v => onOpts({ show_description: v })} />
           <Check2 label="Show photo" checked={o.show_image !== false} onChange={v => onOpts({ show_image: v })} />
+          <VariantColumns o={o} layout={layout} onOpts={onOpts} />
           <p className="text-[11px] text-muted-foreground">Name, price and allergens come from the menu. Edit them there.</p>
         </PanelSection>
       )
@@ -1156,6 +1170,7 @@ function PageSetupModal({ layout, onClose, onApply }) {
   const [f, setF] = useState({
     paper_size: layout.paper_size, orientation: layout.orientation, margin_mm: layout.margin_mm,
     cols: layout.cols, row_mm: layout.row_mm, font_scale: layout.font_scale,
+    variant_columns: layout.variant_columns || 1,
   })
   const set = (k, v) => setF(s => ({ ...s, [k]: v }))
   const next = normalizeLayout({ ...layout, ...f })
@@ -1199,6 +1214,11 @@ function PageSetupModal({ layout, onClose, onApply }) {
             <Select value={String(f.font_scale)} onChange={v => set('font_scale', Number(v))}>
               {[70, 80, 90, 100, 110, 120, 130, 140, 150].map(v => <option key={v} value={v}>{v}%</option>)}
             </Select>
+          </div>
+          <div>
+            <p className="text-xs font-medium mb-1">Variant options per row</p>
+            <Segmented value={String(f.variant_columns)} options={[['1', '1'], ['2', '2'], ['3', '3']]} onChange={v => set('variant_columns', Number(v))} />
+            <p className="text-[11px] text-muted-foreground mt-1">Default for every dish. A dish or section block can use its own setting.</p>
           </div>
           <p className="text-[11px] text-muted-foreground">
             Grid: {g.cols} columns x {g.rows} rows on {next.paper_size} {next.orientation}. Changing the grid keeps

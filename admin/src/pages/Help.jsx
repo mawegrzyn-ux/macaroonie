@@ -2347,7 +2347,9 @@ export default function Help() {
               what header later pages get (none, a one-line menu name, or the full header),
               whether the <strong>footer repeats</strong> on every page (allergen key, notes and
               footer line), <strong>page numbers</strong>, and <strong>Keep every section in one
-              piece</strong>. Under each section's title in the menu, choose whether it continues
+              piece</strong>, and <strong>Variant options per row</strong> (1, 2 or 3): with 2 or 3, a
+              dish's options such as Chicken, Prawns and Beef sit side by side with their prices,
+              which saves space on long menus. Under each section's title in the menu, choose whether it continues
               after the previous section, <strong>starts in a new column</strong> or{' '}
               <strong>starts on a new page</strong>, and whether to keep that section in one piece.
             </P>
@@ -2377,6 +2379,7 @@ export default function Help() {
                 ['Repeat a section heading', 'Add the section\'s "Section title" again on the next page, and type something like "(continued)" in "Text after the title".'],
                 ['Repeat on every page', 'Select the block and tick "Show on every page", e.g. a header, footer or page number. Tick "Hide repeated blocks on this page" on a page (a cover, say) to leave them off it.'],
                 ['Change paper, margins or the grid', 'Page setup at the top: A4 or A3, landscape or portrait, margins, 6 / 12 / 24 columns, row height and the text size for the whole menu.'],
+                ['Put variant options side by side', 'Page setup has "Variant options per row" (1, 2 or 3) for every dish. A dish block, or a section showing its dishes, can pick its own number or use the default.'],
               ]}
             />
             <P>
