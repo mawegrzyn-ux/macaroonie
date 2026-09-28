@@ -461,8 +461,11 @@ export default async function foodSafetyRoutes(app) {
         : from || to
           ? tx`AND d.delivery_date >= ${from || '1970-01-01'} AND d.delivery_date <= ${to || '2999-12-31'}`
           : tx``
+      /* delivery_date::text: a plain date column otherwise comes back as a
+         JS Date and serialises as "2026-09-23T00:00:00.000Z", which the
+         Deliveries week list can't parse. Same for RETURNING below. */
       return tx`
-        SELECT d.* FROM fs_delivery_checks d
+        SELECT d.*, d.delivery_date::text AS delivery_date FROM fs_delivery_checks d
          WHERE d.tenant_id = ${req.tenantId}
            AND d.venue_id  = ${venue_id}
            ${dateFilter}
@@ -489,7 +492,7 @@ export default async function foodSafetyRoutes(app) {
          ${body.product_temp_c ?? null}, ${body.items ?? []},
          ${body.accepted}, ${body.corrective_action ?? null}, ${body.notes ?? null},
          ${body.recorded_by ?? req.user?.email ?? null})
-      RETURNING *
+      RETURNING *, delivery_date::text AS delivery_date
     `)
     return row
   })
@@ -505,7 +508,7 @@ export default async function foodSafetyRoutes(app) {
       UPDATE fs_delivery_checks
          SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)}
        WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
-       RETURNING *
+       RETURNING *, delivery_date::text AS delivery_date
     `)
     if (!row) throw httpError(404, 'Delivery check not found')
     return row
