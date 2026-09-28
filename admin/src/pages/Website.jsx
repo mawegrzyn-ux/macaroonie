@@ -221,10 +221,13 @@ function Toggle({ value, onChange, label }) {
   )
 }
 
-function SaveBar({ dirty, onSave, onReset, saving }) {
+function SaveBar({ dirty, onSave, onReset, saving, error }) {
   if (!dirty) return null
   return (
-    <div className="flex items-center justify-end gap-2 pt-2 border-t">
+    <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t">
+      {error && !saving && (
+        <span className="mr-auto text-xs text-destructive">Not saved: {error.message || 'something went wrong'}</span>
+      )}
       <button
         type="button" onClick={onReset}
         className="text-xs text-muted-foreground hover:text-foreground px-3 py-1.5"
@@ -765,7 +768,7 @@ function TenantDomainSection({ tenantSite }) {
         </div>
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={onReset} onSave={() => save.mutate()} />
 
       <SectionCard title="Staging"
@@ -962,7 +965,7 @@ function TenantLocationsSection({ tenantSite }) {
         </FormRow>
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => {
           setHeading(tenantSite.locations_heading || 'Our locations')
           setIntro(tenantSite.locations_intro || '')
@@ -1013,7 +1016,7 @@ function TenantSeoSection({ tenantSite }) {
         </FormRow>
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => {
           setTitle(tenantSite.meta_title || '')
           setDesc(tenantSite.meta_description || '')
@@ -1135,7 +1138,7 @@ function TenantLegalSection({ tenantSite }) {
         </FormRow>
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )
@@ -1319,7 +1322,7 @@ function TenantNavSection({ tenantSite }) {
         </FormRow>
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)}
         onSave={() => save.mutate()} />
     </div>
@@ -1414,7 +1417,7 @@ function TemplateSection({
         </div>
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setKey(config.template_key || 'classic')}
         onSave={() => save.mutate()} />
     </div>
@@ -1624,7 +1627,7 @@ function ThemeSection({ config }) {
 
   const save = useMutation({
     mutationFn: () => api.patch('/website/config', { venue_id: config.venue_id, theme }),
-    onSuccess:  (cfg) => qc.setQueryData(['website-config'], cfg),
+    onSuccess:  (cfg) => qc.setQueryData(['website-config', cfg.venue_id], cfg),
   })
 
   function setPath(section, key, value) {
@@ -1939,7 +1942,7 @@ function FindUsSection({ config }) {
         </FormRow>
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={reset} onSave={() => save.mutate()} />
     </div>
   )
@@ -1985,7 +1988,7 @@ function ContactSection({ config }) {
         show_contact: state.show_contact,
       })
     },
-    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+    onSuccess: (cfg) => qc.setQueryData(['website-config', cfg.venue_id], cfg),
   })
 
   return (
@@ -2027,7 +2030,7 @@ function ContactSection({ config }) {
         ))}
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )
@@ -2080,7 +2083,7 @@ function SeoSection({ config }) {
           </select>
         </FormRow>
       </SectionCard>
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={reset} onSave={() => save.mutate()} />
     </div>
   )
@@ -2107,7 +2110,7 @@ function AnalyticsSection({ config }) {
             placeholder="1234567890" />
         </FormRow>
       </SectionCard>
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={reset} onSave={() => save.mutate()} />
     </div>
   )
@@ -2138,7 +2141,7 @@ function BookingSection({ config }) {
       widget_theme:        state.widget_theme,
       show_booking_widget: state.show_booking_widget,
     }),
-    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+    onSuccess: (cfg) => qc.setQueryData(['website-config', cfg.venue_id], cfg),
   })
 
   return (
@@ -2182,7 +2185,7 @@ function BookingSection({ config }) {
           accent={(config.primary_colour || '').replace('#', '')} />
       )}
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )
@@ -2336,7 +2339,7 @@ function GallerySection({ config }) {
           <Toggle
             value={!!config.show_gallery}
             onChange={v => api.patch('/website/config', { venue_id: config.venue_id, show_gallery: v })
-              .then(cfg => qc.setQueryData(['website-config'], cfg))}
+              .then(cfg => qc.setQueryData(['website-config', cfg.venue_id], cfg))}
             label="Show gallery"
           />
         </div>
@@ -2352,7 +2355,7 @@ function GallerySection({ config }) {
             ].map(opt => (
               <button key={opt.v} type="button"
                 onClick={() => api.patch('/website/config', { venue_id: config.venue_id, gallery_style: opt.v })
-                  .then(cfg => qc.setQueryData(['website-config'], cfg))}
+                  .then(cfg => qc.setQueryData(['website-config', cfg.venue_id], cfg))}
                 className={cn(
                   'border rounded-lg p-3 text-left text-sm hover:border-primary',
                   (config.gallery_style || 'grid') === opt.v ? 'border-primary bg-primary/5' : ''
@@ -2372,7 +2375,7 @@ function GallerySection({ config }) {
             ].map(opt => (
               <button key={opt.v} type="button"
                 onClick={() => api.patch('/website/config', { venue_id: config.venue_id, gallery_size: opt.v })
-                  .then(cfg => qc.setQueryData(['website-config'], cfg))}
+                  .then(cfg => qc.setQueryData(['website-config', cfg.venue_id], cfg))}
                 className={cn(
                   'border rounded-lg px-3 py-2 text-sm',
                   (config.gallery_size || 'medium') === opt.v ? 'border-primary bg-primary/5' : 'hover:border-muted-foreground/50'
@@ -2490,7 +2493,7 @@ function MenuSection({ config }) {
           </div>
           <Toggle value={!!config.show_menu}
             onChange={v => api.patch('/website/config', { venue_id: config.venue_id, show_menu: v })
-              .then(cfg => qc.setQueryData(['website-config'], cfg))}
+              .then(cfg => qc.setQueryData(['website-config', cfg.venue_id], cfg))}
             label="Show menus" />
         </div>
       </SectionCard>
@@ -2625,7 +2628,7 @@ function AllergensSection({ config }) {
           </div>
           <Toggle value={!!config.show_allergens}
             onChange={v => api.patch('/website/config', { venue_id: config.venue_id, show_allergens: v })
-              .then(cfg => qc.setQueryData(['website-config'], cfg))}
+              .then(cfg => qc.setQueryData(['website-config', cfg.venue_id], cfg))}
             label="Show allergens" />
         </div>
       </SectionCard>
@@ -2706,7 +2709,7 @@ function AllergensSection({ config }) {
         </SectionCard>
       )}
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )
@@ -2932,7 +2935,7 @@ function HoursSection({ config, venueId: venueIdProp }) {
           ))}
         </div>
       </SectionCard>
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
       </>}
     </div>
@@ -2958,7 +2961,7 @@ function RepeatableLinkSection({ title, description, configKey, showKey, emptyHi
       [showKey]:   state.show,
       [configKey]: state.items,
     }),
-    onSuccess: (cfg) => qc.setQueryData(['website-config'], cfg),
+    onSuccess: (cfg) => qc.setQueryData(['website-config', cfg.venue_id], cfg),
   })
 
   return (
@@ -3022,7 +3025,7 @@ function RepeatableLinkSection({ title, description, configKey, showKey, emptyHi
         )}
       </SectionCard>
 
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )
@@ -3501,7 +3504,7 @@ function BrandIdentitySection({ venueId = null }) {
           ✓ Saved
         </div>
       )}
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )
@@ -3650,7 +3653,7 @@ function BrandAnalyticsSection() {
           </FormRow>
         ))}
       </SectionCard>
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )
@@ -3717,7 +3720,7 @@ function BrandBannerSection() {
           <FormRow label="Link text"><TextInput value={state.banner_link_text} onChange={e => setState(s => ({ ...s, banner_link_text: e.target.value }))} placeholder="Learn more" /></FormRow>
         </>)}
       </SectionCard>
-      <SaveBar dirty={dirty} saving={save.isPending}
+      <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={() => setState(initial)} onSave={() => save.mutate()} />
     </div>
   )

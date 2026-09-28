@@ -2416,6 +2416,11 @@ export default function Help() {
               the venue. Nothing changes on your website until you tick{' '}
               <strong>Take online orders for collection</strong> and press Save.
             </P>
+            <P>
+              This is not the <strong>Online ordering</strong> section of the Website builder. That
+              section only lists links to outside services such as GloriaFood. To send guests to your
+              own ordering page, link a button to <strong>/order</strong>.
+            </P>
             <DataTable
               head={['Setting', 'What it does']}
               rows={[

@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — Fixes: website saves, Reviews page, Online orders link]
+
+**Migration 123.**
+
+- **Website builder saves now stick.** Online ordering links, Delivery providers, Contact, Gallery, PDF menus, Allergens and a few other location sections saved to the server but the page kept showing the old values, so Save looked like it did nothing. Save bars also show why a save failed.
+- **Reviews page** no longer loads blank.
+- **Online orders link**: tenants whose sidebar had no "Service" section didn't get the Online orders / Ordering setup links. They are now added next to Customers (or Bookings, or at the end of the menu).
+
+---
+
 ## [2026-09-28 — Online ordering for collection]
 
 **Migration 122.**

@@ -411,8 +411,11 @@ export default function Reviews() {
     queryKey: ['review-scrape-jobs', venueId],
     queryFn:  () => api.get('/reviews/scrape-jobs' + (venueId ? `?venue_id=${venueId}` : '')),
     staleTime: 15_000,
-    refetchInterval: (data) =>
-      (data ?? []).some(j => j.status === 'running' || j.status === 'pending') ? 10_000 : false,
+    // TanStack Query v5 passes the query, not its data.
+    refetchInterval: (query) => {
+      const jobs = query.state.data
+      return Array.isArray(jobs) && jobs.some(j => j.status === 'running' || j.status === 'pending') ? 10_000 : false
+    },
   })
 
   const patchMutation = useMutation({
