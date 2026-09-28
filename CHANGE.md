@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — Menu print: no more blank sheets]
+
+### Menus
+- Printing a menu straight to a printer no longer adds a blank sheet after every page. Many printers keep a few millimetres of margin of their own, and each printed page used to be exactly the paper's height, so its empty bottom edge spilled onto a new sheet. Pages are now sized to the area the printer can actually print, for both designed and automatic layouts, and a designed page still lands in the same place on the paper.
+
+---
+
 ## [2026-09-28 — Menu designer: folded sheets]
 
 ### Menus

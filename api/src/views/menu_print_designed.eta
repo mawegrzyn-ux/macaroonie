@@ -34,7 +34,14 @@ const m = it.menu
       html, body { background: #faf6ef; }
       .print-bar { display: none; }
       .pages { padding: 0; }
-      .ml-page { margin: 0; box-shadow: none; height: calc(<%= it.pageH %>mm - 1mm) !important; break-after: page; }
+      /* Each page box is the printable area (100vw x 100vh), not the paper
+         size: many printer drivers keep their own few-mm margins even with
+         @page margin 0, and a box as tall as the paper then spills its empty
+         bottom strip onto an extra, blank sheet. The design is shifted back
+         by half the difference so it lands where it was placed on the paper;
+         only the band the printer can't reach anyway is cut off. */
+      .ml-page { margin: 0; box-shadow: none; width: 100vw !important; height: calc(100vh - 0.5mm) !important; break-after: page; }
+      .ml-page > .ml-content { transform: translate(calc((100vw - <%= it.pageW %>mm) / 2), calc((100vh - <%= it.pageH %>mm) / 2)); }
       .ml-page:last-child { break-after: auto; }
       .ml-block.ml-overflow { outline: 0; }
       @page { size: <%= it.paperSize %> <%= it.orientation %>; margin: 0; }

@@ -137,7 +137,9 @@ if (!pages.length) pages.push([])
          needed, so moderately denser menus than this test case still fit
          one page. Re-measure with the same method before loosening any
          of these if a menu still spills to a second sheet. */
-      .page { box-shadow: none; margin: 0; min-height: calc(<%= pageHeightMm %>mm - 1mm); break-after: page; }
+      /* 100vh is the printable area; a printer that keeps its own margins
+         would otherwise push a paper-height sheet onto an extra blank page. */
+      .page { box-shadow: none; margin: 0; min-height: calc(100vh - 1mm); break-after: page; }
       .page:last-child { break-after: auto; }
       .fit-note { display: none !important; }
       @page { size: <%= paperSize %> <%= orientation %>; margin: 0; }
