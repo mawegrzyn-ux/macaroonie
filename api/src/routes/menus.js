@@ -495,6 +495,7 @@ export default async function menusRoutes(app) {
         css: MENU_LAYOUT_CSS,
         fontsUrl: MENU_LAYOUT_FONTS_URL,
         pagesHtml: layout.pages.map((_, i) => renderPageHtml(layout, ctx, i)),
+        pageW: g.pageW,
         pageH: g.pageH,
         paperSize: layout.paper_size,
         orientation: layout.orientation,
