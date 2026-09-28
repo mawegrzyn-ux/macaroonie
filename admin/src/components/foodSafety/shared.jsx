@@ -504,6 +504,11 @@ function addDaysISO(dateStr, days) {
   return d.toISOString().slice(0, 10)
 }
 
+// A delivery's date as YYYY-MM-DD, whatever shape the API sent it in.
+function deliveryDay(d) {
+  return String(d.delivery_date || '').slice(0, 10)
+}
+
 function emptyDeliveryForm(date) {
   return {
     id: null, delivery_date: date, vendor_name: '',
@@ -567,7 +572,7 @@ export function DeliveryChecksBoard({ venueId, date }) {
 
   function loadIntoForm(d) {
     setForm({
-      id: d.id, delivery_date: d.delivery_date, vendor_name: d.vendor_name,
+      id: d.id, delivery_date: deliveryDay(d), vendor_name: d.vendor_name,
       packaging_ok: d.packaging_ok, damage_ok: d.damage_ok, quality_ok: d.quality_ok, temp_ok: d.temp_ok,
       product_temp_c: d.product_temp_c ?? '', accepted: d.accepted,
       corrective_action: d.corrective_action ?? '', notes: d.notes ?? '',
@@ -676,7 +681,7 @@ export function DeliveryChecksBoard({ venueId, date }) {
                   )}>
                   <span className="min-w-0">
                     <span className="block font-medium truncate">{d.vendor_name}</span>
-                    <span className="block text-[11px] text-muted-foreground">{format(new Date(d.delivery_date + 'T12:00:00'), 'EEE d MMM')}</span>
+                    <span className="block text-[11px] text-muted-foreground">{format(new Date(deliveryDay(d) + 'T12:00:00'), 'EEE d MMM')}</span>
                   </span>
                   <Badge ok={d.accepted}>{d.accepted ? 'OK' : 'Rejected'}</Badge>
                 </button>

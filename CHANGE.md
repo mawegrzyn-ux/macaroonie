@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — Food safety Deliveries: blank page fixed]
+
+### Food safety
+- The Deliveries tab no longer goes blank when you pick a date in a week that has deliveries logged. The API was sending delivery dates in a form the week list couldn't read; it now sends plain dates, and editing a logged delivery keeps its date.
+
+---
+
 ## [2026-09-27 — Menu print designer]
 
 ### Menus
