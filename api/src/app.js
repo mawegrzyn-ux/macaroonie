@@ -21,6 +21,8 @@ import slotsRoutes      from './routes/slots.js'
 import bookingsRoutes   from './routes/bookings.js'
 import customersRoutes  from './routes/customers.js'
 import paymentsRoutes, { webhookRoutes } from './routes/payments.js'
+import orderApiRoutes, { paymentWebhookRoutes } from './routes/orderApi.js'
+import ordersRoutes from './routes/orders.js'
 import websiteRoutes    from './routes/website.js'
 import publicSiteRoutes from './routes/publicSite.js'
 import siteRendererRoutes from './routes/siteRenderer.js'
@@ -144,10 +146,19 @@ export async function buildApp() {
     maxAge: '30d',
   })
 
+  // ── Error handler ─────────────────────────────────────────
+  // Before any route plugin: each plugin keeps the error handler that is
+  // set when it is registered, so a handler set after the routes never
+  // runs (every error then went out as Fastify's default body, with the
+  // status text in `error` instead of the message).
+  app.setErrorHandler(errorHandler)
+
   // ── Routes ───────────────────────────────────────────────
 
   // Stripe webhook first — must bypass JSON body parser
   await app.register(webhookRoutes)
+  // Payment gateway webhooks for web orders (raw body, per gateway)
+  await app.register(paymentWebhookRoutes)
 
   // Tenant SSR site renderer.
   // Only fires when the Host header matches `{slug}.{PUBLIC_ROOT_DOMAIN}` and
@@ -177,6 +188,8 @@ export async function buildApp() {
   await app.register(mediaRoutes,            { prefix: '/api/media' })
   await app.register(menusRoutes,            { prefix: '/api/menus' })
   await app.register(widgetApiRoutes,        { prefix: '/widget-api' })
+  await app.register(orderApiRoutes,         { prefix: '/order-api' })
+  await app.register(ordersRoutes,           { prefix: '/api/orders' })
   await app.register(reviewsRoutes,          { prefix: '/api/reviews' })
   await app.register(backlogRoutes,          { prefix: '/api/backlog' })
   await app.register(issueLogRoutes,         { prefix: '/api/issues' })
@@ -199,8 +212,6 @@ export async function buildApp() {
   // ── Health check ─────────────────────────────────────────
   app.get('/api/health', async () => ({ ok: true, env: env.NODE_ENV }))
 
-  // ── Error handler ─────────────────────────────────────────
-  app.setErrorHandler(errorHandler)
 
   return app
 }

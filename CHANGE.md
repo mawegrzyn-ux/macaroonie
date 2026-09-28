@@ -5,6 +5,28 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — Online ordering for collection]
+
+**Migration 122.**
+
+### Online ordering
+- Guests can order food for collection on your website at **/order** (with several venues they pick a location first): browse the menu, choose options, add a note, pick ASAP or a collection time, add a tip, and pay at the counter or online. A live order page shows when the order is accepted and ready, and guests get emails when it is confirmed (with a VAT breakdown), ready or cancelled.
+- New **Online orders** page (Service in the sidebar) and **/mobile → Online orders**: a live board of new, in-progress and ready orders with a sound for new orders. Accept with a ready time, mark preparing, ready and collected, push the time back, record cash or card payment at the counter, refund (all or part), reject or cancel (online payments are refunded automatically), and print a ticket. **Sold out** switches a dish off for today or until you turn it back on; **Pause orders** stops new orders with a message.
+- **Ordering setup** per venue: menus to order from, ordering hours (lunch and dinner windows), preparation time, collection slots and orders per slot, order ahead, minimum order, tips, default VAT, automatic accept, payment methods and messages for guests.
+- **Report** tab: orders, sales, average order, tips, refunds, money taken by payment method and top dishes.
+- VAT follows the order type: each dish has takeaway and eat-in rates, and each venue has a default for each. Collection orders use the takeaway rate.
+- Platform admins set an online ordering fee (%) per tenant on the Platform page; every order records its fee and the report shows the total.
+- Payment methods are pluggable: pay at the counter works now, plus a **test payment** for trying the flow before going live (no money moves). Card payments through Stripe come next.
+
+### Menus
+- Each dish has **Can be ordered online** and VAT rates for takeaway and eat in.
+- Variant groups say how they are priced (the dish price, or added on top) and how many options a guest picks, so extras like "Add egg +£1" work.
+
+### Fixes
+- Error messages now reach the screen across the admin and the booking widget (for example "That time is no longer available"); before, many errors only showed a generic "Unprocessable Entity" or "Not Found".
+
+---
+
 ## [2026-09-28 — Menu designer: all website fonts]
 
 ### Menus

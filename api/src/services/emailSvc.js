@@ -235,6 +235,34 @@ export async function sendEmail({ provider = 'sendgrid', credentials, from, to, 
   return fn({ credentials, from, to, replyTo, subject, html })
 }
 
+// Provider credentials from a venue_email_settings row, falling back to
+// the platform env keys. Shared by booking and order emails.
+export function emailCredentials(settings, env) {
+  const provider = settings?.email_provider || 'sendgrid'
+  const credentials = {}
+  if (provider === 'sendgrid') {
+    credentials.apiKey = settings?.provider_api_key || env.SENDGRID_API_KEY
+  } else if (provider === 'postmark') {
+    credentials.apiKey = settings?.provider_api_key
+    credentials.stream = settings?.provider_domain || 'outbound'   // re-uses provider_domain for stream name
+  } else if (provider === 'mailgun') {
+    credentials.apiKey = settings?.provider_api_key
+    credentials.domain = settings?.provider_domain
+    credentials.region = settings?.provider_region || 'us'
+  } else if (provider === 'ses') {
+    credentials.region          = settings?.provider_region || env.S3_REGION
+    credentials.accessKeyId     = settings?.provider_api_key
+    credentials.secretAccessKey = settings?.provider_domain // reused field
+  } else if (provider === 'smtp') {
+    credentials.host   = settings?.smtp_host
+    credentials.port   = settings?.smtp_port
+    credentials.user   = settings?.smtp_user
+    credentials.pass   = settings?.smtp_pass
+    credentials.secure = settings?.smtp_secure
+  }
+  return { provider, credentials }
+}
+
 // ── Template rendering ──────────────────────────────────────
 // Simple mustache-style {{field}} replacer. No logic blocks — just
 // string interpolation. Safe for user-authored templates since we

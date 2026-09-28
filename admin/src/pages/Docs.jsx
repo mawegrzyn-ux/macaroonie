@@ -27,6 +27,7 @@ const SECTIONS = [
   { id: 'navigation',   label: 'Navigation & Launcher' },
   { id: 'overview-tiles', label: 'Overview Tiles' },
   { id: 'order-sheets', label: 'Order Sheets' },
+  { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'menus',        label: 'Menus' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'services',     label: 'Services & Jobs' },
@@ -2309,6 +2310,110 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           </section>
 
           {/* ── MENUS ─────────────────────────────────────── */}
+          <section id="web-ordering" data-doc="">
+            <H2>Web Ordering</H2>
+            <P>
+              Collection orders from the tenant website (migration 122) with pluggable payment
+              gateways. Modules <Mono>web_orders</Mono> (board, actions, sold out, pause) and{' '}
+              <Mono>web_ordering_setup</Mono> (settings), group <Mono>web_ordering</Mono>. The{' '}
+              <Mono>orders</Mono> table has a <Mono>channel</Mono> column (<Mono>web</Mono> |{' '}
+              <Mono>pos</Mono> | <Mono>table_qr</Mono>) so the POS and table ordering can reuse it.
+            </P>
+            <H3>Tables</H3>
+            <DataTable
+              head={['Table', 'Notes']}
+              rows={[
+                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[], allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, default_vat_rate_takeaway + default_vat_rate_eat_in, tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note. No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
+                ['ordering_item_availability', "Per-venue sold out: (venue_id, item_id, sold_out_until). NULL until = until turned back on. item_id has no FK because menu saves re-insert items (with the same ids since migration 121)."],
+                ['orders', "service_date (venue-local collection day) + order_number (1, 2, 3 per venue per day, UNIQUE) under pg_advisory_xact_lock on venue + day. public_token is the guest key (status page, like manage_token). status: pending_payment, placed, accepted, preparing, ready, completed, rejected, cancelled, expired. promised_at is the ready time (ASAP or the chosen slot). Money in pence: subtotal, tip, total, vat (VAT-inclusive), paid, refunded; payment_status unpaid | pending | paid | failed | partially_refunded | refunded."],
+                ['order_items', "Copies name, options [{ group, label, price_pence, mode }], unit and line totals, vat_rate and vat_pence at the time of ordering. menu_item_id is a plain uuid (no FK), for reports only."],
+                ['order_events', "Status history and audit: type status | payment | refund | time | note, from/to status, detail jsonb, actor (staff email, guest, system)."],
+                ['order_payments', "One row per payment attempt: gateway (a gateway key, or cash / card_terminal for counter payments), gateway_ref (UNIQUE per gateway), amount, refunded, status, raw jsonb."],
+                ['platform fee', "tenants.ordering_fee_percent (0-20, platform admin only: Platform page, PATCH /api/platform/tenants/:id). Each order stores platform_fee_percent and platform_fee_pence = subtotal x percent (tips excluded) when it is created. Shown in the report. The Stripe gateway will pass it as application_fee_amount on online payments; pay-at-counter fees are for invoicing."],
+                ['menu additions', "menu_items.is_orderable, vat_rate_takeaway, vat_rate_eat_in; menu_variant_groups.price_mode (base | extra), min_select, max_select. email_log.order_id."],
+              ]}
+            />
+            <H3>Prices: one implementation</H3>
+            <P>
+              <Mono>shared/orderPricing.js</Mono> (itemChoices, priceLine, priceBasket, vatIncluded)
+              prices every basket. The server runs it in <Mono>orderSvc.createOrder()</Mono> against
+              the live menu; the guest page imports the same file from{' '}
+              <Mono>/order-api/pricing.js</Mono> only to show totals. A dish's choices: its ad-hoc
+              variants (one required base choice, option ids <Mono>v:label</Mono> because variant
+              rows are re-inserted on every menu save) plus attached variant groups. Unit price =
+              chosen base options (or the dish's own price when none) + chosen extras. VAT follows the order
+              type (<Mono>vatRateFor()</Mono>): collection and delivery use the dish's takeaway rate,
+              table orders its eat-in rate, else the venue default for that type. Tips are a percentage from{' '}
+              <Mono>tip_percents</Mono>, outside VAT.
+            </P>
+            <H3>Collection slots</H3>
+            <P>
+              Computed, never stored (<Mono>computeSlots()</Mono>): slot times every{' '}
+              <Mono>slot_interval_mins</Mono> across each window (close time included), available
+              when at least <Mono>lead_time_mins</Mono> away and under{' '}
+              <Mono>max_orders_per_slot</Mono>. Orders count against the first slot at or after
+              their promised time; active statuses plus unpaid orders under 30 minutes old.
+              ASAP: today, while a window is open (or opens within the lead time), promised at the
+              later of now + lead time and the opening, rounded up to 5 minutes. Venue-local times
+              go through <Mono>zonedToUtc()</Mono> / <Mono>localParts()</Mono> (Intl, DST-safe).
+            </P>
+            <H3>Payment gateways</H3>
+            <P>
+              <Mono>api/src/services/paymentGateways/</Mono>. The order flow only calls the gateway
+              interface, documented in <Mono>index.js</Mono>: <Mono>start()</Mono> returns{' '}
+              <Mono>none</Mono> (pay later), <Mono>succeeded</Mono> or <Mono>pending</Mono> with a
+              public <Mono>client</Mono> object for the browser; optional{' '}
+              <Mono>confirmFromClient()</Mono>, <Mono>parseWebhook()</Mono> (route{' '}
+              <Mono>POST /webhooks/payments/:gateway</Mono>, raw body for signature checks),{' '}
+              <Mono>refund()</Mono>, <Mono>cancel()</Mono>. Shipping: <Mono>pay_at_venue</Mono> and{' '}
+              <Mono>demo</Mono> (a pretend card payment for pre-production; it trusts the browser,
+              which a real gateway must never do: re-read the payment from the provider).
+            </P>
+            <DataTable
+              head={['To add a gateway (e.g. Stripe)', 'Where']}
+              rows={[
+                ['Gateway object', "New file in paymentGateways/, one line in GATEWAYS. start() creates the provider payment (e.g. a PaymentIntent on the connected account) and returns { status: 'pending', ref, client: { type: 'stripe', client_secret, ... } }."],
+                ['Confirmation', "parseWebhook() verifies the provider signature and maps the event to { ref, status }; applyPaymentResult() places the order. Optionally confirmFromClient() that asks the provider."],
+                ['Guest page', "One branch in paymentPanel() in views/site/shared/ordering.eta for the new client.type (mount the provider's payment form)."],
+                ['Availability', "isAvailable({ venue }) hides it until the venue has an account connected. It then appears in Ordering setup > Payment methods automatically."],
+              ]}
+            />
+            <H3>Flow</H3>
+            <DataTable
+              head={['Step', 'Code']}
+              rows={[
+                ['Guest places order', "POST /order-api/venues/:venueId/orders (OrderBody). createOrder(): settings, gateway, slot check and order number under the advisory lock, server pricing, min order, customer upsert, INSERT as pending_payment. Then startPayment() outside the transaction (the gateway may call a provider)."],
+                ['Payment result', "none: placeOrder() at once. pending: order_payments row + client action. applyPaymentResult() is idempotent; a second success for an already-paid order (a retry and a late earlier attempt both going through) is refunded automatically, never counted twice. A failed payment leaves the order pending_payment; POST /orders/:token/pay starts a new attempt."],
+                ['Placed', "placed (or accepted when auto_accept). WS broadcast order.created to the venue room; order_confirmation email."],
+                ['Staff', "changeStatus() with TRANSITIONS; accept can push promised_at by prep minutes. Reject/cancel of a paid order refunds through refundOrder(). markPaid() records cash / card_terminal. refundOrder() refunds online payments through their gateway and records counter refunds."],
+                ['Expiry', "expireStaleOrders() runs with the hold sweep (queues.js, every 60 s): pending_payment older than 30 minutes becomes expired, pending payments are cancelled through the gateway."],
+                ['Emails', "notificationQueue job order_email -> jobs/orderEmailWorker.js: order_confirmation, order_ready, order_cancelled (built-in templates, same venue email provider as bookings via emailCredentials()). Logged to email_log with order_id."],
+              ]}
+            />
+            <H3>Routes</H3>
+            <DataTable
+              head={['Route', 'Notes']}
+              rows={[
+                ['GET /order-api/venues/:id', "Menu (publicItem: no raw variants or VAT), ordering settings, dates, payment methods. 404 when ordering is off."],
+                ['GET /order-api/venues/:id/slots?date=', "computeSlots()."],
+                ['POST /order-api/venues/:id/quote', "priceBasket() for display."],
+                ['POST /order-api/venues/:id/orders', "Place an order; returns token, status and the payment client action."],
+                ['GET /order-api/orders/:token; POST .../pay; POST .../payments/:id/confirm', "Guest status, retry, browser confirmation."],
+                ['/api/orders (admin)', "GET / (board: venue + day), GET /:id (events, payments), POST /:id/status | promised | mark-paid | refund, GET|PUT /settings/:venueId, POST /pause/:venueId (web_orders manage, no setup rights needed), GET|PUT /availability/:venueId[/:itemId], GET /report, GET /gateways."],
+                ['Site', "/order (sole ordering venue, or a location picker), /locations/:slug/order, /order/status/:token. Each template has order.eta wrapping shared/ordering.eta."],
+              ]}
+            />
+            <H3>Admin</H3>
+            <P>
+              <Mono>pages/Orders.jsx</Mono> (board + report), <Mono>pages/OrderingSettings.jsx</Mono>,{' '}
+              <Mono>pages/mobile/MobileOrders.jsx</Mono>, all built on{' '}
+              <Mono>components/orders/shared.jsx</Mono>: OrderBoard, OrderDetailModal,
+              AvailabilityModal, PauseButton, useRealtimeOrders (venue WebSocket), printTicket
+              (80mm browser print). Menus.jsx sends is_orderable / vat_rate_* in its save payload;
+              VariantGroupsManager sends price_mode / min_select / max_select.
+            </P>
+          </section>
+
           <section id="menus" data-doc="">
             <H2>Menus</H2>
             <P>

@@ -281,6 +281,52 @@ export default async function siteRendererRoutes(app) {
     })
   })
 
+  // ── Web ordering (migration 122) ───────────────────────
+  // /order                       single ordering venue: its menu; several: pick one
+  // /locations/:venueSlug/order  one venue's ordering page
+  // /order/status/:token         an order's live status (the token is the key)
+  const orderingVenues = async bundle => {
+    const ids = (bundle.venues || []).map(v => v.id)
+    if (!ids.length) return []
+    const rows = await sql`SELECT venue_id FROM ordering_settings WHERE venue_id = ANY(${ids}::uuid[]) AND is_enabled = true`
+    const on = new Set(rows.map(r => r.venue_id))
+    return bundle.venues.filter(v => on.has(v.id))
+  }
+  const renderOrder = (req, reply, bundle, extra) => renderSite(reply, 'order', {
+    ...baseCtx(req, bundle),
+    page: { kind: 'order' },
+    pageTitle: 'Order online – ' + (bundle.config?.site_name || bundle.tenant_name || ''),
+    ...extra,
+  })
+
+  app.get('/order', async (req, reply) => {
+    if (!req.siteHost) return reply.callNotFound()
+    const bundle = await loadOrRender404(req, reply)
+    if (!bundle) return
+    const venues = await orderingVenues(bundle)
+    if (!venues.length) return renderNotFound(reply, 'Online ordering is not available')
+    if (venues.length === 1) return renderOrder(req, reply, bundle, { orderView: 'order', orderVenue: venues[0] })
+    return renderOrder(req, reply, bundle, { orderView: 'pick', orderVenues: venues })
+  })
+
+  app.get('/locations/:venueSlug/order', async (req, reply) => {
+    if (!req.siteHost) return reply.callNotFound()
+    const bundle = await loadOrRender404(req, reply)
+    if (!bundle) return
+    const venue = (await orderingVenues(bundle)).find(v => v.slug === req.params.venueSlug)
+    if (!venue) return renderNotFound(reply, 'Online ordering is not available here')
+    return renderOrder(req, reply, bundle, { orderView: 'order', orderVenue: venue })
+  })
+
+  app.get('/order/status/:token', async (req, reply) => {
+    if (!req.siteHost) return reply.callNotFound()
+    const bundle = await loadOrRender404(req, reply)
+    if (!bundle) return
+    if (!/^[0-9a-f-]{36}$/i.test(req.params.token)) return renderNotFound(reply, 'Order not found')
+    reply.header('X-Robots-Tag', 'noindex')
+    return renderOrder(req, reply, bundle, { orderView: 'status', orderToken: req.params.token })
+  })
+
   // ── Tenant custom page ─────────────────────────────────
   app.get('/p/:pageSlug', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()

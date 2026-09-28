@@ -1,0 +1,673 @@
+<%
+/* Web ordering pages (migration 122). Included by the order.eta of each
+   template between its header and footer, so the page keeps the site
+   chrome and theme. it.orderView:
+     'pick'   choose a location (multi-venue tenants)
+     'order'  menu, basket, checkout and payment for it.orderVenue
+     'status' one order's live status (it.orderToken)
+   Prices on this page come from /order-api/pricing.js, the same module
+   the server prices orders with. The server re-prices every order. */
+const view = it.orderView
+const cfg = {
+  view: view,
+  venueId: it.orderVenue ? it.orderVenue.id : null,
+  token: it.orderToken || null,
+  statusBase: '/order/status/',
+}
+const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
+%>
+<style>
+.mo { max-width: 1180px; margin: 0 auto; padding: 24px 16px 120px; font-family: var(--f-body, system-ui), sans-serif; color: var(--c-text, #1f2937); }
+.mo *, .mo *::before, .mo *::after { box-sizing: border-box; }
+.mo h1 { font-family: var(--f-heading, inherit); font-size: clamp(1.6rem, 3vw, 2.2rem); margin: 0 0 6px; }
+.mo h2 { font-family: var(--f-heading, inherit); font-size: 1.35rem; margin: 28px 0 12px; }
+:is(.mo, .mo-sheet-back) .mo-muted { color: var(--c-muted, #6b7280); }
+.mo button { font: inherit; cursor: pointer; touch-action: manipulation; }
+:is(.mo, .mo-sheet-back) .mo-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; padding: 0 20px; border-radius: var(--r-md, 8px); border: 1px solid transparent; background: var(--c-primary, #630812); color: #fff; font-weight: 600; }
+:is(.mo, .mo-sheet-back) .mo-btn[disabled] { opacity: .5; cursor: not-allowed; }
+:is(.mo, .mo-sheet-back) .mo-btn-ghost { background: transparent; color: var(--c-text, #1f2937); border-color: var(--c-border, #e5e7eb); }
+:is(.mo, .mo-sheet-back) .mo-btn-block { width: 100%; }
+:is(.mo, .mo-sheet-back) .mo-banner { padding: 12px 16px; border-radius: var(--r-md, 8px); background: #fef3c7; color: #92400e; margin: 12px 0; }
+:is(.mo, .mo-sheet-back) .mo-error { padding: 12px 16px; border-radius: var(--r-md, 8px); background: #fee2e2; color: #991b1b; margin: 12px 0; }
+:is(.mo, .mo-sheet-back) .mo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 32px; align-items: start; }
+:is(.mo, .mo-sheet-back) .mo-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; position: sticky; top: 0; z-index: 5; background: var(--c-bg, #fff); }
+:is(.mo, .mo-sheet-back) .mo-tab { white-space: nowrap; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--c-border, #e5e7eb); background: var(--c-surface, #fff); color: var(--c-text, #1f2937); }
+:is(.mo, .mo-sheet-back) .mo-tab.is-on { background: var(--c-primary, #630812); color: #fff; border-color: transparent; }
+:is(.mo, .mo-sheet-back) .mo-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+:is(.mo, .mo-sheet-back) .mo-item { display: flex; gap: 12px; text-align: left; width: 100%; padding: 14px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); color: inherit; min-height: 96px; }
+:is(.mo, .mo-sheet-back) .mo-item:hover { border-color: var(--c-primary, #630812); }
+:is(.mo, .mo-sheet-back) .mo-item.is-out { opacity: .55; }
+:is(.mo, .mo-sheet-back) .mo-item-body { flex: 1; min-width: 0; }
+:is(.mo, .mo-sheet-back) .mo-item-name { font-weight: 600; }
+:is(.mo, .mo-sheet-back) .mo-item-desc { font-size: .9rem; color: var(--c-muted, #6b7280); margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+:is(.mo, .mo-sheet-back) .mo-item-price { margin-top: 8px; font-weight: 600; }
+:is(.mo, .mo-sheet-back) .mo-item img { width: 84px; height: 84px; object-fit: cover; border-radius: var(--r-md, 8px); flex: none; }
+:is(.mo, .mo-sheet-back) .mo-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 700; margin-right: 4px; }
+:is(.mo, .mo-sheet-back) .mo-soldout { display: inline-block; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #991b1b; }
+:is(.mo, .mo-sheet-back) .mo-basket { position: sticky; top: 16px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); padding: 16px; }
+:is(.mo, .mo-sheet-back) .mo-line { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--c-border, #e5e7eb); }
+:is(.mo, .mo-sheet-back) .mo-line:last-child { border-bottom: 0; }
+:is(.mo, .mo-sheet-back) .mo-line-opts { font-size: .85rem; color: var(--c-muted, #6b7280); }
+:is(.mo, .mo-sheet-back) .mo-qty { display: inline-flex; align-items: center; gap: 4px; }
+:is(.mo, .mo-sheet-back) .mo-qty button { width: 36px; height: 36px; border-radius: 999px; border: 1px solid var(--c-border, #e5e7eb); background: transparent; color: inherit; }
+:is(.mo, .mo-sheet-back) .mo-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+:is(.mo, .mo-sheet-back) .mo-total { font-weight: 700; font-size: 1.1rem; }
+:is(.mo, .mo-sheet-back) .mo-bar { display: none; }
+:is(.mo, .mo-sheet-back) .mo-field { display: block; margin-bottom: 14px; }
+:is(.mo, .mo-sheet-back) .mo-field span { display: block; font-size: .9rem; font-weight: 600; margin-bottom: 6px; }
+:is(.mo, .mo-sheet-back) .mo-field input, :is(.mo, .mo-sheet-back) .mo-field textarea { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid var(--c-border, #d1d5db); border-radius: var(--r-md, 8px); font: inherit; background: #fff; color: #111827; }
+:is(.mo, .mo-sheet-back) .mo-field textarea { min-height: 72px; }
+:is(.mo, .mo-sheet-back) .mo-choice { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 12px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); margin-bottom: 8px; cursor: pointer; }
+:is(.mo, .mo-sheet-back) .mo-choice input { width: 20px; height: 20px; }
+:is(.mo, .mo-sheet-back) .mo-choice.is-on { border-color: var(--c-primary, #630812); }
+:is(.mo, .mo-sheet-back) .mo-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+:is(.mo, .mo-sheet-back) .mo-slot { min-height: 48px; border-radius: var(--r-md, 8px); border: 1px solid var(--c-border, #e5e7eb); background: var(--c-surface, #fff); color: inherit; }
+:is(.mo, .mo-sheet-back) .mo-slot.is-on { background: var(--c-primary, #630812); color: #fff; border-color: transparent; }
+:is(.mo, .mo-sheet-back) .mo-slot[disabled] { opacity: .4; text-decoration: line-through; cursor: not-allowed; }
+:is(.mo, .mo-sheet-back) .mo-panel { border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); padding: 16px; margin-bottom: 16px; }
+.mo-sheet-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; display: flex; align-items: flex-end; justify-content: center; }
+.mo-sheet { background: var(--c-bg, #fff); color: var(--c-text, #1f2937); width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 20px 16px 16px; font-family: var(--f-body, system-ui), sans-serif; }
+.mo-sheet img.mo-hero { width: 100%; max-height: 240px; object-fit: cover; border-radius: 10px; margin-bottom: 12px; }
+.mo-sheet h3 { font-family: var(--f-heading, inherit); font-size: 1.35rem; margin: 0 0 6px; }
+.mo-sheet .mo-group { margin-top: 18px; }
+.mo-sheet .mo-group-head { display: flex; justify-content: space-between; font-weight: 600; margin-bottom: 8px; }
+.mo-sheet .mo-sheet-foot { position: sticky; bottom: -16px; background: var(--c-bg, #fff); padding: 12px 0 4px; display: flex; gap: 12px; align-items: center; }
+:is(.mo, .mo-sheet-back) .mo-steps { display: flex; gap: 6px; margin: 16px 0; }
+:is(.mo, .mo-sheet-back) .mo-step { flex: 1; height: 6px; border-radius: 3px; background: var(--c-border, #e5e7eb); }
+:is(.mo, .mo-sheet-back) .mo-step.is-on { background: var(--c-primary, #630812); }
+:is(.mo, .mo-sheet-back) .mo-locs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+:is(.mo, .mo-sheet-back) .mo-loc { display: block; padding: 20px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); text-decoration: none; color: inherit; background: var(--c-surface, #fff); }
+@media (min-width: 700px) { .mo-sheet-back { align-items: center; } .mo-sheet { border-radius: 16px; } }
+@media (max-width: 900px) {
+  :is(.mo, .mo-sheet-back) .mo-layout { grid-template-columns: 1fr; }
+  :is(.mo, .mo-sheet-back) .mo-basket-col { display: none; }
+  :is(.mo, .mo-sheet-back) .mo-bar { display: flex; position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 50; }
+  :is(.mo, .mo-sheet-back) .mo-bar .mo-btn { width: 100%; justify-content: space-between; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+}
+</style>
+
+<main class="mo" id="mo-root">
+<% if (view === 'pick') { %>
+  <h1>Order online</h1>
+  <p class="mo-muted" style="margin-bottom: 24px;">Choose where you'd like to collect from.</p>
+  <div class="mo-locs">
+    <% const pickVenues = it.orderVenues || [] %>
+    <% pickVenues.forEach(function (v) { %>
+      <% const addr = [v.address_line1, v.city].filter(Boolean).join(', ') %>
+      <a class="mo-loc" href="/locations/<%= v.slug %>/order">
+        <div style="font-size: 1.1rem; font-weight: 600;"><%= v.name %></div>
+        <% if (addr) { %><div class="mo-muted" style="margin-top: 4px;"><%= addr %></div><% } %>
+        <div style="margin-top: 12px; color: var(--c-primary); font-weight: 600;">Order for collection &rsaquo;</div>
+      </a>
+    <% }) %>
+  </div>
+<% } else { %>
+  <div id="mo-app"><p class="mo-muted">Loading&hellip;</p></div>
+<% } %>
+</main>
+
+<% if (view !== 'pick') { %>
+<script type="application/json" id="mo-config"><%~ cfgJson %></script>
+<script type="module">
+import { itemChoices, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
+
+const CFG = JSON.parse(document.getElementById('mo-config').textContent)
+const API = '/order-api'
+const root = document.getElementById('mo-app')
+
+const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, {
+    method: opts.method || 'GET',
+    headers: opts.body ? { 'Content-Type': 'application/json' } : {},
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  })
+  let data = null
+  try { data = await res.json() } catch {}
+  if (!res.ok) {
+    const err = new Error((data && (data.error || data.message)) || ('Something went wrong (' + res.status + ')'))
+    err.data = data
+    throw err
+  }
+  return data
+}
+
+function fmtTime(iso, tz) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso))
+}
+function fmtDay(dateStr, today) {
+  if (dateStr === today) return 'Today'
+  const d = new Date(dateStr + 'T12:00:00Z')
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(d)
+}
+
+if (CFG.view === 'status') startStatus()
+else startOrdering()
+
+// ════════════════════════════════════════════════════════════
+//  Ordering
+// ════════════════════════════════════════════════════════════
+
+async function startOrdering() {
+  let data
+  try {
+    data = await api('/venues/' + CFG.venueId)
+  } catch (e) {
+    root.innerHTML = '<div class="mo-error">' + esc(e.message) + '</div>'
+    return
+  }
+  const venue = data.venue
+  const ord = data.ordering
+  const cur = venue.currency || 'GBP'
+  const money = p => formatPence(p, cur)
+  const tags = Object.fromEntries((data.dietary_tags || []).map(t => [t.code, t]))
+  const itemsById = {}
+  for (const m of data.menus) for (const s of m.sections) for (const i of s.items) itemsById[i.id] = i
+
+  const KEY = 'maca_basket_' + venue.id
+  const state = {
+    menuIdx: 0,
+    basket: loadBasket(),
+    step: 'menu',          // menu | checkout | pay
+    when: null,            // 'asap' | slot ISO
+    date: ord.dates[0],
+    slots: null,
+    tip: 0,
+    method: (ord.payment_methods[0] || {}).key || null,
+    form: { name: '', email: '', phone: '', allergy_note: '', notes: '', marketing_opt_in: false },
+    error: null,
+    busy: false,
+    pay: null,             // { token, payment }
+  }
+
+  function loadBasket() {
+    try {
+      const b = JSON.parse(localStorage.getItem(KEY) || '[]')
+      return Array.isArray(b) ? b.filter(l => itemsById[l.item_id]) : []
+    } catch { return [] }
+  }
+  function saveBasket() {
+    try { localStorage.setItem(KEY, JSON.stringify(state.basket)) } catch {}
+  }
+  function quote() { return priceBasket(itemsById, state.basket, { tipPercent: state.tip }) }
+
+  function tagHtml(codes) {
+    return (codes || []).map(c => tags[c] ? '<span class="mo-tag" title="' + esc(tags[c].label) + '" style="background:' + esc(tags[c].colour) + '">' + esc(tags[c].glyph) + '</span>' : '').join('')
+  }
+
+  // ── Menu ──
+  function menuHtml() {
+    const menus = data.menus
+    if (!menus.length) return '<div class="mo-banner">There is nothing to order right now.</div>'
+    const m = menus[state.menuIdx] || menus[0]
+    let h = ''
+    if (menus.length > 1) {
+      h += '<div class="mo-tabs">' + menus.map((x, i) => '<button class="mo-tab' + (i === state.menuIdx ? ' is-on' : '') + '" data-menu="' + i + '">' + esc(x.name) + '</button>').join('') + '</div>'
+    }
+    if (m.sections.length > 1) {
+      h += '<div class="mo-tabs">' + m.sections.map(s => '<button class="mo-tab" data-jump="' + esc(s.id) + '">' + esc(s.title) + '</button>').join('') + '</div>'
+    }
+    for (const s of m.sections) {
+      h += '<h2 id="sec-' + esc(s.id) + '" style="scroll-margin-top: 64px;">' + esc(s.title) + '</h2>'
+      if (s.subtitle) h += '<p class="mo-muted" style="margin:-6px 0 12px;">' + esc(s.subtitle) + '</p>'
+      h += '<div class="mo-items">'
+      for (const i of s.items) {
+        const price = i.from_pence == null ? '' : ((i.choices.some(c => c.mode === 'base' && c.options.length > 1) ? 'from ' : '') + money(i.from_pence))
+        h += '<button class="mo-item' + (i.sold_out ? ' is-out' : '') + '" data-item="' + esc(i.id) + '"' + (i.sold_out ? ' disabled' : '') + '>' +
+          '<div class="mo-item-body"><div class="mo-item-name">' + esc(i.name) + '</div>' +
+          (i.description ? '<div class="mo-item-desc">' + esc(i.description) + '</div>' : '') +
+          '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price)) + ' ' + tagHtml(i.dietary) + '</div></div>' +
+          (i.image_url ? '<img src="' + esc(i.image_url) + '" alt="" loading="lazy">' : '') +
+          '</button>'
+      }
+      h += '</div>'
+    }
+    const usedTags = new Set()
+    for (const x of menus) for (const s of x.sections) for (const i of s.items) for (const c of i.dietary || []) usedTags.add(c)
+    if (usedTags.size) {
+      h += '<p class="mo-muted" style="margin-top:24px;font-size:.9rem;">' + [...usedTags].filter(c => tags[c]).map(c => tagHtml([c]) + esc(tags[c].label)).join(' &nbsp; ') + '</p>'
+    }
+    h += '<p class="mo-muted" style="font-size:.9rem;">Allergies or dietary needs? Tell us in the allergy note at checkout' + (venue.phone ? ', or call us on ' + esc(venue.phone) : '') + ' before you order.</p>'
+    return h
+  }
+
+  // ── Basket ──
+  function basketHtml(compact) {
+    const q = quote()
+    if (!state.basket.length) return '<p class="mo-muted">Your basket is empty.</p>'
+    let h = ''
+    q.lines.forEach((l, idx) => {
+      h += '<div class="mo-line"><div style="flex:1;min-width:0;"><div><strong>' + esc(l.name) + '</strong></div>' +
+        (l.options.length ? '<div class="mo-line-opts">' + esc(l.options.map(o => o.label).join(', ')) + '</div>' : '') +
+        (l.note ? '<div class="mo-line-opts">Note: ' + esc(l.note) + '</div>' : '') +
+        '<div class="mo-qty" style="margin-top:6px;"><button data-dec="' + idx + '" aria-label="One less">&minus;</button><span style="min-width:24px;text-align:center;">' + l.qty + '</span><button data-inc="' + idx + '" aria-label="One more">+</button></div>' +
+        '</div><div style="white-space:nowrap;">' + money(l.line_total_pence) + '</div></div>'
+    })
+    if (q.errors.length) h += '<div class="mo-error">' + esc(q.errors[0].error) + '</div>'
+    h += '<div class="mo-row mo-total" style="margin-top:8px;"><span>Subtotal</span><span>' + money(q.subtotal_pence) + '</span></div>'
+    if (ord.min_order_pence && q.subtotal_pence < ord.min_order_pence) {
+      h += '<p class="mo-muted" style="font-size:.9rem;">Minimum order ' + money(ord.min_order_pence) + '</p>'
+    }
+    if (!compact) {
+      h += '<button class="mo-btn mo-btn-block" data-checkout style="margin-top:12px;"' + (canCheckout(q) ? '' : ' disabled') + '>Checkout</button>'
+    }
+    return h
+  }
+  function canCheckout(q) {
+    return !ord.is_paused && q.lines.length && !q.errors.length && q.subtotal_pence >= (ord.min_order_pence || 0)
+  }
+
+  // ── Dish sheet ──
+  function openItem(item) {
+    const choices = item.choices
+    const sel = { choices: {}, qty: 1, note: '' }
+    for (const c of choices) {
+      sel.choices[c.key] = (c.min === 1 && c.max === 1 && c.options.length === 1) ? [c.options[0].id] : []
+    }
+    const back = document.createElement('div')
+    back.className = 'mo-sheet-back'
+    document.body.appendChild(back)
+    const close = () => { back.remove(); document.body.style.overflow = '' }
+    document.body.style.overflow = 'hidden'
+    back.addEventListener('click', e => { if (e.target === back) close() })
+
+    function render() {
+      const priced = priceLine(item, sel, choices)
+      let h = '<div class="mo-sheet" role="dialog" aria-modal="true">'
+      if (item.image_url) h += '<img class="mo-hero" src="' + esc(item.image_url) + '" alt="">'
+      h += '<h3>' + esc(item.name) + '</h3>'
+      if (item.description) h += '<p class="mo-muted" style="margin:0 0 6px;">' + esc(item.description) + '</p>'
+      if (item.dietary && item.dietary.length) h += '<div>' + tagHtml(item.dietary) + '</div>'
+      if (item.calories) h += '<p class="mo-muted" style="font-size:.85rem;">' + esc(item.calories) + ' kcal</p>'
+      for (const c of choices) {
+        const multi = c.max > 1
+        const rule = c.min === 0 ? (multi ? 'Optional, up to ' + c.max : 'Optional') : (c.min === c.max ? (c.min === 1 ? 'Choose 1' : 'Choose ' + c.min) : 'Choose ' + c.min + '–' + c.max)
+        h += '<div class="mo-group"><div class="mo-group-head"><span>' + esc(c.key === 'variants' ? 'Options' : c.name) + '</span><span class="mo-muted" style="font-weight:400;font-size:.9rem;">' + rule + '</span></div>'
+        for (const o of c.options) {
+          const on = sel.choices[c.key].includes(o.id)
+          const price = c.mode === 'extra' ? (o.price_pence ? '+' + money(o.price_pence) : '') : money(o.price_pence)
+          h += '<label class="mo-choice' + (on ? ' is-on' : '') + '"><input type="' + (multi ? 'checkbox' : 'radio') + '" name="c-' + esc(c.key) + '" data-c="' + esc(c.key) + '" data-o="' + esc(o.id) + '"' + (on ? ' checked' : '') + '><span style="flex:1;">' + esc(o.label) + '</span><span class="mo-muted">' + esc(price) + '</span></label>'
+        }
+        h += '</div>'
+      }
+      h += '<label class="mo-field" style="margin-top:18px;"><span>Note for the kitchen (optional)</span><input data-note maxlength="300" value="' + esc(sel.note) + '" placeholder="e.g. no onion"></label>'
+      h += '<div class="mo-sheet-foot"><div class="mo-qty"><button data-q="-1" aria-label="One less">&minus;</button><span style="min-width:28px;text-align:center;font-weight:600;">' + sel.qty + '</span><button data-q="1" aria-label="One more">+</button></div>' +
+        '<button class="mo-btn" style="flex:1;" data-add' + (priced.ok ? '' : ' disabled') + '>' + (priced.ok ? 'Add ' + money(priced.unit_pence * sel.qty) : esc(priced.error)) + '</button></div>'
+      h += '<button class="mo-btn mo-btn-ghost mo-btn-block" data-close style="margin-top:8px;">Cancel</button></div>'
+      back.innerHTML = h
+    }
+    render()
+    back.addEventListener('change', e => {
+      const c = e.target.dataset.c
+      if (!c) return
+      const choice = choices.find(x => x.key === c)
+      const o = e.target.dataset.o
+      let list = sel.choices[c]
+      if (choice.max === 1) list = e.target.checked ? [o] : []
+      else if (e.target.checked) { if (list.length < choice.max) list = [...list, o] } else list = list.filter(x => x !== o)
+      sel.choices[c] = list
+      render()
+    })
+    back.addEventListener('input', e => { if ('note' in e.target.dataset) sel.note = e.target.value })
+    back.addEventListener('click', e => {
+      const t = e.target.closest('button')
+      if (!t) return
+      if ('close' in t.dataset) close()
+      else if (t.dataset.q) { sel.qty = Math.max(1, Math.min(99, sel.qty + Number(t.dataset.q))); render() }
+      else if ('add' in t.dataset) {
+        state.basket.push({ item_id: item.id, qty: sel.qty, choices: sel.choices, note: sel.note.trim() || null })
+        saveBasket()
+        close()
+        draw()
+      }
+    })
+  }
+
+  // ── Checkout ──
+  async function loadSlots() {
+    state.slots = null
+    draw()
+    try {
+      state.slots = await api('/venues/' + venue.id + '/slots?date=' + state.date)
+      if (!state.when) {
+        if (state.slots.asap.available) state.when = 'asap'
+        else state.when = (state.slots.slots.find(s => s.available) || {}).at || null
+      }
+    } catch (e) {
+      state.error = e.message
+    }
+    draw()
+  }
+
+  function checkoutHtml() {
+    const q = quote()
+    const f = state.form
+    let h = '<button class="mo-btn mo-btn-ghost" data-back style="margin-bottom:12px;">&larr; Back to menu</button>'
+    h += '<h1>Checkout</h1><p class="mo-muted">Collection from ' + esc(venue.name) + (venue.address_line1 ? ', ' + esc(venue.address_line1) : '') + '</p>'
+    if (state.error) h += '<div class="mo-error">' + esc(state.error) + '</div>'
+
+    h += '<div class="mo-panel"><h2 style="margin-top:0;">When</h2>'
+    if (ord.dates.length > 1) {
+      h += '<div class="mo-tabs" style="position:static;">' + ord.dates.map(d => '<button class="mo-tab' + (d === state.date ? ' is-on' : '') + '" data-date="' + d + '">' + esc(fmtDay(d, ord.today)) + '</button>').join('') + '</div>'
+    }
+    if (!state.slots) h += '<p class="mo-muted">Loading times&hellip;</p>'
+    else if (!state.slots.is_open) h += '<p class="mo-muted">We are not taking orders for this day.</p>'
+    else {
+      if (state.slots.asap.available) {
+        h += '<label class="mo-choice' + (state.when === 'asap' ? ' is-on' : '') + '"><input type="radio" name="when" data-when="asap"' + (state.when === 'asap' ? ' checked' : '') + '><span style="flex:1;">As soon as possible</span><span class="mo-muted">ready about ' + fmtTime(state.slots.asap.promised_at, venue.timezone) + '</span></label>'
+      }
+      const avail = state.slots.slots.filter(s => s.available || s.full)
+      if (avail.length) {
+        h += '<p class="mo-muted" style="margin:12px 0 8px;">Or choose a time</p><div class="mo-slots">' +
+          avail.map(s => '<button class="mo-slot' + (state.when === s.at ? ' is-on' : '') + '" data-slot="' + esc(s.at) + '"' + (s.available ? '' : ' disabled title="Fully booked"') + '>' + esc(s.time) + '</button>').join('') + '</div>'
+      } else if (!state.slots.asap.available) {
+        h += '<p class="mo-muted">No collection times left for this day.</p>'
+      }
+    }
+    h += '</div>'
+
+    h += '<div class="mo-panel"><h2 style="margin-top:0;">Your details</h2>' +
+      '<label class="mo-field"><span>Name</span><input data-f="name" autocomplete="name" value="' + esc(f.name) + '" maxlength="120"></label>' +
+      '<label class="mo-field"><span>Email</span><input data-f="email" type="email" autocomplete="email" value="' + esc(f.email) + '" maxlength="200"></label>' +
+      '<label class="mo-field"><span>Phone</span><input data-f="phone" type="tel" inputmode="tel" autocomplete="tel" value="' + esc(f.phone) + '" maxlength="40"></label>' +
+      '<label class="mo-field"><span>Allergies (optional)</span><textarea data-f="allergy_note" maxlength="500" placeholder="Tell us about any allergies">' + esc(f.allergy_note) + '</textarea></label>' +
+      '<label class="mo-field"><span>Anything else? (optional)</span><textarea data-f="notes" maxlength="500">' + esc(f.notes) + '</textarea></label>' +
+      '<label class="mo-choice"><input type="checkbox" data-f="marketing_opt_in"' + (f.marketing_opt_in ? ' checked' : '') + '><span>Send me news and offers</span></label></div>'
+
+    if (ord.tips_enabled && ord.tip_percents.length) {
+      h += '<div class="mo-panel"><h2 style="margin-top:0;">Add a tip?</h2><div class="mo-slots">' +
+        [0, ...ord.tip_percents].map(p => '<button class="mo-slot' + (state.tip === p ? ' is-on' : '') + '" data-tip="' + p + '">' + (p ? p + '%' : 'No tip') + '</button>').join('') + '</div></div>'
+    }
+
+    h += '<div class="mo-panel"><h2 style="margin-top:0;">Payment</h2>'
+    if (!ord.payment_methods.length) h += '<p class="mo-muted">Online ordering is not taking payments right now.</p>'
+    for (const m of ord.payment_methods) {
+      h += '<label class="mo-choice' + (state.method === m.key ? ' is-on' : '') + '"><input type="radio" name="pm" data-method="' + esc(m.key) + '"' + (state.method === m.key ? ' checked' : '') + '><span>' + esc(m.label) + '</span></label>'
+    }
+    h += '</div>'
+
+    h += '<div class="mo-panel"><h2 style="margin-top:0;">Your order</h2>' + basketHtml(true)
+    if (q.tip_pence) h += '<div class="mo-row"><span>Tip</span><span>' + money(q.tip_pence) + '</span></div>'
+    h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(q.total_pence) + '</span></div>'
+    if (q.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(q.vat_pence) + '</span></div>'
+    h += '</div>'
+
+    const m = ord.payment_methods.find(x => x.key === state.method)
+    const ready = readyToPlace()
+    h += '<button class="mo-btn mo-btn-block" data-place' + (ready && !state.busy ? '' : ' disabled') + '>' +
+      (state.busy ? 'Placing order&hellip;' : (m && m.online ? 'Continue to payment' : 'Place order') + ' · ' + money(q.total_pence)) + '</button>'
+    if (!ready && !state.busy) h += '<p class="mo-muted" style="font-size:.9rem;margin-top:8px;">Choose a time and fill in your name, email and phone to continue.</p>'
+    return h
+  }
+
+  function readyToPlace() {
+    const f = state.form
+    return !!(canCheckout(quote()) && state.when && f.name.trim() && /.+@.+\..+/.test(f.email.trim()) &&
+      f.phone.trim().length >= 5 && ord.payment_methods.some(x => x.key === state.method))
+  }
+
+  async function placeOrder() {
+    state.busy = true
+    state.error = null
+    draw()
+    const f = state.form
+    try {
+      const res = await api('/venues/' + venue.id + '/orders', {
+        method: 'POST',
+        body: {
+          lines: state.basket, when: state.when,
+          customer: { name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim() },
+          notes: f.notes.trim() || null, allergy_note: f.allergy_note.trim() || null,
+          marketing_opt_in: !!f.marketing_opt_in, tip_percent: state.tip, payment_method: state.method,
+        },
+      })
+      state.basket = []
+      saveBasket()
+      if (res.payment) {
+        state.pay = { token: res.token, payment: res.payment }
+        state.step = 'pay'
+        state.busy = false
+        draw()
+      } else {
+        location.href = CFG.statusBase + res.token
+      }
+    } catch (e) {
+      state.busy = false
+      state.error = e.message
+      if (e.data && e.data.code === 'slot_unavailable') { state.when = null; loadSlots() }
+      draw()
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
+  function payHtml() {
+    return paymentPanel(state.pay.payment, money, state.error)
+  }
+
+  async function pay(outcome) {
+    state.busy = true
+    draw()
+    const res = await runPayment(state.pay.token, state.pay.payment, outcome)
+    state.busy = false
+    if (res.done) location.href = CFG.statusBase + state.pay.token
+    else { state.error = res.error; draw() }
+  }
+
+  // ── Draw ──
+  function draw() {
+    let h = ''
+    if (state.step === 'menu') {
+      h += '<h1>' + esc(venue.name) + '</h1><p class="mo-muted">Order for collection' + (venue.address_line1 ? ' · ' + esc(venue.address_line1) : '') + '</p>'
+      if (ord.collection_instructions) h += '<p class="mo-muted">' + esc(ord.collection_instructions) + '</p>'
+      if (ord.is_paused) h += '<div class="mo-banner">' + esc(ord.pause_message || 'We are not taking online orders right now. Please check back soon.') + '</div>'
+      const q = quote()
+      const count = state.basket.reduce((s, l) => s + l.qty, 0)
+      h += '<div class="mo-layout"><div>' + menuHtml() + '</div><div class="mo-basket-col"><div class="mo-basket"><h2 style="margin-top:0;">Your basket</h2>' + basketHtml(false) + '</div></div></div>'
+      if (count) h += '<div class="mo-bar"><button class="mo-btn" data-open-basket><span>View basket (' + count + ')</span><span>' + money(q.subtotal_pence) + '</span></button></div>'
+    } else if (state.step === 'checkout') {
+      h += checkoutHtml()
+    } else {
+      h += payHtml()
+      if (state.busy) h += '<p class="mo-muted">Processing&hellip;</p>'
+    }
+    root.innerHTML = h
+  }
+
+  function openBasketSheet() {
+    const back = document.createElement('div')
+    back.className = 'mo-sheet-back'
+    document.body.appendChild(back)
+    const close = () => { back.remove(); document.body.style.overflow = '' }
+    document.body.style.overflow = 'hidden'
+    const render = () => { back.innerHTML = '<div class="mo-sheet"><h3>Your basket</h3>' + basketHtml(false) + '<button class="mo-btn mo-btn-ghost mo-btn-block" data-close style="margin-top:8px;">Keep ordering</button></div>' }
+    render()
+    back.addEventListener('click', e => {
+      if (e.target === back) return close()
+      const t = e.target.closest('button')
+      if (!t) return
+      if ('close' in t.dataset) close()
+      else if (changeQty(t)) { render(); draw(); if (!state.basket.length) close() }
+      else if ('checkout' in t.dataset) { close(); goCheckout() }
+    })
+  }
+
+  function changeQty(t) {
+    if (t.dataset.inc != null) { state.basket[+t.dataset.inc].qty = Math.min(99, state.basket[+t.dataset.inc].qty + 1) }
+    else if (t.dataset.dec != null) {
+      const l = state.basket[+t.dataset.dec]
+      if (l.qty > 1) l.qty -= 1
+      else state.basket.splice(+t.dataset.dec, 1)
+    } else return false
+    saveBasket()
+    return true
+  }
+
+  function goCheckout() {
+    state.step = 'checkout'
+    state.error = null
+    window.scrollTo({ top: 0 })
+    loadSlots()
+  }
+
+  root.addEventListener('click', e => {
+    const t = e.target.closest('button')
+    if (!t) return
+    if (t.dataset.item) openItem(itemsById[t.dataset.item])
+    else if (t.dataset.menu) { state.menuIdx = +t.dataset.menu; draw() }
+    else if (t.dataset.jump) document.getElementById('sec-' + t.dataset.jump)?.scrollIntoView({ behavior: 'smooth' })
+    else if (changeQty(t)) draw()
+    else if ('checkout' in t.dataset) goCheckout()
+    else if ('openBasket' in t.dataset) openBasketSheet()
+    else if ('back' in t.dataset) { state.step = 'menu'; state.error = null; draw() }
+    else if (t.dataset.date) { state.date = t.dataset.date; state.when = null; loadSlots() }
+    else if (t.dataset.slot) { state.when = t.dataset.slot; draw() }
+    else if (t.dataset.tip != null) { state.tip = +t.dataset.tip; draw() }
+    else if ('place' in t.dataset) placeOrder()
+    else if (t.dataset.pay) pay(t.dataset.pay)
+  })
+  root.addEventListener('change', e => {
+    const d = e.target.dataset
+    if (d.when) { state.when = d.when; draw() }
+    else if (d.method) { state.method = d.method; draw() }
+    else if (d.f === 'marketing_opt_in') state.form.marketing_opt_in = e.target.checked
+  })
+  root.addEventListener('input', e => {
+    const d = e.target.dataset
+    if (d.f && d.f !== 'marketing_opt_in') {
+      state.form[d.f] = e.target.value
+      // Only the Place order button depends on the form: update it in
+      // place so typing never loses focus.
+      const btn = root.querySelector('[data-place]')
+      if (btn) btn.disabled = !(readyToPlace() && !state.busy)
+    }
+  })
+
+  draw()
+}
+
+// ════════════════════════════════════════════════════════════
+//  Payment step (shared by checkout and the status page)
+// ════════════════════════════════════════════════════════════
+// Switches on payment.type, which the gateway sets. Add a branch here
+// when a real gateway is wired in (e.g. 'stripe' mounts Stripe's
+// Payment Element with payment.client_secret).
+
+function paymentPanel(payment, money, error) {
+  let h = '<h1>Payment</h1>'
+  if (error) h += '<div class="mo-error">' + esc(error) + '</div>'
+  if (payment.type === 'demo') {
+    h += '<div class="mo-panel"><div class="mo-banner" style="margin-top:0;">Test payment: no money will be taken.</div>' +
+      '<p style="font-size:1.2rem;font-weight:700;">' + money(payment.amount_pence) + '</p>' +
+      '<button class="mo-btn mo-btn-block" data-pay="succeed">Pay ' + money(payment.amount_pence) + '</button>' +
+      '<button class="mo-btn mo-btn-ghost mo-btn-block" data-pay="fail" style="margin-top:8px;">Simulate a declined card</button></div>'
+  } else {
+    h += '<div class="mo-error">This payment method is not available yet. Please contact the restaurant.</div>'
+  }
+  return h
+}
+
+async function runPayment(token, payment, outcome) {
+  try {
+    const order = await api('/orders/' + token + '/payments/' + payment.payment_id + '/confirm', { method: 'POST', body: { outcome } })
+    if (order.payment_status === 'paid') return { done: true }
+    return { done: false, error: 'The payment did not go through. Please try again.' }
+  } catch (e) {
+    return { done: false, error: e.message }
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  Status
+// ════════════════════════════════════════════════════════════
+
+async function startStatus() {
+  const STEPS = [
+    ['placed', 'Order received'], ['accepted', 'Accepted'], ['ready', 'Ready to collect'], ['completed', 'Collected'],
+  ]
+  const RANK = { placed: 0, accepted: 1, preparing: 1, ready: 2, completed: 3 }
+  let payState = null
+  let order = null
+
+  async function load() {
+    try {
+      order = await api('/orders/' + CFG.token)
+      draw()
+    } catch (e) {
+      root.innerHTML = '<div class="mo-error">' + esc(e.message) + '</div>'
+    }
+  }
+
+  function draw() {
+    const o = order
+    const money = p => formatPence(p, o.currency)
+    const tz = o.venue ? o.venue.timezone : 'Europe/London'
+    let h = ''
+    if (payState) {
+      root.innerHTML = paymentPanel(payState.payment, money, payState.error) + (payState.busy ? '<p class="mo-muted">Processing&hellip;</p>' : '')
+      return
+    }
+    h += '<p class="mo-muted">' + esc(o.venue ? o.venue.name : '') + '</p><h1>Order #' + o.order_number + '</h1>'
+    if (o.status === 'pending_payment') {
+      h += '<div class="mo-banner">Your payment has not gone through yet, so the kitchen has not received this order.</div>' +
+        '<button class="mo-btn" data-retry>Pay now</button>'
+    } else if (o.status === 'expired') {
+      h += '<div class="mo-error">This order was not paid in time and has been cancelled.</div>'
+    } else if (o.status === 'rejected' || o.status === 'cancelled') {
+      h += '<div class="mo-error">Sorry, this order has been cancelled.' + (o.cancel_reason ? ' ' + esc(o.cancel_reason) : '') + '</div>'
+      if (o.refunded_pence) h += '<p>We have refunded ' + money(o.refunded_pence) + '.</p>'
+    } else {
+      const r = RANK[o.status] ?? 0
+      h += '<div class="mo-steps">' + STEPS.map((s, i) => '<div class="mo-step' + (i <= r ? ' is-on' : '') + '"></div>').join('') + '</div>'
+      h += '<p style="font-size:1.25rem;font-weight:700;margin:0;">' + esc(STEPS[r][1]) + '</p>'
+      if (o.status !== 'completed') {
+        h += '<p class="mo-muted">' + (o.status === 'ready' ? 'Your order is waiting for you.' : 'Ready ' + (o.is_asap ? 'around ' : 'at ') + fmtTime(o.promised_at, tz)) + '</p>'
+      }
+      if (o.payment_status !== 'paid' && o.payment_method === 'pay_at_venue') h += '<p>Please pay when you collect.</p>'
+    }
+    h += '<div class="mo-panel" style="margin-top:20px;">'
+    for (const i of o.items) {
+      h += '<div class="mo-line"><div style="flex:1;min-width:0;">' + i.qty + ' &times; <strong>' + esc(i.name) + '</strong>' +
+        (i.options.length ? '<div class="mo-line-opts">' + esc(i.options.map(x => x.label).join(', ')) + '</div>' : '') +
+        (i.note ? '<div class="mo-line-opts">Note: ' + esc(i.note) + '</div>' : '') +
+        '</div><div>' + money(i.line_total_pence) + '</div></div>'
+    }
+    h += '<div class="mo-row"><span>Subtotal</span><span>' + money(o.subtotal_pence) + '</span></div>'
+    if (o.tip_pence) h += '<div class="mo-row"><span>Tip</span><span>' + money(o.tip_pence) + '</span></div>'
+    h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(o.total_pence) + '</span></div>'
+    if (o.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(o.vat_pence) + '</span></div>'
+    h += '<p class="mo-muted" style="font-size:.9rem;">' + (o.payment_status === 'paid' ? 'Paid' : o.payment_status === 'refunded' ? 'Refunded' : o.payment_status === 'partially_refunded' ? 'Partly refunded' : 'Not paid yet') + '</p>'
+    h += '</div><p class="mo-muted" style="font-size:.9rem;">This page updates by itself. We have also emailed you a confirmation.</p>'
+    root.innerHTML = h
+  }
+
+  root.addEventListener('click', async e => {
+    const t = e.target.closest('button')
+    if (!t) return
+    if ('retry' in t.dataset) {
+      try {
+        const res = await api('/orders/' + CFG.token + '/pay', { method: 'POST' })
+        if (res.payment) { payState = { payment: res.payment }; draw() }
+        else load()
+      } catch (err) { alertBox(err.message) }
+    } else if (t.dataset.pay && payState) {
+      payState.busy = true
+      draw()
+      const res = await runPayment(CFG.token, payState.payment, t.dataset.pay)
+      if (res.done) { payState = null; load() }
+      else { payState.busy = false; payState.error = res.error; draw() }
+    }
+  })
+
+  function alertBox(msg) {
+    const d = document.createElement('div')
+    d.className = 'mo-error'
+    d.textContent = msg
+    root.prepend(d)
+  }
+
+  await load()
+  setInterval(() => { if (!payState && order && !['completed', 'rejected', 'cancelled', 'expired'].includes(order.status)) load() }, 15000)
+}
+</script>
+<% } %>

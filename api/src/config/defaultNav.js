@@ -16,6 +16,12 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Bookings', icon: 'BookOpen', route: '/bookings', module: 'bookings' },
       { label: 'Customers', icon: 'UserRound', route: '/customers', module: 'customers' },
       {
+        label: 'Online orders', icon: 'ShoppingBag', route: '/orders', module: 'web_orders',
+        children: [
+          { label: 'Ordering setup', icon: 'Settings2', route: '/orders/settings', module: 'web_ordering_setup' },
+        ],
+      },
+      {
         label: 'Order sheets', icon: 'ClipboardList', route: '/order-sheets', module: 'order_sheets',
         children: [
           { label: 'Templates', icon: 'ClipboardList', route: '/order-sheets/templates', module: 'order_sheet_setup' },

@@ -217,7 +217,7 @@ export const BLOCKS = [
           title:       'Order with us',
           description: 'Best prices, no middleman, ready when you walk in.',
           cta_text:    'Order now',
-          cta_url:     '/',
+          cta_url:     '/order',
         },
         {
           tag:         'Delivery',
@@ -755,7 +755,7 @@ export const PAGE_TEMPLATES = [
         body_text:    "Order direct for the best price, or use Deliveroo or Just Eat if that is easier. We don't mind.",
         bg_style:     'dark',
         cards: [
-          { tag: 'Direct Collection', badge: '15% OFF', title: 'Order with us',  description: 'Best prices, no middleman, ready when you walk in.', cta_text: 'Order now',     cta_url: '/' },
+          { tag: 'Direct Collection', badge: '15% OFF', title: 'Order with us',  description: 'Best prices, no middleman, ready when you walk in.', cta_text: 'Order now',     cta_url: '/order' },
           { tag: 'Delivery',          badge: '',         title: 'Deliveroo',     description: 'To your door, usually within the hour.',              cta_text: 'Open Deliveroo', cta_url: 'https://deliveroo.co.uk/' },
           { tag: 'Delivery',          badge: '',         title: 'Just Eat',      description: 'Same menu, different driver.',                         cta_text: 'Open Just Eat',  cta_url: 'https://just-eat.co.uk/' },
         ],

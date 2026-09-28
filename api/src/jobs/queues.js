@@ -16,6 +16,11 @@ export const publishQueue       = new Queue('website-publish',  { connection })
 
 export function startNotificationWorker(log) {
   const worker = new Worker('notifications', async job => {
+    if (job.name === 'order_email') {
+      const { processOrderEmailJob } = await import('./orderEmailWorker.js')
+      log.info({ orderId: job.data.orderId, type: job.data.type }, 'Processing order email')
+      return processOrderEmailJob({ data: job.data, log: msg => log.info(msg) })
+    }
     const { bookingId, tenantId, venueId, type, manageBaseUrl } = job.data
     log.info({ bookingId, type }, 'Processing notification')
 
@@ -41,6 +46,10 @@ export function startNotificationWorker(log) {
 export function startHoldSweepWorker(sql, log) {
   const worker = new Worker('hold-sweep', async () => {
     const result = await sql`SELECT sweep_expired_holds()`
+    // Unpaid online orders give their collection slot back too.
+    const { expireStaleOrders } = await import('../services/orderSvc.js')
+    const expired = await expireStaleOrders(log)
+    if (expired) log.info({ expired }, 'Expired unpaid orders')
     log.debug('Hold sweep complete')
   }, { connection })
 

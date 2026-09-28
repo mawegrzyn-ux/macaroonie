@@ -34,8 +34,13 @@ export function errorHandler(err, req, reply) {
   }
 
   // Known application errors thrown as { statusCode, message }
+  // (`code` / `errors` pass through when set, e.g. web ordering's
+  // 'slot_unavailable' and per-line basket errors.)
   if (err.statusCode) {
-    return reply.code(err.statusCode).send({ error: err.message })
+    const body = { error: err.message }
+    if (typeof err.code === 'string') body.code = err.code
+    if (Array.isArray(err.errors)) body.errors = err.errors
+    return reply.code(err.statusCode).send(body)
   }
 
   return reply.code(500).send({ error: 'Internal server error' })

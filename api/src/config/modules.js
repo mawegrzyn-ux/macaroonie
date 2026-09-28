@@ -157,6 +157,20 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
   },
   {
+    key:    'web_orders',
+    label:  'Online orders',
+    group:  'web_ordering',
+    description: 'Web orders for collection: the live orders board, accept / ready / refund, sold out, pause.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
+  {
+    key:    'web_ordering_setup',
+    label:  'Ordering setup',
+    group:  'web_ordering',
+    description: 'Online ordering settings per venue: hours, collection slots, menus, payment methods, tips.',
+    default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
+  },
+  {
     key:    'team',
     label:  'Team',
     core:   true,
@@ -305,6 +319,12 @@ export const MODULE_GROUPS = [
     label:  'Staff & rota',
     description: 'Staff list, roles, weekly rota, pay and tip sharing.',
     moduleKeys: ['staff', 'rota', 'rota_pay', 'rota_tips', 'rota_dashboard'],
+  },
+  {
+    key:    'web_ordering',
+    label:  'Online ordering',
+    description: 'Collection orders from the website, with payment through a payment gateway or at the counter.',
+    moduleKeys: ['web_orders', 'web_ordering_setup'],
   },
   {
     key:    'support',
