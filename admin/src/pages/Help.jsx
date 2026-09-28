@@ -29,6 +29,7 @@ const SECTIONS = [
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'website',             label: 'Website Builder' },
   { id: 'menus',               label: 'Menus' },
+  { id: 'online-orders',       label: 'Online Orders' },
   { id: 'order-sheets',        label: 'Order Sheets' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
@@ -2399,6 +2400,82 @@ export default function Help() {
               <strong>Use the automatic layout</strong> in the panel on the right (with nothing
               selected). The Print layout settings above only apply to the automatic layout.
             </InfoBox>
+          </section>
+
+          {/* ── ONLINE ORDERS ─────────────────────────────── */}
+          <section id="online-orders" data-help="">
+            <H2>Online Orders</H2>
+            <P>
+              Guests can order food for collection on your website and pay online or when they
+              collect. Orders arrive on the <strong>Online orders</strong> page (Service in the
+              sidebar), and on a phone at <strong>/mobile → Online orders</strong>.
+            </P>
+            <H3>Setting it up</H3>
+            <P>
+              Open <strong>Online orders → Setup</strong> (or Ordering setup in the sidebar) and pick
+              the venue. Nothing changes on your website until you tick{' '}
+              <strong>Take online orders for collection</strong> and press Save.
+            </P>
+            <DataTable
+              head={['Setting', 'What it does']}
+              rows={[
+                ['Menus', "Which of your menus guests can order from. Dishes you switch off for ordering, or dishes without a price, are left out."],
+                ['Ordering hours', "When guests can collect, per day. Filled in from your opening hours the first time. A day can have several windows, such as lunch and dinner. No window = closed."],
+                ['Preparation time', "The earliest a new order can be ready. ASAP orders are promised this many minutes from now."],
+                ['Time slots / orders per slot', "Guests pick a collection time from these slots. Set a maximum per slot and full slots are greyed out."],
+                ['Order ahead', "How many days ahead guests can order. 0 = today only."],
+                ['Minimum order, tips', "A minimum basket value, and optional tip choices at checkout."],
+                ['Default VAT rate', "Used for dishes that have no takeaway VAT rate of their own."],
+                ['Accept automatically', "Off: each new order waits on the board until someone taps Accept. On: it goes straight to In progress."],
+                ['Payment methods', "Pay at the counter, and online card payment once a payment provider is connected. Test payment is for trying the flow before going live: no money moves, so turn it off before real orders."],
+                ['Messages', "Collection instructions (on the ordering page and the email) and a note for the confirmation email."],
+              ]}
+            />
+            <P>
+              On your website, the ordering page is <Mono>/order</Mono> (with several venues, guests
+              pick a location first). Link to it from any button: the link picker lists{' '}
+              <strong>Order online</strong>, and the Order options block's "Order with us" card
+              points there.
+            </P>
+            <H3>Dishes and options</H3>
+            <P>
+              On the <strong>Menus</strong> page each dish has an <strong>Online ordering</strong>{' '}
+              box: <strong>Can be ordered online</strong>, and its VAT rates for takeaway and eat in.
+              In the UK hot takeaway food is 20% and most cold takeaway food is 0%.
+            </P>
+            <P>
+              Choices come from <strong>Menus → Variant groups</strong>. Each group now says how it
+              is priced and how many options a guest picks: a protein or size group is{' '}
+              <strong>the dish price, pick 1</strong>; an extras group is{' '}
+              <strong>added on top, pick 0 to 3</strong> (for example).
+            </P>
+            <H3>Handling orders</H3>
+            <DataTable
+              head={['To', 'Do this']}
+              rows={[
+                ['Hear new orders', "Tap Sound on once when you open the board (browsers only play sound after a tap)."],
+                ['Accept', "Tap Accept on the card, or open it and pick a ready time: Accept now, or 10 to 45 minutes."],
+                ['Move it along', "Preparing, then Ready to collect (the guest gets an email), then Collected."],
+                ['Push the time back', "Open the order and tap +10m, +15m or +30m. The guest sees the new time on their order page."],
+                ['Record payment at the counter', "Paid cash or Paid card on an unpaid order."],
+                ['Refund', "Refund, enter the amount, then Yes. Online payments go back to the card; cash or card-terminal payments are only recorded, so hand the money back."],
+                ['Reject or cancel', "Reject (new orders) or Cancel order, with an optional reason for the guest. Anything paid online is refunded automatically."],
+                ['Print a ticket', "The printer icon in the order prints an 80mm ticket through the browser."],
+                ['Run out of a dish', "Sold out on the board: Today (back on at midnight) or Until back on."],
+                ['Stop orders for a while', "Pause orders, with an optional message. Guests can still see the menu. Resume orders when you are ready."],
+              ]}
+            />
+            <InfoBox type="warning">
+              Allergy notes show in red on the card, in the order and on the printed ticket. Always
+              read them before cooking.
+            </InfoBox>
+            <P>
+              Guests get an email when the order is confirmed (with a VAT breakdown), when it is
+              ready, and if it is cancelled. Each email links to their order page, which updates by
+              itself. An unpaid online order is released after 30 minutes. The{' '}
+              <strong>Report</strong> tab shows orders, sales, average order, tips, refunds, money
+              taken by payment method and your top dishes.
+            </P>
           </section>
 
           {/* ── ORDER SHEETS ──────────────────────────────── */}

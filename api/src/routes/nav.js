@@ -30,6 +30,8 @@ const ROUTE_CATALOG = [
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },
   { route: '/bookings', label: 'Bookings', icon: 'BookOpen', module: 'bookings' },
   { route: '/customers', label: 'Customers', icon: 'UserRound', module: 'customers' },
+  { route: '/orders', label: 'Online orders', icon: 'ShoppingBag', module: 'web_orders' },
+  { route: '/orders/settings', label: 'Ordering setup', icon: 'Settings2', module: 'web_ordering_setup' },
   { route: '/order-sheets', label: 'Order sheets', icon: 'ClipboardList', module: 'order_sheets' },
   { route: '/order-sheets/templates', label: 'Order sheet templates', icon: 'ClipboardList', module: 'order_sheet_setup' },
   { route: '/order-sheets/categories', label: 'Order sheet categories', icon: 'Tag', module: 'order_sheet_setup' },

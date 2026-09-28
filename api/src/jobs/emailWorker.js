@@ -18,10 +18,10 @@
 
 import { sql, withTenant } from '../config/db.js'
 import { env }             from '../config/env.js'
-import { sendEmail, renderTemplate, buildMergeFields } from '../services/emailSvc.js'
+import { sendEmail, renderTemplate, buildMergeFields, emailCredentials } from '../services/emailSvc.js'
 import { DEFAULT_TEMPLATES } from '../services/emailTemplateDefaults.js'
 
-function guestManageOrigin(site) {
+export function guestManageOrigin(site) {
   const scheme = env.PUBLIC_SITE_SCHEME
   const root   = env.PUBLIC_ROOT_DOMAIN
   // Prefer the tenant's public site: *.macaroonie.com (and verified custom
@@ -131,30 +131,8 @@ export async function processEmailJob(job) {
   const fields    = buildMergeFields({ booking, venue: venueForFields, customer, manageBaseUrl: baseUrl })
   const subject   = renderTemplate(template.subject, fields)
   const html      = renderTemplate(template.body_html, fields)
-  const provider  = settings?.email_provider || 'sendgrid'
-
-  // Build credentials from venue settings or fall back to env
-  const credentials = {}
-  if (provider === 'sendgrid') {
-    credentials.apiKey = settings?.provider_api_key || env.SENDGRID_API_KEY
-  } else if (provider === 'postmark') {
-    credentials.apiKey = settings?.provider_api_key
-    credentials.stream = settings?.provider_domain || 'outbound'   // re-uses provider_domain for stream name
-  } else if (provider === 'mailgun') {
-    credentials.apiKey = settings?.provider_api_key
-    credentials.domain = settings?.provider_domain
-    credentials.region = settings?.provider_region || 'us'
-  } else if (provider === 'ses') {
-    credentials.region          = settings?.provider_region || env.S3_REGION
-    credentials.accessKeyId     = settings?.provider_api_key
-    credentials.secretAccessKey = settings?.provider_domain // reused field
-  } else if (provider === 'smtp') {
-    credentials.host   = settings?.smtp_host
-    credentials.port   = settings?.smtp_port
-    credentials.user   = settings?.smtp_user
-    credentials.pass   = settings?.smtp_pass
-    credentials.secure = settings?.smtp_secure
-  }
+  // Provider + credentials from venue settings, or the env fallback
+  const { provider, credentials } = emailCredentials(settings, env)
 
   const fromName  = settings?.from_name  || venue?.name || 'Macaroonie'
   const fromEmail = settings?.from_email || env.EMAIL_FROM

@@ -3,13 +3,14 @@
 // /menus/variant-groups, not nested inside a specific menu's editor.
 
 import { useState } from 'react'
+import { cn } from '@/lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, X, Loader2, Layers } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { Field, Input, Btn, parsePrice } from './shared'
 
 function emptyGroup() {
-  return { name: '', options: [{ label: '', price_pence: 0 }] }
+  return { name: '', price_mode: 'base', min_select: 1, max_select: 1, options: [{ label: '', price_pence: 0 }] }
 }
 
 export function VariantGroupsManager() {
@@ -25,6 +26,10 @@ export function VariantGroupsManager() {
     mutationFn: () => {
       const payload = {
         name: draft.name.trim(),
+        // Web ordering: how the price works and how many a guest picks.
+        price_mode: draft.price_mode || 'base',
+        min_select: Math.max(0, Number(draft.min_select ?? 1)),
+        max_select: Math.max(1, Number(draft.max_select ?? 1)),
         sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
         options: (draft.options || [])
           .filter(o => o.label.trim())
@@ -58,6 +63,9 @@ export function VariantGroupsManager() {
     setDraft({
       id: g.id,
       name: g.name,
+      price_mode: g.price_mode || 'base',
+      min_select: g.min_select ?? 1,
+      max_select: g.max_select ?? 1,
       options: (g.options || []).map(o => ({ ...o })),
     })
   }
@@ -100,6 +108,33 @@ export function VariantGroupsManager() {
             <Input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
               placeholder="e.g. Protein" autoFocus />
           </Field>
+          <div className="rounded-md border bg-background p-3 space-y-2">
+            <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Online ordering</p>
+            <div className="flex flex-wrap gap-2">
+              {[['base', 'Option price is the dish price'], ['extra', 'Option price is added on top']].map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setDraft(d => ({ ...d, price_mode: k }))}
+                  className={cn('text-xs px-3 min-h-[40px] rounded-md border touch-manipulation',
+                    (draft.price_mode || 'base') === k ? 'bg-primary text-primary-foreground border-primary' : 'bg-background')}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <label className="inline-flex items-center gap-2">Guest picks at least
+                <input type="number" min="0" max="20" inputMode="numeric" value={draft.min_select ?? 1}
+                  onChange={e => setDraft(d => ({ ...d, min_select: Math.max(0, Number(e.target.value) || 0) }))}
+                  className="w-16 border rounded px-2 min-h-[40px]" />
+              </label>
+              <label className="inline-flex items-center gap-2">and at most
+                <input type="number" min="1" max="20" inputMode="numeric" value={draft.max_select ?? 1}
+                  onChange={e => setDraft(d => ({ ...d, max_select: Math.max(1, Number(e.target.value) || 1) }))}
+                  className="w-16 border rounded px-2 min-h-[40px]" />
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              A protein or size choice: dish price, pick 1. Extras: added on top, at least 0, at most as many as allowed.
+            </p>
+          </div>
           <div className="space-y-1.5">
             <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Options + default price</p>
             {(draft.options || []).map((o, i) => (

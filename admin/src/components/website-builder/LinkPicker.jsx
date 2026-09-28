@@ -6,7 +6,7 @@
 //   #modal/allergens        modal page
 //   #modal/allergens:hours  modal + inner anchor
 //   https://…               custom / external
-//   /menu  /  /locations    built-ins
+//   /menu  /  /locations  /  /order    built-ins
 
 import { useContext, useMemo, useState, useRef, useEffect, useLayoutEffect, createContext } from 'react'
 import { createPortal } from 'react-dom'
@@ -67,6 +67,7 @@ function summarise(href, pages, currentAnchors) {
   if (path === '/') return hash ? `Home · #${hash}` : 'Home'
   if (path === '/menu') return hash ? `Menu · #${hash}` : 'Menu'
   if (path === '/locations') return hash ? `Locations · #${hash}` : 'Locations'
+  if (path === '/order') return 'Order online'
   return v
 }
 
@@ -202,6 +203,7 @@ export function LinkPicker({ value, onChange, placeholder = '/path or #anchor', 
             ))}
             <Row label="Menu" hint="/menu" onClick={() => pick('/menu')} />
             <Row label="Locations" hint="/locations" onClick={() => pick('/locations')} />
+            <Row label="Order online" hint="/order" onClick={() => pick('/order')} />
             {standalone.map(p => {
               const href = pageHref(p, catalog.venueSlug)
               const anchors = collectAnchors(p.blocks)

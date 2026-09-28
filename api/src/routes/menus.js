@@ -52,6 +52,10 @@ const ItemBody = z.object({
   is_featured:    z.boolean().default(false),
   image_url:      z.string().max(2000).nullable().optional(),
   sort_order:     z.number().int().default(0),
+  // Web ordering (migration 122)
+  is_orderable:      z.boolean().default(true),
+  vat_rate_takeaway: z.number().min(0).max(100).nullable().optional(),
+  vat_rate_eat_in:   z.number().min(0).max(100).nullable().optional(),
   variants:       z.array(VariantBody).default([]),
   variant_groups: z.array(ItemGroupAttach).default([]),
   // M:N to dietary tags — array of dietary tag CODES (e.g. ['gf', 'spicy'])
@@ -199,6 +203,11 @@ const VariantOptionBody = z.object({
 const VariantGroupBody = z.object({
   name:       z.string().min(1).max(80),
   sort_order: z.number().int().default(0),
+  // Web ordering (migration 122): 'base' options are the dish price,
+  // 'extra' options are added on top; how many a guest must / may pick.
+  price_mode: z.enum(['base', 'extra']).default('base'),
+  min_select: z.number().int().min(0).max(20).default(1),
+  max_select: z.number().int().min(1).max(20).default(1),
   options:    z.array(VariantOptionBody).default([]),
 })
 
@@ -210,7 +219,7 @@ export async function attachVariantGroupsToItems(tx, items) {
   if (!ids.length) return items
   const rows = await tx`
     SELECT ig.item_id, ig.group_id, ig.sort_order AS group_sort,
-           g.name AS group_name,
+           g.name AS group_name, g.price_mode, g.min_select, g.max_select,
            o.id AS option_id, o.label, o.price_pence AS default_pence,
            o.sort_order AS option_sort,
            p.price_pence AS override_pence
@@ -227,7 +236,10 @@ export async function attachVariantGroupsToItems(tx, items) {
     const list = (byItem[r.item_id] ||= [])
     let g = list.find(x => x.group_id === r.group_id)
     if (!g) {
-      g = { group_id: r.group_id, name: r.group_name, sort_order: r.group_sort, options: [] }
+      g = {
+        group_id: r.group_id, name: r.group_name, sort_order: r.group_sort,
+        price_mode: r.price_mode, min_select: r.min_select, max_select: r.max_select, options: [],
+      }
       list.push(g)
     }
     const overridden = r.override_pence != null
@@ -261,7 +273,7 @@ async function loadVariantGroups(tx, tenantId) {
   return groups
 }
 
-async function loadMenuFull(tx, menuId, tenantId) {
+export async function loadMenuFull(tx, menuId, tenantId) {
   const [menu] = await tx`
     SELECT * FROM menus WHERE id = ${menuId} AND tenant_id = ${tenantId} LIMIT 1
   `
@@ -274,7 +286,8 @@ async function loadMenuFull(tx, menuId, tenantId) {
                'id', i.id, 'name', i.name, 'native_name', i.native_name,
                'description', i.description, 'price_pence', i.price_pence, 'calories', i.calories,
                'notes', i.notes, 'is_featured', i.is_featured, 'image_url', i.image_url,
-               'sort_order', i.sort_order,
+               'sort_order', i.sort_order, 'is_orderable', i.is_orderable,
+               'vat_rate_takeaway', i.vat_rate_takeaway, 'vat_rate_eat_in', i.vat_rate_eat_in,
                'variants', COALESCE((
                  SELECT json_agg(jsonb_build_object('id', v.id, 'label', v.label, 'price_pence', v.price_pence, 'sort_order', v.sort_order) ORDER BY v.sort_order)
                    FROM menu_item_variants v WHERE v.item_id = i.id
@@ -385,12 +398,14 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
     `
     for (const [ii, item] of (section.items || []).entries()) {
       const [it] = await tx`
-        INSERT INTO menu_items (id, section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order)
+        INSERT INTO menu_items (id, section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order,
+                                is_orderable, vat_rate_takeaway, vat_rate_eat_in)
         VALUES (${item.id ?? randomUUID()}, ${s.id}, ${tenantId}, ${item.name},
                 ${item.native_name ?? null}, ${item.description ?? null},
                 ${item.price_pence ?? null}, ${item.calories ?? null}, ${item.notes ?? null},
                 ${item.is_featured ?? false}, ${item.image_url ?? null},
-                ${item.sort_order ?? ii})
+                ${item.sort_order ?? ii},
+                ${item.is_orderable ?? true}, ${item.vat_rate_takeaway ?? null}, ${item.vat_rate_eat_in ?? null})
         RETURNING id
       `
       // Variants (ad-hoc, per-item)
@@ -622,6 +637,9 @@ export default async function menusRoutes(app) {
           name: it.name, native_name: it.native_name ?? null, description: it.description ?? null,
           price_pence: it.price_pence ?? null, calories: it.calories ?? null, notes: it.notes ?? null, is_featured: !!it.is_featured,
           image_url: it.image_url ?? null, sort_order: it.sort_order,
+          is_orderable: it.is_orderable !== false,
+          vat_rate_takeaway: it.vat_rate_takeaway != null ? Number(it.vat_rate_takeaway) : null,
+          vat_rate_eat_in: it.vat_rate_eat_in != null ? Number(it.vat_rate_eat_in) : null,
           variants: (it.variants || []).map(v => ({ label: v.label, price_pence: v.price_pence, sort_order: v.sort_order })),
           // loadMenuFull() shapes attached groups as { options: [{overridden, price_pence, option_id}] }
           // (built for the UI) — upsertMenuTree() wants { overrides: [{option_id, price_pence}] }
@@ -750,8 +768,9 @@ export default async function menusRoutes(app) {
     const body = VariantGroupBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
-        INSERT INTO menu_variant_groups (tenant_id, name, sort_order)
-        VALUES (${req.tenantId}, ${body.name}, ${body.sort_order})
+        INSERT INTO menu_variant_groups (tenant_id, name, sort_order, price_mode, min_select, max_select)
+        VALUES (${req.tenantId}, ${body.name}, ${body.sort_order}, ${body.price_mode},
+                ${Math.min(body.min_select, body.max_select)}, ${body.max_select})
         RETURNING *
       `
       const options = []
@@ -773,7 +792,10 @@ export default async function menusRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       const [g] = await tx`
         UPDATE menu_variant_groups
-           SET name = ${body.name}, sort_order = ${body.sort_order}, updated_at = now()
+           SET name = ${body.name}, sort_order = ${body.sort_order},
+               price_mode = ${body.price_mode},
+               min_select = ${Math.min(body.min_select, body.max_select)}, max_select = ${body.max_select},
+               updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
          RETURNING *
       `

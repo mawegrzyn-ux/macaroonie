@@ -323,6 +323,9 @@ function MenuEditor({ id, onBack }) {
             is_featured: !!it.is_featured,
             image_url: it.image_url || null,
             sort_order: ii,
+            is_orderable: it.is_orderable !== false,
+            vat_rate_takeaway: it.vat_rate_takeaway ?? null,
+            vat_rate_eat_in: it.vat_rate_eat_in ?? null,
             // One-off ad-hoc variants are retired — every variant must
             // come from a predefined group (attached below). Price can
             // still be overridden per item via variant_groups.overrides.
@@ -692,6 +695,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, on
     const item = {
       id: crypto.randomUUID(), name: 'New dish', native_name: '', description: '',
       price_pence: null, calories: null, notes: '', is_featured: false, image_url: null,
+      is_orderable: true, vat_rate_takeaway: null, vat_rate_eat_in: null,
       variants: [], variant_groups: [], dietary: [],
     }
     onItemsChange([...items, item])
@@ -982,6 +986,30 @@ function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove,
             onChange={e => onChange({ is_featured: e.target.checked })} />
           House favourite
         </label>
+
+        <div className="rounded-md border p-3 space-y-2">
+          <p className="text-xs font-medium">Online ordering</p>
+          <label className="flex items-center gap-2 text-sm min-h-[36px]">
+            <input type="checkbox" checked={item.is_orderable !== false}
+              onChange={e => onChange({ is_orderable: e.target.checked })} />
+            Can be ordered online
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="VAT takeaway %" hint="Blank = venue default">
+              <Input type="number" min="0" max="100" step="0.5" inputMode="decimal"
+                value={item.vat_rate_takeaway ?? ''}
+                onChange={e => onChange({ vat_rate_takeaway: e.target.value === '' ? null : Math.min(100, Math.max(0, Number(e.target.value))) })}
+                placeholder="e.g. 20" className="font-mono" />
+            </Field>
+            <Field label="VAT eat in %" hint="For the POS later">
+              <Input type="number" min="0" max="100" step="0.5" inputMode="decimal"
+                value={item.vat_rate_eat_in ?? ''}
+                onChange={e => onChange({ vat_rate_eat_in: e.target.value === '' ? null : Math.min(100, Math.max(0, Number(e.target.value))) })}
+                placeholder="e.g. 20" className="font-mono" />
+            </Field>
+          </div>
+          <p className="text-[11px] text-muted-foreground">UK: hot takeaway food is 20%, most cold takeaway food is 0%.</p>
+        </div>
 
         <div>
           <p className="text-xs font-medium mb-1.5">Dietary tags</p>
