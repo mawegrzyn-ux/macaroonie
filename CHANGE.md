@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — Legacy import: Monthly Health & Safety Audit]
+
+- The legacy spreadsheet import now also brings in the **Monthly Audit** sheet (the monthly Health & Safety audit: 31 questions across cleaning, storage and cross-contamination). Create a monthly checklist with the audit's questions first; the import fills in every past month, who completed it, and any notes per question. Questions are matched by their number (1.1.0 to 3.2.6), so the task wording can be tidied up.
+
+---
+
 ## [2026-09-28 — Fixes: website saves, Reviews page, Online orders link]
 
 **Migration 123.**

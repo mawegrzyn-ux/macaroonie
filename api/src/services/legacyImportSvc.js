@@ -90,7 +90,7 @@ export function readWorkbook(bufferOrPath) {
 
 export const LEGACY_SHEETS = [
   'KitchenDayChecklist', 'KitchenDayClosingChecklist', 'KitchenWeekChecklist', 'KitchenMonthChecklist',
-  'FridgeFreezerChecks', 'HotFoodCheck', 'DeliveryCheck',
+  'MonthlyAudit', 'FridgeFreezerChecks', 'HotFoodCheck', 'DeliveryCheck',
 ]
 
 /**
@@ -109,6 +109,8 @@ export async function runLegacyImport({ tx, wb, tenantId, venueId, skip = [] }) 
     report.KitchenWeekChecklist = await importChecklistSheet(tx, wb, tenantId, venueId, 'KitchenWeekChecklist', 'weekly', d => mondayOf(isoDate(d)))
   if (!skip.includes('KitchenMonthChecklist'))
     report.KitchenMonthChecklist = await importChecklistSheet(tx, wb, tenantId, venueId, 'KitchenMonthChecklist', 'monthly', d => firstOfMonth(isoDate(d)))
+  if (!skip.includes('MonthlyAudit'))
+    report.MonthlyAudit = await importMonthlyAudit(tx, wb, tenantId, venueId)
 
   if (!skip.includes('FridgeFreezerChecks'))
     report.FridgeFreezerChecks = await importFridgeFreezerChecks(tx, wb, tenantId, venueId)
@@ -195,6 +197,106 @@ async function importChecklistSheet(tx, wb, tenantId, venueId, sheetName, freque
       await tx`
         INSERT INTO checklist_instance_items (tenant_id, instance_id, template_item_id, is_checked)
         VALUES (${tenantId}, ${inst.id}, ${itemId}, ${checked})
+        ON CONFLICT (instance_id, template_item_id) DO NOTHING
+      `
+    }
+  }
+  return s
+}
+
+// ── Monthly Audit (monthly H&S audit) → checklist_instances ─────
+// Sheet "Monthly Audit": Date, MonthYear, then per question a tick column
+// ("1.1.0. Are food rooms ...?") followed by its own "1.1.0. Notes"
+// column, then Completed and Completed By. Questions are matched to
+// template items by their number ("1.1.0") when the item label starts
+// with one, so the checklist can use tidied wording (the sheet's text
+// has scanning typos); otherwise by exact label text.
+const AUDIT_CODE = /^\s*(\d+\.\d+\.\d+)\.?\s*/
+
+function auditKey(label) {
+  const m = String(label ?? '').match(AUDIT_CODE)
+  return m ? 'code:' + m[1] : 'text:' + normLabel(label)
+}
+
+async function importMonthlyAudit(tx, wb, tenantId, venueId) {
+  const s = stat()
+  const rows = sheetRows(wb, 'Monthly Audit')
+  if (!rows) { s.missingSheet = true; return s }
+
+  const header = rows[0]
+  const completedCol = findCol(header, 'Completed')
+  const byCol = findCol(header, 'Completed By')
+  const notesByCode = new Map()
+  const questions = []
+  header.forEach((h, i) => {
+    const m = String(h ?? '').match(/^\s*(\d+\.\d+\.\d+)\.?\s*(.*)$/)
+    if (!m) return
+    if (normLabel(m[2]) === 'notes') notesByCode.set(m[1], i)
+    else questions.push({ h, i, code: m[1] })
+  })
+  for (const q of questions) q.notesCol = notesByCode.get(q.code) ?? -1
+
+  const templateRows = await tx`
+    SELECT t.id, t.name, ti.id AS item_id, ti.label
+      FROM checklist_templates t
+      JOIN checklist_template_items ti ON ti.template_id = t.id
+     WHERE t.tenant_id = ${tenantId} AND t.venue_id = ${venueId} AND t.frequency = 'monthly'
+  `
+  const byTemplate = new Map()
+  for (const row of templateRows) {
+    if (!byTemplate.has(row.id)) byTemplate.set(row.id, { name: row.name, items: new Map() })
+    byTemplate.get(row.id).items.set(auditKey(row.label), row.item_id)
+  }
+
+  const itemFor = (items, q) => items.get('code:' + q.code) ?? items.get(auditKey(String(q.h).replace(AUDIT_CODE, '')))
+  let best = null
+  for (const [templateId, t] of byTemplate) {
+    const matched = questions.filter(q => itemFor(t.items, q)).length
+    const score = questions.length ? matched / questions.length : 0
+    if (!best || score > best.score) best = { templateId, score, name: t.name, items: t.items }
+  }
+  if (!best || best.score < 0.5) {
+    s.noConfidentTemplate = true
+    s.candidates = [...byTemplate.values()].map(t => t.name)
+    return s
+  }
+  s.matchedTemplate = best.name
+  for (const q of questions) if (!itemFor(best.items, q)) s.unmatched.add(q.h)
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]
+    const dateVal = row[0]
+    if (!dateVal) continue
+    s.read++
+    const date = dateVal instanceof Date ? dateVal : null
+    if (!date || date > TODAY) { s.skippedFuture++; continue }
+    const anyValue = questions.some(q => row[q.i] === true) || row[completedCol] != null
+    if (!anyValue) { s.skippedBlank++; continue }
+
+    const periodStart = firstOfMonth(isoDate(date))
+    const completed = row[completedCol] === true
+    const completedBy = byCol >= 0 && row[byCol] != null ? String(row[byCol]).trim() || null : null
+
+    const [inst] = await tx`
+      INSERT INTO checklist_instances
+        (tenant_id, venue_id, template_id, period_start, status, completed_by, completed_at)
+      VALUES (${tenantId}, ${venueId}, ${best.templateId}, ${periodStart},
+              ${completed ? 'completed' : 'in_progress'},
+              ${completed ? completedBy : null},
+              ${completed ? periodStart + 'T12:00:00Z' : null})
+      ON CONFLICT (template_id, period_start) DO NOTHING
+      RETURNING id
+    `
+    if (!inst) { s.skippedExisting++; continue }
+    s.imported++
+
+    for (const q of questions) {
+      const itemId = itemFor(best.items, q)
+      if (!itemId) continue
+      const note = q.notesCol >= 0 && row[q.notesCol] != null ? String(row[q.notesCol]).trim() || null : null
+      await tx`
+        INSERT INTO checklist_instance_items (tenant_id, instance_id, template_item_id, is_checked, notes)
+        VALUES (${tenantId}, ${inst.id}, ${itemId}, ${row[q.i] === true}, ${note})
         ON CONFLICT (instance_id, template_item_id) DO NOTHING
       `
     }
