@@ -48,6 +48,7 @@ import checklistsRoutes      from './routes/checklists.js'
 import hsDashboardsRoutes    from './routes/hsDashboards.js'
 import rotaRoutes            from './routes/rota.js'
 import hsActionLogRoutes     from './routes/hsActionLog.js'
+import hsSettingsRoutes      from './routes/hsSettings.js'
 import dashboardTilesRoutes  from './routes/dashboardTiles.js'
 import legacyImportRoutes    from './routes/legacyImport.js'
 import navRoutes             from './routes/nav.js'
@@ -204,6 +205,7 @@ export async function buildApp() {
   await app.register(hsDashboardsRoutes,     { prefix: '/api/rota-dashboards', kind: 'rota', moduleKey: 'rota_dashboard' })
   await app.register(rotaRoutes,             { prefix: '/api/rota' })
   await app.register(hsActionLogRoutes,      { prefix: '/api/hs-action-log' })
+  await app.register(hsSettingsRoutes,       { prefix: '/api/hs-settings' })
   await app.register(dashboardTilesRoutes,   { prefix: '/api/dashboard-tiles' })
   await app.register(legacyImportRoutes,     { prefix: '/api/legacy-import' })
   await app.register(navRoutes,              { prefix: '/api/nav' })

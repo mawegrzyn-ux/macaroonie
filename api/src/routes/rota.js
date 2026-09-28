@@ -45,7 +45,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission, requireAnyPermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { computeRotaWeek, periodsOverlap, span } from '../services/rotaCalc.js'
-import { resolveOpenDaysForWeek } from '../services/openDays.js'
+import { openDatesOrNull } from '../services/openDays.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$|^24:00(:00)?$/
@@ -732,13 +732,7 @@ export default async function rotaRoutes(app) {
       const dates = weekDates(monday)
       // open_dates is null when the venue has no weekly schedule at all, so
       // "hide closed days" never hides a whole week of an unscheduled venue.
-      const [{ n: templateCount }] = await tx`
-        SELECT count(*)::int AS n FROM venue_schedule_templates
-         WHERE venue_id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
-      `
-      const openDates = templateCount > 0
-        ? await resolveOpenDaysForWeek(tx, req.tenantId, req.params.venueId, dates)
-        : null
+      const openDates = await openDatesOrNull(tx, req.tenantId, req.params.venueId, dates)
       return { week_start: monday, dates, open_dates: openDates, settings, shifts, staff, entries }
     })
   })

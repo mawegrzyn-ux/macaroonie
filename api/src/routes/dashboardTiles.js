@@ -13,6 +13,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { periodStartFor, mondayOf, monthStartOf } from '../utils/checklistPeriod.js'
+import { hsClosedDates, hsFollowsOpeningDays } from '../services/openDays.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -68,8 +69,18 @@ function deriveStatus(expected, completed, unresolved) {
 // it doesn't vary by date, so future dates always compute a real
 // expected/completed pair; the caller overrides status to 'upcoming' for
 // any date after `today`.
+//
+// When the tenant follows opening days (tenants.hs_follow_opening_days), a
+// venue's closed days (services/openDays.js) expect no daily checklists and
+// no fridge / hold / cooking checks; weekly and monthly checklists and any
+// out-of-range reading still count. A venue-day left with nothing expected
+// and nothing unresolved gets status 'closed' (future days included).
 async function computeHsStatus(tx, tenantId, from, to, today) {
   const venues = await tx`SELECT id, name FROM venues WHERE tenant_id = ${tenantId} AND is_active = true ORDER BY name`
+  const dates = dateRange(from, to)
+  const follows = await hsFollowsOpeningDays(tx, tenantId)
+  const closedByVenue = new Map()
+  for (const v of venues) closedByVenue.set(v.id, await hsClosedDates(tx, tenantId, v.id, dates, follows))
 
   const templates = await tx`
     SELECT id, venue_id, name, frequency FROM checklist_templates
@@ -124,41 +135,44 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
   const holdCaptureByVenue  = byVenue(holdCaptureTimes)
   const sessionsByVenue     = byVenue(cookingSessions)
 
-  const days = dateRange(from, to).map(date => {
+  const days = dates.map(date => {
     const isUpcoming = date > today
     const venueResults = venues.map(v => {
+      const closed = closedByVenue.get(v.id).has(date)
       const vTemplates = templatesByVenue.get(v.id) ?? []
-      const checklistExpected = vTemplates.length
       const checklistBreakdown = vTemplates.map(t => ({
         id: t.id,
         name: t.name,
         frequency: t.frequency,
         completed: instanceMap.get(`${t.id}|${periodStartFor(t.frequency, date)}`) === 'completed',
+        not_required: closed && t.frequency === 'daily',
       }))
-      const checklistCompleted = checklistBreakdown.filter(c => c.completed).length
+      const required = checklistBreakdown.filter(c => !c.not_required)
+      const checklistExpected = required.length
+      const checklistCompleted = required.filter(c => c.completed).length
 
       const vEquip = equipmentByVenue.get(v.id) ?? []
       const vCaptures = captureTimesByVenue.get(v.id) ?? []
-      const equipExpected = vEquip.length * vCaptures.length
+      const equipExpected = closed ? 0 : vEquip.length * vCaptures.length
       const dayTempLogs = tempLogs.filter(l => l.venue_id === v.id && l.log_date === date)
-      const equipCompleted = new Set(
+      const equipCompleted = closed ? 0 : new Set(
         dayTempLogs.filter(l => l.capture_time_id).map(l => `${l.equipment_id}|${l.capture_time_id}`)
       ).size
       const equipUnresolved = dayTempLogs.filter(l => l.is_within_range === false && !l.corrective_action).length
 
       const vStations = holdStationsByVenue.get(v.id) ?? []
       const vHoldCaptures = holdCaptureByVenue.get(v.id) ?? []
-      const holdExpected = vStations.length * vHoldCaptures.length
+      const holdExpected = closed ? 0 : vStations.length * vHoldCaptures.length
       const dayHoldChecks = holdChecks.filter(h => h.venue_id === v.id && h.check_date === date)
-      const holdCompleted = new Set(
+      const holdCompleted = closed ? 0 : new Set(
         dayHoldChecks.filter(h => h.capture_time_id).map(h => `${h.station_id}|${h.capture_time_id}`)
       ).size
       const holdUnresolved = dayHoldChecks.filter(h => h.is_within_range === false && !h.corrective_action).length
 
       const vSessions = sessionsByVenue.get(v.id) ?? []
-      const cookingExpected = vSessions.reduce((s, sess) => s + sess.required_items_count, 0)
+      const cookingExpected = closed ? 0 : vSessions.reduce((s, sess) => s + sess.required_items_count, 0)
       const dayCookingChecks = cookingChecks.filter(c => c.venue_id === v.id && c.check_date === date)
-      const cookingCompleted = vSessions.reduce((sum, sess) => {
+      const cookingCompleted = closed ? 0 : vSessions.reduce((sum, sess) => {
         const count = dayCookingChecks.filter(c => c.session_id === sess.id).length
         return sum + Math.min(count, sess.required_items_count)
       }, 0)
@@ -173,7 +187,8 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
       const expected  = checklistExpected + equipExpected + holdExpected + cookingExpected
       const completed = checklistCompleted + equipCompleted + holdCompleted + cookingCompleted
       const unresolved = equipUnresolved + holdUnresolved + cookingUnresolved + deliveryUnresolved
-      const status = isUpcoming ? 'upcoming' : deriveStatus(expected, completed, unresolved)
+      const status = closed && expected === 0 && unresolved === 0 ? 'closed'
+        : isUpcoming ? 'upcoming' : deriveStatus(expected, completed, unresolved)
 
       // Per-check-type breakdown for the hs_today_status tile's expanded
       // view — checklists individually (they only have a done/not-done
@@ -182,17 +197,17 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
       // granular for a small tile — see Equipment/Holds/Cooking pages for
       // that level of detail).
       const categories = [
-        equipExpected > 0 && {
+        (equipExpected > 0 || equipUnresolved > 0) && {
           key: 'equipment', label: 'Fridge/freezer checks',
           expected: equipExpected, completed: equipCompleted, unresolved: equipUnresolved,
           status: isUpcoming ? 'upcoming' : deriveStatus(equipExpected, equipCompleted, equipUnresolved),
         },
-        holdExpected > 0 && {
+        (holdExpected > 0 || holdUnresolved > 0) && {
           key: 'hold', label: 'Hot/cold hold checks',
           expected: holdExpected, completed: holdCompleted, unresolved: holdUnresolved,
           status: isUpcoming ? 'upcoming' : deriveStatus(holdExpected, holdCompleted, holdUnresolved),
         },
-        cookingExpected > 0 && {
+        (cookingExpected > 0 || cookingUnresolved > 0) && {
           key: 'cooking', label: 'Cooking checks',
           expected: cookingExpected, completed: cookingCompleted, unresolved: cookingUnresolved,
           status: isUpcoming ? 'upcoming' : deriveStatus(cookingExpected, cookingCompleted, cookingUnresolved),
@@ -206,7 +221,7 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
       ].filter(Boolean)
 
       return {
-        venue_id: v.id, venue_name: v.name, status, expected, completed, unresolved,
+        venue_id: v.id, venue_name: v.name, status, closed, expected, completed, unresolved,
         checklists: checklistBreakdown, categories,
       }
     })
@@ -214,9 +229,11 @@ async function computeHsStatus(tx, tenantId, from, to, today) {
     const expected   = venueResults.reduce((s, v) => s + v.expected, 0)
     const completed  = venueResults.reduce((s, v) => s + v.completed, 0)
     const unresolved = venueResults.reduce((s, v) => s + v.unresolved, 0)
-    const status = isUpcoming ? 'upcoming' : deriveStatus(expected, completed, unresolved)
+    const closed = venueResults.some(v => v.closed)
+    const status = closed && expected === 0 && unresolved === 0 ? 'closed'
+      : isUpcoming ? 'upcoming' : deriveStatus(expected, completed, unresolved)
 
-    return { date, status, expected, completed, unresolved, venues: venueResults }
+    return { date, status, closed, expected, completed, unresolved, venues: venueResults }
   })
 
   return { venues, days }

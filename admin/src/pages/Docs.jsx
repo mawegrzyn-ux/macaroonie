@@ -1296,6 +1296,26 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               CRUD and item CRUD/reorder live under <Mono>/templates</Mono> and
               <Mono> /templates/:id/items</Mono>.
             </P>
+            <H3>Closed days: follow opening days (migration 124)</H3>
+            <P>
+              <Mono>tenants.hs_follow_opening_days</Mono> (boolean, default false) is one switch for
+              all H&amp;S: when on, a venue's closed days expect no daily checklists and no fridge,
+              hold or cooking checks. "Closed" comes only from{' '}
+              <Mono>services/openDays.js</Mono> (the same resolver Cash Recon and the Rota use:
+              exception, then date override, then weekly template). <Mono>openDatesOrNull()</Mono>{' '}
+              returns null for a venue with no weekly template (treated as open every day) and{' '}
+              <Mono>hsClosedDates()</Mono> returns the closed subset of a date list, empty when the
+              setting is off.
+            </P>
+            <DataTable
+              head={['Where', 'Effect']}
+              rows={[
+                ['GET/PATCH /api/hs-settings', 'routes/hsSettings.js. GET ?venue_id=&date= returns { follow_opening_days, closed } (view on any of food_safety, checklists, hs_dashboard, dashboard); PATCH { follow_opening_days } is owner/admin.'],
+                ['GET /api/checklists/due', 'Each row gains not_required: true for daily templates when the venue is closed that day. Weekly and monthly rows are never not_required.'],
+                ['GET /api/dashboard-tiles/hs-status', 'computeHsStatus() drops daily checklists and fridge/hold/cooking from expected (and completed) on a closed venue-day; unresolved out-of-range readings still count. Venue-days and days gain closed; status is \'closed\' when nothing is expected or unresolved, future days included. Checklist breakdown rows carry not_required.'],
+                ['Admin', 'components/hs/HsSettings.jsx: HsSettingsButton (Food safety, Checklists, H&S Dashboard header via DashboardPage config.HeaderExtra) and ClosedDayNotice (those pages, config.Notice, MobileHSDashboard). Checklists Today groups not_required rows; Dashboard.jsx has a closed status style.'],
+              ]}
+            />
             <H3>Key files</H3>
             <DataTable
               head={['File', 'Purpose']}

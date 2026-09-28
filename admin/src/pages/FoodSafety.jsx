@@ -14,6 +14,7 @@ import { Plus, X, Thermometer, Truck, Flame, Snowflake, ChefHat, Clock, GripVert
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
+import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
 import {
   TYPE_LABELS, HOLD_TYPE_LABELS, timeLabel, TempChecksTable,
   DeliveryChecksBoard, HoldChecksTable, HoldStationModal, HoldCaptureTimeModal,
@@ -358,8 +359,11 @@ export default function FoodSafety() {
           )}
           <input type="date" value={date} onChange={e => setDate(e.target.value)}
             className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+          <HsSettingsButton />
         </div>
       </div>
+
+      {venueId && <ClosedDayNotice venueId={venueId} date={date} className="mb-4" />}
 
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <div className="flex gap-1 overflow-x-auto pb-1">

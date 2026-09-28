@@ -34,6 +34,7 @@ import {
   TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
 } from '@/components/foodSafety/shared'
 import { HSActionLogPanel } from '@/components/hsActionLog/shared'
+import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
 
 // Single source of truth for widget-type metadata — drives both the
 // "Add widget" type picker and the WidgetCard header/icon/default title.
@@ -413,6 +414,9 @@ export const HS_DASHBOARD_CONFIG = {
   widgetTypes: WIDGET_TYPES,
   useNav:      useDayNav,
   renderWidget: renderHsWidget,
+  // Optional per-config extras (Cash / Rota dashboards leave them out).
+  HeaderExtra: HsSettingsButton,
+  Notice:      ({ venueId, ctx }) => <ClosedDayNotice venueId={venueId} date={ctx.date} className="mb-4" />,
   // Venue picker only when there's a choice to make (matches Food safety / Checklists).
   alwaysShowVenuePicker: false,
   emptyText:   'No dashboards yet. Create one to start adding checklist and temperature-check widgets.',
@@ -606,6 +610,7 @@ export function DashboardPage({ config }) {
               {editing ? 'Done editing' : 'Edit layout'}
             </button>
           )}
+          {config.HeaderExtra && <config.HeaderExtra />}
           <button type="button" onClick={toggleFullscreen} title={isFullscreen ? 'Exit full screen' : 'Full screen'}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg border hover:bg-accent px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -640,6 +645,8 @@ export function DashboardPage({ config }) {
           </div>
         )}
       </div>
+
+      {venueId && config.Notice && <config.Notice venueId={venueId} ctx={nav.ctx} />}
 
       {!venueId ? (
         <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>

@@ -13,6 +13,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { FREQUENCY_LABELS, periodLabel, ChecklistRunPanel } from '@/components/checklists/shared'
+import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
 
 const TABS = [
   { key: 'today',     label: 'Today',       icon: ListChecks },
@@ -301,17 +302,23 @@ function TodayTab({ venueId, date, api }) {
     )
   }
 
+  // Daily checklists on a day the venue is closed (H&S settings: follow
+  // opening days) go in their own dimmed group; they can still be filled in.
+  const NOT_NEEDED = 'Not needed today (closed)'
   const groups = new Map()
-  for (const d of due) {
+  for (const d of due.filter(x => !x.not_required)) {
     const key = d.template.department || 'General'
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key).push(d)
   }
+  const notNeeded = due.filter(x => x.not_required)
+  if (notNeeded.length) groups.set(NOT_NEEDED, notNeeded)
 
   return (
     <div className="space-y-6">
+      <ClosedDayNotice venueId={venueId} date={date} />
       {[...groups.entries()].map(([dept, rows]) => (
-        <div key={dept}>
+        <div key={dept} className={cn(dept === NOT_NEEDED && 'opacity-60')}>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">{dept}</h3>
           <div className="border rounded-xl divide-y overflow-hidden">
             {rows.map(({ template, period_start, instance }) => {
@@ -507,6 +514,7 @@ export default function Checklists() {
             <input type="date" value={date} onChange={e => setDate(e.target.value)}
               className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
           )}
+          <HsSettingsButton />
         </div>
       </div>
 

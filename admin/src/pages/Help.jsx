@@ -1314,6 +1314,26 @@ export default function Help() {
               <strong>Yes, reopen</strong>. Reopening clears who/when it was completed by — it
               goes back to showing as not-yet-done until someone completes it again.
             </P>
+            <H3>Closed days (H&amp;S settings)</H3>
+            <P>
+              Owners and admins can turn on <strong>Follow restaurant opening days</strong> from the{' '}
+              <strong>H&amp;S settings</strong> button on the Food safety, Checklists or H&amp;S
+              Dashboard page. It applies to every venue. When it's on, on a day a venue is closed:
+            </P>
+            <DataTable
+              head={['What', 'On a closed day']}
+              rows={[
+                ['Daily checklists', 'Not needed. They move to a greyed "Not needed today (closed)" group on the Today tab; you can still open and tick them.'],
+                ['Weekly and monthly checklists', 'Still due, as their week or month has open days.'],
+                ['Fridge / freezer, hot and cold holding, cooking checks', 'Not expected. A banner says the venue is closed; anything you record still saves.'],
+                ['Overview H&S tiles', 'The day shows as Closed instead of red or amber. An out-of-range reading you did record still shows as needing action.'],
+              ]}
+            />
+            <P>
+              Opening days come from each venue's booking schedule (<strong>Setup</strong>,{' '}
+              <strong>Schedule</strong>): the weekly template, single-date overrides and named
+              closures such as Christmas. A venue with no schedule set up counts as open every day.
+            </P>
           </section>
 
           {/* ── H&S DASHBOARD ─────────────────────────────── */}

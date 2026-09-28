@@ -26,6 +26,7 @@ import {
 } from '@/components/foodSafety/shared'
 import { HSActionLogPanel } from '@/components/hsActionLog/shared'
 import { DashboardModal, AddWidgetModal, WIDGET_TYPE_BY_KEY } from '@/pages/HSDashboard'
+import { ClosedDayNotice } from '@/components/hs/HsSettings'
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -262,6 +263,8 @@ export default function MobileHSDashboard() {
           </button>
         )}
       </div>
+
+      {venueId && <ClosedDayNotice venueId={venueId} date={date} className="mb-3" />}
 
       {!venueId ? (
         <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
