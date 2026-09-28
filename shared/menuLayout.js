@@ -21,6 +21,7 @@
 //     fold: 'none' | 'vertical' | 'horizontal', fold_gap_mm: 0-40,
 //     fold_line: bool                a folded sheet: the grid is split in
 //                                    two halves with a gap at the fold
+//     font_body, font_heading, font_script: Google Font names (shared/fonts.js)
 //     master: [block],               shown on every page
 //     pages: [{ id, hide_master, blocks: [block] }],
 //   }
@@ -31,6 +32,8 @@
 // Blocks stay linked to the menu: names, prices and allergens are read
 // from the live menu every time. A block whose section or dish has been
 // deleted renders nothing (renderBlockInner returns null).
+
+import { FONT_WEIGHTS, fontStack, googleFontsUrl } from './fonts.js'
 
 export const BLOCK_TYPES = [
   'header', 'intro', 'section', 'item', 'text', 'image',
@@ -72,6 +75,24 @@ function safeUrl(u) {
 
 // ── Layout + geometry ───────────────────────────────────────
 
+// The three font roles every block's text uses: body text, headings and
+// prices, and the handwritten script (taglines, script text).
+export const DEFAULT_FONTS = { body: 'Inter', heading: 'Fraunces', script: 'Caveat' }
+
+function knownFont(v, dflt) { return FONT_WEIGHTS[v] ? v : dflt }
+
+// Every font a layout uses, for its Google Fonts stylesheet.
+export function layoutFonts(layout) {
+  const l = normalizeLayout(layout)
+  const out = new Set([l.font_body, l.font_heading, l.font_script])
+  for (const b of [...l.master, ...l.pages.flatMap(p => p.blocks || [])]) {
+    if (b.opts && FONT_WEIGHTS[b.opts.font]) out.add(b.opts.font)
+  }
+  return [...out]
+}
+
+export function layoutFontsUrl(layout) { return googleFontsUrl(layoutFonts(layout)) }
+
 export function normalizeLayout(layout) {
   const l = layout || {}
   return {
@@ -85,6 +106,9 @@ export function normalizeLayout(layout) {
     fold:        l.fold === 'vertical' || l.fold === 'horizontal' ? l.fold : 'none',
     fold_gap_mm: num(l.fold_gap_mm, 0, 40, 10),
     fold_line:   !!l.fold_line,
+    font_body:    knownFont(l.font_body, DEFAULT_FONTS.body),
+    font_heading: knownFont(l.font_heading, DEFAULT_FONTS.heading),
+    font_script:  knownFont(l.font_script, DEFAULT_FONTS.script),
     master:      Array.isArray(l.master) ? l.master : [],
     pages:       Array.isArray(l.pages) && l.pages.length ? l.pages : [{ id: 'p1', blocks: [] }],
   }
@@ -167,11 +191,15 @@ export function pageBlocks(layout, page) {
 function mm(n) { return (Math.round(n * 1000) / 1000) + 'mm' }
 
 export function pageStyle(layout, menu) {
-  const g = layoutGeometry(layout)
+  const l = normalizeLayout(layout)
+  const g = layoutGeometry(l)
   return {
     width: mm(g.pageW), height: mm(g.pageH),
     '--plum': (menu && menu.primary_colour) || '#630812',
     '--fs': String(g.fontScale),
+    '--ml-body': fontStack(l.font_body),
+    '--ml-heading': fontStack(l.font_heading),
+    '--ml-script': fontStack(l.font_script),
   }
 }
 
@@ -188,6 +216,11 @@ export function blockStyle(block, layout) {
     width: mm(colEnd(block.x + block.w, g) - colStart(block.x, g)),
     height: mm(rowEnd(block.y + block.h, g) - rowStart(block.y, g)),
     '--bfs': String(num(o.font_scale, 50, 300, 100) / 100),
+  }
+  // A block's own font replaces all three roles inside it.
+  if (FONT_WEIGHTS[o.font]) {
+    const stack = fontStack(o.font)
+    s['--ml-body'] = stack; s['--ml-heading'] = stack; s['--ml-script'] = stack
   }
   const align = o.align || DEFAULT_ALIGN[block.type]
   if (align === 'left' || align === 'center' || align === 'right') s['text-align'] = align
@@ -443,11 +476,11 @@ const f = px => 'calc(' + px + 'px * var(--fs, 1) * var(--bfs, 1))'
 
 export const MENU_LAYOUT_CSS = `
 .ml-page { position: relative; overflow: hidden; background: #faf6ef; color: #2a1c1a;
-  font-family: 'Inter', sans-serif; font-weight: 400; line-height: 1.45; -webkit-font-smoothing: antialiased;
+  font-family: var(--ml-body); font-weight: 400; line-height: 1.45; -webkit-font-smoothing: antialiased;
   --paper-warm: #f3ead8; --line: rgba(99, 8, 18, 0.18); --ink: #2a1c1a; --muted: #7a6b62; --plum-soft: rgba(99, 8, 18, 0.6); }
 .ml-page *, .ml-page *::before, .ml-page *::after { box-sizing: border-box; margin: 0; padding: 0; }
 .ml-content { position: absolute; }
-.ml-block { position: absolute; overflow: hidden; }
+.ml-block { position: absolute; overflow: hidden; font-family: var(--ml-body); }
 .ml-block > .ml-inner { padding: 0 1.5mm; }
 .ml-fold-line { position: absolute; pointer-events: none; }
 .ml-fold-line::after { content: ''; position: absolute; }
@@ -461,20 +494,20 @@ export const MENU_LAYOUT_CSS = `
 
 .ml-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8mm; padding-bottom: 3mm; border-bottom: 1px solid var(--line); text-align: left; }
 .ml-head.no-rule { border-bottom: 0; }
-.ml-head h1 { font-family: 'Fraunces', serif; font-size: ${f(28)}; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; line-height: 1; }
-.ml-tagline { font-family: 'Caveat', cursive; font-size: ${f(18)}; color: var(--plum); margin-top: 2px; }
+.ml-head h1 { font-family: var(--ml-heading); font-size: ${f(28)}; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; line-height: 1; }
+.ml-tagline { font-family: var(--ml-script); font-size: ${f(18)}; color: var(--plum); margin-top: 2px; }
 .ml-head-right { text-align: right; font-size: ${f(11)}; color: var(--muted); line-height: 1.5; }
 .ml-head-right strong { color: var(--ink); display: block; font-size: ${f(11)}; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
 .ml-logo { width: 18mm; height: 18mm; object-fit: contain; flex-shrink: 0; }
 .ml-head.compact { align-items: baseline; padding-bottom: 1.5mm; }
-.ml-compact-name { font-family: 'Fraunces', serif; font-size: ${f(14)}; font-weight: 500; color: var(--ink); }
+.ml-compact-name { font-family: var(--ml-heading); font-size: ${f(14)}; font-weight: 500; color: var(--ink); }
 .ml-compact-right { font-size: ${f(10)}; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; }
 .ml-intro { background: var(--paper-warm); padding: 6px 10px; font-size: ${f(11)}; color: var(--muted); border-radius: 3px; }
 .ml-intro strong { color: var(--ink); margin-right: 4px; text-transform: uppercase; letter-spacing: 0.08em; font-size: ${f(10)}; }
 
 .ml-sec-head { padding-bottom: 1.5mm; border-bottom: 1px solid var(--line); }
 .ml-sec-head.no-rule { border-bottom: 0; }
-.ml-sec-head h2 { font-family: 'Inter', sans-serif; font-size: ${f(12)}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
+.ml-sec-head h2 { font-family: var(--ml-body); font-size: ${f(12)}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
 .ml-sec-img { width: 1.6em; height: 1.6em; object-fit: cover; border-radius: 3px; vertical-align: middle; margin-right: 4px; }
 .ml-sub { font-size: ${f(10)}; font-weight: 400; color: var(--muted); margin-left: 6px; text-transform: none; letter-spacing: 0; }
 .ml-items { column-gap: 5mm; margin-top: 2mm; }
@@ -487,7 +520,7 @@ export const MENU_LAYOUT_CSS = `
 .ml-item-row { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .ml-item-name { font-size: ${f(11.5)}; font-weight: 500; color: var(--ink); }
 .ml-native { font-style: italic; font-weight: 300; color: var(--muted); font-size: ${f(10)}; margin-left: 4px; }
-.ml-price { font-family: 'Fraunces', serif; font-size: ${f(11.5)}; font-weight: 500; color: var(--plum); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ml-price { font-family: var(--ml-heading); font-size: ${f(11.5)}; font-weight: 500; color: var(--plum); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ml-desc { font-size: ${f(10.5)}; color: var(--muted); margin-top: 1px; line-height: 1.4; }
 .ml-notes { font-size: ${f(9.5)}; color: var(--plum-soft); font-style: italic; margin-top: 1px; }
 .ml-tags { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
@@ -496,12 +529,12 @@ export const MENU_LAYOUT_CSS = `
 .ml-variants { display: grid; gap: 0 4mm; margin-top: 1mm; }
 .ml-v { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; min-width: 0; }
 .ml-v-label { font-size: ${f(10.5)}; color: var(--ink); }
-.ml-v-price { font-family: 'Fraunces', serif; font-size: ${f(10.5)}; color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.ml-v-price { font-family: var(--ml-heading); font-size: ${f(10.5)}; color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
-.ml-text-heading { font-family: 'Fraunces', serif; font-size: ${f(22)}; font-weight: 500; line-height: 1.15; color: var(--ink); }
+.ml-text-heading { font-family: var(--ml-heading); font-size: ${f(22)}; font-weight: 500; line-height: 1.15; color: var(--ink); }
 .ml-text-subheading { font-size: ${f(12)}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }
 .ml-text-body { font-size: ${f(11)}; color: var(--ink); }
-.ml-text-script { font-family: 'Caveat', cursive; font-size: ${f(20)}; color: var(--plum); line-height: 1.2; }
+.ml-text-script { font-family: var(--ml-script); font-size: ${f(20)}; color: var(--plum); line-height: 1.2; }
 .ml-text-small { font-size: ${f(9.5)}; color: var(--muted); }
 .ml-page .ml-img { display: block; width: 100%; height: 100%; }
 .ml-rule { width: 100%; position: relative; top: 50%; }
@@ -516,9 +549,6 @@ export const MENU_LAYOUT_CSS = `
 .ml-callout .ml-key { margin-top: 2mm; }
 .ml-key { display: flex; gap: 6px; flex-wrap: wrap; }
 .ml-pair { display: inline-flex; align-items: center; gap: 4px; font-size: ${f(9.5)}; }
-.ml-foot { font-family: 'Fraunces', serif; font-style: italic; color: var(--muted); font-size: ${f(10)}; }
+.ml-foot { font-family: var(--ml-heading); font-style: italic; color: var(--muted); font-size: ${f(10)}; }
 .ml-page-num { font-size: ${f(9)}; color: var(--muted); }
 `
-
-export const MENU_LAYOUT_FONTS_URL =
-  'https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@300;400;500;600;700&display=swap'

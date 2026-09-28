@@ -18,9 +18,10 @@ import { httpError } from '../middleware/error.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS } from '../services/menuSeeds.js'
 import { randomUUID } from 'node:crypto'
 import {
-  BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS, MENU_LAYOUT_FONTS_URL,
-  normalizeLayout, layoutGeometry, buildContext, renderPageHtml,
+  BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS,
+  normalizeLayout, layoutGeometry, buildContext, renderPageHtml, layoutFontsUrl,
 } from '../../../shared/menuLayout.js'
+import { FONT_OPTIONS } from '../../../shared/fonts.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ const LayoutBlock = z.object({
     style:            z.enum(['heading', 'subheading', 'body', 'script', 'small', 'thin', 'thick', 'dotted', 'double']).optional(),
     url:              z.string().max(2000).optional(),
     fit:              z.enum(['contain', 'cover']).optional(),
+    font:             z.enum(FONT_OPTIONS).optional(),
   }).default({}),
 })
 
@@ -126,6 +128,9 @@ const LayoutBody = z.object({
   fold:        z.enum(['none', 'vertical', 'horizontal']).default('none'),
   fold_gap_mm: z.number().min(0).max(40).default(10),
   fold_line:   z.boolean().default(false),
+  font_body:    z.enum(FONT_OPTIONS).default('Inter'),
+  font_heading: z.enum(FONT_OPTIONS).default('Fraunces'),
+  font_script:  z.enum(FONT_OPTIONS).default('Caveat'),
   master:      z.array(LayoutBlock).max(100).default([]),
   pages:       z.array(z.object({
     id:          z.string().min(1).max(64),
@@ -322,7 +327,9 @@ async function loadPrintMenu(tx, menuId, tenantId) {
   const menu = await loadMenuFull(tx, menuId, tenantId)
   if (!menu) return null
   const [meta] = await tx`
-    SELECT t.name AS tenant_name, ts.logo_url, ts.primary_colour
+    SELECT t.name AS tenant_name, ts.logo_url, ts.primary_colour,
+           ts.theme->'typography'->>'heading_font' AS site_heading_font,
+           ts.theme->'typography'->>'body_font'    AS site_body_font
       FROM tenants t
       LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
      WHERE t.id = ${tenantId}
@@ -343,6 +350,8 @@ async function loadPrintMenu(tx, menuId, tenantId) {
     tenant_name:    meta?.tenant_name ?? null,
     logo_url:       meta?.logo_url ?? null,
     primary_colour: meta?.primary_colour ?? null,
+    // The website's Brand & theme fonts, offered by the designer's Page setup.
+    site_fonts: { heading: meta?.site_heading_font || null, body: meta?.site_body_font || null },
     address_line1, postcode, phone,
   }
 }
@@ -493,7 +502,7 @@ export default async function menusRoutes(app) {
       return reply.view('menu_print_designed.eta', {
         menu,
         css: MENU_LAYOUT_CSS,
-        fontsUrl: MENU_LAYOUT_FONTS_URL,
+        fontsUrl: layoutFontsUrl(layout),
         pagesHtml: layout.pages.map((_, i) => renderPageHtml(layout, ctx, i)),
         pageW: g.pageW,
         pageH: g.pageH,

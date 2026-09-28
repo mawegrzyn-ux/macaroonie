@@ -14,16 +14,7 @@ import { FormRow, ImageField } from '../shared'
 import { LinkPicker } from '../LinkPicker'
 import { FontPicker } from '../FontPicker'
 import { ThemeColourPicker, THEME_ROLES } from '../ThemeColourPicker'
-
-// Same list used in Brand identity / Brand theme. Kept duplicated here to
-// avoid a circular import with admin/src/pages/Website.jsx.
-const FONT_OPTIONS = [
-  'Inter', 'Fraunces', 'Caveat', 'Playfair Display', 'Poppins',
-  'Lora', 'Montserrat', 'Roboto', 'Open Sans', 'Raleway',
-  'Merriweather', 'Work Sans', 'Karla', 'DM Sans', 'DM Serif Display',
-  'Space Grotesk', 'Manrope', 'Cormorant Garamond', 'Libre Baskerville',
-  'Nunito', 'Rubik',
-]
+import { FONT_OPTIONS } from '@shared/fonts.js'
 
 // ── Tiny field primitives (kept local to avoid touching shared.jsx) ──
 

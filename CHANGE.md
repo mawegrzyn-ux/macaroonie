@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — Menu designer: all website fonts]
+
+### Menus
+- The menu designer can use any font from the website builder. **Page setup > Fonts** picks the font for headings and prices, for text, and for the handwritten lines; the usual Inter / Fraunces / Caveat stay the default.
+- **Use website fonts** copies the headings and text fonts from Website > Brand & theme.
+- Any block can have its own font (block panel, **Look > Font**).
+- The print page loads only the fonts the design uses.
+
+---
+
 ## [2026-09-28 — Menu print: no more blank sheets]
 
 ### Menus

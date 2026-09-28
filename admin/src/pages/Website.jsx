@@ -36,6 +36,7 @@ import ReservationsWidget from '@/pages/ReservationsWidget'
 import { BrandLayoutSection } from '@/components/website-builder/BrandLayoutSection'
 import { BrandHeaderSection } from '@/components/website-builder/BrandHeaderSection'
 import { BrandFooterSection } from '@/components/website-builder/BrandFooterSection'
+import { FONT_OPTIONS } from '@shared/fonts.js'
 
 // ── Section lists ────────────────────────────────────────────
 //
@@ -1438,14 +1439,6 @@ const DEFAULT_THEME = {
   buttons: { radius_px: 4, padding_y_px: 12, padding_x_px: 28, weight: 600 },
   hero:    { overlay_opacity: 0.4, min_height_px: 520 },
 }
-
-const FONT_OPTIONS = [
-  'Inter', 'Fraunces', 'Caveat', 'Playfair Display', 'Poppins',
-  'Lora', 'Montserrat', 'Roboto', 'Open Sans', 'Raleway',
-  'Merriweather', 'Work Sans', 'Karla', 'DM Sans', 'DM Serif Display',
-  'Space Grotesk', 'Manrope', 'Cormorant Garamond', 'Libre Baskerville',
-  'Nunito', 'Rubik',
-]
 
 function mergeTheme(existing) {
   // Deep-merge on the two-level-ish schema so missing keys come from defaults.

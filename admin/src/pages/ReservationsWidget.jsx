@@ -14,14 +14,7 @@ import { useApi } from '@/lib/api'
 import { Save, Loader2, Copy, ExternalLink, X } from 'lucide-react'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 import { ThemeColourPicker, resolveRole } from '@/components/website-builder/ThemeColourPicker'
-
-const FONT_OPTIONS = [
-  'Inter', 'Fraunces', 'Caveat', 'Playfair Display', 'Poppins',
-  'Lora', 'Montserrat', 'Roboto', 'Open Sans', 'Raleway',
-  'Merriweather', 'Work Sans', 'Karla', 'DM Sans', 'DM Serif Display',
-  'Space Grotesk', 'Manrope', 'Cormorant Garamond', 'Libre Baskerville',
-  'Nunito', 'Rubik',
-]
+import { FONT_OPTIONS } from '@shared/fonts.js'
 
 const DEFAULT_SETTINGS = {
   header_show:      true,
