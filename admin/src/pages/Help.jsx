@@ -2379,6 +2379,7 @@ export default function Help() {
                 ['Repeat a section heading', 'Add the section\'s "Section title" again on the next page, and type something like "(continued)" in "Text after the title".'],
                 ['Repeat on every page', 'Select the block and tick "Show on every page", e.g. a header, footer or page number. Tick "Hide repeated blocks on this page" on a page (a cover, say) to leave them off it.'],
                 ['Change paper, margins or the grid', 'Page setup at the top: A4 or A3, landscape or portrait, margins, 6 / 12 / 24 columns, row height and the text size for the whole menu.'],
+                ['Design a folded menu', 'Page setup > Folded sheet: "Fold left | right" or "Fold top / bottom", and the gap at the fold (for example 10 mm). The page splits into two halves with a striped FOLD strip between them. Blocks snap to either side of the gap and new blocks are kept off it; a block can still stretch across both halves. Tick "Print a fold line" for a faint dashed line to fold along.'],
                 ['Put variant options side by side', 'Page setup has "Variant options per row" (1, 2 or 3) for every dish. A dish block, or a section showing its dishes, can pick its own number or use the default.'],
               ]}
             />

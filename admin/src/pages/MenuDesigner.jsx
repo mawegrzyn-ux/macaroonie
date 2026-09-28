@@ -37,6 +37,7 @@ import {
   BLOCK_LABELS, FITTABLE, GRID_COLS, ROW_MM, MAX_PAGES, MENU_LAYOUT_CSS, MENU_LAYOUT_FONTS_URL,
   normalizeLayout, layoutGeometry, pageBlocks, pageStyle, contentStyle, blockStyle, blockClass,
   toReactStyle, buildContext, placementSummary, renderBlockInner,
+  colAtMm, rowAtMm, crossesFold, foldGapBox,
 } from '@shared/menuLayout.js'
 
 const PX_PER_MM = 96 / 25.4
@@ -98,9 +99,12 @@ function findFreeSpot(blocks, w, h, g, fromBottom = false) {
   const ys = []
   for (let y = 0; y + h <= g.rows; y++) ys.push(y)
   if (fromBottom) ys.reverse()
+  // A block that fits in one half of a folded sheet is kept off the fold.
+  const fitsHalf = (!g.foldV || w <= g.halfCol) && (!g.foldH || h <= g.halfRow)
   for (const y of ys) {
     for (let x = 0; x + w <= g.cols; x++) {
       const c = { x, y, w, h }
+      if (fitsHalf && crossesFold(c, g)) continue
       if (!blocks.some(b => overlaps(b, c))) return { x, y }
     }
   }
@@ -324,13 +328,18 @@ export default function MenuDesigner() {
     return content ? { pageId, rect: content.getBoundingClientRect() } : null
   }
 
-  function cellAt(target, clientX, clientY, grabDx, grabDy, w, h) {
+  // Pointer position to a fractional grid column / row on a page's content
+  // area (skipping any fold gap).
+  function gridAt(rect, clientX, clientY) {
     const { geo: g, scale: s } = live.current
-    const cw = g.colMm * PX_PER_MM * s
-    const ch = g.rowMm * PX_PER_MM * s
-    const x = Math.round((clientX - target.rect.left) / cw - grabDx)
-    const y = Math.round((clientY - target.rect.top) / ch - grabDy)
-    return clampBlock({ x, y, w, h }, g)
+    const k = PX_PER_MM * s
+    return { cx: colAtMm((clientX - rect.left) / k, g), cy: rowAtMm((clientY - rect.top) / k, g) }
+  }
+
+  function cellAt(target, clientX, clientY, grabDx, grabDy, w, h) {
+    const { geo: g } = live.current
+    const { cx, cy } = gridAt(target.rect, clientX, clientY)
+    return clampBlock({ x: Math.round(cx - grabDx), y: Math.round(cy - grabDy), w, h }, g)
   }
 
   function autoScroll(clientY) {
@@ -352,10 +361,13 @@ export default function MenuDesigner() {
       autoScroll(ev.clientY)
       const { geo: g, scale: s } = live.current
       if (cur.kind === 'resize') {
-        const cw = g.colMm * PX_PER_MM * s
-        const ch = g.rowMm * PX_PER_MM * s
-        const w = Math.max(1, Math.min(g.cols - cur.x, cur.w0 + Math.round((ev.clientX - cur.startX) / cw)))
-        const h = Math.max(1, Math.min(g.rows - cur.y, cur.h0 + Math.round((ev.clientY - cur.startY) / ch)))
+        // The block's new bottom-right corner is the grid line nearest the
+        // pointer, less where the pointer grabbed the handle.
+        const rect = contentRefs.current[cur.pageId]?.getBoundingClientRect()
+        if (!rect) return
+        const { cx, cy } = gridAt(rect, ev.clientX + cur.offX, ev.clientY + cur.offY)
+        const w = Math.max(1, Math.min(g.cols - cur.x, Math.round(cx) - cur.x))
+        const h = Math.max(1, Math.min(g.rows - cur.y, Math.round(cy) - cur.y))
         cur.target = { w, h }
         setDrag({ kind: 'resize', id: cur.id, w, h })
         return
@@ -413,19 +425,24 @@ export default function MenuDesigner() {
     setSel({ scope, id: block.id })
     setCurPageId(pageId)
     if (e.pointerType !== 'mouse' && !wasSelected) return
-    const r = e.currentTarget.getBoundingClientRect()
-    const cw = geo.colMm * PX_PER_MM * scale
-    const ch = geo.rowMm * PX_PER_MM * scale
+    const rect = contentRefs.current[pageId]?.getBoundingClientRect()
+    if (!rect) return
+    const { cx, cy } = gridAt(rect, e.clientX, e.clientY)
     startDrag({
       kind: 'move', id: block.id, scope, w: block.w, h: block.h,
-      grabDx: (e.clientX - r.left) / cw, grabDy: (e.clientY - r.top) / ch,
+      grabDx: cx - block.x, grabDy: cy - block.y,
     }, e)
   }
 
-  function onResizePointerDown(e, block) {
+  function onResizePointerDown(e, block, pageId) {
     e.stopPropagation()
     e.preventDefault()
-    startDrag({ kind: 'resize', id: block.id, x: block.x, y: block.y, w0: block.w, h0: block.h }, e)
+    // Offset from the pointer to the block's bottom-right corner, in screen px.
+    const r = e.currentTarget.parentElement.getBoundingClientRect()
+    startDrag({
+      kind: 'resize', id: block.id, pageId, x: block.x, y: block.y, w0: block.w, h0: block.h,
+      offX: r.right - e.clientX, offY: r.bottom - e.clientY,
+    }, e)
   }
 
   function onTrayPointerDown(e, tpl, label) {
@@ -477,7 +494,7 @@ export default function MenuDesigner() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold truncate">Print design · {menu.name}</p>
           <p className="text-[11px] text-muted-foreground truncate">
-            {layout ? `${layout.paper_size} ${layout.orientation} · ${layout.pages.length} page${layout.pages.length === 1 ? '' : 's'} · grid ${geo.cols} x ${geo.rows}` : 'Automatic layout'}
+            {layout ? `${layout.paper_size} ${layout.orientation}${layout.fold !== 'none' ? ' · folded' : ''} · ${layout.pages.length} page${layout.pages.length === 1 ? '' : 's'} · grid ${geo.cols} x ${geo.rows}` : 'Automatic layout'}
           </p>
         </div>
         {layout && (
@@ -682,10 +699,9 @@ function DesignPage({
         <div className="ml-page" style={{ ...toReactStyle(pageStyle(layout, menu)), position: 'absolute', left: 0, top: 0, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
           <div ref={contentRef} className="ml-content" style={{
             ...toReactStyle(contentStyle(layout)),
-            backgroundImage: 'linear-gradient(to right, rgba(37,99,235,0.09) 1px, transparent 1px), linear-gradient(to bottom, rgba(37,99,235,0.09) 1px, transparent 1px)',
-            backgroundSize: `${geo.colMm}mm ${geo.rowMm}mm`,
             outline: '1px solid rgba(37,99,235,0.2)',
           }}>
+            <GridLines geo={geo} layout={layout} />
             {blocks.map(({ b, scope, dragging }) => (
               <DesignBlock key={b.id + ':' + scope} block={b} scope={scope} pageId={page.id} pageIndex={pageIndex}
                 layout={layout} ctx={ctx} geo={geo}
@@ -700,6 +716,40 @@ function DesignPage({
         </div>
       </div>
     </div>
+  )
+}
+
+// Snap-grid lines, drawn per half on a folded sheet so the right / bottom
+// half's lines start after the gap, plus a hatched strip over the gap.
+const GRID_BG = 'linear-gradient(to right, rgba(37,99,235,0.09) 1px, transparent 1px), linear-gradient(to bottom, rgba(37,99,235,0.09) 1px, transparent 1px)'
+
+function GridLines({ geo, layout }) {
+  const size = `${geo.colMm}mm ${geo.rowMm}mm`
+  const halves = geo.foldV
+    ? [{ left: 0, top: 0, width: geo.halfCol * geo.colMm, height: geo.contentH },
+       { left: geo.halfCol * geo.colMm + geo.gapV, top: 0, width: geo.halfCol * geo.colMm, height: geo.contentH }]
+    : geo.foldH
+    ? [{ left: 0, top: 0, width: geo.contentW, height: geo.halfRow * geo.rowMm },
+       { left: 0, top: geo.halfRow * geo.rowMm + geo.gapH, width: geo.contentW, height: geo.halfRow * geo.rowMm }]
+    : [{ left: 0, top: 0, width: geo.contentW, height: geo.contentH }]
+  const gap = foldGapBox(layout)
+  return (
+    <>
+      {halves.map((h, i) => (
+        <div key={i} className="absolute pointer-events-none" style={{
+          left: h.left + 'mm', top: h.top + 'mm', width: h.width + 'mm', height: h.height + 'mm',
+          backgroundImage: GRID_BG, backgroundSize: size,
+        }} />
+      ))}
+      {gap && (
+        <div className="absolute pointer-events-none flex items-center justify-center" style={{
+          left: gap.left, top: gap.top, width: gap.width, height: gap.height,
+          background: 'repeating-linear-gradient(45deg, rgba(220,38,38,0.10) 0 2mm, rgba(220,38,38,0.04) 2mm 4mm)',
+        }}>
+          <span style={{ font: '600 9px Inter, sans-serif', color: 'rgba(185,28,28,0.7)', writingMode: gap.dir === 'v' ? 'vertical-rl' : undefined }}>FOLD</span>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -748,7 +798,7 @@ function DesignBlock({
       <div ref={innerRef} className="ml-inner" dangerouslySetInnerHTML={{ __html: html }} />
       {selected && (
         <div className="md-handle" style={{ width: handle, height: handle }}
-          onPointerDown={e => onResizePointerDown(e, block)} />
+          onPointerDown={e => onResizePointerDown(e, block, pageId)} />
       )}
     </div>
   )
@@ -1171,6 +1221,7 @@ function PageSetupModal({ layout, onClose, onApply }) {
     paper_size: layout.paper_size, orientation: layout.orientation, margin_mm: layout.margin_mm,
     cols: layout.cols, row_mm: layout.row_mm, font_scale: layout.font_scale,
     variant_columns: layout.variant_columns || 1,
+    fold: layout.fold || 'none', fold_gap_mm: layout.fold_gap_mm ?? 10, fold_line: !!layout.fold_line,
   })
   const set = (k, v) => setF(s => ({ ...s, [k]: v }))
   const next = normalizeLayout({ ...layout, ...f })
@@ -1214,6 +1265,25 @@ function PageSetupModal({ layout, onClose, onApply }) {
             <Select value={String(f.font_scale)} onChange={v => set('font_scale', Number(v))}>
               {[70, 80, 90, 100, 110, 120, 130, 140, 150].map(v => <option key={v} value={v}>{v}%</option>)}
             </Select>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-medium">Folded sheet</p>
+            <Segmented value={f.fold} options={[['none', 'Flat'], ['vertical', 'Fold left | right'], ['horizontal', 'Fold top / bottom']]} onChange={v => set('fold', v)} />
+            {f.fold !== 'none' && (
+              <div className="grid grid-cols-2 gap-3 items-end">
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-0.5">Gap at the fold</p>
+                  <Select value={String(f.fold_gap_mm)} onChange={v => set('fold_gap_mm', Number(v))}>
+                    {[0, 4, 6, 8, 10, 12, 15, 20, 25, 30].map(v => <option key={v} value={v}>{v} mm</option>)}
+                  </Select>
+                </div>
+                <Check2 label="Print a fold line" checked={f.fold_line} onChange={v => set('fold_line', v)} />
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              A folded sheet is split into two halves with a gap in the middle, so nothing sits on the fold.
+              Blocks snap to either side of it; a block can still stretch across both halves.
+            </p>
           </div>
           <div>
             <p className="text-xs font-medium mb-1">Variant options per row</p>

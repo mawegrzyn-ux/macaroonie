@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — Menu designer: folded sheets]
+
+### Menus
+- The menu designer's **Page setup** has a **Folded sheet** option: fold left | right or top / bottom, with a gap at the fold (0 to 30 mm). The page splits into two halves with the gap between them, so nothing lands on the crease. Blocks snap to either side of the gap and new blocks are kept off it; a block can still stretch across both halves.
+- **Print a fold line** adds a faint dashed line down the middle of the gap to fold along.
+
+---
+
 ## [2026-09-28 — Menu print: variant options side by side]
 
 ### Menus

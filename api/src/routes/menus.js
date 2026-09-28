@@ -123,6 +123,9 @@ const LayoutBody = z.object({
   row_mm:      z.union([z.literal(2.5), z.literal(5), z.literal(10)]).default(5),
   font_scale:  z.number().int().min(70).max(150).default(100),
   variant_columns: z.number().int().min(1).max(3).default(1),
+  fold:        z.enum(['none', 'vertical', 'horizontal']).default('none'),
+  fold_gap_mm: z.number().min(0).max(40).default(10),
+  fold_line:   z.boolean().default(false),
   master:      z.array(LayoutBlock).max(100).default([]),
   pages:       z.array(z.object({
     id:          z.string().min(1).max(64),

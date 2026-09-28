@@ -18,6 +18,9 @@
 //     margin_mm: 0-25, cols: 6 | 12 | 24, row_mm: 2.5 | 5 | 10,
 //     font_scale: 70-150,
 //     variant_columns: 1-3,          default for dishes' variant lists
+//     fold: 'none' | 'vertical' | 'horizontal', fold_gap_mm: 0-40,
+//     fold_line: bool                a folded sheet: the grid is split in
+//                                    two halves with a gap at the fold
 //     master: [block],               shown on every page
 //     pages: [{ id, hide_master, blocks: [block] }],
 //   }
@@ -79,6 +82,9 @@ export function normalizeLayout(layout) {
     row_mm:      ROW_MM.includes(Number(l.row_mm)) ? Number(l.row_mm) : 5,
     font_scale:  num(l.font_scale, 70, 150, 100),
     variant_columns: num(l.variant_columns, 1, 3, 1),
+    fold:        l.fold === 'vertical' || l.fold === 'horizontal' ? l.fold : 'none',
+    fold_gap_mm: num(l.fold_gap_mm, 0, 40, 10),
+    fold_line:   !!l.fold_line,
     master:      Array.isArray(l.master) ? l.master : [],
     pages:       Array.isArray(l.pages) && l.pages.length ? l.pages : [{ id: 'p1', blocks: [] }],
   }
@@ -92,13 +98,63 @@ export function layoutGeometry(layout) {
   const pageH = land ? paper[0] : paper[1]
   const margin = l.margin_mm
   const contentW = pageW - 2 * margin
-  const rows = Math.max(1, Math.floor((pageH - 2 * margin) / l.row_mm + 1e-6))
+  /* Fold: the grid keeps the same number of columns (or an even number of
+     rows) but they split into two halves with the gap between them, so
+     the fold lands in the middle of the sheet. */
+  const foldV = l.fold === 'vertical'
+  const foldH = l.fold === 'horizontal'
+  const gapV = foldV ? l.fold_gap_mm : 0
+  const gapH = foldH ? l.fold_gap_mm : 0
+  let rows = Math.max(1, Math.floor((pageH - 2 * margin - gapH) / l.row_mm + 1e-6))
+  if (foldH) rows = Math.max(2, rows - (rows % 2))
+  const contentH = rows * l.row_mm + gapH
   return {
-    pageW, pageH, margin, contentW,
-    contentH: rows * l.row_mm,
-    cols: l.cols, rows, rowMm: l.row_mm, colMm: contentW / l.cols,
+    pageW, pageH, margin, contentW, contentH,
+    contentLeft: margin,
+    contentTop: foldH ? (pageH - contentH) / 2 : margin,
+    cols: l.cols, rows, rowMm: l.row_mm, colMm: (contentW - gapV) / l.cols,
+    foldV, foldH, gapV, gapH, halfCol: l.cols / 2, halfRow: rows / 2,
     fontScale: l.font_scale / 100,
   }
+}
+
+/* Grid lines to mm inside the content area. A block's left / top edge on
+   the fold line sits after the gap, its right / bottom edge before it. */
+function colStart(i, g) { return i * g.colMm + (g.foldV && i >= g.halfCol ? g.gapV : 0) }
+function colEnd(i, g)   { return i * g.colMm + (g.foldV && i > g.halfCol ? g.gapV : 0) }
+function rowStart(i, g) { return i * g.rowMm + (g.foldH && i >= g.halfRow ? g.gapH : 0) }
+function rowEnd(i, g)   { return i * g.rowMm + (g.foldH && i > g.halfRow ? g.gapH : 0) }
+
+// mm inside the content area to a fractional grid column / row, skipping
+// the fold gap (a point in the gap counts as the fold line). The designer
+// turns pointer positions into grid cells with these.
+export function colAtMm(x, g) {
+  if (!g.foldV) return x / g.colMm
+  const half = g.halfCol * g.colMm
+  if (x <= half) return x / g.colMm
+  if (x < half + g.gapV) return g.halfCol
+  return (x - g.gapV) / g.colMm
+}
+export function rowAtMm(y, g) {
+  if (!g.foldH) return y / g.rowMm
+  const half = g.halfRow * g.rowMm
+  if (y <= half) return y / g.rowMm
+  if (y < half + g.gapH) return g.halfRow
+  return (y - g.gapH) / g.rowMm
+}
+
+// Does a block of this size and position run across the fold?
+export function crossesFold(b, g) {
+  return (g.foldV && b.x < g.halfCol && b.x + b.w > g.halfCol) ||
+         (g.foldH && b.y < g.halfRow && b.y + b.h > g.halfRow)
+}
+
+// The fold gap as a box inside the content area (null without a fold).
+export function foldGapBox(layout) {
+  const g = layoutGeometry(layout)
+  if (g.foldV) return { left: mm(g.halfCol * g.colMm), top: '0mm', width: mm(g.gapV), height: mm(g.contentH), dir: 'v' }
+  if (g.foldH) return { left: '0mm', top: mm(g.halfRow * g.rowMm), width: mm(g.contentW), height: mm(g.gapH), dir: 'h' }
+  return null
 }
 
 // Blocks drawn on a page: the repeated (master) blocks first, so a page's
@@ -121,15 +177,16 @@ export function pageStyle(layout, menu) {
 
 export function contentStyle(layout) {
   const g = layoutGeometry(layout)
-  return { left: mm(g.margin), top: mm(g.margin), width: mm(g.contentW), height: mm(g.contentH) }
+  return { left: mm(g.contentLeft), top: mm(g.contentTop), width: mm(g.contentW), height: mm(g.contentH) }
 }
 
 export function blockStyle(block, layout) {
   const g = layoutGeometry(layout)
   const o = block.opts || {}
   const s = {
-    left: mm(block.x * g.colMm), top: mm(block.y * g.rowMm),
-    width: mm(block.w * g.colMm), height: mm(block.h * g.rowMm),
+    left: mm(colStart(block.x, g)), top: mm(rowStart(block.y, g)),
+    width: mm(colEnd(block.x + block.w, g) - colStart(block.x, g)),
+    height: mm(rowEnd(block.y + block.h, g) - rowStart(block.y, g)),
     '--bfs': String(num(o.font_scale, 50, 300, 100) / 100),
   }
   const align = o.align || DEFAULT_ALIGN[block.type]
@@ -370,6 +427,11 @@ export function renderPageHtml(layout, ctx, pageIndex) {
     blocks += '<div class="' + blockClass(b) + '" style="' + styleToString(blockStyle(b, l)) + '">' +
       '<div class="ml-inner">' + inner + '</div></div>'
   }
+  const fold = l.fold_line && foldGapBox(l)
+  if (fold) {
+    const { dir, ...box } = fold
+    blocks += '<div class="ml-fold-line ml-fold-' + dir + '" style="' + styleToString(box) + '"></div>'
+  }
   return '<div class="ml-page" data-page="' + (pageIndex + 1) + '" data-w="' + g.pageW + '" data-h="' + g.pageH + '" style="' +
     styleToString(pageStyle(l, ctx.menu)) + '"><div class="ml-content" style="' + styleToString(contentStyle(l)) + '">' +
     blocks + '</div></div>'
@@ -387,6 +449,10 @@ export const MENU_LAYOUT_CSS = `
 .ml-content { position: absolute; }
 .ml-block { position: absolute; overflow: hidden; }
 .ml-block > .ml-inner { padding: 0 1.5mm; }
+.ml-fold-line { position: absolute; pointer-events: none; }
+.ml-fold-line::after { content: ''; position: absolute; }
+.ml-fold-v::after { left: 50%; top: 0; bottom: 0; border-left: 0.3mm dashed rgba(0, 0, 0, 0.3); }
+.ml-fold-h::after { top: 50%; left: 0; right: 0; border-top: 0.3mm dashed rgba(0, 0, 0, 0.3); }
 .ml-block.ml-box-tint { background: var(--paper-warm); border-radius: 3px; }
 .ml-block.ml-box-outline { border: 1px solid var(--line); border-radius: 3px; }
 .ml-block.ml-box-tint > .ml-inner, .ml-block.ml-box-outline > .ml-inner { padding: 2mm 3mm; }
