@@ -48,7 +48,8 @@ const SettingsBody = z.object({
   max_days_ahead:          z.number().int().min(0).max(14),
   min_order_pence:         z.number().int().min(0).max(1000000),
   auto_accept:             z.boolean().default(false),
-  default_vat_rate:        z.number().min(0).max(100),
+  default_vat_rate_takeaway: z.number().min(0).max(100),
+  default_vat_rate_eat_in:   z.number().min(0).max(100),
   tips_enabled:            z.boolean().default(false),
   tip_percents:            z.array(z.number().int().min(1).max(50)).max(5).default([10, 12, 15]),
   payment_methods:         z.array(z.string().max(40)).min(1).max(10),
@@ -115,12 +116,14 @@ export default async function ordersRoutes(app) {
       const [s] = await tx`
         INSERT INTO ordering_settings (venue_id, tenant_id, is_enabled, is_paused, pause_message, hours, menu_ids,
                                        allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot, max_days_ahead,
-                                       min_order_pence, auto_accept, default_vat_rate, tips_enabled, tip_percents,
+                                       min_order_pence, auto_accept, default_vat_rate_takeaway, default_vat_rate_eat_in,
+                                       tips_enabled, tip_percents,
                                        payment_methods, collection_instructions, confirmation_note)
         VALUES (${req.params.venueId}, ${req.tenantId}, ${b.is_enabled}, ${b.is_paused}, ${b.pause_message ?? null},
                 ${tx.json(b.hours)}, ${b.menu_ids}::uuid[],
                 ${b.allow_asap}, ${b.lead_time_mins}, ${b.slot_interval_mins}, ${b.max_orders_per_slot}, ${b.max_days_ahead},
-                ${b.min_order_pence}, ${b.auto_accept}, ${b.default_vat_rate}, ${b.tips_enabled}, ${b.tip_percents}::int[],
+                ${b.min_order_pence}, ${b.auto_accept}, ${b.default_vat_rate_takeaway}, ${b.default_vat_rate_eat_in},
+                ${b.tips_enabled}, ${b.tip_percents}::int[],
                 ${methods}::text[], ${b.collection_instructions ?? null}, ${b.confirmation_note ?? null})
         ON CONFLICT (venue_id) DO UPDATE SET
           is_enabled = EXCLUDED.is_enabled, is_paused = EXCLUDED.is_paused, pause_message = EXCLUDED.pause_message,
@@ -128,7 +131,8 @@ export default async function ordersRoutes(app) {
           lead_time_mins = EXCLUDED.lead_time_mins, slot_interval_mins = EXCLUDED.slot_interval_mins,
           max_orders_per_slot = EXCLUDED.max_orders_per_slot, max_days_ahead = EXCLUDED.max_days_ahead,
           min_order_pence = EXCLUDED.min_order_pence, auto_accept = EXCLUDED.auto_accept,
-          default_vat_rate = EXCLUDED.default_vat_rate, tips_enabled = EXCLUDED.tips_enabled,
+          default_vat_rate_takeaway = EXCLUDED.default_vat_rate_takeaway,
+          default_vat_rate_eat_in = EXCLUDED.default_vat_rate_eat_in, tips_enabled = EXCLUDED.tips_enabled,
           tip_percents = EXCLUDED.tip_percents, payment_methods = EXCLUDED.payment_methods,
           collection_instructions = EXCLUDED.collection_instructions, confirmation_note = EXCLUDED.confirmation_note,
           updated_at = now()
@@ -227,7 +231,8 @@ export default async function ordersRoutes(app) {
                  COALESCE(sum(total_pence), 0)::int AS total_pence,
                  COALESCE(sum(tip_pence), 0)::int AS tip_pence,
                  COALESCE(sum(vat_pence), 0)::int AS vat_pence,
-                 COALESCE(sum(refunded_pence), 0)::int AS refunded_pence
+                 COALESCE(sum(refunded_pence), 0)::int AS refunded_pence,
+                 COALESCE(sum(platform_fee_pence), 0)::int AS platform_fee_pence
             FROM orders
            WHERE venue_id = ${q.venue_id} AND service_date BETWEEN ${q.from} AND ${q.to}
              AND status = ANY(${counted})
@@ -259,7 +264,8 @@ export default async function ordersRoutes(app) {
         orders: t.orders + d.orders, total_pence: t.total_pence + d.total_pence,
         tip_pence: t.tip_pence + d.tip_pence, vat_pence: t.vat_pence + d.vat_pence,
         refunded_pence: t.refunded_pence + d.refunded_pence,
-      }), { orders: 0, total_pence: 0, tip_pence: 0, vat_pence: 0, refunded_pence: 0 })
+        platform_fee_pence: t.platform_fee_pence + d.platform_fee_pence,
+      }), { orders: 0, total_pence: 0, tip_pence: 0, vat_pence: 0, refunded_pence: 0, platform_fee_pence: 0 })
       totals.average_pence = totals.orders ? Math.round(totals.total_pence / totals.orders) : 0
       return { totals, days, by_method: byMethod, top_items: top, statuses: Object.fromEntries(statuses.map(s => [s.status, s.n])) }
     })

@@ -199,8 +199,10 @@ export default function OrderingSettings() {
                     className="w-28 border rounded-md px-3 min-h-[44px] bg-background" />
                 </div>
               </label>
-              <Num label="Default VAT rate" suffix="%" max={100} value={f.default_vat_rate} onChange={v => set('default_vat_rate', v)}
-                hint="For dishes without their own takeaway VAT rate (Menus page)." />
+              <Num label="Default VAT, takeaway" suffix="%" max={100} value={f.default_vat_rate_takeaway} onChange={v => set('default_vat_rate_takeaway', v)}
+                hint="Collection orders, for dishes without their own takeaway rate (Menus page)." />
+              <Num label="Default VAT, eat in" suffix="%" max={100} value={f.default_vat_rate_eat_in} onChange={v => set('default_vat_rate_eat_in', v)}
+                hint="Table orders (coming with the POS), for dishes without their own eat-in rate." />
             </div>
             <Toggle label="Ask guests for a tip" checked={f.tips_enabled} onChange={v => set('tips_enabled', v)} />
             {f.tips_enabled && (

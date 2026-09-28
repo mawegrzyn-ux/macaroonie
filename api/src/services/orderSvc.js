@@ -86,14 +86,16 @@ const toMins = t => { const [h, m] = String(t).slice(0, 5).split(':').map(Number
 const SETTINGS_DEFAULTS = {
   is_enabled: false, is_paused: false, pause_message: null, hours: [], menu_ids: [],
   allow_asap: true, lead_time_mins: 20, slot_interval_mins: 15, max_orders_per_slot: null,
-  max_days_ahead: 0, min_order_pence: 0, auto_accept: false, default_vat_rate: 20,
+  max_days_ahead: 0, min_order_pence: 0, auto_accept: false,
+  default_vat_rate_takeaway: 20, default_vat_rate_eat_in: 20,
   tips_enabled: false, tip_percents: [10, 12, 15], payment_methods: ['pay_at_venue'],
   collection_instructions: null, confirmation_note: null,
 }
 
 function normaliseSettings(row, venueId) {
   const s = { ...SETTINGS_DEFAULTS, ...(row || {}), venue_id: venueId }
-  s.default_vat_rate = Number(s.default_vat_rate)
+  s.default_vat_rate_takeaway = Number(s.default_vat_rate_takeaway)
+  s.default_vat_rate_eat_in = Number(s.default_vat_rate_eat_in)
   s.hours = Array.isArray(s.hours) ? s.hours : []
   return s
 }
@@ -124,6 +126,15 @@ export async function loadSettings(tx, venueId, { withDefaultHours = false } = {
 
 // ── Menu for ordering ──────────────────────────────────────────
 
+// VAT by order type: collection and delivery are takeaway, table orders
+// are eat in. The dish's own rate wins; else the venue default for that type.
+export function vatRateFor(item, fulfilment, settings) {
+  if (fulfilment === 'eat_in') {
+    return item.vat_rate_eat_in != null ? Number(item.vat_rate_eat_in) : settings.default_vat_rate_eat_in
+  }
+  return item.vat_rate_takeaway != null ? Number(item.vat_rate_takeaway) : settings.default_vat_rate_takeaway
+}
+
 async function soldOutIds(tx, venueId) {
   const rows = await tx`
     SELECT item_id FROM ordering_item_availability
@@ -136,7 +147,7 @@ async function soldOutIds(tx, venueId) {
 // { itemId: item } map for pricing. Dishes that are switched off for
 // ordering, or have no price, are left out; sold-out dishes stay in
 // (shown as sold out) but can't be priced.
-export async function loadOrderingMenu(tx, venue, settings) {
+export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'collection' } = {}) {
   const ids = settings.menu_ids || []
   const menuRows = ids.length ? await tx`
     SELECT id FROM menus
@@ -167,7 +178,7 @@ export async function loadOrderingMenu(tx, venue, settings) {
           dietary: it.dietary || [], price_pence: it.price_pence ?? null,
           choices, from_pence: fromPrice(it, choices),
           sold_out: soldOut.has(it.id),
-          vat_rate: it.vat_rate_takeaway != null ? Number(it.vat_rate_takeaway) : settings.default_vat_rate,
+          vat_rate: vatRateFor(it, fulfilment, settings),
           variants: it.variants || [], variant_groups: it.variant_groups || [],
         }
         if (!itemsById[it.id]) itemsById[it.id] = item
@@ -421,7 +432,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     }
 
     // Prices
-    const { itemsById } = await loadOrderingMenu(tx, venue, settings)
+    const { itemsById } = await loadOrderingMenu(tx, venue, settings, { fulfilment: 'collection' })
     const tipPercent = settings.tips_enabled && settings.tip_percents.includes(Number(body.tip_percent))
       ? Number(body.tip_percent) : 0
     const priced = priceBasket(itemsById, body.lines, { tipPercent })
@@ -435,6 +446,9 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
       SELECT COALESCE(MAX(order_number), 0) + 1 AS next FROM orders
        WHERE venue_id = ${venue.id} AND service_date = ${serviceDate}
     `
+    const [{ ordering_fee_percent: feePct }] = await tx`SELECT ordering_fee_percent FROM tenants WHERE id = ${venue.tenant_id}`
+    const feePercent = Number(feePct) || 0
+    const feePence = Math.round(priced.subtotal_pence * feePercent / 100)
     const customerId = body.customer.email
       ? await upsertCustomer(tx, venue.tenant_id, { name: body.customer.name, email: body.customer.email, phone: body.customer.phone })
       : null
@@ -444,12 +458,14 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
                           status, is_asap, requested_for, promised_at, customer_id,
                           guest_name, guest_email, guest_phone, notes, allergy_note, marketing_opt_in,
                           currency, subtotal_pence, tip_pence, total_pence, vat_pence,
+                          platform_fee_percent, platform_fee_pence,
                           payment_method, payment_status)
       VALUES (${venue.tenant_id}, ${venue.id}, 'web', 'collection', ${serviceDate}, ${Number(next)},
               'pending_payment', ${isAsap}, ${requestedFor}, ${promisedAt}, ${customerId},
               ${body.customer.name}, ${body.customer.email || null}, ${body.customer.phone || null},
               ${body.notes || null}, ${body.allergy_note || null}, ${!!body.marketing_opt_in},
               ${venue.currency || 'GBP'}, ${priced.subtotal_pence}, ${priced.tip_pence}, ${priced.total_pence}, ${priced.vat_pence},
+              ${feePercent}, ${feePence},
               ${gateway.key}, 'unpaid')
       RETURNING ${ORDER_COLS}
     `

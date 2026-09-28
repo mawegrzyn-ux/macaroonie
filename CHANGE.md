@@ -14,6 +14,8 @@ Migrations are listed where a database change is required.
 - New **Online orders** page (Service in the sidebar) and **/mobile → Online orders**: a live board of new, in-progress and ready orders with a sound for new orders. Accept with a ready time, mark preparing, ready and collected, push the time back, record cash or card payment at the counter, refund (all or part), reject or cancel (online payments are refunded automatically), and print a ticket. **Sold out** switches a dish off for today or until you turn it back on; **Pause orders** stops new orders with a message.
 - **Ordering setup** per venue: menus to order from, ordering hours (lunch and dinner windows), preparation time, collection slots and orders per slot, order ahead, minimum order, tips, default VAT, automatic accept, payment methods and messages for guests.
 - **Report** tab: orders, sales, average order, tips, refunds, money taken by payment method and top dishes.
+- VAT follows the order type: each dish has takeaway and eat-in rates, and each venue has a default for each. Collection orders use the takeaway rate.
+- Platform admins set an online ordering fee (%) per tenant on the Platform page; every order records its fee and the report shows the total.
 - Payment methods are pluggable: pay at the counter works now, plus a **test payment** for trying the flow before going live (no money moves). Card payments through Stripe come next.
 
 ### Menus

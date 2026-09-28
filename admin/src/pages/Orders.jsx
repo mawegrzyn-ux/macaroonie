@@ -135,13 +135,14 @@ function OrdersReport({ venueId, today }) {
       {q.error && <p className="text-sm text-destructive">{q.error.message}</p>}
       {r && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             {[
               ['Orders', r.totals.orders],
               ['Sales', money(r.totals.total_pence)],
               ['Average order', money(r.totals.average_pence)],
               ['Tips', money(r.totals.tip_pence)],
               ['Refunded', money(r.totals.refunded_pence)],
+              ...(r.totals.platform_fee_pence ? [['Platform fee', money(r.totals.platform_fee_pence)]] : []),
             ].map(([l, v]) => (
               <div key={l} className="rounded-lg border p-3">
                 <div className="text-xs text-muted-foreground">{l}</div>

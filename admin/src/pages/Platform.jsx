@@ -284,6 +284,7 @@ function EditTenantCard({ tenant, onClose, onSaved }) {
   const [plan, setPlan]       = useState(tenant.plan)
   const [orgId, setOrgId]     = useState(tenant.auth0_org_id || '')
   const [active, setActive]   = useState(tenant.is_active)
+  const [feePct, setFeePct]   = useState(String(Number(tenant.ordering_fee_percent ?? 0)))
   const [error, setError]     = useState(null)
 
   const save = useMutation({
@@ -293,6 +294,7 @@ function EditTenantCard({ tenant, onClose, onSaved }) {
       plan,
       auth0_org_id: orgId.trim() || null,
       is_active: active,
+      ordering_fee_percent: Math.min(20, Math.max(0, Number(feePct) || 0)),
     }),
     onSuccess: () => onSaved?.(),
     onError: (e) => setError(e?.body?.error || e.message),
@@ -338,6 +340,12 @@ function EditTenantCard({ tenant, onClose, onSaved }) {
           <label className="text-sm font-medium block mb-1">Auth0 Org ID</label>
           <input value={orgId} onChange={e => setOrgId(e.target.value)}
             className="w-full border rounded-md px-3 py-2 text-sm min-h-[44px] touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary font-mono" />
+        </div>
+        <div>
+          <label className="text-sm font-medium block mb-1">Online ordering fee (%)</label>
+          <input value={feePct} onChange={e => setFeePct(e.target.value)} inputMode="decimal" type="number" min="0" max="20" step="0.1"
+            className="w-32 border rounded-md px-3 py-2 text-sm min-h-[44px] touch-manipulation focus:outline-none focus:ring-1 focus:ring-primary" />
+          <p className="text-xs text-muted-foreground mt-1">The platform's fee on this tenant's web orders, as a % of the order subtotal (tips excluded). Recorded on every order; taken from online card payments once a payment provider is connected.</p>
         </div>
         <div className="text-xs text-muted-foreground space-y-1">
           <p>Venues: {tenant.venue_count} · Users: {tenant.user_count}</p>

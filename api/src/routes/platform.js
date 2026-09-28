@@ -41,6 +41,8 @@ const TenantPatch = z.object({
   auth0_org_id:      z.string().nullable().optional(),
   stripe_account_id: z.string().nullable().optional(),
   is_active:         z.boolean().optional(),
+  // Platform fee on web orders, % of the order subtotal (migration 122).
+  ordering_fee_percent: z.number().min(0).max(20).optional(),
 })
 
 // ── Nav tree → effective view for one user ──────────────────
@@ -252,7 +254,7 @@ export default async function platformRoutes(app) {
     const queryPromise = (async () => {
       const tenants = await sql`
         SELECT id, name, slug, plan, auth0_org_id, stripe_account_id,
-               is_active, created_at, updated_at
+               ordering_fee_percent, is_active, created_at, updated_at
           FROM tenants
          ORDER BY name
       `

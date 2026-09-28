@@ -16,9 +16,19 @@
 --
 -- Menu additions: dish VAT rates and "can be ordered online"; variant
 -- groups get ordering rules (base price vs extra, min/max choices).
+-- tenants.ordering_fee_percent: the platform's fee on web orders, set by
+-- a platform admin per tenant; each order records its fee.
+
+
 -- ============================================================
 
 BEGIN;
+
+-- ── Platform fee ────────────────────────────────────────────
+
+ALTER TABLE tenants
+  ADD COLUMN IF NOT EXISTS ordering_fee_percent numeric(5,2) NOT NULL DEFAULT 0
+      CHECK (ordering_fee_percent BETWEEN 0 AND 20);
 
 -- ── Menu additions ──────────────────────────────────────────
 
@@ -53,7 +63,10 @@ CREATE TABLE IF NOT EXISTS ordering_settings (
   max_days_ahead          int          NOT NULL DEFAULT 0 CHECK (max_days_ahead BETWEEN 0 AND 14),
   min_order_pence         int          NOT NULL DEFAULT 0 CHECK (min_order_pence >= 0),
   auto_accept             boolean      NOT NULL DEFAULT false,
-  default_vat_rate        numeric(5,2) NOT NULL DEFAULT 20 CHECK (default_vat_rate BETWEEN 0 AND 100),
+  -- VAT for dishes without their own rate, by order type: takeaway covers
+  -- collection and delivery, eat in covers table orders (POS, QR).
+  default_vat_rate_takeaway numeric(5,2) NOT NULL DEFAULT 20 CHECK (default_vat_rate_takeaway BETWEEN 0 AND 100),
+  default_vat_rate_eat_in   numeric(5,2) NOT NULL DEFAULT 20 CHECK (default_vat_rate_eat_in BETWEEN 0 AND 100),
   tips_enabled            boolean      NOT NULL DEFAULT false,
   tip_percents            int[]        NOT NULL DEFAULT '{10,12,15}',
   -- Gateway keys offered at checkout, in order (see paymentGateways/).
@@ -115,6 +128,10 @@ CREATE TABLE IF NOT EXISTS orders (
   tip_pence         int         NOT NULL DEFAULT 0 CHECK (tip_pence >= 0),
   total_pence       int         NOT NULL CHECK (total_pence >= 0),
   vat_pence         int         NOT NULL DEFAULT 0,
+  -- Platform fee: tenants.ordering_fee_percent of the subtotal (tips
+  -- excluded), fixed when the order is placed.
+  platform_fee_percent numeric(5,2) NOT NULL DEFAULT 0,
+  platform_fee_pence   int          NOT NULL DEFAULT 0,
   payment_method    text        NOT NULL,         -- gateway key
   payment_status    text        NOT NULL DEFAULT 'unpaid'
                     CHECK (payment_status IN ('unpaid', 'pending', 'paid', 'failed',

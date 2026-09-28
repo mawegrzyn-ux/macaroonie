@@ -2425,7 +2425,7 @@ export default function Help() {
                 ['Time slots / orders per slot', "Guests pick a collection time from these slots. Set a maximum per slot and full slots are greyed out."],
                 ['Order ahead', "How many days ahead guests can order. 0 = today only."],
                 ['Minimum order, tips', "A minimum basket value, and optional tip choices at checkout."],
-                ['Default VAT rate', "Used for dishes that have no takeaway VAT rate of their own."],
+                ['Default VAT, takeaway / eat in', "Used for dishes without a VAT rate of their own. Collection orders use the takeaway rate; eat-in rates are for table orders coming with the POS."],
                 ['Accept automatically', "Off: each new order waits on the board until someone taps Accept. On: it goes straight to In progress."],
                 ['Payment methods', "Pay at the counter, and online card payment once a payment provider is connected. Test payment is for trying the flow before going live: no money moves, so turn it off before real orders."],
                 ['Messages', "Collection instructions (on the ordering page and the email) and a note for the confirmation email."],
