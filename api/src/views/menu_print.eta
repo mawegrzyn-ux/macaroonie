@@ -51,6 +51,8 @@ const repeatHeader = (ps.repeat_header === 'full' || ps.repeat_header === 'compa
 const repeatFooter = !!ps.repeat_footer
 const pageNumbers = !!ps.page_numbers
 const keepAll = !!ps.keep_sections
+/* Variant options per row (1-3): label + price pairs fill the columns row by row. */
+const variantCols = Math.min(3, Math.max(1, Math.round(Number(ps.variant_columns) || 1)))
 
 /* Designed pages: a section set to start on a new page opens a new sheet.
    Each sheet gets its own header, columns and footer. */
@@ -196,9 +198,10 @@ if (!pages.length) pages.push([])
     .item-tags { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
     .tag-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 3px; color: #fff; font-size: calc(9px * var(--fs)); font-weight: 700; line-height: 1; }
     /* Variants */
-    .variants { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; margin-top: 1mm; }
+    .variants { display: grid; grid-template-columns: repeat(<%= variantCols %>, minmax(0, 1fr)); gap: 0 4mm; margin-top: 1mm; }
+    .variant { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; min-width: 0; }
     .variant-label { font-size: calc(10.5px * var(--fs)); color: var(--ink); }
-    .variant-price { font-family: 'Fraunces', serif; font-size: calc(10.5px * var(--fs)); color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; }
+    .variant-price { font-family: 'Fraunces', serif; font-size: calc(10.5px * var(--fs)); color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
     /* Callouts (footer notes) */
     .callouts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6mm; margin-top: 4mm; padding-top: 3mm; border-top: 1px solid var(--line); font-size: calc(10px * var(--fs)); }
@@ -305,8 +308,7 @@ if (!pages.length) pages.push([])
                 <% if (g.options && g.options.length) { %>
                   <div class="variants">
                     <% g.options.forEach(function(v){ %>
-                      <span class="variant-label"><%= v.label %></span>
-                      <span class="variant-price"><%= fmtVariantPrice(v.price_pence) %></span>
+                      <span class="variant"><span class="variant-label"><%= v.label %></span><span class="variant-price"><%= fmtVariantPrice(v.price_pence) %></span></span>
                     <% }) %>
                   </div>
                 <% } %>
@@ -314,8 +316,7 @@ if (!pages.length) pages.push([])
               <% if (_adhoc.length) { %>
                 <div class="variants">
                   <% _adhoc.forEach(function(v){ %>
-                    <span class="variant-label"><%= v.label %></span>
-                    <span class="variant-price"><%= fmtVariantPrice(v.price_pence) %></span>
+                    <span class="variant"><span class="variant-label"><%= v.label %></span><span class="variant-price"><%= fmtVariantPrice(v.price_pence) %></span></span>
                   <% }) %>
                 </div>
               <% } %>

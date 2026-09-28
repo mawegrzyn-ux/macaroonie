@@ -17,6 +17,7 @@
 //     paper_size: 'A4' | 'A3', orientation: 'landscape' | 'portrait',
 //     margin_mm: 0-25, cols: 6 | 12 | 24, row_mm: 2.5 | 5 | 10,
 //     font_scale: 70-150,
+//     variant_columns: 1-3,          default for dishes' variant lists
 //     master: [block],               shown on every page
 //     pages: [{ id, hide_master, blocks: [block] }],
 //   }
@@ -77,6 +78,7 @@ export function normalizeLayout(layout) {
     cols:        GRID_COLS.includes(Number(l.cols)) ? Number(l.cols) : 12,
     row_mm:      ROW_MM.includes(Number(l.row_mm)) ? Number(l.row_mm) : 5,
     font_scale:  num(l.font_scale, 70, 150, 100),
+    variant_columns: num(l.variant_columns, 1, 3, 1),
     master:      Array.isArray(l.master) ? l.master : [],
     pages:       Array.isArray(l.pages) && l.pages.length ? l.pages : [{ id: 'p1', blocks: [] }],
   }
@@ -176,6 +178,7 @@ export function buildContext(menu, layout) {
     tagsByCode: Object.fromEntries((m.dietary_tags || []).map(t => [t.code, t])),
     sectionsById, itemsById, sectionIdOfItem, placedItemIds,
     pageCount: l.pages.length,
+    variantColumns: l.variant_columns,
   }
 }
 
@@ -235,8 +238,12 @@ function itemHtml(item, ctx, opts) {
   const tags = (item.dietary || []).map(code => ctx.tagsByCode[code]).filter(Boolean)
     .map(t => '<span class="ml-tag" style="background:' + esc(t.colour) + '" title="' + esc(t.label) + '">' + esc(t.glyph) + '</span>')
     .join('')
-  const variantRows = list => '<div class="ml-variants">' + list.map(v =>
-    '<span class="ml-v-label">' + esc(v.label) + '</span><span class="ml-v-price">' + vPrice(v.price_pence) + '</span>').join('') + '</div>'
+  // Variant options: a block's own column count, else the layout's default.
+  // Each option is one label + price pair; pairs fill the columns row by row.
+  const vCols = Math.round(num(o.variant_columns, 1, 3, ctx.variantColumns || 1))
+  const variantRows = list => '<div class="ml-variants" style="grid-template-columns:repeat(' + vCols + ',minmax(0,1fr))">' +
+    list.map(v => '<span class="ml-v"><span class="ml-v-label">' + esc(v.label) + '</span><span class="ml-v-price">' +
+      vPrice(v.price_pence) + '</span></span>').join('') + '</div>'
 
   let body = '<div class="ml-item-row"><div><span class="ml-item-name">' + esc(item.name)
   if (item.native_name) body += '<span class="ml-native">' + esc(item.native_name) + '</span>'
@@ -420,9 +427,10 @@ export const MENU_LAYOUT_CSS = `
 .ml-tags { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
 .ml-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 3px; color: #fff; font-size: ${f(9)}; font-weight: 700; line-height: 1; }
 .ml-group { font-size: ${f(9)}; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 1.5mm; }
-.ml-variants { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; margin-top: 1mm; }
+.ml-variants { display: grid; gap: 0 4mm; margin-top: 1mm; }
+.ml-v { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; min-width: 0; }
 .ml-v-label { font-size: ${f(10.5)}; color: var(--ink); }
-.ml-v-price { font-family: 'Fraunces', serif; font-size: ${f(10.5)}; color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; }
+.ml-v-price { font-family: 'Fraunces', serif; font-size: ${f(10.5)}; color: var(--plum); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
 
 .ml-text-heading { font-family: 'Fraunces', serif; font-size: ${f(22)}; font-weight: 500; line-height: 1.15; color: var(--ink); }
 .ml-text-subheading { font-size: ${f(12)}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink); }

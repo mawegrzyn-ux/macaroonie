@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — Menu print: variant options side by side]
+
+### Menus
+- Printed menus can show a dish's variant options (Chicken, Prawns, Beef...) two or three to a row instead of one per line, which saves vertical space.
+- Automatic layout: menu **Settings > Print layout > Variant options per row**.
+- Menu designer: **Page setup > Variant options per row** sets the default; a dish block, or a section showing its dishes, can use its own number.
+
+---
+
 ## [2026-09-28 — Food safety Deliveries: blank page fixed]
 
 ### Food safety

@@ -81,6 +81,7 @@ const PrintSettings = z.object({
   repeat_footer: z.boolean().optional(),
   page_numbers:  z.boolean().optional(),
   keep_sections: z.boolean().optional(),
+  variant_columns: z.number().int().min(1).max(3).optional(),
 })
 
 // menus.print_layout (migration 121) — the menu designer's hand-placed
@@ -104,6 +105,7 @@ const LayoutBlock = z.object({
     show_rule:        z.boolean().optional(),
     show_description: z.boolean().optional(),
     show_logo:        z.boolean().optional(),
+    variant_columns:  z.number().int().min(1).max(3).optional(),
     suffix:           z.string().max(40).optional(),
     variant:          z.enum(['full', 'compact']).optional(),
     text:             z.string().max(2000).optional(),
@@ -120,6 +122,7 @@ const LayoutBody = z.object({
   cols:        z.union([z.literal(6), z.literal(12), z.literal(24)]).default(12),
   row_mm:      z.union([z.literal(2.5), z.literal(5), z.literal(10)]).default(5),
   font_scale:  z.number().int().min(70).max(150).default(100),
+  variant_columns: z.number().int().min(1).max(3).default(1),
   master:      z.array(LayoutBlock).max(100).default([]),
   pages:       z.array(z.object({
     id:          z.string().min(1).max(64),
