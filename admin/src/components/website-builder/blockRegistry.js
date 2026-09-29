@@ -460,7 +460,7 @@ export const BLOCKS = [
       basket_mode: 'side',       // 'side' | 'modal' (pop-up only)
       basket_sticky: true, basket_bg: '', basket_text: '', show_vat: true,
       sticky_nav: true, sticky_offset: 0,
-      show_search: false, highlight_favourites: false, favourite_label: '',
+      show_search: false, highlight_favourites: false, favourite_label: '', favourite_bg: '', favourite_text: '',
       item_notes: true,
     },
     editor:      OnlineOrderingEditor,

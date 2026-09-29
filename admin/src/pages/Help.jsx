@@ -2537,10 +2537,14 @@ export default function Help() {
                 ['Keep the category bar in view', "The menu and category tabs (and search) stay at the top while scrolling, and the category being looked at is highlighted."],
                 ['Space for a sticky site header', "Leave at 0 and the bar and basket sit just below your site header automatically, however tall it is. Enter a height in pixels only to override that."],
                 ['Search box', "Guests search dishes by name or description across all menus."],
-                ['Highlight house favourites', "Dishes ticked as House favourite on the Menus page get a badge (your wording) and a coloured edge."],
+                ['Highlight house favourites', "Dishes ticked as House favourite on the Menus page get a badge (your wording) and a coloured edge, plus a background and text colour from your theme if you pick them."],
                 ['Let guests add a note to each dish', "Turn off to remove the \"Note for the kitchen\" box on dishes. The allergy and order notes at checkout stay."],
               ]}
             />
+            <P>
+              These settings are part of the page, so on your live site they appear after you
+              Publish, like any other page change. Your staging address shows them straight away.
+            </P>
             <P>
               A menu with set times shows them to guests ("Dinner is available every day
               18:00–22:00"), and guests can browse and add from it outside those hours to order for
