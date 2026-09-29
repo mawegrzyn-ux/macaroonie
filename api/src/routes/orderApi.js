@@ -25,7 +25,7 @@ import { sql, withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { getGateway, checkoutGateways } from '../services/paymentGateways/index.js'
 import {
-  loadSettings, loadOrderingMenu, publicItem, computeSlots, orderingDates,
+  loadSettings, loadOrderingMenu, loadPrivacy, publicItem, computeSlots, orderingDates,
   createOrder, startPayment, applyPaymentResult, loadPublicOrderByToken, publicOrder, localParts,
 } from '../services/orderSvc.js'
 import { priceBasket } from '../../../shared/orderPricing.js'
@@ -57,6 +57,9 @@ const OrderBody = z.object({
   }),
   notes:            z.string().max(500).nullable().optional(),
   allergy_note:     z.string().max(500).nullable().optional(),
+  // GDPR (migration 125): the guest must agree to the order-only use of
+  // their details; the newsletter stays optional.
+  data_consent:     z.literal(true, { errorMap: () => ({ message: 'Please agree to how we use your details for this order' }) }),
   marketing_opt_in: z.boolean().default(false),
   tip_percent:      z.number().int().min(0).max(50).default(0),
   payment_method:   z.string().min(1).max(40),
@@ -106,7 +109,10 @@ export default async function orderApiRoutes(app) {
 
   app.get('/venues/:venueId', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
-    const menu = await withTenant(venue.tenant_id, tx => loadOrderingMenu(tx, venue, settings))
+    const [menu, privacy] = await withTenant(venue.tenant_id, async tx => [
+      await loadOrderingMenu(tx, venue, settings),
+      await loadPrivacy(tx, venue.tenant_id),
+    ])
     const gateways = checkoutGateways(settings, { venue })
     return {
       venue: {
@@ -127,6 +133,7 @@ export default async function orderApiRoutes(app) {
       },
       menus: menu.menus.map(m => ({ ...m, sections: m.sections.map(s => ({ ...s, items: s.items.map(publicItem) })) })),
       dietary_tags: menu.dietary_tags,
+      privacy,
     }
   })
 
@@ -152,7 +159,8 @@ export default async function orderApiRoutes(app) {
     const parsed = OrderBody.safeParse(req.body)
     if (!parsed.success) {
       const first = parsed.error.issues[0]
-      throw httpError(400, first ? `${first.path.join('.')}: ${first.message}` : 'Invalid order')
+      const msg = !first ? 'Invalid order' : first.path[0] === 'data_consent' ? first.message : `${first.path.join('.')}: ${first.message}`
+      throw httpError(400, msg)
     }
     const res = await createOrder({ venue, body: parsed.data })
     return reply.code(201).send({

@@ -362,11 +362,12 @@ function defaultLegalContent(kind, { brandName, email }) {
 <h3>What we collect</h3>
 <ul>
 <li><strong>Booking details</strong> — name, email, phone, party size, date/time, any notes you supply (e.g. allergens).</li>
-<li><strong>Marketing preferences</strong> — only when you explicitly opt in.</li>
+<li><strong>Online orders</strong> — name, email, phone, what you ordered, any notes and allergy information you give. Used only to prepare your order and contact you about it.</li>
+<li><strong>Marketing preferences</strong> — only when you explicitly opt in, for example by ticking the newsletter box at checkout.</li>
 <li><strong>Site analytics</strong> — anonymous usage stats via Google Analytics / Meta Pixel where enabled. See our cookies policy.</li>
 </ul>
 <h3>How we use it</h3>
-<p>To confirm and manage your reservation, to contact you about your visit, and where you have opted in, to send occasional marketing.</p>
+<p>To confirm and manage your reservation or order, to contact you about your visit or order, and where you have opted in, to send our newsletter. You can unsubscribe at any time by asking us.</p>
 <h3>Sharing</h3>
 <p>We use third parties (e.g. Stripe for payments, our email provider for transactional emails) under data-processor agreements. We do not sell your data.</p>
 <h3>Your rights</h3>

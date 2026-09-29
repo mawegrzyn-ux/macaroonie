@@ -1089,6 +1089,25 @@ export default function Help() {
               Anonymisation is permanent and irreversible. Once confirmed, the customer's personal details
               cannot be recovered. Only proceed when you have received a valid erasure request.
             </InfoBox>
+            <P>
+              Anonymising also covers the customer&apos;s online orders: name, email, phone, notes and
+              allergy information are removed, and they come off the newsletter. The export includes
+              their online orders and what they agreed to at checkout.
+            </P>
+
+            <H3>Newsletter</H3>
+            <P>
+              Guests join your newsletter by ticking the optional newsletter box when they order online.
+              A newsletter icon shows next to subscribers in the customer list, and the{' '}
+              <strong>Newsletter</strong> button above the list shows only subscribers. A
+              customer&apos;s profile shows when and how they subscribed.
+            </P>
+            <P>
+              If someone asks to stop receiving it, open their profile and tap{' '}
+              <strong>Unsubscribe</strong>, then <strong>Yes, unsubscribe</strong>. Staff can&apos;t
+              subscribe anyone: only the guest can, so you always have their own agreement. Ordering
+              again without ticking the box does not unsubscribe them.
+            </P>
           </section>
 
           {/* ── CASH RECONCILIATION ──────────────────────────── */}
@@ -2481,6 +2500,24 @@ export default function Help() {
               guests can&apos;t pick them. <strong>Don&apos;t show a price on zero-priced variants</strong>{' '}
               keeps a £0 option but shows no price next to it.
               An option with no price of its own leaves the dish at its own price.
+            </P>
+            <H3>Privacy at checkout</H3>
+            <P>
+              Guests see a <strong>Your privacy</strong> section before they can place an order, with
+              two boxes:
+            </P>
+            <DataTable
+              head={['Box', 'What it means']}
+              rows={[
+                ['Order details (required)', "The guest agrees you use their name, email, phone and any allergy information only to prepare the order and contact them about it. Place order stays greyed out until it is ticked."],
+                ['Newsletter (optional, unticked)', "The guest chooses to receive occasional, carefully crafted emails with news and offers. It adds them to the newsletter (see Customers & GDPR)."],
+              ]}
+            />
+            <P>
+              The wording uses your brand name from Website → Brand &amp; theme. If your site has a
+              published Privacy Policy page (Website → Legal &amp; cookies), a link to it shows under
+              the boxes. Each order keeps a record of exactly what the guest agreed to and when, and the
+              order shows it under the guest&apos;s details.
             </P>
             <H3>Handling orders</H3>
             <DataTable

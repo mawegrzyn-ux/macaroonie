@@ -15,7 +15,7 @@ import { format, parseISO } from 'date-fns'
 import {
   Search, User, Mail, Phone, Download, Plus, Upload,
   ShieldAlert, ChevronRight, Pencil, X, Check, FileText,
-  TriangleAlert, TrendingUp, Minus, ChevronUp, ChevronDown, ArrowUpDown,
+  TriangleAlert, TrendingUp, Minus, ChevronUp, ChevronDown, ArrowUpDown, Newspaper,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
@@ -89,6 +89,7 @@ export default function Customers() {
   const [showAdd,    setShowAdd]    = useState(false)
   const [showImport, setShowImport] = useState(false)
   const [sort,       setSort]       = useState({ col: 'updated_at', dir: 'desc' })
+  const [newsOnly,   setNewsOnly]   = useState(false)
   const isDesktop = useIsDesktop()
 
   const isResizing    = useRef(false)
@@ -143,9 +144,9 @@ export default function Customers() {
     isFetchingNextPage,
     isLoading,
   } = useInfiniteQuery({
-    queryKey:         ['customers', debouncedQ, sort],
+    queryKey:         ['customers', debouncedQ, sort, newsOnly],
     queryFn:          ({ pageParam }) =>
-      api.get(`/customers?q=${encodeURIComponent(debouncedQ)}&limit=${PAGE_SIZE}&offset=${pageParam}&sort=${sort.col}&dir=${sort.dir}`),
+      api.get(`/customers?q=${encodeURIComponent(debouncedQ)}&limit=${PAGE_SIZE}&offset=${pageParam}&sort=${sort.col}&dir=${sort.dir}${newsOnly ? '&newsletter=1' : ''}`),
     initialPageParam: 0,
     getNextPageParam: (lastPage, allPages) => {
       const loaded = allPages.reduce((n, p) => n + p.rows.length, 0)
@@ -205,6 +206,19 @@ export default function Customers() {
             />
           </div>
 
+          {/* Newsletter subscribers only (migration 125) */}
+          <button
+            type="button"
+            onClick={() => setNewsOnly(v => !v)}
+            aria-pressed={newsOnly}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg touch-manipulation',
+              newsOnly ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent',
+            )}
+          >
+            <Newspaper className="w-3.5 h-3.5" /> Newsletter
+          </button>
+
           <div className="flex items-center gap-2 ml-auto">
             {/* Import CSV */}
             <button
@@ -231,7 +245,9 @@ export default function Customers() {
             <p className="text-sm text-muted-foreground p-6">Loading…</p>
           ) : customers.length === 0 && !isFetchingNextPage ? (
             <p className="text-sm text-muted-foreground p-6">
-              {debouncedQ
+              {newsOnly && !debouncedQ
+                ? 'No newsletter subscribers yet. Guests subscribe by ticking the newsletter box when they order online.'
+                : debouncedQ
                 ? 'No customers match your search.'
                 : 'No customers yet — they appear automatically when bookings are confirmed, or add one manually.'}
             </p>
@@ -258,7 +274,10 @@ export default function Customers() {
                       c.is_anonymised && 'opacity-50 italic',
                     )}
                   >
-                    <td className="px-4 py-3 font-medium">{c.name}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {c.name}
+                      {c.marketing_opt_in && <Newspaper className="inline w-3.5 h-3.5 ml-1.5 text-muted-foreground align-[-2px]" aria-label="Newsletter subscriber" />}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">{c.email ?? '—'}</td>
                     <td className="px-4 py-3 text-muted-foreground">{c.phone ?? '—'}</td>
                     <td className="px-4 py-3 text-right">
@@ -430,6 +449,15 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
     onSuccess:  onAnonymised,
   })
 
+  const [confirmUnsub, setConfirmUnsub] = useState(false)
+  const unsubscribe = useMutation({
+    mutationFn: () => api.post(`/customers/${customer.id}/unsubscribe`, {}),
+    onSuccess:  () => {
+      setConfirmUnsub(false)
+      qc.invalidateQueries({ queryKey: ['customers'] })
+    },
+  })
+
   function handleExport() {
     const filename = `customer-${customer.name.replace(/[^a-z0-9]/gi, '-').toLowerCase()}.json`
     api.download(`/customers/${customer.id}/export`, filename)
@@ -576,6 +604,61 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
           </>
         )}
 
+        {/* Newsletter (migration 125). Guests opt in at online checkout;
+            staff can only take someone off. */}
+        {!customer.is_anonymised && (
+          <Section title="Newsletter">
+            {customer.marketing_opt_in ? (
+              <div className="space-y-2">
+                <p className="text-sm flex items-center gap-1.5">
+                  <Newspaper className="w-3.5 h-3.5 text-muted-foreground" />
+                  Subscribed
+                  {customer.marketing_opt_in_at && (
+                    <span className="text-muted-foreground">
+                      {' '}since {format(parseISO(customer.marketing_opt_in_at), 'dd MMM yyyy')}
+                      {customer.marketing_opt_in_source === 'web_order' ? ' (online order)' : ''}
+                    </span>
+                  )}
+                </p>
+                {!confirmUnsub ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmUnsub(true)}
+                    className="w-full py-2 text-sm border rounded-lg hover:bg-accent touch-manipulation min-h-[44px]"
+                  >
+                    Unsubscribe
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => unsubscribe.mutate()}
+                      disabled={unsubscribe.isPending}
+                      className="flex-1 py-2 text-sm bg-primary text-primary-foreground rounded-lg disabled:opacity-50 touch-manipulation min-h-[44px]"
+                    >
+                      {unsubscribe.isPending ? 'Working…' : 'Yes, unsubscribe'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmUnsub(false)}
+                      className="flex-1 py-2 text-sm border rounded-lg hover:bg-accent touch-manipulation min-h-[44px]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+                {unsubscribe.error && <p className="text-xs text-destructive">{unsubscribe.error.message}</p>}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Not subscribed
+                {customer.marketing_opt_out_at && <> (unsubscribed {format(parseISO(customer.marketing_opt_out_at), 'dd MMM yyyy')})</>}.
+                {' '}Guests subscribe themselves by ticking the newsletter box when they order online.
+              </p>
+            )}
+          </Section>
+        )}
+
         {/* GDPR */}
         {!customer.is_anonymised && (
           <Section title="Privacy">
@@ -597,7 +680,7 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
                 <div className="border border-destructive/40 rounded-lg p-3 space-y-2">
                   <p className="text-xs text-destructive flex items-start gap-1.5">
                     <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    This permanently replaces name, email and phone with placeholders. Bookings stay linked.
+                    This permanently replaces name, email and phone with placeholders, on the customer and on their bookings and online orders, and removes them from the newsletter. Bookings and orders stay linked for your records.
                   </p>
                   <div className="flex gap-2">
                     <button

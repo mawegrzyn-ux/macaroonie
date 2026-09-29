@@ -400,6 +400,31 @@ const CreateError = (status, message, extra) => Object.assign(httpError(status, 
 // Pricing, slot and minimum-order checks all run here, against the live
 // menu, under a per-venue-per-day lock so two guests can't both take the
 // last place in a slot.
+// ── GDPR (migration 125) ───────────────────────────────────────
+// The wording the guest sees at checkout. The server owns it: the guest
+// page shows what GET /order-api/venues/:id returns, and createOrder()
+// records this same text on the order, so what was agreed to can be shown
+// later. Change the wording here only.
+export async function loadPrivacy(tx, tenantId) {
+  const [row] = await tx`
+    SELECT COALESCE(NULLIF(ts.brand_name, ''), NULLIF(ts.site_name, ''), t.name) AS business,
+           (SELECT '/p/' || p.slug FROM website_pages p
+             WHERE p.tenant_id = t.id AND p.venue_id IS NULL AND p.is_published
+               AND (p.slug = 'privacy' OR (p.is_legal AND p.slug ILIKE '%privacy%'))
+             ORDER BY (p.slug = 'privacy') DESC LIMIT 1) AS policy_url
+      FROM tenants t
+      LEFT JOIN tenant_site ts ON ts.tenant_id = t.id
+     WHERE t.id = ${tenantId}
+  `
+  const business = row?.business || 'We'
+  return {
+    business,
+    policy_url: row?.policy_url || null,
+    data_text: 'I agree that ' + business + ' uses my details, including any allergy information I give, only to prepare this order and to contact me about it.',
+    marketing_text: 'Send me the ' + business + ' newsletter: occasional, carefully crafted emails with news and offers. Optional. I can unsubscribe at any time.',
+  }
+}
+
 export async function createOrder({ venue, body, gatewayCtx = {} }) {
   const tz = venue.timezone
   const now = new Date()
@@ -453,11 +478,29 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     const customerId = body.customer.email
       ? await upsertCustomer(tx, venue.tenant_id, { name: body.customer.name, email: body.customer.email, phone: body.customer.phone })
       : null
+    // Newsletter opt-in goes on the customer. Not ticking the box is not
+    // an unsubscribe, so an unticked box leaves an earlier opt-in alone.
+    if (customerId && body.marketing_opt_in) {
+      await tx`
+        UPDATE customers
+           SET marketing_opt_in = true, marketing_opt_in_at = now(),
+               marketing_opt_in_source = 'web_order', updated_at = now()
+         WHERE id = ${customerId}
+      `
+    }
+    const privacy = await loadPrivacy(tx, venue.tenant_id)
+    const consentAt = now.toISOString()
+    const consent = {
+      data: { text: privacy.data_text, at: consentAt },
+      marketing: body.marketing_opt_in ? { text: privacy.marketing_text, at: consentAt } : null,
+      policy_url: privacy.policy_url,
+    }
 
     const [order] = await tx`
       INSERT INTO orders (tenant_id, venue_id, channel, fulfilment, service_date, order_number,
                           status, is_asap, requested_for, promised_at, customer_id,
                           guest_name, guest_email, guest_phone, notes, allergy_note, marketing_opt_in,
+                          data_consent_at, consent,
                           currency, subtotal_pence, tip_pence, total_pence, vat_pence,
                           platform_fee_percent, platform_fee_pence,
                           payment_method, payment_status)
@@ -465,6 +508,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
               'pending_payment', ${isAsap}, ${requestedFor}, ${promisedAt}, ${customerId},
               ${body.customer.name}, ${body.customer.email || null}, ${body.customer.phone || null},
               ${body.notes || null}, ${body.allergy_note || null}, ${!!body.marketing_opt_in},
+              ${consentAt}, ${tx.json(consent)},
               ${venue.currency || 'GBP'}, ${priced.subtotal_pence}, ${priced.tip_pence}, ${priced.total_pence}, ${priced.vat_pence},
               ${feePercent}, ${feePence},
               ${gateway.key}, 'unpaid')

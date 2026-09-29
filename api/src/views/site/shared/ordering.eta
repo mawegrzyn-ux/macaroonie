@@ -60,6 +60,8 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-choice { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 8px 12px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); margin-bottom: 8px; cursor: pointer; }
 :is(.mo, .mo-sheet-back) .mo-choice input { width: 20px; height: 20px; }
 :is(.mo, .mo-sheet-back) .mo-choice.is-on { border-color: var(--c-primary, #630812); }
+.mo .mo-consent { align-items: flex-start; }
+.mo .mo-consent input { margin-top: 2px; flex-shrink: 0; }
 :is(.mo, .mo-sheet-back) .mo-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
 :is(.mo, .mo-sheet-back) .mo-slot { min-height: 48px; border-radius: var(--r-md, 8px); border: 1px solid var(--c-border, #e5e7eb); background: var(--c-surface, #fff); color: inherit; }
 :is(.mo, .mo-sheet-back) .mo-slot.is-on { background: var(--c-primary, #630812); color: #fff; border-color: transparent; }
@@ -175,7 +177,7 @@ async function startOrdering() {
     slots: null,
     tip: 0,
     method: (ord.payment_methods[0] || {}).key || null,
-    form: { name: '', email: '', phone: '', allergy_note: '', notes: '', marketing_opt_in: false },
+    form: { name: '', email: '', phone: '', allergy_note: '', notes: '', data_consent: false, marketing_opt_in: false },
     error: null,
     busy: false,
     pay: null,             // { token, payment }
@@ -373,7 +375,16 @@ async function startOrdering() {
       '<label class="mo-field"><span>Phone</span><input data-f="phone" type="tel" inputmode="tel" autocomplete="tel" value="' + esc(f.phone) + '" maxlength="40"></label>' +
       '<label class="mo-field"><span>Allergies (optional)</span><textarea data-f="allergy_note" maxlength="500" placeholder="Tell us about any allergies">' + esc(f.allergy_note) + '</textarea></label>' +
       '<label class="mo-field"><span>Anything else? (optional)</span><textarea data-f="notes" maxlength="500">' + esc(f.notes) + '</textarea></label>' +
-      '<label class="mo-choice"><input type="checkbox" data-f="marketing_opt_in"' + (f.marketing_opt_in ? ' checked' : '') + '><span>Send me news and offers</span></label></div>'
+      '</div>'
+
+    // GDPR (migration 125): the wording comes from the server, which
+    // records the same text on the order.
+    const pv = data.privacy || {}
+    h += '<div class="mo-panel"><h2 style="margin-top:0;">Your privacy</h2>' +
+      '<label class="mo-choice mo-consent' + (f.data_consent ? ' is-on' : '') + '"><input type="checkbox" data-f="data_consent"' + (f.data_consent ? ' checked' : '') + '><span>' + esc(pv.data_text || '') + ' <span class="mo-muted">(required)</span></span></label>' +
+      '<label class="mo-choice mo-consent' + (f.marketing_opt_in ? ' is-on' : '') + '"><input type="checkbox" data-f="marketing_opt_in"' + (f.marketing_opt_in ? ' checked' : '') + '><span>' + esc(pv.marketing_text || '') + '</span></label>' +
+      (pv.policy_url ? '<p class="mo-muted" style="font-size:.9rem;margin:4px 0 0;">See our <a href="' + esc(pv.policy_url) + '" target="_blank" rel="noopener">privacy policy</a> for how we look after your data and your rights.</p>' : '') +
+      '</div>'
 
     if (ord.tips_enabled && ord.tip_percents.length) {
       h += '<div class="mo-panel"><h2 style="margin-top:0;">Add a tip?</h2><div class="mo-slots">' +
@@ -397,14 +408,14 @@ async function startOrdering() {
     const ready = readyToPlace()
     h += '<button class="mo-btn mo-btn-block" data-place' + (ready && !state.busy ? '' : ' disabled') + '>' +
       (state.busy ? 'Placing order&hellip;' : (m && m.online ? 'Continue to payment' : 'Place order') + ' · ' + money(q.total_pence)) + '</button>'
-    if (!ready && !state.busy) h += '<p class="mo-muted" style="font-size:.9rem;margin-top:8px;">Choose a time and fill in your name, email and phone to continue.</p>'
+    if (!ready && !state.busy) h += '<p class="mo-muted" style="font-size:.9rem;margin-top:8px;">Choose a time, fill in your name, email and phone, and agree to how we use your details to continue.</p>'
     return h
   }
 
   function readyToPlace() {
     const f = state.form
     return !!(canCheckout(quote()) && state.when && f.name.trim() && /.+@.+\..+/.test(f.email.trim()) &&
-      f.phone.trim().length >= 5 && ord.payment_methods.some(x => x.key === state.method))
+      f.phone.trim().length >= 5 && f.data_consent && ord.payment_methods.some(x => x.key === state.method))
   }
 
   async function placeOrder() {
@@ -419,7 +430,7 @@ async function startOrdering() {
           lines: state.basket, when: state.when,
           customer: { name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim() },
           notes: f.notes.trim() || null, allergy_note: f.allergy_note.trim() || null,
-          marketing_opt_in: !!f.marketing_opt_in, tip_percent: state.tip, payment_method: state.method,
+          data_consent: !!f.data_consent, marketing_opt_in: !!f.marketing_opt_in, tip_percent: state.tip, payment_method: state.method,
         },
       })
       state.basket = []
@@ -530,11 +541,11 @@ async function startOrdering() {
     const d = e.target.dataset
     if (d.when) { state.when = d.when; draw() }
     else if (d.method) { state.method = d.method; draw() }
-    else if (d.f === 'marketing_opt_in') state.form.marketing_opt_in = e.target.checked
+    else if (d.f === 'marketing_opt_in' || d.f === 'data_consent') { state.form[d.f] = e.target.checked; draw() }
   })
   root.addEventListener('input', e => {
     const d = e.target.dataset
-    if (d.f && d.f !== 'marketing_opt_in') {
+    if (d.f && d.f !== 'marketing_opt_in' && d.f !== 'data_consent') {
       state.form[d.f] = e.target.value
       // Only the Place order button depends on the form: update it in
       // place so typing never loses focus.
