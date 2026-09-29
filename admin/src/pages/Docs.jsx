@@ -1322,6 +1322,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               affordance inline in its compact header, since there's no room there for the
               full-panel's dedicated footer block.
             </InfoBox>
+            <H3>Legacy spreadsheet import</H3>
+            <P>
+              <Mono>services/legacyImportSvc.js</Mono> (used by <Mono>routes/legacyImport.js</Mono>, the
+              Legacy data import page, and <Mono>scripts/import-legacy-checklists.js</Mono>) reads the old
+              CAFE_MANAGER workbook into checklist instances and food-safety logs. It never creates
+              checklist templates: each checklist sheet is matched to an existing template of the same
+              frequency whose task labels cover at least half of the sheet's columns. Preview and
+              commit run the same code; only the transaction outcome differs. Reruns only fill gaps.
+            </P>
+            <DataTable
+              head={['Sheet', 'Goes to']}
+              rows={[
+                ['KitchenDayChecklist, KitchenDayClosingChecklist', 'Daily templates, matched by exact task label'],
+                ['KitchenWeekChecklist', 'Weekly template, matched by exact task label'],
+                ['KitchenMonthChecklist', 'Monthly template, matched by exact task label'],
+                ['Monthly Audit', 'Monthly H&S audit template. Questions matched by their number (1.1.0 ... 3.2.6) at the start of the task label, else by exact text; per-question Notes columns go to checklist_instance_items.notes; Completed By to completed_by'],
+                ['FridgeFreezerChecksAM / PM', 'fs_temp_logs (creates equipment + AM/PM capture times if missing)'],
+                ['HotFoodCheck', 'fs_cooking_checks'],
+                ['DeliveryCheck', 'fs_delivery_checks'],
+              ]}
+            />
           </section>
 
           {/* ── H&S DASHBOARD ─────────────────────────────── */}

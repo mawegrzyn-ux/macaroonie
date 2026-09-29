@@ -18,6 +18,7 @@ const SHEET_LABELS = {
   KitchenDayClosingChecklist: 'Kitchen Day Closing Checklist',
   KitchenWeekChecklist: 'Kitchen Week Checklist',
   KitchenMonthChecklist: 'Kitchen Month Checklist',
+  MonthlyAudit: 'Monthly Health & Safety Audit',
   FridgeFreezerChecks: 'Fridge/Freezer Checks (AM+PM)',
   HotFoodCheck: 'Hot Food Check',
   DeliveryCheck: 'Delivery Check',
