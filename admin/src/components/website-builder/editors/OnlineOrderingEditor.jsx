@@ -112,6 +112,16 @@ export function OnlineOrderingEditor({ data, onChange }) {
             <input value={data.favourite_label || ''} onChange={e => set('favourite_label')(e.target.value)} placeholder="House favourite" className={input} />
           </FormRow>
         )}
+        {data.highlight_favourites && (
+          <FormRow label="Favourite background">
+            <ThemeColourPicker value={data.favourite_bg || ''} onChange={set('favourite_bg')} noneLabel="Default" />
+          </FormRow>
+        )}
+        {data.highlight_favourites && (
+          <FormRow label="Favourite text colour" hint="Pick one if the background is dark.">
+            <ThemeColourPicker value={data.favourite_text || ''} onChange={set('favourite_text')} noneLabel="Default" />
+          </FormRow>
+        )}
         <Check label="Let guests add a note to each dish" checked={data.item_notes !== false} onChange={set('item_notes')}
           hint="The “Note for the kitchen” box on each dish. The order-wide notes and allergy boxes at checkout stay." />
       </Group>

@@ -52,6 +52,8 @@ const _opts = {
   showVat:       d.show_vat !== false,
   favourites:    !!d.highlight_favourites,
   favouriteLabel: _str(d.favourite_label) || 'House favourite',
+  favouriteBg:   _colour(d.favourite_bg),
+  favouriteText: _colour(d.favourite_text),
 }
 %>
 <section class="block block-online-ordering">

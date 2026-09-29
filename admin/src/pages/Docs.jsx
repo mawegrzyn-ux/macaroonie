@@ -2497,6 +2497,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['sticky_nav, sticky_offset', 'true, 0', 'Sticky .mo-nav at top: --mo-offset; the basket column sticks at offset + 16. sticky_offset > 0 sets --mo-offset; at 0 the page script measures the site header (findTopBars(): header, nav, .mc-header and body children that are sticky/fixed at top 0-8px, at least half the screen wide, under 40% of its height) and re-measures on resize (ResizeObserver).'],
                 ['show_search', 'false', 'Accent-insensitive match on name, native name and description across all menus.'],
                 ['highlight_favourites, favourite_label', "false, ''", 'is-fav card class and badge (default text House favourite) from the item featured flag.'],
+                ['favourite_bg, favourite_text', "'', ''", 'Theme roles for the is-fav card: --mo-fav-bg / --mo-fav-fg; a text colour adds mo--fav-fg so the badge and description inherit it.'],
                 ['item_notes', 'true', 'false hides the per-dish note field in the dish sheet.'],
               ]}
             />

@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering: colours for house favourites]
+
+- The Online ordering block's "Highlight house favourites" option now has a background and a text colour (from your theme) for favourite dishes, as well as the badge and coloured edge.
+- Reminder: block settings are part of the page, so the live site shows them after you Publish (staging shows them straight away).
+
+---
+
 ## [2026-09-29 — Online ordering: category bar and basket fit below the site header]
 
 - On the ordering page, the sticky category bar (with the search box) and the basket no longer slide under a sticky site header. They now sit just below it automatically, whatever the header's height. The search box was hidden under the header, which is why it seemed missing.
