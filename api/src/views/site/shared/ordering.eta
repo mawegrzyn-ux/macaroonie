@@ -185,6 +185,46 @@ const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const OPT = CFG.opts || {}
 const API = '/order-api'
 const root = document.getElementById('mo-app')
+
+// Space above the sticky category bar and basket. The block's "space for a
+// sticky site header" setting wins when set; at 0 we measure whatever site
+// header stays at the top of the screen (the header block, a template's
+// sticky nav) and sit below it, re-measuring when it changes size.
+let headerOffset = OPT.stickyOffset || 0
+function findTopBars() {
+  const box = document.getElementById('mo-root')
+  const seen = new Set()
+  const bars = []
+  for (const el of document.querySelectorAll('header, nav, .mc-header, body > *, body > * > *')) {
+    if (seen.has(el) || !box || box.contains(el) || el.contains(box)) continue
+    seen.add(el)
+    const cs = getComputedStyle(el)
+    if (cs.position !== 'sticky' && cs.position !== 'fixed') continue
+    if (cs.display === 'none' || cs.visibility === 'hidden') continue
+    const top = parseFloat(cs.top)
+    if (!(top >= 0 && top <= 8)) continue
+    if (el.offsetWidth < window.innerWidth * 0.5 || !el.offsetHeight || el.offsetHeight > window.innerHeight * 0.4) continue
+    bars.push(el)
+  }
+  return bars
+}
+let topBars = []
+function measureHeader() {
+  if (OPT.stickyOffset) return
+  const h = topBars.reduce((m, el) => Math.max(m, Math.round(parseFloat(getComputedStyle(el).top) || 0) + el.offsetHeight), 0)
+  if (h === headerOffset) return
+  headerOffset = h
+  document.getElementById('mo-root')?.style.setProperty('--mo-offset', h + 'px')
+}
+if (!OPT.stickyOffset) {
+  topBars = findTopBars()
+  measureHeader()
+  if (window.ResizeObserver) {
+    const ro = new ResizeObserver(measureHeader)
+    topBars.forEach(el => ro.observe(el))
+  }
+  window.addEventListener('resize', () => { topBars = findTopBars(); measureHeader() })
+}
 // Scroll to the top of the ordering app, not the page: it may sit below
 // other blocks (a hero, some text) on the ordering page.
 function toAppTop(smooth) {
@@ -366,7 +406,7 @@ async function startOrdering() {
   // category's tab lit while scrolling.
   function barBottom() {
     const nav = root.querySelector('.mo-nav')
-    return OPT.stickyNav && nav ? OPT.stickyOffset + nav.offsetHeight : OPT.stickyOffset
+    return OPT.stickyNav && nav ? headerOffset + nav.offsetHeight : headerOffset
   }
   function jumpTo(id) {
     const el = document.getElementById('sec-' + id)

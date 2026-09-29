@@ -2535,7 +2535,7 @@ export default function Help() {
                 ['Basket colours', "A background and text colour from your theme. Pick a text colour when the background is dark; the basket's buttons then use it too."],
                 ['Show VAT under the total', "Adds \"Includes VAT £x\" in the basket and at checkout."],
                 ['Keep the category bar in view', "The menu and category tabs (and search) stay at the top while scrolling, and the category being looked at is highlighted."],
-                ['Space for a sticky site header', "If your site header stays at the top of the screen, enter its height in pixels so the bar and basket sit just below it."],
+                ['Space for a sticky site header', "Leave at 0 and the bar and basket sit just below your site header automatically, however tall it is. Enter a height in pixels only to override that."],
                 ['Search box', "Guests search dishes by name or description across all menus."],
                 ['Highlight house favourites', "Dishes ticked as House favourite on the Menus page get a badge (your wording) and a coloured edge."],
                 ['Let guests add a note to each dish', "Turn off to remove the \"Note for the kitchen\" box on dishes. The allergy and order notes at checkout stay."],
