@@ -22,6 +22,7 @@ import { normalizeBimiSvg } from '../services/bimiSvg.js'
 import { loadOpeningHours } from '../services/siteDataSvc.js'
 import { RESERVED_SUBDOMAINS, STAGING_PREFIX } from './siteRenderer.js'
 import { publishTenantSite, overrideStagingWithProduction } from '../services/publishSvc.js'
+import { ensureOrderPage } from '../services/orderPage.js'
 import { publishQueue } from '../jobs/queues.js'
 
 // ── Schemas ──────────────────────────────────────────────────
@@ -460,6 +461,8 @@ async function ensureTenantSite(tx, tenantId) {
     ON CONFLICT (tenant_id) DO UPDATE SET updated_at = now()
     RETURNING *
   `
+  // Every site gets the built-in online ordering page (migration 126).
+  await ensureOrderPage(tx, tenantId)
   return created
 }
 
@@ -922,6 +925,20 @@ export default async function websiteRoutes(app) {
     const body = {}
     for (const k of fields) body[k] = parsed[k]
     return withTenant(req.tenantId, async tx => {
+      // The built-in ordering page (migration 126) always lives at /order
+      // as a published standalone page: only its title and blocks change.
+      const [cur] = await tx`SELECT system_key FROM website_pages WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+      if (cur?.system_key) {
+        if ('kind' in body && body.kind !== 'page') throw httpError(422, 'The ordering page can\'t be a modal')
+        if ('is_published' in body && !body.is_published) throw httpError(422, 'The ordering page is always published. Pause or switch off online ordering in Ordering setup instead.')
+        for (const k of ['slug', 'kind', 'is_published']) {
+          if (k in body) { delete body[k]; fields.splice(fields.indexOf(k), 1) }
+        }
+        if (!fields.length) {
+          const [row] = await tx`SELECT * FROM website_pages WHERE id = ${req.params.id}`
+          return row
+        }
+      }
       if ('blocks' in body) body.blocks = body.blocks == null ? null : tx.json(body.blocks)
       const [row] = await tx`
         UPDATE website_pages
@@ -935,11 +952,15 @@ export default async function websiteRoutes(app) {
   })
 
   app.delete('/pages/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      DELETE FROM website_pages
-       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
-      RETURNING id
-    `)
+    const [row] = await withTenant(req.tenantId, async tx => {
+      const [cur] = await tx`SELECT system_key FROM website_pages WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+      if (cur?.system_key) throw httpError(422, 'The ordering page can\'t be deleted')
+      return tx`
+        DELETE FROM website_pages
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+        RETURNING id
+      `
+    })
     if (!row) throw httpError(404, 'Page not found')
     return { ok: true }
   })

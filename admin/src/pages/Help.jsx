@@ -2259,6 +2259,14 @@ export default function Help() {
               <li>The same <strong>block builder</strong> as the home page. Set Anchor ID on a block to deep-link a section.</li>
               <li>Every nav / button / footer link uses a <strong>link selector</strong>: this page (with or without an anchor), other pages, modals, or a custom URL.</li>
             </ul>
+            <P>
+              The list always includes <strong>Order online</strong>, your online ordering page at{' '}
+              <Mono>/order</Mono> (marked <em>Ordering</em>). Design it like any other page: add a hero,
+              some text or photos around the <strong>Online ordering</strong> block, which shows the menu,
+              basket and checkout. You can rename it, but it always stays at <Mono>/order</Mono>, stays
+              published and can&apos;t be deleted; switch ordering on or off in Online orders, Setup.
+              The Online ordering block can also go on another page (one per page).
+            </P>
 
             <H3>SEO &amp; Analytics</H3>
             <P>
@@ -2459,6 +2467,12 @@ export default function Help() {
               This is not the <strong>Online ordering</strong> section of the Website builder. That
               section only lists links to outside services such as GloriaFood. To send guests to your
               own ordering page, link a button to <strong>/order</strong>.
+            </P>
+            <P>
+              Your ordering page is in <strong>Website → Pages &amp; modals → Order online</strong>.
+              Add a hero, opening times or any other blocks around the Online ordering block to make
+              it your own. On a phone the category tabs scroll sideways and a basket bar sits at the
+              bottom of the screen.
             </P>
             <DataTable
               head={['Setting', 'What it does']}

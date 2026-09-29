@@ -2414,6 +2414,21 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['customers.marketing_opt_in (+ _at, _source, marketing_opt_out_at)', "Newsletter status. Set on order creation when the box is ticked (source web_order); an unticked box never clears it. Cleared by POST /customers/:id/unsubscribe or anonymise. GET /customers?offset=…&newsletter=1 lists subscribers."],
               ]}
             />
+            <H3>Ordering page and block (migration 126)</H3>
+            <P>
+              <Mono>website_pages.system_key</Mono> (<Mono>'order'</Mono>, unique per tenant, tenant-level)
+              marks the built-in ordering page. Migration 126 seeds one per tenant with a website;{' '}
+              <Mono>ensureTenantSite()</Mono> calls <Mono>ensureOrderPage()</Mono> for new sites. The
+              pages API ignores slug / kind / is_published changes on it and refuses to delete it,
+              unpublish it or make it a modal (422). <Mono>publishSvc</Mono> includes{' '}
+              <Mono>system_key</Mono> in the snapshot. The <Mono>online_ordering</Mono> block picks its
+              venue from: the route&apos;s <Mono>orderView</Mono>, then <Mono>data.venue_id</Mono>, then the
+              location page&apos;s venue, then the only ordering venue, else a location picker, using{' '}
+              <Mono>ordering_venues</Mono>, which <Mono>loadOrRender404()</Mono> attaches to every site
+              bundle. Block data: <Mono>heading</Mono>, <Mono>hide_title</Mono> (hides the venue name),
+              <Mono> venue_id</Mono>. One per page: the app&apos;s script finds <Mono>#mo-app</Mono> by id.
+              LinkPicker, sitemap and llms.txt link the page as <Mono>/order</Mono>.
+            </P>
             <H3>Collection slots</H3>
             <P>
               Computed, never stored (<Mono>computeSlots()</Mono>): slot times every{' '}
@@ -2468,7 +2483,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /order-api/venues/:id/orders', "Place an order; returns token, status and the payment client action."],
                 ['GET /order-api/orders/:token; POST .../pay; POST .../payments/:id/confirm', "Guest status, retry, browser confirmation."],
                 ['/api/orders (admin)', "GET / (board: venue + day), GET /:id (events, payments), POST /:id/status | promised | mark-paid | refund, GET|PUT /settings/:venueId, POST /pause/:venueId (web_orders manage, no setup rights needed), GET|PUT /availability/:venueId[/:itemId], GET /report, GET /gateways."],
-                ['Site', "/order (sole ordering venue, or a location picker), /locations/:slug/order, /order/status/:token. Each template has order.eta wrapping shared/ordering.eta."],
+                ['Site', "/order (sole ordering venue, or a location picker) and /locations/:slug/order render the tenant's built-in ordering page (website_pages.system_key = 'order', migration 126) through page.eta, passing orderView/orderVenue(s); its online_ordering block (blocks/online_ordering.eta) includes shared/ordering.eta. Sites published before 126 use DEFAULT_ORDER_PAGE (services/orderPage.js) until republished. /p/<slug> of that page redirects to /order. /order/status/:token still renders each template's order.eta around shared/ordering.eta."],
               ]}
             />
             <H3>Admin</H3>

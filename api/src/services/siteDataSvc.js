@@ -309,7 +309,7 @@ async function buildLiveTenantBundle(ts, { includeUnpublished, isStaging }) {
          ORDER BY v.name
       `,
       tx`
-        SELECT id, slug, title, content, blocks, kind, is_published, is_legal, sort_order, show_header, show_footer
+        SELECT id, slug, title, content, blocks, kind, is_published, is_legal, sort_order, show_header, show_footer, system_key
           FROM website_pages
          WHERE tenant_id = ${ts.tenant_id}
            AND venue_id IS NULL

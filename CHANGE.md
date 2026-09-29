@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Ordering page: mobile fixes, designable page, ordering block]
+
+**Migration 126.**
+
+- The ordering page works properly on phones: the category tabs scroll sideways and the dishes keep a margin on both sides. Before, the tabs pushed the page wider than the screen and the cards and tabs were cut off at the right edge.
+- The ordering page is now a page you design in **Website → Pages & modals → Order online**. Add a hero, text, photos or anything else around the new **Online ordering** block (menu, basket and checkout). It always lives at /order (and /locations/<location>/order), stays published and can't be deleted.
+- New **Online ordering** block for the page builder: put ordering on any page (one per page). Pick a venue or leave it on Automatic; optional heading and "hide the venue name".
+- Sites published before this change keep working and show the same ordering page until they are next published.
+
+---
+
 ## [2026-09-29 — Online ordering: GDPR consent and newsletter]
 
 **Migration 125.**

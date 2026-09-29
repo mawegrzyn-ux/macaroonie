@@ -1,7 +1,9 @@
 <%
-/* Web ordering pages (migration 122). Included by the order.eta of each
-   template between its header and footer, so the page keeps the site
-   chrome and theme. it.orderView:
+/* Web ordering pages (migration 122). Included by the Online ordering
+   block (blocks/online_ordering.eta, which sits on the built-in ordering
+   page and can go on any page) and by each template's order.eta (the
+   order status page). One per page: the script finds #mo-app by id.
+   it.orderView:
      'pick'   choose a location (multi-venue tenants)
      'order'  menu, basket, checkout and payment for it.orderVenue
      'status' one order's live status (it.orderToken)
@@ -13,11 +15,12 @@ const cfg = {
   venueId: it.orderVenue ? it.orderVenue.id : null,
   token: it.orderToken || null,
   statusBase: '/order/status/',
+  hideTitle: !!it.orderHideTitle,
 }
 const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 %>
 <style>
-.mo { max-width: 1180px; margin: 0 auto; padding: 24px 16px 120px; font-family: var(--f-body, system-ui), sans-serif; color: var(--c-text, #1f2937); }
+.mo { max-width: 1180px; margin: 0 auto; padding: 24px 16px 120px; min-width: 0; overflow-wrap: anywhere; font-family: var(--f-body, system-ui), sans-serif; color: var(--c-text, #1f2937); }
 .mo *, .mo *::before, .mo *::after { box-sizing: border-box; }
 .mo h1 { font-family: var(--f-heading, inherit); font-size: clamp(1.6rem, 3vw, 2.2rem); margin: 0 0 6px; }
 .mo h2 { font-family: var(--f-heading, inherit); font-size: 1.35rem; margin: 28px 0 12px; }
@@ -29,11 +32,16 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-btn-block { width: 100%; }
 :is(.mo, .mo-sheet-back) .mo-banner { padding: 12px 16px; border-radius: var(--r-md, 8px); background: #fef3c7; color: #92400e; margin: 12px 0; }
 :is(.mo, .mo-sheet-back) .mo-error { padding: 12px 16px; border-radius: var(--r-md, 8px); background: #fee2e2; color: #991b1b; margin: 12px 0; }
+/* minmax(0, ...) everywhere: a plain 1fr column grows to its widest child
+   (the tab strip), so on a phone the page was wider than the screen and the
+   site's overflow-x: hidden cut off tabs, cards and the right margin. */
 :is(.mo, .mo-sheet-back) .mo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 32px; align-items: start; }
-:is(.mo, .mo-sheet-back) .mo-tabs { display: flex; gap: 8px; overflow-x: auto; padding: 8px 0; position: sticky; top: 0; z-index: 5; background: var(--c-bg, #fff); }
-:is(.mo, .mo-sheet-back) .mo-tab { white-space: nowrap; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--c-border, #e5e7eb); background: var(--c-surface, #fff); color: var(--c-text, #1f2937); }
+:is(.mo, .mo-sheet-back) .mo-layout > * { min-width: 0; }
+:is(.mo, .mo-sheet-back) .mo-tabs { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: none; max-width: 100%; padding: 8px 0; position: sticky; top: 0; z-index: 5; background: var(--c-bg, #fff); }
+:is(.mo, .mo-sheet-back) .mo-tabs::-webkit-scrollbar { display: none; }
+:is(.mo, .mo-sheet-back) .mo-tab { flex: none; white-space: nowrap; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--c-border, #e5e7eb); background: var(--c-surface, #fff); color: var(--c-text, #1f2937); }
 :is(.mo, .mo-sheet-back) .mo-tab.is-on { background: var(--c-primary, #630812); color: #fff; border-color: transparent; }
-:is(.mo, .mo-sheet-back) .mo-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+:is(.mo, .mo-sheet-back) .mo-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 12px; }
 :is(.mo, .mo-sheet-back) .mo-item { display: flex; gap: 12px; text-align: left; width: 100%; padding: 14px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); color: inherit; min-height: 96px; }
 :is(.mo, .mo-sheet-back) .mo-item:hover { border-color: var(--c-primary, #630812); }
 :is(.mo, .mo-sheet-back) .mo-item.is-out { opacity: .55; }
@@ -62,7 +70,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-choice.is-on { border-color: var(--c-primary, #630812); }
 .mo .mo-consent { align-items: flex-start; }
 .mo .mo-consent input { margin-top: 2px; flex-shrink: 0; }
-:is(.mo, .mo-sheet-back) .mo-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px; }
+:is(.mo, .mo-sheet-back) .mo-slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(88px, 100%), 1fr)); gap: 8px; }
 :is(.mo, .mo-sheet-back) .mo-slot { min-height: 48px; border-radius: var(--r-md, 8px); border: 1px solid var(--c-border, #e5e7eb); background: var(--c-surface, #fff); color: inherit; }
 :is(.mo, .mo-sheet-back) .mo-slot.is-on { background: var(--c-primary, #630812); color: #fff; border-color: transparent; }
 :is(.mo, .mo-sheet-back) .mo-slot[disabled] { opacity: .4; text-decoration: line-through; cursor: not-allowed; }
@@ -77,20 +85,22 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-steps { display: flex; gap: 6px; margin: 16px 0; }
 :is(.mo, .mo-sheet-back) .mo-step { flex: 1; height: 6px; border-radius: 3px; background: var(--c-border, #e5e7eb); }
 :is(.mo, .mo-sheet-back) .mo-step.is-on { background: var(--c-primary, #630812); }
-:is(.mo, .mo-sheet-back) .mo-locs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+:is(.mo, .mo-sheet-back) .mo-locs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 16px; }
 :is(.mo, .mo-sheet-back) .mo-loc { display: block; padding: 20px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); text-decoration: none; color: inherit; background: var(--c-surface, #fff); }
 @media (min-width: 700px) { .mo-sheet-back { align-items: center; } .mo-sheet { border-radius: 16px; } }
 @media (max-width: 900px) {
-  :is(.mo, .mo-sheet-back) .mo-layout { grid-template-columns: 1fr; }
+  :is(.mo, .mo-sheet-back) .mo-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  /* Tabs run edge to edge on a phone so it is obvious they scroll. */
+  :is(.mo, .mo-sheet-back) .mo-tabs { margin: 0 -16px; padding: 8px 16px; max-width: none; scroll-padding-inline: 16px; }
   :is(.mo, .mo-sheet-back) .mo-basket-col { display: none; }
   :is(.mo, .mo-sheet-back) .mo-bar { display: flex; position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 50; }
   :is(.mo, .mo-sheet-back) .mo-bar .mo-btn { width: 100%; justify-content: space-between; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
 }
 </style>
 
-<main class="mo" id="mo-root">
+<div class="mo" id="mo-root">
 <% if (view === 'pick') { %>
-  <h1>Order online</h1>
+  <% if (!it.orderHideTitle) { %><h1>Order online</h1><% } %>
   <p class="mo-muted" style="margin-bottom: 24px;">Choose where you'd like to collect from.</p>
   <div class="mo-locs">
     <% const pickVenues = it.orderVenues || [] %>
@@ -106,7 +116,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <% } else { %>
   <div id="mo-app"><p class="mo-muted">Loading&hellip;</p></div>
 <% } %>
-</main>
+</div>
 
 <% if (view !== 'pick') { %>
 <script type="application/json" id="mo-config"><%~ cfgJson %></script>
@@ -116,6 +126,13 @@ import { optionPriceText, priceLine, priceBasket, formatPence } from '/order-api
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const API = '/order-api'
 const root = document.getElementById('mo-app')
+// Scroll to the top of the ordering app, not the page: it may sit below
+// other blocks (a hero, some text) on the ordering page.
+function toAppTop(smooth) {
+  const box = document.getElementById('mo-root')
+  const y = box ? Math.max(0, box.getBoundingClientRect().top + window.scrollY - 8) : 0
+  window.scrollTo({ top: y, behavior: smooth ? 'smooth' : 'auto' })
+}
 
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
@@ -448,7 +465,7 @@ async function startOrdering() {
       state.error = e.message
       if (e.data && e.data.code === 'slot_unavailable') { state.when = null; loadSlots() }
       draw()
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      toAppTop(true)
     }
   }
 
@@ -469,7 +486,8 @@ async function startOrdering() {
   function draw() {
     let h = ''
     if (state.step === 'menu') {
-      h += '<h1>' + esc(venue.name) + '</h1><p class="mo-muted">Order for collection' + (venue.address_line1 ? ' · ' + esc(venue.address_line1) : '') + '</p>'
+      if (!CFG.hideTitle) h += '<h1>' + esc(venue.name) + '</h1>'
+      h += '<p class="mo-muted">Order for collection' + (venue.address_line1 ? ' · ' + esc(venue.address_line1) : '') + '</p>'
       if (ord.collection_instructions) h += '<p class="mo-muted">' + esc(ord.collection_instructions) + '</p>'
       if (ord.is_paused) h += '<div class="mo-banner">' + esc(ord.pause_message || 'We are not taking online orders right now. Please check back soon.') + '</div>'
       const q = quote()
@@ -517,7 +535,7 @@ async function startOrdering() {
   function goCheckout() {
     state.step = 'checkout'
     state.error = null
-    window.scrollTo({ top: 0 })
+    toAppTop(false)
     loadSlots()
   }
 

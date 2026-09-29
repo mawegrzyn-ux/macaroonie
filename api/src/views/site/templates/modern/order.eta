@@ -1,4 +1,6 @@
 <%~ include('../../shared/head', it) %>
 <%~ include('./partials/header', it) %>
+<main>
 <%~ include('../../shared/ordering', it) %>
+</main>
 <%~ include('./partials/footer', it) %>
