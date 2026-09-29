@@ -30,6 +30,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { periodStartFor } from '../utils/checklistPeriod.js'
+import { hsClosedDates } from '../services/openDays.js'
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -272,7 +273,10 @@ export default async function checklistsRoutes(app) {
   // ── Today / due dashboard ─────────────────────────────────
   // Every active template for the venue, each with the instance (if any)
   // covering the period that `date` falls in — the operator-facing
-  // equivalent of a daily/weekly/monthly to-do rollup.
+  // equivalent of a daily/weekly/monthly to-do rollup. When the tenant
+  // follows opening days (hs_settings) and the venue is closed on `date`,
+  // daily templates come back with not_required: true; weekly and monthly
+  // ones are still due, since their period includes open days.
 
   app.get('/due', {
     preHandler: requirePermission('checklists', 'view'),
@@ -292,6 +296,7 @@ export default async function checklistsRoutes(app) {
            AND t.is_active  = true
          ORDER BY t.sort_order, t.name
       `
+      const closed = (await hsClosedDates(tx, req.tenantId, venue_id, [date])).has(date)
 
       return Promise.all(templates.map(async t => {
         const periodStart = periodStartFor(t.frequency, date)
@@ -308,6 +313,7 @@ export default async function checklistsRoutes(app) {
           template: t,
           period_start: periodStart,
           instance: instance ?? null,
+          not_required: closed && t.frequency === 'daily',
         }
       }))
     })

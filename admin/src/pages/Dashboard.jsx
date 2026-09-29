@@ -235,6 +235,7 @@ const HS_STATUS_STYLES = {
   red:      { dot: 'bg-red-500',     badge: 'bg-red-100 text-red-700',       label: 'Needs action' },
   grey:     { dot: 'bg-gray-300',    badge: 'bg-gray-100 text-gray-500',     label: 'Nothing configured' },
   upcoming: { dot: 'bg-gray-100 border border-dashed border-gray-300', badge: 'bg-gray-50 text-gray-400', label: 'Upcoming' },
+  closed:   { dot: 'bg-slate-400',   badge: 'bg-slate-100 text-slate-500',   label: 'Closed' },
 }
 
 function mondayOfWeek(dateStr) {
@@ -437,13 +438,18 @@ function HsTodayStatusBody({ api }) {
           return (
             <div key={v.venue_id} className="space-y-1">
               {multiVenue && (
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">{v.venue_name}</p>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">
+                  {v.venue_name}{v.closed ? ' · Closed' : ''}
+                </p>
+              )}
+              {!multiVenue && v.closed && (
+                <p className="text-xs text-muted-foreground">Closed today: daily checks aren't needed.</p>
               )}
               {checklists.map(c => (
-                <div key={c.id} className="flex items-center gap-2 text-sm">
+                <div key={c.id} className={cn('flex items-center gap-2 text-sm', c.not_required && !c.completed && 'opacity-60')}>
                   <span className={cn('w-2 h-2 rounded-full shrink-0', c.completed ? 'bg-emerald-500' : 'bg-gray-300')} />
                   <span className="flex-1 min-w-0 truncate">{c.name}</span>
-                  <span className="text-xs text-muted-foreground shrink-0">{c.completed ? 'Done' : 'Not done'}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{c.completed ? 'Done' : c.not_required ? 'Not needed' : 'Not done'}</span>
                 </div>
               ))}
               {categories.map(cat => {

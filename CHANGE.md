@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-28 — H&S checks follow opening days]
+
+**Migration 124.**
+
+- New **H&S settings** button on Food safety, Checklists and the H&S Dashboard (owners and admins) with one switch for all venues: **Follow restaurant opening days**.
+- When it's on, on a day a venue is closed (from its booking schedule, including closures and special dates):
+  - daily checklists aren't needed and move to a greyed "Not needed today (closed)" group (you can still tick them);
+  - fridge, hot/cold holding and cooking checks aren't expected, and the pages show a "Closed on this day" banner;
+  - the Overview H&S tiles show the day as Closed instead of red.
+- Weekly and monthly checklists are still due. An out-of-range reading recorded on a closed day still shows as needing action. A venue with no booking schedule counts as open every day.
+
+---
+
 ## [2026-09-28 — Legacy import: Monthly Health & Safety Audit]
 
 - The legacy spreadsheet import now also brings in the **Monthly Audit** sheet (the monthly Health & Safety audit: 31 questions across cleaning, storage and cross-contamination). Create a monthly checklist with the audit's questions first; the import fills in every past month, who completed it, and any notes per question. Questions are matched by their number (1.1.0 to 3.2.6), so the task wording can be tidied up.

@@ -1,8 +1,9 @@
 // src/services/openDays.js
 //
 // Which dates a venue is open, from its booking schedule. Shared by Cash
-// Recon (closed days in the week grid / day tiles) and the Rota (hide
-// closed days on the rota and printouts), so both agree on "closed".
+// Recon (closed days in the week grid / day tiles), the Rota (hide closed
+// days on the rota and printouts) and H&S (checks not expected on closed
+// days, when the tenant follows opening days), so all agree on "closed".
 
 /**
  * Determine which dates in `dates` the venue is actually open, applying the
@@ -90,4 +91,37 @@ export async function resolveOpenDaysForWeek(tx, tenantId, venueId, dates) {
   }
 
   return openDates
+}
+
+/**
+ * Like resolveOpenDaysForWeek(), but returns null when the venue has no
+ * weekly schedule at all: an unscheduled venue is treated as open every
+ * day rather than closed every day. `dates` must be consecutive.
+ */
+export async function openDatesOrNull(tx, tenantId, venueId, dates) {
+  const [{ n }] = await tx`
+    SELECT count(*)::int AS n FROM venue_schedule_templates
+     WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}
+  `
+  return n > 0 ? resolveOpenDaysForWeek(tx, tenantId, venueId, dates) : null
+}
+
+/** Whether the tenant's H&S checks follow venue opening days (tenants.hs_follow_opening_days). */
+export async function hsFollowsOpeningDays(tx, tenantId) {
+  const [t] = await tx`SELECT hs_follow_opening_days FROM tenants WHERE id = ${tenantId}`
+  return !!t?.hs_follow_opening_days
+}
+
+/**
+ * The dates in `dates` on which H&S checks are not required for the venue:
+ * the tenant follows opening days and the venue is closed. Empty when the
+ * setting is off or the venue has no schedule. Pass `follows` when the
+ * caller has already read the setting (saves a query per venue).
+ */
+export async function hsClosedDates(tx, tenantId, venueId, dates, follows) {
+  if (!(follows ?? await hsFollowsOpeningDays(tx, tenantId))) return new Set()
+  const open = await openDatesOrNull(tx, tenantId, venueId, dates)
+  if (!open) return new Set()
+  const openSet = new Set(open)
+  return new Set(dates.filter(d => !openSet.has(d)))
 }
