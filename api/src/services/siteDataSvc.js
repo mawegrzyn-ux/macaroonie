@@ -352,6 +352,7 @@ async function buildLiveTenantBundle(ts, { includeUnpublished, isStaging }) {
   }
 
   return {
+    tenant_id:   ts.tenant_id,
     tenant_site: ts,
     config,
     brand:       ts,            // alias: emergency banner reads `it.brand`
@@ -433,6 +434,7 @@ async function buildPublishedTenantBundle(ts) {
   }
 
   return {
+    tenant_id:   ts.tenant_id,
     tenant_site: tenantSiteFrozen,
     config,
     brand:       tenantSiteFrozen,

@@ -1,0 +1,64 @@
+<%
+/* ── promo_cta block (migration 131) ──────────────────────────────────
+ *
+ * Advertises one online-ordering promotion with a button to the ordering
+ * page that has the offer ready (?promo=CODE / ?offer=<id>). The card
+ * comes from it.site_promotions (siteRenderer.js sitePromotions()), which
+ * only holds promotions running today, so the block disappears by itself
+ * when its promotion is switched off, ends or is used up.
+ *
+ * Data: promo_id, heading, text, show_code, show_terms, button_text,
+ *       button_link (blank = automatic), style ('banner' | 'card'),
+ *       bg / fg (theme role names), container, boxed_step.
+ * The admin canvas preview (canvas/dataBlocks.jsx PromoCtaCanvas) mirrors
+ * this markup; keep the two in step.
+ */
+const d = it.block.data || {}
+const _p = (it.site_promotions || {})[d.promo_id] || null
+const _ROLE = { primary: '--c-primary', accent: '--c-accent', background: '--c-bg', surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border' }
+const _col = function (v, dflt) {
+  if (v && /^#[0-9a-fA-F]{6}$/.test(v)) return v
+  return _ROLE[v] ? 'var(' + _ROLE[v] + ')' : dflt
+}
+const _lightBg = d.bg === 'background' || d.bg === 'surface' || d.bg === 'border'
+const _bg = _col(d.bg || 'primary', 'var(--c-primary)')
+const _fg = _col(d.fg, _lightBg ? 'var(--c-text)' : '#fff')
+const _isCard = d.style === 'card'
+const _innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '1100px' : '780px'
+const _pad = d.boxed_step ? ('var(--boxed-step-' + Number(d.boxed_step) + ')') : 'var(--boxed-pad, 24px)'
+const _wrap = d.container === 'full'
+  ? 'width:100%; padding:0 ' + _pad + ';'
+  : 'max-width:' + _innerMax + '; margin:0 auto; padding:0 ' + _pad + ';'
+const _heading = _p ? (String(d.heading || '').trim() || _p.name) : ''
+const _text = _p ? (String(d.text || '').trim() || _p.description || _p.summary) : ''
+const _showCode = _p && _p.code && d.show_code !== false
+const _terms = _p && d.show_terms !== false ? _p.terms : ''
+const _btnText = String(d.button_text || '').trim() || 'Order now'
+const _link = _p ? (String(d.button_link || '').trim() || _p.link) : '#'
+const _eyebrow = _p ? (_p.badge_text || 'Offer') : ''
+const _boxStyle = _isCard
+  ? 'background:' + _bg + '; color:' + _fg + '; border:2px dashed ' + _fg + '; outline:8px solid ' + _bg + '; border-radius:var(--r-lg, 12px); padding:32px 24px;'
+  : 'background:' + _bg + '; color:' + _fg + '; padding:40px 24px;'
+%>
+<% if (_p) { %>
+<section class="block block-promo-cta" style="padding:<%= _isCard ? '40px 0' : '0' %>;">
+  <div style="<%= _isCard ? _wrap : '' %>">
+    <div style="<%~ _boxStyle %> text-align:center;">
+      <div style="<%= _isCard ? '' : _wrap %>">
+        <div style="font-size:.8rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; opacity:.85; margin-bottom:8px;"><%= _eyebrow %></div>
+        <h2 style="font-family:var(--f-heading); font-size:clamp(1.6rem, 4vw, 2.4rem); margin:0 0 10px; color:inherit;"><%= _heading %></h2>
+        <% if (_text) { %><p style="font-size:1.1rem; margin:0 0 16px; opacity:.95;"><%= _text %></p><% } %>
+        <% if (_showCode) { %>
+          <div style="display:inline-block; margin:0 0 18px; padding:8px 18px; border:2px dashed currentColor; border-radius:999px; font-weight:700; letter-spacing:.08em;">
+            Use code <span style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;"><%= _p.code %></span>
+          </div>
+        <% } %>
+        <div>
+          <a href="<%= _link %>" style="display:inline-block; min-height:48px; line-height:48px; padding:0 32px; border-radius:var(--btn-radius, 999px); background:<%~ _fg %>; color:<%~ _bg %>; font-weight:700; text-decoration:none;"><%= _btnText %></a>
+        </div>
+        <% if (_terms) { %><p style="font-size:.85rem; opacity:.8; margin:16px 0 0;"><%= _terms %></p><% } %>
+      </div>
+    </div>
+  </div>
+</section>
+<% } %>

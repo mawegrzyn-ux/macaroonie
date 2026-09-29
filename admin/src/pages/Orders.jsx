@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ShoppingBag, ChevronLeft, ChevronRight, Settings2, Ban, Loader2 } from 'lucide-react'
+import { ShoppingBag, ChevronLeft, ChevronRight, Settings2, Ban, Loader2, BadgePercent } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { OrderBoard, AvailabilityModal, PauseButton, useOrders, money, todayIn } from '@/components/orders/shared'
@@ -57,6 +57,9 @@ export default function Orders() {
             )}
             <Link to="/orders/settings" className="inline-flex items-center gap-1.5 border rounded-md px-3 min-h-[44px] text-sm touch-manipulation">
               <Settings2 className="w-4 h-4" /> Setup
+            </Link>
+            <Link to="/promotions" className="inline-flex items-center gap-1.5 border rounded-md px-3 min-h-[44px] text-sm touch-manipulation">
+              <BadgePercent className="w-4 h-4" /> Promotions
             </Link>
           </div>
         </div>
@@ -137,12 +140,13 @@ function OrdersReport({ venueId, today }) {
       {q.error && <p className="text-sm text-destructive">{q.error.message}</p>}
       {r && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
             {[
               ['Orders', r.totals.orders],
               ['Sales', money(r.totals.total_pence)],
               ['Average order', money(r.totals.average_pence)],
               ['Tips', money(r.totals.tip_pence)],
+              ...(r.totals.discount_pence ? [['Discounts', money(r.totals.discount_pence)]] : []),
               ['Refunded', money(r.totals.refunded_pence)],
               ...(r.totals.platform_fee_pence ? [['Platform fee', money(r.totals.platform_fee_pence)]] : []),
             ].map(([l, v]) => (
@@ -152,7 +156,7 @@ function OrdersReport({ venueId, today }) {
               </div>
             ))}
           </div>
-          <p className="text-xs text-muted-foreground">Sales count placed, accepted, ready and collected orders (tips included); rejected, cancelled and unpaid orders are left out. VAT included in sales: {money(r.totals.vat_pence)}.</p>
+          <p className="text-xs text-muted-foreground">Sales count placed, accepted, ready and collected orders (tips included, discounts taken off); rejected, cancelled and unpaid orders are left out. VAT included in sales: {money(r.totals.vat_pence)}.</p>
 
           <div className="grid md:grid-cols-2 gap-5">
             <div className="rounded-lg border p-4">
@@ -183,6 +187,17 @@ function OrdersReport({ venueId, today }) {
                   <span>{i.qty} x {i.name}</span><span>{money(i.total_pence)}</span>
                 </div>
               ))}
+              {r.promotions?.length > 0 && (
+                <>
+                  <h3 className="font-semibold mt-5 mb-3 text-sm">Promotions</h3>
+                  {r.promotions.map(p => (
+                    <div key={p.name} className="flex justify-between text-sm py-1 border-b last:border-0">
+                      <span>{p.name} <span className="text-muted-foreground">({p.orders} {p.orders === 1 ? 'order' : 'orders'})</span></span>
+                      <span>-{money(p.discount_pence)}</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           </div>
         </>

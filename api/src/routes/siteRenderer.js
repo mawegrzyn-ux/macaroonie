@@ -22,7 +22,10 @@
 //   GET /widget/tenant/:tenantId   — tenant widget (location picker step 0)
 
 import { loadTenantBundle, loadLocationBundle, soleVenueOf } from '../services/siteDataSvc.js'
-import { sql }            from '../config/db.js'
+import { sql, withTenant } from '../config/db.js'
+import { listPromotions } from '../services/promoSvc.js'
+import { promoSummary, promoTerms, promoLink, promoRunning, venueNow } from '../../../shared/promotions.js'
+import { formatPence } from '../../../shared/orderPricing.js'
 import { env }            from '../config/env.js'
 import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
 
@@ -179,6 +182,35 @@ export default async function siteRendererRoutes(app) {
     return bundle.venues.filter(v => on.has(v.id))
   }
 
+  // Promotions running today (switched on, within their dates, not used
+  // up), for the Promo block (blocks/promo_cta.eta): { [id]: card }. Live
+  // data, not part of the published snapshot, so a block hides itself as
+  // soon as its promotion ends. A code promotion's code is on the card
+  // because putting it in a Promo block is how an operator publishes it.
+  const sitePromotions = async bundle => {
+    if (!bundle.tenant_id) return {}
+    const rows = await withTenant(bundle.tenant_id, tx => listPromotions(tx))
+    if (!rows.length) return {}
+    const first = (bundle.venues || [])[0] || {}
+    const today = venueNow(first.timezone || 'Europe/London').date
+    const money = p => formatPence(p, first.currency || 'GBP')
+    const ordering = bundle.ordering_venues || []
+    const out = {}
+    for (const p of rows) {
+      if (!promoRunning(p, today)) continue
+      // An offer for one venue links to that venue's ordering page when
+      // guests would otherwise have to pick a location first.
+      const only = p.venue_ids?.length === 1 && ordering.length > 1 ? ordering.find(v => v.id === p.venue_ids[0]) : null
+      out[p.id] = {
+        id: p.id, name: p.name, description: p.description, badge_text: p.badge_text,
+        apply_mode: p.apply_mode, code: p.apply_mode === 'code' ? p.code : null,
+        summary: promoSummary(p, money), terms: promoTerms(p, money),
+        link: promoLink(p, only ? '/locations/' + only.slug + '/order' : '/order'),
+      }
+    }
+    return out
+  }
+
   const loadOrRender404 = async (req, reply) => {
     if (!req.siteHost) return null
     const bundle = await loadTenantBundle(req.siteHost)
@@ -189,6 +221,7 @@ export default async function siteRendererRoutes(app) {
     // Venues taking online orders, for the Online ordering block
     // (blocks/online_ordering.eta), which can sit on any page.
     bundle.ordering_venues = await orderingVenues(bundle)
+    bundle.site_promotions = await sitePromotions(bundle)
     return bundle
   }
 

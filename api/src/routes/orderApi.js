@@ -6,6 +6,8 @@
 // open so the ordering page works on custom domains too.
 //
 //   GET  /pricing.js                                shared/orderPricing.js for the ordering page
+//   GET  /promotions.js, /menuSchedule.js           the shared files pricing.js imports
+//   POST /venues/:venueId/promo-code                check a promo code (migration 131)
 //   GET  /venues/:venueId                           menu, settings, dates, payment methods
 //   GET  /venues/:venueId/slots?date=YYYY-MM-DD     collection times for a day
 //   POST /venues/:venueId/quote                     price a basket (display only)
@@ -29,9 +31,13 @@ import {
   createOrder, startPayment, applyPaymentResult, loadPublicOrderByToken, publicOrder, localParts,
 } from '../services/orderSvc.js'
 import { priceBasket } from '../../../shared/orderPricing.js'
+import { venuePromotions, publicPromotion, findByCode } from '../services/promoSvc.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const PRICING_JS = readFileSync(path.join(__dirname, '../../../shared/orderPricing.js'), 'utf8')
+// shared/orderPricing.js imports ./promotions.js, which imports
+// ./menuSchedule.js: all three are served side by side under /order-api.
+const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule'].map(n =>
+  [n, readFileSync(path.join(__dirname, '../../../shared/' + n + '.js'), 'utf8')]))
 
 const uuid = z.string().uuid()
 
@@ -42,9 +48,16 @@ const LineBody = z.object({
   note:    z.string().max(300).nullable().optional(),
 })
 
+// Promotions the guest asked for: codes typed, manual offers tapped.
+const PromoFields = {
+  promo_codes: z.array(z.string().trim().min(1).max(40)).max(5).default([]),
+  promo_ids:   z.array(uuid).max(20).default([]),
+}
+
 const QuoteBody = z.object({
   lines:       z.array(LineBody).max(100),
   tip_percent: z.number().int().min(0).max(50).default(0),
+  ...PromoFields,
 })
 
 const OrderBody = z.object({
@@ -63,6 +76,7 @@ const OrderBody = z.object({
   marketing_opt_in: z.boolean().default(false),
   tip_percent:      z.number().int().min(0).max(50).default(0),
   payment_method:   z.string().min(1).max(40),
+  ...PromoFields,
 })
 
 async function resolveVenue(venueId) {
@@ -88,8 +102,8 @@ async function requireOrderingVenue(venueId) {
 }
 
 function publicStatus(res, venue) {
-  const { order, items } = res
-  return publicOrder(order, items, venue)
+  const { order, items, promotions } = res
+  return publicOrder(order, items, venue, promotions)
 }
 
 export default async function orderApiRoutes(app) {
@@ -101,17 +115,22 @@ export default async function orderApiRoutes(app) {
   })
   app.options('/*', async (req, reply) => reply.code(204).send())
 
-  app.get('/pricing.js', async (req, reply) => {
+  const serveJs = name => async (req, reply) => {
     reply.header('Cache-Control', 'public, max-age=300')
     reply.type('application/javascript; charset=utf-8')
-    return PRICING_JS
-  })
+    return SHARED_JS[name]
+  }
+  app.get('/pricing.js', serveJs('orderPricing'))
+  app.get('/promotions.js', serveJs('promotions'))
+  app.get('/menuSchedule.js', serveJs('menuSchedule'))
 
   app.get('/venues/:venueId', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
-    const [menu, privacy] = await withTenant(venue.tenant_id, async tx => [
+    const today = localParts(new Date(), venue.timezone).date
+    const [menu, privacy, promos] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings, { dates: orderingDates(venue, settings), now: new Date() }),
       await loadPrivacy(tx, venue.tenant_id),
+      await venuePromotions(tx, venue.id, today),
     ])
     const gateways = checkoutGateways(settings, { venue })
     return {
@@ -134,7 +153,23 @@ export default async function orderApiRoutes(app) {
       menus: menu.menus.map(m => ({ ...m, sections: m.sections.map(s => ({ ...s, items: s.items.map(publicItem) })) })),
       dietary_tags: menu.dietary_tags,
       privacy,
+      // Automatic and tap-to-apply offers; a code offer only reaches the
+      // guest through /promo-code, once they have typed its code.
+      promotions: promos.filter(p => p.apply_mode !== 'code').map(p => publicPromotion(p)),
+      has_promo_codes: promos.some(p => p.apply_mode === 'code'),
     }
+  })
+
+  // A promo code typed at the basket: the offer it opens, so the page can
+  // show the discount (the server applies it again when the order is placed).
+  app.post('/venues/:venueId/promo-code', async (req) => {
+    const { venue } = await requireOrderingVenue(req.params.venueId)
+    const { code } = z.object({ code: z.string().trim().min(1).max(40) }).parse(req.body || {})
+    const today = localParts(new Date(), venue.timezone).date
+    const promos = await withTenant(venue.tenant_id, tx => venuePromotions(tx, venue.id, today))
+    const p = findByCode(promos, code)
+    if (!p) throw httpError(404, "That code isn't valid")
+    return { promotion: publicPromotion(p, { withCode: true }) }
   })
 
   app.get('/venues/:venueId/slots', async (req) => {
@@ -157,9 +192,16 @@ export default async function orderApiRoutes(app) {
   app.post('/venues/:venueId/quote', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const body = QuoteBody.parse(req.body)
-    const { itemsById } = await withTenant(venue.tenant_id, tx => loadOrderingMenu(tx, venue, settings))
+    const at = localParts(new Date(), venue.timezone)
+    const [{ itemsById }, promos] = await withTenant(venue.tenant_id, async tx => [
+      await loadOrderingMenu(tx, venue, settings),
+      await venuePromotions(tx, venue.id, at.date),
+    ])
     const tip = settings.tips_enabled && settings.tip_percents.includes(body.tip_percent) ? body.tip_percent : 0
-    const q = priceBasket(itemsById, body.lines, { tipPercent: tip })
+    const unlocked = body.promo_codes.map(c => findByCode(promos, c)?.id).filter(Boolean)
+    const q = priceBasket(itemsById, body.lines, {
+      tipPercent: tip, promos, promoCtx: { at, venueId: venue.id, unlocked, chosen: body.promo_ids },
+    })
     return { ...q, min_order_pence: settings.min_order_pence }
   })
 

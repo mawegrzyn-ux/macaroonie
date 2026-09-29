@@ -2645,7 +2645,58 @@ export default function Help() {
               ready, and if it is cancelled. Each email links to their order page, which updates by
               itself. An unpaid online order is released after 30 minutes. The{' '}
               <strong>Report</strong> tab shows orders, sales, average order, tips, refunds, money
-              taken by payment method and your top dishes.
+              taken by payment method, your top dishes, discounts given and how often each promotion was used.
+            </P>
+            <H3>Promotions</H3>
+            <P>
+              Discounts for online ordering live in <strong>Online orders → Promotions</strong>.
+              Tap <strong>New promotion</strong>, fill it in and press Save. Each one can be switched
+              on and off from the list, copied, or deleted (tap the bin, then Yes, delete; orders
+              that used it keep their discount).
+            </P>
+            <DataTable
+              head={['Setting', 'What it does']}
+              rows={[
+                ['Name, description', "What guests see in the basket, on the order page and on their receipt email."],
+                ['Order discount', "A % or an amount off the whole order."],
+                ['Dish discount', "A % or an amount off each of the dishes you pick (tick single dishes, or Whole section so dishes added to that section later count too). Every dish covers the whole menu."],
+                ['Buy X get Y', "For every X + Y of the chosen dishes, the Y cheapest are free (or a % off). Buy 1 get 1 free, 3 for 2 (buy 2 get 1), half-price second dish."],
+                ['Dish label', "A small badge (for example 2 FOR 1) on the dishes a dish or Buy X get Y offer covers."],
+                ['Most it can take off', "A cap on the discount, for example 20% off up to £10."],
+                ['Minimum spend', "The basket (before any discount) must reach this. Guests who are close see 'Spend £x more to get ...'."],
+                ['Needs one of these dishes', "Only applies when at least one of these dishes is in the basket."],
+                ['Automatic', "Taken off as soon as the basket qualifies."],
+                ['Tap to apply', "Shown in the basket with the saving and an Apply button; the guest chooses it."],
+                ['Promo code', "Only applies when the guest types the code (any capitals). Generate makes a random one. Codes are never shown on your site unless you put them in a Promo block."],
+                ['Number of uses', "How many orders can use it in total. Cancelled, rejected and unpaid-then-expired orders give their use back. The list shows uses so far and the total discount given."],
+                ['Dates and times', "When it runs, the same way as menu times: From / Until dates and days with hours (happy hour, lunch deal). Checked when the guest places the order."],
+                ['Venues', "All venues, or only the ones you pick."],
+                ["Can't be combined", "It only applies if no promotion above it in the list already has, and then nothing below it applies."],
+              ]}
+            />
+            <P>
+              <strong>The order of the list is the priority</strong>: drag a promotion up or down by its
+              grip. The top one is taken off first and each one after it takes its discount off what is
+              left, so 10% off then £5 off a £30 order is £3 then £5. Put an exclusive offer higher
+              than the ones it should beat.
+            </P>
+            <P>
+              In the basket guests see each discount on its own line, offers they can tap to apply,
+              hints such as &quot;Add 1 more to get Rice 2 for 1&quot;, and a <strong>Have a promo
+              code?</strong> link when any code promotion is running. A promotion that runs out or ends
+              while a guest is checking out is taken off with a message before the order is placed.
+              Staff see the discounts on the order, the printed ticket and the Report.
+            </P>
+            <H3>Promo block on your website</H3>
+            <P>
+              In the page builder, add a <strong>Promo</strong> block and pick a promotion. It shows
+              the name, what it takes off, the small print (minimum spend, times, dates) and an{' '}
+              <strong>Order now</strong> button that opens the ordering page with the offer ready: a
+              code is applied for the guest, a tap-to-apply offer is already chosen. You can change the
+              heading, text, button, style (Banner or Voucher card) and colours. The block disappears by
+              itself when the promotion is switched off, ends or is used up. Putting a code promotion in
+              a Promo block publishes its code. You can also share a link yourself:{' '}
+              <Mono>/order?promo=YOURCODE</Mono>.
             </P>
           </section>
 

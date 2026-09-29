@@ -26,7 +26,7 @@ import {
   Image as ImageIcon, Type, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
-  ShoppingBag, BookOpen as MenuIcon, ExternalLink,
+  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -40,6 +40,7 @@ import { FaqEditor }           from './editors/FaqEditor'
 import { ColumnsEditor }       from './editors/ColumnsEditor'
 import { GuestplanWidgetEditor } from './editors/GuestplanWidgetEditor'
 import { OnlineOrderingEditor } from './editors/OnlineOrderingEditor'
+import { PromoCtaEditor } from './editors/PromoCtaEditor'
 import {
   HeaderBlockEditor, FooterBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
@@ -464,6 +465,19 @@ export const BLOCKS = [
       item_notes: true,
     },
     editor:      OnlineOrderingEditor,
+  },
+  {
+    key:         'promo_cta',
+    label:       'Promo',
+    description: 'Advertises one online-ordering promotion with a button to the ordering page that has the offer ready. Hides itself when the promotion is off, ended or used up.',
+    icon:        BadgePercent,
+    category:    'data',
+    defaultData: {
+      promo_id: null, heading: '', text: '', show_code: true, show_terms: true,
+      button_text: '', button_link: '', style: 'banner', bg: 'primary', fg: '',
+      container: 'boxed',
+    },
+    editor:      PromoCtaEditor,
   },
   {
     key:         'guestplan_widget',

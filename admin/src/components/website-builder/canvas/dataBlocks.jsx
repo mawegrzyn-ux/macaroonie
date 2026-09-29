@@ -13,7 +13,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
-import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag } from 'lucide-react'
+import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent } from 'lucide-react'
+import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
 
@@ -655,6 +656,77 @@ export function OnlineOrderingCanvas({ data, onChange }) {
         <EmptyPanel Icon={ShoppingBag} title="Online ordering"
           hint={'Menu, basket and checkout' + (venue ? ' for ' + venue.name : ', venue chosen automatically') + orderingOptionsSummary(data)}
           where="Try it on the live site at /order" />
+      </div>
+    </section>
+  )
+}
+
+// ── Promo (migration 131) ────────────────────────────────
+// Mirrors blocks/promo_cta.eta. The live site hides the block while the
+// promotion isn't running; here it stays visible with a note.
+
+const PROMO_ROLE = { primary: '--c-primary', accent: '--c-accent', background: '--c-bg', surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border' }
+const promoColour = (v, dflt) => (v && /^#[0-9a-fA-F]{6}$/.test(v) ? v : PROMO_ROLE[v] ? `var(${PROMO_ROLE[v]})` : dflt)
+
+function localToday() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function PromoCtaCanvas({ data, onChange }) {
+  const api = useApi()
+  const { data: promos, isLoading } = useQuery({ queryKey: ['promotions'], queryFn: () => api.get('/promotions'), staleTime: 30_000, retry: false })
+  const p = (promos || []).find(x => x.id === data.promo_id)
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+  if (!p) {
+    return (
+      <section className="block" style={{ padding: '32px 0' }}>
+        <EmptyPanel Icon={isLoading && data.promo_id ? Loader2 : BadgePercent} title="Promo"
+          hint={data.promo_id && !isLoading ? 'This promotion no longer exists. Choose another in the block settings.' : 'Choose a promotion in the block settings.'} />
+      </section>
+    )
+  }
+  const lightBg = ['background', 'surface', 'border'].includes(data.bg)
+  const bg = promoColour(data.bg || 'primary', 'var(--c-primary)')
+  const fg = promoColour(data.fg, lightBg ? 'var(--c-text)' : '#fff')
+  const card = data.style === 'card'
+  const wrap = { ...innerContainerStyle(data.container, data.boxed_step), maxWidth: data.container === 'full' ? 'none' : (data.container === 'wide' ? 1100 : 780) }
+  const text = (data.text || '').trim() || p.description || promoSummary(p)
+  const terms = data.show_terms !== false ? promoTerms(p) : ''
+  const running = promoRunning(p, localToday())
+  const box = card
+    ? { background: bg, color: fg, border: `2px dashed ${fg}`, outline: `8px solid ${bg}`, borderRadius: 'var(--r-lg, 12px)', padding: '32px 24px' }
+    : { background: bg, color: fg, padding: '40px 24px' }
+  const inner = (
+    <>
+      <div style={{ fontSize: '.8rem', fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', opacity: 0.85, marginBottom: 8 }}>{p.badge_text || 'Offer'}</div>
+      <InlineText as="h2" value={data.heading} onChange={set('heading')} placeholder={p.name}
+        style={{ fontFamily: 'var(--f-heading)', fontSize: 'clamp(1.6rem, 4vw, 2.4rem)', margin: '0 0 10px', color: 'inherit' }} />
+      {text && <p style={{ fontSize: '1.1rem', margin: '0 0 16px', opacity: 0.95 }}>{text}</p>}
+      {p.apply_mode === 'code' && p.code && data.show_code !== false && (
+        <div style={{ display: 'inline-block', margin: '0 0 18px', padding: '8px 18px', border: '2px dashed currentColor', borderRadius: 999, fontWeight: 700, letterSpacing: '.08em' }}>
+          Use code <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' }}>{p.code}</span>
+        </div>
+      )}
+      <div>
+        <span title={(data.button_link || '').trim() || promoLink(p)} style={{ display: 'inline-block', minHeight: 48, lineHeight: '48px', padding: '0 32px', borderRadius: 'var(--btn-radius, 999px)', background: fg, color: bg, fontWeight: 700 }}>
+          {(data.button_text || '').trim() || 'Order now'}
+        </span>
+      </div>
+      {terms && <p style={{ fontSize: '.85rem', opacity: 0.8, margin: '16px 0 0' }}>{terms}</p>}
+    </>
+  )
+  return (
+    <section className="block" style={{ padding: card ? '40px 0' : 0, position: 'relative' }}>
+      {!running && (
+        <div style={{ background: '#fef3c7', color: '#92400e', fontSize: 12, padding: '6px 12px', textAlign: 'center' }}>
+          Hidden on the live site: this promotion is switched off, outside its dates or used up.
+        </div>
+      )}
+      <div style={card ? wrap : undefined}>
+        <div style={{ ...box, textAlign: 'center' }}>
+          <div style={card ? undefined : wrap}>{inner}</div>
+        </div>
       </div>
     </section>
   )

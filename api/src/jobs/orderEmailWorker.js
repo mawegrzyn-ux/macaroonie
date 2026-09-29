@@ -24,7 +24,7 @@ function when(order, tz) {
   return { day, time }
 }
 
-function itemsTable(order, items) {
+function itemsTable(order, items, promotions = []) {
   const money = p => formatPence(p, order.currency)
   const rows = items.map(i => {
     const opts = (i.options || []).map(o => esc(o.label)).join(', ')
@@ -44,6 +44,7 @@ function itemsTable(order, items) {
     ${rows}
     <tr><td colspan="2" style="border-top:1px solid #e5e7eb;padding-top:8px;"></td></tr>
     <tr><td>Subtotal</td><td style="text-align:right;">${money(order.subtotal_pence)}</td></tr>
+    ${promotions.map(p => `<tr><td style="color:#047857;">${esc(p.name)}${p.code ? ` (${esc(p.code)})` : ''}</td><td style="color:#047857;text-align:right;">-${money(p.discount_pence)}</td></tr>`).join('')}
     ${order.tip_pence ? `<tr><td>Tip</td><td style="text-align:right;">${money(order.tip_pence)}</td></tr>` : ''}
     <tr><td style="font-weight:700;">Total</td><td style="text-align:right;font-weight:700;">${money(order.total_pence)}</td></tr>
     ${vatRows}
@@ -62,7 +63,7 @@ function layout({ venueName, heading, body, statusUrl }) {
   </div></body></html>`
 }
 
-function render(type, { order, items, venue, settings, statusUrl }) {
+function render(type, { order, items, promotions, venue, settings, statusUrl }) {
   const tz = venue.timezone
   const { day, time } = when(order, tz)
   const num = `#${order.order_number}`
@@ -74,7 +75,7 @@ function render(type, { order, items, venue, settings, statusUrl }) {
       <p>Thanks ${esc(order.guest_name)}, we have your order.</p>
       <p style="font-size:17px;"><strong>Collect ${order.is_asap ? 'from' : 'at'} ${time}</strong>, ${esc(day)}.</p>
       ${settings?.collection_instructions ? `<p style="color:#4b5563;">${esc(settings.collection_instructions)}</p>` : ''}
-      ${itemsTable(order, items)}
+      ${itemsTable(order, items, promotions)}
       ${payLine ? `<p style="color:#4b5563;">${payLine}</p>` : ''}
       ${order.allergy_note ? `<p style="color:#4b5563;">Allergy note: ${esc(order.allergy_note)}</p>` : ''}
       ${settings?.confirmation_note ? `<p style="color:#4b5563;">${esc(settings.confirmation_note)}</p>` : ''}`
@@ -105,17 +106,18 @@ export async function processOrderEmailJob({ data, log }) {
     const [order] = await tx`SELECT * FROM orders WHERE id = ${orderId}`
     if (!order) return null
     const items = await tx`SELECT * FROM order_items WHERE order_id = ${orderId} ORDER BY sort_order`
+    const promotions = await tx`SELECT name, code, discount_pence FROM order_promotions WHERE order_id = ${orderId} ORDER BY created_at, name`
     const [venue] = await tx`SELECT id, name, timezone FROM venues WHERE id = ${order.venue_id}`
     const [settings] = await tx`SELECT * FROM venue_email_settings WHERE venue_id = ${order.venue_id} AND tenant_id = ${tenantId}`
     const [ordering] = await tx`SELECT collection_instructions, confirmation_note FROM ordering_settings WHERE venue_id = ${order.venue_id}`
     const [site] = await tx`SELECT subdomain_slug, custom_domain, custom_domain_verified FROM tenant_site WHERE tenant_id = ${tenantId} LIMIT 1`
-    return { order, items, venue, settings, ordering, site }
+    return { order, items, promotions, venue, settings, ordering, site }
   })
   if (!ctx?.order?.guest_email) return { status: 'skipped' }
 
-  const { order, items, venue, settings, ordering, site } = ctx
+  const { order, items, promotions, venue, settings, ordering, site } = ctx
   const statusUrl = `${guestManageOrigin(site)}/order/status/${order.public_token}`
-  const { subject, html } = render(type, { order, items, venue, settings: ordering, statusUrl })
+  const { subject, html } = render(type, { order, items, promotions, venue, settings: ordering, statusUrl })
   const { provider, credentials } = emailCredentials(settings, env)
   const from = { name: settings?.from_name || venue.name || 'Macaroonie', email: settings?.from_email || env.EMAIL_FROM }
 

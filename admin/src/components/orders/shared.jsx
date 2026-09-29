@@ -176,6 +176,8 @@ export function printTicket(order, venue) {
     ${order.allergy_note ? `<div class="al">ALLERGY: ${esc(order.allergy_note)}</div>` : ''}
     ${order.notes ? `<div>Note: ${esc(order.notes)}</div>` : ''}
     <div style="margin-top:6px;">${lines}</div>
+    ${(order.promotions || []).map(p => `<div class="l"><div>${esc(p.name)}${p.code ? ' (' + esc(p.code) + ')' : ''}</div><div>-${money(p.discount_pence, order.currency)}</div></div>`).join('')}
+    ${order.tip_pence > 0 ? `<div class="l"><div>Tip</div><div>${money(order.tip_pence, order.currency)}</div></div>` : ''}
     <div class="t"><span>Total</span><span>${money(order.total_pence, order.currency)}</span></div>
     <div>${PAYMENT[order.payment_status] || ''}</div>
   </body></html>`
@@ -423,6 +425,11 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
               </div>
             ))}
             <div className="flex justify-between text-sm pt-2"><span>Subtotal</span><span>{money(o.subtotal_pence, o.currency)}</span></div>
+            {(o.promotions || []).map((p, n) => (
+              <div key={n}className="flex justify-between text-sm text-emerald-700">
+                <span>{p.name}{p.code ? ` (${p.code})` : ''}</span><span>-{money(p.discount_pence, o.currency)}</span>
+              </div>
+            ))}
             {o.tip_pence > 0 && <div className="flex justify-between text-sm"><span>Tip</span><span>{money(o.tip_pence, o.currency)}</span></div>}
             <div className="flex justify-between font-bold"><span>Total</span><span>{money(o.total_pence, o.currency)}</span></div>
             {Object.entries(vatByRate).map(([r, v]) => (
