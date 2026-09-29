@@ -9,6 +9,9 @@
 //
 //   <MediaLibraryModal open={...} onClose={...} mode="manager" />
 //
+//   <MediaLibraryModal open inline mode="manager" />   // the Media page:
+//     fills its container like a page (no backdrop, close, fullscreen or footer)
+//
 // Spec: see "Epic: Media Library" in the project notes.
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
@@ -31,6 +34,7 @@ export function MediaLibraryModal({
   scope: defaultScope = 'shared',
   onPick,
   multiPick = false,
+  inline = false,
 }) {
   const api = useApi()
   const qc  = useQueryClient()
@@ -62,11 +66,11 @@ export function MediaLibraryModal({
 
   // ESC closes
   useEffect(() => {
-    if (!open) return
+    if (!open || inline) return
     const onKey = (e) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  }, [open, inline, onClose])
 
   // Queries
   const { data: categories = [] } = useQuery({
@@ -254,11 +258,13 @@ export function MediaLibraryModal({
 
   if (!open) return null
 
-  const containerClass = fullscreen
-    ? 'fixed inset-0 bg-background flex flex-col z-50'
-    : 'fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4'
-  const panelClass = fullscreen
-    ? 'flex-1 flex flex-col overflow-hidden'
+  const containerClass = inline
+    ? 'h-full flex flex-col relative bg-background'
+    : fullscreen
+      ? 'fixed inset-0 bg-background flex flex-col z-50'
+      : 'fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4'
+  const panelClass = inline || fullscreen
+    ? 'flex-1 flex flex-col overflow-hidden relative'
     : 'bg-background rounded-xl shadow-2xl flex flex-col w-full max-w-[1400px] h-[85vh] overflow-hidden'
 
   return (
@@ -268,17 +274,20 @@ export function MediaLibraryModal({
     >
       <div className={panelClass} onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="h-14 px-5 border-b flex items-center justify-between shrink-0">
+        <div className={cn('h-14 px-5 border-b flex items-center justify-between shrink-0',
+          inline && 'max-lg:notouch:pl-14')}>
           <div className="flex items-center gap-2">
             <ImageIcon className="w-4 h-4 text-muted-foreground" />
-            <h2 className="font-semibold">Media library</h2>
+            {inline
+              ? <h1 className="font-semibold">Media library</h1>
+              : <h2 className="font-semibold">Media library</h2>}
             {defaultScope !== 'shared' && mode === 'picker' && (
               <span className="ml-3 text-xs rounded-full bg-muted px-2 py-0.5 text-muted-foreground">
                 Form: <span className="font-mono">{defaultScope}</span>
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1">
+          {!inline && <div className="flex items-center gap-1">
             <button onClick={() => setFullscreen(f => !f)} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
               className="p-2 rounded hover:bg-accent">
               {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -286,7 +295,7 @@ export function MediaLibraryModal({
             <button onClick={onClose} title="Close" className="p-2 rounded hover:bg-accent">
               <X className="w-4 h-4" />
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* Body */}
@@ -335,7 +344,7 @@ export function MediaLibraryModal({
                   <Upload className="w-4 h-4" /> Upload
                 </button>
                 <p className="text-[11px] text-muted-foreground mt-1.5">
-                  Or drag images onto the modal.
+                  Or drag images onto {inline ? 'this page' : 'the modal'}.
                 </p>
               </div>
             </div>
@@ -489,8 +498,8 @@ export function MediaLibraryModal({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="h-14 px-5 border-t flex items-center justify-end gap-2 shrink-0">
+        {/* Footer (the Media page has nothing to close or insert) */}
+        {!inline && <div className="h-14 px-5 border-t flex items-center justify-end gap-2 shrink-0">
           <button onClick={onClose} className="text-sm text-muted-foreground px-4 py-2">Close</button>
           {mode === 'picker' && (
             <button
@@ -500,7 +509,7 @@ export function MediaLibraryModal({
               Insert selected
             </button>
           )}
-        </div>
+        </div>}
 
         {/* Duplicate conflict dialog */}
         {duplicateConflict && (

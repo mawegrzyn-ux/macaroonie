@@ -14,6 +14,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Media as a page; boxed inset labels show phone values]
+
+- **Media** in the sidebar now opens as a normal page instead of a pop-up over the screen. Image pickers elsewhere still open it as a pop-up.
+- Website → Brand & theme → Layout: the default step and mobile override buttons now show each step's phone value (for example "8px mobile"), and the mobile override row shows only the phone value. The block inspector's Boxed inset buttons do the same. Before, they always showed the desktop value, so a saved mobile value looked missing.
+
+---
+
 ## [2026-09-29 — Technical docs page no longer blank]
 
 - The in-app technical documentation page (/docs) loads again. A code sample in the Overview tiles section was being run as code instead of shown as text, which crashed the whole page.

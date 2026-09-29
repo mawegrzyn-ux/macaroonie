@@ -30,6 +30,7 @@ const SECTIONS = [
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'menus',        label: 'Menus' },
   { id: 'website-cms',  label: 'Website CMS' },
+  { id: 'media-library', label: 'Media Library' },
   { id: 'services',     label: 'Services & Jobs' },
   { id: 'data-flows',   label: 'Data Flows' },
   { id: 'deployment',   label: 'Deployment' },
@@ -2677,7 +2678,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               every save silently dropped them (the Layout card saved, then reverted). The step
               value fields in <Mono>BrandLayoutFields.jsx</Mono> use <Mono>StepNumberInput</Mono>,
               which keeps the typed text while focused (same idea as the menu{' '}
-              <Mono>PriceInput</Mono>).
+              <Mono>PriceInput</Mono>). The step pickers under it (default step, mobile override,
+              and the block inspector's Boxed inset) show each step's phone value next to or
+              instead of its desktop value; the mobile override row shows only the phone value,
+              since that is the only place it applies.
             </P>
             <P>
               Every consumer resolves through 5 shared CSS variables (
@@ -2900,6 +2904,27 @@ GET /robots.txt`}</Code>
               <li>Migrations 025 + 026 are auto-applied by the deploy workflow — see the Deployment section below.</li>
               <li>Set <Mono>APP_PUBLIC_IPS=1.2.3.4,5.6.7.8</Mono> env var for the verify-domain endpoint to accept A-record matches.</li>
             </ul>
+          </section>
+
+          <section id="media-library" data-doc="">
+            <H2>Media Library</H2>
+            <P>
+              One component, <Mono>MediaLibraryModal</Mono> in{' '}
+              <Mono>components/media/MediaLibrary.jsx</Mono>, serves three uses. As a picker (
+              <Mono>mode="picker"</Mono>) it opens as a modal from any image field and returns{' '}
+              <Mono>(url, item)</Mono> through <Mono>onPick</Mono>. As a modal manager (
+              <Mono>mode="manager"</Mono>) it has no insert action. With <Mono>inline</Mono> it
+              fills its container as a page: no backdrop, no close or fullscreen buttons, no footer,
+              no Escape handler, and the header gets the <Mono>max-lg:notouch:pl-14</Mono> spacer.
+              The sidebar Media link (<Mono>pages/Media.jsx</Mono>, <Mono>/media</Mono>) renders{' '}
+              <Mono>{'<MediaLibraryModal open inline mode="manager" />'}</Mono>.
+            </P>
+            <P>
+              The duplicate-upload dialog is <Mono>absolute inset-0</Mono> inside the panel, so the
+              panel is <Mono>relative</Mono> in page and fullscreen modes. The image editor is its own{' '}
+              <Mono>fixed</Mono> overlay in every mode. API routes live in{' '}
+              <Mono>routes/media.js</Mono> (<Mono>/api/media</Mono>).
+            </P>
           </section>
 
           {/* ── SERVICES ──────────────────────────────────── */}

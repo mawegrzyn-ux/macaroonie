@@ -2063,6 +2063,13 @@ export default function Help() {
               next publish. The mobile value applies on phones held upright; turn the phone sideways
               and the normal value is used.
             </P>
+            <P>
+              The two rows of step buttons below show what each step means on phones. The default
+              step row shows a second line (for example &ldquo;8px mobile&rdquo;) when a step has a
+              mobile value. The mobile portrait override row shows only the phone value, because it
+              only applies on phones. If the override is set, it decides the phone padding for
+              blocks that use the default, not the default step.
+            </P>
             <InfoBox type="tip">
               A practical use: set step 1 to a fixed 20px for tight mobile margins, and set a
               different step to 5% so wide-screen margins scale with the page instead of staying
@@ -3055,7 +3062,8 @@ export default function Help() {
               </li>
               <li>
                 <strong>Manager</strong> — open <strong>Media</strong> from the sidebar to browse,
-                rename, recategorise, or bulk-delete without being mid-task.
+                rename, recategorise, or bulk-delete without being mid-task. It opens as a normal
+                page; use the sidebar to leave it.
               </li>
             </ol>
 

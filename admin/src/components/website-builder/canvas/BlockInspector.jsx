@@ -81,12 +81,16 @@ export function BlockInspector({ block, onChange, onClose, onJumpTo, boxedSteps 
                   {BOXED_STEPS.map(s => {
                     const cfg = steps[s.value - 1]
                     return (
-                      <button key={s.value} type="button" title={`${s.hint} — ${cfg.value}${cfg.unit}`}
+                      <button key={s.value} type="button"
+                        title={`${s.hint} — ${cfg.value}${cfg.unit}${cfg.mobile_value != null ? `, ${cfg.mobile_value}${cfg.mobile_unit || cfg.unit} on phones` : ''}`}
                         onClick={() => setBoxedStep(s.value)}
                         className={`text-xs border rounded-md py-2 min-h-[36px] leading-tight ${
                           Number(boxedStep) === s.value ? 'bg-primary/10 border-primary text-primary font-medium' : 'hover:bg-accent'}`}>
                         <span className="block">{s.label}</span>
                         <span className="block text-[9px] text-muted-foreground">{cfg.value}{cfg.unit}</span>
+                        {cfg.mobile_value != null && (
+                          <span className="block text-[9px] text-muted-foreground">{cfg.mobile_value}{cfg.mobile_unit || cfg.unit} mob</span>
+                        )}
                       </button>
                     )
                   })}
