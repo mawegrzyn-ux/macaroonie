@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering: basket title colour]
+
+- Fixed: with a basket text colour set on the Online ordering block, the "Your basket" title stayed in the brand colour (invisible on a brand-coloured basket). It now follows the basket text colour, on desktop and in the phone basket.
+
+---
+
 ## [2026-09-29 — Online ordering: promo box, tidier category bar]
 
 **Migration 134** (`promotions.show_in_box`, `box_bg`, `box_text`, `box_image_url`).
