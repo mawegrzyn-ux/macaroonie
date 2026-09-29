@@ -105,6 +105,21 @@ export function OnlineOrderingEditor({ data, onChange }) {
         )}
         <Check label="Search box" checked={data.show_search} onChange={set('show_search')}
           hint="Guests can search dishes by name or description across all menus." />
+        {data.show_search && (
+          <FormRow label="Show search as" hint="An icon saves space: a round magnifier at the start of the category bar that stays put while the categories scroll under it. Tapping it opens the search box.">
+            <div className="grid grid-cols-3 gap-1.5">
+              {[['bar', 'Full-width box'], ['icon_phone', 'Icon on phones'], ['icon', 'Icon everywhere']].map(([k, label]) => {
+                const on = (data.search_style || 'bar') === k
+                return (
+                  <button key={k} type="button" onClick={() => set('search_style')(k)}
+                    className={'text-sm border rounded-md px-2 py-2 min-h-[44px] touch-manipulation ' + (on ? 'bg-primary/10 border-primary text-primary font-medium' : 'hover:bg-accent')}>
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          </FormRow>
+        )}
         <Check label="Highlight house favourites" checked={data.highlight_favourites} onChange={set('highlight_favourites')}
           hint="Dishes ticked as House favourite on the Menus page get a badge and a coloured edge." />
         {data.highlight_favourites && (

@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering: search as an icon beside the categories]
+
+- The Online ordering block's search can now show as a round magnifier icon at the start of the category bar, on phones only or everywhere, instead of a full-width box. The icon stays put while the categories scroll under it; tapping it opens the search box, and the cross (or Escape) closes it.
+- Searching while scrolled down the menu now brings the results into view just under the bar (it could look empty before).
+
+---
+
 ## [2026-09-29 — Online ordering: dishes in the basket are marked on the menu]
 
 - On the ordering page, a dish that's already in the basket shows a small basket badge with how many are in it, and an outline in the site's main colour. It updates as dishes are added or removed.

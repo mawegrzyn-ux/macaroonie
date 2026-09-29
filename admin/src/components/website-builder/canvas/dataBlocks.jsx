@@ -631,7 +631,7 @@ function orderingOptionsSummary(d) {
   if (d.basket_mode === 'modal') on.push('basket as pop-up')
   else if (d.basket_sticky === false) on.push('basket not sticky')
   if (d.sticky_nav === false) on.push('category bar not sticky')
-  if (d.show_search) on.push('search')
+  if (d.show_search) on.push(d.search_style === 'icon' ? 'search icon' : d.search_style === 'icon_phone' ? 'search (icon on phones)' : 'search')
   if (d.highlight_favourites) on.push('house favourites highlighted')
   if (d.item_notes === false) on.push('no dish notes')
   if (d.show_vat === false) on.push('VAT hidden')
