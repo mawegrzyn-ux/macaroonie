@@ -285,73 +285,75 @@ export default function Changelog() {
   const isSaving = createMut.isPending || patchMut.isPending || publishMut.isPending || unpublishMut.isPending
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">{"What's new"}</h1>
-        {isPlatformAdmin && (
-          <button
-            onClick={() => { setSelected(null); setShowEditor(true) }}
-            className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
-          >
-            <Plus className="w-4 h-4" />
-            New entry
-          </button>
-        )}
-      </div>
-
-      <div className={cn(
-        'grid gap-6',
-        isPlatformAdmin && showEditor ? 'lg:grid-cols-[1fr_420px]' : 'lg:grid-cols-1 max-w-3xl',
-      )}>
-        {/* Entry list */}
-        <div className="space-y-3">
-          {isLoading ? (
-            <div className="text-center py-20 text-muted-foreground text-sm">Loading…</div>
-          ) : entries.length === 0 ? (
-            <div className="text-center py-20 text-muted-foreground text-sm">
-              No changelog entries yet.
-              {isPlatformAdmin && " Click \"New entry\" to create one."}
-            </div>
-          ) : entries.map(entry => (
-            <EntryItem
-              key={entry.id}
-              entry={entry}
-              isSelected={selected?.id === entry.id}
-              isPlatformAdmin={isPlatformAdmin}
-              onClick={() => {
-                setSelected(entry)
-                if (isPlatformAdmin) setShowEditor(true)
-              }}
-            />
-          ))}
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">{"What's new"}</h1>
+          {isPlatformAdmin && (
+            <button
+              onClick={() => { setSelected(null); setShowEditor(true) }}
+              className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
+            >
+              <Plus className="w-4 h-4" />
+              New entry
+            </button>
+          )}
         </div>
 
-        {/* Editor panel (platform admin only) */}
-        {isPlatformAdmin && showEditor && (
-          <div className="lg:sticky lg:top-6 h-fit border rounded-xl p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-sm">
-                {selected ? 'Edit entry' : 'New entry'}
-              </h2>
-              <button
-                onClick={() => { setShowEditor(false); setSelected(null) }}
-                className="p-1.5 rounded hover:bg-accent touch-manipulation"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <EntryEditor
-              key={selected?.id ?? 'new'}
-              entry={selected}
-              onSave={handleSave}
-              onDelete={() => selected && deleteMut.mutate(selected.id)}
-              onPublish={() => selected && publishMut.mutate(selected.id)}
-              onUnpublish={() => selected && unpublishMut.mutate(selected.id)}
-              isSaving={isSaving}
-              isDeleting={deleteMut.isPending}
-            />
+        <div className={cn(
+          'grid gap-6',
+          isPlatformAdmin && showEditor ? 'lg:grid-cols-[1fr_420px]' : 'lg:grid-cols-1 max-w-3xl',
+        )}>
+          {/* Entry list */}
+          <div className="space-y-3">
+            {isLoading ? (
+              <div className="text-center py-20 text-muted-foreground text-sm">Loading…</div>
+            ) : entries.length === 0 ? (
+              <div className="text-center py-20 text-muted-foreground text-sm">
+                No changelog entries yet.
+                {isPlatformAdmin && " Click \"New entry\" to create one."}
+              </div>
+            ) : entries.map(entry => (
+              <EntryItem
+                key={entry.id}
+                entry={entry}
+                isSelected={selected?.id === entry.id}
+                isPlatformAdmin={isPlatformAdmin}
+                onClick={() => {
+                  setSelected(entry)
+                  if (isPlatformAdmin) setShowEditor(true)
+                }}
+              />
+            ))}
           </div>
-        )}
+
+          {/* Editor panel (platform admin only) */}
+          {isPlatformAdmin && showEditor && (
+            <div className="lg:sticky lg:top-6 h-fit border rounded-xl p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-sm">
+                  {selected ? 'Edit entry' : 'New entry'}
+                </h2>
+                <button
+                  onClick={() => { setShowEditor(false); setSelected(null) }}
+                  className="p-1.5 rounded hover:bg-accent touch-manipulation"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <EntryEditor
+                key={selected?.id ?? 'new'}
+                entry={selected}
+                onSave={handleSave}
+                onDelete={() => selected && deleteMut.mutate(selected.id)}
+                onPublish={() => selected && publishMut.mutate(selected.id)}
+                onUnpublish={() => selected && unpublishMut.mutate(selected.id)}
+                isSaving={isSaving}
+                isDeleting={deleteMut.isPending}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

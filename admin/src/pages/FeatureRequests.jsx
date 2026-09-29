@@ -273,126 +273,128 @@ export default function FeatureRequests() {
   const isPlatformAdmin = me?.is_platform_admin ?? false
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Feature requests</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
-        >
-          <Plus className="w-4 h-4" />
-          New request
-        </button>
-      </div>
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Feature requests</h1>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
+          >
+            <Plus className="w-4 h-4" />
+            New request
+          </button>
+        </div>
 
-      {/* Controls */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
-        <div className="flex gap-1 overflow-x-auto">
-          {STATUS_TABS.map(tab => (
+        {/* Controls */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="flex gap-1 overflow-x-auto">
+            {STATUS_TABS.map(tab => (
+              <button
+                key={tab}
+                onClick={() => setStatusTab(tab)}
+                className={cn(
+                  'px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap touch-manipulation transition-colors',
+                  statusTab === tab
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-accent',
+                )}
+              >
+                {STATUS_LABELS[tab] ?? 'All'}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex gap-1">
             <button
-              key={tab}
-              onClick={() => setStatusTab(tab)}
+              onClick={() => setSortMode('votes')}
               className={cn(
-                'px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap touch-manipulation transition-colors',
-                statusTab === tab
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-accent',
+                'px-3 py-1.5 rounded-md text-sm touch-manipulation transition-colors',
+                sortMode === 'votes' ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-accent',
               )}
             >
-              {STATUS_LABELS[tab] ?? 'All'}
+              Top votes
             </button>
-          ))}
-        </div>
-        <div className="ml-auto flex gap-1">
-          <button
-            onClick={() => setSortMode('votes')}
-            className={cn(
-              'px-3 py-1.5 rounded-md text-sm touch-manipulation transition-colors',
-              sortMode === 'votes' ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-accent',
-            )}
-          >
-            Top votes
-          </button>
-          <button
-            onClick={() => setSortMode('newest')}
-            className={cn(
-              'px-3 py-1.5 rounded-md text-sm touch-manipulation transition-colors',
-              sortMode === 'newest' ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-accent',
-            )}
-          >
-            Newest
-          </button>
-        </div>
-      </div>
-
-      {/* Card grid */}
-      {isLoading ? (
-        <div className="text-center py-20 text-muted-foreground text-sm">Loading…</div>
-      ) : requests.length === 0 ? (
-        <div className="text-center py-20 text-muted-foreground text-sm">No feature requests found.</div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {requests.map(req => (
-            <div
-              key={req.id}
-              className="border rounded-xl p-4 space-y-3 hover:border-primary/40 cursor-pointer touch-manipulation transition-colors"
-              onClick={() => setSelected(req)}
-            >
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-medium text-sm leading-snug line-clamp-2">{req.title}</h3>
-                  {req.tenant_name && (
-                    <p className="text-xs text-muted-foreground mt-0.5">{req.tenant_name}</p>
-                  )}
-                </div>
-                <Badge className={cn('shrink-0', STATUS_BADGE[req.status])}>{STATUS_LABELS[req.status]}</Badge>
-              </div>
-              {req.description && (
-                <p className="text-sm text-muted-foreground line-clamp-3">{req.description}</p>
+            <button
+              onClick={() => setSortMode('newest')}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-sm touch-manipulation transition-colors',
+                sortMode === 'newest' ? 'bg-muted font-medium' : 'text-muted-foreground hover:bg-accent',
               )}
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={e => { e.stopPropagation(); upvoteMut.mutate(req.id) }}
-                  disabled={upvoteMut.isPending}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border touch-manipulation transition-colors min-h-[44px]',
-                    req.has_upvoted
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'text-muted-foreground border-border hover:bg-accent',
-                  )}
-                >
-                  <ThumbsUp className="w-3.5 h-3.5" />
-                  {req.upvotes}
-                </button>
-                <span className="text-xs text-muted-foreground ml-auto">
-                  {format(new Date(req.created_at), 'd MMM yyyy')}
-                </span>
-              </div>
-            </div>
-          ))}
+            >
+              Newest
+            </button>
+          </div>
         </div>
-      )}
 
-      {/* Modals */}
-      {showCreate && (
-        <NewRequestModal
-          onClose={() => setShowCreate(false)}
-          onSave={body => createMut.mutate(body)}
-          isSaving={createMut.isPending}
-        />
-      )}
+        {/* Card grid */}
+        {isLoading ? (
+          <div className="text-center py-20 text-muted-foreground text-sm">Loading…</div>
+        ) : requests.length === 0 ? (
+          <div className="text-center py-20 text-muted-foreground text-sm">No feature requests found.</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {requests.map(req => (
+              <div
+                key={req.id}
+                className="border rounded-xl p-4 space-y-3 hover:border-primary/40 cursor-pointer touch-manipulation transition-colors"
+                onClick={() => setSelected(req)}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-sm leading-snug line-clamp-2">{req.title}</h3>
+                    {req.tenant_name && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{req.tenant_name}</p>
+                    )}
+                  </div>
+                  <Badge className={cn('shrink-0', STATUS_BADGE[req.status])}>{STATUS_LABELS[req.status]}</Badge>
+                </div>
+                {req.description && (
+                  <p className="text-sm text-muted-foreground line-clamp-3">{req.description}</p>
+                )}
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={e => { e.stopPropagation(); upvoteMut.mutate(req.id) }}
+                    disabled={upvoteMut.isPending}
+                    className={cn(
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border touch-manipulation transition-colors min-h-[44px]',
+                      req.has_upvoted
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'text-muted-foreground border-border hover:bg-accent',
+                    )}
+                  >
+                    <ThumbsUp className="w-3.5 h-3.5" />
+                    {req.upvotes}
+                  </button>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    {format(new Date(req.created_at), 'd MMM yyyy')}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
-      {selected && (
-        <DetailModal
-          request={selected}
-          onClose={() => setSelected(null)}
-          isPlatformAdmin={isPlatformAdmin}
-          onUpdate={body => patchMut.mutate({ id: selected.id, ...body })}
-          isUpdating={patchMut.isPending}
-          onPromote={() => promoteMut.mutate(selected.id)}
-          isPromoting={promoteMut.isPending}
-        />
-      )}
+        {/* Modals */}
+        {showCreate && (
+          <NewRequestModal
+            onClose={() => setShowCreate(false)}
+            onSave={body => createMut.mutate(body)}
+            isSaving={createMut.isPending}
+          />
+        )}
+
+        {selected && (
+          <DetailModal
+            request={selected}
+            onClose={() => setSelected(null)}
+            isPlatformAdmin={isPlatformAdmin}
+            onUpdate={body => patchMut.mutate({ id: selected.id, ...body })}
+            isUpdating={patchMut.isPending}
+            onPromote={() => promoteMut.mutate(selected.id)}
+            isPromoting={promoteMut.isPending}
+          />
+        )}
+      </div>
     </div>
   )
 }

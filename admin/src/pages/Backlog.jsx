@@ -356,113 +356,115 @@ export default function Backlog() {
   }
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Backlog</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
-        >
-          <Plus className="w-4 h-4" />
-          New item
-        </button>
-      </div>
-
-      {/* Create modal */}
-      {showCreate && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-background rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">New backlog item</h2>
-              <button onClick={() => setShowCreate(false)} className="p-1.5 rounded hover:bg-accent touch-manipulation">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <ItemForm
-              onSave={body => createMut.mutate(body)}
-              onCancel={() => setShowCreate(false)}
-              isSaving={createMut.isPending}
-            />
-          </div>
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 max-w-[1600px] mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Backlog</h1>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
+          >
+            <Plus className="w-4 h-4" />
+            New item
+          </button>
         </div>
-      )}
 
-      {/* Edit modal */}
-      {editItem && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-background rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Edit item</h2>
-              <button onClick={() => setEditItem(null)} className="p-1.5 rounded hover:bg-accent touch-manipulation">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <ItemForm
-              initial={editItem}
-              onSave={body => patchMut.mutate({ id: editItem.id, ...body })}
-              onCancel={() => setEditItem(null)}
-              onDelete={() => deleteMut.mutate(editItem.id)}
-              isSaving={patchMut.isPending || deleteMut.isPending}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Kanban board */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCorners}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-      >
-        <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 'calc(100vh - 160px)' }}>
-          {COLUMNS.map(col => {
-            const items = grouped[col.status] ?? []
-            return (
-              <div key={col.status} className="flex flex-col w-72 shrink-0">
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <span className="text-sm font-semibold">{col.label}</span>
-                  <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
-                    {items.length}
-                  </span>
-                </div>
-                <div
-                  className="flex-1 overflow-y-auto space-y-2 rounded-lg bg-muted/40 p-2"
-                  style={{ minHeight: 60 }}
-                >
-                  <SortableContext
-                    items={items.map(i => i.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    {isLoading ? (
-                      <div className="text-xs text-muted-foreground text-center py-4">Loading…</div>
-                    ) : items.length === 0 ? (
-                      <div className="text-xs text-muted-foreground text-center py-6">Empty</div>
-                    ) : (
-                      items.map(item => (
-                        <SortableCard
-                          key={item.id}
-                          item={item}
-                          onEdit={setEditItem}
-                        />
-                      ))
-                    )}
-                  </SortableContext>
-                </div>
+        {/* Create modal */}
+        {showCreate && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+            <div className="bg-background rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">New backlog item</h2>
+                <button onClick={() => setShowCreate(false)} className="p-1.5 rounded hover:bg-accent touch-manipulation">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            )
-          })}
-        </div>
-
-        <DragOverlay>
-          {activeItem && (
-            <div className="w-72 rotate-1 shadow-xl">
-              <ItemCard item={activeItem} onEdit={() => {}} isDragging />
+              <ItemForm
+                onSave={body => createMut.mutate(body)}
+                onCancel={() => setShowCreate(false)}
+                isSaving={createMut.isPending}
+              />
             </div>
-          )}
-        </DragOverlay>
-      </DndContext>
+          </div>
+        )}
+
+        {/* Edit modal */}
+        {editItem && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+            <div className="bg-background rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold">Edit item</h2>
+                <button onClick={() => setEditItem(null)} className="p-1.5 rounded hover:bg-accent touch-manipulation">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <ItemForm
+                initial={editItem}
+                onSave={body => patchMut.mutate({ id: editItem.id, ...body })}
+                onCancel={() => setEditItem(null)}
+                onDelete={() => deleteMut.mutate(editItem.id)}
+                isSaving={patchMut.isPending || deleteMut.isPending}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Kanban board */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 'calc(100vh - 160px)' }}>
+            {COLUMNS.map(col => {
+              const items = grouped[col.status] ?? []
+              return (
+                <div key={col.status} className="flex flex-col w-72 shrink-0">
+                  <div className="flex items-center justify-between mb-2 px-1">
+                    <span className="text-sm font-semibold">{col.label}</span>
+                    <span className="text-xs text-muted-foreground bg-muted rounded-full px-2 py-0.5">
+                      {items.length}
+                    </span>
+                  </div>
+                  <div
+                    className="flex-1 overflow-y-auto space-y-2 rounded-lg bg-muted/40 p-2"
+                    style={{ minHeight: 60 }}
+                  >
+                    <SortableContext
+                      items={items.map(i => i.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      {isLoading ? (
+                        <div className="text-xs text-muted-foreground text-center py-4">Loading…</div>
+                      ) : items.length === 0 ? (
+                        <div className="text-xs text-muted-foreground text-center py-6">Empty</div>
+                      ) : (
+                        items.map(item => (
+                          <SortableCard
+                            key={item.id}
+                            item={item}
+                            onEdit={setEditItem}
+                          />
+                        ))
+                      )}
+                    </SortableContext>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <DragOverlay>
+            {activeItem && (
+              <div className="w-72 rotate-1 shadow-xl">
+                <ItemCard item={activeItem} onEdit={() => {}} isDragging />
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
+      </div>
     </div>
   )
 }

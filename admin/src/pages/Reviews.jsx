@@ -444,122 +444,124 @@ export default function Reviews() {
   const latestJob = scrapeJobs[0]
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <h1 className="text-xl font-bold">Reviews</h1>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => refetch()} className="p-2 border rounded touch-manipulation" title="Refresh">
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <button onClick={() => setShowScrape(true)}
-            className="flex items-center gap-1.5 border rounded px-3 py-2 text-sm touch-manipulation">
-            <Globe className="w-4 h-4" /> Scrape Google
-          </button>
-          <CsvImportButton venueId={venueId || null} onImported={invalidateAll} />
-          <button onClick={() => setShowAdd(true)}
-            className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded px-3 py-2 text-sm font-medium touch-manipulation">
-            <Plus className="w-4 h-4" /> Add review
-          </button>
+    <div className="h-full overflow-y-auto">
+      <div className="p-4 md:p-6 space-y-6 max-w-4xl mx-auto">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h1 className="text-xl font-bold">Reviews</h1>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => refetch()} className="p-2 border rounded touch-manipulation" title="Refresh">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <button onClick={() => setShowScrape(true)}
+              className="flex items-center gap-1.5 border rounded px-3 py-2 text-sm touch-manipulation">
+              <Globe className="w-4 h-4" /> Scrape Google
+            </button>
+            <CsvImportButton venueId={venueId || null} onImported={invalidateAll} />
+            <button onClick={() => setShowAdd(true)}
+              className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded px-3 py-2 text-sm font-medium touch-manipulation">
+              <Plus className="w-4 h-4" /> Add review
+            </button>
+          </div>
         </div>
-      </div>
 
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard label="Total" value={stats.total} />
-          <StatCard label="Approved" value={stats.approved} color="text-emerald-600" />
-          <StatCard label="Pending" value={stats.pending} color="text-amber-600" />
-          <StatCard label="Avg. rating" value={stats.avg_rating ? `${stats.avg_rating} ★` : '—'} color="text-amber-500" />
-        </div>
-      )}
+        {/* Stats */}
+        {stats && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard label="Total" value={stats.total} />
+            <StatCard label="Approved" value={stats.approved} color="text-emerald-600" />
+            <StatCard label="Pending" value={stats.pending} color="text-amber-600" />
+            <StatCard label="Avg. rating" value={stats.avg_rating ? `${stats.avg_rating} ★` : '—'} color="text-amber-500" />
+          </div>
+        )}
 
-      {/* Scrape job status */}
-      {latestJob && (
-        <div className={cn('rounded-lg p-3 text-sm flex items-center gap-2',
-          latestJob.status === 'done'    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-          latestJob.status === 'failed'  ? 'bg-rose-50 text-rose-700 border border-rose-200' :
-          'bg-blue-50 text-blue-700 border border-blue-200')}>
-          {latestJob.status === 'running' || latestJob.status === 'pending'
-            ? <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
-            : <CheckCircle2 className="w-4 h-4 flex-shrink-0" />}
-          <span>
-            Last scrape: <strong>{latestJob.status}</strong>
-            {latestJob.result_count ? ` — ${latestJob.result_count} reviews` : ''}
-            {latestJob.error_message ? ` (${latestJob.error_message})` : ''}
-            {latestJob.finished_at ? ` · ${new Date(latestJob.finished_at).toLocaleString()}` : ''}
-          </span>
-        </div>
-      )}
+        {/* Scrape job status */}
+        {latestJob && (
+          <div className={cn('rounded-lg p-3 text-sm flex items-center gap-2',
+            latestJob.status === 'done'    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+            latestJob.status === 'failed'  ? 'bg-rose-50 text-rose-700 border border-rose-200' :
+            'bg-blue-50 text-blue-700 border border-blue-200')}>
+            {latestJob.status === 'running' || latestJob.status === 'pending'
+              ? <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+              : <CheckCircle2 className="w-4 h-4 flex-shrink-0" />}
+            <span>
+              Last scrape: <strong>{latestJob.status}</strong>
+              {latestJob.result_count ? ` — ${latestJob.result_count} reviews` : ''}
+              {latestJob.error_message ? ` (${latestJob.error_message})` : ''}
+              {latestJob.finished_at ? ` · ${new Date(latestJob.finished_at).toLocaleString()}` : ''}
+            </span>
+          </div>
+        )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <Filter className="w-4 h-4 text-muted-foreground" />
-        <select className="border rounded px-2 py-1.5 text-sm bg-background"
-          value={venueId} onChange={e => setVenueId(e.target.value)}>
-          <option value="">All venues</option>
-          {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-        </select>
-        <select className="border rounded px-2 py-1.5 text-sm bg-background"
-          value={platform} onChange={e => setPlatform(e.target.value)}>
-          {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-        </select>
-        <button onClick={() => { setApprovedOnly(false); setShowPending(false) }}
-          className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', !approvedOnly && !showPending ? 'bg-primary text-primary-foreground' : '')}>
-          All
-        </button>
-        <button onClick={() => { setApprovedOnly(true); setShowPending(false) }}
-          className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', approvedOnly ? 'bg-emerald-600 text-white' : '')}>
-          Approved
-        </button>
-        <button onClick={() => { setShowPending(true); setApprovedOnly(false) }}
-          className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', showPending ? 'bg-amber-500 text-white' : '')}>
-          Pending {stats?.pending ? `(${stats.pending})` : ''}
-        </button>
-        {pendingIds.length > 0 && (
-          <button
-            onClick={() => bulkApproveMutation.mutate({ ids: pendingIds, is_approved: true })}
-            className="ml-auto text-xs px-2 py-1 rounded border border-emerald-300 text-emerald-700 touch-manipulation">
-            Approve all pending
+        {/* Filters */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <Filter className="w-4 h-4 text-muted-foreground" />
+          <select className="border rounded px-2 py-1.5 text-sm bg-background"
+            value={venueId} onChange={e => setVenueId(e.target.value)}>
+            <option value="">All venues</option>
+            {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+          </select>
+          <select className="border rounded px-2 py-1.5 text-sm bg-background"
+            value={platform} onChange={e => setPlatform(e.target.value)}>
+            {PLATFORMS.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+          </select>
+          <button onClick={() => { setApprovedOnly(false); setShowPending(false) }}
+            className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', !approvedOnly && !showPending ? 'bg-primary text-primary-foreground' : '')}>
+            All
           </button>
+          <button onClick={() => { setApprovedOnly(true); setShowPending(false) }}
+            className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', approvedOnly ? 'bg-emerald-600 text-white' : '')}>
+            Approved
+          </button>
+          <button onClick={() => { setShowPending(true); setApprovedOnly(false) }}
+            className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', showPending ? 'bg-amber-500 text-white' : '')}>
+            Pending {stats?.pending ? `(${stats.pending})` : ''}
+          </button>
+          {pendingIds.length > 0 && (
+            <button
+              onClick={() => bulkApproveMutation.mutate({ ids: pendingIds, is_approved: true })}
+              className="ml-auto text-xs px-2 py-1 rounded border border-emerald-300 text-emerald-700 touch-manipulation">
+              Approve all pending
+            </button>
+          )}
+        </div>
+
+        {/* Review list */}
+        {isLoading ? (
+          <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+        ) : reviews.length === 0 ? (
+          <div className="text-center py-12 space-y-3 text-muted-foreground">
+            <MessageSquare className="w-10 h-10 mx-auto opacity-30" />
+            <p className="text-sm">No reviews yet. Add one manually, import a CSV, or scrape from Google.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {reviews.map(r => (
+              <ReviewRow
+                key={r.id}
+                review={r}
+                onPatch={(patch) => patchMutation.mutate({ id: r.id, ...patch })}
+                onDelete={() => deleteMutation.mutate(r.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Modals */}
+        {showAdd && (
+          <AddReviewModal
+            venueId={venueId || null}
+            onClose={() => setShowAdd(false)}
+            onSaved={invalidateAll}
+          />
+        )}
+        {showScrape && (
+          <ScrapeModal
+            venues={venues}
+            onClose={() => setShowScrape(false)}
+            onStarted={invalidateAll}
+          />
         )}
       </div>
-
-      {/* Review list */}
-      {isLoading ? (
-        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
-      ) : reviews.length === 0 ? (
-        <div className="text-center py-12 space-y-3 text-muted-foreground">
-          <MessageSquare className="w-10 h-10 mx-auto opacity-30" />
-          <p className="text-sm">No reviews yet. Add one manually, import a CSV, or scrape from Google.</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {reviews.map(r => (
-            <ReviewRow
-              key={r.id}
-              review={r}
-              onPatch={(patch) => patchMutation.mutate({ id: r.id, ...patch })}
-              onDelete={() => deleteMutation.mutate(r.id)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Modals */}
-      {showAdd && (
-        <AddReviewModal
-          venueId={venueId || null}
-          onClose={() => setShowAdd(false)}
-          onSaved={invalidateAll}
-        />
-      )}
-      {showScrape && (
-        <ScrapeModal
-          venues={venues}
-          onClose={() => setShowScrape(false)}
-          onStarted={invalidateAll}
-        />
-      )}
     </div>
   )
 }

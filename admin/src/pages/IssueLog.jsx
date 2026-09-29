@@ -355,111 +355,113 @@ export default function IssueLog() {
   const isPlatformAdmin = me?.is_platform_admin ?? false
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Issue log</h1>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
-        >
-          <Plus className="w-4 h-4" />
-          New issue
-        </button>
-      </div>
-
-      {/* Status filter tabs */}
-      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
-        {STATUS_TABS.map(tab => (
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-bold">Issue log</h1>
           <button
-            key={tab}
-            onClick={() => setStatusTab(tab)}
-            className={cn(
-              'px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap touch-manipulation transition-colors',
-              statusTab === tab
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-accent',
-            )}
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
           >
-            {STATUS_TAB_LABELS[tab]}
+            <Plus className="w-4 h-4" />
+            New issue
           </button>
-        ))}
-      </div>
+        </div>
 
-      {/* Issues table */}
-      <div className="border rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 border-b">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground w-20">Priority</th>
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground w-36">Category</th>
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground">Title</th>
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground w-32">Status</th>
-              <th className="text-left px-4 py-3 font-medium text-muted-foreground w-28">Created</th>
-              <th className="w-8" />
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
+        {/* Status filter tabs */}
+        <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+          {STATUS_TABS.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setStatusTab(tab)}
+              className={cn(
+                'px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap touch-manipulation transition-colors',
+                statusTab === tab
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-accent',
+              )}
+            >
+              {STATUS_TAB_LABELS[tab]}
+            </button>
+          ))}
+        </div>
+
+        {/* Issues table */}
+        <div className="border rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 border-b">
               <tr>
-                <td colSpan={6} className="text-center py-12 text-muted-foreground text-sm">Loading…</td>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-20">Priority</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-36">Category</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Title</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-32">Status</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-28">Created</th>
+                <th className="w-8" />
               </tr>
-            ) : issues.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="text-center py-12 text-muted-foreground text-sm">No issues found.</td>
-              </tr>
-            ) : issues.map(issue => (
-              <tr
-                key={issue.id}
-                onClick={() => setSelected(issue)}
-                className="border-b last:border-0 hover:bg-muted/30 cursor-pointer touch-manipulation"
-              >
-                <td className="px-4 py-3">
-                  <Badge className={PRIORITY_BADGE[issue.priority]}>{issue.priority.toUpperCase()}</Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="text-muted-foreground">{CATEGORY_LABELS[issue.category] ?? issue.category}</span>
-                </td>
-                <td className="px-4 py-3 font-medium">{issue.title}</td>
-                <td className="px-4 py-3">
-                  <Badge className={STATUS_BADGE[issue.status]}>{STATUS_TAB_LABELS[issue.status] ?? issue.status}</Badge>
-                </td>
-                <td className="px-4 py-3 text-muted-foreground">
-                  {format(new Date(issue.created_at), 'd MMM yyyy')}
-                </td>
-                <td className="px-4 py-3">
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12 text-muted-foreground text-sm">Loading…</td>
+                </tr>
+              ) : issues.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12 text-muted-foreground text-sm">No issues found.</td>
+                </tr>
+              ) : issues.map(issue => (
+                <tr
+                  key={issue.id}
+                  onClick={() => setSelected(issue)}
+                  className="border-b last:border-0 hover:bg-muted/30 cursor-pointer touch-manipulation"
+                >
+                  <td className="px-4 py-3">
+                    <Badge className={PRIORITY_BADGE[issue.priority]}>{issue.priority.toUpperCase()}</Badge>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-muted-foreground">{CATEGORY_LABELS[issue.category] ?? issue.category}</span>
+                  </td>
+                  <td className="px-4 py-3 font-medium">{issue.title}</td>
+                  <td className="px-4 py-3">
+                    <Badge className={STATUS_BADGE[issue.status]}>{STATUS_TAB_LABELS[issue.status] ?? issue.status}</Badge>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {format(new Date(issue.created_at), 'd MMM yyyy')}
+                  </td>
+                  <td className="px-4 py-3">
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Modals */}
+        {showCreate && (
+          <NewIssueModal
+            onClose={() => setShowCreate(false)}
+            onSave={body => createMut.mutate(body)}
+            isSaving={createMut.isPending}
+          />
+        )}
+
+        {/* Detail panel backdrop */}
+        {selected && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/20 z-30"
+              onClick={() => setSelected(null)}
+            />
+            <DetailPanel
+              issue={selected}
+              onClose={() => setSelected(null)}
+              isPlatformAdmin={isPlatformAdmin}
+              onUpdate={body => patchMut.mutate({ id: selected.id, ...body })}
+              isUpdating={patchMut.isPending}
+            />
+          </>
+        )}
       </div>
-
-      {/* Modals */}
-      {showCreate && (
-        <NewIssueModal
-          onClose={() => setShowCreate(false)}
-          onSave={body => createMut.mutate(body)}
-          isSaving={createMut.isPending}
-        />
-      )}
-
-      {/* Detail panel backdrop */}
-      {selected && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/20 z-30"
-            onClick={() => setSelected(null)}
-          />
-          <DetailPanel
-            issue={selected}
-            onClose={() => setSelected(null)}
-            isPlatformAdmin={isPlatformAdmin}
-            onUpdate={body => patchMut.mutate({ id: selected.id, ...body })}
-            isUpdating={patchMut.isPending}
-          />
-        </>
-      )}
     </div>
   )
 }
