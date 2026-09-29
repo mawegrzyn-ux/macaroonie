@@ -2888,6 +2888,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               canvas if the admin's actual browser window is narrowed below 600px. This is a
               pre-existing limitation of the preview mode, unrelated to boxed-step resolution.
             </InfoBox>
+            <P>
+              The canvas's template and theme come from <Mono>brandConfig</Mono> in{' '}
+              <Mono>PageBuilder.jsx</Mono>, not from the record being edited: the tenant home
+              uses <Mono>tenant_site</Mono>; every other page (location page, extra page or
+              modal) uses <Mono>tenant_site</Mono> too, with the venue's{' '}
+              <Mono>BRAND_OVERRIDE_FIELDS</Mono> laid over it when that venue's{' '}
+              <Mono>website_config.use_brand_override</Mono> is on (a venue-level page fetches
+              the venue's config as <Mono>['website-config', venueId]</Mono>). This mirrors{' '}
+              <Mono>mergeLocationConfig()</Mono> in <Mono>siteDataSvc.js</Mono>; keep the field
+              list in both files the same.
+            </P>
             <InfoBox type="warn">
               <Mono>boxedLayout.js</Mono>'s current step values live in a module-level variable
               (<Mono>currentBoxedSteps</Mono>), not React Context — deliberate, since there is

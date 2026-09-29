@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Page builder previews every page in the site's template]
+
+- Fixed: the page builder showed the Classic template (and default colours) for extra pages, modals and location pages, while the home page showed the site's real template (e.g. Onethai). The canvas took the template and theme from the page being edited, and only the home page carries them. Every page now previews with the site's template and Brand & theme, or the location's own when it has a site override, matching the live site.
+
+---
+
 ## [2026-09-29 — Online ordering: basket title colour]
 
 - Fixed: with a basket text colour set on the Online ordering block, the "Your basket" title stayed in the brand colour (invisible on a brand-coloured basket). It now follows the basket text colour, on desktop and in the phone basket.

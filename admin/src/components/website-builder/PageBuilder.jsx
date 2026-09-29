@@ -24,6 +24,13 @@ import { BlockInserter }  from './canvas/BlockInserter'
 import { BlockInspector } from './canvas/BlockInspector'
 import { BlockNode }      from './canvas/BlockNode'
 import { LinkCatalogProvider } from './LinkPicker'
+
+// Mirrors BRAND_OVERRIDE_FIELDS in api/src/services/siteDataSvc.js.
+const BRAND_OVERRIDE_FIELDS = [
+  'site_name', 'tagline', 'logo_url', 'favicon_url',
+  'primary_colour', 'secondary_colour', 'font_family', 'template_key',
+  'theme', 'og_image_url',
+]
 // Header + footer + showpiece are now real block types in the canvas
 // (see canvas/siteBlocks.jsx). No separate preview components needed.
 import {
@@ -66,6 +73,32 @@ export function PageBuilder({
   const api = useApi()
   const qc  = useQueryClient()
   const effectiveTenantSite = tenantSite || (blocksField === 'home_blocks' ? config : null)
+
+  // Brand & theme the canvas previews with. The live site takes the
+  // template and theme from tenant_site for every page, unless the page
+  // belongs to a venue with its own brand override (use_brand_override, see
+  // mergeLocationConfig() in siteDataSvc.js). `config` is the record being
+  // edited — only the tenant home's is tenant_site; a location page's is
+  // the venue's website_config and an extra page's is a website_pages row —
+  // so reading template_key/theme off it previewed every other page in
+  // the Classic template with default colours.
+  const brandVenueId = blocksField === 'home_blocks' ? null : (config?.venue_id || null)
+  const brandVenueIsConfig = !!brandVenueId && 'use_brand_override' in (config || {})
+  const { data: brandVenueFetched } = useQuery({
+    queryKey: ['website-config', brandVenueId],
+    queryFn:  () => api.get(`/website/config?venue_id=${brandVenueId}`),
+    enabled:  !!brandVenueId && !brandVenueIsConfig,
+    staleTime: 30_000,
+  })
+  const brandConfig = useMemo(() => {
+    if (blocksField === 'home_blocks' || !effectiveTenantSite) return config
+    const venueCfg = brandVenueIsConfig ? config : brandVenueFetched
+    const out = { ...effectiveTenantSite }
+    if (venueCfg?.use_brand_override) {
+      for (const k of BRAND_OVERRIDE_FIELDS) if (venueCfg[k] != null) out[k] = venueCfg[k]
+    }
+    return out
+  }, [blocksField, config, effectiveTenantSite, brandVenueIsConfig, brandVenueFetched])
 
   // Sole-venue home: merge that venue's website_config into the canvas
   // so hours / find-us / contact / PDF menus preview the live data instead
@@ -382,9 +415,9 @@ export function PageBuilder({
   // override picker can show real values (e.g. "20px" / "5%") instead of
   // the generic 1-5 labels. ThemeFrame resolves the same theme for the
   // canvas CSS vars — this is a second, cheap resolve just for the array.
-  const boxedSteps = useMemo(() => resolveTheme(config).boxedSteps, [config])
+  const boxedSteps = useMemo(() => resolveTheme(brandConfig).boxedSteps, [brandConfig])
 
-  const templateKey = config?.template_key || 'classic'
+  const templateKey = brandConfig?.template_key || 'classic'
   const TEMPLATE_LABELS = { classic: 'Classic', modern: 'Modern', onethai: 'Onethai' }
   const templateLabel = TEMPLATE_LABELS[templateKey] || templateKey
   const liveUrl = config?.subdomain_slug
@@ -477,7 +510,7 @@ export function PageBuilder({
             <div className={previewMode === 'mobile'
               ? 'w-[390px] max-w-full bg-background rounded-[24px] border shadow-sm overflow-hidden'
               : 'w-full'}>
-            <ThemeFrame config={config}>
+            <ThemeFrame config={brandConfig}>
               {blocks.length === 0 ? (
                 <div className="py-12">
                   <BlockInserter mode="empty" onPick={(k) => addTop(k, 0)} />
