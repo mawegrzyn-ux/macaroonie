@@ -108,12 +108,16 @@ const StaffBody = z.object({
 })
 const StaffPatch = StaffBody.partial()
 
+// Working, or a kind of time off (migration 129). See rotaCalc.js for pay rules.
+const ENTRY_STATUSES = ['on', 'sick', 'pto', 'uto', 'abs']
+
 const EntryBody = z.object({
   staff_id:   UUID,
   work_date:  z.string().regex(DATE_RE),
   shift_id:   UUID.nullable().optional(),
   start_time: z.string().regex(TIME_RE).nullable().optional(),
   end_time:   z.string().regex(TIME_RE).nullable().optional(),
+  status:     z.enum(ENTRY_STATUSES).default('on'),
 }).refine(e => (e.shift_id ? !e.start_time && !e.end_time : !!e.start_time && !!e.end_time), {
   message: 'An entry is either a shift (shift_id) or a period (start_time and end_time)',
 })
@@ -234,7 +238,7 @@ function loadEntries(tx, tenantId, venueId, monday) {
   return tx`
     SELECT id, staff_id, work_date::text AS work_date, shift_id,
            to_char(start_time, 'HH24:MI') AS start_time,
-           to_char(end_time,   'HH24:MI') AS end_time
+           to_char(end_time,   'HH24:MI') AS end_time, status
       FROM rota_entries
      WHERE tenant_id = ${tenantId}
        AND venue_id  = ${venueId}
@@ -789,6 +793,7 @@ export default async function rotaRoutes(app) {
           tenant_id: req.tenantId, venue_id: req.params.venueId, staff_id: e.staff_id,
           work_date: e.work_date, shift_id: e.shift_id ?? null,
           start_time: e.shift_id ? null : e.start_time, end_time: e.shift_id ? null : e.end_time,
+          status: e.status,
         })
       }
       if (rows.length) await tx`INSERT INTO rota_entries ${tx(rows)}`
@@ -805,8 +810,9 @@ export default async function rotaRoutes(app) {
 
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
-      const src = await loadEntries(tx, req.tenantId, req.params.venueId, source)
-      if (!src.length) throw httpError(422, `Nothing on the rota for the week of ${source}`)
+      // Only worked shifts are copied: sickness and time off are one-offs.
+      const src = (await loadEntries(tx, req.tenantId, req.params.venueId, source)).filter(e => e.status === 'on')
+      if (!src.length) throw httpError(422, `Nobody working on the rota for the week of ${source}`)
       await tx`
         DELETE FROM rota_entries
          WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
@@ -1085,11 +1091,12 @@ export default async function rotaRoutes(app) {
       const byStaff = new Map(existing.filter(e => e.staff_id).map(e => [e.staff_id, e]))
       let updated = 0, added = 0
       for (const r of rostered) {
-        const hourly = r.pay_type === 'hourly' && r.hours > 0
+        // paid_hours = worked + paid time off (PTO), so rate = pay / paid hours.
+        const hourly = r.pay_type === 'hourly' && r.paid_hours > 0
         const values = {
           entry_type: hourly ? 'hourly' : 'fixed',
-          hours:      hourly ? r.hours : null,
-          rate:       hourly ? Math.round((r.pay / r.hours) * 100) / 100 : null,
+          hours:      hourly ? r.paid_hours : null,
+          rate:       hourly ? Math.round((r.pay / r.paid_hours) * 100) / 100 : null,
           total:      r.pay,
         }
         const prev = byStaff.get(r.staff_id)

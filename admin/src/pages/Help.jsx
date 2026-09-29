@@ -1517,12 +1517,37 @@ export default function Help() {
               head={['Mode', 'How to enter it']}
               rows={[
                 ['Day parts', 'Each day has a column per shift. Tap a cell to switch the person ON or OFF for that shift. The bottom row counts who is on each shift.'],
-                ['Hours', 'Tap a person\'s day to open their times. Add as many periods as fit without overlapping (for example 11:00 to 15:00 and 18:00 to 23:00), or tap a shift name to add its times in one go. Clear day takes them off that day.'],
+                ['Hours', 'Tap a person\'s day to open their times. Add as many periods as fit without overlapping (for example 11:00 to 15:00 and 18:00 to 23:00), or tap a shift name to add its times in one go. Each period has a box to mark it as working or a kind of time off. Clear day takes them off that day.'],
               ]}
             />
             <P>
+              <strong>Sickness and time off.</strong> Next to each name is a small square button showing
+              what a tap puts in for that person: <strong>ON</strong> to start with. Tap it to pick
+              ON / OFF, SICK / OFF, PTO / OFF, UTO / OFF or ABS / OFF. Tapping that person's cells then
+              flicks between OFF and the option you picked, so to mark someone sick for the week, pick
+              SICK / OFF and tap their shifts (a cell that was ON changes straight to SICK). Pick ON / OFF
+              again to go back to rostering. The button is per person and is remembered while you move
+              between weeks.
+            </P>
+            <DataTable
+              head={['Code', 'Means', 'Pay and tips']}
+              rows={[
+                ['ON', 'Working', 'Hours, pay and tip points.'],
+                ['SICK', 'Off sick', 'Unpaid on the rota, no tip points. Use a pay override for sick pay.'],
+                ['PTO', 'Paid time off (holiday)', 'Paid as if they worked the shift; not counted as hours worked and no tip points.'],
+                ['UTO', 'Unpaid time off', 'Unpaid, no tip points.'],
+                ['ABS', 'Absent (did not turn up)', 'Unpaid, no tip points.'],
+              ]}
+            />
+            <P>
+              The Week column and the bottom row count only people working. Time off shows on the
+              printout and image in its own colour, and the Rota dashboard's who's-on list shows who is
+              off that day. <strong>Copy from week</strong> copies only worked shifts, not time off.
+            </P>
+            <P>
               Nothing is saved until you tap <strong>Save rota</strong>; <strong>Discard changes</strong>{' '}
-              throws them away. Unsaved changes are kept if you look at another week and come back.
+              throws them away. <strong>Clear rota</strong> (next to Save) empties the whole week after
+              you confirm; it is an unsaved change too, so tap Save to keep it or Discard to undo it. Unsaved changes are kept if you look at another week and come back.
               <strong> Copy from week</strong> replaces this week with one of the last 8 weeks (it asks
               first if this week already has entries). If you switch mode in Rota setup, entries made
               in the old mode still count for pay and are listed in a notice until you save that week.
@@ -1540,7 +1565,7 @@ export default function Help() {
             <H3>Hours and pay</H3>
             <P>
               Below the rota (for anyone with rota pay access) each rostered person's hours and pay
-              for the week. Tap a pay figure to override it for this week; <strong>Use calculated</strong>{' '}
+              for the week (hours worked, with any time off listed under them). Tap a pay figure to override it for this week; <strong>Use calculated</strong>{' '}
               goes back. <strong>Fill Cash Recon wages</strong> writes everyone's pay into that week's
               Cash Recon wages: existing rows are updated (someone already marked Paid stays paid at
               the new amount), missing people are added, and other rows are left alone. It is blocked

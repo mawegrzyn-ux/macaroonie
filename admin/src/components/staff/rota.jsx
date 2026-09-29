@@ -7,6 +7,9 @@
 // Entry model (rota_entries, migration 106): a row is either
 //   - a day-part tick: { staff_id, work_date, shift_id }, or
 //   - an hourly period: { staff_id, work_date, start_time, end_time }.
+// Each carries a status (migration 129): on, sick, pto, uto or abs. The
+// square button next to each name picks what a tap puts in for that person
+// (ON/OFF, SICK/OFF, ...); a tap flicks a cell between that and OFF.
 // The grid edits a local draft of the week in the tenant's current mode
 // (rota_settings.mode) and saves it with one whole-week PUT. Entries made
 // in the other mode are shown as a notice and are replaced on save.
@@ -15,16 +18,19 @@
 // the tables here only display GET .../pay and send overrides.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO, subWeeks } from 'date-fns'
-import { Loader2, Plus, Minus, Trash2, Copy, Check, AlertTriangle, ArrowRight, RotateCcw, Wallet, Printer, ImageDown } from 'lucide-react'
+import { Loader2, Plus, Minus, Trash2, Copy, Check, AlertTriangle, ArrowRight, RotateCcw, Wallet, Printer, ImageDown, ChevronDown, Eraser } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { fmt, getMonday } from '@/pages/CashRecon'
 import {
   Modal, TimeSelect, ErrorNote, hhmm, toMin, rangeMinutes, fmtHours, inputCls, useVenues, Segmented, ConfirmDelete,
 } from '@/components/staff/shared'
-import { buildRotaSheet, printRota, saveRotaImage, visibleRotaDates, isClosedDay } from '@/components/staff/rotaExport'
+import {
+  buildRotaSheet, printRota, saveRotaImage, visibleRotaDates, isClosedDay, ENTRY_STATUSES, STATUS_BY_KEY, statusOf,
+} from '@/components/staff/rotaExport'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
@@ -72,9 +78,103 @@ export function useRotaPay(venueId, weekStart, enabled = true) {
 function isShiftEntry(e) { return !!e.shift_id }
 
 function clean(e) {
+  const status = statusOf(e)
   return e.shift_id
-    ? { staff_id: e.staff_id, work_date: e.work_date, shift_id: e.shift_id }
-    : { staff_id: e.staff_id, work_date: e.work_date, start_time: hhmm(e.start_time), end_time: hhmm(e.end_time) }
+    ? { staff_id: e.staff_id, work_date: e.work_date, shift_id: e.shift_id, status }
+    : { staff_id: e.staff_id, work_date: e.work_date, start_time: hhmm(e.start_time), end_time: hhmm(e.end_time), status }
+}
+
+// Grid colours per status (print colours live in rotaExport.js).
+const STATUS_CLS = {
+  on:   'bg-green-600 text-white hover:bg-green-700',
+  sick: 'bg-red-600 text-white hover:bg-red-700',
+  pto:  'bg-sky-600 text-white hover:bg-sky-700',
+  uto:  'bg-violet-600 text-white hover:bg-violet-700',
+  abs:  'bg-amber-500 text-white hover:bg-amber-600',
+}
+const STATUS_SOFT = {
+  on:   'bg-green-600/10 text-green-900',
+  sick: 'bg-red-600/10 text-red-900',
+  pto:  'bg-sky-600/10 text-sky-900',
+  uto:  'bg-violet-600/10 text-violet-900',
+  abs:  'bg-amber-500/15 text-amber-900',
+}
+
+export function StatusBadge({ status, className }) {
+  const st = STATUS_BY_KEY[status]
+  if (!st || status === 'on') return null
+  return <span className={cn('inline-block rounded px-1 text-[10px] font-semibold', STATUS_CLS[status], className)} title={st.name}>{st.label}</span>
+}
+
+// The per-person tap mode, kept across weeks for the session.
+const modeCache = new Map()
+
+/**
+ * Square button next to a name: picks what a tap on that person's cells
+ * puts in (ON/OFF, SICK/OFF, PTO/OFF, UTO/OFF, ABS/OFF). The menu is fixed
+ * positioned and portalled to <body> so the grid's scroll box and the
+ * sticky name cells (their own stacking contexts) don't clip or cover it.
+ */
+function ModeButton({ value, onChange, name }) {
+  const [open, setOpen] = useState(null) // { top, left } when open
+  const btnRef = useRef(null)
+  const menuRef = useRef(null)
+  const st = STATUS_BY_KEY[value] ?? STATUS_BY_KEY.on
+
+  useEffect(() => {
+    if (!open) return
+    const close = e => {
+      if (menuRef.current?.contains(e.target) || btnRef.current?.contains(e.target)) return
+      setOpen(null)
+    }
+    const shut = () => setOpen(null)
+    document.addEventListener('pointerdown', close)
+    window.addEventListener('resize', shut)
+    window.addEventListener('scroll', shut, true)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      window.removeEventListener('resize', shut)
+      window.removeEventListener('scroll', shut, true)
+    }
+  }, [open])
+
+  function toggleMenu() {
+    if (open) { setOpen(null); return }
+    const r = btnRef.current.getBoundingClientRect()
+    const menuH = ENTRY_STATUSES.length * 48 + 12
+    const top = r.bottom + 4 + menuH > window.innerHeight ? Math.max(8, r.top - 4 - menuH) : r.bottom + 4
+    setOpen({ top, left: Math.min(r.left, window.innerWidth - 228) })
+  }
+
+  return (
+    <>
+      <button ref={btnRef} type="button" onClick={toggleMenu}
+        aria-haspopup="menu" aria-expanded={!!open} aria-label={`What a tap puts in for ${name}: ${st.label} / OFF`}
+        title={`Tap puts in: ${st.name}`}
+        className={cn('relative w-11 h-11 shrink-0 rounded-lg border-2 flex flex-col items-center justify-center touch-manipulation text-[10px] font-bold leading-none',
+          value === 'on' ? 'border-green-600 text-green-700 bg-green-50' : cn('border-transparent', STATUS_CLS[value]))}>
+        {st.label}
+        <ChevronDown className="w-3 h-3 mt-0.5" />
+      </button>
+      {open && createPortal(
+        <div ref={menuRef} role="menu" style={{ top: open.top, left: open.left }}
+          className="fixed z-50 w-[220px] rounded-xl border bg-background shadow-xl p-1.5">
+          {ENTRY_STATUSES.map(s => (
+            <button key={s.key} type="button" role="menuitemradio" aria-checked={value === s.key}
+              onClick={() => { onChange(s.key); setOpen(null) }}
+              className={cn('w-full h-11 px-2 rounded-lg flex items-center gap-2 text-sm touch-manipulation hover:bg-muted',
+                value === s.key && 'bg-muted')}>
+              <span className={cn('w-12 h-7 rounded-md text-[11px] font-bold flex items-center justify-center', STATUS_CLS[s.key])}>{s.label}</span>
+              <span className="text-xs text-muted-foreground">/ OFF</span>
+              <span className="flex-1 text-left text-xs truncate">{s.name}</span>
+              {value === s.key && <Check className="w-4 h-4 text-primary" />}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
 }
 
 function signature(list) {
@@ -99,6 +199,11 @@ export function periodProblem(periods) {
 }
 
 function shiftMinutes(shift) { return rangeMinutes(shift.start_time, shift.end_time) }
+
+/** Minutes worked (status on); time off doesn't count as hours on the grid. */
+function workedMinutes(e, shiftById) {
+  return statusOf(e) === 'on' ? entryMinutes(e, shiftById) : 0
+}
 
 function entryMinutes(e, shiftById) {
   if (e.shift_id) { const s = shiftById[e.shift_id]; return s ? shiftMinutes(s) : 0 }
@@ -167,6 +272,12 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   }
 
   const [editingCell, setEditingCell] = useState(null) // { staff, date }
+  const [modes, setModes] = useState(() => Object.fromEntries(modeCache))
+  const modeFor = staffId => modes[staffId] ?? 'on'
+  function setMode(staffId, value) {
+    modeCache.set(staffId, value)
+    setModes(m => ({ ...m, [staffId]: value }))
+  }
 
   const shifts = useMemo(() => {
     const all = week?.shifts ?? []
@@ -175,7 +286,8 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   }, [week, entries])
   const shiftById = useMemo(() => Object.fromEntries((week?.shifts ?? []).map(s => [s.id, s])), [week])
 
-  const onSet = useMemo(() => new Set(entries.filter(isShiftEntry).map(e => `${e.staff_id}|${e.work_date}|${e.shift_id}`)), [entries])
+  // staff|date|shift -> status, for day-part cells
+  const cellStatus = useMemo(() => new Map(entries.filter(isShiftEntry).map(e => [`${e.staff_id}|${e.work_date}|${e.shift_id}`, statusOf(e)])), [entries])
   const periodsByCell = useMemo(() => {
     const m = {}
     for (const e of entries.filter(e => !isShiftEntry(e))) (m[`${e.staff_id}|${e.work_date}`] ??= []).push(e)
@@ -183,18 +295,24 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
     return m
   }, [entries])
 
+  // A tap flicks the cell between OFF and the person's mode; a cell holding
+  // another status (e.g. ON while the mode is SICK) switches to the mode.
   function toggle(staffId, date, shiftId) {
     if (!canEdit) return
-    const key = `${staffId}|${date}|${shiftId}`
-    setDraft(prev => onSet.has(key)
-      ? prev.filter(e => !(e.shift_id === shiftId && e.staff_id === staffId && e.work_date === date))
-      : [...prev, { staff_id: staffId, work_date: date, shift_id: shiftId }])
+    const mode = modeFor(staffId)
+    const match = e => e.shift_id === shiftId && e.staff_id === staffId && e.work_date === date
+    setDraft(prev => {
+      const current = prev.find(match)
+      if (!current) return [...prev, { staff_id: staffId, work_date: date, shift_id: shiftId, status: mode }]
+      if (statusOf(current) === mode) return prev.filter(e => !match(e))
+      return prev.map(e => (match(e) ? { ...e, status: mode } : e))
+    })
   }
 
   function setPeriods(staffId, date, periods) {
     setDraft(prev => [
       ...prev.filter(e => !(e.staff_id === staffId && e.work_date === date && !e.shift_id)),
-      ...periods.map(p => ({ staff_id: staffId, work_date: date, start_time: p.start_time, end_time: p.end_time })),
+      ...periods.map(p => ({ staff_id: staffId, work_date: date, start_time: p.start_time, end_time: p.end_time, status: statusOf(p) })),
     ])
   }
 
@@ -207,7 +325,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   const hiddenDays = week.dates.length - dates.length
   const staff = week.staff
   const today = format(new Date(), 'yyyy-MM-dd')
-  const minutesFor = staffId => entries.filter(e => e.staff_id === staffId).reduce((s, e) => s + entryMinutes(e, shiftById), 0)
+  const minutesFor = staffId => entries.filter(e => e.staff_id === staffId).reduce((s, e) => s + workedMinutes(e, shiftById), 0)
 
   const cellW = dense ? 'w-11 min-w-[44px]' : 'w-14 min-w-[56px]'
   const nameCol = 'sticky left-0 z-10 bg-background border-r'
@@ -243,6 +361,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
       {canEdit ? (
         <RotaToolbar venueId={venueId} weekStart={weekStart} dirty={dirty} saving={save.isPending}
           onSave={() => save.mutate()} onDiscard={discard} hasEntries={entries.length > 0}
+          onClear={() => setDraft([])}
           extra={exportButtons} />
       ) : exportButtons && (
         <div className="flex justify-end">{exportButtons}</div>
@@ -271,7 +390,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           <table className="border-collapse text-sm">
             <thead>
               <tr className="bg-muted">
-                <th rowSpan={mode === 'day_parts' ? 2 : 1} className={cn(nameCol, 'bg-muted text-left px-3 py-2 font-medium min-w-[140px]')}>Staff</th>
+                <th rowSpan={mode === 'day_parts' ? 2 : 1} className={cn(nameCol, 'bg-muted text-left px-3 py-2 font-medium', canEdit ? 'min-w-[190px]' : 'min-w-[140px]')}>Staff</th>
                 {dates.map(d => (
                   <th key={d} colSpan={mode === 'day_parts' ? shifts.length : 1}
                     className={cn('border-l px-1 py-1.5 font-medium text-center whitespace-nowrap',
@@ -300,34 +419,46 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
               {staff.map(st => (
                 <tr key={st.id}>
                   <td className={cn(nameCol, 'px-3 py-1')}>
-                    <div className={cn('text-sm font-medium truncate max-w-[160px]', !st.is_active && 'text-muted-foreground')}>{st.name}</div>
-                    {st.role_name && <div className="text-[11px] text-muted-foreground truncate max-w-[160px]">{st.role_name}</div>}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className={cn('text-sm font-medium truncate max-w-[160px]', !st.is_active && 'text-muted-foreground')}>{st.name}</div>
+                        {st.role_name && <div className="text-[11px] text-muted-foreground truncate max-w-[160px]">{st.role_name}</div>}
+                      </div>
+                      {canEdit && <ModeButton value={modeFor(st.id)} onChange={v => setMode(st.id, v)} name={st.name} />}
+                    </div>
                   </td>
                   {mode === 'day_parts'
                     ? dates.map(d => shifts.map((s, i) => {
-                        const on = onSet.has(`${st.id}|${d}|${s.id}`)
+                        const status = cellStatus.get(`${st.id}|${d}|${s.id}`)
+                        const label = status ? STATUS_BY_KEY[status].label : 'OFF'
                         return (
                           <td key={`${d}${s.id}`} className={cn('p-0.5 text-center', i === 0 && 'border-l')}>
                             <button type="button" disabled={!canEdit} onClick={() => toggle(st.id, d, s.id)}
-                              aria-pressed={on} aria-label={`${st.name} ${format(parseISO(d), 'EEE')} ${s.name} ${on ? 'on' : 'off'}`}
-                              className={cn(cellW, 'h-11 rounded-md text-xs font-semibold touch-manipulation transition-colors',
-                                on ? 'bg-green-600 text-white' : 'bg-muted/40 text-muted-foreground/60',
-                                canEdit ? (on ? 'hover:bg-green-700' : 'hover:bg-muted') : 'cursor-default')}>
-                              {on ? 'ON' : 'OFF'}
+                              aria-pressed={!!status} aria-label={`${st.name} ${format(parseISO(d), 'EEE')} ${s.name} ${status ? STATUS_BY_KEY[status].name : 'off'}`}
+                              className={cn(cellW, 'h-11 rounded-md font-semibold touch-manipulation transition-colors',
+                                label.length > 3 ? 'text-[10px]' : 'text-xs',
+                                status ? STATUS_CLS[status] : 'bg-muted/40 text-muted-foreground/60',
+                                canEdit ? (!status && 'hover:bg-muted') : 'cursor-default')}>
+                              {label}
                             </button>
                           </td>
                         )
                       }))
                     : dates.map(d => {
                         const periods = periodsByCell[`${st.id}|${d}`] ?? []
+                        const tone = periods.some(p => statusOf(p) === 'on') ? 'on' : (periods[0] ? statusOf(periods[0]) : null)
                         return (
                           <td key={d} className="border-l p-0.5 align-top">
                             <button type="button" disabled={!canEdit} onClick={() => setEditingCell({ staff: st, date: d })}
                               className={cn('w-full min-w-[92px] min-h-[44px] rounded-md px-1.5 py-1 text-xs tabular-nums text-left touch-manipulation',
-                                periods.length ? 'bg-green-600/10 text-green-900' : 'text-muted-foreground/60',
+                                tone ? STATUS_SOFT[tone] : 'text-muted-foreground/60',
                                 canEdit ? 'hover:bg-muted' : 'cursor-default')}>
                               {periods.length
-                                ? periods.map((p, i) => <div key={i} className="whitespace-nowrap">{hhmm(p.start_time)}–{hhmm(p.end_time)}</div>)
+                                ? periods.map((p, i) => (
+                                    <div key={i} className="whitespace-nowrap flex items-center gap-1">
+                                      {hhmm(p.start_time)}–{hhmm(p.end_time)} <StatusBadge status={statusOf(p)} />
+                                    </div>
+                                  ))
                                 : (canEdit ? <span className="flex items-center justify-center h-8"><Plus className="w-4 h-4" /></span> : null)}
                             </button>
                           </td>
@@ -345,15 +476,15 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
                 {mode === 'day_parts'
                   ? dates.map(d => shifts.map((s, i) => (
                       <td key={`${d}${s.id}`} className={cn('text-center py-1.5 tabular-nums', i === 0 && 'border-l')}>
-                        {staff.filter(st => onSet.has(`${st.id}|${d}|${s.id}`)).length || ''}
+                        {staff.filter(st => cellStatus.get(`${st.id}|${d}|${s.id}`) === 'on').length || ''}
                       </td>
                     )))
                   : dates.map(d => {
-                      const mins = entries.filter(e => e.work_date === d).reduce((s, e) => s + entryMinutes(e, shiftById), 0)
+                      const mins = entries.filter(e => e.work_date === d).reduce((s, e) => s + workedMinutes(e, shiftById), 0)
                       return <td key={d} className="border-l text-center py-1.5 tabular-nums">{mins ? fmtHours(mins / 60) : ''}</td>
                     })}
                 <td className="border-l px-2 py-1.5 text-right tabular-nums font-medium">
-                  {fmtHours(entries.reduce((s, e) => s + entryMinutes(e, shiftById), 0) / 60)}
+                  {fmtHours(entries.reduce((s, e) => s + workedMinutes(e, shiftById), 0) / 60)}
                 </td>
               </tr>
             </tfoot>
@@ -365,6 +496,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           staff={editingCell.staff} date={editingCell.date} step={step}
           shifts={(week.shifts ?? []).filter(s => s.is_active)}
           initial={periodsByCell[`${editingCell.staff.id}|${editingCell.date}`] ?? []}
+          defaultStatus={modeFor(editingCell.staff.id)}
           onApply={periods => { setPeriods(editingCell.staff.id, editingCell.date, periods); setEditingCell(null) }}
           onClose={() => setEditingCell(null)} />
       )}
@@ -372,11 +504,12 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   )
 }
 
-function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, hasEntries, extra }) {
+function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, onClear, hasEntries, extra }) {
   const api = useApi()
   const qc = useQueryClient()
   const [copyFrom, setCopyFrom] = useState('')
   const [confirming, setConfirming] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
   const weeks = useMemo(
     () => Array.from({ length: 8 }, (_, i) => getMonday(subWeeks(parseISO(weekStart), i + 1))),
     [weekStart],
@@ -397,6 +530,21 @@ function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, has
         className="h-11 px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center gap-1.5">
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} Save rota
       </button>
+      {/* Clearing only empties the draft; nothing is removed until Save. */}
+      {!confirmClear ? (
+        <button type="button" onClick={() => setConfirmClear(true)} disabled={!hasEntries}
+          className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted disabled:opacity-50 flex items-center gap-1.5">
+          <Eraser className="w-4 h-4" /> Clear rota
+        </button>
+      ) : (
+        <span className="inline-flex items-center gap-1">
+          <span className="text-xs text-muted-foreground">Clear everyone this week?</span>
+          <button type="button" onClick={() => { onClear(); setConfirmClear(false) }}
+            className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Yes, clear</button>
+          <button type="button" onClick={() => setConfirmClear(false)}
+            className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Cancel</button>
+        </span>
+      )}
       {dirty && (
         <>
           <button type="button" onClick={onDiscard}
@@ -433,8 +581,8 @@ function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, has
   )
 }
 
-function PeriodEditor({ staff, date, step, shifts, initial, onApply, onClose }) {
-  const [periods, setPeriods] = useState(() => initial.map(p => ({ start_time: hhmm(p.start_time), end_time: hhmm(p.end_time) })))
+function PeriodEditor({ staff, date, step, shifts, initial, defaultStatus = 'on', onApply, onClose }) {
+  const [periods, setPeriods] = useState(() => initial.map(p => ({ start_time: hhmm(p.start_time), end_time: hhmm(p.end_time), status: statusOf(p) })))
   const problem = periodProblem(periods)
   const update = (i, patch) => setPeriods(ps => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)))
 
@@ -443,7 +591,7 @@ function PeriodEditor({ staff, date, step, shifts, initial, onApply, onClose }) 
     const start = last ? hhmm(last.end_time) : '09:00'
     const endMin = (toMin(start) + 4 * 60) % 1440
     const end = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`
-    setPeriods(ps => [...ps, { start_time: start, end_time: end }])
+    setPeriods(ps => [...ps, { start_time: start, end_time: end, status: defaultStatus }])
   }
 
   return (
@@ -464,7 +612,7 @@ function PeriodEditor({ staff, date, step, shifts, initial, onApply, onClose }) 
           <div className="flex flex-wrap gap-1.5">
             {shifts.map(s => (
               <button key={s.id} type="button"
-                onClick={() => setPeriods(ps => [...ps, { start_time: hhmm(s.start_time), end_time: hhmm(s.end_time) }])}
+                onClick={() => setPeriods(ps => [...ps, { start_time: hhmm(s.start_time), end_time: hhmm(s.end_time), status: defaultStatus }])}
                 className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted">
                 {s.name} <span className="text-xs text-muted-foreground tabular-nums">{hhmm(s.start_time)}–{hhmm(s.end_time)}</span>
               </button>
@@ -473,7 +621,7 @@ function PeriodEditor({ staff, date, step, shifts, initial, onApply, onClose }) 
         </div>
       )}
       <div className="space-y-2">
-        <p className="text-xs font-medium text-muted-foreground">Worked periods</p>
+        <p className="text-xs font-medium text-muted-foreground">Periods (working or time off)</p>
         {periods.length === 0 && <p className="text-sm text-muted-foreground">Off this day.</p>}
         {periods.map((p, i) => (
           <div key={i} className="flex flex-wrap items-center gap-2">
@@ -483,6 +631,10 @@ function PeriodEditor({ staff, date, step, shifts, initial, onApply, onClose }) 
             <span className="text-xs text-muted-foreground tabular-nums">
               {hhmm(p.start_time) !== hhmm(p.end_time) ? fmtHours(rangeMinutes(p.start_time, p.end_time) / 60) : ''}
             </span>
+            <select value={statusOf(p)} onChange={e => update(i, { status: e.target.value })} aria-label="Working or time off"
+              className={cn('h-11 rounded-lg border px-2 text-xs font-semibold touch-manipulation', STATUS_SOFT[statusOf(p)])}>
+              {ENTRY_STATUSES.map(s => <option key={s.key} value={s.key}>{s.label} · {s.name}</option>)}
+            </select>
             <button type="button" onClick={() => setPeriods(ps => ps.filter((_, j) => j !== i))} aria-label="Remove period"
               className="w-11 h-11 ml-auto flex items-center justify-center rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 touch-manipulation">
               <Trash2 className="w-4 h-4" />
@@ -507,7 +659,16 @@ export function RotaDayList({ venueId, weekStart, day }) {
   const { data: week, isLoading } = useRotaWeek(venueId, weekStart)
   if (isLoading || !week) return <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
   const staffById = Object.fromEntries(week.staff.map(s => [s.id, s]))
-  const dayEntries = week.entries.filter(e => e.work_date === day)
+  const allDay = week.entries.filter(e => e.work_date === day)
+  const dayEntries = allDay.filter(e => statusOf(e) === 'on')
+  // One line per person off that day, with every kind of time off they have.
+  const away = Object.values(allDay.filter(e => statusOf(e) !== 'on').reduce((m, e) => {
+    const person = staffById[e.staff_id]
+    if (!person) return m
+    const row = (m[e.staff_id] ??= { person, statuses: new Set() })
+    row.statuses.add(statusOf(e))
+    return m
+  }, {}))
   const byShift = week.shifts
     .map(s => ({ shift: s, people: dayEntries.filter(e => e.shift_id === s.id).map(e => staffById[e.staff_id]).filter(Boolean) }))
     .filter(g => g.people.length)
@@ -515,8 +676,26 @@ export function RotaDayList({ venueId, weekStart, day }) {
     .sort((a, b) => toMin(a.start_time) - toMin(b.start_time))
     .map(e => ({ ...e, person: staffById[e.staff_id] })).filter(e => e.person)
 
+  const awayList = away.length > 0 && (
+    <div>
+      <p className="text-xs font-semibold text-muted-foreground mb-1">Off · {away.length}</p>
+      <ul className="divide-y rounded-lg border">
+        {away.map(({ person, statuses }) => (
+          <li key={person.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+            <span className="flex-1 min-w-0 truncate">{person.name}</span>
+            {[...statuses].map(k => <StatusBadge key={k} status={k} />)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
   if (!byShift.length && !periods.length) {
-    return <p className="text-sm text-muted-foreground py-4 text-center">Nobody on the rota for {format(parseISO(day), 'EEEE d MMM')}.</p>
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground py-4 text-center">Nobody working on {format(parseISO(day), 'EEEE d MMM')}.</p>
+        {awayList}
+      </div>
+    )
   }
   return (
     <div className="space-y-3">
@@ -549,6 +728,7 @@ export function RotaDayList({ venueId, weekStart, day }) {
           </ul>
         </div>
       )}
+      {awayList}
     </div>
   )
 }
@@ -629,7 +809,14 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
                     {r.pay_type === 'hourly' ? 'Hourly' : `Fixed / ${r.pay_basis}`}
                     {r.days_worked ? ` · ${r.days_worked} day${r.days_worked === 1 ? '' : 's'}` : ''}
                   </td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{fmtHours(r.hours)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {fmtHours(r.hours)}
+                    {ENTRY_STATUSES.slice(1).filter(s => r.absence_hours?.[s.key] > 0).map(s => (
+                      <div key={s.key} className="text-[10px] text-muted-foreground whitespace-nowrap">
+                        {s.label} {fmtHours(r.absence_hours[s.key])}{s.key === 'pto' ? ' paid' : ''}
+                      </div>
+                    ))}
+                  </td>
                   <td className="px-3 py-1.5 text-right whitespace-nowrap">
                     {editing === r.staff_id ? (
                       <MoneyEdit value={r.pay_override} placeholder={String(r.computed_pay)} saving={override.isPending}
@@ -679,6 +866,7 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
         </div>
       )}
       <p className="text-[11px] text-muted-foreground">
+        Hours are hours worked. Paid time off (PTO) is paid like the shift; SICK, UTO and ABS are unpaid, and none of them earn tip points.
         Tap a pay figure to override it for this week. Filling wages updates rostered people's wage rows (a row already marked Paid stays paid) and adds anyone missing; tips are not added to wages.
       </p>
     </div>

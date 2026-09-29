@@ -1600,7 +1600,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['rota_settings', 'One row per tenant: mode (day_parts | hourly), slot_minutes (15 | 30 | 60), tip_round_to (numeric, null = to the penny) and tip_round_mode (nearest | up | down), migration 107; hide_closed_on_rota and hide_closed_on_print (booleans, default false), migration 110; hide_totals_on_print (boolean, default false), migration 114. Missing row = day_parts / 30 / no rounding / show every day.'],
                 ['rota_shifts', 'Day parts: name, start_time, end_time (end <= start runs past midnight), points, sort_order, is_active. Deleting a shift used by any entry only hides it.'],
                 ['staff_shift_rates', 'Per staff per shift rate (PK staff_id, shift_id): hourly rate for hourly staff, amount per shift for fixed/shift staff. Replaced wholesale by the staff PATCH shift_rates array.'],
-                ['rota_entries', 'venue_id, staff_id, work_date, and either shift_id (day-part tick) or start_time + end_time (hourly period); CHECK enforces one or the other. Partial unique index on (staff_id, work_date, shift_id).'],
+                ['rota_entries', 'venue_id, staff_id, work_date, and either shift_id (day-part tick) or start_time + end_time (hourly period); CHECK enforces one or the other. Partial unique index on (staff_id, work_date, shift_id). status (text, default on, CHECK on | sick | pto | uto | abs), migration 129: working or a kind of time off.'],
                 ['tip_pots', 'Migration 108. Tenant-wide pots: name, distribution (house | points | manual), sort_order, is_active; surcharges (jsonb array of { name, pct 0-100 }, in the order applied, default []), migration 116; it replaced the single surcharge_name + surcharge_pct, which 116 copied into the array and dropped. PotBody takes surcharges (max 10); blank names are stored as null and 0% rows dropped (cleanSurcharges), written with tx.json. cash_sc_sources.tip_pot_id (ON DELETE SET NULL) says which pot a Cash Recon source feeds; it replaced cash_sc_sources.distribution (house/staff/split), which only ever fed the old single rota pot.'],
                 ['tip_pot_lines', 'Named manual lines per pot (cascade). kind (amount | percent, migration 115). Values per venue week in rota_week_pot_lines (PK venue_id, week_start, line_id): £ for amount lines, % for percent lines; either may be negative (migration 115 dropped the amount >= 0 check).'],
                 ['rota_week_pot_manual', 'Manual distribution: amount per venue, week, pot and staff. Replaced per pot by PUT .../pots/:potId/manual.'],
@@ -1616,14 +1616,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['PATCH /settings; POST/PATCH/DELETE /shifts[/:id]; PUT /shifts/reorder; same for /roles', 'staff manage', ''],
                 ['GET/POST/PATCH/DELETE /venues/:venueId/staff[/:id]; PUT .../staff/reorder', 'staff', 'Staff with wage or rota history are deactivated, not deleted.'],
                 ['GET /venues/:venueId/weeks/:week', 'rota view', 'week_start, dates, open_dates, settings, shifts, staff (active plus anyone with entries), entries. :week may be any date; it snaps to Monday. open_dates is null when the venue has no venue_schedule_templates rows (nothing is hidden), otherwise the open dates from resolveOpenDaysForWeek().'],
-                ['PUT .../weeks/:week/entries', 'rota manage', 'Whole-week replace (both modes). 400 for a date outside the week, 422 for overlapping periods for one person on one day; duplicate shift ticks are dropped.'],
-                ['POST .../weeks/:week/copy { from_week }', 'rota manage', 'Replaces the week with another week\'s entries, shifted by whole weeks.'],
+                ['PUT .../weeks/:week/entries', 'rota manage', 'Whole-week replace (both modes). Each entry takes status (default on). The Clear rota button just saves an empty list. 400 for a date outside the week, 422 for overlapping periods for one person on one day; duplicate shift ticks are dropped.'],
+                ['POST .../weeks/:week/copy { from_week }', 'rota manage', 'Replaces the week with another week\'s worked (status on) entries, shifted by whole weeks. Time off is never copied; 422 when the source week has nobody working.'],
                 ['GET .../weeks/:week/pay', 'rota_pay or rota_tips view', 'computeRotaWeek result: rows (incl. pot_shares / pot_shares_exact by pot id, tip_share total), pots (sources, lines, total, distributed, difference, kept_by_house), totals (hours, pay, points, tips_in, tips_shared, kept_by_house), tip_rounding.'],
                 ['GET /setup pots; GET /sc-sources; POST/PATCH/DELETE /pots[/:id]; PUT /pots/reorder; PUT /pots/:id/sources { source_ids }; POST /pots/:id/lines; PATCH/DELETE /pot-lines/:id; PUT /pots/:id/lines/reorder', 'staff', 'Tip pot setup. Listing a source in PUT sources moves it from any other pot; sources no longer listed are unassigned. Deleting a pot unassigns its sources and cascades its lines and weekly amounts.'],
                 ['PUT .../weeks/:week/pot-lines { amounts: [{ line_id, amount }] }; PUT .../weeks/:week/pots/:potId/manual { amounts: [{ staff_id, amount }] }', 'rota_tips manage', 'Weekly manual line values (null clears; may be negative; percent lines 400 outside -100..100) and manual shares (422 unless the pot is manual). Both return the recomputed pay payload. POST /pots/:id/lines takes { name, kind }.'],
                 ['PATCH .../staff/:staffId { pay_override }, POST .../tip-moves { kind, action (move | add | remove, default move), from_staff_id (move only), lines: [{ to_staff_id, amount }], note (required for add / remove) }, DELETE .../tip-moves/:id, POST .../reset-moves { kind: points | money | all }', 'rota_pay manage (pay override); rota_tips manage (moves, reset)', 'Each returns the recomputed pay payload (which includes moves: each with from_name, lines with names, total). A move whose lines add up to more than the giver has now (points, or tip_share for money) is 422, and so is a remove line bigger than that person\'s balance; moving to yourself or listing a person twice is 400. The UI (TipMoveModal in rota.jsx) turns equal / by amount / by % into final amounts with splitEvenly() / splitByPercent(), which work in hundredths so the lines add up exactly.'],
                 ['POST .../tip-nudge { staff_id, direction: plus | minus }; POST .../reset-unallocated', 'rota_tips manage', 'Moves 0.50 (NUDGE_STEP in rota.js) between the person\'s tip total and the week\'s unallocated pot by adding -0.50 / +0.50 to rota_week_staff.tip_unallocated. Minus is 422 when the person\'s tip_share is under 0.50, plus is 422 when totals.tips_unallocated is under 0.50. A pg_advisory_xact_lock on the venue week serialises rapid taps so two can\'t pass the same balance check. reset-unallocated sets every nudge back to 0. computeRotaWeek() adds tip_unallocated into tip_share and reports totals.tips_unallocated = -sum of nudges; the UI is NudgeTotal in rota.jsx.'],
-                ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header (422 if submitted), updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Hourly people get hours and rate = pay / hours; everyone else a fixed total. Tips are not written.'],
+                ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header (422 if submitted), updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Hourly people get hours = paid_hours (worked + PTO) and rate = pay / paid_hours; everyone else a fixed total. Tips are not written.'],
               ]}
             />
             <H3>Calculation (services/rotaCalc.js)</H3>
@@ -1633,12 +1633,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               and, for each shift it overlaps, that shift in proportion (overlap / shift length);
               minutes outside every shift count as hours but earn no points.
             </P>
+            <P>
+              Entry status (migration 129): only <Mono>on</Mono> entries count as hours worked, days
+              worked, shift fractions and points. <Mono>pto</Mono> is paid exactly like working it
+              (hourly minutes, and it counts as a day for fixed / day and as having an entry for fixed /
+              week). <Mono>sick</Mono>, <Mono>uto</Mono> and <Mono>abs</Mono> are unpaid. Each row
+              reports hours (worked), paid_hours (on + pto), paid_days and absence_hours{' '}
+              <Mono>{'{ sick, pto, uto, abs }'}</Mono>; totals add paid_hours.
+            </P>
             <DataTable
               head={['Figure', 'Rule']}
               rows={[
                 ['Hourly pay', 'Minutes in a shift at that shift\'s staff_shift_rates rate (else default_rate); minutes outside any shift at default_rate.'],
-                ['Fixed / week', 'default_rate if the person has any entry that week.'],
-                ['Fixed / day', 'default_rate x distinct days worked.'],
+                ['Fixed / week', 'default_rate if the person has any on or pto entry that week.'],
+                ['Fixed / day', 'default_rate x distinct days with an on or pto entry.'],
                 ['Fixed / shift', 'Sum of (shift amount x fraction worked); shift amount = staff_shift_rates rate, else default_rate.'],
                 ['Pay override', 'rota_week_staff.pay_override replaces the computed pay for that week.'],
                 ['Points', 'Sum of shift.points x fraction x role multiplier (1 with no role), plus points_adjustment (sum of point moves in minus out), floored at 0.'],
@@ -1655,7 +1663,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               saves it with one PUT. Drafts are kept in a module-level <Mono>draftCache</Mono> keyed
               by venue, week and mode, so switching weeks does not lose edits; saving or discarding
               clears it. Entries from the other mode are counted in a notice and are replaced on
-              save. Hourly cells open <Mono>PeriodEditor</Mono>, which validates overlap client-side
+              save. Each name has a <Mono>ModeButton</Mono> (per-person tap mode, module-level{' '}
+              <Mono>modeCache</Mono>, menu portalled to body so the sticky name cells don't cover it);
+              a day-part tap adds an entry with that status, removes one already in that status, or
+              switches another status to it. Status codes, names and print colours live in{' '}
+              <Mono>ENTRY_STATUSES</Mono> in rotaExport.js (grid colours in <Mono>STATUS_CLS</Mono>{' '}
+              in rota.jsx). Hourly cells open <Mono>PeriodEditor</Mono>, which validates overlap client-side
               with the same rule as the API (<Mono>periodProblem()</Mono>). Permissions come from{' '}
               <Mono>/me</Mono> via <Mono>useRotaPerms()</Mono>.
             </P>
