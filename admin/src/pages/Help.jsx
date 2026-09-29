@@ -2659,7 +2659,7 @@ export default function Help() {
               rows={[
                 ['Name, description', "What guests see in the basket, on the order page and on their receipt email."],
                 ['Order discount', "A % or an amount off the whole order."],
-                ['Dish discount', "A % or an amount off each of the dishes you pick (tick single dishes, or Whole section so dishes added to that section later count too). Every dish covers the whole menu."],
+                ['Dish discount', "A % or an amount off each of the dishes you pick. Tap Choose dishes to open the menu: tick single dishes, or Whole section so dishes added to that section later count too, then Done (Cancel drops the ticks). What you picked shows as tags you can remove with the x. Every dish covers the whole menu."],
                 ['Buy X get Y', "For every X + Y of the chosen dishes, the Y cheapest are free (or a % off). Buy 1 get 1 free, 3 for 2 (buy 2 get 1), half-price second dish."],
                 ['Free dish', "Once the order qualifies (for example a minimum spend), one of the dishes you pick is free, or a % off. Pick a whole section such as Desserts to let guests choose. The basket tells guests they have earned it, with a Choose button that takes them to the dishes. The free dish doesn't count towards the minimum spend. More than one free, or the cheapest of several: set How many."],
                 ['Meal deal', "Parts, each with a name, how many and which dishes count (for example Starter from the Starters section, Main from Mains, Drink from Soft drinks), and a price. Every complete set in the basket costs the deal price; the dearest dishes that fit are used so guests save the most, and anything extra is at full price. A guest with part of a deal sees 'Add Drink to get Lunch deal' with a button to the drinks."],
@@ -2673,7 +2673,7 @@ export default function Help() {
                 ['Promo code', "Only applies when the guest types the code (any capitals). Generate makes a random one. Codes are never shown on your site unless you put them in a Promo block."],
                 ['Number of uses', "How many orders can use it in total. Cancelled, rejected and unpaid-then-expired orders give their use back. The list shows uses so far and the total discount given."],
                 ['Dates and times', "When it runs, the same way as menu times: From / Until dates and days with hours (happy hour, lunch deal). Checked when the guest places the order."],
-                ['Venues', "All venues, or only the ones you pick."],
+                ['Venues', "All venues, or only the ones you pick. Only your own restaurant group's venues are listed."],
                 ["Can't be combined", "It only applies if no promotion above it in the list already has, and then nothing below it applies."],
               ]}
             />

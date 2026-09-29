@@ -18,8 +18,12 @@ const PROMO_COLS = `
   p.max_discount_pence, p.apply_mode, p.code, p.max_uses, p.schedule, p.venue_ids,
   p.exclusive, p.sort_order, p.bundle, p.bundle_price_pence, p.tiers, p.created_at, p.updated_at`
 
-/** Every promotion of the tenant, with uses and total discount so far. */
-export async function listPromotions(tx) {
+/**
+ * Every promotion of the tenant, with uses and total discount so far.
+ * Filters by tenant_id itself: RLS alone is not enough (the app's database
+ * role may bypass it), same as every other route.
+ */
+export async function listPromotions(tx, tenantId) {
   return tx.unsafe(`
     SELECT ${PROMO_COLS},
            COALESCE(u.uses, 0)::int AS uses,
@@ -30,8 +34,9 @@ export async function listPromotions(tx) {
           FROM order_promotions op JOIN orders o ON o.id = op.order_id
          WHERE op.promotion_id = p.id AND o.status <> ALL($1::text[])
       ) u ON true
+     WHERE p.tenant_id = $2
      ORDER BY p.sort_order, p.created_at
-  `, [FREE_STATUSES])
+  `, [FREE_STATUSES, tenantId])
 }
 
 /**
@@ -39,8 +44,9 @@ export async function listPromotions(tx) {
  * this venue, not ended (date range) and not used up. `today` is the
  * venue-local date.
  */
-export async function venuePromotions(tx, venueId, today) {
-  const rows = await listPromotions(tx)
+export async function venuePromotions(tx, venue, today) {
+  const venueId = venue.id
+  const rows = await listPromotions(tx, venue.tenant_id)
   return rows.filter(p => p.is_active
     && (!p.venue_ids?.length || p.venue_ids.includes(venueId))
     && !(p.schedule?.until && p.schedule.until < today)
@@ -77,11 +83,11 @@ export function findByCode(promos, code) {
  * a use limit and make sure each still has a use left. Returns the name of
  * the first one that has run out, or null.
  */
-export async function lockUses(tx, promoIds) {
+export async function lockUses(tx, tenantId, promoIds) {
   if (!promoIds.length) return null
   const rows = await tx`
     SELECT id, name, max_uses FROM promotions
-     WHERE id = ANY(${promoIds}::uuid[]) AND max_uses IS NOT NULL
+     WHERE id = ANY(${promoIds}::uuid[]) AND tenant_id = ${tenantId} AND max_uses IS NOT NULL
      ORDER BY id
        FOR UPDATE
   `

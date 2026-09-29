@@ -94,10 +94,10 @@ function clean(b) {
   return p
 }
 
-async function codeTaken(tx, code, exceptId = null) {
+async function codeTaken(tx, tenantId, code, exceptId = null) {
   if (!code) return false
   const [row] = await tx`
-    SELECT id FROM promotions WHERE lower(code) = lower(${code}) AND (${exceptId}::uuid IS NULL OR id <> ${exceptId}::uuid) LIMIT 1
+    SELECT id FROM promotions WHERE tenant_id = ${tenantId} AND lower(code) = lower(${code}) AND (${exceptId}::uuid IS NULL OR id <> ${exceptId}::uuid) LIMIT 1
   `
   return !!row
 }
@@ -120,14 +120,14 @@ export default async function promotionsRoutes(app) {
   const manage = requirePermission('promotions', 'manage')
 
   app.get('/', { preHandler: view }, async (req) =>
-    withTenant(req.tenantId, tx => listPromotions(tx)))
+    withTenant(req.tenantId, tx => listPromotions(tx, req.tenantId)))
 
   app.get('/catalog', { preHandler: view }, async (req) => withTenant(req.tenantId, async tx => {
     const [menus, sections, items, venues] = await Promise.all([
-      tx`SELECT id, name FROM menus ORDER BY name`,
-      tx`SELECT id, menu_id, title FROM menu_sections ORDER BY menu_id, sort_order`,
-      tx`SELECT i.id, i.section_id, i.name FROM menu_items i ORDER BY i.section_id, i.sort_order`,
-      tx`SELECT id, name FROM venues WHERE is_active = true ORDER BY name`,
+      tx`SELECT id, name FROM menus WHERE tenant_id = ${req.tenantId} ORDER BY name`,
+      tx`SELECT id, menu_id, title FROM menu_sections WHERE tenant_id = ${req.tenantId} ORDER BY menu_id, sort_order`,
+      tx`SELECT i.id, i.section_id, i.name FROM menu_items i WHERE i.tenant_id = ${req.tenantId} ORDER BY i.section_id, i.sort_order`,
+      tx`SELECT id, name FROM venues WHERE tenant_id = ${req.tenantId} AND is_active = true ORDER BY name`,
     ])
     const bySection = {}
     for (const i of items) (bySection[i.section_id] ||= []).push({ id: i.id, name: i.name })
@@ -139,8 +139,8 @@ export default async function promotionsRoutes(app) {
   app.post('/', { preHandler: manage }, async (req, reply) => {
     const p = clean(PromoBody.parse(req.body || {}))
     const row = await withTenant(req.tenantId, async tx => {
-      if (await codeTaken(tx, p.code)) throw httpError(409, 'Another promotion already uses that code')
-      const [{ next }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM promotions`
+      if (await codeTaken(tx, req.tenantId, p.code)) throw httpError(409, 'Another promotion already uses that code')
+      const [{ next }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM promotions WHERE tenant_id = ${req.tenantId}`
       const [r] = await tx`INSERT INTO promotions ${tx({ ...rowOf(tx, p), tenant_id: req.tenantId, sort_order: next })} RETURNING id`
       return r
     })
@@ -151,8 +151,8 @@ export default async function promotionsRoutes(app) {
     if (!uuid.safeParse(req.params.id).success) throw httpError(404, 'Promotion not found')
     const p = clean(PromoBody.parse(req.body || {}))
     return withTenant(req.tenantId, async tx => {
-      if (await codeTaken(tx, p.code, req.params.id)) throw httpError(409, 'Another promotion already uses that code')
-      const [r] = await tx`UPDATE promotions SET ${tx(rowOf(tx, p))} WHERE id = ${req.params.id} RETURNING id`
+      if (await codeTaken(tx, req.tenantId, p.code, req.params.id)) throw httpError(409, 'Another promotion already uses that code')
+      const [r] = await tx`UPDATE promotions SET ${tx(rowOf(tx, p))} WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} RETURNING id`
       if (!r) throw httpError(404, 'Promotion not found')
       return r
     })
@@ -162,7 +162,7 @@ export default async function promotionsRoutes(app) {
     if (!uuid.safeParse(req.params.id).success) throw httpError(404, 'Promotion not found')
     const { is_active } = z.object({ is_active: z.boolean() }).parse(req.body || {})
     return withTenant(req.tenantId, async tx => {
-      const [r] = await tx`UPDATE promotions SET is_active = ${is_active} WHERE id = ${req.params.id} RETURNING id, is_active`
+      const [r] = await tx`UPDATE promotions SET is_active = ${is_active} WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} RETURNING id, is_active`
       if (!r) throw httpError(404, 'Promotion not found')
       return r
     })
@@ -171,14 +171,14 @@ export default async function promotionsRoutes(app) {
   app.patch('/reorder', { preHandler: manage }, async (req) => {
     const { ids } = z.object({ ids: z.array(uuid).max(500) }).parse(req.body || {})
     await withTenant(req.tenantId, async tx => {
-      for (const [i, id] of ids.entries()) await tx`UPDATE promotions SET sort_order = ${i} WHERE id = ${id}`
+      for (const [i, id] of ids.entries()) await tx`UPDATE promotions SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId}`
     })
     return { ok: true }
   })
 
   app.delete('/:id', { preHandler: manage }, async (req) => {
     if (!uuid.safeParse(req.params.id).success) throw httpError(404, 'Promotion not found')
-    await withTenant(req.tenantId, tx => tx`DELETE FROM promotions WHERE id = ${req.params.id}`)
+    await withTenant(req.tenantId, tx => tx`DELETE FROM promotions WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`)
     return { ok: true }
   })
 }
