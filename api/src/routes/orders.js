@@ -28,9 +28,22 @@ import {
   changeStatus, changePromisedTime, markPaid, refundOrder,
 } from '../services/orderSvc.js'
 import { broadcast } from '../config/ws.js'
+import { isScheduled, scheduleProblem } from '../../../shared/menuSchedule.js'
 
 const uuid = z.string().uuid()
 const hm = z.string().regex(/^\d{2}:\d{2}$/)
+const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+
+// shared/menuSchedule.js has the rules; migration 130.
+const MenuSchedule = z.object({
+  from:  ymd.nullable().optional(),
+  until: ymd.nullable().optional(),
+  times: z.array(z.object({
+    days:  z.array(z.number().int().min(0).max(6)).max(7),
+    start: hm,
+    end:   hm,
+  })).max(14).default([]),
+})
 
 const SettingsBody = z.object({
   is_enabled:              z.boolean(),
@@ -41,6 +54,7 @@ const SettingsBody = z.object({
     windows: z.array(z.object({ open: hm, close: hm })).max(6).default([]),
   })).max(7),
   menu_ids:                z.array(uuid).max(20).default([]),
+  menu_schedules:          z.record(uuid, MenuSchedule).default({}),
   allow_asap:              z.boolean().default(true),
   lead_time_mins:          z.number().int().min(0).max(240),
   slot_interval_mins:      z.union([z.literal(5), z.literal(10), z.literal(15), z.literal(20), z.literal(30), z.literal(60)]),
@@ -111,23 +125,37 @@ export default async function ordersRoutes(app) {
         if (w.close < w.open) throw httpError(400, 'An ordering window closes before it opens')
       }
     }
+    // Keep only schedules of chosen menus, and only ones that say something.
+    const schedules = {}
+    for (const id of b.menu_ids) {
+      const sc = b.menu_schedules[id]
+      if (!isScheduled(sc)) continue
+      schedules[id] = { from: sc.from || null, until: sc.until || null,
+        times: sc.times.map(t => ({ days: [...new Set(t.days)].sort(), start: t.start, end: t.end })) }
+    }
     const row = await withTenant(req.tenantId, async tx => {
-      await venueOf(tx, req.params.venueId)
+      const venue = await venueOf(tx, req.params.venueId)
+      if (Object.keys(schedules).length) {
+        const menus = await tx`SELECT id, name FROM menus WHERE id = ANY(${Object.keys(schedules)}::uuid[])`
+        const today = localParts(new Date(), venue.timezone || 'Europe/London').date
+        const problem = scheduleProblem(b.menu_ids, schedules, Object.fromEntries(menus.map(m => [m.id, m.name])), today)
+        if (problem) throw httpError(422, problem)
+      }
       const [s] = await tx`
-        INSERT INTO ordering_settings (venue_id, tenant_id, is_enabled, is_paused, pause_message, hours, menu_ids,
+        INSERT INTO ordering_settings (venue_id, tenant_id, is_enabled, is_paused, pause_message, hours, menu_ids, menu_schedules,
                                        allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot, max_days_ahead,
                                        min_order_pence, auto_accept, default_vat_rate_takeaway, default_vat_rate_eat_in,
                                        tips_enabled, tip_percents,
                                        payment_methods, collection_instructions, confirmation_note)
         VALUES (${req.params.venueId}, ${req.tenantId}, ${b.is_enabled}, ${b.is_paused}, ${b.pause_message ?? null},
-                ${tx.json(b.hours)}, ${b.menu_ids}::uuid[],
+                ${tx.json(b.hours)}, ${b.menu_ids}::uuid[], ${tx.json(schedules)},
                 ${b.allow_asap}, ${b.lead_time_mins}, ${b.slot_interval_mins}, ${b.max_orders_per_slot}, ${b.max_days_ahead},
                 ${b.min_order_pence}, ${b.auto_accept}, ${b.default_vat_rate_takeaway}, ${b.default_vat_rate_eat_in},
                 ${b.tips_enabled}, ${b.tip_percents}::int[],
                 ${methods}::text[], ${b.collection_instructions ?? null}, ${b.confirmation_note ?? null})
         ON CONFLICT (venue_id) DO UPDATE SET
           is_enabled = EXCLUDED.is_enabled, is_paused = EXCLUDED.is_paused, pause_message = EXCLUDED.pause_message,
-          hours = EXCLUDED.hours, menu_ids = EXCLUDED.menu_ids, allow_asap = EXCLUDED.allow_asap,
+          hours = EXCLUDED.hours, menu_ids = EXCLUDED.menu_ids, menu_schedules = EXCLUDED.menu_schedules, allow_asap = EXCLUDED.allow_asap,
           lead_time_mins = EXCLUDED.lead_time_mins, slot_interval_mins = EXCLUDED.slot_interval_mins,
           max_orders_per_slot = EXCLUDED.max_orders_per_slot, max_days_ahead = EXCLUDED.max_days_ahead,
           min_order_pence = EXCLUDED.min_order_pence, auto_accept = EXCLUDED.auto_accept,

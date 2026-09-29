@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering: menu times and scheduled menu changes]
+
+**Migration 130.**
+
+- Ordering setup: each chosen menu has **Set times and dates**. Give it times of day per weekday (for example lunch Mon to Fri 11:00 to 15:00), and From / Until dates to schedule a menu change ahead.
+- Menus with times or dates can't overlap each other: Save stays off with a message naming the two menus until they don't. A menu with neither (such as drinks) stays available all the time alongside them.
+- Guests see when each menu is served. At checkout they're only offered collection times when every dish in the basket is served, and placing the order checks it again. A menu whose dates haven't started or have ended isn't shown.
+
+---
+
 ## [2026-09-29 — Rota: sickness and time off, Clear rota, print margins]
 
 **Migration 129.**

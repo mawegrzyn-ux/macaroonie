@@ -2379,7 +2379,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'Notes']}
               rows={[
-                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[], allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, default_vat_rate_takeaway + default_vat_rate_eat_in, tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note. No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
+                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[], menu_schedules jsonb (migration 130, { menuId: { from, until, times: [{ days, start, end }] } }, see Menu schedules below), allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, default_vat_rate_takeaway + default_vat_rate_eat_in, tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note. No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
                 ['ordering_item_availability', "Per-venue sold out: (venue_id, item_id, sold_out_until). NULL until = until turned back on. item_id has no FK because menu saves re-insert items (with the same ids since migration 121)."],
                 ['orders', "service_date (venue-local collection day) + order_number (1, 2, 3 per venue per day, UNIQUE) under pg_advisory_xact_lock on venue + day. public_token is the guest key (status page, like manage_token). status: pending_payment, placed, accepted, preparing, ready, completed, rejected, cancelled, expired. promised_at is the ready time (ASAP or the chosen slot). Money in pence: subtotal, tip, total, vat (VAT-inclusive), paid, refunded; payment_status unpaid | pending | paid | failed | partially_refunded | refunded."],
                 ['order_items', "Copies name, options [{ group, label, price_pence, mode }], unit and line totals, vat_rate and vat_pence at the time of ordering. menu_item_id is a plain uuid (no FK), for reports only."],
@@ -2389,6 +2389,31 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['menu additions', "menu_items.is_orderable, vat_rate_takeaway, vat_rate_eat_in; menu_variant_groups.price_mode (base | extra), min_select, max_select. email_log.order_id."],
               ]}
             />
+            <H3>Menu schedules (migration 130)</H3>
+            <P>
+              <Mono>shared/menuSchedule.js</Mono> is the one implementation, used by{' '}
+              <Mono>orderSvc.js</Mono>, <Mono>routes/orders.js</Mono> and{' '}
+              <Mono>OrderingSettings.jsx</Mono>. A schedule is per venue per menu:{' '}
+              <Mono>{'{ from, until, times: [{ days: [0-6], start, end }] }'}</Mono> (0 = Sunday). No
+              times = all day on its dates; no schedule = always on. <Mono>menuOnAt()</Mono> includes a
+              window's end minute (a 15:00 slot is in 11:00–15:00, like ordering hours), windows that
+              only touch don't overlap, and a window must end after it starts (no overnight).{' '}
+              <Mono>scheduleProblem(menuIds, schedules, names, today)</Mono> rejects bad dates or
+              times, a menu's own overlapping windows, and any two scheduled menus on at the same moment
+              from today on (a menu that has already ended never clashes). Unscheduled menus are not
+              checked. PUT /settings keeps schedules of chosen menus only, drops empty ones and returns
+              422 with the problem; the page runs the same check live and disables Save.
+            </P>
+            <P>
+              <Mono>loadOrderingMenu(tx, venue, settings, {'{ dates, now }'})</Mono>: with dates (the
+              ordering dates) a menu on none of them is left out; each menu carries{' '}
+              <Mono>schedule</Mono> (scheduleLabel() text or null) and <Mono>on_now</Mono>. It always
+              returns <Mono>itemMenus</Mono> (dish id to menu ids). <Mono>createOrder()</Mono> calls{' '}
+              <Mono>itemOffAt()</Mono> at the promised time and returns 422{' '}
+              <Mono>slot_unavailable</Mono> naming the dish. The guest page opens on the first menu on
+              now, shows the schedule under the menu tabs, passes the basket to /slots, and resets a
+              picked time that is no longer offered.
+            </P>
             <H3>Prices: one implementation</H3>
             <P>
               <Mono>shared/orderPricing.js</Mono> (itemChoices, priceLine, priceBasket, vatIncluded)
@@ -2495,7 +2520,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Route', 'Notes']}
               rows={[
                 ['GET /order-api/venues/:id', "Menu (publicItem: no raw variants or VAT), ordering settings, dates, payment methods. 404 when ordering is off."],
-                ['GET /order-api/venues/:id/slots?date=', "computeSlots()."],
+                ['GET /order-api/venues/:id/slots?date=&items=', "computeSlots(). items (the basket's dish ids, comma separated) drops times when a dish is not on any of its menus (isOn predicate from itemOffAt()); off_menu counts the dropped times, and ASAP is off when its promised time is dropped."],
                 ['POST /order-api/venues/:id/quote', "priceBasket() for display."],
                 ['POST /order-api/venues/:id/orders', "Place an order; returns token, status and the payment client action."],
                 ['GET /order-api/orders/:token; POST .../pay; POST .../payments/:id/confirm', "Guest status, retry, browser confirmation."],

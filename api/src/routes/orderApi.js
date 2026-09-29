@@ -25,7 +25,7 @@ import { sql, withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
 import { getGateway, checkoutGateways } from '../services/paymentGateways/index.js'
 import {
-  loadSettings, loadOrderingMenu, loadPrivacy, publicItem, computeSlots, orderingDates,
+  loadSettings, loadOrderingMenu, loadPrivacy, publicItem, computeSlots, orderingDates, itemOffAt,
   createOrder, startPayment, applyPaymentResult, loadPublicOrderByToken, publicOrder, localParts,
 } from '../services/orderSvc.js'
 import { priceBasket } from '../../../shared/orderPricing.js'
@@ -110,7 +110,7 @@ export default async function orderApiRoutes(app) {
   app.get('/venues/:venueId', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const [menu, privacy] = await withTenant(venue.tenant_id, async tx => [
-      await loadOrderingMenu(tx, venue, settings),
+      await loadOrderingMenu(tx, venue, settings, { dates: orderingDates(venue, settings), now: new Date() }),
       await loadPrivacy(tx, venue.tenant_id),
     ])
     const gateways = checkoutGateways(settings, { venue })
@@ -141,7 +141,17 @@ export default async function orderApiRoutes(app) {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const date = String(req.query?.date || localParts(new Date(), venue.timezone).date)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw httpError(400, 'date must be YYYY-MM-DD')
-    return withTenant(venue.tenant_id, tx => computeSlots(tx, { venue, settings, date }))
+    // ?items=id,id (the basket): only times when every dish is on its menu.
+    const itemIds = String(req.query?.items || '').split(',').filter(id => uuid.safeParse(id).success).slice(0, 100)
+    return withTenant(venue.tenant_id, async tx => {
+      let isOn = null
+      if (itemIds.length) {
+        const { itemMenus } = await loadOrderingMenu(tx, venue, settings)
+        const dow = new Date(date + 'T00:00:00Z').getUTCDay()
+        isOn = minutes => !itemOffAt(itemIds.filter(id => itemMenus[id]), itemMenus, settings, { date, dow, minutes })
+      }
+      return computeSlots(tx, { venue, settings, date, isOn })
+    })
   })
 
   app.post('/venues/:venueId/quote', async (req) => {
