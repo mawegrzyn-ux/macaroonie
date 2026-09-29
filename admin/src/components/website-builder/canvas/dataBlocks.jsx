@@ -624,6 +624,21 @@ export function GuestplanWidgetCanvas({ data, onChange }) {
 // ── Online ordering (migration 126) ─────────────────────
 // The live block is the full ordering app (views/site/shared/ordering.eta),
 // which needs the public ordering API, so the canvas shows a placeholder.
+// One line listing the non-default options, so the placeholder shows what
+// the live block will do.
+function orderingOptionsSummary(d) {
+  const on = []
+  if (d.basket_mode === 'modal') on.push('basket as pop-up')
+  else if (d.basket_sticky === false) on.push('basket not sticky')
+  if (d.sticky_nav === false) on.push('category bar not sticky')
+  if (d.show_search) on.push('search')
+  if (d.highlight_favourites) on.push('house favourites highlighted')
+  if (d.item_notes === false) on.push('no dish notes')
+  if (d.show_vat === false) on.push('VAT hidden')
+  if (d.basket_bg) on.push('basket colour')
+  return on.length ? ' · ' + on.join(', ') : ''
+}
+
 export function OnlineOrderingCanvas({ data, onChange }) {
   const api = useApi()
   const { data: venues = [] } = useQuery({
@@ -638,7 +653,7 @@ export function OnlineOrderingCanvas({ data, onChange }) {
       <div style={{ maxWidth: 1180, margin: '0 auto', padding: '0 16px' }}>
         {(data.heading || '').trim() && <BlockHeading data={data} onChange={onChange} />}
         <EmptyPanel Icon={ShoppingBag} title="Online ordering"
-          hint={'Menu, basket and checkout' + (venue ? ' for ' + venue.name : ', venue chosen automatically')}
+          hint={'Menu, basket and checkout' + (venue ? ' for ' + venue.name : ', venue chosen automatically') + orderingOptionsSummary(data)}
           where="Try it on the live site at /order" />
       </div>
     </section>

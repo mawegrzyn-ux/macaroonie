@@ -188,6 +188,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
           description: it.description || null, notes: it.notes || null,
           image_url: it.image_url || null, calories: it.calories ?? null,
           dietary: it.dietary || [], price_pence: it.price_pence ?? null,
+          featured: !!it.is_featured,   // House favourite (Menus page)
           choices, from_pence: fromPrice(it, choices),
           sold_out: soldOut.has(it.id),
           vat_rate: vatRateFor(it, fulfilment, settings, s),
@@ -228,9 +229,12 @@ export function itemOffAt(itemIds, itemMenus, settings, parts) {
   return null
 }
 
-// What the guest page gets for a dish (no pricing internals).
+// What the guest page gets for a dish: prepared choices, not the raw
+// variant rows. vat_rate stays (the order type's rate), so the basket and
+// checkout can show "Includes VAT"; it used to be stripped too, which left
+// the guest page's VAT at 0. The server still re-prices every order.
 export function publicItem(item) {
-  const { variants, variant_groups, vat_rate, ...rest } = item
+  const { variants, variant_groups, ...rest } = item
   return rest
 }
 

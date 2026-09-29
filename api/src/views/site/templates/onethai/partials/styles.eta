@@ -36,6 +36,7 @@ const ASSETS = '/template-assets/onethai'
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
+    overflow-x: clip;   /* keeps position: sticky working (see shared/head.eta) */
   }
   body::before {
     content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: 0.4;

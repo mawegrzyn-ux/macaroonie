@@ -2468,8 +2468,42 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               location page&apos;s venue, then the only ordering venue, else a location picker, using{' '}
               <Mono>ordering_venues</Mono>, which <Mono>loadOrRender404()</Mono> attaches to every site
               bundle. Block data: <Mono>heading</Mono>, <Mono>hide_title</Mono> (hides the venue name),
-              <Mono> venue_id</Mono>. One per page: the app&apos;s script finds <Mono>#mo-app</Mono> by id.
+              <Mono> venue_id</Mono>, plus the display options below. One per page: the app&apos;s script finds <Mono>#mo-app</Mono> by id.
               LinkPicker, sitemap and llms.txt link the page as <Mono>/order</Mono>.
+            </P>
+            <H3>Online ordering block options</H3>
+            <P>
+              <Mono>blocks/online_ordering.eta</Mono> turns the block data into{' '}
+              <Mono>orderOptions</Mono> for <Mono>shared/ordering.eta</Mono>, which has a default for each
+              (the status page passes none). Colours are theme role names mapped to{' '}
+              <Mono>var(--c-*)</Mono>; ordering.eta only lets a <Mono>var(--c-x)</Mono> or #hex through.
+              Layout switches are classes on <Mono>#mo-root</Mono> (<Mono>mo--modal-basket</Mono>,{' '}
+              <Mono>mo--static-basket</Mono>, <Mono>mo--static-nav</Mono>); values are CSS variables on{' '}
+              <Mono>.mo</Mono> and <Mono>.mo-sheet-back</Mono> (<Mono>--mo-offset</Mono>,{' '}
+              <Mono>--mo-basket-bg</Mono>, <Mono>--mo-basket-fg</Mono>), so the pop-ups appended to body get
+              them too. The sticky element is <Mono>.mo-basket-col</Mono> (the grid item), not the basket
+              inside it, and the search box and tabs share one sticky <Mono>.mo-nav</Mono>. Search typing
+              redraws only <Mono>#mo-nav-tabs</Mono> and <Mono>#mo-menu-body</Mono> so the box keeps focus.
+              Category jumps and the scroll highlight use <Mono>barBottom()</Mono> (offset + bar height).
+            </P>
+            <DataTable
+              head={['Block data', 'Default', 'Effect']}
+              rows={[
+                ['title_text, subtitle_text, hide_subtitle', "'' / '' / false", '{venue} and {address} are filled in; a new line in the subtitle becomes a line break.'],
+                ['basket_mode', "'side'", "'modal': no basket column; the floating basket bar shows at every width."],
+                ['basket_sticky', 'true', 'Sticky basket column (side mode), max-height with its own scroll.'],
+                ['basket_bg, basket_text', "''", 'Theme roles. With a text colour the basket gets .mo-fg: muted text inherits and buttons invert to the basket colours.'],
+                ['show_vat', 'true', 'Includes VAT under the basket subtotal and the checkout total.'],
+                ['sticky_nav, sticky_offset', 'true, 0', 'Sticky .mo-nav at top: sticky_offset px; the basket column sticks at offset + 16.'],
+                ['show_search', 'false', 'Accent-insensitive match on name, native name and description across all menus.'],
+                ['highlight_favourites, favourite_label', "false, ''", 'is-fav card class and badge (default text House favourite) from the item featured flag.'],
+                ['item_notes', 'true', 'false hides the per-dish note field in the dish sheet.'],
+              ]}
+            />
+            <P>
+              Sticky only works because <Mono>head.eta</Mono> sets <Mono>overflow-x: clip</Mono> on{' '}
+              <Mono>html, body</Mono>. With <Mono>hidden</Mono> on both, body became a scroll container and no
+              sticky element on a tenant site worked, including the header block&apos;s sticky header.
             </P>
             <H3>Collection slots</H3>
             <P>
@@ -2519,7 +2553,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Route', 'Notes']}
               rows={[
-                ['GET /order-api/venues/:id', "Menu (publicItem: no raw variants or VAT), ordering settings, dates, payment methods. 404 when ordering is off."],
+                ['GET /order-api/venues/:id', "Menu (publicItem: prepared choices, no raw variant rows; keeps vat_rate so the page can show Includes VAT, and featured = menu_items.is_featured), ordering settings, dates, payment methods. 404 when ordering is off."],
                 ['GET /order-api/venues/:id/slots?date=&items=', "computeSlots(). items (the basket's dish ids, comma separated) drops times when a dish is not on any of its menus (isOn predicate from itemOffAt()); off_menu counts the dropped times, and ASAP is off when its promised time is dropped."],
                 ['POST /order-api/venues/:id/quote', "priceBasket() for display."],
                 ['POST /order-api/venues/:id/orders', "Place an order; returns token, status and the payment client action."],

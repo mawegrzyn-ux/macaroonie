@@ -8,18 +8,43 @@
      'order'  menu, basket, checkout and payment for it.orderVenue
      'status' one order's live status (it.orderToken)
    Prices on this page come from /order-api/pricing.js, the same module
-   the server prices orders with. The server re-prices every order. */
+   the server prices orders with. The server re-prices every order.
+   it.orderOptions: the Online ordering block's settings (see
+   blocks/online_ordering.eta); missing on the status page, so every
+   option has a default here. */
 const view = it.orderView
+const DEFAULT_OPTS = {
+  basketMode: 'side', basketSticky: true, stickyNav: true, stickyOffset: 0,
+  basketBg: null, basketText: null, search: false, title: null, subtitle: null,
+  hideSubtitle: false, itemNotes: true, showVat: true, favourites: false,
+  favouriteLabel: 'House favourite',
+}
+const opts = Object.assign({}, DEFAULT_OPTS, it.orderOptions || {})
+/* Only a theme variable or a #hex reaches the CSS below. */
+const safeColour = function (v) { return v && /^(#[0-9a-fA-F]{6}|var[(]--c-[a-z]+[)])$/.test(v) ? v : null }
+opts.basketBg = safeColour(opts.basketBg)
+opts.basketText = safeColour(opts.basketText)
+opts.stickyOffset = Math.max(0, Math.min(200, Number(opts.stickyOffset) || 0))
+const optVars = '--mo-offset: ' + opts.stickyOffset + 'px;' +
+  (opts.basketBg ? ' --mo-basket-bg: ' + opts.basketBg + ';' : '') +
+  (opts.basketText ? ' --mo-basket-fg: ' + opts.basketText + ';' : '')
+const rootClasses = ['mo']
+if (opts.basketMode === 'modal') rootClasses.push('mo--modal-basket')
+if (!opts.basketSticky) rootClasses.push('mo--static-basket')
+if (!opts.stickyNav) rootClasses.push('mo--static-nav')
+const rootClass = rootClasses.join(' ')
 const cfg = {
   view: view,
   venueId: it.orderVenue ? it.orderVenue.id : null,
   token: it.orderToken || null,
   statusBase: '/order/status/',
   hideTitle: !!it.orderHideTitle,
+  opts: opts,
 }
 const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 %>
 <style>
+:is(.mo, .mo-sheet-back) { <%~ optVars %> }
 .mo { max-width: 1180px; margin: 0 auto; padding: 24px 16px 120px; min-width: 0; overflow-wrap: anywhere; font-family: var(--f-body, system-ui), sans-serif; color: var(--c-text, #1f2937); }
 .mo *, .mo *::before, .mo *::after { box-sizing: border-box; }
 .mo h1 { font-family: var(--f-heading, inherit); font-size: clamp(1.6rem, 3vw, 2.2rem); margin: 0 0 6px; }
@@ -37,7 +62,15 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
    site's overflow-x: hidden cut off tabs, cards and the right margin. */
 :is(.mo, .mo-sheet-back) .mo-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 32px; align-items: start; }
 :is(.mo, .mo-sheet-back) .mo-layout > * { min-width: 0; }
-:is(.mo, .mo-sheet-back) .mo-tabs { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: none; max-width: 100%; padding: 8px 0; position: sticky; top: 0; z-index: 5; background: var(--c-bg, #fff); }
+:is(.mo, .mo-sheet-back) .mo-tabs { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: none; max-width: 100%; padding: 8px 0; }
+/* Search + menu tabs + category tabs stick together as one bar (option). */
+.mo .mo-nav { position: sticky; top: var(--mo-offset, 0px); z-index: 5; background: var(--c-bg, #fff); padding: 4px 0; }
+.mo.mo--static-nav .mo-nav { position: static; }
+.mo .mo-search { position: relative; margin: 4px 0; }
+.mo .mo-search input { width: 100%; min-height: 44px; padding: 0 44px 0 16px; border: 1px solid var(--c-border, #d1d5db); border-radius: 999px; font: inherit; background: var(--c-surface, #fff); color: inherit; }
+.mo .mo-search input::-webkit-search-cancel-button { display: none; }
+.mo .mo-search button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; color: var(--c-muted, #6b7280); font-size: 1.3rem; line-height: 1; }
+.mo .mo-search input:placeholder-shown + button { display: none; }
 :is(.mo, .mo-sheet-back) .mo-tabs::-webkit-scrollbar { display: none; }
 :is(.mo, .mo-sheet-back) .mo-tab { flex: none; white-space: nowrap; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--c-border, #e5e7eb); background: var(--c-surface, #fff); color: var(--c-text, #1f2937); }
 :is(.mo, .mo-sheet-back) .mo-tab.is-on { background: var(--c-primary, #630812); color: #fff; border-color: transparent; }
@@ -47,12 +80,28 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-item.is-out { opacity: .55; }
 :is(.mo, .mo-sheet-back) .mo-item-body { flex: 1; min-width: 0; }
 :is(.mo, .mo-sheet-back) .mo-item-name { font-weight: 600; }
+:is(.mo, .mo-sheet-back) .mo-item.is-fav { border-color: var(--c-accent, #d97706); box-shadow: inset 4px 0 0 var(--c-accent, #d97706); }
+:is(.mo, .mo-sheet-back) .mo-fav { display: inline-flex; align-items: center; gap: 4px; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--c-accent, #b45309); margin-bottom: 4px; }
+:is(.mo, .mo-sheet-back) .mo-fav svg { width: 12px; height: 12px; fill: currentColor; }
 :is(.mo, .mo-sheet-back) .mo-item-desc { font-size: .9rem; color: var(--c-muted, #6b7280); margin-top: 4px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 :is(.mo, .mo-sheet-back) .mo-item-price { margin-top: 8px; font-weight: 600; }
 :is(.mo, .mo-sheet-back) .mo-item img { width: 84px; height: 84px; object-fit: cover; border-radius: var(--r-md, 8px); flex: none; }
 :is(.mo, .mo-sheet-back) .mo-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 700; margin-right: 4px; }
 :is(.mo, .mo-sheet-back) .mo-soldout { display: inline-block; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #991b1b; }
-:is(.mo, .mo-sheet-back) .mo-basket { position: sticky; top: 16px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); padding: 16px; }
+/* The column sticks, not the basket: the column is a grid item as tall as
+   the menu, so it has room to move; the basket inside it did not. */
+.mo .mo-basket-col { position: sticky; top: calc(var(--mo-offset, 0px) + 16px); align-self: start; }
+:is(.mo, .mo-sheet-back) .mo-basket { border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); padding: 16px; max-height: calc(100vh - var(--mo-offset, 0px) - 32px); overflow-y: auto; }
+.mo.mo--static-basket .mo-basket-col { position: static; }
+.mo.mo--static-basket .mo-basket { max-height: none; overflow: visible; }
+:is(.mo, .mo-sheet-back) :is(.mo-basket, .mo-sheet.mo-basket-sheet) { background: var(--mo-basket-bg, var(--c-surface, #fff)); color: var(--mo-basket-fg, inherit); }
+.mo-sheet.mo-basket-sheet { background: var(--mo-basket-bg, var(--c-bg, #fff)); }
+:is(.mo, .mo-sheet-back) .mo-fg .mo-muted { color: inherit; opacity: .75; }
+:is(.mo, .mo-sheet-back) .mo-fg :is(.mo-line, .mo-qty button) { border-color: currentColor; }
+/* On a coloured basket the buttons swap to the basket's own colours, so a
+   primary-coloured basket doesn't hide its primary Checkout button. */
+:is(.mo, .mo-sheet-back) .mo-fg .mo-btn:not(.mo-btn-ghost) { background: var(--mo-basket-fg); color: var(--mo-basket-bg, #fff); }
+:is(.mo, .mo-sheet-back) .mo-fg .mo-btn-ghost { color: inherit; border-color: currentColor; }
 :is(.mo, .mo-sheet-back) .mo-line { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--c-border, #e5e7eb); }
 :is(.mo, .mo-sheet-back) .mo-line:last-child { border-bottom: 0; }
 :is(.mo, .mo-sheet-back) .mo-line-opts { font-size: .85rem; color: var(--c-muted, #6b7280); }
@@ -88,17 +137,26 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-locs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 16px; }
 :is(.mo, .mo-sheet-back) .mo-loc { display: block; padding: 20px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); text-decoration: none; color: inherit; background: var(--c-surface, #fff); }
 @media (min-width: 700px) { .mo-sheet-back { align-items: center; } .mo-sheet { border-radius: 16px; } }
+/* Basket as a pop-up only (option): the menu takes the full width and the
+   basket bar floats at the bottom on every screen size. */
+.mo.mo--modal-basket .mo-layout { grid-template-columns: minmax(0, 1fr); }
+.mo.mo--modal-basket .mo-basket-col { display: none; }
+@media (min-width: 901px) {
+  .mo.mo--modal-basket .mo-bar { display: flex; position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); width: min(480px, calc(100% - 24px)); z-index: 50; }
+  .mo.mo--modal-basket .mo-bar .mo-btn { width: 100%; justify-content: space-between; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+}
 @media (max-width: 900px) {
   :is(.mo, .mo-sheet-back) .mo-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
   /* Tabs run edge to edge on a phone so it is obvious they scroll. */
   :is(.mo, .mo-sheet-back) .mo-tabs { margin: 0 -16px; padding: 8px 16px; max-width: none; scroll-padding-inline: 16px; }
+  .mo .mo-nav { margin: 0 -16px; padding: 4px 16px; }
   :is(.mo, .mo-sheet-back) .mo-basket-col { display: none; }
   :is(.mo, .mo-sheet-back) .mo-bar { display: flex; position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 50; }
   :is(.mo, .mo-sheet-back) .mo-bar .mo-btn { width: 100%; justify-content: space-between; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
 }
 </style>
 
-<div class="mo" id="mo-root">
+<div class="<%= rootClass %>" id="mo-root">
 <% if (view === 'pick') { %>
   <% if (!it.orderHideTitle) { %><h1>Order online</h1><% } %>
   <p class="mo-muted" style="margin-bottom: 24px;">Choose where you'd like to collect from.</p>
@@ -124,6 +182,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 import { optionPriceText, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
+const OPT = CFG.opts || {}
 const API = '/order-api'
 const root = document.getElementById('mo-app')
 // Scroll to the top of the ordering app, not the page: it may sit below
@@ -200,6 +259,7 @@ async function startOrdering() {
     error: null,
     busy: false,
     pay: null,             // { token, payment }
+    q: '',                 // dish search (option)
   }
 
   function loadBasket() {
@@ -218,36 +278,81 @@ async function startOrdering() {
   }
 
   // ── Menu ──
-  function menuHtml() {
+  const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9 7.1.6-5.4 4.7 1.7 7.3L12 17.8 5.7 21.5l1.7-7.3L2 9.5l7.1-.6z"/></svg>'
+  const fav = i => !!(OPT.favourites && i.featured)
+  function favBadge() { return '<div class="mo-fav">' + STAR + esc(OPT.favouriteLabel || 'House favourite') + '</div>' }
+
+  function itemCardHtml(i) {
+    const price = i.from_pence == null ? '' : ((i.choices.some(c => c.mode === 'base' && c.options.length > 1) ? 'from ' : '') + money(i.from_pence))
+    return '<button class="mo-item' + (i.sold_out ? ' is-out' : '') + (fav(i) ? ' is-fav' : '') + '" data-item="' + esc(i.id) + '"' + (i.sold_out ? ' disabled' : '') + '>' +
+      '<div class="mo-item-body">' + (fav(i) ? favBadge() : '') + '<div class="mo-item-name">' + esc(i.name) + '</div>' +
+      (i.description ? '<div class="mo-item-desc">' + esc(i.description) + '</div>' : '') +
+      '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price)) + ' ' + tagHtml(i.dietary) + '</div></div>' +
+      (i.image_url ? '<img src="' + esc(i.image_url) + '" alt="" loading="lazy">' : '') +
+      '</button>'
+  }
+
+  // Search, menu tabs and category tabs: one bar, sticky when the block
+  // says so. While searching the tabs are hidden (results span all menus).
+  function tabsHtml() {
     const menus = data.menus
-    if (!menus.length) return '<div class="mo-banner">There is nothing to order right now.</div>'
+    if (state.q) return ''
     const m = menus[state.menuIdx] || menus[0]
     let h = ''
     if (menus.length > 1) {
       h += '<div class="mo-tabs">' + menus.map((x, i) => '<button class="mo-tab' + (i === state.menuIdx ? ' is-on' : '') + '" data-menu="' + i + '">' + esc(x.name) + '</button>').join('') + '</div>'
     }
-    if (m.schedule) {
-      h += '<p class="mo-muted" style="margin:0 0 12px;">' + esc(m.name) + ' is available ' + esc(m.schedule) +
-        (m.on_now === false ? '. It isn\'t on right now: you can still order it for a time when it is.' : '.') + '</p>'
-    }
     if (m.sections.length > 1) {
       h += '<div class="mo-tabs">' + m.sections.map(s => '<button class="mo-tab" data-jump="' + esc(s.id) + '">' + esc(s.title) + '</button>').join('') + '</div>'
     }
-    for (const s of m.sections) {
-      h += '<h2 id="sec-' + esc(s.id) + '" style="scroll-margin-top: 64px;">' + esc(s.title) + '</h2>'
-      if (s.subtitle) h += '<p class="mo-muted" style="margin:-6px 0 12px;">' + esc(s.subtitle) + '</p>'
-      h += '<div class="mo-items">'
-      for (const i of s.items) {
-        const price = i.from_pence == null ? '' : ((i.choices.some(c => c.mode === 'base' && c.options.length > 1) ? 'from ' : '') + money(i.from_pence))
-        h += '<button class="mo-item' + (i.sold_out ? ' is-out' : '') + '" data-item="' + esc(i.id) + '"' + (i.sold_out ? ' disabled' : '') + '>' +
-          '<div class="mo-item-body"><div class="mo-item-name">' + esc(i.name) + '</div>' +
-          (i.description ? '<div class="mo-item-desc">' + esc(i.description) + '</div>' : '') +
-          '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price)) + ' ' + tagHtml(i.dietary) + '</div></div>' +
-          (i.image_url ? '<img src="' + esc(i.image_url) + '" alt="" loading="lazy">' : '') +
-          '</button>'
-      }
-      h += '</div>'
+    return h
+  }
+  function navHtml() {
+    let h = '<div class="mo-nav">'
+    if (OPT.search) {
+      h += '<div class="mo-search"><input type="search" data-search placeholder="Search dishes" aria-label="Search dishes" autocomplete="off" value="' + esc(state.q) + '">' +
+        '<button type="button" data-clear-search aria-label="Clear search">&times;</button></div>'
     }
+    h += '<div id="mo-nav-tabs">' + tabsHtml() + '</div></div>'
+    return h
+  }
+
+  const norm = t => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  function searchResultsHtml() {
+    const q = norm(state.q.trim())
+    let h = ''
+    let found = 0
+    for (const m of data.menus) {
+      for (const s of m.sections) {
+        const hits = s.items.filter(i => norm([i.name, i.native_name, i.description].filter(Boolean).join(' ')).includes(q))
+        if (!hits.length) continue
+        found += hits.length
+        h += '<h2>' + esc(data.menus.length > 1 ? m.name + ' · ' + s.title : s.title) + '</h2><div class="mo-items">' + hits.map(itemCardHtml).join('') + '</div>'
+      }
+    }
+    return found ? h : '<p class="mo-muted" style="margin-top:16px;">No dishes match &ldquo;' + esc(state.q.trim()) + '&rdquo;.</p>'
+  }
+
+  function menuBodyHtml() {
+    if (state.q.trim()) return searchResultsHtml()
+    const m = data.menus[state.menuIdx] || data.menus[0]
+    let h = ''
+    if (m.schedule) {
+      h += '<p class="mo-muted" style="margin:8px 0 12px;">' + esc(m.name) + ' is available ' + esc(m.schedule) +
+        (m.on_now === false ? '. It isn\'t on right now: you can still order it for a time when it is.' : '.') + '</p>'
+    }
+    for (const s of m.sections) {
+      h += '<h2 id="sec-' + esc(s.id) + '">' + esc(s.title) + '</h2>'
+      if (s.subtitle) h += '<p class="mo-muted" style="margin:-6px 0 12px;">' + esc(s.subtitle) + '</p>'
+      h += '<div class="mo-items">' + s.items.map(itemCardHtml).join('') + '</div>'
+    }
+    return h
+  }
+
+  function menuHtml() {
+    const menus = data.menus
+    if (!menus.length) return '<div class="mo-banner">There is nothing to order right now.</div>'
+    let h = navHtml() + '<div id="mo-menu-body">' + menuBodyHtml() + '</div>'
     const usedTags = new Set()
     for (const x of menus) for (const s of x.sections) for (const i of s.items) for (const c of i.dietary || []) usedTags.add(c)
     if (usedTags.size) {
@@ -256,6 +361,45 @@ async function startOrdering() {
     h += '<p class="mo-muted" style="font-size:.9rem;">Allergies or dietary needs? Tell us in the allergy note at checkout' + (venue.phone ? ', or call us on ' + esc(venue.phone) : '') + ' before you order.</p>'
     return h
   }
+
+  // Jump to a category below the sticky bar, and keep the current
+  // category's tab lit while scrolling.
+  function barBottom() {
+    const nav = root.querySelector('.mo-nav')
+    return OPT.stickyNav && nav ? OPT.stickyOffset + nav.offsetHeight : OPT.stickyOffset
+  }
+  function jumpTo(id) {
+    const el = document.getElementById('sec-' + id)
+    if (!el) return
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - barBottom() - 8, behavior: 'smooth' })
+  }
+  function spy() {
+    if (state.step !== 'menu' || state.q.trim()) return
+    const tabs = [...root.querySelectorAll('[data-jump]')]
+    if (!tabs.length) return
+    const line = barBottom() + 16
+    let current = tabs[0].dataset.jump
+    for (const t of tabs) {
+      const el = document.getElementById('sec-' + t.dataset.jump)
+      if (el && el.getBoundingClientRect().top <= line) current = t.dataset.jump
+    }
+    for (const t of tabs) {
+      const on = t.dataset.jump === current
+      if (on === t.classList.contains('is-on')) continue
+      t.classList.toggle('is-on', on)
+      if (on) {
+        const strip = t.parentElement
+        const sr = strip.getBoundingClientRect()
+        const tr = t.getBoundingClientRect()
+        strip.scrollTo({ left: strip.scrollLeft + (tr.left - sr.left) - sr.width / 2 + tr.width / 2, behavior: 'smooth' })
+      }
+    }
+  }
+  let spyFrame = 0
+  window.addEventListener('scroll', () => {
+    if (spyFrame) return
+    spyFrame = requestAnimationFrame(() => { spyFrame = 0; spy() })
+  }, { passive: true })
 
   // ── Basket ──
   function basketHtml(compact) {
@@ -271,6 +415,8 @@ async function startOrdering() {
     })
     if (q.errors.length) h += '<div class="mo-error">' + esc(q.errors[0].error) + '</div>'
     h += '<div class="mo-row mo-total" style="margin-top:8px;"><span>Subtotal</span><span>' + money(q.subtotal_pence) + '</span></div>'
+    // At checkout the VAT line goes under the Total instead.
+    if (!compact && OPT.showVat && q.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(q.vat_pence) + '</span></div>'
     if (ord.min_order_pence && q.subtotal_pence < ord.min_order_pence) {
       h += '<p class="mo-muted" style="font-size:.9rem;">Minimum order ' + money(ord.min_order_pence) + '</p>'
     }
@@ -301,6 +447,7 @@ async function startOrdering() {
       const priced = priceLine(item, sel, choices)
       let h = '<div class="mo-sheet" role="dialog" aria-modal="true">'
       if (item.image_url) h += '<img class="mo-hero" src="' + esc(item.image_url) + '" alt="">'
+      if (fav(item)) h += favBadge()
       h += '<h3>' + esc(item.name) + '</h3>'
       if (item.description) h += '<p class="mo-muted" style="margin:0 0 6px;">' + esc(item.description) + '</p>'
       if (item.dietary && item.dietary.length) h += '<div>' + tagHtml(item.dietary) + '</div>'
@@ -316,7 +463,7 @@ async function startOrdering() {
         }
         h += '</div>'
       }
-      h += '<label class="mo-field" style="margin-top:18px;"><span>Note for the kitchen (optional)</span><input data-note maxlength="300" value="' + esc(sel.note) + '" placeholder="e.g. no onion"></label>'
+      if (OPT.itemNotes !== false) h += '<label class="mo-field" style="margin-top:18px;"><span>Note for the kitchen (optional)</span><input data-note maxlength="300" value="' + esc(sel.note) + '" placeholder="e.g. no onion"></label>'
       h += '<div class="mo-sheet-foot"><div class="mo-qty"><button data-q="-1" aria-label="One less">&minus;</button><span style="min-width:28px;text-align:center;font-weight:600;">' + sel.qty + '</span><button data-q="1" aria-label="One more">+</button></div>' +
         '<button class="mo-btn" style="flex:1;" data-add' + (priced.ok ? '' : ' disabled') + '>' + (priced.ok ? 'Add ' + money(priced.unit_pence * sel.qty) : esc(priced.error)) + '</button></div>'
       h += '<button class="mo-btn mo-btn-ghost mo-btn-block" data-close style="margin-top:8px;">Cancel</button></div>'
@@ -435,7 +582,7 @@ async function startOrdering() {
     h += '<div class="mo-panel"><h2 style="margin-top:0;">Your order</h2>' + basketHtml(true)
     if (q.tip_pence) h += '<div class="mo-row"><span>Tip</span><span>' + money(q.tip_pence) + '</span></div>'
     h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(q.total_pence) + '</span></div>'
-    if (q.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(q.vat_pence) + '</span></div>'
+    if (OPT.showVat && q.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(q.vat_pence) + '</span></div>'
     h += '</div>'
 
     const m = ord.payment_methods.find(x => x.key === state.method)
@@ -503,13 +650,19 @@ async function startOrdering() {
   function draw() {
     let h = ''
     if (state.step === 'menu') {
-      if (!CFG.hideTitle) h += '<h1>' + esc(venue.name) + '</h1>'
-      h += '<p class="mo-muted">Order for collection' + (venue.address_line1 ? ' · ' + esc(venue.address_line1) : '') + '</p>'
+      // Title and the line under it can be replaced on the block;
+      // {venue} and {address} fill in this venue's name and address.
+      const fill = t => String(t).split('{venue}').join(venue.name).split('{address}').join(venue.address_line1 || '')
+      if (!CFG.hideTitle) h += '<h1>' + esc(OPT.title ? fill(OPT.title) : venue.name) + '</h1>'
+      if (!OPT.hideSubtitle) {
+        h += '<p class="mo-muted">' + (OPT.subtitle ? esc(fill(OPT.subtitle)).split('\n').join('<br>')
+          : 'Order for collection' + (venue.address_line1 ? ' · ' + esc(venue.address_line1) : '')) + '</p>'
+      }
       if (ord.collection_instructions) h += '<p class="mo-muted">' + esc(ord.collection_instructions) + '</p>'
       if (ord.is_paused) h += '<div class="mo-banner">' + esc(ord.pause_message || 'We are not taking online orders right now. Please check back soon.') + '</div>'
       const q = quote()
       const count = state.basket.reduce((s, l) => s + l.qty, 0)
-      h += '<div class="mo-layout"><div>' + menuHtml() + '</div><div class="mo-basket-col"><div class="mo-basket"><h2 style="margin-top:0;">Your basket</h2>' + basketHtml(false) + '</div></div></div>'
+      h += '<div class="mo-layout"><div>' + menuHtml() + '</div><div class="mo-basket-col"><div class="mo-basket' + (OPT.basketText ? ' mo-fg' : '') + '"><h2 style="margin-top:0;">Your basket</h2>' + basketHtml(false) + '</div></div></div>'
       if (count) h += '<div class="mo-bar"><button class="mo-btn" data-open-basket><span>View basket (' + count + ')</span><span>' + money(q.subtotal_pence) + '</span></button></div>'
     } else if (state.step === 'checkout') {
       h += checkoutHtml()
@@ -518,6 +671,7 @@ async function startOrdering() {
       if (state.busy) h += '<p class="mo-muted">Processing&hellip;</p>'
     }
     root.innerHTML = h
+    if (state.step === 'menu') spy()
   }
 
   function openBasketSheet() {
@@ -526,7 +680,7 @@ async function startOrdering() {
     document.body.appendChild(back)
     const close = () => { back.remove(); document.body.style.overflow = '' }
     document.body.style.overflow = 'hidden'
-    const render = () => { back.innerHTML = '<div class="mo-sheet"><h3>Your basket</h3>' + basketHtml(false) + '<button class="mo-btn mo-btn-ghost mo-btn-block" data-close style="margin-top:8px;">Keep ordering</button></div>' }
+    const render = () => { back.innerHTML = '<div class="mo-sheet mo-basket-sheet' + (OPT.basketText ? ' mo-fg' : '') + '"><h3>Your basket</h3>' + basketHtml(false) + '<button class="mo-btn mo-btn-ghost mo-btn-block" data-close style="margin-top:8px;">Keep ordering</button></div>' }
     render()
     back.addEventListener('click', e => {
       if (e.target === back) return close()
@@ -561,7 +715,12 @@ async function startOrdering() {
     if (!t) return
     if (t.dataset.item) openItem(itemsById[t.dataset.item])
     else if (t.dataset.menu) { state.menuIdx = +t.dataset.menu; draw() }
-    else if (t.dataset.jump) document.getElementById('sec-' + t.dataset.jump)?.scrollIntoView({ behavior: 'smooth' })
+    else if (t.dataset.jump) jumpTo(t.dataset.jump)
+    else if ('clearSearch' in t.dataset) {
+      state.q = ''
+      draw()
+      root.querySelector('[data-search]')?.focus()
+    }
     else if (changeQty(t)) draw()
     else if ('checkout' in t.dataset) goCheckout()
     else if ('openBasket' in t.dataset) openBasketSheet()
@@ -580,6 +739,16 @@ async function startOrdering() {
   })
   root.addEventListener('input', e => {
     const d = e.target.dataset
+    if ('search' in d) {
+      // Redraw only the tabs and the dishes so the box keeps focus.
+      state.q = e.target.value
+      const tabsBox = root.querySelector('#mo-nav-tabs')
+      const body = root.querySelector('#mo-menu-body')
+      if (tabsBox) tabsBox.innerHTML = tabsHtml()
+      if (body) body.innerHTML = menuBodyHtml()
+      spy()
+      return
+    }
     if (d.f && d.f !== 'marketing_opt_in' && d.f !== 'data_consent') {
       state.form[d.f] = e.target.value
       // Only the Place order button depends on the form: update it in

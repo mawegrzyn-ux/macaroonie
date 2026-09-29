@@ -26,6 +26,33 @@ if (!_view) {
   else if (_ovs.length) { _view = 'pick'; _venues = _ovs }
 }
 const _heading = String(d.heading || '').trim()
+/* Colours are theme role names (ThemeColourPicker); legacy hex passes through. */
+const _ROLE_VARS = { primary: '--c-primary', accent: '--c-accent', background: '--c-bg', surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border' }
+const _colour = function (v) {
+  if (!v) return null
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v
+  return _ROLE_VARS[v] ? 'var(' + _ROLE_VARS[v] + ')' : null
+}
+const _str = function (v) { const t = String(v == null ? '' : v).trim(); return t || null }
+/* Everything the ordering app's look and behaviour takes from the block;
+   shared/ordering.eta falls back to the same defaults when it's missing
+   (the order status page). */
+const _opts = {
+  basketMode:    d.basket_mode === 'modal' ? 'modal' : 'side',
+  basketSticky:  d.basket_sticky !== false,
+  stickyNav:     d.sticky_nav !== false,
+  stickyOffset:  Math.max(0, Math.min(200, Number(d.sticky_offset) || 0)),
+  basketBg:      _colour(d.basket_bg),
+  basketText:    _colour(d.basket_text),
+  search:        !!d.show_search,
+  title:         _str(d.title_text),
+  subtitle:      _str(d.subtitle_text),
+  hideSubtitle:  !!d.hide_subtitle,
+  itemNotes:     d.item_notes !== false,
+  showVat:       d.show_vat !== false,
+  favourites:    !!d.highlight_favourites,
+  favouriteLabel: _str(d.favourite_label) || 'House favourite',
+}
 %>
 <section class="block block-online-ordering">
   <% if (_heading) { %>
@@ -34,7 +61,7 @@ const _heading = String(d.heading || '').trim()
     </div>
   <% } %>
   <% if (_view) { %>
-    <%~ include('../shared/ordering', { ...it, orderView: _view, orderVenue: _venue, orderVenues: _venues, orderHideTitle: !!d.hide_title }) %>
+    <%~ include('../shared/ordering', { ...it, orderView: _view, orderVenue: _venue, orderVenues: _venues, orderHideTitle: !!d.hide_title, orderOptions: _opts }) %>
   <% } else { %>
     <div style="max-width: 1180px; margin: 0 auto; padding: 48px 16px; color: var(--c-muted);">
       Online ordering isn't available right now.
