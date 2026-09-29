@@ -45,6 +45,7 @@ const _opts = {
   basketBg:      _colour(d.basket_bg),
   basketText:    _colour(d.basket_text),
   search:        !!d.show_search,
+  searchStyle:   d.search_style === 'icon' || d.search_style === 'icon_phone' ? d.search_style : 'bar',
   title:         _str(d.title_text),
   subtitle:      _str(d.subtitle_text),
   hideSubtitle:  !!d.hide_subtitle,

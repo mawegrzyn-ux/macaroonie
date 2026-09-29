@@ -15,7 +15,7 @@
 const view = it.orderView
 const DEFAULT_OPTS = {
   basketMode: 'side', basketSticky: true, stickyNav: true, stickyOffset: 0,
-  basketBg: null, basketText: null, search: false, title: null, subtitle: null,
+  basketBg: null, basketText: null, search: false, searchStyle: 'bar', title: null, subtitle: null,
   hideSubtitle: false, itemNotes: true, showVat: true, favourites: false,
   favouriteLabel: 'House favourite', favouriteBg: null, favouriteText: null,
 }
@@ -76,6 +76,19 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 .mo .mo-search input::-webkit-search-cancel-button { display: none; }
 .mo .mo-search button { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border: 0; border-radius: 999px; background: transparent; color: var(--c-muted, #6b7280); font-size: 1.3rem; line-height: 1; }
 .mo .mo-search input:placeholder-shown + button { display: none; }
+/* Search as a round icon at the start of the category row (option): the
+   icon stays put and the tabs scroll underneath it. Tapping it swaps the
+   row for the search box, with a close button. */
+.mo .mo-navrow { position: relative; }
+.mo .mo-navrow .mo-tabs { padding-left: 58px; scroll-padding-inline: 58px 0; }
+.mo .mo-navrow::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 48px; background: var(--c-bg, #fff); z-index: 1; pointer-events: none; }
+.mo .mo-navrow::after { content: ''; position: absolute; left: 48px; top: 0; bottom: 0; width: 10px; background: linear-gradient(to right, var(--c-bg, #fff), transparent); pointer-events: none; z-index: 1; }
+.mo .mo-search-btn { position: absolute; left: 0; top: 50%; transform: translateY(-50%); z-index: 2; width: 44px; height: 44px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border-radius: 999px; border: 1px solid var(--c-border, #d1d5db); background: var(--c-surface, #fff); color: var(--c-text, #1f2937); box-shadow: 0 0 0 4px var(--c-bg, #fff); }
+.mo .mo-search-btn svg, .mo .mo-search--open svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.mo .mo-search--open { margin: 8px 0; }
+.mo .mo-search--open svg { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--c-muted, #6b7280); pointer-events: none; }
+.mo .mo-search--open input { padding-left: 42px; }
+.mo .mo-search.mo-search--open input:placeholder-shown + button { display: block; }
 :is(.mo, .mo-sheet-back) .mo-tabs::-webkit-scrollbar { display: none; }
 :is(.mo, .mo-sheet-back) .mo-tab { flex: none; white-space: nowrap; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--c-border, #e5e7eb); background: var(--c-surface, #fff); color: var(--c-text, #1f2937); }
 :is(.mo, .mo-sheet-back) .mo-tab.is-on { background: var(--c-primary, #630812); color: #fff; border-color: transparent; }
@@ -163,6 +176,9 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
   :is(.mo, .mo-sheet-back) .mo-layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
   /* Tabs run edge to edge on a phone so it is obvious they scroll. */
   :is(.mo, .mo-sheet-back) .mo-tabs { margin: 0 -16px; padding: 8px 16px; max-width: none; scroll-padding-inline: 16px; }
+  .mo .mo-navrow .mo-tabs { padding-left: 74px; scroll-padding-inline: 74px 16px; }
+  /* The tab strip runs to the screen edge: cover the margin left of the icon too. */
+  .mo .mo-navrow::before { left: -16px; width: 64px; }
   .mo .mo-nav { margin: 0 -16px; padding: 4px 16px; }
   :is(.mo, .mo-sheet-back) .mo-basket-col { display: none; }
   :is(.mo, .mo-sheet-back) .mo-bar { display: flex; position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 50; }
@@ -314,6 +330,7 @@ async function startOrdering() {
     busy: false,
     pay: null,             // { token, payment }
     q: '',                 // dish search (option)
+    searchOpen: false,     // search shown as an icon and opened (option)
   }
 
   function loadBasket() {
@@ -368,8 +385,24 @@ async function startOrdering() {
     }
     return h
   }
+  // Search as a round icon beside the categories: always, or only on
+  // phones (the width where the basket becomes a pop-up).
+  const SEARCH_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>'
+  const phoneMq = window.matchMedia('(max-width: 900px)')
+  const searchAsIcon = () => !!OPT.search && (OPT.searchStyle === 'icon' || (OPT.searchStyle === 'icon_phone' && phoneMq.matches))
   function navHtml() {
     let h = '<div class="mo-nav">'
+    if (searchAsIcon()) {
+      if (state.searchOpen || state.q) {
+        h += '<div class="mo-search mo-search--open">' + SEARCH_SVG +
+          '<input type="search" data-search placeholder="Search dishes" aria-label="Search dishes" autocomplete="off" value="' + esc(state.q) + '">' +
+          '<button type="button" data-close-search aria-label="Close search">&times;</button></div>'
+      } else {
+        h += '<div class="mo-navrow"><button type="button" class="mo-search-btn" data-open-search aria-label="Search dishes">' + SEARCH_SVG + '</button>' +
+          '<div id="mo-nav-tabs">' + tabsHtml() + '</div></div>'
+      }
+      return h + '</div>'
+    }
     if (OPT.search) {
       h += '<div class="mo-search"><input type="search" data-search placeholder="Search dishes" aria-label="Search dishes" autocomplete="off" value="' + esc(state.q) + '">' +
         '<button type="button" data-clear-search aria-label="Clear search">&times;</button></div>'
@@ -782,6 +815,12 @@ async function startOrdering() {
       draw()
       root.querySelector('[data-search]')?.focus()
     }
+    else if ('openSearch' in t.dataset) {
+      state.searchOpen = true
+      redrawNav()
+      root.querySelector('[data-search]')?.focus()
+    }
+    else if ('closeSearch' in t.dataset) closeSearch()
     else if (changeQty(t)) draw()
     else if ('checkout' in t.dataset) goCheckout()
     else if ('openBasket' in t.dataset) openBasketSheet()
@@ -792,6 +831,26 @@ async function startOrdering() {
     else if ('place' in t.dataset) placeOrder()
     else if (t.dataset.pay) pay(t.dataset.pay)
   })
+  // Swap just the bar (and the dishes, for search) so the page keeps its place.
+  function redrawNav() {
+    const nav = root.querySelector('.mo-nav')
+    if (nav) nav.outerHTML = navHtml()
+    spy()
+  }
+  function closeSearch() {
+    state.searchOpen = false
+    state.q = ''
+    redrawNav()
+    const body = root.querySelector('#mo-menu-body')
+    if (body) body.innerHTML = menuBodyHtml()
+    spy()
+  }
+  root.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && 'search' in e.target.dataset && searchAsIcon()) closeSearch()
+  })
+  // "Icon on phones": rebuild the bar when the screen crosses the phone width.
+  phoneMq.addEventListener?.('change', () => { if (state.step === 'menu' && OPT.searchStyle === 'icon_phone' && OPT.search) redrawNav() })
+
   root.addEventListener('change', e => {
     const d = e.target.dataset
     if (d.when) { state.when = d.when; draw() }
@@ -806,7 +865,13 @@ async function startOrdering() {
       const tabsBox = root.querySelector('#mo-nav-tabs')
       const body = root.querySelector('#mo-menu-body')
       if (tabsBox) tabsBox.innerHTML = tabsHtml()
-      if (body) body.innerHTML = menuBodyHtml()
+      if (body) {
+        body.innerHTML = menuBodyHtml()
+        // Scrolled down the menu, the (shorter) results would start above
+        // the screen: bring their top back to just under the bar.
+        const top = body.getBoundingClientRect().top
+        if (top < barBottom()) window.scrollTo({ top: top + window.scrollY - barBottom() - 8 })
+      }
       spy()
       return
     }
