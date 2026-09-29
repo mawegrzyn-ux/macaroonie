@@ -98,7 +98,7 @@ export function OnlineOrderingEditor({ data, onChange }) {
         <Check label="Keep the category bar in view while scrolling" checked={data.sticky_nav !== false} onChange={set('sticky_nav')}
           hint="The menu and category tabs (and search, if on) stay at the top; the current category is highlighted." />
         {(data.sticky_nav !== false || (mode === 'side' && data.basket_sticky !== false)) && (
-          <FormRow label="Space for a sticky site header (px)" hint="If your site header stays at the top of the screen, enter its height so the bar and basket sit below it.">
+          <FormRow label="Space for a sticky site header (px)" hint="Leave at 0: the bar and basket fit below your site header automatically. Enter a height only to override that.">
             <input type="number" inputMode="numeric" min={0} max={200} value={data.sticky_offset ?? 0}
               onChange={e => set('sticky_offset')(Math.max(0, Math.min(200, Number(e.target.value) || 0)))} className={input + ' w-28'} />
           </FormRow>

@@ -2494,7 +2494,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['basket_sticky', 'true', 'Sticky basket column (side mode), max-height with its own scroll.'],
                 ['basket_bg, basket_text', "''", 'Theme roles. With a text colour the basket gets .mo-fg: muted text inherits and buttons invert to the basket colours.'],
                 ['show_vat', 'true', 'Includes VAT under the basket subtotal and the checkout total.'],
-                ['sticky_nav, sticky_offset', 'true, 0', 'Sticky .mo-nav at top: sticky_offset px; the basket column sticks at offset + 16.'],
+                ['sticky_nav, sticky_offset', 'true, 0', 'Sticky .mo-nav at top: --mo-offset; the basket column sticks at offset + 16. sticky_offset > 0 sets --mo-offset; at 0 the page script measures the site header (findTopBars(): header, nav, .mc-header and body children that are sticky/fixed at top 0-8px, at least half the screen wide, under 40% of its height) and re-measures on resize (ResizeObserver).'],
                 ['show_search', 'false', 'Accent-insensitive match on name, native name and description across all menus.'],
                 ['highlight_favourites, favourite_label', "false, ''", 'is-fav card class and badge (default text House favourite) from the item featured flag.'],
                 ['item_notes', 'true', 'false hides the per-dish note field in the dish sheet.'],
