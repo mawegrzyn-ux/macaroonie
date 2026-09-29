@@ -122,6 +122,12 @@ if (!pages.length) pages.push([])
       font-weight: 600; cursor: pointer;
       font-family: inherit; font-size: 13px;
     }
+    /* Browsers drop background colours when printing unless an element asks
+       to keep them. Dietary tag chips, highlighted sections, house favourites
+       and the intro banner keep theirs; the page background does not. */
+    .tag-chip, .section.highlight, .item.featured, .menu-intro {
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
     @media print {
       html, body { background: var(--paper); }
       .print-bar { display: none; }

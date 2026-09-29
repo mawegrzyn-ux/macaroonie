@@ -4,13 +4,13 @@
 //
 //   list  — table of all menus for the tenant + create + seed buttons
 //   edit  — sections + dish list in the middle, a right-hand drawer for
-//           editing one dish's full details. Menu-level details (name,
+//           editing one dish's or one section's full details. Menu-level details (name,
 //           slug, tagline, scope, print/variant display options…) are
 //           edited in a modal via the Settings button in the header,
 //           not inline on the page.
 //
 // Dietary tags and variant groups are tenant-wide and managed on their
-// own pages (see AppShell's Menus > Variant groups / Dietary groups)
+// own pages (see AppShell's Menus > Variant groups / Dietary tags)
 // rather than inline here — this page only ATTACHES them to dishes.
 //
 // Single Save button PATCHes the whole tree (server delete-and-reinserts).
@@ -278,7 +278,11 @@ function MenuEditor({ id, onBack }) {
 
   const [draft, setDraft] = useState(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
-  const [selectedItemId, setSelectedItemId] = useState(null)
+  // One side panel at a time: a dish or a section.
+  const [selectedItemId, setSelectedItemIdRaw] = useState(null)
+  const [selectedSectionId, setSelectedSectionIdRaw] = useState(null)
+  const setSelectedItemId    = (id) => { setSelectedItemIdRaw(id); if (id) setSelectedSectionIdRaw(null) }
+  const setSelectedSectionId = (id) => { setSelectedSectionIdRaw(id); if (id) setSelectedItemIdRaw(null) }
 
   useEffect(() => {
     if (menu) setDraft(ensureIds(structuredClone(menu)))
@@ -311,6 +315,8 @@ function MenuEditor({ id, onBack }) {
           image_url: s.image_url || null,
           print_break_before: s.print_break_before || 'none',
           print_keep_together: !!s.print_keep_together,
+          vat_rate_takeaway: s.vat_rate_takeaway ?? null,
+          vat_rate_eat_in: s.vat_rate_eat_in ?? null,
           sort_order: si,
           items: (s.items || []).map((it, ii) => ({
             id: it.id,
@@ -371,6 +377,18 @@ function MenuEditor({ id, onBack }) {
       }
     }
   }
+  const selectedSectionIndex = selectedSectionId
+    ? (draft.sections || []).findIndex(sec => sec.id === selectedSectionId) : -1
+  const selectedSection = selectedSectionIndex >= 0 ? draft.sections[selectedSectionIndex] : null
+  function patchSection(sectionIndex, patch) {
+    const sections = draft.sections.slice()
+    sections[sectionIndex] = { ...sections[sectionIndex], ...patch }
+    set('sections', sections)
+  }
+  function removeSectionAt(sectionIndex) {
+    set('sections', draft.sections.filter((_, j) => j !== sectionIndex))
+  }
+
   function patchItem(sectionIndex, itemIndex, patch) {
     const sections = draft.sections.slice()
     const items = sections[sectionIndex].items.slice()
@@ -439,19 +457,30 @@ function MenuEditor({ id, onBack }) {
         </div>
       )}
 
-      {/* Sections + dish list, with a right-hand drawer for the selected dish */}
+      {/* Sections + dish list, with a right-hand drawer for the selected dish or section */}
       <div className="flex gap-4 items-start">
         <div className="flex-1 min-w-0">
           <SectionsPanel
             sections={draft.sections || []}
             selectedItemId={selectedItemId}
             onSelectItem={setSelectedItemId}
+            selectedSectionId={selectedSectionId}
+            onSelectSection={setSelectedSectionId}
             onChange={(sections) => set('sections', sections)} />
         </div>
+
+        {selectedSection && (
+          <SectionDrawer key={selectedSection.id}
+            section={selectedSection}
+            onChange={(patch) => patchSection(selectedSectionIndex, patch)}
+            onRemove={() => { removeSectionAt(selectedSectionIndex); setSelectedSectionId(null) }}
+            onClose={() => setSelectedSectionId(null)} />
+        )}
 
         {selectedItem && (
           <ItemDrawer
             item={selectedItem.item}
+            section={draft.sections[selectedItem.si]}
             dietaryTags={draft.dietary_tags || []}
             variantGroups={variantGroups}
             onChange={(patch) => patchItem(selectedItem.si, selectedItem.ii, patch)}
@@ -647,16 +676,20 @@ function PrintLayoutFields({ draft, onChange }) {
 
 // ── Sections + dish list (compact rows, click to open the drawer) ──
 
-function SectionsPanel({ sections, selectedItemId, onSelectItem, onChange }) {
+function SectionsPanel({ sections, selectedItemId, onSelectItem, selectedSectionId, onSelectSection, onChange }) {
   const set = (i, patch) => {
     const next = sections.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
   }
   const setItems = (i, items) => set(i, { items })
-  const addSection = () => onChange([...sections, {
-    id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, image_url: null,
-    print_break_before: 'none', print_keep_together: false, items: [],
-  }])
-  const removeSection = (i) => onChange(sections.filter((_, j) => j !== i))
+  const addSection = () => {
+    const section = {
+      id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, image_url: null,
+      print_break_before: 'none', print_keep_together: false,
+      vat_rate_takeaway: null, vat_rate_eat_in: null, items: [],
+    }
+    onChange([...sections, section])
+    onSelectSection(section.id)
+  }
   const moveSection = (i, dir) => {
     const j = i + dir; if (j < 0 || j >= sections.length) return
     const next = sections.slice();[next[i], next[j]] = [next[j], next[i]]
@@ -675,8 +708,8 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, onChange }) {
                 index={i} total={sections.length}
                 selectedItemId={selectedItemId}
                 onSelectItem={onSelectItem}
-                onChange={(patch) => set(i, patch)}
-                onRemove={() => { if (window.confirm(`Remove section "${s.title}"?`)) removeSection(i) }}
+                selected={s.id === selectedSectionId}
+                onSelect={() => onSelectSection(s.id)}
                 onMoveUp={() => moveSection(i, -1)}
                 onMoveDown={() => moveSection(i, 1)}
                 onItemsChange={(items) => setItems(i, items)} />
@@ -687,9 +720,12 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, onChange }) {
   )
 }
 
-function SectionEditor({ section, index, total, selectedItemId, onSelectItem, onChange, onRemove, onMoveUp, onMoveDown, onItemsChange }) {
+function SectionEditor({ section, index, total, selectedItemId, onSelectItem, selected, onSelect, onMoveUp, onMoveDown, onItemsChange }) {
   const [open, setOpen] = useState(true)
   const items = section.items || []
+  const vat = sectionVatLabel(section)
+  const breakLabel = section.print_break_before === 'page' ? 'New page'
+    : section.print_break_before === 'column' ? 'New column' : null
 
   const addItem = () => {
     const item = {
@@ -713,47 +749,40 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, on
   }
 
   return (
-    <div className="border border-sky-200 rounded-lg overflow-hidden bg-sky-50">
-      <div className="flex items-center gap-2 px-3 py-2 bg-sky-100">
-        <button onClick={() => setOpen(o => !o)} className="p-1">
+    <div className={cn('border rounded-lg overflow-hidden bg-sky-50',
+      selected ? 'border-primary ring-1 ring-primary/30' : 'border-sky-200')}>
+      {/* Section header: tap anywhere on it to edit the section in the side panel. */}
+      <div onClick={onSelect}
+        className={cn('flex items-center gap-2 px-3 py-2 cursor-pointer touch-manipulation min-h-[52px]',
+          selected ? 'bg-primary/10' : 'bg-sky-100 hover:bg-sky-200/60')}>
+        <button type="button" onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+          className="p-1 min-w-[32px] min-h-[32px] flex items-center justify-center touch-manipulation"
+          title={open ? 'Collapse' : 'Expand'}>
           {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </button>
-        <SectionImagePicker url={section.image_url || null} onChange={(image_url) => onChange({ image_url })} />
-        <Input value={section.title} onChange={e => onChange({ title: e.target.value })}
-          placeholder="Section title (e.g. Starters)" className="flex-1 font-medium bg-white" />
-        <Input value={section.subtitle || ''} onChange={e => onChange({ subtitle: e.target.value })}
-          placeholder="Subtitle (optional)" className="flex-1 max-w-[260px] bg-white" />
-        <label className="inline-flex items-center gap-1 text-xs">
-          <input type="checkbox" checked={!!section.highlight}
-            onChange={e => onChange({ highlight: e.target.checked })} />
-          Highlight
-        </label>
-        <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 disabled:opacity-30">↑</button>
-        <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-2 disabled:opacity-30">↓</button>
-        <button onClick={onRemove} className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <div className="w-9 h-9 rounded-md border overflow-hidden bg-white flex items-center justify-center shrink-0">
+          {section.image_url
+            ? <img src={section.image_url} alt="" className="w-full h-full object-cover" />
+            : <ImageIcon className="w-4 h-4 text-muted-foreground" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold truncate">{section.title || 'Untitled section'}</p>
+          {section.subtitle && <p className="text-xs text-muted-foreground truncate">{section.subtitle}</p>}
+        </div>
+        <div className="hidden sm:flex items-center gap-1 shrink-0">
+          {section.highlight && <Badge>Highlight</Badge>}
+          {vat && <Badge title="Section VAT (used by dishes without their own rate)">VAT {vat}</Badge>}
+          {breakLabel && <Badge title="Print">{breakLabel}</Badge>}
+          {section.print_keep_together && <Badge title="Print">Keep together</Badge>}
+        </div>
+        <span className="text-[11px] text-muted-foreground shrink-0">{items.length} dish{items.length === 1 ? '' : 'es'}</span>
+        <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+          <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 min-h-[32px] disabled:opacity-30">↑</button>
+          <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-2 min-h-[32px] disabled:opacity-30">↓</button>
+        </div>
       </div>
       {open && (
         <div className="p-2 space-y-1">
-          {/* Print layout for this section (migration 120). */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1 pb-1 text-xs text-sky-900">
-            <label className="inline-flex items-center gap-2">
-              <span className="font-medium">Print:</span>
-              <select value={section.print_break_before || 'none'}
-                onChange={e => onChange({ print_break_before: e.target.value })}
-                className="text-xs border rounded-md px-2 bg-white min-h-[44px] touch-manipulation">
-                <option value="none">Continue after the previous section</option>
-                <option value="column">Start in a new column</option>
-                <option value="page">Start on a new page</option>
-              </select>
-            </label>
-            <label className="inline-flex items-center gap-2 min-h-[44px] touch-manipulation">
-              <input type="checkbox" checked={!!section.print_keep_together}
-                onChange={e => onChange({ print_keep_together: e.target.checked })} />
-              Keep in one piece (don't split across columns or pages)
-            </label>
-          </div>
           {items.map((it, i) => (
             <ItemRow key={it.id} item={it}
               index={i} total={items.length}
@@ -770,6 +799,142 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, on
         </div>
       )}
     </div>
+  )
+}
+
+function Badge({ children, title }) {
+  return (
+    <span title={title} className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/80 border border-sky-200 text-sky-900 whitespace-nowrap">
+      {children}
+    </span>
+  )
+}
+
+// "20% / 0% eat in" style summary of a section's own VAT, or null when it
+// uses the venue default for both.
+function sectionVatLabel(section) {
+  const t = section.vat_rate_takeaway, e = section.vat_rate_eat_in
+  if (t == null && e == null) return null
+  if (e == null) return `${Number(t)}%`
+  if (t == null) return `${Number(e)}% eat in`
+  return Number(t) === Number(e) ? `${Number(t)}%` : `${Number(t)}% / ${Number(e)}% eat in`
+}
+
+// Percentage input that keeps what is typed while focused (so "0." or an
+// emptied box don't snap back), passing a number or null (blank) up.
+function RateInput({ value, onChange, placeholder }) {
+  const [text, setText] = useState(value == null ? '' : String(value))
+  const [focused, setFocused] = useState(false)
+  useEffect(() => { if (!focused) setText(value == null ? '' : String(value)) }, [value, focused])
+  const parse = (t) => {
+    if (t.trim() === '') return null
+    const n = parseFloat(t)
+    return Number.isNaN(n) ? undefined : Math.min(100, Math.max(0, n))
+  }
+  return (
+    <Input type="text" inputMode="decimal" value={text} placeholder={placeholder} className="font-mono"
+      onFocus={() => setFocused(true)}
+      onChange={e => {
+        setText(e.target.value)
+        const v = parse(e.target.value)
+        if (v !== undefined) onChange(v)
+      }}
+      onBlur={() => {
+        setFocused(false)
+        const v = parse(text)
+        setText(v == null ? '' : String(v))
+        if (v !== undefined && v !== value) onChange(v)
+      }} />
+  )
+}
+
+// ── Section drawer — the section's settings, opened by tapping its header ──
+
+function SectionDrawer({ section, onChange, onRemove, onClose }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const count = (section.items || []).length
+  return (
+    <aside className="border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px]">
+      <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
+        <p className="text-sm font-semibold flex-1 truncate">Edit section</p>
+        <button onClick={() => setConfirmDelete(true)} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete section">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={onClose} className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      {confirmDelete && (
+        <div className="px-4 py-3 border-b bg-destructive/5 space-y-2">
+          <p className="text-sm">
+            Delete <strong>{section.title || 'this section'}</strong>
+            {count ? ` and its ${count} dish${count === 1 ? '' : 'es'}` : ''}? Nothing is lost until you save the menu.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onRemove}
+              className="text-sm font-medium rounded-md px-3 min-h-[40px] bg-destructive text-destructive-foreground touch-manipulation">
+              Yes, delete
+            </button>
+            <button onClick={() => setConfirmDelete(false)}
+              className="text-sm rounded-md px-3 min-h-[40px] border touch-manipulation">Cancel</button>
+          </div>
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex items-start gap-3">
+          <SectionImagePicker url={section.image_url || null} onChange={(image_url) => onChange({ image_url })} />
+          <div className="flex-1 space-y-2">
+            <Input value={section.title} onChange={e => onChange({ title: e.target.value })}
+              placeholder="Section title (e.g. Starters)" className="font-medium" />
+            <Input value={section.subtitle || ''} onChange={e => onChange({ subtitle: e.target.value })}
+              placeholder="Subtitle (optional)" />
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground -mt-2">
+          The small image shows next to the section heading, never bigger than the heading text.
+        </p>
+
+        <label className="inline-flex items-center gap-2 text-sm min-h-[36px]">
+          <input type="checkbox" checked={!!section.highlight}
+            onChange={e => onChange({ highlight: e.target.checked })} />
+          Highlight this section
+        </label>
+
+        <div className="rounded-md border p-3 space-y-2">
+          <p className="text-xs font-medium">Print</p>
+          <select value={section.print_break_before || 'none'}
+            onChange={e => onChange({ print_break_before: e.target.value })}
+            className="w-full text-sm border rounded-md px-2 bg-background min-h-[44px] touch-manipulation">
+            <option value="none">Continue after the previous section</option>
+            <option value="column">Start in a new column</option>
+            <option value="page">Start on a new page</option>
+          </select>
+          <label className="flex items-center gap-2 text-sm min-h-[40px] touch-manipulation">
+            <input type="checkbox" checked={!!section.print_keep_together}
+              onChange={e => onChange({ print_keep_together: e.target.checked })} />
+            Keep in one piece (don&apos;t split across columns or pages)
+          </label>
+        </div>
+
+        <div className="rounded-md border p-3 space-y-2">
+          <p className="text-xs font-medium">Online ordering VAT</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Takeaway %" hint="Blank = venue default">
+              <RateInput value={section.vat_rate_takeaway ?? null} placeholder="e.g. 20"
+                onChange={v => onChange({ vat_rate_takeaway: v })} />
+            </Field>
+            <Field label="Eat in %" hint="Blank = venue default">
+              <RateInput value={section.vat_rate_eat_in ?? null} placeholder="e.g. 20"
+                onChange={v => onChange({ vat_rate_eat_in: v })} />
+            </Field>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Applies to every dish in this section that has no rate of its own. The venue default is set in
+            Online orders, Setup. UK: hot takeaway food is 20%, most cold takeaway food is 0%.
+          </p>
+        </div>
+      </div>
+    </aside>
   )
 }
 
@@ -907,7 +1072,9 @@ function mergeAttachedGroup(attached, library) {
 
 // ── Item drawer — full dish editor, opened from a row in the middle list ──
 
-function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
+function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
+  const vatHint = (key) => section?.[key] != null
+    ? `Blank = section (${Number(section[key])}%)` : 'Blank = venue default'
   const toggleDietary = (code) => {
     const set = new Set(item.dietary || [])
     if (set.has(code)) set.delete(code); else set.add(code)
@@ -995,17 +1162,13 @@ function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove,
             Can be ordered online
           </label>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="VAT takeaway %" hint="Blank = venue default">
-              <Input type="number" min="0" max="100" step="0.5" inputMode="decimal"
-                value={item.vat_rate_takeaway ?? ''}
-                onChange={e => onChange({ vat_rate_takeaway: e.target.value === '' ? null : Math.min(100, Math.max(0, Number(e.target.value))) })}
-                placeholder="e.g. 20" className="font-mono" />
+            <Field label="VAT takeaway %" hint={vatHint('vat_rate_takeaway')}>
+              <RateInput value={item.vat_rate_takeaway ?? null} placeholder="e.g. 20"
+                onChange={v => onChange({ vat_rate_takeaway: v })} />
             </Field>
-            <Field label="VAT eat in %" hint="For the POS later">
-              <Input type="number" min="0" max="100" step="0.5" inputMode="decimal"
-                value={item.vat_rate_eat_in ?? ''}
-                onChange={e => onChange({ vat_rate_eat_in: e.target.value === '' ? null : Math.min(100, Math.max(0, Number(e.target.value))) })}
-                placeholder="e.g. 20" className="font-mono" />
+            <Field label="VAT eat in %" hint={vatHint('vat_rate_eat_in')}>
+              <RateInput value={item.vat_rate_eat_in ?? null} placeholder="e.g. 20"
+                onChange={v => onChange({ vat_rate_eat_in: v })} />
             </Field>
           </div>
           <p className="text-[11px] text-muted-foreground">UK: hot takeaway food is 20%, most cold takeaway food is 0%.</p>
@@ -1015,7 +1178,7 @@ function ItemDrawer({ item, dietaryTags, variantGroups = [], onChange, onRemove,
           <p className="text-xs font-medium mb-1.5">Dietary tags</p>
           <div className="flex flex-wrap gap-1.5">
             {dietaryTags.length === 0 && (
-              <p className="text-[11px] text-muted-foreground">No dietary tags yet — add some on Menus &gt; Dietary groups.</p>
+              <p className="text-[11px] text-muted-foreground">No dietary tags yet — add some on Menus &gt; Dietary tags.</p>
             )}
             {dietaryTags.map(t => {
               const active = (item.dietary || []).includes(t.code)

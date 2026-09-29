@@ -514,6 +514,7 @@ export const MENU_LAYOUT_CSS = `
 
 .ml-item { padding: 1.2mm 0; break-inside: avoid; text-align: left; }
 .ml-item.featured { background: var(--paper-warm); padding: 2mm 3mm; border-radius: 3px; }
+.ml-tag, .ml-item.featured, .ml-block.ml-box-tint, .ml-intro { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .ml-item-flex { display: flex; align-items: flex-start; gap: 2mm; }
 .ml-item-body { flex: 1; min-width: 0; }
 .ml-thumb { width: 9mm; height: 9mm; object-fit: cover; border-radius: 2px; flex-shrink: 0; }

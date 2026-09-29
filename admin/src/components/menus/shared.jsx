@@ -1,5 +1,5 @@
 // Shared primitives for the menu manager (list/edit page + the
-// standalone variant-groups / dietary-groups pages under it).
+// standalone variant-groups / dietary-tags pages under it).
 
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'

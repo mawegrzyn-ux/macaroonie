@@ -60,7 +60,7 @@ export const DEFAULT_NAV_TREE = [
         label: 'Menus', icon: 'ChefHat', route: '/menus', module: 'menus',
         children: [
           { label: 'Variant groups', icon: 'Layers', route: '/menus/variant-groups', module: 'menus' },
-          { label: 'Dietary groups', icon: 'Tag', route: '/menus/dietary-groups', module: 'menus' },
+          { label: 'Dietary tags', icon: 'Tag', route: '/menus/dietary-tags', module: 'menus' },
         ],
       },
       { label: 'Media', icon: 'FolderOpen', route: '/media', module: 'website' },

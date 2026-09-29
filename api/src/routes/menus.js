@@ -74,6 +74,9 @@ const SectionBody = z.object({
   // printed page, and never split this section.
   print_break_before:  z.enum(['none', 'column', 'page']).default('none'),
   print_keep_together: z.boolean().default(false),
+  // Web ordering (migration 127): section VAT, used when a dish has none.
+  vat_rate_takeaway: z.number().min(0).max(100).nullable().optional(),
+  vat_rate_eat_in:   z.number().min(0).max(100).nullable().optional(),
   items:      z.array(ItemBody).default([]),
 })
 
@@ -389,11 +392,13 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
   for (const [si, section] of (body.sections || []).entries()) {
     const [s] = await tx`
       INSERT INTO menu_sections (id, menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order,
-                                 print_break_before, print_keep_together)
+                                 print_break_before, print_keep_together,
+                                 vat_rate_takeaway, vat_rate_eat_in)
       VALUES (${section.id ?? randomUUID()}, ${menuId}, ${tenantId}, ${section.title},
               ${section.subtitle ?? null}, ${section.highlight ?? false}, ${section.image_url ?? null},
               ${section.sort_order ?? si},
-              ${section.print_break_before ?? 'none'}, ${section.print_keep_together ?? false})
+              ${section.print_break_before ?? 'none'}, ${section.print_keep_together ?? false},
+              ${section.vat_rate_takeaway ?? null}, ${section.vat_rate_eat_in ?? null})
       RETURNING id
     `
     for (const [ii, item] of (section.items || []).entries()) {
@@ -632,6 +637,8 @@ export default async function menusRoutes(app) {
         id: (newId[s.id] = randomUUID()),
         title: s.title, subtitle: s.subtitle ?? null, highlight: !!s.highlight, image_url: s.image_url ?? null, sort_order: s.sort_order,
         print_break_before: s.print_break_before ?? 'none', print_keep_together: !!s.print_keep_together,
+        vat_rate_takeaway: s.vat_rate_takeaway != null ? Number(s.vat_rate_takeaway) : null,
+        vat_rate_eat_in: s.vat_rate_eat_in != null ? Number(s.vat_rate_eat_in) : null,
         items: (s.items || []).map(it => ({
           id: (newId[it.id] = randomUUID()),
           name: it.name, native_name: it.native_name ?? null, description: it.description ?? null,

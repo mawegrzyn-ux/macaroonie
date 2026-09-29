@@ -127,12 +127,13 @@ export async function loadSettings(tx, venueId, { withDefaultHours = false } = {
 // ── Menu for ordering ──────────────────────────────────────────
 
 // VAT by order type: collection and delivery are takeaway, table orders
-// are eat in. The dish's own rate wins; else the venue default for that type.
-export function vatRateFor(item, fulfilment, settings) {
-  if (fulfilment === 'eat_in') {
-    return item.vat_rate_eat_in != null ? Number(item.vat_rate_eat_in) : settings.default_vat_rate_eat_in
-  }
-  return item.vat_rate_takeaway != null ? Number(item.vat_rate_takeaway) : settings.default_vat_rate_takeaway
+// are eat in. The dish's own rate wins, then its section's (migration 127),
+// then the venue default for that type.
+export function vatRateFor(item, fulfilment, settings, section = null) {
+  const key = fulfilment === 'eat_in' ? 'vat_rate_eat_in' : 'vat_rate_takeaway'
+  if (item?.[key] != null) return Number(item[key])
+  if (section?.[key] != null) return Number(section[key])
+  return fulfilment === 'eat_in' ? settings.default_vat_rate_eat_in : settings.default_vat_rate_takeaway
 }
 
 async function soldOutIds(tx, venueId) {
@@ -179,7 +180,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
           dietary: it.dietary || [], price_pence: it.price_pence ?? null,
           choices, from_pence: fromPrice(it, choices),
           sold_out: soldOut.has(it.id),
-          vat_rate: vatRateFor(it, fulfilment, settings),
+          vat_rate: vatRateFor(it, fulfilment, settings, s),
           variants: it.variants || [], variant_groups: it.variant_groups || [],
         }
         if (!itemsById[it.id]) itemsById[it.id] = item

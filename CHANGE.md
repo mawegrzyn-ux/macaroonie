@@ -14,6 +14,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Menus: section panel, section VAT, printed colours, Dietary tags]
+
+**Migrations 127, 128.**
+
+- Menus: tap a section's heading to edit it in the side panel, like dishes: title, subtitle, icon, Highlight, print options. The heading now shows badges for what is set. Deleting a section asks you to confirm in the panel.
+- Sections can have their own VAT rates (takeaway and eat in) for online ordering. A dish uses its own rate, then its section's, then the venue default in Online orders, Setup.
+- Printed menus and saved PDFs keep the colours of dietary tags, highlighted sections and house favourites. Before, the print left them white unless "Background graphics" was ticked.
+- "Dietary groups" is now called **Dietary tags** everywhere (Menus → Dietary tags). Tap a tag to edit it; adding and editing use a pop-up form with a live preview and colour swatches.
+
+---
+
 ## [2026-09-29 — Media as a page; boxed inset labels show phone values]
 
 - **Media** in the sidebar now opens as a normal page instead of a pop-up over the screen. Image pickers elsewhere still open it as a pop-up.
