@@ -92,6 +92,8 @@ export function OnlineOrderingEditor({ data, onChange }) {
         </FormRow>
         <Check label="Show VAT under the total" checked={data.show_vat !== false} onChange={set('show_vat')}
           hint="“Includes VAT £x” in the basket and at checkout." />
+        <Check label="Show the promo box" checked={data.show_promo_box !== false} onChange={set('show_promo_box')}
+          hint="Cards for promotions marked “Show in the promo box” (Promotions page): above the basket on desktop, under the title on phones." />
       </Group>
 
       <Group title="Menu">

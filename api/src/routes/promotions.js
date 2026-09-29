@@ -35,6 +35,11 @@ const Tier = z.object({
   value:     z.number().int().min(1).max(1000000),
 })
 
+// A theme role name or a #hex colour; empty = default.
+const BoxColour = z.string().trim().max(20)
+  .regex(/^(#[0-9a-fA-F]{6}|primary|accent|background|surface|text|muted|border)?$/, 'Pick a colour from the theme')
+  .nullable().optional()
+
 const PromoBody = z.object({
   name:               z.string().trim().min(1).max(120),
   description:        z.string().trim().max(500).nullable().optional(),
@@ -60,6 +65,11 @@ const PromoBody = z.object({
   bundle:             z.array(BundlePart).max(8).default([]),
   bundle_price_pence: z.number().int().min(0).max(10000000).nullable().default(null),
   tiers:              z.array(Tier).max(10).default([]),
+  // Promo box on the ordering page (migration 134)
+  show_in_box:        z.boolean().default(false),
+  box_bg:             BoxColour,
+  box_text:           BoxColour,
+  box_image_url:      z.string().trim().max(2000).regex(/^(https?:\/\/|\/)/, 'Use an image from the media library').nullable().optional(),
 })
 
 function clean(b) {
@@ -67,6 +77,11 @@ function clean(b) {
   p.description = p.description || null
   p.badge_text = p.badge_text || null
   p.code = p.apply_mode === 'code' ? (p.code || '').trim() : null
+  // A code promotion never shows in the promo box: its code must not reach the page.
+  if (p.apply_mode === 'code') p.show_in_box = false
+  p.box_bg = p.box_bg || null
+  p.box_text = p.box_text || null
+  p.box_image_url = p.box_image_url || null
   if (p.apply_mode === 'code' && p.code.length < 3) throw httpError(422, 'Enter a promo code of at least 3 characters')
   if (p.kind !== 'bundle') { p.bundle = []; p.bundle_price_pence = null }
   if (p.kind !== 'tiered') p.tiers = []
@@ -105,7 +120,7 @@ async function codeTaken(tx, tenantId, code, exceptId = null) {
 const COLS = ['name', 'description', 'badge_text', 'is_active', 'kind', 'discount_type', 'discount_value',
   'item_ids', 'section_ids', 'buy_qty', 'get_qty', 'get_percent', 'min_subtotal_pence', 'required_item_ids',
   'max_discount_pence', 'apply_mode', 'code', 'max_uses', 'schedule', 'venue_ids', 'exclusive',
-  'bundle', 'bundle_price_pence', 'tiers']
+  'bundle', 'bundle_price_pence', 'tiers', 'show_in_box', 'box_bg', 'box_text', 'box_image_url']
 const JSON_COLS = new Set(['schedule', 'bundle', 'tiers'])
 
 function rowOf(tx, p) {

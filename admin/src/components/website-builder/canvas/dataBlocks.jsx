@@ -636,6 +636,7 @@ function orderingOptionsSummary(d) {
   if (d.highlight_favourites) on.push('house favourites highlighted')
   if (d.item_notes === false) on.push('no dish notes')
   if (d.show_vat === false) on.push('VAT hidden')
+  if (d.show_promo_box === false) on.push('no promo box')
   if (d.basket_bg) on.push('basket colour')
   return on.length ? ' · ' + on.join(', ') : ''
 }

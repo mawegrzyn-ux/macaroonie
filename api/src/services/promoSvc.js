@@ -16,7 +16,8 @@ const PROMO_COLS = `
   p.discount_type, p.discount_value, p.item_ids, p.section_ids,
   p.buy_qty, p.get_qty, p.get_percent, p.min_subtotal_pence, p.required_item_ids,
   p.max_discount_pence, p.apply_mode, p.code, p.max_uses, p.schedule, p.venue_ids,
-  p.exclusive, p.sort_order, p.bundle, p.bundle_price_pence, p.tiers, p.created_at, p.updated_at`
+  p.exclusive, p.sort_order, p.bundle, p.bundle_price_pence, p.tiers,
+  p.show_in_box, p.box_bg, p.box_text, p.box_image_url, p.created_at, p.updated_at`
 
 /**
  * Every promotion of the tenant, with uses and total discount so far.
@@ -66,6 +67,8 @@ export function publicPromotion(p, { withCode = false } = {}) {
     schedule: p.schedule || {}, venue_ids: p.venue_ids || [],
     exclusive: p.exclusive, sort_order: p.sort_order,
     bundle: p.bundle || [], bundle_price_pence: p.bundle_price_pence, tiers: p.tiers || [],
+    show_in_box: !!p.show_in_box && p.apply_mode !== 'code',
+    box_bg: p.box_bg || null, box_text: p.box_text || null, box_image_url: p.box_image_url || null,
   }
 }
 
