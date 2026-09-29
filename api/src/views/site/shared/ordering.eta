@@ -114,6 +114,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-item-price { margin-top: 8px; font-weight: 600; }
 :is(.mo, .mo-sheet-back) .mo-item img { width: 84px; height: 84px; object-fit: cover; border-radius: var(--r-md, 8px); flex: none; }
 :is(.mo, .mo-sheet-back) .mo-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 700; margin-right: 4px; }
+:is(.mo, .mo-sheet-back) .mo-min { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; opacity: .75; margin-left: 4px; vertical-align: 1px; }
 :is(.mo, .mo-sheet-back) .mo-soldout { display: inline-block; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #991b1b; }
 /* The column sticks, not the basket: the column is a grid item as tall as
    the menu, so it has room to move; the basket inside it did not. */
@@ -493,6 +494,10 @@ async function startOrdering() {
   const BAG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg>'
   const inBasket = id => state.basket.reduce((n, l) => n + (l.item_id === id ? l.qty : 0), 0)
 
+  // Minimum order quantity (menu_items.min_order_qty, migration 133): counts
+  // every line of the dish; priceBasket() rejects a basket below it.
+  const minQty = item => (Number(item && item.min_qty) > 1 ? Number(item.min_qty) : 1)
+  const minHtml = item => (minQty(item) > 1 ? '<span class="mo-min" title="Minimum order">Min ' + minQty(item) + '</span>' : '')
   function itemCardHtml(i) {
     const price = i.from_pence == null ? '' : ((i.choices.some(c => c.mode === 'base' && c.options.length > 1) ? 'from ' : '') + money(i.from_pence))
     const n = inBasket(i.id)
@@ -500,7 +505,7 @@ async function startOrdering() {
       (n ? '<span class="mo-in-basket" aria-label="' + n + ' in your basket">' + BAG + n + '</span>' : '') +
       '<div class="mo-item-body">' + (fav(i) ? favBadge() : '') + promoBadges(i) + '<div class="mo-item-name">' + esc(i.name) + '</div>' +
       (i.description ? '<div class="mo-item-desc">' + esc(i.description) + '</div>' : '') +
-      '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price)) + ' ' + tagHtml(i.dietary) + '</div></div>' +
+      '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price) + minHtml(i)) + ' ' + tagHtml(i.dietary) + '</div></div>' +
       (i.image_url ? '<img src="' + esc(i.image_url) + '" alt="" loading="lazy">' : '') +
       '</button>'
   }
@@ -710,7 +715,9 @@ async function startOrdering() {
   // ── Dish sheet ──
   function openItem(item) {
     const choices = item.choices
-    const sel = { choices: {}, qty: 1, note: '' }
+    // Start at what's still needed to reach the dish's minimum.
+    const floorQty = Math.max(1, minQty(item) - inBasket(item.id))
+    const sel = { choices: {}, qty: floorQty, note: '' }
     for (const c of choices) {
       sel.choices[c.key] = (c.min === 1 && c.max === 1 && c.options.length === 1) ? [c.options[0].id] : []
     }
@@ -730,6 +737,7 @@ async function startOrdering() {
       if (item.description) h += '<p class="mo-muted" style="margin:0 0 6px;">' + esc(item.description) + '</p>'
       if (item.dietary && item.dietary.length) h += '<div>' + tagHtml(item.dietary) + '</div>'
       if (item.calories) h += '<p class="mo-muted" style="font-size:.85rem;">' + esc(item.calories) + ' kcal</p>'
+      if (minQty(item) > 1) h += '<p class="mo-muted" style="font-size:.9rem;font-weight:600;">Minimum order: ' + minQty(item) + (inBasket(item.id) ? ' (you have ' + inBasket(item.id) + ')' : '') + '</p>'
       for (const c of choices) {
         const multi = c.max > 1
         const rule = c.min === 0 ? (multi ? 'Optional, up to ' + c.max : 'Optional') : (c.min === c.max ? (c.min === 1 ? 'Choose 1' : 'Choose ' + c.min) : 'Choose ' + c.min + '–' + c.max)
@@ -764,7 +772,7 @@ async function startOrdering() {
       const t = e.target.closest('button')
       if (!t) return
       if ('close' in t.dataset) close()
-      else if (t.dataset.q) { sel.qty = Math.max(1, Math.min(99, sel.qty + Number(t.dataset.q))); render() }
+      else if (t.dataset.q) { sel.qty = Math.max(floorQty, Math.min(99, sel.qty + Number(t.dataset.q))); render() }
       else if ('add' in t.dataset) {
         state.basket.push({ item_id: item.id, qty: sel.qty, choices: sel.choices, note: sel.note.trim() || null })
         saveBasket()
@@ -994,7 +1002,9 @@ async function startOrdering() {
     if (t.dataset.inc != null) { state.basket[+t.dataset.inc].qty = Math.min(99, state.basket[+t.dataset.inc].qty + 1) }
     else if (t.dataset.dec != null) {
       const l = state.basket[+t.dataset.dec]
-      if (l.qty > 1) l.qty -= 1
+      // Going below the dish's minimum takes the line out altogether.
+      const min = minQty(itemsById[l.item_id])
+      if (l.qty > 1 && inBasket(l.item_id) - 1 >= min) l.qty -= 1
       else state.basket.splice(+t.dataset.dec, 1)
     } else return false
     saveBasket()

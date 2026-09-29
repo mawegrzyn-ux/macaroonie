@@ -2386,7 +2386,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['order_events', "Status history and audit: type status | payment | refund | time | note, from/to status, detail jsonb, actor (staff email, guest, system)."],
                 ['order_payments', "One row per payment attempt: gateway (a gateway key, or cash / card_terminal for counter payments), gateway_ref (UNIQUE per gateway), amount, refunded, status, raw jsonb."],
                 ['platform fee', "tenants.ordering_fee_percent (0-20, platform admin only: Platform page, PATCH /api/platform/tenants/:id). Each order stores platform_fee_percent and platform_fee_pence = subtotal x percent (tips excluded) when it is created. Shown in the report. The Stripe gateway will pass it as application_fee_amount on online payments; pay-at-counter fees are for invoicing."],
-                ['menu additions', "menu_items.is_orderable, vat_rate_takeaway, vat_rate_eat_in; menu_variant_groups.price_mode (base | extra), min_select, max_select. email_log.order_id."],
+                ['menu additions', "menu_items.is_orderable, vat_rate_takeaway, vat_rate_eat_in, min_order_qty (migration 133: NULL or 2-99; loaded as item.min_qty by loadOrderingMenu(); priceBasket() adds a min_qty error per dish when the qty over all its lines is below it; the guest page's openItem() starts at the shortfall and changeQty() removes a line rather than go below); menu_variant_groups.price_mode (base | extra), min_select, max_select. email_log.order_id."],
               ]}
             />
             <H3>Menu schedules (migration 130)</H3>

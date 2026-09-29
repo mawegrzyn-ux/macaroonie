@@ -2613,6 +2613,14 @@ export default function Help() {
               takeaway food is 0%.
             </P>
             <P>
+              <strong>Minimum order quantity</strong> (same box, − and + buttons, None = no minimum) makes
+              guests order at least that many of a dish, for example spring rolls, minimum 2. It counts every
+              portion of the dish in the basket whatever the options. The dish card on your ordering page
+              shows <em>Min 2</em>, the dish window starts at the minimum and won't go below it, and taking
+              the basket below the minimum removes the dish. The dish row on the Menus page shows the same
+              badge.
+            </P>
+            <P>
               Choices come from <strong>Menus → Variant groups</strong>. Each group now says how it
               is priced and how many options a guest picks: a protein or size group is{' '}
               <strong>the dish price, pick 1</strong>; an extras group is{' '}

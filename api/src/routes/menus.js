@@ -56,6 +56,7 @@ const ItemBody = z.object({
   is_orderable:      z.boolean().default(true),
   vat_rate_takeaway: z.number().min(0).max(100).nullable().optional(),
   vat_rate_eat_in:   z.number().min(0).max(100).nullable().optional(),
+  min_order_qty:     z.number().int().min(1).max(99).nullable().optional(),   // migration 133
   variants:       z.array(VariantBody).default([]),
   variant_groups: z.array(ItemGroupAttach).default([]),
   // M:N to dietary tags — array of dietary tag CODES (e.g. ['gf', 'spicy'])
@@ -291,6 +292,7 @@ export async function loadMenuFull(tx, menuId, tenantId) {
                'notes', i.notes, 'is_featured', i.is_featured, 'image_url', i.image_url,
                'sort_order', i.sort_order, 'is_orderable', i.is_orderable,
                'vat_rate_takeaway', i.vat_rate_takeaway, 'vat_rate_eat_in', i.vat_rate_eat_in,
+               'min_order_qty', i.min_order_qty,
                'variants', COALESCE((
                  SELECT json_agg(jsonb_build_object('id', v.id, 'label', v.label, 'price_pence', v.price_pence, 'sort_order', v.sort_order) ORDER BY v.sort_order)
                    FROM menu_item_variants v WHERE v.item_id = i.id
@@ -404,13 +406,14 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
     for (const [ii, item] of (section.items || []).entries()) {
       const [it] = await tx`
         INSERT INTO menu_items (id, section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order,
-                                is_orderable, vat_rate_takeaway, vat_rate_eat_in)
+                                is_orderable, vat_rate_takeaway, vat_rate_eat_in, min_order_qty)
         VALUES (${item.id ?? randomUUID()}, ${s.id}, ${tenantId}, ${item.name},
                 ${item.native_name ?? null}, ${item.description ?? null},
                 ${item.price_pence ?? null}, ${item.calories ?? null}, ${item.notes ?? null},
                 ${item.is_featured ?? false}, ${item.image_url ?? null},
                 ${item.sort_order ?? ii},
-                ${item.is_orderable ?? true}, ${item.vat_rate_takeaway ?? null}, ${item.vat_rate_eat_in ?? null})
+                ${item.is_orderable ?? true}, ${item.vat_rate_takeaway ?? null}, ${item.vat_rate_eat_in ?? null},
+                ${item.min_order_qty > 1 ? item.min_order_qty : null})
         RETURNING id
       `
       // Variants (ad-hoc, per-item)
@@ -647,6 +650,7 @@ export default async function menusRoutes(app) {
           is_orderable: it.is_orderable !== false,
           vat_rate_takeaway: it.vat_rate_takeaway != null ? Number(it.vat_rate_takeaway) : null,
           vat_rate_eat_in: it.vat_rate_eat_in != null ? Number(it.vat_rate_eat_in) : null,
+          min_order_qty: it.min_order_qty ?? null,
           variants: (it.variants || []).map(v => ({ label: v.label, price_pence: v.price_pence, sort_order: v.sort_order })),
           // loadMenuFull() shapes attached groups as { options: [{overridden, price_pence, option_id}] }
           // (built for the UI) — upsertMenuTree() wants { overrides: [{option_id, price_pence}] }

@@ -174,6 +174,18 @@ export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, p
       vat_rate: rate, vat_pence: lineVat, note: line.note ? String(line.note).slice(0, 300) : null,
     })
   }
+  // A dish's minimum order quantity (item.min_qty, migration 133) counts
+  // every line of that dish, whatever its options.
+  const perDish = new Map()
+  out.forEach((l, i) => {
+    const d = perDish.get(l.item_id) || { qty: 0, index: i }
+    d.qty += l.qty
+    perDish.set(l.item_id, d)
+  })
+  for (const [id, d] of perDish) {
+    const min = Number(itemsById[id]?.min_qty) || 0
+    if (min > 1 && d.qty < min) errors.push({ index: d.index, code: 'min_qty', error: itemsById[id].name + ': the minimum order is ' + min })
+  }
   let discount = 0
   let promo = null
   if (promos && promos.length && out.length) {
