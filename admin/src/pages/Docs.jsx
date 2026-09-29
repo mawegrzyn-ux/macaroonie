@@ -2671,7 +2671,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               a step can resolve to a different length on phone portrait (≤600px) without
               touching any other step, e.g. step 1 = 16px desktop, 8px mobile. This is distinct
               from <Mono>boxed_step_mobile</Mono> (which points the theme DEFAULT at a different
-              step index on mobile) — both can be used together.
+              step index on mobile) — both can be used together. Both fields have to be listed
+              in <Mono>ThemeSchema</Mono>'s <Mono>boxed_steps</Mono> entry in{' '}
+              <Mono>routes/website.js</Mono>: Zod strips unknown keys, and until they were added
+              every save silently dropped them (the Layout card saved, then reverted). The step
+              value fields in <Mono>BrandLayoutFields.jsx</Mono> use <Mono>StepNumberInput</Mono>,
+              which keeps the typed text while focused (same idea as the menu{' '}
+              <Mono>PriceInput</Mono>).
             </P>
             <P>
               Every consumer resolves through 5 shared CSS variables (

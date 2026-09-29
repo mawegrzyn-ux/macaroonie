@@ -65,7 +65,10 @@ export function BrandLayoutSection({ venueId = null }) {
       </div>
       <div className="p-5 space-y-5">
         <BrandLayoutFields theme={{ spacing }} setPath={setPath} />
-        <div className="flex justify-end pt-2 border-t">
+        <div className="flex items-center justify-end gap-3 pt-2 border-t">
+          {save.isError && (
+            <p className="text-xs text-destructive">{save.error?.message || 'Save failed'}</p>
+          )}
           <button type="button" onClick={() => save.mutate()} disabled={!dirty || save.isPending}
             className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50">
             {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

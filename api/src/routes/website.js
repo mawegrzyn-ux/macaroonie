@@ -88,10 +88,14 @@ const ThemeSchema = z.object({
     // head.eta / boxedLayout.js when absent or the wrong length. Always
     // exactly 5 entries — step numbers (1-5) referenced by boxed_step,
     // boxed_step_mobile, and every block's own boxed_step override all
-    // index into this same array.
+    // index into this same array. mobile_value/mobile_unit are optional and
+    // apply on phone portrait only (head.eta); they must be listed here or
+    // Zod strips them on save.
     boxed_steps: z.array(z.object({
-      value: z.number().min(0).max(200),
-      unit:  z.enum(['px', '%']),
+      value:        z.number().min(0).max(200),
+      unit:         z.enum(['px', '%']),
+      mobile_value: z.number().min(0).max(200).optional(),
+      mobile_unit:  z.enum(['px', '%']).optional(),
     })).length(5).optional(),
     section_y_px:         z.number().int().min(16).max(200).optional(),
     section_y_mobile_px:  z.number().int().min(12).max(160).optional(),
