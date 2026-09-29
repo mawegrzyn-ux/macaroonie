@@ -2596,7 +2596,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table / column', 'Notes']}
               rows={[
-                ['promotions', "Tenant-wide. kind basket | item | bogo; discount_type percent | amount + discount_value (% or pence); item_ids + section_ids (item/bogo scope, both empty = every dish); buy_qty, get_qty, get_percent (bogo); min_subtotal_pence, required_item_ids (any one), max_discount_pence; apply_mode auto | manual | code + code (unique per tenant, case-insensitive); max_uses; schedule jsonb (menu schedule shape); venue_ids (empty = all); exclusive; sort_order = priority; badge_text, description."],
+                ['promotions', "Tenant-wide. kind basket | item | bogo | free_item | bundle | tiered (132); discount_type percent | amount + discount_value (% or pence); item_ids + section_ids (item/bogo scope, both empty = every dish); buy_qty, get_qty, get_percent (bogo); min_subtotal_pence, required_item_ids (any one), max_discount_pence; apply_mode auto | manual | code + code (unique per tenant, case-insensitive); max_uses; schedule jsonb (menu schedule shape); venue_ids (empty = all); exclusive; sort_order = priority; badge_text, description."],
+                ['bundle, bundle_price_pence, tiers (migration 132)', "bundle jsonb [{ label, item_ids, section_ids, qty }] (max 8) + bundle_price_pence for meal deals; tiers jsonb [{ min_pence, value }] (max 10, stored sorted, distinct min_pence) for tiered offers, value in discount_type. routes/promotions.js clean() clears the fields a kind doesn't use (e.g. discount_value = 0 for bogo / free_item / bundle / tiered)."],
                 ['order_promotions', "One row per promotion an order used: promotion_id (SET NULL on delete), copied name and code, discount_pence."],
                 ['orders.discount_pence, order_items.discount_pence', "subtotal_pence stays the full price; total = subtotal - discount + tip. Line VAT is on line_total - line discount. The tip % and the platform fee are on the discounted subtotal; the minimum order is checked on the full subtotal."],
               ]}
@@ -2607,6 +2608,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['In play', "Automatic ones; manual ones in promoCtx.chosen (OrderBody.promo_ids); code ones in promoCtx.unlocked (ids found from OrderBody.promo_codes by findByCode()). Each must pass isLiveAt(): is_active, venue_ids, menuOnAt(schedule, at) with at = venue-local time of ordering."],
                 ['Conditions', "unmet(): min_subtotal (before discounts), required_item, no_items (item/bogo with no covered dish), bogo_qty (fewer than buy + get covered units)."],
                 ['Order', "sort_order ascending. Each promotion discounts what is left on each line (rem[]). Exclusive: applies only when nothing has yet, then closes the list; skipped ones get a not_combinable notice."],
+                ['New kinds (132)', "free_item: the get_qty cheapest covered units (item_ids / section_ids) are get_percent off; its min spend excludes the value of those units (freeUnits()); none covered = free_item_missing. bundle: bundleFill() forms as many complete deals as the basket allows, each part filled with the dearest matching units not used yet; each deal's discount = its units' value - bundle_price_pence, spread over its units; nothing formed = bundle_missing with missing: [{ index, label, qty }] (no_items when no unit matches any part). tiered: tierFor() picks the highest tier with min_pence <= the full subtotal, applied like a basket discount; below the first tier, or after applying with a higher tier left = next_tier { short_pence, value, discount_type }. Auto promotions nudge on min_subtotal, bogo_qty, free_item_missing, bundle_missing, next_tier (NUDGES)."],
+                ['Rounding', "Fractional per-unit discounts (bogo, free_item, bundle) go through settle(): the total is rounded once and split by allocate(), so a £15 meal deal costs exactly £15.00 (rounding each line separately could take a penny too many)."],
                 ['Maths', "basket: % of the remaining total, or min(amount, remaining), spread over lines by allocate() (largest remainder, whole pence). item: per covered line, % of remaining or amount x qty. bogo: covered units sorted dearest first, in each group of buy + get the get cheapest are get_percent off. max_discount_pence scales the lines down with allocate()."],
                 ['Guest feedback', "offers (manual ones that would apply, with saving_pence), notices (min_subtotal with short_pence, bogo_qty with more, required_item, no_items, not_now, not_combinable). Automatic ones only produce min_subtotal / bogo_qty notices. noticeText() words them."],
                 ['Uses', "Orders not rejected / cancelled / expired (promoSvc FREE_STATUSES). venuePromotions() drops used-up and ended ones; createOrder() calls lockUses() (FOR UPDATE on limited promotions, then a count) inside its transaction and returns 422 code promo_invalid when one has just run out. An unknown code is also 422 promo_invalid."],
@@ -2624,8 +2627,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             />
             <P>
               Guest page (<Mono>shared/ordering.eta</Mono>): discount rows in the basket, checkout and
-              status page; offers with Apply; notices; the promo code box; badge_text on dishes an
-              item/bogo promotion covers (<Mono>promoBadges()</Mono>, live ones only); an offers strip
+              status page; offers with Apply; notices (free_item_missing and bundle_missing carry a
+              Choose / Add &lt;part&gt; button, data-promo-dish + data-part, handled by showPromoDish():
+              one matching dish opens its sheet, several jump to the first one&apos;s section, switching
+              menu tab if needed; coversIds() is exported for this); the promo code box; badge_text on
+              dishes an item / bogo / free_item / bundle promotion covers (<Mono>promoBadges()</Mono>, live ones only); an offers strip
               under the title. Deep links: <Mono>?promo=CODE</Mono> checks and applies a code,{' '}
               <Mono>?offer=&lt;id&gt;</Mono> chooses a manual offer; both are then removed from the
               address. On a <Mono>promo_invalid</Mono> error the page re-reads the venue&apos;s

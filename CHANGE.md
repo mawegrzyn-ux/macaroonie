@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Promotions: free dish, meal deals, spend more save more]
+
+**Migration 132** (`promotions.bundle`, `bundle_price_pence`, `tiers`; three new promotion kinds).
+
+- **Free dish**: once the order qualifies (e.g. spend £30), one of the dishes you pick is free, or a % off. The basket tells the guest and has a Choose button that takes them to the dishes. The free dish doesn't count towards the minimum spend.
+- **Meal deal**: parts (e.g. Starter + Main + Drink, each from the dishes or sections you pick) for a set price. Every complete deal in the basket costs exactly the deal price, using the dearest dishes that fit. Guests with part of a deal see "Add Drink to get Lunch deal" with a button to the drinks.
+- **Spend more, save more**: spend levels with their own % or £ off the whole order (e.g. £20 gets 10%, £40 gets 15%). Guests see how much more to spend for the next level.
+- Dish labels (e.g. DEAL) work on meal deals and free dishes too.
+- Fixed: Buy X get Y could take a penny too much off in some baskets. Discounts are now worked out to the exact penny.
+
+---
+
 ## [2026-09-29 — Promotions for online ordering]
 
 **Migration 131** (`promotions`, `order_promotions`, `orders.discount_pence`, `order_items.discount_pence`; new module `promotions`, nav link under Online orders).

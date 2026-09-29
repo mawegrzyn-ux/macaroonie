@@ -10,10 +10,13 @@
 // A promotion (the public shape; the code itself only reaches the browser
 // after the guest types it):
 //   { id, name, description, badge_text,
-//     kind: 'basket' | 'item' | 'bogo',
+//     kind: 'basket' | 'item' | 'bogo' | 'free_item' | 'bundle' | 'tiered',
 //     discount_type: 'percent' | 'amount', discount_value,  // % or pence
 //     item_ids, section_ids,        // dishes covered (item, bogo); both empty = every dish
 //     buy_qty, get_qty, get_percent,// bogo: every buy+get covered dishes, the get cheapest are get_percent off
+//                                   // free_item: get_qty of the covered dishes are get_percent off (100 = free)
+//     bundle, bundle_price_pence,   // bundle (meal deal): [{ label, item_ids, section_ids, qty }] for a set price
+//     tiers,                        // tiered: [{ min_pence, value }], value in discount_type, highest reached applies
 //     min_subtotal_pence,           // spend at least this (before discounts)
 //     required_item_ids,            // at least one of these dishes in the basket
 //     max_discount_pence,           // cap on what this promotion takes off
@@ -45,17 +48,97 @@ export function isLiveAt(p, { at = null, venueId = null } = {}) {
   return true
 }
 
-/** Does the offer cover this dish (item and buy X get Y offers)? */
-export function covers(p, line) {
-  const items = asList(p.item_ids)
-  const sections = asList(p.section_ids)
+/** Is this dish one of these dishes / sections? Both empty = every dish. */
+export function coversIds(itemIds, sectionIds, line) {
+  const items = asList(itemIds)
+  const sections = asList(sectionIds)
   if (!items.length && !sections.length) return true
   return items.includes(line.item_id) || (line.section_id != null && sections.includes(line.section_id))
 }
 
+/** Does the offer cover this dish? A meal deal covers the dishes of any of its parts. */
+export function covers(p, line) {
+  if (p.kind === 'bundle') return asList(p.bundle).some(c => coversIds(c.item_ids, c.section_ids, line))
+  return coversIds(p.item_ids, p.section_ids, line)
+}
+
+const compQty = c => Math.max(1, Math.floor(Number(c.qty) || 1))
+const tiersOf = p => asList(p.tiers)
+  .map(t => ({ min_pence: Math.max(0, Number(t.min_pence) || 0), value: Math.max(0, Number(t.value) || 0) }))
+  .filter(t => t.value > 0)
+  .sort((a, b) => a.min_pence - b.min_pence)
+
+/** The tier a subtotal reaches, and the next one up (tiered offers). */
+export function tierFor(p, subtotal) {
+  const tiers = tiersOf(p)
+  let reached = null
+  let next = null
+  for (const t of tiers) {
+    if (subtotal >= t.min_pence) reached = t
+    else { next = t; break }
+  }
+  return { reached, next, tiers }
+}
+
+// Every unit of every line the match accepts, valued at what is left on it.
+function unitsOf(lines, vals, match) {
+  const units = []
+  lines.forEach((l, i) => {
+    if (vals[i] <= 0 || !match(l)) return
+    for (let k = 0; k < l.qty; k++) units.push({ i, v: vals[i] / l.qty, line: l })
+  })
+  return units
+}
+
+// The units a free-item offer makes free: the cheapest get_qty it covers.
+function freeUnits(p, lines, vals) {
+  const units = unitsOf(lines, vals, l => covers(p, l)).sort((a, b) => a.v - b.v)
+  return units.slice(0, Math.max(1, Number(p.get_qty) || 1))
+}
+
+// Meal deals: as many complete deals as the basket makes, each part filled
+// with the dearest matching dishes not used yet (the guest saves the most).
+// missing = the parts the first deal still lacks.
+function bundleFill(p, lines, vals) {
+  const comps = asList(p.bundle)
+  const pool = unitsOf(lines, vals, l => covers(p, l)).sort((a, b) => b.v - a.v)
+  const groups = []
+  let missing = []
+  if (!comps.length) return { groups, missing, any: pool.length > 0 }
+  for (;;) {
+    const picked = []
+    const miss = []
+    for (const [index, c] of comps.entries()) {
+      const need = compQty(c)
+      const got = pool.filter(u => !u.used && !picked.includes(u) && coversIds(c.item_ids, c.section_ids, u.line)).slice(0, need)
+      if (got.length < need) miss.push({ index, label: c.label || 'a dish', qty: need - got.length })
+      picked.push(...got)
+    }
+    if (miss.length) { if (!groups.length) missing = miss; break }
+    picked.forEach(u => { u.used = true })
+    groups.push(picked)
+  }
+  return { groups, missing, any: pool.length > 0 }
+}
+
 /** One line for guests and staff: "10% off your order", "Buy 2 get 1 free". */
 export function promoSummary(p, money = pence => '£' + (pence / 100).toFixed(2)) {
-  const off = p.discount_type === 'amount' ? money(p.discount_value) : p.discount_value + '%'
+  const offOf = v => (p.discount_type === 'amount' ? money(v) : v + '%')
+  const off = offOf(p.discount_value)
+  if (p.kind === 'free_item') {
+    const n = Math.max(1, Number(p.get_qty) || 1)
+    const dish = n === 1 ? 'dish' : 'dishes'
+    return Number(p.get_percent) >= 100 ? (n === 1 ? 'A free dish' : n + ' free dishes') : p.get_percent + '% off ' + n + ' ' + dish
+  }
+  if (p.kind === 'bundle') {
+    const parts = asList(p.bundle).map(c => (compQty(c) > 1 ? compQty(c) + ' x ' : '') + (c.label || 'dish'))
+    return (parts.length ? parts.join(' + ') : 'Meal deal') + ' for ' + money(Number(p.bundle_price_pence) || 0)
+  }
+  if (p.kind === 'tiered') {
+    const tiers = tiersOf(p)
+    if (!tiers.length) return 'Spend more, save more'
+    return 'Spend ' + tiers.map(t => money(t.min_pence) + ' get ' + offOf(t.value) + ' off').join(', ')
+  }
   if (p.kind === 'basket') return off + ' off your order'
   if (p.kind === 'item') return off + ' off' + (p.discount_type === 'amount' ? ' each' : '') + ' selected dishes'
   const get = Number(p.get_percent) >= 100 ? 'free' : p.get_percent + '% off'
@@ -109,10 +192,28 @@ function allocate(total, weights) {
   return out
 }
 
+// Fractional per-line discounts to whole pence: round the TOTAL once and
+// split it (rounding each line on its own could take a penny too many, so
+// a £15 meal deal would come to £14.99).
+function settle(raw, rem) {
+  const total = Math.round(raw.reduce((t, x) => t + x, 0))
+  return allocate(total, raw).map((x, i) => Math.min(rem[i], x))
+}
+
 // Why a promotion can't apply to this basket yet, or null when it can.
 function unmet(p, lines, subtotal) {
+  const full = lines.map(l => l.line_total_pence)
+  // A free dish doesn't count towards the spend that earns it.
+  const spend = p.kind === 'free_item'
+    ? subtotal - Math.round(freeUnits(p, lines, full).reduce((s, u) => s + u.v, 0))
+    : subtotal
   const min = Number(p.min_subtotal_pence) || 0
-  if (subtotal < min) return { reason: 'min_subtotal', short_pence: min - subtotal }
+  if (spend < min) return { reason: 'min_subtotal', short_pence: min - spend }
+  if (p.kind === 'tiered') {
+    const { reached, tiers } = tierFor(p, subtotal)
+    if (!tiers.length) return { reason: 'no_items' }
+    if (!reached) return { reason: 'next_tier', short_pence: tiers[0].min_pence - subtotal, value: tiers[0].value, discount_type: p.discount_type }
+  }
   const req = asList(p.required_item_ids)
   if (req.length && !lines.some(l => req.includes(l.item_id))) return { reason: 'required_item', item_ids: req }
   if (p.kind === 'item' || p.kind === 'bogo') {
@@ -121,17 +222,37 @@ function unmet(p, lines, subtotal) {
     const need = (Number(p.buy_qty) || 1) + (Number(p.get_qty) || 1)
     if (p.kind === 'bogo' && units < need) return { reason: 'bogo_qty', more: need - units }
   }
+  if (p.kind === 'free_item' && !lines.some(l => covers(p, l))) return { reason: 'free_item_missing' }
+  if (p.kind === 'bundle') {
+    const fill = bundleFill(p, lines, full)
+    if (!fill.groups.length) return fill.any ? { reason: 'bundle_missing', missing: fill.missing } : { reason: 'no_items' }
+  }
   return null
 }
 
 // What one promotion takes off each line, given what is left on each.
-function discountFor(p, lines, rem) {
+function discountFor(p, lines, rem, subtotal) {
   const v = Math.max(0, Number(p.discount_value) || 0)
   let d = lines.map(() => 0)
-  if (p.kind === 'basket') {
+  if (p.kind === 'basket' || p.kind === 'tiered') {
+    const value = p.kind === 'tiered' ? (tierFor(p, subtotal).reached?.value || 0) : v
     const base = rem.reduce((s, r) => s + r, 0)
-    const total = p.discount_type === 'amount' ? Math.min(v, base) : Math.round(base * Math.min(v, 100) / 100)
+    const total = p.discount_type === 'amount' ? Math.min(value, base) : Math.round(base * Math.min(value, 100) / 100)
     d = allocate(total, rem)
+  } else if (p.kind === 'free_item') {
+    const pct = Math.min(100, Math.max(1, Number(p.get_percent) || 100))
+    const raw = lines.map(() => 0)
+    for (const u of freeUnits(p, lines, rem)) raw[u.i] += u.v * pct / 100
+    d = settle(raw, rem)
+  } else if (p.kind === 'bundle') {
+    const price = Math.max(0, Number(p.bundle_price_pence) || 0)
+    const raw = lines.map(() => 0)
+    for (const group of bundleFill(p, lines, rem).groups) {
+      const value = group.reduce((s, u) => s + u.v, 0)
+      if (value <= price) continue
+      for (const u of group) raw[u.i] += (value - price) * u.v / value
+    }
+    d = settle(raw, rem)
   } else if (p.kind === 'item') {
     d = lines.map((l, i) => {
       if (!covers(p, l) || rem[i] <= 0) return 0
@@ -140,12 +261,7 @@ function discountFor(p, lines, rem) {
   } else if (p.kind === 'bogo') {
     // Every buy+get covered dishes (dearest first), the get cheapest of
     // each group are get_percent off. Unit value = what is left on the line.
-    const units = []
-    lines.forEach((l, i) => {
-      if (!covers(p, l) || rem[i] <= 0) return
-      for (let k = 0; k < l.qty; k++) units.push({ i, v: rem[i] / l.qty })
-    })
-    units.sort((a, b) => b.v - a.v)
+    const units = unitsOf(lines, rem, l => covers(p, l)).sort((a, b) => b.v - a.v)
     const buy = Math.max(1, Number(p.buy_qty) || 1)
     const get = Math.max(1, Number(p.get_qty) || 1)
     const pct = Math.min(100, Math.max(1, Number(p.get_percent) || 100))
@@ -157,13 +273,17 @@ function discountFor(p, lines, rem) {
         raw[u.i] += u.v * pct / 100
       }
     }
-    d = raw.map((x, i) => Math.min(rem[i], Math.round(x)))
+    d = settle(raw, rem)
   }
   const total = d.reduce((s, x) => s + x, 0)
   const cap = Number(p.max_discount_pence) || 0
   if (cap > 0 && total > cap) d = allocate(cap, d)
   return d
 }
+
+// What an automatic offer tells the guest when it doesn't apply yet: only
+// things one more step fixes (spend a bit more, add a dish).
+const NUDGES = new Set(['min_subtotal', 'bogo_qty', 'free_item_missing', 'bundle_missing', 'next_tier'])
 
 const byPriority = (a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) || String(a.name).localeCompare(String(b.name))
 
@@ -176,7 +296,7 @@ const byPriority = (a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order)
  * @returns {{ applied: {id,name,code,discount_pence}[], line_discounts: number[],
  *             discount_pence: number,
  *             offers: {id,name,description,saving_pence}[],   // manual ones the guest can apply now
- *             notices: {id,name,reason,short_pence?,more?,item_ids?}[] }}
+ *             notices: {id,name,reason,short_pence?,more?,item_ids?,missing?,value?}[] }}
  */
 export function applyPromotions(lines, promos, ctx = {}) {
   const chosen = new Set(asList(ctx.chosen))
@@ -202,7 +322,7 @@ export function applyPromotions(lines, promos, ctx = {}) {
     const why = unmet(p, lines, subtotal)
     if (mode === 'manual' && !picked) {
       if (!why) {
-        const saving = discountFor(p, lines, lines.map(l => l.line_total_pence)).reduce((s, x) => s + x, 0)
+        const saving = discountFor(p, lines, lines.map(l => l.line_total_pence), subtotal).reduce((s, x) => s + x, 0)
         if (saving > 0) offers.push({ id: p.id, name: p.name, description: p.description || null, saving_pence: saving })
       }
       continue
@@ -211,7 +331,7 @@ export function applyPromotions(lines, promos, ctx = {}) {
     if (why) {
       // Automatic offers only nudge when the guest is close (spend more,
       // add one more); anything the guest applied says what's missing.
-      if (mode !== 'auto' || why.reason === 'min_subtotal' || why.reason === 'bogo_qty') notices.push({ id: p.id, name: p.name, ...why })
+      if (mode !== 'auto' || NUDGES.has(why.reason)) notices.push({ id: p.id, name: p.name, ...why })
       continue
     }
     inPlay.push(p)
@@ -223,11 +343,15 @@ export function applyPromotions(lines, promos, ctx = {}) {
       notices.push({ id: p.id, name: p.name, reason: 'not_combinable' })
       continue
     }
-    const d = discountFor(p, lines, rem)
+    const d = discountFor(p, lines, rem, subtotal)
     const total = d.reduce((s, x) => s + x, 0)
     if (total <= 0) continue
     d.forEach((x, i) => { rem[i] -= x; lineDiscounts[i] += x })
     applied.push({ id: p.id, name: p.name, code: p.apply_mode === 'code' ? (p.code || null) : null, discount_pence: total })
+    if (p.kind === 'tiered') {
+      const { next } = tierFor(p, subtotal)
+      if (next) notices.push({ id: p.id, name: p.name, reason: 'next_tier', short_pence: next.min_pence - subtotal, value: next.value, discount_type: p.discount_type })
+    }
     if (p.exclusive) closed = true
   }
 
@@ -244,6 +368,13 @@ export function applyPromotions(lines, promos, ctx = {}) {
 export function noticeText(n, money = pence => '£' + (pence / 100).toFixed(2)) {
   if (n.reason === 'min_subtotal') return 'Spend ' + money(n.short_pence) + ' more to get ' + n.name
   if (n.reason === 'bogo_qty') return 'Add ' + n.more + ' more to get ' + n.name
+  if (n.reason === 'next_tier') return 'Spend ' + money(n.short_pence) + ' more to get ' + (n.discount_type === 'amount' ? money(n.value) : n.value + '%') + ' off'
+  if (n.reason === 'free_item_missing') return n.name + ': add your free dish to the basket'
+  if (n.reason === 'bundle_missing') {
+    const parts = asList(n.missing).map(m => (m.qty > 1 ? m.qty + ' x ' : '') + m.label)
+    const list = parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : (parts[0] || 'a dish')
+    return 'Add ' + list + ' to get ' + n.name
+  }
   if (n.reason === 'required_item') return n.name + ' needs a particular dish in your basket'
   if (n.reason === 'no_items') return n.name + ' needs a dish it covers in your basket'
   if (n.reason === 'not_now') return n.name + " isn't available right now"

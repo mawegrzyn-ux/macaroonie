@@ -2661,6 +2661,9 @@ export default function Help() {
                 ['Order discount', "A % or an amount off the whole order."],
                 ['Dish discount', "A % or an amount off each of the dishes you pick (tick single dishes, or Whole section so dishes added to that section later count too). Every dish covers the whole menu."],
                 ['Buy X get Y', "For every X + Y of the chosen dishes, the Y cheapest are free (or a % off). Buy 1 get 1 free, 3 for 2 (buy 2 get 1), half-price second dish."],
+                ['Free dish', "Once the order qualifies (for example a minimum spend), one of the dishes you pick is free, or a % off. Pick a whole section such as Desserts to let guests choose. The basket tells guests they have earned it, with a Choose button that takes them to the dishes. The free dish doesn't count towards the minimum spend. More than one free, or the cheapest of several: set How many."],
+                ['Meal deal', "Parts, each with a name, how many and which dishes count (for example Starter from the Starters section, Main from Mains, Drink from Soft drinks), and a price. Every complete set in the basket costs the deal price; the dearest dishes that fit are used so guests save the most, and anything extra is at full price. A guest with part of a deal sees 'Add Drink to get Lunch deal' with a button to the drinks."],
+                ['Spend more, save more', "Spend levels, each with its own % or £ off the whole order: for example spend £20 get 10% off, spend £40 get 15% off. The highest level reached applies. Guests see how much more to spend for the next level."],
                 ['Dish label', "A small badge (for example 2 FOR 1) on the dishes a dish or Buy X get Y offer covers."],
                 ['Most it can take off', "A cap on the discount, for example 20% off up to £10."],
                 ['Minimum spend', "The basket (before any discount) must reach this. Guests who are close see 'Spend £x more to get ...'."],
@@ -2678,7 +2681,8 @@ export default function Help() {
               <strong>The order of the list is the priority</strong>: drag a promotion up or down by its
               grip. The top one is taken off first and each one after it takes its discount off what is
               left, so 10% off then £5 off a £30 order is £3 then £5. Put an exclusive offer higher
-              than the ones it should beat.
+              than the ones it should beat. Spend levels are judged on the full basket before any
+              discount.
             </P>
             <P>
               In the basket guests see each discount on its own line, offers they can tap to apply,
