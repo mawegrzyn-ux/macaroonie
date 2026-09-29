@@ -109,7 +109,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <% if (view !== 'pick') { %>
 <script type="application/json" id="mo-config"><%~ cfgJson %></script>
 <script type="module">
-import { itemChoices, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
+import { optionPriceText, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const API = '/order-api'
@@ -286,7 +286,7 @@ async function startOrdering() {
         h += '<div class="mo-group"><div class="mo-group-head"><span>' + esc(c.key === 'variants' ? 'Options' : c.name) + '</span><span class="mo-muted" style="font-weight:400;font-size:.9rem;">' + rule + '</span></div>'
         for (const o of c.options) {
           const on = sel.choices[c.key].includes(o.id)
-          const price = c.mode === 'extra' ? (o.price_pence ? '+' + money(o.price_pence) : '') : money(o.price_pence)
+          const price = optionPriceText(c, o, money)
           h += '<label class="mo-choice' + (on ? ' is-on' : '') + '"><input type="' + (multi ? 'checkbox' : 'radio') + '" name="c-' + esc(c.key) + '" data-c="' + esc(c.key) + '" data-o="' + esc(o.id) + '"' + (on ? ' checked' : '') + '><span style="flex:1;">' + esc(o.label) + '</span><span class="mo-muted">' + esc(price) + '</span></label>'
         }
         h += '</div>'

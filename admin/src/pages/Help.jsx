@@ -2474,6 +2474,14 @@ export default function Help() {
               <strong>the dish price, pick 1</strong>; an extras group is{' '}
               <strong>added on top, pick 0 to 3</strong> (for example).
             </P>
+            <P>
+              The menu&apos;s own option settings (in the menu&apos;s details) apply to online ordering
+              too, the same as on your website and printed menu. <strong>Don&apos;t show the variant
+              option at all if it isn&apos;t priced</strong> leaves options with no price (or £0) out, so
+              guests can&apos;t pick them. <strong>Don&apos;t show a price on zero-priced variants</strong>{' '}
+              keeps a £0 option but shows no price next to it.
+              An option with no price of its own leaves the dish at its own price.
+            </P>
             <H3>Handling orders</H3>
             <DataTable
               head={['To', 'Do this']}
