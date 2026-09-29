@@ -2035,6 +2035,18 @@ export default function Help() {
               ]}
             />
 
+            <H3>Heading block</H3>
+            <P>
+              Add a <strong>Heading</strong> block (Content) for a section title on its own: type straight onto
+              the page or in the panel. While the block is selected you can also fill in a small line above (for
+              example OUR MENU) and a line below. In the panel choose the heading level (H1 to H4: use one H1 per
+              page, usually its main title, so search engines read the page outline correctly), the size
+              (Automatic follows the level; large sizes shrink to fit on phones), alignment, font (the theme's
+              heading or body font, or any font from the list), weight, italic, capitals, a decoration (a short
+              bar underneath, or lines either side), colours from your theme, a background and the space above
+              and below. An empty Heading block shows nothing on the live site.
+            </P>
+
             <H3>Theme manager — how it works</H3>
             <P>
               The <strong>Theme</strong> section controls the look &amp; feel of your site

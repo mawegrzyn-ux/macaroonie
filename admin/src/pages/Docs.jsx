@@ -3033,6 +3033,25 @@ GET /robots.txt`}</Code>
               Migrate files between backends first if needed.
             </InfoBox>
 
+            <H3>Heading block (heading)</H3>
+            <P>
+              <Mono>blocks/heading.eta</Mono>, editor <Mono>HeadingEditor.jsx</Mono>, canvas{' '}
+              <Mono>HeadingCanvas</Mono> (<Mono>canvas/blockCanvas.jsx</Mono>). Every style comes from one
+              file, <Mono>shared/headingBlock.js</Mono>: <Mono>headingLayout(data)</Mono> returns the tag, the
+              decoration flags and objects of CSS properties; the partial writes them with{' '}
+              <Mono>styleString()</Mono>, the canvas with <Mono>styleObject()</Mono>. The partial reaches it as{' '}
+              <Mono>it.siteBlocks</Mono>, which <Mono>renderSite()</Mono> in <Mono>siteRenderer.js</Mono> adds to
+              every site render (<Mono>headingLayout</Mono>, <Mono>styleString</Mono>,{' '}
+              <Mono>googleFontsUrl</Mono>); a new block can share its styles the same way instead of keeping a
+              second copy in the canvas. Data: heading, eyebrow, subheading, level h1-h4, size auto | sm | md |
+              lg | xl | xxl (lg and up capped by vw), align, font_family (empty = theme heading font, @body =
+              theme body font, else a font from shared/fonts.js, loaded by the block's own stylesheet link so
+              it works in columns, pages and modals), font_weight, italic, uppercase, colour / sub_colour /
+              decoration_colour / background (theme roles; background maps to --c-bg), decoration none | bar |
+              rules, spacing sm | md | lg, container, boxed_step. Defaults: <Mono>HEADING_DEFAULTS</Mono>. The
+              block renders nothing when heading, eyebrow and subheading are all empty.
+            </P>
+
             <H3>Admin page</H3>
             <P>
               <Mono>admin/src/pages/Website.jsx</Mono> at the <Mono>/website</Mono> route.

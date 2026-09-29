@@ -1,0 +1,42 @@
+<%
+/* ── Heading block ────────────────────────────────────────────────────
+ *
+ * A standalone section heading: optional eyebrow above, the heading in a
+ * chosen tag (h1-h4), optional subheading below, a decoration (short bar
+ * or rules either side). All styles come from shared/headingBlock.js
+ * (it.siteBlocks.headingLayout, passed in by siteRenderer.js) so this
+ * partial and the builder's HeadingCanvas render the same thing.
+ * A custom font loads its own stylesheet here, so the block works inside
+ * columns, extra pages and modals too.
+ */
+const _d = it.block.data || {}
+const _sb = it.siteBlocks
+const _h = _sb ? _sb.headingLayout(_d) : null
+const _css = _sb ? _sb.styleString : null
+const _fontUrl = _h && _h.font ? _sb.googleFontsUrl([_h.font]) : null
+const _tag = _h.tag
+const _text = String(_d.heading || '').trim()
+const _eyebrow = String(_d.eyebrow || '').trim()
+const _sub = String(_d.subheading || '').trim()
+%>
+<% if (_h && (_text || _eyebrow || _sub)) { %>
+<% if (_fontUrl) { %><link rel="stylesheet" href="<%= _fontUrl %>" /><% } %>
+<section class="block block-heading" style="<%= _css(_h.styles.section) %>">
+  <div style="<%= _css(_h.styles.inner) %>">
+    <% if (_eyebrow) { %><p style="<%= _css(_h.styles.eyebrow) %>"><%= _eyebrow %></p><% } %>
+    <% if (_text) { %>
+      <% if (_h.decoration === 'rules') { %>
+        <div style="<%= _css(_h.styles.rulesRow) %>">
+          <% if (_h.ruleLeft) { %><span aria-hidden="true" style="<%= _css(_h.styles.rule) %>"></span><% } %>
+          <<%= _tag %> style="<%= _css(_h.styles.heading) %>"><%= _text %></<%= _tag %>>
+          <% if (_h.ruleRight) { %><span aria-hidden="true" style="<%= _css(_h.styles.rule) %>"></span><% } %>
+        </div>
+      <% } else { %>
+        <<%= _tag %> style="<%= _css(_h.styles.heading) %>"><%= _text %></<%= _tag %>>
+      <% } %>
+      <% if (_h.decoration === 'bar') { %><div aria-hidden="true" style="<%= _css(_h.styles.bar) %>"></div><% } %>
+    <% } %>
+    <% if (_sub) { %><p style="<%= _css(_h.styles.sub) %>"><%= _sub %></p><% } %>
+  </div>
+</section>
+<% } %>

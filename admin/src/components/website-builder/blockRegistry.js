@@ -26,7 +26,7 @@ import {
   Image as ImageIcon, Type, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
-  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent,
+  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -41,6 +41,8 @@ import { ColumnsEditor }       from './editors/ColumnsEditor'
 import { GuestplanWidgetEditor } from './editors/GuestplanWidgetEditor'
 import { OnlineOrderingEditor } from './editors/OnlineOrderingEditor'
 import { PromoCtaEditor } from './editors/PromoCtaEditor'
+import { HeadingEditor } from './editors/HeadingEditor'
+import { HEADING_DEFAULTS } from '@shared/headingBlock.js'
 import {
   HeaderBlockEditor, FooterBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
@@ -294,6 +296,15 @@ export const BLOCKS = [
       container: 'boxed',         // boxed | wide | full
     },
     editor: HeroEditor,
+  },
+  {
+    key:         'heading',
+    label:       'Heading',
+    description: 'A section title: H1 to H4, optional small line above and line below, font, colour and decoration.',
+    icon:        Heading,
+    category:    'content',
+    defaultData: { ...HEADING_DEFAULTS },
+    editor:      HeadingEditor,
   },
   {
     key:         'text',

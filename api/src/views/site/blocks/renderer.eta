@@ -35,6 +35,8 @@ const _aid = _cleanAnchor || _fallbackAnchor
   <%~ include('./menu_inline', it) %>
 <% } else if (t === 'hero') { %>
   <%~ include('./hero', it) %>
+<% } else if (t === 'heading') { %>
+  <%~ include('./heading', it) %>
 <% } else if (t === 'text') { %>
   <%~ include('./text', it) %>
 <% } else if (t === 'image') { %>
