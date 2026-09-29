@@ -10,6 +10,7 @@ Migrations are listed where a database change is required.
 - The per-step **Mobile** value in Website → Brand & theme → Layout now saves. Before, the Layout card appeared to save but the mobile value was thrown away by the server, so phones kept the desktop padding. Save again, then republish the site.
 - The step value boxes accept typing again: you can clear a box and type a new number. Before, clearing it put 0 straight back and the cursor jumped.
 - A failed Layout save now shows the error next to the Save button.
+- Website → Pages & modals: **Save details** is greyed out until you change the title, slug, type, published box or HTML, like the page builder's Save.
 
 ---
 

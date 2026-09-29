@@ -3091,6 +3091,14 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
   // The built-in online ordering page (migration 126): always a published
   // standalone page at /order, can't be deleted. Only its title and blocks change.
   const isOrderPage = editingPage?.system_key === 'order'
+  // Save details stays inactive until something in the form differs from the saved page.
+  const detailsDirty = editing === 'new' || !editingPage || (
+    form.title !== (editingPage.title || '')
+    || form.slug !== (editingPage.slug || '')
+    || form.kind !== (editingPage.kind === 'modal' ? 'modal' : 'page')
+    || form.is_published !== !!editingPage.is_published
+    || (form.content || '') !== (editingPage.content || '')
+  )
 
   const saveMeta = useMutation({
     mutationFn: () => editing === 'new'
@@ -3198,7 +3206,7 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
             <button type="button" onClick={() => setEditing(null)}
               className="text-xs text-muted-foreground px-3 py-1.5">Cancel</button>
             <button type="button" onClick={() => saveMeta.mutate()}
-              disabled={saveMeta.isPending || !form.title || !form.slug}
+              disabled={saveMeta.isPending || !detailsDirty || !form.title || !form.slug}
               className="bg-primary text-primary-foreground text-sm font-medium rounded-md px-4 py-2 min-h-[40px] inline-flex items-center gap-2 disabled:opacity-50">
               {saveMeta.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               {editing === 'new' ? 'Create & build' : 'Save details'}
