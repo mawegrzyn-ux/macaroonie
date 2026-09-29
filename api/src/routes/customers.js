@@ -177,42 +177,28 @@ export default async function customersRoutes(app) {
     const orderSQL = `${col} ${dir}${nulls}`
 
     if (paginate) {
-      if (q.length >= 2) {
-        return withTenant(req.tenantId, async tx => {
-          const [countRow] = await tx`
-            SELECT COUNT(*)::int AS total FROM customers
-             WHERE is_anonymised = false
-               AND (lower(name)               LIKE lower(${'%' + q + '%'})
-                 OR lower(coalesce(email,'')) LIKE lower(${'%' + q + '%'})
-                 OR       coalesce(phone,'')  LIKE ${'%' + q + '%'})
-          `
-          const rows = await tx`
-            SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
-              FROM customers
-             WHERE is_anonymised = false
-               AND (lower(name)               LIKE lower(${'%' + q + '%'})
-                 OR lower(coalesce(email,'')) LIKE lower(${'%' + q + '%'})
-                 OR       coalesce(phone,'')  LIKE ${'%' + q + '%'})
-             ORDER BY ${sql.unsafe(orderSQL)}
-             LIMIT ${lim} OFFSET ${off}
-          `
-          return { rows, total: countRow.total }
-        })
-      } else {
-        return withTenant(req.tenantId, async tx => {
-          const [countRow] = await tx`
-            SELECT COUNT(*)::int AS total FROM customers WHERE is_anonymised = false
-          `
-          const rows = await tx`
-            SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
-              FROM customers
-             WHERE is_anonymised = false
-             ORDER BY ${sql.unsafe(orderSQL)}
-             LIMIT ${lim} OFFSET ${off}
-          `
-          return { rows, total: countRow.total }
-        })
-      }
+      // ?newsletter=1 lists only customers subscribed to the newsletter
+      // (migration 125).
+      const search = q.length >= 2
+        ? sql`AND (lower(name)               LIKE lower(${'%' + q + '%'})
+                OR lower(coalesce(email,'')) LIKE lower(${'%' + q + '%'})
+                OR       coalesce(phone,'')  LIKE ${'%' + q + '%'})`
+        : sql``
+      const news = req.query.newsletter === '1' ? sql`AND marketing_opt_in` : sql``
+      return withTenant(req.tenantId, async tx => {
+        const [countRow] = await tx`
+          SELECT COUNT(*)::int AS total FROM customers
+           WHERE is_anonymised = false ${search} ${news}
+        `
+        const rows = await tx`
+          SELECT id, name, email, phone, visit_count, is_anonymised, marketing_opt_in, created_at, updated_at
+            FROM customers
+           WHERE is_anonymised = false ${search} ${news}
+           ORDER BY ${sql.unsafe(orderSQL)}
+           LIMIT ${lim} OFFSET ${off}
+        `
+        return { rows, total: countRow.total }
+      })
     }
 
     // ── Legacy: no offset → plain array (booking-form search dropdowns) ──
@@ -242,7 +228,8 @@ export default async function customersRoutes(app) {
   // Returns the customer + their full booking history.
   app.get('/:id', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
     const [customer] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, name, email, phone, notes, visit_count, is_anonymised, anonymised_at, created_at, updated_at
+      SELECT id, name, email, phone, notes, visit_count, is_anonymised, anonymised_at, created_at, updated_at,
+             marketing_opt_in, marketing_opt_in_at, marketing_opt_in_source, marketing_opt_out_at
         FROM customers
        WHERE id = ${req.params.id}
     `)
@@ -290,6 +277,20 @@ export default async function customersRoutes(app) {
     return updated
   })
 
+  // ── POST /customers/:id/unsubscribe ────────────────────────
+  // Takes the customer off the newsletter (migration 125). There is no
+  // staff "subscribe": only the guest can opt in, at checkout.
+  app.post('/:id/unsubscribe', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE customers
+         SET marketing_opt_in = false, marketing_opt_out_at = now(), updated_at = now()
+       WHERE id = ${req.params.id} AND is_anonymised = false
+      RETURNING id, marketing_opt_in, marketing_opt_out_at
+    `)
+    if (!row) throw httpError(404, 'Customer not found or already anonymised')
+    return row
+  })
+
   // ── POST /customers/:id/anonymise ──────────────────────────
   // GDPR right to erasure. Does NOT delete the row — replaces all PII
   // with anonymised values and sets is_anonymised=true.
@@ -314,6 +315,10 @@ export default async function customersRoutes(app) {
                email         = ${anonEmail},
                phone         = null,
                notes         = null,
+               marketing_opt_in = false,
+               marketing_opt_in_at = null,
+               marketing_opt_in_source = null,
+               marketing_opt_out_at = null,
                is_anonymised = true,
                anonymised_at = now(),
                updated_at    = now()
@@ -330,6 +335,23 @@ export default async function customersRoutes(app) {
                reference   = 'ANON-' || upper(substring(gen_random_uuid()::text, 1, 8))
          WHERE customer_id = ${req.params.id}
       `
+
+      // And every web order (migration 122). Order lines, totals and
+      // payments stay for the accounts; nothing personal does.
+      await tx`
+        UPDATE orders
+           SET guest_name   = 'Anonymised',
+               guest_email  = ${anonEmail},
+               guest_phone  = null,
+               notes        = null,
+               allergy_note = null,
+               consent      = '{}'::jsonb
+         WHERE customer_id = ${req.params.id}
+      `
+      await tx`
+        UPDATE order_items SET note = null
+         WHERE order_id IN (SELECT id FROM orders WHERE customer_id = ${req.params.id})
+      `
     })
 
     return reply.code(204).send()
@@ -339,7 +361,8 @@ export default async function customersRoutes(app) {
   // GDPR data export — returns a JSON file download.
   app.get('/:id/export', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const [customer] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, name, email, phone, notes, visit_count, created_at, updated_at, is_anonymised
+      SELECT id, name, email, phone, notes, visit_count, created_at, updated_at, is_anonymised,
+             marketing_opt_in, marketing_opt_in_at, marketing_opt_in_source, marketing_opt_out_at
         FROM customers
        WHERE id = ${req.params.id}
     `)
@@ -356,6 +379,20 @@ export default async function customersRoutes(app) {
         LEFT JOIN table_combinations tc ON tc.id = b.combination_id
        WHERE b.customer_id = ${req.params.id}
        ORDER BY b.starts_at DESC
+    `)
+
+    const orders = await withTenant(req.tenantId, tx => tx`
+      SELECT o.id, o.order_number, o.service_date::text AS service_date, o.status, o.fulfilment,
+             o.guest_name, o.guest_email, o.guest_phone, o.notes, o.allergy_note,
+             o.marketing_opt_in, o.data_consent_at, o.consent,
+             o.total_pence, o.currency, o.created_at, v.name AS venue_name,
+             COALESCE((SELECT json_agg(json_build_object('name', i.name, 'qty', i.qty, 'options', i.options, 'note', i.note)
+                                       ORDER BY i.sort_order)
+                         FROM order_items i WHERE i.order_id = o.id), '[]'::json) AS items
+        FROM orders o
+        JOIN venues v ON v.id = o.venue_id
+       WHERE o.customer_id = ${req.params.id}
+       ORDER BY o.created_at DESC
     `)
 
     const payload = {
@@ -378,6 +415,29 @@ export default async function customersRoutes(app) {
         status:     b.status,
         notes:      b.guest_notes,
         booked_at:  b.created_at,
+      })),
+      newsletter: {
+        subscribed:      customer.marketing_opt_in,
+        opted_in_at:     customer.marketing_opt_in_at,
+        opted_in_via:    customer.marketing_opt_in_source,
+        unsubscribed_at: customer.marketing_opt_out_at,
+      },
+      orders: orders.map(o => ({
+        venue:            o.venue_name,
+        date:             o.service_date,
+        order_number:     o.order_number,
+        status:           o.status,
+        name:             o.guest_name,
+        email:            o.guest_email,
+        phone:            o.guest_phone,
+        notes:            o.notes,
+        allergy_note:     o.allergy_note,
+        items:            o.items,
+        total_pence:      o.total_pence,
+        currency:         o.currency,
+        newsletter_opt_in: o.marketing_opt_in,
+        consent:          o.consent,
+        placed_at:        o.created_at,
       })),
     }
 

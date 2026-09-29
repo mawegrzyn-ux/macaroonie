@@ -901,8 +901,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/', 'operator', 'Search customers by name/email/phone (?q=term). Returns 20 most-recent if q < 2 chars.'],
                 ['GET', '/:id', 'operator', 'Customer detail including full booking history.'],
                 ['PATCH', '/:id', 'operator', 'Update name, phone, or notes.'],
-                ['POST', '/:id/anonymise', 'admin', 'GDPR erasure — replaces all PII with placeholders, anonymises linked bookings. Never deletes the row.'],
-                ['GET', '/:id/export', 'admin', 'GDPR data export — returns a JSON file download with customer + all booking records.'],
+                ['POST', '/:id/unsubscribe', 'operator', 'Newsletter off: marketing_opt_in = false, marketing_opt_out_at = now() (migration 125). There is no staff subscribe; only the guest opts in, at online checkout.'],
+                ['POST', '/:id/anonymise', 'admin', 'GDPR erasure — replaces all PII with placeholders, anonymises linked bookings and web orders (guest fields, notes, allergy_note, consent, order line notes), clears the newsletter fields. Never deletes the row.'],
+                ['GET', '/:id/export', 'admin', 'GDPR data export — returns a JSON file download with customer, newsletter status, all booking records and all web orders (with items and the consent recorded at checkout).'],
               ]}
             />
 
@@ -2393,6 +2394,26 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               table orders its eat-in rate, else the venue default for that type. Tips are a percentage from{' '}
               <Mono>tip_percents</Mono>, outside VAT.
             </P>
+            <H3>GDPR consent (migration 125)</H3>
+            <P>
+              Checkout has a required "order-only use of my details" box (it covers allergy notes,
+              which are health data) and an optional, unticked newsletter box.{' '}
+              <Mono>loadPrivacy(tx, tenantId)</Mono> in <Mono>orderSvc.js</Mono> owns the wording
+              (business name = <Mono>tenant_site.brand_name</Mono>, then <Mono>site_name</Mono>, then{' '}
+              <Mono>tenants.name</Mono>) and finds the privacy policy link (a published tenant-level{' '}
+              <Mono>website_pages</Mono> row with slug <Mono>privacy</Mono>, else a legal page whose slug
+              contains "privacy"). <Mono>GET /order-api/venues/:id</Mono> returns it as{' '}
+              <Mono>privacy</Mono> for the page to show; <Mono>createOrder()</Mono> records the same text.
+              <Mono>OrderBody.data_consent</Mono> must be <Mono>true</Mono> (400 otherwise).
+            </P>
+            <DataTable
+              head={['Column', 'Notes']}
+              rows={[
+                ['orders.data_consent_at', "When the guest agreed to the order-only use (order creation time)."],
+                ['orders.consent', "jsonb { data: { text, at }, marketing: { text, at } | null, policy_url } as shown at checkout. Cleared to {} on anonymise."],
+                ['customers.marketing_opt_in (+ _at, _source, marketing_opt_out_at)', "Newsletter status. Set on order creation when the box is ticked (source web_order); an unticked box never clears it. Cleared by POST /customers/:id/unsubscribe or anonymise. GET /customers?offset=…&newsletter=1 lists subscribers."],
+              ]}
+            />
             <H3>Collection slots</H3>
             <P>
               Computed, never stored (<Mono>computeSlots()</Mono>): slot times every{' '}

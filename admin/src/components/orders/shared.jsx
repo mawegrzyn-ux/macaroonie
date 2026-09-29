@@ -397,6 +397,11 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
             <div className="font-semibold text-base">{o.guest_name}</div>
             {o.guest_phone && <a href={`tel:${o.guest_phone}`} className="flex items-center gap-2 text-primary min-h-[32px]"><Phone className="w-4 h-4" />{o.guest_phone}</a>}
             {o.guest_email && <a href={`mailto:${o.guest_email}`} className="flex items-center gap-2 text-muted-foreground min-h-[32px] break-all"><Mail className="w-4 h-4 shrink-0" />{o.guest_email}</a>}
+            {o.data_consent_at && (
+              <div className="text-xs text-muted-foreground">
+                Agreed to order-only use of their details{o.marketing_opt_in ? ' · Subscribed to the newsletter' : ' · No newsletter'}
+              </div>
+            )}
           </div>
 
           {o.allergy_note && (

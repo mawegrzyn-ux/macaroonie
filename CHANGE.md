@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering: GDPR consent and newsletter]
+
+**Migration 125.**
+
+- Checkout has a new **Your privacy** section. A required box: the guest agrees their details, including any allergy information, are used only to prepare the order and contact them about it; Place order stays greyed out until it is ticked. An optional, unticked box subscribes them to the newsletter ("occasional, carefully crafted emails with news and offers"). Both use your brand name, and link to your Privacy Policy page when you have one.
+- Every order records exactly what the guest agreed to and when. The staff order view shows it.
+- Customers: newsletter subscribers are marked in the list, a **Newsletter** button lists only subscribers, and a profile shows when and how they subscribed with an **Unsubscribe** button. Staff can't subscribe anyone.
+- GDPR anonymise now also clears the customer's online orders (name, email, phone, notes, allergy information) and takes them off the newsletter; the export now includes their online orders and consent.
+- The default Privacy Policy (Website → Legal & cookies, for newly generated pages) mentions online orders and the newsletter.
+- Orders placed earlier with the old "Send me news and offers" box ticked carry that opt-in onto the customer.
 ## [2026-09-29 — Online ordering follows the menu's variant settings]
 
 - The two variant settings in a menu's details now apply to online ordering, as they already did on the website and the printed menu. "Don't show the variant option at all if it isn't priced" leaves options with no price (or £0) out of the dish options, and the server refuses them. "Don't show a price on zero-priced variants" hides the £0.00 next to such options.
