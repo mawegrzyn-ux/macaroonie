@@ -2524,6 +2524,24 @@ export default function Help() {
               bottom of the screen.
             </P>
             <P>
+              Select the Online ordering block in the page builder to change how it looks and works:
+            </P>
+            <DataTable
+              head={['Setting', 'What it does']}
+              rows={[
+                ['Title and text under it', "Replace the venue name and the \"Order for collection\" line, or hide either. Type {venue} or {address} to fill in the venue's name or address."],
+                ['Show the basket', "Beside the menu (the usual; on phones it is a pop-up), or Pop-up only: a basket button floats at the bottom on every screen and the menu uses the full width."],
+                ['Keep the basket in view', "The basket beside the menu stays on screen as guests scroll. A long basket scrolls inside itself."],
+                ['Basket colours', "A background and text colour from your theme. Pick a text colour when the background is dark; the basket's buttons then use it too."],
+                ['Show VAT under the total', "Adds \"Includes VAT £x\" in the basket and at checkout."],
+                ['Keep the category bar in view', "The menu and category tabs (and search) stay at the top while scrolling, and the category being looked at is highlighted."],
+                ['Space for a sticky site header', "If your site header stays at the top of the screen, enter its height in pixels so the bar and basket sit just below it."],
+                ['Search box', "Guests search dishes by name or description across all menus."],
+                ['Highlight house favourites', "Dishes ticked as House favourite on the Menus page get a badge (your wording) and a coloured edge."],
+                ['Let guests add a note to each dish', "Turn off to remove the \"Note for the kitchen\" box on dishes. The allergy and order notes at checkout stay."],
+              ]}
+            />
+            <P>
               A menu with set times shows them to guests ("Dinner is available every day
               18:00–22:00"), and guests can browse and add from it outside those hours to order for
               later. At checkout only collection times when every dish in the basket is served are

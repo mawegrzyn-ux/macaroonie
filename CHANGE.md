@@ -5,6 +5,22 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering block: layout, search, favourites and more]
+
+- The Online ordering block (Website → Pages & modals → Order online) has new settings:
+  - Change the title and the text under it, or hide either. {venue} and {address} fill in the venue's details.
+  - Basket beside the menu, or pop-up only (a basket button at the bottom on every screen).
+  - The basket and the category bar can stay in view while scrolling, with space for a sticky site header. The category being looked at is highlighted.
+  - Basket background and text colours from your theme.
+  - Show or hide "Includes VAT" under the total.
+  - A search box for dishes.
+  - House favourites (ticked on the Menus page) can get a badge and a coloured edge.
+  - Turn off the note box on each dish.
+- Fixed: "Includes VAT" never showed on the ordering page, because dish VAT rates weren't sent to it.
+- Fixed: nothing on your website could stay stuck to the top of the screen while scrolling, including the header block's sticky header. It now works in current browsers.
+
+---
+
 ## [2026-09-29 — Online ordering: menu times and scheduled menu changes]
 
 **Migration 130.**

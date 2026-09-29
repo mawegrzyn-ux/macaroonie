@@ -376,8 +376,14 @@ const _ldBreadcrumb = (_isLoc && it.venue) ? {
       /* Defensive guard: any block that overflows horizontally
          (grid not collapsing, fixed-width image, etc.) would otherwise
          add an empty strip on the right. The visible scroll is suppressed
-         here while individual blocks add proper @media collapse rules. */
+         here while individual blocks add proper @media collapse rules.
+         clip, not hidden: hidden on both html and body turns body into a
+         scroll container, and then nothing inside the page can be
+         position: sticky (the sticky header block, the ordering page's
+         basket and category bar). hidden stays first as a fallback for
+         browsers without clip (Safari before 16). */
       overflow-x: hidden;
+      overflow-x: clip;
       max-width: 100vw;
     }
     h1, h2, h3, h4 { font-family: var(--f-heading); font-weight: var(--fw-heading); margin: 0; line-height: 1.15; }

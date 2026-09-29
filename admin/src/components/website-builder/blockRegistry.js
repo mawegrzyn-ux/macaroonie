@@ -456,6 +456,12 @@ export const BLOCKS = [
       heading:    '',
       hide_title: false,
       venue_id:   null,   // null = automatic (see blocks/online_ordering.eta)
+      title_text: '', subtitle_text: '', hide_subtitle: false,
+      basket_mode: 'side',       // 'side' | 'modal' (pop-up only)
+      basket_sticky: true, basket_bg: '', basket_text: '', show_vat: true,
+      sticky_nav: true, sticky_offset: 0,
+      show_search: false, highlight_favourites: false, favourite_label: '',
+      item_notes: true,
     },
     editor:      OnlineOrderingEditor,
   },
