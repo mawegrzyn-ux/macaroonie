@@ -3088,6 +3088,9 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
   })
 
   const editingPage = editing && editing !== 'new' ? pages.find(p => p.id === editing) : null
+  // The built-in online ordering page (migration 126): always a published
+  // standalone page at /order, can't be deleted. Only its title and blocks change.
+  const isOrderPage = editingPage?.system_key === 'order'
 
   const saveMeta = useMutation({
     mutationFn: () => editing === 'new'
@@ -3148,6 +3151,14 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
             <TextInput value={form.title} autoFocus
               onChange={e => setForm(f => ({ ...f, title: e.target.value }))} />
           </FormRow>
+          {isOrderPage ? (
+            <p className="text-sm text-muted-foreground">
+              Your online ordering page. It always lives at <span className="font-mono">/order</span> (and
+              <span className="font-mono"> /locations/&lt;location&gt;/order</span> for one location). Keep the
+              Online ordering block on it; add anything you like around it. Switch ordering on or off in
+              Online orders, Setup.
+            </p>
+          ) : (<>
           <FormRow label="URL slug" hint={pathHint}>
             <TextInput value={form.slug}
               onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') }))} />
@@ -3174,13 +3185,15 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
               onChange={e => setForm(f => ({ ...f, is_published: e.target.checked }))} />
             Published
           </label>
-          {(!editingPage?.blocks || editingPage.blocks.length === 0) && (
+          </>)}
+          {!isOrderPage && (!editingPage?.blocks || editingPage.blocks.length === 0) && (
             <FormRow label="HTML fallback"
               hint="Used only when the page has no blocks. Prefer the builder below after creating.">
               <TextArea value={form.content} className="min-h-[120px] font-mono text-xs"
                 onChange={e => setForm(f => ({ ...f, content: e.target.value }))} />
             </FormRow>
           )}
+          {saveMeta.error && <p className="text-sm text-destructive">{saveMeta.error.message}</p>}
           <div className="flex items-center justify-end gap-2 pt-2 border-t">
             <button type="button" onClick={() => setEditing(null)}
               className="text-xs text-muted-foreground px-3 py-1.5">Cancel</button>
@@ -3233,12 +3246,12 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{p.title}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {p.kind === 'modal' ? `#modal/${p.slug}` : `/p/${p.slug}`}
+                    {p.system_key === 'order' ? '/order' : p.kind === 'modal' ? `#modal/${p.slug}` : `/p/${p.slug}`}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase">
-                    {p.kind === 'modal' ? 'Modal' : 'Page'}
+                    {p.system_key === 'order' ? 'Ordering' : p.kind === 'modal' ? 'Modal' : 'Page'}
                   </span>
                   {p.is_published ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">LIVE</span>
@@ -3249,10 +3262,12 @@ function PagesSection({ venueId, tenantSite, venues = [], tenantName = '' }) {
                     className="text-xs text-primary hover:underline px-2 py-1">
                     Edit
                   </button>
-                  <button type="button" onClick={() => del.mutate(p.id)}
-                    className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  {!p.system_key && (
+                    <button type="button" onClick={() => del.mutate(p.id)}
+                      className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

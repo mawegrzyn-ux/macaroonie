@@ -24,6 +24,7 @@
 import { loadTenantBundle, loadLocationBundle, soleVenueOf } from '../services/siteDataSvc.js'
 import { sql }            from '../config/db.js'
 import { env }            from '../config/env.js'
+import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
 
 // Exported so api/src/routes/website.js can validate against the same
 // reserved list when an operator picks a subdomain slug.
@@ -170,6 +171,14 @@ export default async function siteRendererRoutes(app) {
     })
   }
 
+  const orderingVenues = async bundle => {
+    const ids = (bundle.venues || []).map(v => v.id)
+    if (!ids.length) return []
+    const rows = await sql`SELECT venue_id FROM ordering_settings WHERE venue_id = ANY(${ids}::uuid[]) AND is_enabled = true`
+    const on = new Set(rows.map(r => r.venue_id))
+    return bundle.venues.filter(v => on.has(v.id))
+  }
+
   const loadOrRender404 = async (req, reply) => {
     if (!req.siteHost) return null
     const bundle = await loadTenantBundle(req.siteHost)
@@ -177,6 +186,9 @@ export default async function siteRendererRoutes(app) {
       await renderNotFound(reply)
       return null
     }
+    // Venues taking online orders, for the Online ordering block
+    // (blocks/online_ordering.eta), which can sit on any page.
+    bundle.ordering_venues = await orderingVenues(bundle)
     return bundle
   }
 
@@ -285,13 +297,6 @@ export default async function siteRendererRoutes(app) {
   // /order                       single ordering venue: its menu; several: pick one
   // /locations/:venueSlug/order  one venue's ordering page
   // /order/status/:token         an order's live status (the token is the key)
-  const orderingVenues = async bundle => {
-    const ids = (bundle.venues || []).map(v => v.id)
-    if (!ids.length) return []
-    const rows = await sql`SELECT venue_id FROM ordering_settings WHERE venue_id = ANY(${ids}::uuid[]) AND is_enabled = true`
-    const on = new Set(rows.map(r => r.venue_id))
-    return bundle.venues.filter(v => on.has(v.id))
-  }
   const renderOrder = (req, reply, bundle, extra) => renderSite(reply, 'order', {
     ...baseCtx(req, bundle),
     page: { kind: 'order' },
@@ -299,23 +304,37 @@ export default async function siteRendererRoutes(app) {
     ...extra,
   })
 
+  // /order and /locations/:slug/order render the tenant's built-in
+  // ordering page (migration 126, services/orderPage.js): whatever blocks
+  // the operator put on it, with the Online ordering block showing the
+  // venue (or the location picker) chosen here.
+  const renderOrderPage = (req, reply, bundle, extra) => {
+    const orderPage = (bundle.pages || []).find(p => p.system_key === ORDER_PAGE_KEY) || DEFAULT_ORDER_PAGE
+    return renderSite(reply, 'page', {
+      ...baseCtx(req, bundle),
+      page: { kind: 'custom', ...orderPage },
+      pageTitle: orderPage.title + ' – ' + (bundle.config?.site_name || bundle.tenant_name || ''),
+      ...extra,
+    })
+  }
+
   app.get('/order', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()
     const bundle = await loadOrRender404(req, reply)
     if (!bundle) return
-    const venues = await orderingVenues(bundle)
+    const venues = bundle.ordering_venues
     if (!venues.length) return renderNotFound(reply, 'Online ordering is not available')
-    if (venues.length === 1) return renderOrder(req, reply, bundle, { orderView: 'order', orderVenue: venues[0] })
-    return renderOrder(req, reply, bundle, { orderView: 'pick', orderVenues: venues })
+    if (venues.length === 1) return renderOrderPage(req, reply, bundle, { orderView: 'order', orderVenue: venues[0] })
+    return renderOrderPage(req, reply, bundle, { orderView: 'pick', orderVenues: venues })
   })
 
   app.get('/locations/:venueSlug/order', async (req, reply) => {
     if (!req.siteHost) return reply.callNotFound()
     const bundle = await loadOrRender404(req, reply)
     if (!bundle) return
-    const venue = (await orderingVenues(bundle)).find(v => v.slug === req.params.venueSlug)
+    const venue = bundle.ordering_venues.find(v => v.slug === req.params.venueSlug)
     if (!venue) return renderNotFound(reply, 'Online ordering is not available here')
-    return renderOrder(req, reply, bundle, { orderView: 'order', orderVenue: venue })
+    return renderOrderPage(req, reply, bundle, { orderView: 'order', orderVenue: venue })
   })
 
   app.get('/order/status/:token', async (req, reply) => {
@@ -334,6 +353,8 @@ export default async function siteRendererRoutes(app) {
     if (!bundle) return
     const page = bundle.pages.find(p => p.slug === req.params.pageSlug)
     if (!page) return renderNotFound(reply, 'Page not found')
+    // The built-in ordering page lives at /order.
+    if (page.system_key === ORDER_PAGE_KEY) return reply.redirect('/order', 302)
     return renderSite(reply, 'page', {
       ...baseCtx(req, bundle),
       page: { kind: 'custom', ...page },
@@ -371,7 +392,7 @@ export default async function siteRendererRoutes(app) {
       `${base}/`,
       ...((multiVenue && !bundle.tenant_site.hide_locations_index) ? [`${base}/locations`] : []),
       ...(multiVenue ? bundle.venues.map(v => `${base}/locations/${v.slug}`) : []),
-      ...bundle.pages.map(p => `${base}/p/${p.slug}`),
+      ...bundle.pages.map(p => base + (p.system_key === 'order' ? '/order' : `/p/${p.slug}`)),
     ]
     const body =
       `<?xml version="1.0" encoding="UTF-8"?>\n` +
@@ -444,7 +465,7 @@ export default async function siteRendererRoutes(app) {
       lines.push('## Pages')
       lines.push('')
       for (const p of bundle.pages) {
-        lines.push('- [' + p.title + '](' + base + '/p/' + p.slug + ')')
+        lines.push('- [' + p.title + '](' + base + (p.system_key === 'order' ? '/order' : '/p/' + p.slug) + ')')
       }
       lines.push('')
     }

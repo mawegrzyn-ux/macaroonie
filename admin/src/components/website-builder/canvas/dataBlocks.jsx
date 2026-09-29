@@ -13,7 +13,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
-import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar } from 'lucide-react'
+import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag } from 'lucide-react'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
 
@@ -616,6 +616,30 @@ export function GuestplanWidgetCanvas({ data, onChange }) {
             hint="No access key set."
             where="Add your Guestplan access key on this block" />
         )}
+      </div>
+    </section>
+  )
+}
+
+// ── Online ordering (migration 126) ─────────────────────
+// The live block is the full ordering app (views/site/shared/ordering.eta),
+// which needs the public ordering API, so the canvas shows a placeholder.
+export function OnlineOrderingCanvas({ data, onChange }) {
+  const api = useApi()
+  const { data: venues = [] } = useQuery({
+    queryKey: ['venues'],
+    queryFn: () => api.get('/venues'),
+    staleTime: 60_000,
+    enabled: !!data.venue_id,
+  })
+  const venue = data.venue_id ? venues.find(v => v.id === data.venue_id) : null
+  return (
+    <section className="block" style={{ padding: '32px 0' }}>
+      <div style={{ maxWidth: 1180, margin: '0 auto', padding: '0 16px' }}>
+        {(data.heading || '').trim() && <BlockHeading data={data} onChange={onChange} />}
+        <EmptyPanel Icon={ShoppingBag} title="Online ordering"
+          hint={'Menu, basket and checkout' + (venue ? ' for ' + venue.name : ', venue chosen automatically')}
+          where="Try it on the live site at /order" />
       </div>
     </section>
   )

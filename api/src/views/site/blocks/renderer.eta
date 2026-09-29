@@ -27,6 +27,8 @@ const _aid = _cleanAnchor || _fallbackAnchor
   <%~ include('./reviews_band', it) %>
 <% } else if (t === 'order_options') { %>
   <%~ include('./order_options', it) %>
+<% } else if (t === 'online_ordering') { %>
+  <%~ include('./online_ordering', it) %>
 <% } else if (t === 'menu_inline') { %>
   <%~ include('./menu_inline', it) %>
 <% } else if (t === 'hero') { %>

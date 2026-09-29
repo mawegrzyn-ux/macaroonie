@@ -1,0 +1,43 @@
+<%
+/* ── online_ordering block (migration 126) ─────────────────────────────
+ *
+ * The online ordering app (menu, basket, checkout, payment) as a page
+ * block. It sits on the built-in ordering page (/order) and can go on any
+ * other page too. The app itself is shared/ordering.eta; only one per
+ * page works (its script finds #mo-app by id).
+ *
+ * Which venue it shows:
+ *   1. /order and /locations/:slug/order already decided (it.orderView)
+ *   2. the venue chosen on the block (data.venue_id), when it takes online orders
+ *   3. the location this page belongs to, when it takes online orders
+ *   4. the only venue taking online orders
+ *   5. otherwise a location picker
+ * it.ordering_venues is set by siteRenderer.js for every page.
+ */
+const d = it.block.data || {}
+const _ovs = it.ordering_venues || []
+let _view = it.orderView || null
+let _venue = it.orderVenue || null
+let _venues = it.orderVenues || null
+if (!_view) {
+  const _byId = function (id) { return _ovs.find(function (v) { return v.id === id }) || null }
+  _venue = (d.venue_id && _byId(d.venue_id)) || (it.venue && it.venue.id && _byId(it.venue.id)) || (_ovs.length === 1 ? _ovs[0] : null)
+  if (_venue) { _view = 'order' }
+  else if (_ovs.length) { _view = 'pick'; _venues = _ovs }
+}
+const _heading = String(d.heading || '').trim()
+%>
+<section class="block block-online-ordering">
+  <% if (_heading) { %>
+    <div style="max-width: 1180px; margin: 0 auto; padding: 32px 16px 0;">
+      <h2 style="font-family: var(--f-heading); margin: 0;"><%= _heading %></h2>
+    </div>
+  <% } %>
+  <% if (_view) { %>
+    <%~ include('../shared/ordering', { ...it, orderView: _view, orderVenue: _venue, orderVenues: _venues, orderHideTitle: !!d.hide_title }) %>
+  <% } else { %>
+    <div style="max-width: 1180px; margin: 0 auto; padding: 48px 16px; color: var(--c-muted);">
+      Online ordering isn't available right now.
+    </div>
+  <% } %>
+</section>

@@ -33,6 +33,8 @@ export function LinkCatalogProvider({ value, children }) {
 }
 
 function pageHref(p, venueSlug, anchor) {
+  // The built-in ordering page (migration 126) is served at /order.
+  if (p.system_key === 'order') return anchor ? `/order#${anchor}` : '/order'
   if (p.kind === 'modal') {
     return anchor ? `#modal/${p.slug}:${anchor}` : `#modal/${p.slug}`
   }

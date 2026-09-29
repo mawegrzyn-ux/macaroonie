@@ -44,6 +44,7 @@ const WEBSITE_CONFIG_CONTENT_FIELDS = [
 
 const PAGE_CONTENT_FIELDS = [
   'id', 'slug', 'title', 'content', 'blocks', 'kind', 'is_legal', 'sort_order', 'show_header', 'show_footer',
+  'system_key',
 ]
 
 function pick(row, fields) {

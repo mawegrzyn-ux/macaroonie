@@ -40,7 +40,7 @@ export default async function publicSiteRoutes(app) {
       `${base}/`,
       ...((bundle.venues.length > 1 && !bundle.tenant_site.hide_locations_index) ? [`${base}/locations`] : []),
       ...bundle.venues.map(v => `${base}/locations/${v.slug}`),
-      ...bundle.pages.map(p => `${base}/p/${p.slug}`),
+      ...bundle.pages.map(p => base + (p.system_key === 'order' ? '/order' : `/p/${p.slug}`)),
     ]
     const body =
       `<?xml version="1.0" encoding="UTF-8"?>\n` +
@@ -102,7 +102,7 @@ export default async function publicSiteRoutes(app) {
       lines.push('## Pages')
       lines.push('')
       for (const p of bundle.pages) {
-        lines.push(`- [${p.title}](${base}/p/${p.slug})`)
+        lines.push(`- [${p.title}](${base}${p.system_key === 'order' ? '/order' : `/p/${p.slug}`})`)
       }
       lines.push('')
     }

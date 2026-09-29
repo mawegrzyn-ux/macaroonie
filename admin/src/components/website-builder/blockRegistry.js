@@ -39,6 +39,7 @@ import { DividerEditor }       from './editors/DividerEditor'
 import { FaqEditor }           from './editors/FaqEditor'
 import { ColumnsEditor }       from './editors/ColumnsEditor'
 import { GuestplanWidgetEditor } from './editors/GuestplanWidgetEditor'
+import { OnlineOrderingEditor } from './editors/OnlineOrderingEditor'
 import {
   HeaderBlockEditor, FooterBlockEditor,
   StoryWithStampEditor, DishListEditor, ReviewsBandEditor,
@@ -61,7 +62,7 @@ export const DEFAULT_CONTAINER = 'boxed'
 // (because they're either intrinsically full-bleed, or just visual filler).
 // Columns IS included in the toggle — its `container` controls the outer
 // row's max-width before the columns split.
-export const NO_CONTAINER_BLOCKS = new Set(['divider', 'header', 'footer', 'scrolling_text'])
+export const NO_CONTAINER_BLOCKS = new Set(['divider', 'header', 'footer', 'scrolling_text', 'online_ordering'])
 
 // Blocks that pin to the start (header) or end (footer) of the page when
 // added — keeps the page-builder UX matching what the live site renders.
@@ -444,6 +445,19 @@ export const BLOCKS = [
     },
     editor:      ReservationsWidgetEditor,
     pullsFromConfig: true,
+  },
+  {
+    key:         'online_ordering',
+    label:       'Online ordering',
+    description: 'The online ordering menu, basket and checkout. Already on your built-in Order online page (/order); add it to another page to take orders there too. One per page.',
+    icon:        ShoppingBag,
+    category:    'data',
+    defaultData: {
+      heading:    '',
+      hide_title: false,
+      venue_id:   null,   // null = automatic (see blocks/online_ordering.eta)
+    },
+    editor:      OnlineOrderingEditor,
   },
   {
     key:         'guestplan_widget',
