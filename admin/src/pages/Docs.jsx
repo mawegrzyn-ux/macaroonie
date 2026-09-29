@@ -2391,8 +2391,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               options from the choices (so the server rejects them too),{' '}
               <Mono>hide_zero_priced_variants</Mono> sets <Mono>hide_zero_price</Mono> on each choice
               and <Mono>optionPriceText()</Mono> shows no price for £0 options. VAT follows the order
-              type (<Mono>vatRateFor()</Mono>): collection and delivery use the dish's takeaway rate,
-              table orders its eat-in rate, else the venue default for that type. Tips are a percentage from{' '}
+              type (<Mono>vatRateFor(item, fulfilment, settings, section)</Mono>): collection and
+              delivery use the takeaway rate, table orders the eat-in rate, taken from the dish, else
+              its section (<Mono>menu_sections.vat_rate_*</Mono>, migration 127), else the venue
+              default for that type. <Mono>loadOrderingMenu()</Mono> is the only caller and passes the
+              section. Tips are a percentage from{' '}
               <Mono>tip_percents</Mono>, outside VAT.
             </P>
             <H3>GDPR consent (migration 125)</H3>
@@ -2515,6 +2518,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['menu_items.calories', 'Migration 094. Nullable int (kcal), CHECK >= 0. Shown next to the price wherever price is shown — website block, print, and the page-builder canvas preview.'],
                 ['menus.print_settings', 'Migration 120. jsonb, default {}. Optional keys: font_scale (int 70-150, %), margin_mm (3-25, null = 8mm/12mm), repeat_header (first | compact | full), repeat_footer, page_numbers, keep_sections (bools), variant_columns (1-3: variant label + price pairs per row, .variants grid of .variant pairs). Zod PrintSettings in menus.js strips unknown keys; written with tx.json(). A missing key keeps the original layout.'],
                 ['menu_sections.print_break_before / print_keep_together', 'Migration 120. none | column | page (CHECK), and a boolean. Print only: the website menu_inline block and the canvas ignore them.'],
+                ['menu_sections.vat_rate_takeaway / vat_rate_eat_in', 'Migration 127. Nullable numeric(5,2), 0-100. Section VAT for web ordering, used for dishes without their own rate (see vatRateFor in the Web Ordering section). SectionBody accepts both; upsertMenuTree and /duplicate carry them. Edited in the section side panel (SectionDrawer in Menus.jsx), where section title, subtitle, image, highlight and print options also live now; the section row only shows badges.'],
+                ['menu_dietary_tags (admin page)', 'Page renamed Dietary tags, route /menus/dietary-tags (MenuDietaryTags.jsx, DietaryTagsManager.jsx). Migration 128 points nav_items at the new route and renames the default label. Add and edit use one modal (TagModal) calling POST /menus/dietary and PATCH /menus/dietary/:id; delete is in the modal with an inline confirm.'],
                 ['menu_sections.image_url', 'Migration 095. Nullable text (a Media library URL). A small category icon/image next to the section heading — capped at 1.3em (website block / canvas) or 1.6em (print) so it never renders larger than the heading font next to it, regardless of the uploaded image\'s actual resolution.'],
               ]}
             />
@@ -2523,6 +2528,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               automatically whenever set, the same way <Mono>notes</Mono> and{' '}
               <Mono>image_url</Mono> (dish photo) already work. Don't add a per-menu visibility
               toggle unless asked; that would be new scope, not what these migrations do.
+            </InfoBox>
+            <InfoBox type="warn">
+              Printing drops background colours unless an element opts in with{' '}
+              <Mono>print-color-adjust: exact</Mono> (plus the <Mono>-webkit-</Mono> form). Both print
+              layouts set it on the dietary tag chips and the tinted boxes: <Mono>.tag-chip</Mono>,{' '}
+              <Mono>.section.highlight</Mono>, <Mono>.item.featured</Mono>, <Mono>.menu-intro</Mono> in{' '}
+              <Mono>menu_print.eta</Mono>, and <Mono>.ml-tag</Mono>, <Mono>.ml-item.featured</Mono>,{' '}
+              <Mono>.ml-box-tint</Mono>, <Mono>.ml-intro</Mono> in <Mono>shared/menuLayout.js</Mono>. The
+              page background is left out on purpose. A new coloured element meant to print needs the
+              same rule; the on-screen preview always shows colours, so only a real print or PDF shows
+              the problem.
             </InfoBox>
             <H3>Touch points for any new menu_items / menu_sections field</H3>
             <P>

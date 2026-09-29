@@ -10,7 +10,7 @@
 //           not inline on the page.
 //
 // Dietary tags and variant groups are tenant-wide and managed on their
-// own pages (see AppShell's Menus > Variant groups / Dietary groups)
+// own pages (see AppShell's Menus > Variant groups / Dietary tags)
 // rather than inline here — this page only ATTACHES them to dishes.
 //
 // Single Save button PATCHes the whole tree (server delete-and-reinserts).
@@ -1178,7 +1178,7 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
           <p className="text-xs font-medium mb-1.5">Dietary tags</p>
           <div className="flex flex-wrap gap-1.5">
             {dietaryTags.length === 0 && (
-              <p className="text-[11px] text-muted-foreground">No dietary tags yet — add some on Menus &gt; Dietary groups.</p>
+              <p className="text-[11px] text-muted-foreground">No dietary tags yet — add some on Menus &gt; Dietary tags.</p>
             )}
             {dietaryTags.map(t => {
               const active = (item.dietary || []).includes(t.code)

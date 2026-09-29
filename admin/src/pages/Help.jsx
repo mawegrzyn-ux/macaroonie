@@ -2382,13 +2382,19 @@ export default function Help() {
               in multiple sizes/proteins — one or more <strong>variant groups</strong> (managed
               separately under Menus → Variant groups) attached with per-dish price overrides.
             </P>
+            <P>
+              Tap a dish to edit it in the panel on the right. Tap a section's heading to edit the
+              section there too: its title, subtitle, small icon, <strong>Highlight</strong>, print
+              options and online ordering VAT. The section heading shows badges for what is set
+              (Highlight, VAT, New page…). Deleting a section is in its panel and asks you to confirm.
+            </P>
             <DataTable
               head={['Field', 'What it does']}
               rows={[
                 ['Calories', 'Optional kcal count shown next to the price on the website and printed menu. Leave blank for dishes you haven\'t calculated yet — nothing is required.'],
                 ['Category icon', 'A small image/icon next to a section\'s title (e.g. a little flame for "Spicy", a leaf for "Vegan Specials"). Upload something roughly square — 64×64 or 96×96 px works well — it always displays small, no bigger than the heading text next to it, regardless of the source size.'],
                 ['House favourite', 'Highlights the dish with the featured styling.'],
-                ['Dietary tags', 'Small coloured badges (vegan, gluten-free, spicy, …) shown next to the dish name.'],
+                ['Dietary tags', 'Small coloured badges (vegan, gluten-free, spicy, …) shown next to the dish name. Create and edit them under Menus → Dietary tags: tap a tag to change its label, badge text, code or colour.'],
               ]}
             />
             <InfoBox type="tip">
@@ -2410,7 +2416,7 @@ export default function Help() {
               footer line), <strong>page numbers</strong>, and <strong>Keep every section in one
               piece</strong>, and <strong>Variant options per row</strong> (1, 2 or 3): with 2 or 3, a
               dish's options such as Chicken, Prawns and Beef sit side by side with their prices,
-              which saves space on long menus. Under each section's title in the menu, choose whether it continues
+              which saves space on long menus. In each section's panel (tap its heading), choose whether it continues
               after the previous section, <strong>starts in a new column</strong> or{' '}
               <strong>starts on a new page</strong>, and whether to keep that section in one piece.
             </P>
@@ -2421,6 +2427,11 @@ export default function Help() {
               section split, or making the font smaller. Otherwise that page runs onto an extra
               sheet without its header and footer. The check needs a window wide enough to show
               the page at full size.
+            </P>
+            <P>
+              Dietary tag colours, highlighted sections and house favourites keep their background
+              colour on paper and in a saved PDF, even with the print dialog's &ldquo;Background
+              graphics&rdquo; option off. The cream page background does not print, which saves ink.
             </P>
             <H3>Designing the print yourself</H3>
             <P>
@@ -2496,7 +2507,7 @@ export default function Help() {
                 ['Time slots / orders per slot', "Guests pick a collection time from these slots. Set a maximum per slot and full slots are greyed out."],
                 ['Order ahead', "How many days ahead guests can order. 0 = today only."],
                 ['Minimum order, tips', "A minimum basket value, and optional tip choices at checkout."],
-                ['Default VAT, takeaway / eat in', "Used for dishes without a VAT rate of their own. Collection orders use the takeaway rate; eat-in rates are for table orders coming with the POS."],
+                ['Default VAT, takeaway / eat in', "Used for dishes with no VAT rate of their own and none on their section. Collection orders use the takeaway rate; eat-in rates are for table orders coming with the POS."],
                 ['Accept automatically', "Off: each new order waits on the board until someone taps Accept. On: it goes straight to In progress."],
                 ['Payment methods', "Pay at the counter, and online card payment once a payment provider is connected. Test payment is for trying the flow before going live: no money moves, so turn it off before real orders."],
                 ['Messages', "Collection instructions (on the ordering page and the email) and a note for the confirmation email."],
@@ -2512,7 +2523,10 @@ export default function Help() {
             <P>
               On the <strong>Menus</strong> page each dish has an <strong>Online ordering</strong>{' '}
               box: <strong>Can be ordered online</strong>, and its VAT rates for takeaway and eat in.
-              In the UK hot takeaway food is 20% and most cold takeaway food is 0%.
+              A section can have VAT rates too (in its panel). A dish uses its own rate first, then its
+              section's, then the venue default in Setup, so you can set a whole section of cold dishes
+              to 0% once instead of dish by dish. In the UK hot takeaway food is 20% and most cold
+              takeaway food is 0%.
             </P>
             <P>
               Choices come from <strong>Menus → Variant groups</strong>. Each group now says how it
