@@ -33,6 +33,12 @@ function StepNumberInput({ value, onChange, className }) {
   )
 }
 
+// What a step resolves to on desktop, and on phone portrait (its own mobile
+// value when set, same as head.eta's --boxed-step-N media query).
+const stepLen    = cfg => `${cfg.value}${cfg.unit}`
+const stepMobile = cfg => cfg.mobile_value != null
+  ? `${cfg.mobile_value}${cfg.mobile_unit || cfg.unit}` : stepLen(cfg)
+
 export function BrandLayoutFields({ theme, setPath }) {
   const cw = theme?.spacing?.container_max_px ?? DEFAULT_CONTAINER_MAX_PX
   const step = theme?.spacing?.boxed_step ?? DEFAULT_BOXED_STEP
@@ -140,13 +146,16 @@ export function BrandLayoutFields({ theme, setPath }) {
             return (
               <button key={s.value} type="button"
                 onClick={() => setPath('spacing', 'boxed_step', s.value)}
-                title={`${s.hint} — ${cfg.value}${cfg.unit} each side`}
+                title={`${s.hint} — ${stepLen(cfg)} each side${cfg.mobile_value != null ? `, ${stepMobile(cfg)} on phones` : ''}`}
                 className={`text-sm border rounded-md py-2 min-h-[40px] ${
                   Number(step) === s.value
                     ? 'bg-primary/10 border-primary text-primary font-medium'
                     : 'hover:bg-accent'}`}>
                 <span className="block leading-none">{s.label}</span>
-                <span className="block text-[10px] text-muted-foreground mt-0.5">{cfg.value}{cfg.unit}</span>
+                <span className="block text-[10px] text-muted-foreground mt-0.5">{stepLen(cfg)}</span>
+                {cfg.mobile_value != null && (
+                  <span className="block text-[10px] text-muted-foreground">{stepMobile(cfg)} mobile</span>
+                )}
               </button>
             )
           })}
@@ -173,13 +182,13 @@ export function BrandLayoutFields({ theme, setPath }) {
             return (
               <button key={s.value} type="button"
                 onClick={() => setPath('spacing', 'boxed_step_mobile', s.value)}
-                title={`${s.hint} — ${cfg.value}${cfg.unit} each side`}
+                title={`${s.hint} — ${stepMobile(cfg)} each side on phones`}
                 className={`text-sm border rounded-md py-2 min-h-[40px] ${
                   mobileStep === s.value
                     ? 'bg-primary/10 border-primary text-primary font-medium'
                     : 'hover:bg-accent'}`}>
                 <span className="block leading-none">{s.label}</span>
-                <span className="block text-[10px] text-muted-foreground mt-0.5">{cfg.value}{cfg.unit}</span>
+                <span className="block text-[10px] text-muted-foreground mt-0.5">{stepMobile(cfg)}</span>
               </button>
             )
           })}
