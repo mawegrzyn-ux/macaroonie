@@ -15,6 +15,13 @@
 //   Hourly entry (start/end set):   counts its own minutes; for each shift
 //     it overlaps, that shift counts in proportion (overlap / shift length).
 //
+//   Status (rota_entries.status, migration 129):
+//     on    worked: hours, pay and tip points.
+//     pto   paid time off: paid exactly like working it (hourly minutes,
+//           day / shift counts), but no tip points and not worked hours.
+//     sick, uto, abs  unpaid, no points; reported in absence_hours only.
+//   hours = worked (on) hours; paid_hours = on + pto (what fill-wages writes).
+//
 //   Points  = sum(shift.points x fraction worked) x role multiplier
 //             + the week's manual adjustment. Never below 0 for sharing.
 //   Pay:
@@ -138,15 +145,23 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     const basis = st.pay_basis ?? 'week'
     const defaultRate = num(st.default_rate)
 
-    let minutes = 0
+    let minutes = 0          // worked (on)
+    let paidMinutes = 0      // on + pto
+    const absenceMinutes = { sick: 0, pto: 0, uto: 0, abs: 0 }
     let basePoints = 0
     let pay = 0
-    const days = new Set()
+    const days = new Set()       // days worked (on)
+    const paidDays = new Set()   // days paid (on or pto)
     // fraction of each shift worked, summed over the week, for display
     const shiftFractions = {}
 
     for (const e of mine) {
-      days.add(String(e.work_date).slice(0, 10))
+      const status = e.status ?? 'on'
+      const worked = status === 'on'
+      const paid = worked || status === 'pto'
+      const day = String(e.work_date).slice(0, 10)
+      if (worked) days.add(day)
+      if (paid) paidDays.add(day)
       // Pieces of work: { shift, minutes, fraction } plus unassigned minutes.
       const pieces = []
       let loose = 0
@@ -169,10 +184,17 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
         loose = Math.max(0, total - inShifts)
       }
 
+      const entryMinutes = pieces.reduce((t, pc) => t + pc.minutes, 0) + loose
+      if (!worked) absenceMinutes[status] = (absenceMinutes[status] ?? 0) + entryMinutes
+      if (!paid) continue
+      paidMinutes += entryMinutes
+      if (worked) minutes += entryMinutes
+
       for (const pc of pieces) {
-        minutes += pc.minutes
-        basePoints += num(pc.shift.points) * pc.fraction
-        shiftFractions[pc.shift.id] = (shiftFractions[pc.shift.id] ?? 0) + pc.fraction
+        if (worked) {
+          basePoints += num(pc.shift.points) * pc.fraction
+          shiftFractions[pc.shift.id] = (shiftFractions[pc.shift.id] ?? 0) + pc.fraction
+        }
         if (payType === 'hourly') {
           const hourly = rates[pc.shift.id] != null ? num(rates[pc.shift.id]) : defaultRate
           pay += (pc.minutes / 60) * hourly
@@ -181,13 +203,12 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
           pay += amount * pc.fraction
         }
       }
-      minutes += loose
       if (payType === 'hourly') pay += (loose / 60) * defaultRate
     }
 
     if (payType !== 'hourly') {
-      if (basis === 'week') pay = days.size > 0 ? defaultRate : 0
-      if (basis === 'day') pay = defaultRate * days.size
+      if (basis === 'week') pay = paidDays.size > 0 ? defaultRate : 0
+      if (basis === 'day') pay = defaultRate * paidDays.size
     }
 
     const adj = adjByStaff.get(st.id)
@@ -206,6 +227,9 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       days_worked:     days.size,
       entry_count:     mine.length,
       hours:           round2(minutes / 60),
+      paid_hours:      round2(paidMinutes / 60),
+      paid_days:       paidDays.size,
+      absence_hours:   Object.fromEntries(Object.entries(absenceMinutes).map(([k, m]) => [k, round2(m / 60)])),
       shift_fractions: shiftFractions,
       computed_pay:    computedPay,
       pay_override:    payOverride,
@@ -283,6 +307,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     pots: potSummaries,
     totals: {
       hours:  round2(rows.reduce((s, r) => s + r.hours, 0)),
+      paid_hours: round2(rows.reduce((s, r) => s + r.paid_hours, 0)),
       pay:    round2(rows.reduce((s, r) => s + r.pay, 0)),
       points: totalPoints,
       tips_gross:  round2(potSummaries.reduce((s, p) => s + p.gross, 0)),

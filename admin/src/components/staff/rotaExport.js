@@ -24,6 +24,21 @@ const rangeMin = (s, e) => { let d = toMin(e) - toMin(s); if (d <= 0) d += 1440;
 const hoursLabel = mins => `${Math.round((mins / 60) * 100) / 100}h`
 
 /**
+ * What a rota entry records (rota_entries.status, migration 129). Order is
+ * the order of the grid's per-person mode menu. `print` is the cell colour
+ * on the printed sheet and the image.
+ */
+export const ENTRY_STATUSES = [
+  { key: 'on',   label: 'ON',   name: 'Working',         print: { bg: '#dcfce7', fg: '#14532d' } },
+  { key: 'sick', label: 'SICK', name: 'Sick',            print: { bg: '#fee2e2', fg: '#991b1b' } },
+  { key: 'pto',  label: 'PTO',  name: 'Paid time off',   print: { bg: '#e0f2fe', fg: '#075985' } },
+  { key: 'uto',  label: 'UTO',  name: 'Unpaid time off', print: { bg: '#ede9fe', fg: '#5b21b6' } },
+  { key: 'abs',  label: 'ABS',  name: 'Absent',          print: { bg: '#fef3c7', fg: '#92400e' } },
+]
+export const STATUS_BY_KEY = Object.fromEntries(ENTRY_STATUSES.map(s => [s.key, s]))
+export const statusOf = e => (e.status && STATUS_BY_KEY[e.status] ? e.status : 'on')
+
+/**
  * Days to show: every day, or (hideClosed) only the days the venue is open,
  * per week.open_dates from its booking schedule. A closed day that still
  * has someone rostered is always kept. open_dates null = no schedule, show all.
@@ -59,34 +74,47 @@ export function buildRotaSheet({ week, entries, mode, venueName, unsaved, hideCl
     date: d, label: format(parseISO(d), 'EEE d MMM') + (isClosedDay(week, d) ? ' (closed)' : ''),
   }))
 
+  const usedStatuses = new Set()
   const rows = week.staff.map(st => {
-    let minutes = 0
+    let minutes = 0   // worked (ON) only
+    const tones = []  // per cell: 'on', a time-off status key, or 'off'
+    const working = []
     const cells = dates.map(d => {
       const mine = entries.filter(e => e.staff_id === st.id && e.work_date === d)
-      if (mode === 'day_parts') {
-        return mine.filter(e => e.shift_id && shiftById[e.shift_id])
-          .sort((a, b) => shiftOrder[a.shift_id] - shiftOrder[b.shift_id])
-          .map(e => {
-            const s = shiftById[e.shift_id]
-            minutes += rangeMin(s.start_time, s.end_time)
-            return s.name
-          })
+      // Worked lines first (shift names or times), then one line per kind
+      // of time off, e.g. "SICK: Lunch, Dinner" or "PTO 09:00–17:00".
+      const items = mode === 'day_parts'
+        ? mine.filter(e => e.shift_id && shiftById[e.shift_id])
+            .sort((a, b) => shiftOrder[a.shift_id] - shiftOrder[b.shift_id])
+            .map(e => {
+              const s = shiftById[e.shift_id]
+              return { status: statusOf(e), text: s.name, minutes: rangeMin(s.start_time, s.end_time) }
+            })
+        : mine.filter(e => !e.shift_id)
+            .sort((a, b) => toMin(a.start_time) - toMin(b.start_time))
+            .map(e => ({ status: statusOf(e), text: `${hhmm(e.start_time)}–${hhmm(e.end_time)}`, minutes: rangeMin(e.start_time, e.end_time) }))
+      const on = items.filter(i => i.status === 'on')
+      minutes += on.reduce((t, i) => t + i.minutes, 0)
+      const lines = on.map(i => i.text)
+      for (const st of ENTRY_STATUSES.slice(1)) {
+        const off = items.filter(i => i.status === st.key)
+        if (!off.length) continue
+        usedStatuses.add(st.key)
+        lines.push(mode === 'day_parts' ? `${st.label}: ${off.map(i => i.text).join(', ')}` : off.map(i => `${st.label} ${i.text}`).join('\n'))
       }
-      return mine.filter(e => !e.shift_id)
-        .sort((a, b) => toMin(a.start_time) - toMin(b.start_time))
-        .map(e => {
-          minutes += rangeMin(e.start_time, e.end_time)
-          return `${hhmm(e.start_time)}–${hhmm(e.end_time)}`
-        })
+      working.push(on.length > 0)
+      tones.push(on.length ? 'on' : (items[0]?.status ?? 'off'))
+      return lines.flatMap(l => l.split('\n'))
     })
-    return { name: st.name, role: st.role_name ?? '', cells, hours: hoursLabel(minutes), working: minutes > 0 }
+    return { name: st.name, role: st.role_name ?? '', cells, tones, onDays: working, hours: hoursLabel(minutes), working: minutes > 0 }
   })
 
-  const counts = dates.map((_, i) => rows.filter(r => r.cells[i].length > 0).length)
+  const counts = dates.map((_, i) => rows.filter(r => r.onDays[i]).length)
   const usedShiftIds = new Set(entries.filter(e => e.shift_id).map(e => e.shift_id))
   const legend = mode === 'day_parts'
     ? week.shifts.filter(s => s.is_active || usedShiftIds.has(s.id)).map(s => `${s.name} ${hhmm(s.start_time)}–${hhmm(s.end_time)}`)
     : []
+  for (const st of ENTRY_STATUSES) if (usedStatuses.has(st.key)) legend.push(`${st.label} = ${st.name}`)
 
   const weekLabel = `${format(parseISO(week.dates[0]), 'd MMM')} – ${format(parseISO(week.dates[6]), 'd MMM yyyy')}`
   return {
@@ -117,15 +145,17 @@ export function rotaHtml(sheet) {
   const body = sheet.rows.map(r => `
     <tr>
       <td class="name"><strong>${esc(r.name)}</strong>${r.role ? `<div class="role">${esc(r.role)}</div>` : ''}</td>
-      ${r.cells.map(c => `<td class="${c.length ? 'on' : 'off'}">${c.length ? c.map(esc).join('<br>') : '–'}</td>`).join('')}
+      ${r.cells.map((c, i) => `<td class="${c.length ? `st-${r.tones[i]}` : 'off'}">${c.length ? c.map(esc).join('<br>') : '–'}</td>`).join('')}
       ${sheet.showTotals ? `<td class="hours">${esc(r.working ? r.hours : '')}</td>` : ''}
     </tr>`).join('')
   const foot = sheet.counts.map(n => `<td>${n || ''}</td>`).join('')
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(sheet.fileName)}</title>
 <style>
-  @page { size: A4 landscape; margin: 10mm; }
+  /* Chrome's Margins "Minimum" / "None" replace the @page margin, so the
+     body keeps its own padding too; the rota never touches the paper edge. */
+  @page { size: A4 landscape; margin: 8mm; }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, Arial, sans-serif; color: #111; margin: 0;
+  body { font-family: -apple-system, system-ui, "Segoe UI", Roboto, Arial, sans-serif; color: #111; margin: 0; padding: 6mm;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   h1 { font-size: 16pt; margin: 0 0 2pt; }
   .sub { font-size: 10pt; color: #444; margin-bottom: 6pt; }
@@ -134,11 +164,12 @@ export function rotaHtml(sheet) {
   th { background: #e5e7eb; font-weight: 600; }
   th.name, td.name { text-align: left; width: 18%; }
   th.hours, td.hours { width: 6%; text-align: right; }
-  td.on { background: #dcfce7; font-weight: 600; }
+  ${ENTRY_STATUSES.map(st => `td.st-${st.key} { background: ${st.print.bg}; color: ${st.print.fg}; font-weight: 600; }`).join('\n  ')}
   td.off { color: #9ca3af; }
   .role { font-size: 8pt; color: #555; font-weight: 400; }
   tfoot td { background: #f3f4f6; font-size: 8pt; }
   tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
   .meta { display: flex; justify-content: space-between; font-size: 8pt; color: #666; margin-top: 6pt; }
 </style></head><body>
   <h1>${esc(sheet.title)}</h1>
@@ -261,7 +292,8 @@ export function drawRotaCanvas(sheet, scale = 2) {
     }
     r.cells.forEach((lines, i) => {
       const x = colX[i + 1]
-      cellBox(x, y, dayW, h, lines.length ? '#dcfce7' : '#ffffff')
+      const tone = STATUS_BY_KEY[r.tones?.[i]]?.print
+      cellBox(x, y, dayW, h, lines.length && tone ? tone.bg : '#ffffff')
       ctx.textAlign = 'center'
       if (!lines.length) {
         ctx.fillStyle = '#9ca3af'
@@ -269,7 +301,7 @@ export function drawRotaCanvas(sheet, scale = 2) {
         ctx.fillText('–', x + dayW / 2, y + h / 2)
         return
       }
-      ctx.fillStyle = '#14532d'
+      ctx.fillStyle = tone ? tone.fg : '#14532d'
       ctx.font = `600 12px ${FONT}`
       const top = y + (h - lines.length * lineH) / 2 + lineH / 2
       lines.forEach((t, li) => ctx.fillText(fit(ctx, t, dayW - 8), x + dayW / 2, top + li * lineH))

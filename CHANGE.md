@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Rota: sickness and time off, Clear rota, print margins]
+
+**Migration 129.**
+
+- Rota: each name has a small square button that picks what a tap puts in for that person: ON / OFF (as before), SICK / OFF, PTO / OFF (paid time off), UTO / OFF (unpaid time off) or ABS / OFF (absent). Tapping their shifts then flicks between OFF and that option; a shift that was ON changes straight to it. In Hours mode each period has a working / time off box.
+- Pay: PTO is paid like the shift; SICK, UTO and ABS are unpaid. None of them count as hours worked or earn tip points. The pay table lists time off under each person's hours. Fill Cash Recon wages uses worked + PTO hours.
+- Time off shows in its own colour on the printout and image, the who's-on list shows who is off, and Copy from week copies only worked shifts.
+- **Clear rota** next to Save rota empties the week (after you confirm); press Save to keep it.
+- Print / PDF keeps a margin round the rota even when the print dialog's Margins is set to Minimum or None.
+
+---
+
 ## [2026-09-29 — Boxed inset: mobile values now save]
 
 - The per-step **Mobile** value in Website → Brand & theme → Layout now saves. Before, the Layout card appeared to save but the mobile value was thrown away by the server, so phones kept the desktop padding. Save again, then republish the site.
