@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Pages that couldn't scroll]
+
+- Food safety, Checklists, H&S Action Log, Online orders, Ordering setup, Reviews, Issue log, Feature requests, Changelog and Backlog now scroll. Before, anything below the bottom of the screen was cut off with no scrollbar.
+
+---
+
 ## [2026-09-28 — H&S checks follow opening days]
 
 **Migration 124.**

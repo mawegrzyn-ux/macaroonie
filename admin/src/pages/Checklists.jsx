@@ -500,47 +500,49 @@ export default function Checklists() {
   }, [venues, venueId])
 
   return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-bold">Checklists</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          {venues.length > 1 && (
-            <select value={venueId} onChange={e => setVenueId(e.target.value)}
-              className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]">
-              {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
-          )}
-          {tab === 'today' && (
-            <input type="date" value={date} onChange={e => setDate(e.target.value)}
-              className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
-          )}
-          <HsSettingsButton />
+    <div className="h-full overflow-y-auto">
+      <div className="p-4 md:p-6 max-w-4xl mx-auto">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+          <h1 className="text-2xl font-bold">Checklists</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            {venues.length > 1 && (
+              <select value={venueId} onChange={e => setVenueId(e.target.value)}
+                className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]">
+                {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            )}
+            {tab === 'today' && (
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+            )}
+            <HsSettingsButton />
+          </div>
         </div>
-      </div>
 
-      <div className="flex gap-1 mb-4">
-        {TABS.map(t => {
-          const Icon = t.icon
-          return (
-            <button key={t.key} type="button" onClick={() => setTab(t.key)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors touch-manipulation',
-                tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-              )}>
-              <Icon className="w-3.5 h-3.5" />
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
+        <div className="flex gap-1 mb-4">
+          {TABS.map(t => {
+            const Icon = t.icon
+            return (
+              <button key={t.key} type="button" onClick={() => setTab(t.key)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors touch-manipulation',
+                  tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+                )}>
+                <Icon className="w-3.5 h-3.5" />
+                {t.label}
+              </button>
+            )
+          })}
+        </div>
 
-      {!venueId ? (
-        <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
-      ) : tab === 'today' ? (
-        <TodayTab venueId={venueId} date={date} api={api} />
-      ) : (
-        <TemplatesTab venueId={venueId} api={api} qc={qc} />
-      )}
+        {!venueId ? (
+          <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
+        ) : tab === 'today' ? (
+          <TodayTab venueId={venueId} date={date} api={api} />
+        ) : (
+          <TemplatesTab venueId={venueId} api={api} qc={qc} />
+        )}
+      </div>
     </div>
   )
 }

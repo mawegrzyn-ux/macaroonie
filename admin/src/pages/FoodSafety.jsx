@@ -347,205 +347,92 @@ export default function FoodSafety() {
   })
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-bold">Food safety</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          {venues.length > 1 && (
-            <select value={venueId} onChange={e => setVenueId(e.target.value)}
-              className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]">
-              {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
-          )}
-          <input type="date" value={date} onChange={e => setDate(e.target.value)}
-            className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
-          <HsSettingsButton />
-        </div>
-      </div>
-
-      {venueId && <ClosedDayNotice venueId={venueId} date={date} className="mb-4" />}
-
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        <div className="flex gap-1 overflow-x-auto pb-1">
-          {TABS.map(t => {
-            const Icon = t.icon
-            return (
-              <button key={t.key} type="button" onClick={() => setTab(t.key)}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors',
-                  tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-                )}>
-                <Icon className="w-3.5 h-3.5" />
-                {t.label}
-              </button>
-            )
-          })}
-        </div>
-        {venueId && <EndOfDayReview venueId={venueId} date={date} />}
-      </div>
-
-      {!venueId ? (
-        <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
-      ) : tab === 'today' ? (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Equipment temperatures — {format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}</h2>
+    <div className="h-full overflow-y-auto">
+      <div className="p-4 md:p-6 max-w-6xl mx-auto">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+          <h1 className="text-2xl font-bold">Food safety</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            {venues.length > 1 && (
+              <select value={venueId} onChange={e => setVenueId(e.target.value)}
+                className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]">
+                {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            )}
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+            <HsSettingsButton />
           </div>
+        </div>
 
-          <TempChecksTable
-            venueId={venueId}
-            date={date}
-            emptyState={
-              <div className="border rounded-xl p-8 text-center">
-                <p className="text-muted-foreground text-sm mb-3">No equipment yet. Add fridges and freezers first.</p>
-                <button type="button" onClick={() => setEqModal('new')}
-                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
-                  <Plus className="w-4 h-4" /> Add equipment
+        {venueId && <ClosedDayNotice venueId={venueId} date={date} className="mb-4" />}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div className="flex gap-1 overflow-x-auto pb-1">
+            {TABS.map(t => {
+              const Icon = t.icon
+              return (
+                <button key={t.key} type="button" onClick={() => setTab(t.key)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors',
+                    tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+                  )}>
+                  <Icon className="w-3.5 h-3.5" />
+                  {t.label}
                 </button>
-              </div>
-            }
-          />
+              )
+            })}
+          </div>
+          {venueId && <EndOfDayReview venueId={venueId} date={date} />}
+        </div>
 
-          <div className="grid sm:grid-cols-3 gap-3">
-            <div className="border rounded-xl p-4">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Deliveries</p>
-              <p className="text-2xl font-semibold">{deliveries.length}</p>
+        {!venueId ? (
+          <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
+        ) : tab === 'today' ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold">Equipment temperatures — {format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}</h2>
             </div>
-            <div className="border rounded-xl p-4">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Hold checks</p>
-              <p className="text-2xl font-semibold">{holds.length}</p>
-            </div>
-            <div className="border rounded-xl p-4">
-              <p className="text-xs font-medium text-muted-foreground mb-1">Cooking checks</p>
-              <p className="text-2xl font-semibold">{cooking.length}</p>
-            </div>
-          </div>
-        </div>
-      ) : tab === 'equipment' ? (
-        <div>
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="font-semibold">Equipment list</h2>
-            <button type="button" onClick={() => setEqModal('new')}
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
-              <Plus className="w-4 h-4" /> Add
-            </button>
-          </div>
-          {equipment.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No active equipment.</p>
-          ) : (
-            <div className="border rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 border-b">
-                  <tr>
-                    <th className="w-8" />
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Target</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Min / Max</th>
-                    <th className="w-32" />
-                  </tr>
-                </thead>
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleEqDragEnd}>
-                  <SortableContext items={equipment.map(e => e.id)} strategy={verticalListSortingStrategy}>
-                    <tbody>
-                      {equipment.map(eq => (
-                        <SortableRow key={eq.id} id={eq.id}>
-                          <td className="px-4 py-3 font-medium">{eq.name}</td>
-                          <td className="px-4 py-3 text-muted-foreground">{TYPE_LABELS[eq.equipment_type]}</td>
-                          <td className="px-4 py-3">{eq.target_temp_c != null ? `${eq.target_temp_c}°C` : '—'}</td>
-                          <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-                            {eq.min_temp_c ?? '—'} / {eq.max_temp_c ?? '—'}°C
-                          </td>
-                          <td className="px-4 py-3 space-x-2">
-                            <button type="button" onClick={() => setEqModal(eq)} className="text-xs text-primary hover:underline">Edit</button>
-                            <button type="button" onClick={() => deactivateEq.mutate(eq.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
-                          </td>
-                        </SortableRow>
-                      ))}
-                    </tbody>
-                  </SortableContext>
-                </DndContext>
-              </table>
-            </div>
-          )}
 
-          <div className="flex justify-between items-center mb-4 mt-8">
-            <div>
-              <h2 className="font-semibold">Capture times</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                When temperature checks happen each day. Shown as a picker on the Today tab —
-                leave empty to log a single ad-hoc reading per day instead.
-              </p>
-            </div>
-            <button type="button" onClick={() => setCtModal('new')}
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] shrink-0">
-              <Plus className="w-4 h-4" /> Add
-            </button>
-          </div>
-          {captureTimes.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">No capture times configured.</p>
-          ) : (
-            <div className="border rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 border-b">
-                  <tr>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Label</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Time</th>
-                    <th className="w-32" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {captureTimes.map(ct => (
-                    <tr key={ct.id} className="border-b last:border-0">
-                      <td className="px-4 py-3 font-medium">{ct.label}</td>
-                      <td className="px-4 py-3 text-muted-foreground flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5" /> {timeLabel(ct.time_of_day)}
-                      </td>
-                      <td className="px-4 py-3 space-x-2">
-                        <button type="button" onClick={() => setCtModal(ct)} className="text-xs text-primary hover:underline">Edit</button>
-                        <button type="button" onClick={() => deactivateCt.mutate(ct.id)} className="text-xs text-red-600 hover:underline">Remove</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      ) : tab === 'deliveries' ? (
-        <div>
-          <h2 className="font-semibold mb-4">Delivery checks</h2>
-          <DeliveryChecksBoard venueId={venueId} date={date} />
-        </div>
-      ) : tab === 'holds' ? (
-        <div className="space-y-8">
-          <div>
-            <h2 className="font-semibold mb-4">Hot / cold hold checks — {format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}</h2>
-            <HoldChecksTable
+            <TempChecksTable
               venueId={venueId}
               date={date}
               emptyState={
                 <div className="border rounded-xl p-8 text-center">
-                  <p className="text-muted-foreground text-sm mb-3">No hold stations yet. Add a bain-marie, salad bar or other station first.</p>
-                  <button type="button" onClick={() => setHoldStationModal('new')}
+                  <p className="text-muted-foreground text-sm mb-3">No equipment yet. Add fridges and freezers first.</p>
+                  <button type="button" onClick={() => setEqModal('new')}
                     className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
-                    <Plus className="w-4 h-4" /> Add hold station
+                    <Plus className="w-4 h-4" /> Add equipment
                   </button>
                 </div>
               }
             />
-          </div>
 
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div className="border rounded-xl p-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Deliveries</p>
+                <p className="text-2xl font-semibold">{deliveries.length}</p>
+              </div>
+              <div className="border rounded-xl p-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Hold checks</p>
+                <p className="text-2xl font-semibold">{holds.length}</p>
+              </div>
+              <div className="border rounded-xl p-4">
+                <p className="text-xs font-medium text-muted-foreground mb-1">Cooking checks</p>
+                <p className="text-2xl font-semibold">{cooking.length}</p>
+              </div>
+            </div>
+          </div>
+        ) : tab === 'equipment' ? (
           <div>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="font-semibold">Hold stations</h2>
-              <button type="button" onClick={() => setHoldStationModal('new')}
+              <h2 className="font-semibold">Equipment list</h2>
+              <button type="button" onClick={() => setEqModal('new')}
                 className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
                 <Plus className="w-4 h-4" /> Add
               </button>
             </div>
-            {holdStations.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">No active hold stations.</p>
+            {equipment.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">No active equipment.</p>
             ) : (
               <div className="border rounded-xl overflow-hidden">
                 <table className="w-full text-sm">
@@ -559,20 +446,20 @@ export default function FoodSafety() {
                       <th className="w-32" />
                     </tr>
                   </thead>
-                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleHoldStationDragEnd}>
-                    <SortableContext items={holdStations.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleEqDragEnd}>
+                    <SortableContext items={equipment.map(e => e.id)} strategy={verticalListSortingStrategy}>
                       <tbody>
-                        {holdStations.map(st => (
-                          <SortableRow key={st.id} id={st.id}>
-                            <td className="px-4 py-3 font-medium">{st.name}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{HOLD_TYPE_LABELS[st.hold_type]}</td>
-                            <td className="px-4 py-3">{st.target_temp_c != null ? `${st.target_temp_c}°C` : '—'}</td>
+                        {equipment.map(eq => (
+                          <SortableRow key={eq.id} id={eq.id}>
+                            <td className="px-4 py-3 font-medium">{eq.name}</td>
+                            <td className="px-4 py-3 text-muted-foreground">{TYPE_LABELS[eq.equipment_type]}</td>
+                            <td className="px-4 py-3">{eq.target_temp_c != null ? `${eq.target_temp_c}°C` : '—'}</td>
                             <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-                              {st.min_temp_c ?? '—'} / {st.max_temp_c ?? '—'}°C
+                              {eq.min_temp_c ?? '—'} / {eq.max_temp_c ?? '—'}°C
                             </td>
                             <td className="px-4 py-3 space-x-2">
-                              <button type="button" onClick={() => setHoldStationModal(st)} className="text-xs text-primary hover:underline">Edit</button>
-                              <button type="button" onClick={() => deactivateHoldStation.mutate(st.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
+                              <button type="button" onClick={() => setEqModal(eq)} className="text-xs text-primary hover:underline">Edit</button>
+                              <button type="button" onClick={() => deactivateEq.mutate(eq.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
                             </td>
                           </SortableRow>
                         ))}
@@ -582,22 +469,21 @@ export default function FoodSafety() {
                 </table>
               </div>
             )}
-          </div>
 
-          <div>
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-center mb-4 mt-8">
               <div>
                 <h2 className="font-semibold">Capture times</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  When hold checks happen each day — leave empty to log a single ad-hoc reading per day instead.
+                  When temperature checks happen each day. Shown as a picker on the Today tab —
+                  leave empty to log a single ad-hoc reading per day instead.
                 </p>
               </div>
-              <button type="button" onClick={() => setHoldCtModal('new')}
+              <button type="button" onClick={() => setCtModal('new')}
                 className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] shrink-0">
                 <Plus className="w-4 h-4" /> Add
               </button>
             </div>
-            {holdCaptureTimes.length === 0 ? (
+            {captureTimes.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">No capture times configured.</p>
             ) : (
               <div className="border rounded-xl overflow-hidden">
@@ -610,15 +496,15 @@ export default function FoodSafety() {
                     </tr>
                   </thead>
                   <tbody>
-                    {holdCaptureTimes.map(ct => (
+                    {captureTimes.map(ct => (
                       <tr key={ct.id} className="border-b last:border-0">
                         <td className="px-4 py-3 font-medium">{ct.label}</td>
                         <td className="px-4 py-3 text-muted-foreground flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5" /> {timeLabel(ct.time_of_day)}
                         </td>
                         <td className="px-4 py-3 space-x-2">
-                          <button type="button" onClick={() => setHoldCtModal(ct)} className="text-xs text-primary hover:underline">Edit</button>
-                          <button type="button" onClick={() => deactivateHoldCt.mutate(ct.id)} className="text-xs text-red-600 hover:underline">Remove</button>
+                          <button type="button" onClick={() => setCtModal(ct)} className="text-xs text-primary hover:underline">Edit</button>
+                          <button type="button" onClick={() => deactivateCt.mutate(ct.id)} className="text-xs text-red-600 hover:underline">Remove</button>
                         </td>
                       </tr>
                     ))}
@@ -627,58 +513,174 @@ export default function FoodSafety() {
               </div>
             )}
           </div>
-        </div>
-      ) : tab === 'cooking' ? (
-        <div>
-          <h2 className="font-semibold mb-4">Cooking / reheat checks</h2>
-          <CookingChecksPanel venueId={venueId} date={date} />
-        </div>
-      ) : null}
+        ) : tab === 'deliveries' ? (
+          <div>
+            <h2 className="font-semibold mb-4">Delivery checks</h2>
+            <DeliveryChecksBoard venueId={venueId} date={date} />
+          </div>
+        ) : tab === 'holds' ? (
+          <div className="space-y-8">
+            <div>
+              <h2 className="font-semibold mb-4">Hot / cold hold checks — {format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}</h2>
+              <HoldChecksTable
+                venueId={venueId}
+                date={date}
+                emptyState={
+                  <div className="border rounded-xl p-8 text-center">
+                    <p className="text-muted-foreground text-sm mb-3">No hold stations yet. Add a bain-marie, salad bar or other station first.</p>
+                    <button type="button" onClick={() => setHoldStationModal('new')}
+                      className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
+                      <Plus className="w-4 h-4" /> Add hold station
+                    </button>
+                  </div>
+                }
+              />
+            </div>
 
-      {eqModal && (
-        <EquipmentModal
-          initial={eqModal === 'new' ? null : eqModal}
-          venueId={venueId}
-          onClose={() => setEqModal(null)}
-          onSave={body => eqModal === 'new'
-            ? createEq.mutate(body)
-            : patchEq.mutate({ id: eqModal.id, ...body })}
-          isSaving={createEq.isPending || patchEq.isPending}
-        />
-      )}
-      {ctModal && (
-        <CaptureTimeModal
-          initial={ctModal === 'new' ? null : ctModal}
-          venueId={venueId}
-          onClose={() => setCtModal(null)}
-          onSave={body => ctModal === 'new'
-            ? createCt.mutate(body)
-            : patchCt.mutate({ id: ctModal.id, ...body })}
-          isSaving={createCt.isPending || patchCt.isPending}
-        />
-      )}
-      {holdStationModal && (
-        <HoldStationModal
-          initial={holdStationModal === 'new' ? null : holdStationModal}
-          venueId={venueId}
-          onClose={() => setHoldStationModal(null)}
-          onSave={body => holdStationModal === 'new'
-            ? createHoldStation.mutate(body)
-            : patchHoldStation.mutate({ id: holdStationModal.id, ...body })}
-          isSaving={createHoldStation.isPending || patchHoldStation.isPending}
-        />
-      )}
-      {holdCtModal && (
-        <HoldCaptureTimeModal
-          initial={holdCtModal === 'new' ? null : holdCtModal}
-          venueId={venueId}
-          onClose={() => setHoldCtModal(null)}
-          onSave={body => holdCtModal === 'new'
-            ? createHoldCt.mutate(body)
-            : patchHoldCt.mutate({ id: holdCtModal.id, ...body })}
-          isSaving={createHoldCt.isPending || patchHoldCt.isPending}
-        />
-      )}
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="font-semibold">Hold stations</h2>
+                <button type="button" onClick={() => setHoldStationModal('new')}
+                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </div>
+              {holdStations.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">No active hold stations.</p>
+              ) : (
+                <div className="border rounded-xl overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 border-b">
+                      <tr>
+                        <th className="w-8" />
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Target</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Min / Max</th>
+                        <th className="w-32" />
+                      </tr>
+                    </thead>
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleHoldStationDragEnd}>
+                      <SortableContext items={holdStations.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                        <tbody>
+                          {holdStations.map(st => (
+                            <SortableRow key={st.id} id={st.id}>
+                              <td className="px-4 py-3 font-medium">{st.name}</td>
+                              <td className="px-4 py-3 text-muted-foreground">{HOLD_TYPE_LABELS[st.hold_type]}</td>
+                              <td className="px-4 py-3">{st.target_temp_c != null ? `${st.target_temp_c}°C` : '—'}</td>
+                              <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
+                                {st.min_temp_c ?? '—'} / {st.max_temp_c ?? '—'}°C
+                              </td>
+                              <td className="px-4 py-3 space-x-2">
+                                <button type="button" onClick={() => setHoldStationModal(st)} className="text-xs text-primary hover:underline">Edit</button>
+                                <button type="button" onClick={() => deactivateHoldStation.mutate(st.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
+                              </td>
+                            </SortableRow>
+                          ))}
+                        </tbody>
+                      </SortableContext>
+                    </DndContext>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <div>
+                  <h2 className="font-semibold">Capture times</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    When hold checks happen each day — leave empty to log a single ad-hoc reading per day instead.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setHoldCtModal('new')}
+                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] shrink-0">
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </div>
+              {holdCaptureTimes.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-8 text-center">No capture times configured.</p>
+              ) : (
+                <div className="border rounded-xl overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 border-b">
+                      <tr>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Label</th>
+                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Time</th>
+                        <th className="w-32" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {holdCaptureTimes.map(ct => (
+                        <tr key={ct.id} className="border-b last:border-0">
+                          <td className="px-4 py-3 font-medium">{ct.label}</td>
+                          <td className="px-4 py-3 text-muted-foreground flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5" /> {timeLabel(ct.time_of_day)}
+                          </td>
+                          <td className="px-4 py-3 space-x-2">
+                            <button type="button" onClick={() => setHoldCtModal(ct)} className="text-xs text-primary hover:underline">Edit</button>
+                            <button type="button" onClick={() => deactivateHoldCt.mutate(ct.id)} className="text-xs text-red-600 hover:underline">Remove</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : tab === 'cooking' ? (
+          <div>
+            <h2 className="font-semibold mb-4">Cooking / reheat checks</h2>
+            <CookingChecksPanel venueId={venueId} date={date} />
+          </div>
+        ) : null}
+
+        {eqModal && (
+          <EquipmentModal
+            initial={eqModal === 'new' ? null : eqModal}
+            venueId={venueId}
+            onClose={() => setEqModal(null)}
+            onSave={body => eqModal === 'new'
+              ? createEq.mutate(body)
+              : patchEq.mutate({ id: eqModal.id, ...body })}
+            isSaving={createEq.isPending || patchEq.isPending}
+          />
+        )}
+        {ctModal && (
+          <CaptureTimeModal
+            initial={ctModal === 'new' ? null : ctModal}
+            venueId={venueId}
+            onClose={() => setCtModal(null)}
+            onSave={body => ctModal === 'new'
+              ? createCt.mutate(body)
+              : patchCt.mutate({ id: ctModal.id, ...body })}
+            isSaving={createCt.isPending || patchCt.isPending}
+          />
+        )}
+        {holdStationModal && (
+          <HoldStationModal
+            initial={holdStationModal === 'new' ? null : holdStationModal}
+            venueId={venueId}
+            onClose={() => setHoldStationModal(null)}
+            onSave={body => holdStationModal === 'new'
+              ? createHoldStation.mutate(body)
+              : patchHoldStation.mutate({ id: holdStationModal.id, ...body })}
+            isSaving={createHoldStation.isPending || patchHoldStation.isPending}
+          />
+        )}
+        {holdCtModal && (
+          <HoldCaptureTimeModal
+            initial={holdCtModal === 'new' ? null : holdCtModal}
+            venueId={venueId}
+            onClose={() => setHoldCtModal(null)}
+            onSave={body => holdCtModal === 'new'
+              ? createHoldCt.mutate(body)
+              : patchHoldCt.mutate({ id: holdCtModal.id, ...body })}
+            isSaving={createHoldCt.isPending || patchHoldCt.isPending}
+          />
+        )}
+      </div>
     </div>
   )
 }

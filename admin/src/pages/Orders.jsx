@@ -44,68 +44,70 @@ export default function Orders() {
   const ordering = board.data?.ordering
 
   return (
-    <div className="p-4 md:p-6 max-lg:notouch:pl-14">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <h1 className="text-2xl font-bold flex items-center gap-2"><ShoppingBag className="w-6 h-6 text-primary" /> Online orders</h1>
-        <div className="flex flex-wrap items-center gap-2">
-          {venues.length > 1 && (
-            <select value={venueId} onChange={e => setVenueId(e.target.value)}
-              className="border rounded-md px-3 min-h-[44px] text-sm bg-background">
-              {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-            </select>
-          )}
-          <Link to="/orders/settings" className="inline-flex items-center gap-1.5 border rounded-md px-3 min-h-[44px] text-sm touch-manipulation">
-            <Settings2 className="w-4 h-4" /> Setup
-          </Link>
-        </div>
-      </div>
-
-      {ordering && !ordering.is_enabled && (
-        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-3 text-sm">
-          Online ordering is switched off for this venue. Turn it on in <Link to="/orders/settings" className="underline">Ordering setup</Link>.
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-        <div className="flex gap-1">
-          {[['board', 'Orders'], ['report', 'Report']].map(([k, l]) => (
-            <button key={k} onClick={() => setTab(k)}
-              className={cn('min-h-[44px] px-4 rounded-md text-sm font-medium touch-manipulation', tab === k ? 'bg-primary text-primary-foreground' : 'border bg-background')}>
-              {l}
-            </button>
-          ))}
-        </div>
-        {tab === 'board' && (
+    <div className="h-full overflow-y-auto">
+      <div className="p-4 md:p-6 max-lg:notouch:pl-14">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h1 className="text-2xl font-bold flex items-center gap-2"><ShoppingBag className="w-6 h-6 text-primary" /> Online orders</h1>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1">
-              <button onClick={() => setDate(d => addDays(d, -1))} className="w-11 h-11 border rounded-md flex items-center justify-center touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
-              <div className="relative">
-                <span className="inline-flex items-center justify-center min-h-[44px] w-48 border rounded-md text-sm font-medium">{dayLabel(date, today)}</span>
-                <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)}
-                  className="absolute inset-0 opacity-0 cursor-pointer" aria-label="Choose a day" />
-              </div>
-              <button onClick={() => setDate(d => addDays(d, 1))} className="w-11 h-11 border rounded-md flex items-center justify-center touch-manipulation"><ChevronRight className="w-4 h-4" /></button>
-              {date !== today && <button onClick={() => setDate(today)} className="min-h-[44px] px-3 border rounded-md text-sm touch-manipulation">Today</button>}
-            </div>
-            <button onClick={() => setSoldOut(true)} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-md border text-sm font-medium touch-manipulation">
-              <Ban className="w-4 h-4" /> Sold out
-            </button>
-            <PauseButton venueId={venueId} ordering={ordering} />
+            {venues.length > 1 && (
+              <select value={venueId} onChange={e => setVenueId(e.target.value)}
+                className="border rounded-md px-3 min-h-[44px] text-sm bg-background">
+                {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            )}
+            <Link to="/orders/settings" className="inline-flex items-center gap-1.5 border rounded-md px-3 min-h-[44px] text-sm touch-manipulation">
+              <Settings2 className="w-4 h-4" /> Setup
+            </Link>
+          </div>
+        </div>
+
+        {ordering && !ordering.is_enabled && (
+          <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-3 text-sm">
+            Online ordering is switched off for this venue. Turn it on in <Link to="/orders/settings" className="underline">Ordering setup</Link>.
           </div>
         )}
-      </div>
 
-      {ordering?.is_paused && tab === 'board' && (
-        <div className="mb-4 rounded-md bg-amber-100 text-amber-900 p-3 text-sm font-medium">
-          Orders are paused: guests can see the menu but can't order.{ordering.pause_message ? ` Message: "${ordering.pause_message}"` : ''}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div className="flex gap-1">
+            {[['board', 'Orders'], ['report', 'Report']].map(([k, l]) => (
+              <button key={k} onClick={() => setTab(k)}
+                className={cn('min-h-[44px] px-4 rounded-md text-sm font-medium touch-manipulation', tab === k ? 'bg-primary text-primary-foreground' : 'border bg-background')}>
+                {l}
+              </button>
+            ))}
+          </div>
+          {tab === 'board' && (
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button onClick={() => setDate(d => addDays(d, -1))} className="w-11 h-11 border rounded-md flex items-center justify-center touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
+                <div className="relative">
+                  <span className="inline-flex items-center justify-center min-h-[44px] w-48 border rounded-md text-sm font-medium">{dayLabel(date, today)}</span>
+                  <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer" aria-label="Choose a day" />
+                </div>
+                <button onClick={() => setDate(d => addDays(d, 1))} className="w-11 h-11 border rounded-md flex items-center justify-center touch-manipulation"><ChevronRight className="w-4 h-4" /></button>
+                {date !== today && <button onClick={() => setDate(today)} className="min-h-[44px] px-3 border rounded-md text-sm touch-manipulation">Today</button>}
+              </div>
+              <button onClick={() => setSoldOut(true)} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-md border text-sm font-medium touch-manipulation">
+                <Ban className="w-4 h-4" /> Sold out
+              </button>
+              <PauseButton venueId={venueId} ordering={ordering} />
+            </div>
+          )}
         </div>
-      )}
 
-      {!venueId ? null : tab === 'board'
-        ? <OrderBoard venueId={venueId} date={date} />
-        : <OrdersReport venueId={venueId} today={today} />}
+        {ordering?.is_paused && tab === 'board' && (
+          <div className="mb-4 rounded-md bg-amber-100 text-amber-900 p-3 text-sm font-medium">
+            Orders are paused: guests can see the menu but can't order.{ordering.pause_message ? ` Message: "${ordering.pause_message}"` : ''}
+          </div>
+        )}
 
-      {soldOut && <AvailabilityModal venueId={venueId} onClose={() => setSoldOut(false)} />}
+        {!venueId ? null : tab === 'board'
+          ? <OrderBoard venueId={venueId} date={date} />
+          : <OrdersReport venueId={venueId} today={today} />}
+
+        {soldOut && <AvailabilityModal venueId={venueId} onClose={() => setSoldOut(false)} />}
+      </div>
     </div>
   )
 }
