@@ -2258,7 +2258,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               not strings. The <Mono>checklist_instances.period_start</Mono> query MUST cast to
               <Mono> ::text</Mono> (matching the existing <Mono>log_date::text</Mono> /
               <Mono> check_date::text</Mono> casts on the food-safety queries) or the
-              <Mono> `${template_id}|${period_start}`</Mono> map-key lookup silently never matches
+              <Mono>{' `${template_id}|${period_start}`'}</Mono> map-key lookup silently never matches
               — a weekly/monthly checklist marked complete would never show as complete in this
               aggregation. Caught by a direct test against a disposable Postgres before shipping;
               see <Mono>api/src/routes/dashboardTiles.js</Mono>.

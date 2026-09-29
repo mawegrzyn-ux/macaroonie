@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Technical docs page no longer blank]
+
+- The in-app technical documentation page (/docs) loads again. A code sample in the Overview tiles section was being run as code instead of shown as text, which crashed the whole page.
+
+---
+
 ## [2026-09-29 — Ordering page: mobile fixes, designable page, ordering block]
 
 **Migration 126.**
