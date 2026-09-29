@@ -8,9 +8,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Settings2, Plus, Trash2, ExternalLink, Loader2, ArrowLeft } from 'lucide-react'
+import { Settings2, Plus, Trash2, ExternalLink, Loader2, ArrowLeft, Clock, X, CalendarDays } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { DAY_SHORT, isScheduled, scheduleLabel, scheduleProblem } from '@shared/menuSchedule.js'
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
@@ -48,6 +49,111 @@ function Num({ label, value, onChange, suffix, min = 0, max, allowEmpty, hint })
       </div>
       {hint && <span className="block text-xs text-muted-foreground mt-1">{hint}</span>}
     </label>
+  )
+}
+
+// Date as a styled button over an invisible native date input (design rule 10).
+function DateButton({ label, value, onChange }) {
+  const text = value ? new Date(value + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Any'
+  return (
+    <div className="flex items-center gap-1">
+      <label className="relative inline-flex items-center gap-2 min-h-[44px] px-3 border rounded-md text-sm bg-background touch-manipulation cursor-pointer">
+        <CalendarDays className="w-4 h-4 text-muted-foreground" />
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">{text}</span>
+        <input type="date" value={value || ''} onChange={e => onChange(e.target.value || null)} aria-label={label}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+      </label>
+      {value && (
+        <button type="button" onClick={() => onChange(null)} aria-label={`Clear ${label.toLowerCase()} date`}
+          className="w-11 h-11 flex items-center justify-center rounded-md hover:bg-accent touch-manipulation">
+          <X className="w-4 h-4" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+const WEEK = [1, 2, 3, 4, 5, 6, 0]
+
+/**
+ * When one ordering menu is on (migration 130): optional date range and
+ * time windows per day. Rules and overlap checks: shared/menuSchedule.js.
+ */
+function MenuScheduleEditor({ value, onChange }) {
+  const sched = value || { from: null, until: null, times: [] }
+  const [open, setOpen] = useState(false)
+  const times = sched.times || []
+  const put = patch => onChange({ ...sched, ...patch })
+  const setTime = (i, patch) => put({ times: times.map((t, j) => (j === i ? { ...t, ...patch } : t)) })
+  function addTime() {
+    const last = times[times.length - 1]
+    put({ times: [...times, last
+      ? { days: [...last.days], start: last.end, end: last.end < '21:00' ? '22:00' : '23:59' }
+      : { days: [1, 2, 3, 4, 5, 6, 0], start: '11:00', end: '15:00' }] })
+  }
+
+  return (
+    <div className="ml-8 -mt-1 mb-2">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1.5 min-h-[40px] text-sm text-primary touch-manipulation">
+        <Clock className="w-4 h-4" />
+        {isScheduled(sched) ? scheduleLabel(sched) : 'Always available'}
+        <span className="text-muted-foreground underline underline-offset-2">{open ? 'Done' : 'Set times and dates'}</span>
+      </button>
+      {open && (
+        <div className="mt-2 rounded-lg border bg-muted/30 p-3 space-y-3">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-1">Dates (to schedule a menu change)</p>
+            <div className="flex flex-wrap gap-2">
+              <DateButton label="From" value={sched.from} onChange={v => put({ from: v })} />
+              <DateButton label="Until" value={sched.until} onChange={v => put({ until: v })} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">Times of day {times.length ? '' : '(none: all day)'}</p>
+            {times.map((t, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-2 rounded-md border bg-background p-2">
+                <div className="flex flex-wrap gap-1">
+                  {WEEK.map(d => {
+                    const on = t.days.includes(d)
+                    return (
+                      <button key={d} type="button" aria-pressed={on}
+                        onClick={() => setTime(i, { days: on ? t.days.filter(x => x !== d) : [...t.days, d] })}
+                        className={cn('w-11 h-11 rounded-md text-xs font-semibold touch-manipulation border',
+                          on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background text-muted-foreground')}>
+                        {DAY_SHORT[d]}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="time" value={t.start} onChange={e => setTime(i, { start: e.target.value })} aria-label="Start"
+                    className="border rounded-md px-2 min-h-[44px] bg-background" />
+                  <span>to</span>
+                  <input type="time" value={t.end} onChange={e => setTime(i, { end: e.target.value })} aria-label="End"
+                    className="border rounded-md px-2 min-h-[44px] bg-background" />
+                  <button type="button" onClick={() => put({ times: times.filter((_, j) => j !== i) })} aria-label="Remove time"
+                    className="w-11 h-11 flex items-center justify-center rounded-md hover:bg-accent touch-manipulation">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button type="button" onClick={addTime}
+              className="inline-flex items-center gap-1 min-h-[44px] px-3 border rounded-md text-sm bg-background touch-manipulation">
+              <Plus className="w-4 h-4" /> Add times
+            </button>
+          </div>
+          {isScheduled(sched) && (
+            <button type="button" onClick={() => onChange(null)}
+              className="text-sm text-muted-foreground underline underline-offset-2 min-h-[40px] touch-manipulation">
+              Make it always available
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -92,6 +198,15 @@ export default function OrderingSettings() {
   const windowsOf = day => ((f?.hours || []).find(h => h.day === day)?.windows) || []
 
   const gateways = q.data?.gateways || []
+  const menuNames = Object.fromEntries((q.data?.menus || []).map(m => [m.id, m.name]))
+  const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: venue?.timezone || undefined })
+  const schedProblem = f ? scheduleProblem(f.menu_ids, f.menu_schedules || {}, menuNames, todayIso) : null
+  function setSchedule(menuId, sched) {
+    const next = { ...(f.menu_schedules || {}) }
+    if (isScheduled(sched)) next[menuId] = sched
+    else delete next[menuId]   // nothing set = always available
+    set('menu_schedules', next)
+  }
 
   return (
     <div className="h-full overflow-y-auto">
@@ -129,15 +244,22 @@ export default function OrderingSettings() {
                 hint="Off: every new order waits on the board until someone taps Accept." />
             </Section>
 
-            <Section title="Menus" hint="The menus guests can order from. Dishes switched off for ordering (Menus page, dish settings) or without a price are left out.">
+            <Section title="Menus" hint="The menus guests can order from. Dishes switched off for ordering (Menus page, dish settings) or without a price are left out. Give a menu times of day (e.g. lunch 11:00 to 15:00) and dates (to schedule a menu change); menus with times or dates can't overlap each other. A menu with neither, such as drinks, is always available.">
               {!q.data.menus.length && <p className="text-sm text-muted-foreground">No menus yet. Build one on the <Link to="/menus" className="underline">Menus</Link> page.</p>}
               {q.data.menus.map(m => {
                 const on = f.menu_ids.includes(m.id)
                 return (
-                  <Toggle key={m.id} label={m.name} hint={m.venue_id ? 'This venue only' : 'Shared menu'} checked={on}
-                    onChange={v => set('menu_ids', v ? [...f.menu_ids, m.id] : f.menu_ids.filter(x => x !== m.id))} />
+                  <div key={m.id}>
+                    <Toggle label={m.name} hint={m.venue_id ? 'This venue only' : 'Shared menu'} checked={on}
+                      onChange={v => {
+                        set('menu_ids', v ? [...f.menu_ids, m.id] : f.menu_ids.filter(x => x !== m.id))
+                        if (!v) setSchedule(m.id, null)
+                      }} />
+                    {on && <MenuScheduleEditor value={f.menu_schedules?.[m.id]} onChange={sc => setSchedule(m.id, sc)} />}
+                  </div>
                 )
               })}
+              {schedProblem && <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{schedProblem}</p>}
             </Section>
 
             <Section title="Ordering hours" hint="When guests can collect. Filled from your opening hours the first time; each day can have several windows (e.g. lunch and dinner).">
@@ -250,7 +372,8 @@ export default function OrderingSettings() {
               {save.isSuccess && !dirty && <span className="text-sm text-emerald-700">Saved</span>}
               <button onClick={() => setF(structuredClone(q.data.settings))} disabled={!dirty}
                 className="min-h-[48px] px-4 rounded-md border text-sm touch-manipulation disabled:opacity-40">Discard</button>
-              <button onClick={() => save.mutate(f)} disabled={!dirty || save.isPending || (f.is_enabled && !f.payment_methods.length)}
+              {schedProblem && <span className="text-sm text-destructive">Fix the menu times first.</span>}
+              <button onClick={() => save.mutate(f)} disabled={!dirty || save.isPending || !!schedProblem || (f.is_enabled && !f.payment_methods.length)}
                 className={cn('min-h-[48px] px-6 rounded-md bg-primary text-primary-foreground text-sm font-semibold touch-manipulation disabled:opacity-40')}>
                 {save.isPending ? 'Saving…' : 'Save'}
               </button>

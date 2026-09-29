@@ -185,8 +185,10 @@ async function startOrdering() {
   for (const m of data.menus) for (const s of m.sections) for (const i of s.items) itemsById[i.id] = i
 
   const KEY = 'maca_basket_' + venue.id
+  // Start on the first menu that is on now (menu schedules, migration 130).
+  const firstOn = Math.max(0, data.menus.findIndex(m => m.on_now !== false))
   const state = {
-    menuIdx: 0,
+    menuIdx: firstOn,
     basket: loadBasket(),
     step: 'menu',          // menu | checkout | pay
     when: null,            // 'asap' | slot ISO
@@ -223,6 +225,10 @@ async function startOrdering() {
     let h = ''
     if (menus.length > 1) {
       h += '<div class="mo-tabs">' + menus.map((x, i) => '<button class="mo-tab' + (i === state.menuIdx ? ' is-on' : '') + '" data-menu="' + i + '">' + esc(x.name) + '</button>').join('') + '</div>'
+    }
+    if (m.schedule) {
+      h += '<p class="mo-muted" style="margin:0 0 12px;">' + esc(m.name) + ' is available ' + esc(m.schedule) +
+        (m.on_now === false ? '. It isn\'t on right now: you can still order it for a time when it is.' : '.') + '</p>'
     }
     if (m.sections.length > 1) {
       h += '<div class="mo-tabs">' + m.sections.map(s => '<button class="mo-tab" data-jump="' + esc(s.id) + '">' + esc(s.title) + '</button>').join('') + '</div>'
@@ -348,7 +354,13 @@ async function startOrdering() {
     state.slots = null
     draw()
     try {
-      state.slots = await api('/venues/' + venue.id + '/slots?date=' + state.date)
+      // The basket's dishes decide which times are offered (menu schedules).
+      const items = [...new Set(state.basket.map(l => l.item_id))].join(',')
+      state.slots = await api('/venues/' + venue.id + '/slots?date=' + state.date + (items ? '&items=' + encodeURIComponent(items) : ''))
+      // A time picked earlier may be gone (e.g. the basket changed).
+      const stillOk = state.when === 'asap' ? state.slots.asap.available
+        : state.slots.slots.some(s => s.at === state.when && s.available)
+      if (!stillOk) state.when = null
       if (!state.when) {
         if (state.slots.asap.available) state.when = 'asap'
         else state.when = (state.slots.slots.find(s => s.available) || {}).at || null
@@ -381,7 +393,12 @@ async function startOrdering() {
         h += '<p class="mo-muted" style="margin:12px 0 8px;">Or choose a time</p><div class="mo-slots">' +
           avail.map(s => '<button class="mo-slot' + (state.when === s.at ? ' is-on' : '') + '" data-slot="' + esc(s.at) + '"' + (s.available ? '' : ' disabled title="Fully booked"') + '>' + esc(s.time) + '</button>').join('') + '</div>'
       } else if (!state.slots.asap.available) {
-        h += '<p class="mo-muted">No collection times left for this day.</p>'
+        h += '<p class="mo-muted">' + (state.slots.off_menu
+          ? 'The dishes in your basket are not all served at the same time on this day. Try another day, or remove some to see collection times.'
+          : 'No collection times left for this day.') + '</p>'
+      }
+      if (state.slots.off_menu && (avail.length || state.slots.asap.available)) {
+        h += '<p class="mo-muted" style="margin-top:8px;font-size:.9rem;">Some dishes in your basket are only served at certain times, so only those times are shown.</p>'
       }
     }
     h += '</div>'

@@ -18,6 +18,7 @@ import { loadMenuFull } from '../routes/menus.js'
 import { loadOpeningHours } from './siteDataSvc.js'
 import { getGateway, checkoutGateways, COUNTER_METHODS } from './paymentGateways/index.js'
 import { itemChoices, variantRules, fromPrice, isPriced, priceBasket } from '../../../shared/orderPricing.js'
+import { menuOnAt, menuOnDate, scheduleLabel, isScheduled } from '../../../shared/menuSchedule.js'
 
 // An unpaid online order holds its slot this long, then expires.
 export const PENDING_TTL_MINS = 30
@@ -84,7 +85,7 @@ const toMins = t => { const [h, m] = String(t).slice(0, 5).split(':').map(Number
 // ── Settings ────────────────────────────────────────────────────
 
 const SETTINGS_DEFAULTS = {
-  is_enabled: false, is_paused: false, pause_message: null, hours: [], menu_ids: [],
+  is_enabled: false, is_paused: false, pause_message: null, hours: [], menu_ids: [], menu_schedules: {},
   allow_asap: true, lead_time_mins: 20, slot_interval_mins: 15, max_orders_per_slot: null,
   max_days_ahead: 0, min_order_pence: 0, auto_accept: false,
   default_vat_rate_takeaway: 20, default_vat_rate_eat_in: 20,
@@ -97,6 +98,7 @@ function normaliseSettings(row, venueId) {
   s.default_vat_rate_takeaway = Number(s.default_vat_rate_takeaway)
   s.default_vat_rate_eat_in = Number(s.default_vat_rate_eat_in)
   s.hours = Array.isArray(s.hours) ? s.hours : []
+  s.menu_schedules = s.menu_schedules && typeof s.menu_schedules === 'object' ? s.menu_schedules : {}
   return s
 }
 
@@ -145,10 +147,13 @@ async function soldOutIds(tx, venueId) {
 }
 
 // The orderable menus of a venue, shaped for the guest page, plus an
-// { itemId: item } map for pricing. Dishes that are switched off for
-// ordering, or have no price, are left out; sold-out dishes stay in
-// (shown as sold out) but can't be priced.
-export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'collection' } = {}) {
+// { itemId: item } map for pricing and { itemId: [menuId] } for menu
+// schedules. Dishes that are switched off for ordering, or have no price,
+// are left out; sold-out dishes stay in (shown as sold out) but can't be
+// priced. With `dates` (the ordering dates) a menu scheduled on none of
+// them is left out (migration 130); each menu then carries its schedule
+// label and whether it is on at `now`.
+export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'collection', dates = null, now = null } = {}) {
   const ids = settings.menu_ids || []
   const menuRows = ids.length ? await tx`
     SELECT id FROM menus
@@ -159,9 +164,14 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
   const soldOut = await soldOutIds(tx, venue.id)
   const menus = []
   const itemsById = {}
+  const itemMenus = {}
   let dietaryTags = []
+  const schedules = settings.menu_schedules || {}
+  const nowParts = now ? localParts(now, venue.timezone) : null
   for (const id of ids) {
     if (!allowed.has(id)) continue
+    const sched = schedules[id]
+    if (dates && !dates.some(d => menuOnDate(sched, d, new Date(d + 'T00:00:00Z').getUTCDay()))) continue
     const full = await loadMenuFull(tx, id, venue.tenant_id)
     if (!full) continue
     dietaryTags = full.dietary_tags || dietaryTags
@@ -184,17 +194,38 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
           variants: it.variants || [], variant_groups: it.variant_groups || [],
         }
         if (!itemsById[it.id]) itemsById[it.id] = item
+        ;(itemMenus[it.id] ??= []).push(id)
         items.push(item)
       }
       if (items.length) sections.push({ id: s.id, title: s.title, subtitle: s.subtitle || null, image_url: s.image_url || null, items })
     }
-    if (sections.length) menus.push({ id: full.id, name: full.name, tagline: full.tagline || null, sections })
+    if (sections.length) {
+      menus.push({
+        id: full.id, name: full.name, tagline: full.tagline || null, sections,
+        schedule: isScheduled(sched) ? scheduleLabel(sched) : null,
+        on_now: nowParts ? menuOnAt(sched, nowParts) : true,
+      })
+    }
   }
   return {
     menus,
     itemsById,
+    itemMenus,
     dietary_tags: (dietaryTags || []).map(t => ({ code: t.code, label: t.label, glyph: t.glyph, colour: t.colour })),
   }
+}
+
+/**
+ * First dish in `itemIds` that none of its menus offers at venue-local
+ * `parts` ({ date, dow, minutes }), or null when every dish is on.
+ */
+export function itemOffAt(itemIds, itemMenus, settings, parts) {
+  const schedules = settings.menu_schedules || {}
+  for (const id of itemIds) {
+    const menuIds = itemMenus[id] || []
+    if (!menuIds.some(m => menuOnAt(schedules[m], parts))) return id
+  }
+  return null
 }
 
 // What the guest page gets for a dish (no pricing internals).
@@ -237,8 +268,10 @@ async function slotCounts(tx, venueId, date, tz, slotMins, excludeOrderId = null
   return counts
 }
 
-// Collection times for one day. `now` is a Date.
-export async function computeSlots(tx, { venue, settings, date, now = new Date() }) {
+// Collection times for one day. `now` is a Date. `isOn(minutes)` (optional)
+// says whether the basket's dishes are on the menu at that minute of the
+// day (menu schedules, migration 130); times when they aren't are left out.
+export async function computeSlots(tx, { venue, settings, date, now = new Date(), isOn = null }) {
   const tz = venue.timezone
   const today = localParts(now, tz).date
   const dow = new Date(date + 'T00:00:00Z').getUTCDay()
@@ -253,7 +286,12 @@ export async function computeSlots(tx, { venue, settings, date, now = new Date()
   const counts = await slotCounts(tx, venue.id, date, tz, slotMins)
   const cap = settings.max_orders_per_slot
   const earliest = new Date(now.getTime() + settings.lead_time_mins * 60000)
-  const slots = slotMins.map(m => {
+  let offMenu = 0
+  const slots = slotMins.filter(m => {
+    if (!isOn || isOn(m)) return true
+    offMenu++
+    return false
+  }).map(m => {
     const at = zonedToUtc(date, hhmm(m), tz)
     const full = cap != null && (counts[m] || 0) >= cap
     return { time: hhmm(m), at: at.toISOString(), available: at >= earliest && !full, full }
@@ -270,13 +308,14 @@ export async function computeSlots(tx, { venue, settings, date, now = new Date()
       const ready = new Date(Math.max(earliest.getTime(), openAt.getTime()))
       if (ready > closeAt) continue
       const rounded = new Date(Math.ceil(ready.getTime() / 300000) * 300000)
+      if (isOn && !isOn(localParts(rounded, tz).minutes)) break
       const b = bucketOf(localParts(rounded, tz).minutes, slotMins)
       const full = cap != null && (counts[b] || 0) >= cap
       asap = { available: !full, full, promised_at: rounded.toISOString(), ready_in_mins: Math.max(0, Math.round((rounded - now) / 60000)) }
       break
     }
   }
-  return { date, is_open: true, asap, slots }
+  return { date, is_open: true, asap, slots, off_menu: offMenu }
 }
 
 export function orderingDates(venue, settings, now = new Date()) {
@@ -458,8 +497,12 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
       isAsap = false
     }
 
-    // Prices
-    const { itemsById } = await loadOrderingMenu(tx, venue, settings, { fulfilment: 'collection' })
+    // Prices, and every dish must be on its menu at the collection time.
+    const { itemsById, itemMenus } = await loadOrderingMenu(tx, venue, settings, { fulfilment: 'collection' })
+    const off = itemOffAt(body.lines.map(l => l.item_id), itemMenus, settings, localParts(promisedAt, tz))
+    if (off && itemsById[off]) {
+      throw CreateError(422, `${itemsById[off].name} isn't on the menu at that collection time: please choose another time or remove it`, { code: 'slot_unavailable' })
+    }
     const tipPercent = settings.tips_enabled && settings.tip_percents.includes(Number(body.tip_percent))
       ? Number(body.tip_percent) : 0
     const priced = priceBasket(itemsById, body.lines, { tipPercent })

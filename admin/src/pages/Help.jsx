@@ -2523,10 +2523,18 @@ export default function Help() {
               it your own. On a phone the category tabs scroll sideways and a basket bar sits at the
               bottom of the screen.
             </P>
+            <P>
+              A menu with set times shows them to guests ("Dinner is available every day
+              18:00–22:00"), and guests can browse and add from it outside those hours to order for
+              later. At checkout only collection times when every dish in the basket is served are
+              offered, and the order is checked again when it is placed. A menu whose dates have not
+              started or have ended is not shown.
+            </P>
             <DataTable
               head={['Setting', 'What it does']}
               rows={[
                 ['Menus', "Which of your menus guests can order from. Dishes you switch off for ordering, or dishes without a price, are left out."],
+                ['Menu times and dates', "Under each chosen menu, tap Set times and dates. Times of day: pick the days and the hours it is served (for example lunch Mon to Fri 11:00 to 15:00); add more rows for other days or hours. Dates: From and Until, to schedule a menu change (old menu Until 31 May, new menu From 1 June). Menus with times or dates can't overlap each other, and Save stays off with a message until they don't. A menu with neither, such as drinks, is always available alongside the others. Make it always available clears the schedule."],
                 ['Ordering hours', "When guests can collect, per day. Filled in from your opening hours the first time. A day can have several windows, such as lunch and dinner. No window = closed."],
                 ['Preparation time', "The earliest a new order can be ready. ASAP orders are promised this many minutes from now."],
                 ['Time slots / orders per slot', "Guests pick a collection time from these slots. Set a maximum per slot and full slots are greyed out."],
