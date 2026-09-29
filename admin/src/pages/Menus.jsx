@@ -559,12 +559,12 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
             <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
               <input type="checkbox" checked={!!draft.hide_zero_priced_variants}
                 onChange={e => onChange('hide_zero_priced_variants', e.target.checked)} />
-              Don't show a price on zero-priced variants (print + website)
+              Don't show a price on zero-priced variants (print, website, online ordering)
             </label>
             <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
               <input type="checkbox" checked={!!draft.hide_unpriced_variants}
                 onChange={e => onChange('hide_unpriced_variants', e.target.checked)} />
-              Don't show the variant option at all if it isn't priced (print + website)
+              Don't show the variant option at all if it isn't priced (print, website, online ordering)
             </label>
           </div>
         </div>

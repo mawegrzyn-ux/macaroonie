@@ -17,7 +17,7 @@ import { upsertCustomer } from '../routes/customers.js'
 import { loadMenuFull } from '../routes/menus.js'
 import { loadOpeningHours } from './siteDataSvc.js'
 import { getGateway, checkoutGateways, COUNTER_METHODS } from './paymentGateways/index.js'
-import { itemChoices, fromPrice, isPriced, priceBasket } from '../../../shared/orderPricing.js'
+import { itemChoices, variantRules, fromPrice, isPriced, priceBasket } from '../../../shared/orderPricing.js'
 
 // An unpaid online order holds its slot this long, then expires.
 export const PENDING_TTL_MINS = 30
@@ -164,12 +164,13 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
     const full = await loadMenuFull(tx, id, venue.tenant_id)
     if (!full) continue
     dietaryTags = full.dietary_tags || dietaryTags
+    const rules = variantRules(full)
     const sections = []
     for (const s of full.sections || []) {
       const items = []
       for (const it of s.items || []) {
         if (it.is_orderable === false) continue
-        const choices = itemChoices(it)
+        const choices = itemChoices(it, rules)
         if (!isPriced(it, choices)) continue
         const item = {
           id: it.id, name: it.name, native_name: it.native_name || null,

@@ -23,22 +23,50 @@ export function variantOptionId(label) {
   return 'v:' + String(label)
 }
 
-export function itemChoices(item) {
+// The menu's own variant display settings (Menus > menu details), the same
+// ones the website menu block and the printed menu follow:
+//   hide_unpriced_variants    — an option with no price (or £0) is left out
+//                               entirely, so it can't be chosen either
+//   hide_zero_priced_variants — an option priced £0 keeps its label but
+//                               shows no price
+export function variantRules(menu) {
+  return {
+    hideUnpriced: !!(menu && menu.hide_unpriced_variants),
+    hideZeroPrice: !!(menu && menu.hide_zero_priced_variants),
+  }
+}
+
+const isUnpriced = p => p == null || Number(p) === 0
+
+export function itemChoices(item, rules = {}) {
+  const keep = o => !(rules.hideUnpriced && isUnpriced(o.price_pence))
   const out = []
-  if (Array.isArray(item.variants) && item.variants.length) {
+  const adhoc = (Array.isArray(item.variants) ? item.variants : []).filter(keep)
+  if (adhoc.length) {
     out.push({
-      key: 'variants', name: 'Choose', mode: 'base', min: 1, max: 1,
-      options: item.variants.map(v => ({ id: variantOptionId(v.label), label: v.label, price_pence: v.price_pence })),
+      key: 'variants', name: 'Choose', mode: 'base', min: 1, max: 1, hide_zero_price: !!rules.hideZeroPrice,
+      options: adhoc.map(v => ({ id: variantOptionId(v.label), label: v.label, price_pence: v.price_pence ?? null })),
     })
   }
   for (const g of item.variant_groups || []) {
-    const opts = (g.options || []).map(o => ({ id: o.option_id ?? o.id, label: o.label, price_pence: o.price_pence }))
+    const opts = (g.options || []).filter(keep).map(o => ({ id: o.option_id ?? o.id, label: o.label, price_pence: o.price_pence ?? null }))
     if (!opts.length) continue
     const max = Math.max(1, Math.min(opts.length, Number(g.max_select ?? 1)))
     const min = Math.max(0, Math.min(max, Number(g.min_select ?? 1)))
-    out.push({ key: g.group_id ?? g.id, name: g.name, mode: g.price_mode === 'extra' ? 'extra' : 'base', min, max, options: opts })
+    out.push({
+      key: g.group_id ?? g.id, name: g.name, mode: g.price_mode === 'extra' ? 'extra' : 'base',
+      min, max, hide_zero_price: !!rules.hideZeroPrice, options: opts,
+    })
   }
   return out
+}
+
+// Price text for one option on the guest page ('' = show no price).
+export function optionPriceText(choice, option, money) {
+  const p = option.price_pence
+  if (p == null) return ''
+  if (Number(p) === 0 && (choice.mode === 'extra' || choice.hide_zero_price)) return ''
+  return choice.mode === 'extra' ? '+' + money(p) : money(p)
 }
 
 // A dish from the ordering API already carries its choices (the browser
@@ -54,13 +82,16 @@ export function fromPrice(item, choices = choicesOf(item)) {
   let price = null
   for (const c of base) {
     if (c.min < 1) continue
-    const cheapest = [...c.options].map(o => o.price_pence).sort((a, b) => a - b).slice(0, c.min)
+    // A base option with no price leaves the dish at its own price.
+    const cheapest = c.options.map(o => o.price_pence ?? item.price_pence ?? null)
+      .filter(p => p != null).sort((a, b) => a - b).slice(0, c.min)
+    if (cheapest.length < c.min) continue
     price = (price ?? 0) + cheapest.reduce((s, p) => s + p, 0)
   }
   if (price == null) price = item.price_pence ?? null
   if (price == null) return null
   for (const c of choices.filter(c => c.mode === 'extra' && c.min > 0)) {
-    const cheapest = [...c.options].map(o => o.price_pence).sort((a, b) => a - b).slice(0, c.min)
+    const cheapest = c.options.map(o => o.price_pence ?? 0).sort((a, b) => a - b).slice(0, c.min)
     price += cheapest.reduce((s, p) => s + p, 0)
   }
   return price
@@ -68,7 +99,7 @@ export function fromPrice(item, choices = choicesOf(item)) {
 
 export function isPriced(item, choices = choicesOf(item)) {
   if (item.price_pence != null) return true
-  return choices.some(c => c.mode === 'base' && c.min >= 1)
+  return choices.some(c => c.mode === 'base' && c.min >= 1 && c.options.some(o => o.price_pence != null))
 }
 
 // One basket line: { choices: { [key]: [optionId, ...] } }.
@@ -89,8 +120,9 @@ export function priceLine(item, selection, choices = choicesOf(item)) {
       const o = c.options.find(x => x.id === id)
       if (!o) return { ok: false, error: 'An option is no longer available: please choose again' }
       options.push({ group: c.name, label: o.label, price_pence: o.price_pence, mode: c.mode })
-      if (c.mode === 'base') base = (base ?? 0) + o.price_pence
-      else extras += o.price_pence
+      // A base option with no price leaves the dish at its own price.
+      if (c.mode === 'base') { if (o.price_pence != null) base = (base ?? 0) + o.price_pence }
+      else extras += o.price_pence ?? 0
     }
   }
   if (base == null) base = item.price_pence ?? null

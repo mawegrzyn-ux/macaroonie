@@ -5,6 +5,10 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering follows the menu's variant settings]
+
+- The two variant settings in a menu's details now apply to online ordering, as they already did on the website and the printed menu. "Don't show the variant option at all if it isn't priced" leaves options with no price (or £0) out of the dish options, and the server refuses them. "Don't show a price on zero-priced variants" hides the £0.00 next to such options.
+- An option with no price no longer shows "£0.00" or makes the dish free: the dish's own price applies. A dish whose only options have no price, and which has no price of its own, is left off the ordering menu.
 ## [2026-09-29 — Pages that couldn't scroll]
 
 - Food safety, Checklists, H&S Action Log, Online orders, Ordering setup, Reviews, Issue log, Feature requests, Changelog and Backlog now scroll. Before, anything below the bottom of the screen was cut off with no scrollbar.

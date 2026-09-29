@@ -2382,7 +2382,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>/order-api/pricing.js</Mono> only to show totals. A dish's choices: its ad-hoc
               variants (one required base choice, option ids <Mono>v:label</Mono> because variant
               rows are re-inserted on every menu save) plus attached variant groups. Unit price =
-              chosen base options (or the dish's own price when none) + chosen extras. VAT follows the order
+              chosen base options (or the dish's own price when none) + chosen extras. A base option
+              with no price counts as the dish's own price. The menu's variant display settings apply
+              via <Mono>variantRules(menu)</Mono>, passed to <Mono>itemChoices()</Mono> by{' '}
+              <Mono>loadOrderingMenu()</Mono>: <Mono>hide_unpriced_variants</Mono> drops null/£0
+              options from the choices (so the server rejects them too),{' '}
+              <Mono>hide_zero_priced_variants</Mono> sets <Mono>hide_zero_price</Mono> on each choice
+              and <Mono>optionPriceText()</Mono> shows no price for £0 options. VAT follows the order
               type (<Mono>vatRateFor()</Mono>): collection and delivery use the dish's takeaway rate,
               table orders its eat-in rate, else the venue default for that type. Tips are a percentage from{' '}
               <Mono>tip_percents</Mono>, outside VAT.
