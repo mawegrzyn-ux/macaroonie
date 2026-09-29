@@ -5,7 +5,7 @@
 import {
   HeroCanvas, TextCanvas, ImageCanvas,
   CtaStripCanvas, DividerCanvas, FaqCanvas,
-  ColumnsCanvas,
+  ColumnsCanvas, HeadingCanvas,
 } from './blockCanvas'
 import {
   HeaderCanvas, FooterCanvas, ScrollingTextCanvas,
@@ -30,6 +30,7 @@ export const CANVAS_BY_TYPE = {
   order_options:    OrderOptionsCanvas,
   // Layout / generic
   hero:           HeroCanvas,
+  heading:        HeadingCanvas,
   text:           TextCanvas,
   image:          ImageCanvas,
   cta_strip:      CtaStripCanvas,

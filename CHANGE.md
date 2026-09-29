@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Website: Heading block]
+
+- New **Heading** block for the page builder: a section title with an optional small line above and line below, heading level H1 to H4, size, alignment, font (theme heading, theme body or any listed font), weight, italic, capitals, a short bar or lines either side, theme colours, background and spacing. Edit on the page or in the panel; large sizes shrink to fit on phones.
+
+---
+
 ## [2026-09-29 — Promotions: only your own venues and menus; dish picker in a pop-up]
 
 - Fixed: the Promotions editor listed venues (and dishes) from other restaurant groups, and the promotions list, switches and delete were not limited to your own group. Every promotions query, and the ordering settings venue check, now filters by your group.

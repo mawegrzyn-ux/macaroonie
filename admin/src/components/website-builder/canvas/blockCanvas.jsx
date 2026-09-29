@@ -13,7 +13,7 @@
 // drag handle / selection toolbar / outline come from BlockShell — keep
 // them out of here.
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useApi } from '@/lib/api'
 import { Image as ImageIcon, Upload, Loader2 } from 'lucide-react'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
@@ -24,6 +24,8 @@ import { InlineRichText }  from './InlineRichText'
 import { BlockInserter }   from './BlockInserter'
 import { parentKey }       from '../blockTree'
 import { innerContainerStyle } from '../boxedLayout'
+import { headingLayout, styleObject } from '@shared/headingBlock.js'
+import { googleFontsUrl } from '@shared/fonts.js'
 
 // ── Hero ─────────────────────────────────────────────────────
 //
@@ -325,6 +327,54 @@ export function CtaStripCanvas({ data, onChange, selected }) {
               )
             })}
           </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// ── Heading ──────────────────────────────────────────────────
+//
+// Mirrors api/src/views/site/blocks/heading.eta: both take every style
+// from shared/headingBlock.js headingLayout(). Empty eyebrow / line
+// below only show (as placeholders) while the block is selected.
+
+function useBlockFont(name) {
+  useEffect(() => {
+    const href = name ? googleFontsUrl([name]) : null
+    if (!href || document.querySelector(`link[data-maca-font="${name}"]`)) return
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = href
+    link.dataset.macaFont = name
+    document.head.appendChild(link)
+  }, [name])
+}
+
+export function HeadingCanvas({ data, onChange, selected }) {
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+  const h = headingLayout(data)
+  const st = Object.fromEntries(Object.entries(h.styles).map(([k, v]) => [k, styleObject(v)]))
+  useBlockFont(h.font)
+  const heading = (
+    <InlineText as={h.tag} value={data.heading} onChange={set('heading')} placeholder="Heading" style={st.heading} />
+  )
+  return (
+    <section className="block" style={st.section}>
+      <div style={st.inner}>
+        {(data.eyebrow || selected) && (
+          <InlineText as="p" value={data.eyebrow} onChange={set('eyebrow')} placeholder="Small line above (optional)" style={st.eyebrow} />
+        )}
+        {h.decoration === 'rules' ? (
+          <div style={st.rulesRow}>
+            {h.ruleLeft && <span aria-hidden="true" style={st.rule} />}
+            {heading}
+            {h.ruleRight && <span aria-hidden="true" style={st.rule} />}
+          </div>
+        ) : heading}
+        {h.decoration === 'bar' && <div aria-hidden="true" style={st.bar} />}
+        {(data.subheading || selected) && (
+          <InlineText as="p" multiline value={data.subheading} onChange={set('subheading')} placeholder="Line below (optional)" style={st.sub} />
         )}
       </div>
     </section>

@@ -219,7 +219,7 @@ const ROLE_KEYS = ['primary','accent','background','surface','text','muted','bor
 function resolveRoleOrHex(v) {
   if (!v) return null
   if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) return v
-  if (ROLE_KEYS.indexOf(v) !== -1) return `var(--c-${v})`
+  if (ROLE_KEYS.indexOf(v) !== -1) return `var(--c-${v === 'background' ? 'bg' : v})`
   return null
 }
 

@@ -26,6 +26,8 @@ import { sql, withTenant } from '../config/db.js'
 import { listPromotions } from '../services/promoSvc.js'
 import { promoSummary, promoTerms, promoLink, promoRunning, venueNow } from '../../../shared/promotions.js'
 import { formatPence } from '../../../shared/orderPricing.js'
+import { googleFontsUrl } from '../../../shared/fonts.js'
+import { headingLayout, styleString } from '../../../shared/headingBlock.js'
 import { env }            from '../config/env.js'
 import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
 
@@ -159,11 +161,15 @@ export default async function siteRendererRoutes(app) {
   app.get('/bimi.svg', serveBimi)
   app.get('/.well-known/bimi.svg', serveBimi)
 
+  // Shared block renderers the Eta partials call (it.siteBlocks), so a
+  // block's styles live in one file used by the site and the builder canvas.
+  const SITE_BLOCKS = { headingLayout, styleString, googleFontsUrl }
+
   const renderSite = async (reply, view, data) => {
     const tpl = templateOf(data.config)
     reply.header('Cache-Control', 'public, max-age=0, must-revalidate')
     reply.header('X-Frame-Options', 'SAMEORIGIN')
-    return reply.view(`site/templates/${tpl}/${view}.eta`, data)
+    return reply.view(`site/templates/${tpl}/${view}.eta`, { ...data, siteBlocks: SITE_BLOCKS })
   }
 
   const renderNotFound = async (reply, message = 'Site not found') => {
