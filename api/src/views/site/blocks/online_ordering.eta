@@ -55,6 +55,7 @@ const _opts = {
   favouriteLabel: _str(d.favourite_label) || 'House favourite',
   favouriteBg:   _colour(d.favourite_bg),
   favouriteText: _colour(d.favourite_text),
+  promoBox:      d.show_promo_box !== false,
 }
 %>
 <section class="block block-online-ordering">

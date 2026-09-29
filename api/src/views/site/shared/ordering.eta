@@ -18,6 +18,7 @@ const DEFAULT_OPTS = {
   basketBg: null, basketText: null, search: false, searchStyle: 'bar', title: null, subtitle: null,
   hideSubtitle: false, itemNotes: true, showVat: true, favourites: false,
   favouriteLabel: 'House favourite', favouriteBg: null, favouriteText: null,
+  promoBox: true,
 }
 const opts = Object.assign({}, DEFAULT_OPTS, it.orderOptions || {})
 /* Only a theme variable or a #hex reaches the CSS below. */
@@ -69,7 +70,9 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-layout > * { min-width: 0; }
 :is(.mo, .mo-sheet-back) .mo-tabs { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scrollbar-width: none; max-width: 100%; padding: 8px 0; }
 /* Search + menu tabs + category tabs stick together as one bar (option). */
-.mo .mo-nav { position: sticky; top: var(--mo-offset, 0px); z-index: 5; background: var(--c-bg, #fff); padding: 4px 0; }
+.mo .mo-nav { position: sticky; top: var(--mo-offset, 0px); z-index: 5; background: var(--c-bg, #fff); padding: 4px 10px; border: 1px solid color-mix(in srgb, var(--c-border, #e5e7eb) 70%, transparent); border-radius: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.05); overflow: clip; }
+/* The category strip fades out at the right edge, so it reads as scrollable. */
+.mo .mo-nav .mo-tabs { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); padding-right: 24px; }
 .mo.mo--static-nav .mo-nav { position: static; }
 .mo .mo-search { position: relative; margin: 4px 0; }
 .mo .mo-search input { width: 100%; min-height: 44px; padding: 0 44px 0 16px; border: 1px solid var(--c-border, #d1d5db); border-radius: 999px; font: inherit; background: var(--c-surface, #fff); color: inherit; }
@@ -156,9 +159,35 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-chip button { border: 0; background: transparent; color: inherit; width: 28px; height: 28px; font-size: 1rem; line-height: 1; }
 :is(.mo, .mo-sheet-back) .mo-promo-badge { display: inline-block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; margin: 0 4px 4px 0; border-radius: 999px; background: var(--c-primary, #630812); color: #fff; }
 :is(.mo, .mo-sheet-back) .mo-fav + .mo-promo-badge, :is(.mo, .mo-sheet-back) .mo-promo-badge + .mo-promo-badge { margin-left: 8px; }
-.mo .mo-offers { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
-.mo .mo-offers > div { padding: 8px 12px; border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); border: 1px solid var(--c-border, #e5e7eb); font-size: .9rem; }
-.mo .mo-offers strong { color: var(--c-primary, #630812); }
+/* Promo box (migration 134): promotions with show_in_box, as cards above
+   the basket on desktop, under the title on phones and in pop-up basket
+   mode. Colours come from each promotion (--pc-bg / --pc-fg / --pc-btn). */
+.mo .mo-promos { display: grid; gap: 8px; min-width: 0; }
+.mo .mo-promos--top { display: none; margin: 16px 0 4px; }
+/* One box, one promotion at a time: swipe, or the dots below. */
+.mo .mo-promo-track { display: grid; grid-auto-flow: column; grid-auto-columns: 100%; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
+.mo .mo-promo-track::-webkit-scrollbar { display: none; }
+.mo .mo-promo-track > .mo-promo-card { scroll-snap-align: start; }
+.mo .mo-promo-dots { display: flex; justify-content: center; }
+.mo .mo-promo-dots button { width: 36px; height: 32px; border: 0; background: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.mo .mo-promo-dots button::before { content: ''; width: 9px; height: 9px; border-radius: 999px; background: var(--c-border, #d1d5db); transition: width .2s; }
+.mo .mo-promo-dots button.is-on::before { width: 22px; background: var(--c-primary, #630812); }
+.mo .mo-promos--side { margin: 0 0 16px; }
+.mo .mo-promo-card { position: relative; display: flex; flex-direction: column; gap: 6px; min-height: 150px; min-width: 0; padding: 20px; border-radius: var(--r-lg, 14px); background-color: var(--pc-bg); background-size: cover; background-position: center; color: var(--pc-fg); box-shadow: 0 6px 18px rgba(0,0,0,.10); overflow: hidden; }
+.mo .mo-promo-eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; opacity: .85; }
+.mo .mo-promo-title { font-family: var(--f-heading, inherit); font-size: clamp(1.25rem, 3.4vw, 1.5rem); font-weight: 700; line-height: 1.15; margin: 0; color: inherit; }
+.mo .mo-promo-text { font-size: .95rem; opacity: .92; margin: 0; }
+.mo .mo-promo-terms { font-size: .78rem; opacity: .8; margin: 0; }
+.mo .mo-promo-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: auto; padding-top: 8px; }
+.mo .mo-promo-btn { min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--pc-fg); background: var(--pc-fg); color: var(--pc-btn); font-weight: 700; }
+.mo .mo-promo-btn--ghost { background: transparent; color: var(--pc-fg); }
+.mo .mo-promo-status { font-size: .9rem; font-weight: 600; }
+.mo .mo-promo-link { background: none; border: 0; padding: 0 2px; min-height: 44px; color: inherit; text-decoration: underline; font-size: .85rem; opacity: .85; }
+.mo .mo-basket-col.has-promos { position: static; align-self: stretch; }
+.mo .mo-basket-col.has-promos .mo-basket { position: sticky; top: calc(var(--mo-offset, 0px) + 16px); }
+.mo.mo--static-basket .mo-basket-col.has-promos .mo-basket { position: static; }
+.mo.mo--modal-basket .mo-promos--top { display: grid; }
+@media (max-width: 900px) { .mo .mo-promos--top { display: grid; } }
 :is(.mo, .mo-sheet-back) .mo-bar { display: none; }
 :is(.mo, .mo-sheet-back) .mo-field { display: block; margin-bottom: 14px; }
 :is(.mo, .mo-sheet-back) .mo-field span { display: block; font-size: .9rem; font-weight: 600; margin-bottom: 6px; }
@@ -202,7 +231,11 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
   .mo .mo-navrow .mo-tabs { padding-left: 74px; scroll-padding-inline: 74px 16px; }
   /* The tab strip runs to the screen edge: cover the margin left of the icon too. */
   .mo .mo-navrow::before { left: -16px; width: 64px; }
-  .mo .mo-nav { margin: 0 -16px; padding: 4px 16px; }
+  /* The bar is a rounded, outlined box on phones too: its strip scrolls inside it. */
+  .mo .mo-nav { margin: 0; padding: 4px 8px; border-radius: 14px; }
+  .mo .mo-nav .mo-tabs { margin: 0; padding: 6px 24px 6px 0; scroll-padding-inline: 8px; }
+  .mo .mo-nav .mo-navrow .mo-tabs { padding-left: 58px; scroll-padding-inline: 58px 16px; }
+  .mo .mo-nav .mo-navrow::before { left: 0; width: 48px; }
   :is(.mo, .mo-sheet-back) .mo-basket-col { display: none; }
   :is(.mo, .mo-sheet-back) .mo-bar { display: flex; position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 50; }
   :is(.mo, .mo-sheet-back) .mo-bar .mo-btn { width: 100%; justify-content: space-between; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
@@ -233,7 +266,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <script type="application/json" id="mo-config"><%~ cfgJson %></script>
 <script type="module">
 import { optionPriceText, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
-import { venueNow, noticeText, promoSummary, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
+import { venueNow, noticeText, promoSummary, promoTerms, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const OPT = CFG.opts || {}
@@ -937,15 +970,85 @@ async function startOrdering() {
     else { state.error = res.error; draw() }
   }
 
-  // Promotions on now that guests can get without a code, under the title.
-  function offersStripHtml() {
+  // Promo box: promotions marked "show in the promo box" that are on now
+  // for this venue (never code ones: their code is not on the page).
+  const ROLE_VAR = { primary: '--c-primary', accent: '--c-accent', background: '--c-bg', surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border' }
+  const LIGHT_ROLES = new Set(['background', 'surface', 'border'])
+  const boxColour = v => (/^#[0-9a-fA-F]{6}$/.test(v || '') ? v : ROLE_VAR[v] ? 'var(' + ROLE_VAR[v] + ')' : null)
+  function boxPromos() {
+    if (OPT.promoBox === false) return []
     const at = venueNow(venue.timezone)
-    const live = (data.promotions || []).filter(p => isLiveAt(p, { at, venueId: venue.id }))
-    if (!live.length) return ''
-    return '<div class="mo-offers">' + live.map(p => '<div><strong>' + esc(p.name) + '</strong> <span class="mo-muted">' +
-      esc(promoSummary(p, money) + (p.min_subtotal_pence ? ' when you spend ' + money(p.min_subtotal_pence) : '') +
-        (p.apply_mode === 'manual' ? ' · apply it in your basket' : '')) + '</span></div>').join('') + '</div>'
+    return (data.promotions || []).filter(p => p.show_in_box && p.apply_mode !== 'code' && isLiveAt(p, { at, venueId: venue.id }))
   }
+  // Automatic text colour: dark text on a light background, white otherwise.
+  // Reads the theme's actual colour for a role (--c-accent can be pale).
+  function isLight(bg) {
+    let v = bg
+    const m = /^var[(](--c-[a-z]+)/.exec(bg || '')
+    if (m) v = getComputedStyle(root).getPropertyValue(m[1]).trim()
+    const hex = /^#([0-9a-f]{6})$/i.exec(v || '')
+    if (!hex) return false
+    const n = parseInt(hex[1], 16)
+    const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map(c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4) })
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45
+  }
+  function promoCardHtml(p, q) {
+    const img = /^(https?:[/][/]|[/])/.test(p.box_image_url || '') ? p.box_image_url : null
+    const bg = boxColour(p.box_bg) || 'var(--c-primary, #630812)'
+    const fg = boxColour(p.box_text) || (!img && (LIGHT_ROLES.has(p.box_bg) || isLight(bg)) ? 'var(--c-text, #1f2937)' : '#fff')
+    const btn = img ? '#111' : bg
+    let style = '--pc-bg:' + bg + ';--pc-fg:' + fg + ';--pc-btn:' + btn + ';'
+    if (img) style += "background-image:linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.65)), url('" + encodeURI(img).split("'").join('%27') + "');"
+    const applied = q.promotions.find(a => a.id === p.id)
+    const notice = q.promo_notices.find(n => n.id === p.id)
+    const chosen = state.chosen.includes(p.id)
+    const text = p.description || promoSummary(p, money)
+    const terms = promoTerms(p, money)
+    let actions = ''
+    if (applied) actions += '<span class="mo-promo-status">&#10003; Applied: &minus;' + money(applied.discount_pence) + '</span>'
+    else if (notice && noticeText(notice, money)) actions += '<span class="mo-promo-status">' + esc(noticeText(notice, money)) + '</span>'
+    if (p.apply_mode === 'manual' && !chosen) actions += '<button type="button" class="mo-promo-btn" data-offer="' + esc(p.id) + '">Apply offer</button>'
+    if (p.apply_mode === 'manual' && chosen) actions += '<button type="button" class="mo-promo-link" data-unoffer="' + esc(p.id) + '">Remove</button>'
+    if (!applied && promoDishes(p, 0).length) {
+      const label = p.kind === 'bundle' ? 'Start your deal' : p.kind === 'free_item' ? 'See the dishes' : 'See dishes'
+      actions += '<button type="button" class="mo-promo-btn' + (p.apply_mode === 'manual' && !chosen ? ' mo-promo-btn--ghost' : '') + '" data-promo-dish="' + esc(p.id) + '" data-part="0">' + label + '</button>'
+    }
+    if (!actions && p.apply_mode === 'auto') actions = '<span class="mo-promo-status">Taken off automatically</span>'
+    return '<div class="mo-promo-card" style="' + esc(style) + '">' +
+      '<div class="mo-promo-eyebrow">' + esc(p.badge_text || 'Offer') + '</div>' +
+      '<p class="mo-promo-title">' + esc(p.name) + '</p>' +
+      (text ? '<p class="mo-promo-text">' + esc(text) + '</p>' : '') +
+      (terms ? '<p class="mo-promo-terms">' + esc(terms) + '</p>' : '') +
+      '<div class="mo-promo-actions">' + actions + '</div></div>'
+  }
+  function promoBoxHtml(where, q, list) {
+    if (!list.length) return ''
+    const idx = Math.min(state.promoIdx || 0, list.length - 1)
+    let h = '<div class="mo-promos mo-promos--' + where + '" role="region" aria-label="Offers">' +
+      '<div class="mo-promo-track">' + list.map(p => promoCardHtml(p, q)).join('') + '</div>'
+    if (list.length > 1) {
+      h += '<div class="mo-promo-dots">' + list.map((p, i) => '<button type="button" data-promo-go="' + i + '" class="' + (i === idx ? 'is-on' : '') + '" aria-label="Offer ' + (i + 1) + ': ' + esc(p.name) + '"' + (i === idx ? ' aria-current="true"' : '') + '></button>').join('') + '</div>'
+    }
+    return h + '</div>'
+  }
+  // Keep both boxes (top and side) on the same offer after a redraw.
+  function syncPromoBoxes(smooth, except) {
+    root.querySelectorAll('.mo-promo-track').forEach(t => {
+      if (t === except) return
+      const left = (state.promoIdx || 0) * (t.clientWidth + 12)
+      if (Math.abs(t.scrollLeft - left) > 2) t.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' })
+    })
+    root.querySelectorAll('.mo-promo-dots').forEach(d => [...d.children].forEach((b, i) => {
+      b.classList.toggle('is-on', i === (state.promoIdx || 0))
+      if (i === (state.promoIdx || 0)) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current')
+    }))
+  }
+  root.addEventListener('scroll', e => {
+    const t = e.target
+    if (!(t instanceof Element) || !t.classList.contains('mo-promo-track') || !t.clientWidth) return
+    const i = Math.round(t.scrollLeft / (t.clientWidth + 12))
+    if (i !== (state.promoIdx || 0)) { state.promoIdx = i; syncPromoBoxes(false, t) }
+  }, true)
 
   // ── Draw ──
   function draw() {
@@ -960,11 +1063,12 @@ async function startOrdering() {
           : 'Order for collection' + (venue.address_line1 ? ' · ' + esc(venue.address_line1) : '')) + '</p>'
       }
       if (ord.collection_instructions) h += '<p class="mo-muted">' + esc(ord.collection_instructions) + '</p>'
-      h += offersStripHtml()
-      if (ord.is_paused) h += '<div class="mo-banner">' + esc(ord.pause_message || 'We are not taking online orders right now. Please check back soon.') + '</div>'
       const q = quote()
+      const promoList = boxPromos()
+      h += promoBoxHtml('top', q, promoList)
+      if (ord.is_paused) h += '<div class="mo-banner">' + esc(ord.pause_message || 'We are not taking online orders right now. Please check back soon.') + '</div>'
       const count = state.basket.reduce((s, l) => s + l.qty, 0)
-      h += '<div class="mo-layout"><div>' + menuHtml() + '</div><div class="mo-basket-col"><div class="mo-basket' + (OPT.basketText ? ' mo-fg' : '') + '"><h2 style="margin-top:0;">Your basket</h2>' + basketHtml(false) + '</div></div></div>'
+      h += '<div class="mo-layout"><div>' + menuHtml() + '</div><div class="mo-basket-col' + (promoList.length ? ' has-promos' : '') + '">' + promoBoxHtml('side', q, promoList) + '<div class="mo-basket' + (OPT.basketText ? ' mo-fg' : '') + '"><h2 style="margin-top:0;">Your basket</h2>' + basketHtml(false) + '</div></div></div>'
       if (count) h += '<div class="mo-bar"><button class="mo-btn" data-open-basket><span>View basket (' + count + ')</span><span>' + money(q.subtotal_pence - q.discount_pence) + '</span></button></div>'
     } else if (state.step === 'checkout') {
       h += checkoutHtml()
@@ -973,7 +1077,7 @@ async function startOrdering() {
       if (state.busy) h += '<p class="mo-muted">Processing&hellip;</p>'
     }
     root.innerHTML = h
-    if (state.step === 'menu') spy()
+    if (state.step === 'menu') { spy(); syncPromoBoxes(false) }
   }
 
   function openBasketSheet() {
@@ -1042,6 +1146,7 @@ async function startOrdering() {
     else if (t.dataset.date) { state.date = t.dataset.date; state.when = null; loadSlots() }
     else if (t.dataset.slot) { state.when = t.dataset.slot; draw() }
     else if (t.dataset.tip != null) { state.tip = +t.dataset.tip; draw() }
+    else if (t.dataset.promoGo != null) { state.promoIdx = +t.dataset.promoGo; syncPromoBoxes(true) }
     else if ('place' in t.dataset) placeOrder()
     else if (t.dataset.pay) pay(t.dataset.pay)
     else promoClick(t, draw)

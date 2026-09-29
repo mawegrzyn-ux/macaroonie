@@ -2633,8 +2633,19 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Choose / Add &lt;part&gt; button, data-promo-dish + data-part, handled by showPromoDish():
               one matching dish opens its sheet, several jump to the first one&apos;s section, switching
               menu tab if needed; coversIds() is exported for this); the promo code box; badge_text on
-              dishes an item / bogo / free_item / bundle promotion covers (<Mono>promoBadges()</Mono>, live ones only); an offers strip
-              under the title. Deep links: <Mono>?promo=CODE</Mono> checks and applies a code,{' '}
+              dishes an item / bogo / free_item / bundle promotion covers (<Mono>promoBadges()</Mono>, live ones only); the promo box
+              (migration 134: <Mono>promotions.show_in_box</Mono>, <Mono>box_bg</Mono> / <Mono>box_text</Mono> theme role or #hex,{' '}
+              <Mono>box_image_url</Mono>; never for code promotions, forced off by <Mono>clean()</Mono> and{' '}
+              <Mono>publicPromotion()</Mono>). <Mono>boxPromos()</Mono> / <Mono>promoCardHtml()</Mono> /{' '}
+              <Mono>promoBoxHtml()</Mono> draw it twice, <Mono>.mo-promos--side</Mono> at the top of the basket column
+              (the column then stops sticking and the basket sticks inside it, <Mono>.has-promos</Mono>) and{' '}
+              <Mono>.mo-promos--top</Mono> under the title (phones, pop-up basket); one card at a time in a
+              scroll-snap track with dot buttons, both kept on <Mono>state.promoIdx</Mono> by{' '}
+              <Mono>syncPromoBoxes()</Mono>. Automatic text colour reads the role's real colour and picks dark
+              text on a light background (<Mono>isLight()</Mono>). Card actions: Apply offer / Remove (manual),
+              Applied −£x or the promotion's notice, See dishes / Start your deal (<Mono>showPromoDish()</Mono>).
+              The Online ordering block's <Mono>show_promo_box</Mono> (default on) hides it. The old offers strip
+              under the title is gone. Deep links: <Mono>?promo=CODE</Mono> checks and applies a code,{' '}
               <Mono>?offer=&lt;id&gt;</Mono> chooses a manual offer; both are then removed from the
               address. On a <Mono>promo_invalid</Mono> error the page re-reads the venue&apos;s
               promotions and re-checks its codes. Staff: the order detail, printed ticket and

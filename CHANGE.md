@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering: promo box, tidier category bar]
+
+**Migration 134** (`promotions.show_in_box`, `box_bg`, `box_text`, `box_image_url`).
+
+- The line of offers under the ordering page title is replaced by a **promo box**: a card for each promotion marked *Show in the promo box*, above the basket on desktop and under the title on phones. One offer at a time; swipe or tap the dots. Each card shows the label, name, description, small print and a button: Apply offer, See dishes or Start your deal, or *Applied −£x*.
+- Promotions → Promo box on the ordering page: show it or not, background colour, background image, text colour, with a preview. Code promotions never show there.
+- Online ordering block: **Show the promo box** switch.
+- The category bar (with search) is now a rounded box with a subtle outline and a soft fade at the scrolling edge.
+
+---
+
 ## [2026-09-29 — Online ordering: minimum order quantity per dish]
 
 **Migration 133** (`menu_items.min_order_qty`).

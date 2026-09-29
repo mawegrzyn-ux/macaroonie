@@ -16,7 +16,9 @@ import { useMe } from '@/components/staff/rota'
 import { SortableRows, ConfirmDelete } from '@/components/staff/shared'
 import { PriceInput } from '@/components/menus/shared'
 import { ScheduleEditor } from '@/components/orders/ScheduleEditor'
-import { promoSummary } from '@shared/promotions.js'
+import { promoSummary, promoTerms } from '@shared/promotions.js'
+import { ThemeColourPicker, resolveRole } from '@/components/website-builder/ThemeColourPicker'
+import { ImageField } from '@/components/website-builder/shared'
 import { isScheduled, scheduleLabel } from '@shared/menuSchedule.js'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
@@ -52,6 +54,7 @@ const EMPTY = {
   apply_mode: 'auto', code: '', max_uses: null,
   schedule: { from: null, until: null, times: [] }, venue_ids: [], exclusive: false,
   bundle: [], bundle_price_pence: null, tiers: [],
+  show_in_box: false, box_bg: '', box_text: '', box_image_url: null,
 }
 
 function todayLocal() {
@@ -343,6 +346,66 @@ function TierEditor({ tiers, type, onChange }) {
   )
 }
 
+// ── Promo box look (migration 134) ──────────────────────────
+//
+// Mirrors promoCardHtml() in api/src/views/site/shared/ordering.eta:
+// background colour (theme role) or image with a shade, text colour,
+// eyebrow = dish label or "Offer", name, description or summary, terms.
+
+const LIGHT_ROLES = new Set(['background', 'surface', 'border'])
+// Same rule as isLight() on the ordering page: dark text on a light colour.
+function isLightHex(hex) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex || '')
+  if (!m) return false
+  const n = parseInt(m[1], 16)
+  const [r, g, b] = [n >> 16, (n >> 8) & 255, n & 255].map(c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4) })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45
+}
+
+function PromoBoxFields({ d, set }) {
+  const api = useApi()
+  const { data: site } = useQuery({ queryKey: ['tenant-site'], queryFn: () => api.get('/website/tenant-site'), staleTime: 60_000, retry: false })
+  const theme = site?.theme || {}
+  const bg = resolveRole(d.box_bg || 'primary', theme) || '#630812'
+  const fg = d.box_text ? resolveRole(d.box_text, theme) : (!d.box_image_url && (LIGHT_ROLES.has(d.box_bg) || isLightHex(bg)) ? resolveRole('text', theme) : '#fff')
+  const style = { backgroundColor: bg, color: fg }
+  if (d.box_image_url) {
+    style.backgroundImage = `linear-gradient(180deg, rgba(0,0,0,.25), rgba(0,0,0,.65)), url("${d.box_image_url}")`
+    style.backgroundSize = 'cover'
+    style.backgroundPosition = 'center'
+  }
+  const text = d.description?.trim() || promoSummary(d)
+  const terms = promoTerms(d)
+  return (
+    <div className="space-y-3">
+      <Row label="Background colour" hint="Used behind the image too, while it loads.">
+        <ThemeColourPicker value={d.box_bg || ''} onChange={v => set({ box_bg: v })} noneLabel="Primary" />
+      </Row>
+      <Row label="Background image (optional)" hint="Covers the card, with a dark shade so the text stays readable.">
+        <ImageField url={d.box_image_url} onChange={url => set({ box_image_url: url || null })} scope="promotions" />
+      </Row>
+      <Row label="Text colour" hint="Automatic: white, or your text colour on a light background.">
+        <ThemeColourPicker value={d.box_text || ''} onChange={v => set({ box_text: v })} noneLabel="Automatic" />
+      </Row>
+      <div>
+        <p className="text-xs text-muted-foreground mb-1">Preview</p>
+        <div className="rounded-2xl p-5 min-h-[150px] flex flex-col gap-1.5 max-w-sm shadow-sm" style={style}>
+          <div className="text-[11px] font-bold tracking-[0.14em] uppercase opacity-85">{d.badge_text?.trim() || 'Offer'}</div>
+          <div className="text-xl font-bold leading-tight">{d.name?.trim() || 'Promotion name'}</div>
+          {text && <div className="text-sm opacity-90">{text}</div>}
+          {terms && <div className="text-xs opacity-80">{terms}</div>}
+          <div className="mt-auto pt-2">
+            <span className="inline-flex items-center min-h-[40px] px-4 rounded-full text-sm font-bold"
+              style={{ background: fg, color: d.box_image_url ? '#111' : bg }}>
+              {d.apply_mode === 'manual' ? 'Apply offer' : 'Taken off automatically'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Editor ──────────────────────────────────────────────────
 
 function toDraft(p) {
@@ -552,6 +615,21 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
             <Row label="Number of uses (optional)" hint="Across all guests. Cancelled and rejected orders give their use back. Empty = unlimited.">
               <IntInput value={d.max_uses} onChange={v => set({ max_uses: v })} min={1} allowEmpty placeholder="Unlimited" className="w-32" />
             </Row>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="text-sm font-semibold">Promo box on the ordering page</h3>
+            {d.apply_mode === 'code' ? (
+              <p className="text-xs text-muted-foreground">Code promotions aren't shown in the promo box, so the code stays private. Use a Promo block on your website to advertise one.</p>
+            ) : (
+              <>
+                <Check checked={d.show_in_box} onChange={show_in_box => set({ show_in_box })}
+                  hint="A card above the basket on desktop and under the title on phones, while the promotion is on. The Online ordering block can switch the box off.">
+                  Show in the promo box
+                </Check>
+                {d.show_in_box && <PromoBoxFields d={d} set={set} />}
+              </>
+            )}
           </section>
 
           <section className="space-y-3">

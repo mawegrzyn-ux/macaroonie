@@ -2558,7 +2558,7 @@ export default function Help() {
                 ['Keep the basket in view', "The basket beside the menu stays on screen as guests scroll. A long basket scrolls inside itself."],
                 ['Basket colours', "A background and text colour from your theme. Pick a text colour when the background is dark; the basket's buttons then use it too."],
                 ['Show VAT under the total', "Adds \"Includes VAT £x\" in the basket and at checkout."],
-                ['Keep the category bar in view', "The menu and category tabs (and search) stay at the top while scrolling, and the category being looked at is highlighted."],
+                ['Keep the category bar in view', "The menu and category tabs (and search) stay at the top while scrolling, in a rounded, lightly outlined bar, and the category being looked at is highlighted."],
                 ['Space for a sticky site header', "Leave at 0 and the bar and basket sit just below your site header automatically, however tall it is. Enter a height in pixels only to override that."],
                 ['Search box', "Guests search dishes by name or description across all menus. Show it as a full-width box, or as a round magnifier icon at the start of the category bar (on phones only, or everywhere) to save space. The icon stays put while the categories scroll under it; tapping it opens the search box, and the cross closes it."],
                 ['Highlight house favourites', "Dishes ticked as House favourite on the Menus page get a badge (your wording) and a coloured edge, plus a background and text colour from your theme if you pick them."],
@@ -2723,6 +2723,20 @@ export default function Help() {
               while a guest is checking out is taken off with a message before the order is placed.
               Staff see the discounts on the order, the printed ticket and the Report.
             </P>
+            <H3>Promo box on the ordering page</H3>
+            <P>
+              Tick <strong>Show in the promo box</strong> on a promotion (Promotions → edit → Promo box on the
+              ordering page) to give it a card on your ordering page: above the basket on desktop, under the title
+              on phones. Choose its background colour from your theme, an optional background image (a dark shade
+              is added so the text stays readable) and a text colour (Automatic picks dark or white text to suit the
+              background); the editor shows a preview. The card shows the dish label (or OFFER), the name, the
+              description (or what it takes off) and the small print, with <strong>Apply offer</strong> for a
+              tap-to-apply promotion, <strong>See dishes</strong> / <strong>Start your deal</strong> for dish offers
+              and meal deals, and <em>Applied −£x</em> once it counts. Several promotions share one box: guests swipe
+              or tap the dots. Code promotions never appear there, so the code stays private. To hide the box, turn
+              off <strong>Show the promo box</strong> in the Online ordering block.
+            </P>
+
             <H3>Promo block on your website</H3>
             <P>
               In the page builder, add a <strong>Promo</strong> block and pick a promotion. It shows

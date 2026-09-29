@@ -470,7 +470,7 @@ export const BLOCKS = [
       venue_id:   null,   // null = automatic (see blocks/online_ordering.eta)
       title_text: '', subtitle_text: '', hide_subtitle: false,
       basket_mode: 'side',       // 'side' | 'modal' (pop-up only)
-      basket_sticky: true, basket_bg: '', basket_text: '', show_vat: true,
+      basket_sticky: true, basket_bg: '', basket_text: '', show_vat: true, show_promo_box: true,
       sticky_nav: true, sticky_offset: 0,
       show_search: false, search_style: 'bar', highlight_favourites: false, favourite_label: '', favourite_bg: '', favourite_text: '',
       item_notes: true,
