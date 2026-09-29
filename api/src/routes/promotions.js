@@ -24,12 +24,23 @@ import { scheduleProblem } from '../../../shared/menuSchedule.js'
 
 const uuid = z.string().uuid()
 
+const BundlePart = z.object({
+  label:       z.string().trim().min(1).max(40),
+  item_ids:    z.array(uuid).max(500).default([]),
+  section_ids: z.array(uuid).max(200).default([]),
+  qty:         z.number().int().min(1).max(10).default(1),
+})
+const Tier = z.object({
+  min_pence: z.number().int().min(0).max(10000000),
+  value:     z.number().int().min(1).max(1000000),
+})
+
 const PromoBody = z.object({
   name:               z.string().trim().min(1).max(120),
   description:        z.string().trim().max(500).nullable().optional(),
   badge_text:         z.string().trim().max(30).nullable().optional(),
   is_active:          z.boolean().default(true),
-  kind:               z.enum(['basket', 'item', 'bogo']),
+  kind:               z.enum(['basket', 'item', 'bogo', 'free_item', 'bundle', 'tiered']),
   discount_type:      z.enum(['percent', 'amount']).default('percent'),
   discount_value:     z.number().int().min(0).max(1000000).default(0),
   item_ids:           z.array(uuid).max(500).default([]),
@@ -46,6 +57,9 @@ const PromoBody = z.object({
   schedule:           MenuSchedule.default({ times: [] }),
   venue_ids:          z.array(uuid).max(200).default([]),
   exclusive:          z.boolean().default(false),
+  bundle:             z.array(BundlePart).max(8).default([]),
+  bundle_price_pence: z.number().int().min(0).max(10000000).nullable().default(null),
+  tiers:              z.array(Tier).max(10).default([]),
 })
 
 function clean(b) {
@@ -54,14 +68,27 @@ function clean(b) {
   p.badge_text = p.badge_text || null
   p.code = p.apply_mode === 'code' ? (p.code || '').trim() : null
   if (p.apply_mode === 'code' && p.code.length < 3) throw httpError(422, 'Enter a promo code of at least 3 characters')
-  if (p.kind === 'bogo') {
+  if (p.kind !== 'bundle') { p.bundle = []; p.bundle_price_pence = null }
+  if (p.kind !== 'tiered') p.tiers = []
+  if (p.kind === 'bogo' || p.kind === 'free_item' || p.kind === 'bundle') {
     p.discount_type = 'percent'
     p.discount_value = 0
+  } else if (p.kind === 'tiered') {
+    p.discount_value = 0
+    p.tiers = [...p.tiers].sort((a, b) => a.min_pence - b.min_pence)
+    if (!p.tiers.length) throw httpError(422, 'Add at least one spend level')
+    if (new Set(p.tiers.map(t => t.min_pence)).size !== p.tiers.length) throw httpError(422, 'Each spend level needs a different amount')
+    if (p.discount_type === 'percent' && p.tiers.some(t => t.value > 100)) throw httpError(422, 'A percentage discount can be at most 100%')
   } else {
     if (!p.discount_value) throw httpError(422, 'Enter how much the promotion takes off')
     if (p.discount_type === 'percent' && p.discount_value > 100) throw httpError(422, 'A percentage discount can be at most 100%')
   }
-  if (p.kind === 'basket') { p.item_ids = []; p.section_ids = [] }
+  if (p.kind === 'bundle') {
+    if (!p.bundle.length) throw httpError(422, 'Add the parts of the meal deal')
+    if (p.bundle_price_pence == null) throw httpError(422, 'Enter the meal deal price')
+    p.item_ids = []; p.section_ids = []
+  }
+  if (p.kind === 'basket' || p.kind === 'tiered') { p.item_ids = []; p.section_ids = [] }
   const problem = scheduleProblem(['p'], { p: p.schedule }, { p: 'This promotion' }, null)
   if (problem) throw httpError(422, problem)
   return p
@@ -77,11 +104,13 @@ async function codeTaken(tx, code, exceptId = null) {
 
 const COLS = ['name', 'description', 'badge_text', 'is_active', 'kind', 'discount_type', 'discount_value',
   'item_ids', 'section_ids', 'buy_qty', 'get_qty', 'get_percent', 'min_subtotal_pence', 'required_item_ids',
-  'max_discount_pence', 'apply_mode', 'code', 'max_uses', 'schedule', 'venue_ids', 'exclusive']
+  'max_discount_pence', 'apply_mode', 'code', 'max_uses', 'schedule', 'venue_ids', 'exclusive',
+  'bundle', 'bundle_price_pence', 'tiers']
+const JSON_COLS = new Set(['schedule', 'bundle', 'tiers'])
 
 function rowOf(tx, p) {
   const r = {}
-  for (const c of COLS) r[c] = c === 'schedule' ? tx.json(p.schedule || {}) : p[c]
+  for (const c of COLS) r[c] = JSON_COLS.has(c) ? tx.json(p[c] ?? (c === 'schedule' ? {} : [])) : p[c]
   return r
 }
 

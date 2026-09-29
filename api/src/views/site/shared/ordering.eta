@@ -144,6 +144,9 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-offer .mo-btn { min-height: 40px; padding: 0 14px; }
 :is(.mo, .mo-sheet-back) .mo-hint { font-size: .88rem; margin: 6px 0 0; }
 :is(.mo, .mo-sheet-back) .mo-code { margin-top: 10px; }
+:is(.mo, .mo-sheet-back) .mo-hint-row { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+:is(.mo, .mo-sheet-back) .mo-hint-row .mo-hint { flex: 1; margin: 0; }
+:is(.mo, .mo-sheet-back) .mo-hint-btn { min-height: 40px; padding: 0 14px; flex: none; }
 :is(.mo, .mo-sheet-back) .mo-code-row { display: flex; gap: 8px; }
 :is(.mo, .mo-sheet-back) .mo-code-row input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--c-border, #d1d5db); border-radius: var(--r-md, 8px); font: inherit; text-transform: uppercase; background: #fff; color: #111827; }
 :is(.mo, .mo-sheet-back) .mo-code-row .mo-btn { min-height: 44px; padding: 0 16px; }
@@ -151,6 +154,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; margin: 6px 6px 0 0; border-radius: 999px; border: 1px solid currentColor; font-size: .85rem; font-weight: 600; letter-spacing: .03em; }
 :is(.mo, .mo-sheet-back) .mo-chip button { border: 0; background: transparent; color: inherit; width: 28px; height: 28px; font-size: 1rem; line-height: 1; }
 :is(.mo, .mo-sheet-back) .mo-promo-badge { display: inline-block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; margin: 0 4px 4px 0; border-radius: 999px; background: var(--c-primary, #630812); color: #fff; }
+:is(.mo, .mo-sheet-back) .mo-fav + .mo-promo-badge, :is(.mo, .mo-sheet-back) .mo-promo-badge + .mo-promo-badge { margin-left: 8px; }
 .mo .mo-offers { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
 .mo .mo-offers > div { padding: 8px 12px; border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); border: 1px solid var(--c-border, #e5e7eb); font-size: .9rem; }
 .mo .mo-offers strong { color: var(--c-primary, #630812); }
@@ -228,7 +232,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <script type="application/json" id="mo-config"><%~ cfgJson %></script>
 <script type="module">
 import { optionPriceText, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
-import { venueNow, noticeText, promoSummary, covers, isLiveAt } from '/order-api/promotions.js'
+import { venueNow, noticeText, promoSummary, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const OPT = CFG.opts || {}
@@ -384,11 +388,33 @@ async function startOrdering() {
   function quote() {
     return priceBasket(itemsById, state.basket, { tipPercent: state.tip, promos: promosInPlay(), promoCtx: promoCtx() })
   }
+  const BADGE_KINDS = new Set(['item', 'bogo', 'free_item', 'bundle'])
+  // Take the guest to a dish a promotion needs: the dish itself when there
+  // is only one, otherwise the first of them on the menu.
+  function promoDishes(p, part) {
+    const c = p.kind === 'bundle' ? (p.bundle || [])[part] || {} : p
+    const out = []
+    data.menus.forEach((m, mi) => {
+      for (const s of m.sections) for (const i of s.items) {
+        if (!i.sold_out && coversIds(c.item_ids, c.section_ids, { item_id: i.id, section_id: i.section_id })) out.push({ item: i, menuIdx: mi, sectionId: s.id })
+      }
+    })
+    return out
+  }
+  function showPromoDish(promoId, part) {
+    const p = promosInPlay().find(x => x.id === promoId)
+    const dishes = p ? promoDishes(p, Number(part) || 0) : []
+    if (!dishes.length) return
+    if (dishes.length === 1) return openItem(dishes[0].item)
+    state.q = ''
+    if (state.menuIdx !== dishes[0].menuIdx) { state.menuIdx = dishes[0].menuIdx; draw() }
+    jumpTo(dishes[0].sectionId)
+  }
   // Labels on the dishes an offer covers (item and buy X get Y offers that
   // are on now and that the guest has, or can get without a code).
   function promoBadges(i) {
     const at = venueNow(venue.timezone)
-    return promosInPlay().filter(p => p.badge_text && p.kind !== 'basket' && isLiveAt(p, { at, venueId: venue.id }) &&
+    return promosInPlay().filter(p => p.badge_text && BADGE_KINDS.has(p.kind) && isLiveAt(p, { at, venueId: venue.id }) &&
       covers(p, { item_id: i.id, section_id: i.section_id }))
       .map(p => '<span class="mo-promo-badge">' + esc(p.badge_text) + '</span>').join('')
   }
@@ -434,6 +460,7 @@ async function startOrdering() {
     const d = t.dataset
     if (d.offer) { if (!state.chosen.includes(d.offer)) state.chosen = [...state.chosen, d.offer]; savePromos(); rerender(); return true }
     if (d.unoffer) { state.chosen = state.chosen.filter(x => x !== d.unoffer); savePromos(); rerender(); return true }
+    if (d.promoDish) { showPromoDish(d.promoDish, d.part); return true }
     if (d.uncode) { state.unlocked = state.unlocked.filter(p => p.id !== d.uncode); savePromos(); rerender(); return true }
     if ('codeOpen' in d) {
       state.codeOpen = true
@@ -651,7 +678,12 @@ async function startOrdering() {
     }
     for (const n of q.promo_notices) {
       const t = noticeText(n, money)
-      if (t) h += '<p class="mo-muted mo-hint">' + esc(t) + '</p>'
+      if (!t) continue
+      // Free dish / meal deal: a button that takes the guest to the dish.
+      let btn = ''
+      if (n.reason === 'free_item_missing') btn = '<button type="button" class="mo-btn mo-btn-ghost mo-hint-btn" data-promo-dish="' + esc(n.id) + '">Choose</button>'
+      if (n.reason === 'bundle_missing' && n.missing && n.missing[0]) btn = '<button type="button" class="mo-btn mo-btn-ghost mo-hint-btn" data-promo-dish="' + esc(n.id) + '" data-part="' + n.missing[0].index + '">Add ' + esc(n.missing[0].label) + '</button>'
+      h += btn ? '<div class="mo-hint-row"><p class="mo-muted mo-hint">' + esc(t) + '</p>' + btn + '</div>' : '<p class="mo-muted mo-hint">' + esc(t) + '</p>'
     }
     if (data.has_promo_codes || state.unlocked.length) {
       h += '<div class="mo-code">'
@@ -951,6 +983,7 @@ async function startOrdering() {
       if ('close' in t.dataset) close()
       else if (changeQty(t)) { render(); draw(); if (!state.basket.length) close() }
       else if ('checkout' in t.dataset) { close(); goCheckout() }
+      else if (t.dataset.promoDish) { close(); showPromoDish(t.dataset.promoDish, t.dataset.part) }
       else promoClick(t, () => { render(); draw() })
     })
     back.addEventListener('keydown', e => promoKey(e, () => { render(); draw() }))

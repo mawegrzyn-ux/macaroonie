@@ -25,6 +25,17 @@ const KINDS = [
   { key: 'basket', label: 'Order discount', hint: 'Money or % off the whole order' },
   { key: 'item', label: 'Dish discount', hint: 'Money or % off chosen dishes' },
   { key: 'bogo', label: 'Buy X get Y', hint: 'e.g. buy 1 get 1 free, 3 for 2' },
+  { key: 'free_item', label: 'Free dish', hint: 'A dish free once the order qualifies' },
+  { key: 'bundle', label: 'Meal deal', hint: 'e.g. starter + main + drink for £15' },
+  { key: 'tiered', label: 'Spend more, save more', hint: 'e.g. £20 gets 10%, £40 gets 15%' },
+]
+// Offer types that pick dishes with the dish picker (Every dish allowed).
+const PICKS_DISHES = new Set(['item', 'bogo', 'free_item'])
+const DEFAULT_TIERS = { percent: [{ min_pence: 2000, value: 10 }, { min_pence: 4000, value: 15 }], amount: [{ min_pence: 2000, value: 300 }, { min_pence: 4000, value: 800 }] }
+const DEFAULT_BUNDLE = [
+  { label: 'Starter', item_ids: [], section_ids: [], qty: 1 },
+  { label: 'Main', item_ids: [], section_ids: [], qty: 1 },
+  { label: 'Drink', item_ids: [], section_ids: [], qty: 1 },
 ]
 const MODES = [
   { key: 'auto', label: 'Automatic', hint: 'Taken off as soon as the order qualifies' },
@@ -39,6 +50,7 @@ const EMPTY = {
   min_subtotal_pence: 0, required_item_ids: [], max_discount_pence: null,
   apply_mode: 'auto', code: '', max_uses: null,
   schedule: { from: null, until: null, times: [] }, venue_ids: [], exclusive: false,
+  bundle: [], bundle_price_pence: null, tiers: [],
 }
 
 function todayLocal() {
@@ -217,6 +229,71 @@ function DishPicker({ catalog, itemIds, sectionIds = [], onChange, allowSections
   )
 }
 
+// ── Meal deal parts and spend levels ────────────────────────
+
+/** The parts of a meal deal: a name, how many, and which dishes count. */
+function BundleEditor({ parts, onChange, catalog }) {
+  const [open, setOpen] = useState(0)
+  const setPart = (i, patch) => onChange(parts.map((c, j) => (j === i ? { ...c, ...patch } : c)))
+  return (
+    <div className="space-y-2">
+      {parts.map((c, i) => {
+        const count = (c.item_ids?.length || 0) + (c.section_ids?.length || 0)
+        return (
+          <div key={i} className="rounded-lg border">
+            <div className="flex flex-wrap items-center gap-2 p-2">
+              <IntInput value={c.qty} onChange={v => setPart(i, { qty: v })} min={1} max={10} className="w-14" aria-label="How many" />
+              <span className="text-sm">x</span>
+              <input value={c.label} onChange={e => setPart(i, { label: e.target.value.slice(0, 40) })} placeholder="e.g. Starter"
+                className={cn(inputCls, 'flex-1 min-w-[120px] w-auto')} aria-label="Part name" />
+              <button type="button" onClick={() => setOpen(open === i ? -1 : i)}
+                className="min-h-[44px] px-3 border rounded-md text-sm touch-manipulation">
+                {count ? `${count} chosen` : 'Choose dishes'}
+              </button>
+              <ConfirmDelete onConfirm={() => onChange(parts.filter((_, j) => j !== i))} label="Remove part" confirmLabel="Remove" />
+            </div>
+            {open === i && (
+              <div className="p-2 pt-0">
+                <DishPicker catalog={catalog} allowSections itemIds={c.item_ids || []} sectionIds={c.section_ids || []}
+                  onChange={v => setPart(i, v)} />
+              </div>
+            )}
+          </div>
+        )
+      })}
+      <button type="button" onClick={() => { onChange([...parts, { label: '', item_ids: [], section_ids: [], qty: 1 }]); setOpen(parts.length) }}
+        className="inline-flex items-center gap-1 min-h-[44px] px-3 border rounded-md text-sm touch-manipulation">
+        <Plus className="w-4 h-4" /> Add a part
+      </button>
+    </div>
+  )
+}
+
+/** Spend levels for a tiered offer: spend at least X, get Y off. */
+function TierEditor({ tiers, type, onChange }) {
+  const setTier = (i, patch) => onChange(tiers.map((t, j) => (j === i ? { ...t, ...patch } : t)))
+  return (
+    <div className="space-y-2">
+      {tiers.map((t, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2 text-sm">
+          <span>Spend</span>
+          <PriceInput pence={t.min_pence} onChange={v => setTier(i, { min_pence: v || 0 })} className="w-28" aria-label="Spend at least" />
+          <span>get</span>
+          {type === 'percent'
+            ? <><IntInput value={t.value} onChange={v => setTier(i, { value: v })} min={1} max={100} className="w-20" aria-label="Percent off" /><span>% off</span></>
+            : <><PriceInput pence={t.value} onChange={v => setTier(i, { value: v || 0 })} className="w-28" aria-label="Amount off" /><span>off</span></>}
+          {tiers.length > 1 && <ConfirmDelete onConfirm={() => onChange(tiers.filter((_, j) => j !== i))} label="Remove level" confirmLabel="Remove" />}
+        </div>
+      ))}
+      <button type="button" onClick={() => { const last = tiers[tiers.length - 1]; onChange([...tiers, { min_pence: (last?.min_pence || 0) + 2000, value: last?.value || (type === 'percent' ? 10 : 300) }]) }}
+        className="inline-flex items-center gap-1 min-h-[44px] px-3 border rounded-md text-sm touch-manipulation">
+        <Plus className="w-4 h-4" /> Add a level
+      </button>
+      <p className="text-xs text-muted-foreground">The highest level the order reaches is taken off the whole order. Guests see how much more to spend for the next one.</p>
+    </div>
+  )
+}
+
 // ── Editor ──────────────────────────────────────────────────
 
 function toDraft(p) {
@@ -229,6 +306,9 @@ function toDraft(p) {
   d.description = p.description || ''
   d.badge_text = p.badge_text || ''
   d.schedule = { from: null, until: null, times: [], ...(p.schedule || {}) }
+  d.bundle = Array.isArray(p.bundle) ? p.bundle : []
+  d.bundle_price_pence = p.bundle_price_pence ?? null
+  d.tiers = Array.isArray(p.tiers) ? p.tiers : []
   return d
 }
 
@@ -245,7 +325,7 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
     return base
   })
   const [error, setError] = useState(null)
-  const [confirmAll, setConfirmAll] = useState(() => !!(promo || copyOf) && (promo || copyOf).kind !== 'basket' && !(promo || copyOf).item_ids?.length && !(promo || copyOf).section_ids?.length)
+  const [confirmAll, setConfirmAll] = useState(() => !!(promo || copyOf) && PICKS_DISHES.has((promo || copyOf).kind) && !(promo || copyOf).item_ids?.length && !(promo || copyOf).section_ids?.length)
   const set = patch => setD(x => ({ ...x, ...patch }))
   const venues = catalog?.venues || []
   const itemName = useMemo(() => {
@@ -264,8 +344,15 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
     setError(null)
     if (!d.name.trim()) return setError('Give the promotion a name')
     if (d.apply_mode === 'code' && d.code.trim().length < 3) return setError('Enter a promo code of at least 3 characters')
-    if (d.kind !== 'bogo' && !d.discount_value) return setError('Enter how much the promotion takes off')
-    if (d.kind !== 'basket' && !d.item_ids.length && !d.section_ids.length && !confirmAll) return setError('Choose the dishes it covers, or tick "Every dish"')
+    if ((d.kind === 'basket' || d.kind === 'item') && !d.discount_value) return setError('Enter how much the promotion takes off')
+    if (PICKS_DISHES.has(d.kind) && !d.item_ids.length && !d.section_ids.length && !confirmAll) return setError('Choose the dishes it covers, or tick "Every dish"')
+    if (d.kind === 'bundle') {
+      if (!d.bundle.length) return setError('Add the parts of the meal deal')
+      if (d.bundle.some(c => !String(c.label || '').trim())) return setError('Give each part of the meal deal a name')
+      if (d.bundle.some(c => !c.item_ids?.length && !c.section_ids?.length)) return setError('Choose the dishes for each part of the meal deal')
+      if (d.bundle_price_pence == null) return setError('Enter the meal deal price')
+    }
+    if (d.kind === 'tiered' && !d.tiers.length) return setError('Add at least one spend level')
     save.mutate({
       ...d,
       name: d.name.trim(),
@@ -273,10 +360,19 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
       badge_text: d.badge_text.trim() || null,
       code: d.apply_mode === 'code' ? d.code.trim() : null,
       schedule: isScheduled(d.schedule) ? d.schedule : { times: [] },
+      bundle: d.kind === 'bundle' ? d.bundle.map(c => ({ ...c, label: String(c.label).trim() })) : [],
+      tiers: d.kind === 'tiered' ? d.tiers : [],
     })
   }
 
-  const covers = d.kind !== 'basket'
+  const covers = PICKS_DISHES.has(d.kind)
+  // Starting values when an operator switches to a type that needs them.
+  function setKind(kind) {
+    const patch = { kind }
+    if (kind === 'bundle' && !d.bundle.length) Object.assign(patch, { bundle: DEFAULT_BUNDLE, bundle_price_pence: d.bundle_price_pence ?? 1500 })
+    if (kind === 'tiered' && !d.tiers.length) patch.tiers = DEFAULT_TIERS[d.discount_type] || DEFAULT_TIERS.percent
+    set(patch)
+  }
   const summary = promoSummary({ ...d })
 
   return (
@@ -302,8 +398,39 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
 
           <section className="space-y-3">
             <h3 className="text-sm font-semibold">What it takes off</h3>
-            <Choice options={KINDS} value={d.kind} onChange={kind => set({ kind })} />
-            {d.kind !== 'bogo' ? (
+            <Choice options={KINDS} value={d.kind} onChange={setKind} />
+            {d.kind === 'tiered' ? (
+              <div className="space-y-2">
+                <div className="inline-flex rounded-md border overflow-hidden">
+                  {[['percent', '%'], ['amount', '£']].map(([k, l]) => (
+                    <button key={k} type="button" onClick={() => set({ discount_type: k, tiers: DEFAULT_TIERS[k] })}
+                      className={cn('w-12 min-h-[44px] text-sm font-semibold touch-manipulation', d.discount_type === k ? 'bg-primary text-primary-foreground' : 'bg-background')}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                <TierEditor tiers={d.tiers} type={d.discount_type} onChange={tiers => set({ tiers })} />
+              </div>
+            ) : d.kind === 'bundle' ? (
+              <div className="space-y-3">
+                <BundleEditor parts={d.bundle} catalog={catalog} onChange={bundle => set({ bundle })} />
+                <Row label="Meal deal price" hint="Each complete deal in the basket costs this. The dearest dishes that fit are used, so guests save the most; anything extra is at full price.">
+                  <PriceInput pence={d.bundle_price_pence} onChange={v => set({ bundle_price_pence: v })} className="w-32" aria-label="Meal deal price" />
+                </Row>
+              </div>
+            ) : d.kind === 'free_item' ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <IntInput value={d.get_qty} onChange={v => set({ get_qty: v })} min={1} max={20} className="w-16" aria-label="How many" />
+                <span>{d.get_qty === 1 ? 'dish' : 'dishes'}</span>
+                <select value={d.get_percent === 100 ? '100' : 'pct'} onChange={e => set({ get_percent: e.target.value === '100' ? 100 : 50 })}
+                  className="border rounded-md px-3 min-h-[44px] bg-background">
+                  <option value="100">free</option>
+                  <option value="pct">% off</option>
+                </select>
+                {d.get_percent !== 100 && <><IntInput value={d.get_percent} onChange={v => set({ get_percent: v })} min={1} max={99} className="w-16" aria-label="Percent off" /><span>% off</span></>}
+                <p className="w-full text-xs text-muted-foreground">Once the order qualifies, the guest adds one of the dishes below and the cheapest is free. The basket reminds them to add it. The free dish doesn't count towards the minimum spend.</p>
+              </div>
+            ) : d.kind !== 'bogo' ? (
               <div className="flex flex-wrap items-center gap-2">
                 <div className="inline-flex rounded-md border overflow-hidden">
                   {[['percent', '%'], ['amount', '£']].map(([k, l]) => (
@@ -333,7 +460,7 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
               </div>
             )}
             {covers && (
-              <Row label={d.kind === 'bogo' ? 'Dishes that count' : 'Dishes it covers'}>
+              <Row label={d.kind === 'bogo' ? 'Dishes that count' : d.kind === 'free_item' ? 'Dishes that can be the free one' : 'Dishes it covers'}>
                 <Check checked={confirmAll} onChange={v => { setConfirmAll(v); if (v) set({ item_ids: [], section_ids: [] }) }}>Every dish</Check>
                 {!confirmAll && (
                   <DishPicker catalog={catalog} allowSections itemIds={d.item_ids} sectionIds={d.section_ids}
@@ -341,7 +468,7 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
                 )}
               </Row>
             )}
-            {covers && (
+            {(covers || d.kind === 'bundle') && (
               <Row label="Dish label (optional)" hint="A small badge on the dishes it covers, e.g. 2 FOR 1.">
                 <input value={d.badge_text} onChange={e => set({ badge_text: e.target.value })} maxLength={30} className={inputCls} />
               </Row>
@@ -353,9 +480,11 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
 
           <section className="space-y-3">
             <h3 className="text-sm font-semibold">Conditions</h3>
-            <Row label="Minimum spend" hint="Dishes in the basket, before any discount. 0 = none.">
-              <PriceInput pence={d.min_subtotal_pence} onChange={v => set({ min_subtotal_pence: v || 0 })} className="w-32" />
-            </Row>
+            {d.kind !== 'tiered' && (
+              <Row label="Minimum spend" hint={'Dishes in the basket, before any discount. 0 = none.' + (d.kind === 'free_item' ? " The free dish itself doesn't count." : '')}>
+                <PriceInput pence={d.min_subtotal_pence} onChange={v => set({ min_subtotal_pence: v || 0 })} className="w-32" />
+              </Row>
+            )}
             <Row label="Needs one of these dishes in the basket (optional)">
               <DishPicker catalog={catalog} itemIds={d.required_item_ids} onChange={v => set({ required_item_ids: v.item_ids })} />
               {d.required_item_ids.length > 0 && (
