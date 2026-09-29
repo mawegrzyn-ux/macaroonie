@@ -83,6 +83,13 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-item { display: flex; gap: 12px; text-align: left; width: 100%; padding: 14px; border: 1px solid var(--c-border, #e5e7eb); border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); color: inherit; min-height: 96px; }
 :is(.mo, .mo-sheet-back) .mo-item:hover { border-color: var(--c-primary, #630812); }
 :is(.mo, .mo-sheet-back) .mo-item.is-out { opacity: .55; }
+/* Dishes already in the basket: primary outline plus a count badge on the
+   card's corner. */
+:is(.mo, .mo-sheet-back) .mo-item { position: relative; }
+:is(.mo, .mo-sheet-back) .mo-item.is-in { border-color: var(--c-primary, #630812); box-shadow: 0 0 0 1px var(--c-primary, #630812); }
+:is(.mo, .mo-sheet-back) .mo-item.is-in.is-fav { box-shadow: inset 4px 0 0 var(--c-accent, #d97706), 0 0 0 1px var(--c-primary, #630812); }
+:is(.mo, .mo-sheet-back) .mo-in-basket { position: absolute; top: -9px; right: -9px; z-index: 1; display: inline-flex; align-items: center; gap: 3px; min-width: 26px; height: 26px; padding: 0 8px; border-radius: 999px; background: var(--c-primary, #630812); color: var(--c-bg, #fff); font-size: .8rem; font-weight: 700; line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+:is(.mo, .mo-sheet-back) .mo-in-basket svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 :is(.mo, .mo-sheet-back) .mo-item-body { flex: 1; min-width: 0; }
 :is(.mo, .mo-sheet-back) .mo-item-name { font-weight: 600; }
 :is(.mo, .mo-sheet-back) .mo-item.is-fav { border-color: var(--c-accent, #d97706); box-shadow: inset 4px 0 0 var(--c-accent, #d97706); background: var(--mo-fav-bg, var(--c-surface, #fff)); color: var(--mo-fav-fg, inherit); }
@@ -329,9 +336,16 @@ async function startOrdering() {
   const fav = i => !!(OPT.favourites && i.featured)
   function favBadge() { return '<div class="mo-fav">' + STAR + esc(OPT.favouriteLabel || 'House favourite') + '</div>' }
 
+  // How many of a dish are in the basket, over all its lines (different
+  // options or notes are separate lines).
+  const BAG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg>'
+  const inBasket = id => state.basket.reduce((n, l) => n + (l.item_id === id ? l.qty : 0), 0)
+
   function itemCardHtml(i) {
     const price = i.from_pence == null ? '' : ((i.choices.some(c => c.mode === 'base' && c.options.length > 1) ? 'from ' : '') + money(i.from_pence))
-    return '<button class="mo-item' + (i.sold_out ? ' is-out' : '') + (fav(i) ? ' is-fav' : '') + '" data-item="' + esc(i.id) + '"' + (i.sold_out ? ' disabled' : '') + '>' +
+    const n = inBasket(i.id)
+    return '<button class="mo-item' + (i.sold_out ? ' is-out' : '') + (fav(i) ? ' is-fav' : '') + (n ? ' is-in' : '') + '" data-item="' + esc(i.id) + '"' + (i.sold_out ? ' disabled' : '') + '>' +
+      (n ? '<span class="mo-in-basket" aria-label="' + n + ' in your basket">' + BAG + n + '</span>' : '') +
       '<div class="mo-item-body">' + (fav(i) ? favBadge() : '') + '<div class="mo-item-name">' + esc(i.name) + '</div>' +
       (i.description ? '<div class="mo-item-desc">' + esc(i.description) + '</div>' : '') +
       '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price)) + ' ' + tagHtml(i.dietary) + '</div></div>' +

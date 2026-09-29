@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering: dishes in the basket are marked on the menu]
+
+- On the ordering page, a dish that's already in the basket shows a small basket badge with how many are in it, and an outline in the site's main colour. It updates as dishes are added or removed.
+
+---
+
 ## [2026-09-29 — Online ordering: colours for house favourites]
 
 - The Online ordering block's "Highlight house favourites" option now has a background and a text colour (from your theme) for favourite dishes, as well as the badge and coloured edge.
