@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Online ordering: minimum order quantity per dish]
+
+**Migration 133** (`menu_items.min_order_qty`).
+
+- Menus → dish → Online ordering: **Minimum order quantity**. Guests must order at least that many of the dish (all options together). The ordering page shows *Min N* on the dish, starts the dish window at the minimum and won't go below it; the server rejects a basket under the minimum. The Menus page shows a Min badge on the dish row.
+
+---
+
 ## [2026-09-29 — Website builder: Publish button]
 
 - **Publish** is now its own button at the top of the website builder menu, above Home, showing when the site was last published (or that it hasn't been). It opens a window with the staging link, Publish now, scheduling and Override staging with production.

@@ -192,6 +192,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
           featured: !!it.is_featured,   // House favourite (Menus page)
           choices, from_pence: fromPrice(it, choices),
           sold_out: soldOut.has(it.id),
+          min_qty: it.min_order_qty > 1 ? it.min_order_qty : null,   // migration 133
           vat_rate: vatRateFor(it, fulfilment, settings, s),
           variants: it.variants || [], variant_groups: it.variant_groups || [],
         }

@@ -332,6 +332,7 @@ function MenuEditor({ id, onBack }) {
             is_orderable: it.is_orderable !== false,
             vat_rate_takeaway: it.vat_rate_takeaway ?? null,
             vat_rate_eat_in: it.vat_rate_eat_in ?? null,
+            min_order_qty: it.min_order_qty > 1 ? it.min_order_qty : null,
             // One-off ad-hoc variants are retired — every variant must
             // come from a predefined group (attached below). Price can
             // still be overridden per item via variant_groups.overrides.
@@ -731,7 +732,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
     const item = {
       id: crypto.randomUUID(), name: 'New dish', native_name: '', description: '',
       price_pence: null, calories: null, notes: '', is_featured: false, image_url: null,
-      is_orderable: true, vat_rate_takeaway: null, vat_rate_eat_in: null,
+      is_orderable: true, vat_rate_takeaway: null, vat_rate_eat_in: null, min_order_qty: null,
       variants: [], variant_groups: [], dietary: [],
     }
     onItemsChange([...items, item])
@@ -818,6 +819,24 @@ function sectionVatLabel(section) {
   if (e == null) return `${Number(t)}%`
   if (t == null) return `${Number(e)}% eat in`
   return Number(t) === Number(e) ? `${Number(t)}%` : `${Number(t)}% / ${Number(e)}% eat in`
+}
+
+// Minimum order quantity stepper for online ordering (migration 133):
+// null = no minimum, otherwise 2-99 (a minimum of 1 means none).
+function MinQtyInput({ value, onChange }) {
+  const n = value > 1 ? value : null
+  const step = d => {
+    const next = (n || 1) + d
+    onChange(next <= 1 ? null : Math.min(99, next))
+  }
+  const btn = 'w-11 h-11 inline-flex items-center justify-center border rounded-md text-lg touch-manipulation disabled:opacity-40'
+  return (
+    <div className="inline-flex items-center gap-2">
+      <button type="button" className={btn} onClick={() => step(-1)} disabled={!n} aria-label="One less">&minus;</button>
+      <span className="min-w-[64px] text-center text-sm font-medium" aria-live="polite">{n ? n : 'None'}</span>
+      <button type="button" className={btn} onClick={() => step(1)} disabled={n >= 99} aria-label="One more">+</button>
+    </div>
+  )
 }
 
 // Percentage input that keeps what is typed while focused (so "0." or an
@@ -958,6 +977,9 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, o
         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-800 inline-flex items-center gap-1 shrink-0">
           <Layers className="w-2.5 h-2.5" /> {groupCount}
         </span>
+      )}
+      {item.min_order_qty > 1 && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 shrink-0" title="Minimum order quantity (online ordering)">Min {item.min_order_qty}</span>
       )}
       {(item.dietary || []).length > 0 && (
         <span className="text-[10px] text-muted-foreground shrink-0">{item.dietary.length} tag{item.dietary.length === 1 ? '' : 's'}</span>
@@ -1144,7 +1166,7 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
           <TextArea value={item.description || ''} onChange={e => onChange({ description: e.target.value })} rows={3} />
         </Field>
 
-        <Field label="Notes" hint="e.g. 'Min 2', 'pp'">
+        <Field label="Notes" hint="e.g. 'pp'. For an online ordering minimum, use Minimum order quantity below.">
           <Input value={item.notes || ''} onChange={e => onChange({ notes: e.target.value })} />
         </Field>
 
@@ -1161,6 +1183,9 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
               onChange={e => onChange({ is_orderable: e.target.checked })} />
             Can be ordered online
           </label>
+          <Field label="Minimum order quantity" hint="Guests must order at least this many (all options together). Leave empty for no minimum. Shown on the ordering page.">
+            <MinQtyInput value={item.min_order_qty ?? null} onChange={v => onChange({ min_order_qty: v })} />
+          </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="VAT takeaway %" hint={vatHint('vat_rate_takeaway')}>
               <RateInput value={item.vat_rate_takeaway ?? null} placeholder="e.g. 20"
