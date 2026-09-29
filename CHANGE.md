@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Promotions: only your own venues and menus; dish picker in a pop-up]
+
+- Fixed: the Promotions editor listed venues (and dishes) from other restaurant groups, and the promotions list, switches and delete were not limited to your own group. Every promotions query, and the ordering settings venue check, now filters by your group.
+- Dish choices (dishes a discount covers, the free dish, meal deal parts, dishes the basket needs) open in a pop-up. The editor shows only what you picked, as tags you can remove, with a Choose / Change dishes button.
+
+---
+
 ## [2026-09-29 — Promotions: free dish, meal deals, spend more save more]
 
 **Migration 132** (`promotions.bundle`, `bundle_price_pence`, `tiers`; three new promotion kinds).

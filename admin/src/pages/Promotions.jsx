@@ -9,7 +9,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { BadgePercent, Plus, Loader2, ArrowLeft, Search, ChevronDown, ChevronRight, Copy } from 'lucide-react'
+import { BadgePercent, Plus, Loader2, ArrowLeft, Search, ChevronDown, ChevronRight, Copy, X, ListChecks } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useMe } from '@/components/staff/rota'
@@ -19,6 +19,7 @@ import { ScheduleEditor } from '@/components/orders/ScheduleEditor'
 import { promoSummary } from '@shared/promotions.js'
 import { isScheduled, scheduleLabel } from '@shared/menuSchedule.js'
 
+const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 const money = p => '£' + ((Number(p) || 0) / 100).toFixed(2)
 
 const KINDS = [
@@ -140,90 +141,149 @@ function Check({ checked, onChange, children, hint }) {
 
 // ── Dish picker ─────────────────────────────────────────────
 
+/** { id: name } for every dish and section in the catalog. */
+function catalogNames(catalog) {
+  const items = {}, sections = {}
+  for (const m of catalog?.menus || []) {
+    for (const s of m.sections) {
+      sections[s.id] = s.title
+      for (const i of s.items) items[i.id] = i.name
+    }
+  }
+  return { items, sections }
+}
+
 /**
- * Pick dishes (and, with allowSections, whole sections) from every menu.
- * A section tick covers dishes added to that section later too.
+ * The editor page shows only what is chosen (chips, each removable) and a
+ * button; the menu tree opens in its own modal, where Done keeps the ticks
+ * and Cancel drops them. With allowSections a whole section can be ticked,
+ * which covers dishes added to it later too.
  */
-function DishPicker({ catalog, itemIds, sectionIds = [], onChange, allowSections }) {
+function DishPicker({ catalog, itemIds, sectionIds = [], onChange, allowSections, title = 'Choose dishes', emptyLabel = 'Choose dishes' }) {
+  const [open, setOpen] = useState(false)
+  const names = useMemo(() => catalogNames(catalog), [catalog])
+  const sections = allowSections ? sectionIds : []
+  const count = itemIds.length + sections.length
+  const remove = (kind, id) => onChange({
+    item_ids: kind === 'item' ? itemIds.filter(x => x !== id) : itemIds,
+    section_ids: kind === 'section' ? sectionIds.filter(x => x !== id) : sectionIds,
+  })
+  const chip = (kind, id, label) => (
+    <span key={kind + id} className="inline-flex items-center gap-1 pl-3 pr-1 rounded-full border bg-muted/40 text-sm min-h-[36px]">
+      {label}
+      <button type="button" onClick={() => remove(kind, id)} aria-label={'Remove ' + label}
+        className="w-8 h-8 inline-flex items-center justify-center rounded-full text-muted-foreground hover:bg-muted touch-manipulation">
+        <X className="w-4 h-4" />
+      </button>
+    </span>
+  )
+  return (
+    <div className="space-y-2">
+      {count > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {sections.map(id => chip('section', id, (names.sections[id] || 'Removed section') + ' (whole section)'))}
+          {itemIds.map(id => chip('item', id, names.items[id] || 'Removed dish'))}
+        </div>
+      )}
+      <button type="button" onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-2 min-h-[44px] px-3 border rounded-md text-sm bg-background touch-manipulation">
+        <ListChecks className="w-4 h-4" /> {count ? 'Change dishes' : emptyLabel}
+      </button>
+      {open && (
+        <DishPickerModal catalog={catalog} title={title} allowSections={allowSections}
+          itemIds={itemIds} sectionIds={sections}
+          onCancel={() => setOpen(false)}
+          onDone={v => { onChange(v); setOpen(false) }} />
+      )}
+    </div>
+  )
+}
+
+function DishPickerModal({ catalog, title, allowSections, itemIds, sectionIds, onCancel, onDone }) {
   const [q, setQ] = useState('')
   const [open, setOpen] = useState({})
+  const [itemSet, setItemSet] = useState(() => new Set(itemIds))
+  const [sectionSet, setSectionSet] = useState(() => new Set(sectionIds))
   const needle = q.trim().toLowerCase()
-  const itemSet = new Set(itemIds)
-  const sectionSet = new Set(sectionIds)
-  const put = (items, sections) => onChange({ item_ids: [...items], section_ids: [...sections] })
-  const toggleItem = id => {
-    const next = new Set(itemSet)
+  const flip = (set, setter, id) => {
+    const next = new Set(set)
     next.has(id) ? next.delete(id) : next.add(id)
-    put(next, sectionSet)
+    setter(next)
   }
-  const toggleSection = id => {
-    const next = new Set(sectionSet)
-    next.has(id) ? next.delete(id) : next.add(id)
-    put(itemSet, next)
-  }
-  const count = itemIds.length + (allowSections ? sectionIds.length : 0)
+  const count = itemSet.size + sectionSet.size
 
   return (
-    <div className="rounded-lg border">
-      <div className="flex items-center gap-2 px-3 border-b">
-        <Search className="w-4 h-4 text-muted-foreground" />
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search dishes"
-          className="flex-1 min-h-[44px] bg-transparent text-sm outline-none" />
-        {count > 0 && (
-          <button type="button" onClick={() => put([], [])} className="text-xs text-muted-foreground underline min-h-[44px] px-1 touch-manipulation">
-            Clear ({count})
-          </button>
-        )}
-      </div>
-      <div className="max-h-72 overflow-y-auto divide-y">
-        {(catalog?.menus || []).map(m => {
-          const sections = m.sections.map(s => ({
-            ...s, items: needle ? s.items.filter(i => i.name.toLowerCase().includes(needle)) : s.items,
-          })).filter(s => !needle || s.items.length || s.title.toLowerCase().includes(needle))
-          if (!sections.length) return null
-          return (
-            <div key={m.id}>
-              <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground bg-muted/40">{m.name}</div>
-              {sections.map(s => {
-                const expanded = needle || open[s.id]
-                const picked = s.items.filter(i => itemSet.has(i.id)).length
-                return (
-                  <div key={s.id} className="border-t first:border-t-0">
-                    <div className="flex items-center gap-1 pr-2">
-                      <button type="button" onClick={() => setOpen(o => ({ ...o, [s.id]: !o[s.id] }))}
-                        className="flex-1 flex items-center gap-2 px-3 min-h-[44px] text-left text-sm touch-manipulation">
-                        {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                        <span className="font-medium">{s.title}</span>
-                        {picked > 0 && <span className="text-xs text-primary">{picked} chosen</span>}
-                      </button>
-                      {allowSections && (
-                        <label className="flex items-center gap-2 text-xs min-h-[44px] px-2 cursor-pointer touch-manipulation">
-                          <input type="checkbox" checked={sectionSet.has(s.id)} onChange={() => toggleSection(s.id)} className="w-5 h-5" />
-                          Whole section
-                        </label>
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="w-full sm:max-w-lg bg-background rounded-t-2xl sm:rounded-2xl shadow-xl flex flex-col max-h-[85vh]">
+        <div className="px-4 py-3 border-b">
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <div className="flex items-center gap-2 mt-2 px-3 border rounded-md">
+            <Search className="w-4 h-4 text-muted-foreground" />
+            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search dishes" autoFocus={!IS_TOUCH}
+              className="flex-1 min-h-[44px] bg-transparent text-sm outline-none" />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto divide-y">
+          {(catalog?.menus || []).map(m => {
+            const sections = m.sections.map(s => ({
+              ...s, items: needle ? s.items.filter(i => i.name.toLowerCase().includes(needle)) : s.items,
+            })).filter(s => !needle || s.items.length || s.title.toLowerCase().includes(needle))
+            if (!sections.length) return null
+            return (
+              <div key={m.id}>
+                <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground bg-muted/40">{m.name}</div>
+                {sections.map(s => {
+                  const expanded = needle || open[s.id]
+                  const whole = allowSections && sectionSet.has(s.id)
+                  const picked = s.items.filter(i => itemSet.has(i.id)).length
+                  return (
+                    <div key={s.id} className="border-t first:border-t-0">
+                      <div className="flex items-center gap-1 pr-2">
+                        <button type="button" onClick={() => setOpen(o => ({ ...o, [s.id]: !o[s.id] }))}
+                          className="flex-1 flex items-center gap-2 px-4 min-h-[48px] text-left text-sm touch-manipulation">
+                          {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          <span className="font-medium">{s.title}</span>
+                          {whole ? <span className="text-xs text-primary">whole section</span>
+                            : picked > 0 && <span className="text-xs text-primary">{picked} chosen</span>}
+                        </button>
+                        {allowSections && (
+                          <label className="flex items-center gap-2 text-xs min-h-[48px] px-2 cursor-pointer touch-manipulation">
+                            <input type="checkbox" checked={whole} onChange={() => flip(sectionSet, setSectionSet, s.id)} className="w-5 h-5" />
+                            Whole section
+                          </label>
+                        )}
+                      </div>
+                      {expanded && (
+                        <div className="pl-10 pr-4 pb-2">
+                          {s.items.map(i => (
+                            <label key={i.id} className={cn('flex items-center gap-3 min-h-[44px] text-sm cursor-pointer touch-manipulation', whole && 'opacity-50')}>
+                              <input type="checkbox" className="w-5 h-5" checked={itemSet.has(i.id) || whole}
+                                disabled={whole} onChange={() => flip(itemSet, setItemSet, i.id)} />
+                              {i.name}
+                            </label>
+                          ))}
+                          {!s.items.length && <p className="text-xs text-muted-foreground py-2">No dishes.</p>}
+                        </div>
                       )}
                     </div>
-                    {expanded && (
-                      <div className="pl-9 pr-3 pb-2">
-                        {s.items.map(i => (
-                          <label key={i.id} className={cn('flex items-center gap-3 min-h-[44px] text-sm cursor-pointer touch-manipulation',
-                            allowSections && sectionSet.has(s.id) && 'opacity-50')}>
-                            <input type="checkbox" className="w-5 h-5" checked={itemSet.has(i.id) || (allowSections && sectionSet.has(s.id))}
-                              disabled={allowSections && sectionSet.has(s.id)} onChange={() => toggleItem(i.id)} />
-                            {i.name}
-                          </label>
-                        ))}
-                        {!s.items.length && <p className="text-xs text-muted-foreground py-2">No dishes.</p>}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )
-        })}
-        {!catalog && <p className="p-3 text-sm text-muted-foreground">Loading dishes…</p>}
-        {catalog && !catalog.menus?.length && <p className="p-3 text-sm text-muted-foreground">No menus yet.</p>}
+                  )
+                })}
+              </div>
+            )
+          })}
+          {!catalog && <p className="p-4 text-sm text-muted-foreground">Loading dishes…</p>}
+          {catalog && !catalog.menus?.length && <p className="p-4 text-sm text-muted-foreground">No menus yet.</p>}
+        </div>
+        <div className="px-4 py-3 border-t flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground mr-auto">{count ? `${count} chosen` : 'Nothing chosen'}</span>
+          {count > 0 && (
+            <button type="button" onClick={() => { setItemSet(new Set()); setSectionSet(new Set()) }}
+              className="min-h-[48px] px-3 text-sm text-muted-foreground underline touch-manipulation">Clear</button>
+          )}
+          <button type="button" onClick={onCancel} className="min-h-[48px] px-4 border rounded-lg text-sm touch-manipulation">Cancel</button>
+          <button type="button" onClick={() => onDone({ item_ids: [...itemSet], section_ids: [...sectionSet] })}
+            className="min-h-[48px] px-5 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation">Done</button>
+        </div>
       </div>
     </div>
   )
@@ -233,35 +293,24 @@ function DishPicker({ catalog, itemIds, sectionIds = [], onChange, allowSections
 
 /** The parts of a meal deal: a name, how many, and which dishes count. */
 function BundleEditor({ parts, onChange, catalog }) {
-  const [open, setOpen] = useState(0)
   const setPart = (i, patch) => onChange(parts.map((c, j) => (j === i ? { ...c, ...patch } : c)))
   return (
     <div className="space-y-2">
-      {parts.map((c, i) => {
-        const count = (c.item_ids?.length || 0) + (c.section_ids?.length || 0)
-        return (
-          <div key={i} className="rounded-lg border">
-            <div className="flex flex-wrap items-center gap-2 p-2">
-              <IntInput value={c.qty} onChange={v => setPart(i, { qty: v })} min={1} max={10} className="w-14" aria-label="How many" />
-              <span className="text-sm">x</span>
-              <input value={c.label} onChange={e => setPart(i, { label: e.target.value.slice(0, 40) })} placeholder="e.g. Starter"
-                className={cn(inputCls, 'flex-1 min-w-[120px] w-auto')} aria-label="Part name" />
-              <button type="button" onClick={() => setOpen(open === i ? -1 : i)}
-                className="min-h-[44px] px-3 border rounded-md text-sm touch-manipulation">
-                {count ? `${count} chosen` : 'Choose dishes'}
-              </button>
-              <ConfirmDelete onConfirm={() => onChange(parts.filter((_, j) => j !== i))} label="Remove part" confirmLabel="Remove" />
-            </div>
-            {open === i && (
-              <div className="p-2 pt-0">
-                <DishPicker catalog={catalog} allowSections itemIds={c.item_ids || []} sectionIds={c.section_ids || []}
-                  onChange={v => setPart(i, v)} />
-              </div>
-            )}
+      {parts.map((c, i) => (
+        <div key={i} className="rounded-lg border p-2 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <IntInput value={c.qty} onChange={v => setPart(i, { qty: v })} min={1} max={10} className="w-14" aria-label="How many" />
+            <span className="text-sm">x</span>
+            <input value={c.label} onChange={e => setPart(i, { label: e.target.value.slice(0, 40) })} placeholder="e.g. Starter"
+              className={cn(inputCls, 'flex-1 min-w-[120px] w-auto')} aria-label="Part name" />
+            <ConfirmDelete onConfirm={() => onChange(parts.filter((_, j) => j !== i))} label="Remove part" confirmLabel="Remove" />
           </div>
-        )
-      })}
-      <button type="button" onClick={() => { onChange([...parts, { label: '', item_ids: [], section_ids: [], qty: 1 }]); setOpen(parts.length) }}
+          <DishPicker catalog={catalog} allowSections itemIds={c.item_ids || []} sectionIds={c.section_ids || []}
+            title={'Dishes for ' + (String(c.label || '').trim() || 'this part')}
+            onChange={v => setPart(i, v)} />
+        </div>
+      ))}
+      <button type="button" onClick={() => onChange([...parts, { label: '', item_ids: [], section_ids: [], qty: 1 }])}
         className="inline-flex items-center gap-1 min-h-[44px] px-3 border rounded-md text-sm touch-manipulation">
         <Plus className="w-4 h-4" /> Add a part
       </button>
@@ -328,11 +377,6 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
   const [confirmAll, setConfirmAll] = useState(() => !!(promo || copyOf) && PICKS_DISHES.has((promo || copyOf).kind) && !(promo || copyOf).item_ids?.length && !(promo || copyOf).section_ids?.length)
   const set = patch => setD(x => ({ ...x, ...patch }))
   const venues = catalog?.venues || []
-  const itemName = useMemo(() => {
-    const m = {}
-    for (const menu of catalog?.menus || []) for (const s of menu.sections) for (const i of s.items) m[i.id] = i.name
-    return m
-  }, [catalog])
 
   const save = useMutation({
     mutationFn: body => (promo ? api.put(`/promotions/${promo.id}`, body) : api.post('/promotions', body)),
@@ -464,6 +508,7 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
                 <Check checked={confirmAll} onChange={v => { setConfirmAll(v); if (v) set({ item_ids: [], section_ids: [] }) }}>Every dish</Check>
                 {!confirmAll && (
                   <DishPicker catalog={catalog} allowSections itemIds={d.item_ids} sectionIds={d.section_ids}
+                    title={d.kind === 'free_item' ? 'Dishes that can be the free one' : 'Dishes it covers'}
                     onChange={v => set(v)} />
                 )}
               </Row>
@@ -486,10 +531,8 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
               </Row>
             )}
             <Row label="Needs one of these dishes in the basket (optional)">
-              <DishPicker catalog={catalog} itemIds={d.required_item_ids} onChange={v => set({ required_item_ids: v.item_ids })} />
-              {d.required_item_ids.length > 0 && (
-                <p className="text-xs text-muted-foreground">{d.required_item_ids.map(id => itemName[id] || 'Removed dish').join(', ')}</p>
-              )}
+              <DishPicker catalog={catalog} itemIds={d.required_item_ids} title="Dishes the basket needs" emptyLabel="Add dishes"
+                onChange={v => set({ required_item_ids: v.item_ids })} />
             </Row>
           </section>
 

@@ -525,7 +525,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     // applied, code ones whose code the guest entered. Timed by when the
     // order is placed. The rules are shared/promotions.js.
     const nowParts = localParts(now, tz)
-    const promos = await venuePromotions(tx, venue.id, nowParts.date)
+    const promos = await venuePromotions(tx, venue, nowParts.date)
     const unlocked = []
     for (const code of body.promo_codes || []) {
       const p = findByCode(promos, code)
@@ -540,7 +540,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     if (priced.subtotal_pence < settings.min_order_pence) {
       throw CreateError(422, 'The minimum order is £' + (settings.min_order_pence / 100).toFixed(2), { code: 'min_order' })
     }
-    const usedUp = await lockUses(tx, priced.promotions.map(p => p.id))
+    const usedUp = await lockUses(tx, venue.tenant_id, priced.promotions.map(p => p.id))
     if (usedUp) throw CreateError(422, `Sorry, ${usedUp} has just run out: please check your basket`, { code: 'promo_invalid' })
 
     const [{ next }] = await tx`

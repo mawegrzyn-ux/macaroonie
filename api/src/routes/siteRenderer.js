@@ -189,7 +189,7 @@ export default async function siteRendererRoutes(app) {
   // because putting it in a Promo block is how an operator publishes it.
   const sitePromotions = async bundle => {
     if (!bundle.tenant_id) return {}
-    const rows = await withTenant(bundle.tenant_id, tx => listPromotions(tx))
+    const rows = await withTenant(bundle.tenant_id, tx => listPromotions(tx, bundle.tenant_id))
     if (!rows.length) return {}
     const first = (bundle.venues || [])[0] || {}
     const today = venueNow(first.timezone || 'Europe/London').date

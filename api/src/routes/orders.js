@@ -79,8 +79,11 @@ const StatusBody = z.object({
 
 const actorOf = req => req.user?.email || req.user?.sub || 'staff'
 
+// The caller's own venue only: filtered by tenant, not left to RLS.
 async function venueOf(tx, venueId) {
-  const [v] = await tx`SELECT id, tenant_id, name, timezone, currency FROM venues WHERE id = ${venueId}`
+  const [v] = await tx`
+    SELECT id, tenant_id, name, timezone, currency FROM venues
+     WHERE id = ${venueId} AND tenant_id = current_setting('app.tenant_id', true)::uuid`
   if (!v) throw httpError(404, 'Venue not found')
   return v
 }
@@ -136,7 +139,7 @@ export default async function ordersRoutes(app) {
     const row = await withTenant(req.tenantId, async tx => {
       const venue = await venueOf(tx, req.params.venueId)
       if (Object.keys(schedules).length) {
-        const menus = await tx`SELECT id, name FROM menus WHERE id = ANY(${Object.keys(schedules)}::uuid[])`
+        const menus = await tx`SELECT id, name FROM menus WHERE id = ANY(${Object.keys(schedules)}::uuid[]) AND tenant_id = ${req.tenantId}`
         const today = localParts(new Date(), venue.timezone || 'Europe/London').date
         const problem = scheduleProblem(b.menu_ids, schedules, Object.fromEntries(menus.map(m => [m.id, m.name])), today)
         if (problem) throw httpError(422, problem)

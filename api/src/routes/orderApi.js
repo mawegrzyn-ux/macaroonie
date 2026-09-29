@@ -130,7 +130,7 @@ export default async function orderApiRoutes(app) {
     const [menu, privacy, promos] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings, { dates: orderingDates(venue, settings), now: new Date() }),
       await loadPrivacy(tx, venue.tenant_id),
-      await venuePromotions(tx, venue.id, today),
+      await venuePromotions(tx, venue, today),
     ])
     const gateways = checkoutGateways(settings, { venue })
     return {
@@ -166,7 +166,7 @@ export default async function orderApiRoutes(app) {
     const { venue } = await requireOrderingVenue(req.params.venueId)
     const { code } = z.object({ code: z.string().trim().min(1).max(40) }).parse(req.body || {})
     const today = localParts(new Date(), venue.timezone).date
-    const promos = await withTenant(venue.tenant_id, tx => venuePromotions(tx, venue.id, today))
+    const promos = await withTenant(venue.tenant_id, tx => venuePromotions(tx, venue, today))
     const p = findByCode(promos, code)
     if (!p) throw httpError(404, "That code isn't valid")
     return { promotion: publicPromotion(p, { withCode: true }) }
@@ -195,7 +195,7 @@ export default async function orderApiRoutes(app) {
     const at = localParts(new Date(), venue.timezone)
     const [{ itemsById }, promos] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings),
-      await venuePromotions(tx, venue.id, at.date),
+      await venuePromotions(tx, venue, at.date),
     ])
     const tip = settings.tips_enabled && settings.tip_percents.includes(body.tip_percent) ? body.tip_percent : 0
     const unlocked = body.promo_codes.map(c => findByCode(promos, c)?.id).filter(Boolean)
