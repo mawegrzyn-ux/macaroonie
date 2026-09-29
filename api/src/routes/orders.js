@@ -10,7 +10,7 @@
 //   POST   /pause/:venueId                   pause / resume taking orders
 //   GET    /availability/:venueId            orderable dishes with sold-out state
 //   PUT    /availability/:venueId/:itemId    { sold_out: 'today' | 'indefinite' | false }
-//   GET    /report?venue_id=&from=&to=       totals, by day, by payment, top dishes
+//   GET    /report?venue_id=&from=&to=       totals, by day, by payment, top dishes, promotions
 //   GET    /?venue_id=&date=&include_unpaid= orders for a day
 //   GET    /:id                              one order with its events and payments
 //   POST   /:id/status                       { to, reason?, prep_minutes? }
@@ -35,7 +35,7 @@ const hm = z.string().regex(/^\d{2}:\d{2}$/)
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 // shared/menuSchedule.js has the rules; migration 130.
-const MenuSchedule = z.object({
+export const MenuSchedule = z.object({
   from:  ymd.nullable().optional(),
   until: ymd.nullable().optional(),
   times: z.array(z.object({
@@ -253,11 +253,12 @@ export default async function ordersRoutes(app) {
     }).parse(req.query || {})
     return withTenant(req.tenantId, async tx => {
       const counted = ['placed', 'accepted', 'preparing', 'ready', 'completed']
-      const [days, byMethod, top, statuses] = await Promise.all([
+      const [days, byMethod, top, statuses, promos] = await Promise.all([
         tx`
           SELECT service_date::text AS date, count(*)::int AS orders,
                  COALESCE(sum(total_pence), 0)::int AS total_pence,
                  COALESCE(sum(tip_pence), 0)::int AS tip_pence,
+                 COALESCE(sum(discount_pence), 0)::int AS discount_pence,
                  COALESCE(sum(vat_pence), 0)::int AS vat_pence,
                  COALESCE(sum(refunded_pence), 0)::int AS refunded_pence,
                  COALESCE(sum(platform_fee_pence), 0)::int AS platform_fee_pence
@@ -287,15 +288,23 @@ export default async function ordersRoutes(app) {
            WHERE venue_id = ${q.venue_id} AND service_date BETWEEN ${q.from} AND ${q.to}
            GROUP BY status
         `,
+        tx`
+          SELECT op.name, count(*)::int AS orders, COALESCE(sum(op.discount_pence), 0)::int AS discount_pence
+            FROM order_promotions op JOIN orders o ON o.id = op.order_id
+           WHERE o.venue_id = ${q.venue_id} AND o.service_date BETWEEN ${q.from} AND ${q.to}
+             AND o.status = ANY(${counted})
+           GROUP BY op.name ORDER BY discount_pence DESC
+        `,
       ])
       const totals = days.reduce((t, d) => ({
         orders: t.orders + d.orders, total_pence: t.total_pence + d.total_pence,
-        tip_pence: t.tip_pence + d.tip_pence, vat_pence: t.vat_pence + d.vat_pence,
+        tip_pence: t.tip_pence + d.tip_pence, discount_pence: t.discount_pence + d.discount_pence,
+        vat_pence: t.vat_pence + d.vat_pence,
         refunded_pence: t.refunded_pence + d.refunded_pence,
         platform_fee_pence: t.platform_fee_pence + d.platform_fee_pence,
-      }), { orders: 0, total_pence: 0, tip_pence: 0, vat_pence: 0, refunded_pence: 0, platform_fee_pence: 0 })
+      }), { orders: 0, total_pence: 0, tip_pence: 0, discount_pence: 0, vat_pence: 0, refunded_pence: 0, platform_fee_pence: 0 })
       totals.average_pence = totals.orders ? Math.round(totals.total_pence / totals.orders) : 0
-      return { totals, days, by_method: byMethod, top_items: top, statuses: Object.fromEntries(statuses.map(s => [s.status, s.n])) }
+      return { totals, days, by_method: byMethod, top_items: top, promotions: promos, statuses: Object.fromEntries(statuses.map(s => [s.status, s.n])) }
     })
   })
 
@@ -323,12 +332,17 @@ export default async function ordersRoutes(app) {
         : []
       const byOrder = {}
       for (const i of items) (byOrder[i.order_id] ||= []).push(i)
+      const promos = ids.length
+        ? await tx`SELECT order_id, name, code, discount_pence FROM order_promotions WHERE order_id = ANY(${ids}::uuid[]) ORDER BY created_at, name`
+        : []
+      const promosByOrder = {}
+      for (const p of promos) (promosByOrder[p.order_id] ||= []).push(p)
       const settings = await loadSettings(tx, venue.id)
       return {
         date,
         venue: { id: venue.id, name: venue.name, timezone: venue.timezone },
         ordering: { is_enabled: settings.is_enabled, is_paused: settings.is_paused, pause_message: settings.pause_message },
-        orders: orders.map(o => adminOrder(o, byOrder[o.id] || [])),
+        orders: orders.map(o => adminOrder(o, byOrder[o.id] || [], {}, promosByOrder[o.id] || [])),
       }
     })
   })

@@ -15,7 +15,7 @@ import {
 import {
   GalleryCanvas, OpeningHoursCanvas, FindUsCanvas, ContactCanvas,
   ReservationsWidgetCanvas, MenuPdfsCanvas, AllergensCanvas, MenuInlineCanvas,
-  GuestplanWidgetCanvas, OnlineOrderingCanvas,
+  GuestplanWidgetCanvas, OnlineOrderingCanvas, PromoCtaCanvas,
 } from './dataBlocks'
 
 export const CANVAS_BY_TYPE = {
@@ -47,6 +47,7 @@ export const CANVAS_BY_TYPE = {
   reservations_widget: ReservationsWidgetCanvas,
   guestplan_widget: GuestplanWidgetCanvas,
   online_ordering: OnlineOrderingCanvas,
+  promo_cta:      PromoCtaCanvas,
   menu_pdfs:      MenuPdfsCanvas,
   allergens:      AllergensCanvas,
   menu_inline:    MenuInlineCanvas,

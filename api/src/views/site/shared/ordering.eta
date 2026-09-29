@@ -136,6 +136,24 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-qty button { width: 36px; height: 36px; border-radius: 999px; border: 1px solid var(--c-border, #e5e7eb); background: transparent; color: inherit; }
 :is(.mo, .mo-sheet-back) .mo-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
 :is(.mo, .mo-sheet-back) .mo-total { font-weight: 700; font-size: 1.1rem; }
+/* Promotions (migration 131) */
+:is(.mo, .mo-sheet-back) .mo-disc { color: #047857; align-items: center; }
+:is(.mo, .mo-sheet-back) .mo-fg .mo-disc { color: inherit; }
+:is(.mo, .mo-sheet-back) .mo-disc button { border: 0; background: transparent; color: inherit; min-width: 32px; min-height: 32px; font-size: 1.1rem; line-height: 1; padding: 0 4px; }
+:is(.mo, .mo-sheet-back) .mo-offer { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-top: 10px; border: 1px dashed var(--c-primary, #630812); border-radius: var(--r-md, 8px); }
+:is(.mo, .mo-sheet-back) .mo-offer .mo-btn { min-height: 40px; padding: 0 14px; }
+:is(.mo, .mo-sheet-back) .mo-hint { font-size: .88rem; margin: 6px 0 0; }
+:is(.mo, .mo-sheet-back) .mo-code { margin-top: 10px; }
+:is(.mo, .mo-sheet-back) .mo-code-row { display: flex; gap: 8px; }
+:is(.mo, .mo-sheet-back) .mo-code-row input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--c-border, #d1d5db); border-radius: var(--r-md, 8px); font: inherit; text-transform: uppercase; background: #fff; color: #111827; }
+:is(.mo, .mo-sheet-back) .mo-code-row .mo-btn { min-height: 44px; padding: 0 16px; }
+:is(.mo, .mo-sheet-back) .mo-link { border: 0; background: transparent; color: inherit; text-decoration: underline; text-underline-offset: 2px; padding: 0; min-height: 40px; }
+:is(.mo, .mo-sheet-back) .mo-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 10px; margin: 6px 6px 0 0; border-radius: 999px; border: 1px solid currentColor; font-size: .85rem; font-weight: 600; letter-spacing: .03em; }
+:is(.mo, .mo-sheet-back) .mo-chip button { border: 0; background: transparent; color: inherit; width: 28px; height: 28px; font-size: 1rem; line-height: 1; }
+:is(.mo, .mo-sheet-back) .mo-promo-badge { display: inline-block; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; margin: 0 4px 4px 0; border-radius: 999px; background: var(--c-primary, #630812); color: #fff; }
+.mo .mo-offers { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 4px; }
+.mo .mo-offers > div { padding: 8px 12px; border-radius: var(--r-md, 8px); background: var(--c-surface, #fff); border: 1px solid var(--c-border, #e5e7eb); font-size: .9rem; }
+.mo .mo-offers strong { color: var(--c-primary, #630812); }
 :is(.mo, .mo-sheet-back) .mo-bar { display: none; }
 :is(.mo, .mo-sheet-back) .mo-field { display: block; margin-bottom: 14px; }
 :is(.mo, .mo-sheet-back) .mo-field span { display: block; font-size: .9rem; font-weight: 600; margin-bottom: 6px; }
@@ -210,6 +228,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <script type="application/json" id="mo-config"><%~ cfgJson %></script>
 <script type="module">
 import { optionPriceText, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
+import { venueNow, noticeText, promoSummary, covers, isLiveAt } from '/order-api/promotions.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const OPT = CFG.opts || {}
@@ -331,7 +350,20 @@ async function startOrdering() {
     pay: null,             // { token, payment }
     q: '',                 // dish search (option)
     searchOpen: false,     // search shown as an icon and opened (option)
+    // Promotions (migration 131): manual offers the guest applied, and code
+    // promotions opened by a typed code (the code only reaches the page then).
+    chosen: [],
+    unlocked: [],
+    codeOpen: false,
+    codeBusy: false,
+    codeError: null,
   }
+  const PROMO_KEY = 'maca_promos_' + venue.id
+  try {
+    const saved = JSON.parse(localStorage.getItem(PROMO_KEY) || '{}')
+    if (Array.isArray(saved.chosen)) state.chosen = saved.chosen.filter(id => typeof id === 'string')
+    state.savedCodes = Array.isArray(saved.codes) ? saved.codes.filter(c => typeof c === 'string').slice(0, 5) : []
+  } catch { state.savedCodes = [] }
 
   function loadBasket() {
     try {
@@ -342,7 +374,83 @@ async function startOrdering() {
   function saveBasket() {
     try { localStorage.setItem(KEY, JSON.stringify(state.basket)) } catch {}
   }
-  function quote() { return priceBasket(itemsById, state.basket, { tipPercent: state.tip }) }
+  function savePromos() {
+    try { localStorage.setItem(PROMO_KEY, JSON.stringify({ chosen: state.chosen, codes: state.unlocked.map(p => p.code) })) } catch {}
+  }
+  function promosInPlay() { return [...(data.promotions || []), ...state.unlocked] }
+  function promoCtx() {
+    return { at: venueNow(venue.timezone), venueId: venue.id, chosen: state.chosen, unlocked: state.unlocked.map(p => p.id) }
+  }
+  function quote() {
+    return priceBasket(itemsById, state.basket, { tipPercent: state.tip, promos: promosInPlay(), promoCtx: promoCtx() })
+  }
+  // Labels on the dishes an offer covers (item and buy X get Y offers that
+  // are on now and that the guest has, or can get without a code).
+  function promoBadges(i) {
+    const at = venueNow(venue.timezone)
+    return promosInPlay().filter(p => p.badge_text && p.kind !== 'basket' && isLiveAt(p, { at, venueId: venue.id }) &&
+      covers(p, { item_id: i.id, section_id: i.section_id }))
+      .map(p => '<span class="mo-promo-badge">' + esc(p.badge_text) + '</span>').join('')
+  }
+
+  async function checkCode(code) {
+    const r = await api('/venues/' + venue.id + '/promo-code', { method: 'POST', body: { code } })
+    const p = r.promotion
+    state.unlocked = state.unlocked.filter(x => x.id !== p.id).concat(p)
+    return p
+  }
+  async function applyCode(code, rerender) {
+    code = String(code || '').trim()
+    if (!code || state.codeBusy) return
+    state.codeBusy = true
+    state.codeError = null
+    rerender()
+    try {
+      await checkCode(code)
+      state.codeOpen = false
+      savePromos()
+    } catch (e) {
+      state.codeError = e.message
+      state.codeText = code
+    }
+    state.codeBusy = false
+    rerender()
+  }
+  // Codes and offers can run out or be switched off: check them again
+  // (on load, and when the server refuses one at checkout).
+  async function refreshPromos(codes) {
+    try {
+      const fresh = await api('/venues/' + CFG.venueId)
+      data.promotions = fresh.promotions || []
+      data.has_promo_codes = fresh.has_promo_codes
+    } catch {}
+    state.unlocked = []
+    for (const c of codes) { try { await checkCode(c) } catch {} }
+    const ids = new Set((data.promotions || []).map(p => p.id))
+    state.chosen = state.chosen.filter(id => ids.has(id))
+    savePromos()
+  }
+  function promoClick(t, rerender) {
+    const d = t.dataset
+    if (d.offer) { if (!state.chosen.includes(d.offer)) state.chosen = [...state.chosen, d.offer]; savePromos(); rerender(); return true }
+    if (d.unoffer) { state.chosen = state.chosen.filter(x => x !== d.unoffer); savePromos(); rerender(); return true }
+    if (d.uncode) { state.unlocked = state.unlocked.filter(p => p.id !== d.uncode); savePromos(); rerender(); return true }
+    if ('codeOpen' in d) {
+      state.codeOpen = true
+      state.codeError = null
+      rerender()
+      ;[...document.querySelectorAll('[data-code-input]')].find(el => el.offsetParent)?.focus()
+      return true
+    }
+    if ('codeApply' in d) {
+      applyCode(t.closest('.mo-code')?.querySelector('[data-code-input]')?.value, rerender)
+      return true
+    }
+    return false
+  }
+  function promoKey(e, rerender) {
+    if (e.key === 'Enter' && 'codeInput' in e.target.dataset) { e.preventDefault(); applyCode(e.target.value, rerender) }
+  }
 
   function tagHtml(codes) {
     return (codes || []).map(c => tags[c] ? '<span class="mo-tag" title="' + esc(tags[c].label) + '" style="background:' + esc(tags[c].colour) + '">' + esc(tags[c].glyph) + '</span>' : '').join('')
@@ -363,7 +471,7 @@ async function startOrdering() {
     const n = inBasket(i.id)
     return '<button class="mo-item' + (i.sold_out ? ' is-out' : '') + (fav(i) ? ' is-fav' : '') + (n ? ' is-in' : '') + '" data-item="' + esc(i.id) + '"' + (i.sold_out ? ' disabled' : '') + '>' +
       (n ? '<span class="mo-in-basket" aria-label="' + n + ' in your basket">' + BAG + n + '</span>' : '') +
-      '<div class="mo-item-body">' + (fav(i) ? favBadge() : '') + '<div class="mo-item-name">' + esc(i.name) + '</div>' +
+      '<div class="mo-item-body">' + (fav(i) ? favBadge() : '') + promoBadges(i) + '<div class="mo-item-name">' + esc(i.name) + '</div>' +
       (i.description ? '<div class="mo-item-desc">' + esc(i.description) + '</div>' : '') +
       '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price)) + ' ' + tagHtml(i.dietary) + '</div></div>' +
       (i.image_url ? '<img src="' + esc(i.image_url) + '" alt="" loading="lazy">' : '') +
@@ -508,14 +616,58 @@ async function startOrdering() {
         '</div><div style="white-space:nowrap;">' + money(l.line_total_pence) + '</div></div>'
     })
     if (q.errors.length) h += '<div class="mo-error">' + esc(q.errors[0].error) + '</div>'
-    h += '<div class="mo-row mo-total" style="margin-top:8px;"><span>Subtotal</span><span>' + money(q.subtotal_pence) + '</span></div>'
+    h += '<div class="mo-row' + (q.discount_pence ? '' : ' mo-total') + '" style="margin-top:8px;"><span>Subtotal</span><span>' + money(q.subtotal_pence) + '</span></div>'
+    h += promoRowsHtml(q)
+    if (q.discount_pence && !compact) h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(q.subtotal_pence - q.discount_pence) + '</span></div>'
     // At checkout the VAT line goes under the Total instead.
     if (!compact && OPT.showVat && q.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(q.vat_pence) + '</span></div>'
+    h += promoExtrasHtml(q)
     if (ord.min_order_pence && q.subtotal_pence < ord.min_order_pence) {
       h += '<p class="mo-muted" style="font-size:.9rem;">Minimum order ' + money(ord.min_order_pence) + '</p>'
     }
     if (!compact) {
       h += '<button class="mo-btn mo-btn-block" data-checkout style="margin-top:12px;"' + (canCheckout(q) ? '' : ' disabled') + '>Checkout</button>'
+    }
+    return h
+  }
+  // Discount lines: one per promotion taken off. Offers the guest applied or
+  // opened with a code can be removed again.
+  function promoRowsHtml(q) {
+    return q.promotions.map(p => {
+      const code = state.unlocked.find(x => x.id === p.id)
+      const rm = code ? ' data-uncode="' + esc(p.id) + '"' : state.chosen.includes(p.id) ? ' data-unoffer="' + esc(p.id) + '"' : ''
+      return '<div class="mo-row mo-disc"><span>' + esc(p.name) + (p.code ? ' (' + esc(p.code) + ')' : '') +
+        (rm ? ' <button type="button"' + rm + ' aria-label="Remove ' + esc(p.name) + '">&times;</button>' : '') +
+        '</span><span>&minus;' + money(p.discount_pence) + '</span></div>'
+    }).join('')
+  }
+  // Offers to tap, what's missing for an offer, and the promo code box.
+  function promoExtrasHtml(q) {
+    let h = ''
+    for (const o of q.promo_offers) {
+      h += '<div class="mo-offer"><div style="flex:1;min-width:0;"><strong>' + esc(o.name) + '</strong>' +
+        '<div class="mo-muted" style="font-size:.88rem;">' + (o.description ? esc(o.description) + ' · ' : '') + 'Save ' + money(o.saving_pence) + '</div></div>' +
+        '<button type="button" class="mo-btn" data-offer="' + esc(o.id) + '">Apply</button></div>'
+    }
+    for (const n of q.promo_notices) {
+      const t = noticeText(n, money)
+      if (t) h += '<p class="mo-muted mo-hint">' + esc(t) + '</p>'
+    }
+    if (data.has_promo_codes || state.unlocked.length) {
+      h += '<div class="mo-code">'
+      const applied = new Set(q.promotions.map(p => p.id))
+      for (const p of state.unlocked) {
+        if (applied.has(p.id)) continue
+        h += '<span class="mo-chip">' + esc(p.code) + '<button type="button" data-uncode="' + esc(p.id) + '" aria-label="Remove code ' + esc(p.code) + '">&times;</button></span>'
+      }
+      if (state.codeOpen) {
+        h += '<div class="mo-code-row" style="margin-top:6px;"><input data-code-input placeholder="Promo code" aria-label="Promo code" autocomplete="off" autocapitalize="characters" maxlength="40" value="' + esc(state.codeText || '') + '">' +
+          '<button type="button" class="mo-btn" data-code-apply' + (state.codeBusy ? ' disabled' : '') + '>' + (state.codeBusy ? '&hellip;' : 'Apply') + '</button></div>'
+        if (state.codeError) h += '<p class="mo-hint" style="color:#b91c1c;">' + esc(state.codeError) + '</p>'
+      } else if (data.has_promo_codes) {
+        h += '<div><button type="button" class="mo-link mo-muted" data-code-open>Have a promo code?</button></div>'
+      }
+      h += '</div>'
     }
     return h
   }
@@ -706,10 +858,14 @@ async function startOrdering() {
           customer: { name: f.name.trim(), email: f.email.trim(), phone: f.phone.trim() },
           notes: f.notes.trim() || null, allergy_note: f.allergy_note.trim() || null,
           data_consent: !!f.data_consent, marketing_opt_in: !!f.marketing_opt_in, tip_percent: state.tip, payment_method: state.method,
+          promo_codes: state.unlocked.map(p => p.code), promo_ids: state.chosen,
         },
       })
       state.basket = []
       saveBasket()
+      state.chosen = []
+      state.unlocked = []
+      savePromos()
       if (res.payment) {
         state.pay = { token: res.token, payment: res.payment }
         state.step = 'pay'
@@ -722,6 +878,7 @@ async function startOrdering() {
       state.busy = false
       state.error = e.message
       if (e.data && e.data.code === 'slot_unavailable') { state.when = null; loadSlots() }
+      if (e.data && e.data.code === 'promo_invalid') await refreshPromos(state.unlocked.map(p => p.code))
       draw()
       toAppTop(true)
     }
@@ -740,6 +897,16 @@ async function startOrdering() {
     else { state.error = res.error; draw() }
   }
 
+  // Promotions on now that guests can get without a code, under the title.
+  function offersStripHtml() {
+    const at = venueNow(venue.timezone)
+    const live = (data.promotions || []).filter(p => isLiveAt(p, { at, venueId: venue.id }))
+    if (!live.length) return ''
+    return '<div class="mo-offers">' + live.map(p => '<div><strong>' + esc(p.name) + '</strong> <span class="mo-muted">' +
+      esc(promoSummary(p, money) + (p.min_subtotal_pence ? ' when you spend ' + money(p.min_subtotal_pence) : '') +
+        (p.apply_mode === 'manual' ? ' · apply it in your basket' : '')) + '</span></div>').join('') + '</div>'
+  }
+
   // ── Draw ──
   function draw() {
     let h = ''
@@ -753,11 +920,12 @@ async function startOrdering() {
           : 'Order for collection' + (venue.address_line1 ? ' · ' + esc(venue.address_line1) : '')) + '</p>'
       }
       if (ord.collection_instructions) h += '<p class="mo-muted">' + esc(ord.collection_instructions) + '</p>'
+      h += offersStripHtml()
       if (ord.is_paused) h += '<div class="mo-banner">' + esc(ord.pause_message || 'We are not taking online orders right now. Please check back soon.') + '</div>'
       const q = quote()
       const count = state.basket.reduce((s, l) => s + l.qty, 0)
       h += '<div class="mo-layout"><div>' + menuHtml() + '</div><div class="mo-basket-col"><div class="mo-basket' + (OPT.basketText ? ' mo-fg' : '') + '"><h2 style="margin-top:0;">Your basket</h2>' + basketHtml(false) + '</div></div></div>'
-      if (count) h += '<div class="mo-bar"><button class="mo-btn" data-open-basket><span>View basket (' + count + ')</span><span>' + money(q.subtotal_pence) + '</span></button></div>'
+      if (count) h += '<div class="mo-bar"><button class="mo-btn" data-open-basket><span>View basket (' + count + ')</span><span>' + money(q.subtotal_pence - q.discount_pence) + '</span></button></div>'
     } else if (state.step === 'checkout') {
       h += checkoutHtml()
     } else {
@@ -783,7 +951,10 @@ async function startOrdering() {
       if ('close' in t.dataset) close()
       else if (changeQty(t)) { render(); draw(); if (!state.basket.length) close() }
       else if ('checkout' in t.dataset) { close(); goCheckout() }
+      else promoClick(t, () => { render(); draw() })
     })
+    back.addEventListener('keydown', e => promoKey(e, () => { render(); draw() }))
+    back.addEventListener('input', e => { if ('codeInput' in e.target.dataset) state.codeText = e.target.value })
   }
 
   function changeQty(t) {
@@ -830,6 +1001,7 @@ async function startOrdering() {
     else if (t.dataset.tip != null) { state.tip = +t.dataset.tip; draw() }
     else if ('place' in t.dataset) placeOrder()
     else if (t.dataset.pay) pay(t.dataset.pay)
+    else promoClick(t, draw)
   })
   // Swap just the bar (and the dishes, for search) so the page keeps its place.
   function redrawNav() {
@@ -851,6 +1023,7 @@ async function startOrdering() {
   // "Icon on phones": rebuild the bar when the screen crosses the phone width.
   phoneMq.addEventListener?.('change', () => { if (state.step === 'menu' && OPT.searchStyle === 'icon_phone' && OPT.search) redrawNav() })
 
+  root.addEventListener('keydown', e => promoKey(e, draw))
   root.addEventListener('change', e => {
     const d = e.target.dataset
     if (d.when) { state.when = d.when; draw() }
@@ -859,6 +1032,7 @@ async function startOrdering() {
   })
   root.addEventListener('input', e => {
     const d = e.target.dataset
+    if ('codeInput' in d) { state.codeText = e.target.value; return }
     if ('search' in d) {
       // Redraw only the tabs and the dishes so the box keeps focus.
       state.q = e.target.value
@@ -885,6 +1059,27 @@ async function startOrdering() {
   })
 
   draw()
+
+  // Saved codes are checked again; ?promo=CODE (e.g. from the Promo block
+  // or an email) opens a code, ?offer=<id> applies a tap-to-apply offer.
+  const params = new URLSearchParams(location.search)
+  const linkCode = params.get('promo')
+  const linkOffer = params.get('offer')
+  if (linkOffer && /^[0-9a-f-]{36}$/i.test(linkOffer) && !state.chosen.includes(linkOffer)) state.chosen = [...state.chosen, linkOffer]
+  const codes = [...new Set([...(state.savedCodes || []), ...(linkCode ? [linkCode.slice(0, 40)] : [])])]
+  if (codes.length) {
+    for (const c of codes) {
+      try { await checkCode(c) } catch (e) { if (c === linkCode) { state.codeOpen = true; state.codeText = c; state.codeError = e.message } }
+    }
+  }
+  if (linkCode || linkOffer) {
+    params.delete('promo')
+    params.delete('offer')
+    const qs = params.toString()
+    history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash)
+  }
+  savePromos()
+  if (codes.length || linkOffer) draw()
 }
 
 // ════════════════════════════════════════════════════════════
@@ -974,6 +1169,7 @@ async function startStatus() {
         '</div><div>' + money(i.line_total_pence) + '</div></div>'
     }
     h += '<div class="mo-row"><span>Subtotal</span><span>' + money(o.subtotal_pence) + '</span></div>'
+    for (const p of o.promotions || []) h += '<div class="mo-row mo-disc"><span>' + esc(p.name) + (p.code ? ' (' + esc(p.code) + ')' : '') + '</span><span>&minus;' + money(p.discount_pence) + '</span></div>'
     if (o.tip_pence) h += '<div class="mo-row"><span>Tip</span><span>' + money(o.tip_pence) + '</span></div>'
     h += '<div class="mo-row mo-total"><span>Total</span><span>' + money(o.total_pence) + '</span></div>'
     if (o.vat_pence) h += '<div class="mo-row mo-muted" style="font-size:.9rem;"><span>Includes VAT</span><span>' + money(o.vat_pence) + '</span></div>'

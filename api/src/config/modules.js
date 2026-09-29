@@ -171,6 +171,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
   {
+    key:    'promotions',
+    label:  'Promotions',
+    group:  'web_ordering',
+    description: 'Online ordering offers: basket and dish discounts, buy X get Y, promo codes, limits, dates and times.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
     key:    'team',
     label:  'Team',
     core:   true,
@@ -324,7 +331,7 @@ export const MODULE_GROUPS = [
     key:    'web_ordering',
     label:  'Online ordering',
     description: 'Collection orders from the website, with payment through a payment gateway or at the counter.',
-    moduleKeys: ['web_orders', 'web_ordering_setup'],
+    moduleKeys: ['web_orders', 'web_ordering_setup', 'promotions'],
   },
   {
     key:    'support',

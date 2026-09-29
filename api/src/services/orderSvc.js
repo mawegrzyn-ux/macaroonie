@@ -19,6 +19,7 @@ import { loadOpeningHours } from './siteDataSvc.js'
 import { getGateway, checkoutGateways, COUNTER_METHODS } from './paymentGateways/index.js'
 import { itemChoices, variantRules, fromPrice, isPriced, priceBasket } from '../../../shared/orderPricing.js'
 import { menuOnAt, menuOnDate, scheduleLabel, isScheduled } from '../../../shared/menuSchedule.js'
+import { venuePromotions, findByCode, lockUses } from './promoSvc.js'
 
 // An unpaid online order holds its slot this long, then expires.
 export const PENDING_TTL_MINS = 30
@@ -184,7 +185,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
         const choices = itemChoices(it, rules)
         if (!isPriced(it, choices)) continue
         const item = {
-          id: it.id, name: it.name, native_name: it.native_name || null,
+          id: it.id, section_id: s.id, name: it.name, native_name: it.native_name || null,
           description: it.description || null, notes: it.notes || null,
           image_url: it.image_url || null, calories: it.calories ?? null,
           dietary: it.dietary || [], price_pence: it.price_pence ?? null,
@@ -337,11 +338,14 @@ function shapeItems(items) {
   return items.map(i => ({
     id: i.id, menu_item_id: i.menu_item_id, name: i.name, options: i.options || [],
     qty: i.qty, unit_price_pence: i.unit_price_pence, line_total_pence: i.line_total_pence,
+    discount_pence: i.discount_pence || 0,
     vat_rate: Number(i.vat_rate), vat_pence: i.vat_pence, note: i.note,
   }))
 }
 
-export function publicOrder(order, items, venue) {
+const shapePromos = rows => (rows || []).map(p => ({ name: p.name, code: p.code, discount_pence: p.discount_pence }))
+
+export function publicOrder(order, items, venue, promotions = []) {
   return {
     token: order.public_token,
     order_number: order.order_number,
@@ -353,7 +357,8 @@ export function publicOrder(order, items, venue) {
     ready_at: order.ready_at,
     guest_name: order.guest_name,
     currency: order.currency,
-    subtotal_pence: order.subtotal_pence, tip_pence: order.tip_pence,
+    subtotal_pence: order.subtotal_pence, discount_pence: order.discount_pence || 0, tip_pence: order.tip_pence,
+    promotions: shapePromos(promotions),
     total_pence: order.total_pence, vat_pence: order.vat_pence,
     payment_method: order.payment_method,
     payment_status: order.payment_status,
@@ -364,12 +369,14 @@ export function publicOrder(order, items, venue) {
   }
 }
 
-export function adminOrder(order, items = [], extra = {}) {
+export function adminOrder(order, items = [], extra = {}, promotions = []) {
   return {
     ...order,
     service_date: order.service_date,
     subtotal_pence: int(order.subtotal_pence), total_pence: int(order.total_pence),
+    discount_pence: int(order.discount_pence) || 0,
     items: shapeItems(items),
+    promotions: shapePromos(promotions),
     ...extra,
   }
 }
@@ -383,6 +390,10 @@ async function loadOrderRow(tx, id) {
 
 async function loadItems(tx, orderId) {
   return tx`SELECT * FROM order_items WHERE order_id = ${orderId} ORDER BY sort_order`
+}
+
+export async function loadOrderPromotions(tx, orderId) {
+  return tx`SELECT name, code, discount_pence FROM order_promotions WHERE order_id = ${orderId} ORDER BY created_at, name`
 }
 
 async function addEvent(tx, order, type, { from = null, to = null, detail = {}, actor = 'system' } = {}) {
@@ -509,12 +520,28 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     }
     const tipPercent = settings.tips_enabled && settings.tip_percents.includes(Number(body.tip_percent))
       ? Number(body.tip_percent) : 0
-    const priced = priceBasket(itemsById, body.lines, { tipPercent })
+
+    // Promotions (migration 131): automatic ones, manual ones the guest
+    // applied, code ones whose code the guest entered. Timed by when the
+    // order is placed. The rules are shared/promotions.js.
+    const nowParts = localParts(now, tz)
+    const promos = await venuePromotions(tx, venue.id, nowParts.date)
+    const unlocked = []
+    for (const code of body.promo_codes || []) {
+      const p = findByCode(promos, code)
+      if (!p) throw CreateError(422, `The promo code "${String(code).trim()}" isn't valid or has run out: please remove it`, { code: 'promo_invalid' })
+      unlocked.push(p.id)
+    }
+    const promoCtx = { at: nowParts, venueId: venue.id, unlocked, chosen: body.promo_ids || [] }
+    const priced = priceBasket(itemsById, body.lines, { tipPercent, promos, promoCtx })
     if (priced.errors.length) throw CreateError(422, priced.errors[0].error, { code: 'basket_invalid', errors: priced.errors })
     if (!priced.lines.length) throw CreateError(422, 'Your basket is empty')
+    // The minimum order is on the dishes' full price, before promotions.
     if (priced.subtotal_pence < settings.min_order_pence) {
       throw CreateError(422, 'The minimum order is £' + (settings.min_order_pence / 100).toFixed(2), { code: 'min_order' })
     }
+    const usedUp = await lockUses(tx, priced.promotions.map(p => p.id))
+    if (usedUp) throw CreateError(422, `Sorry, ${usedUp} has just run out: please check your basket`, { code: 'promo_invalid' })
 
     const [{ next }] = await tx`
       SELECT COALESCE(MAX(order_number), 0) + 1 AS next FROM orders
@@ -522,7 +549,8 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     `
     const [{ ordering_fee_percent: feePct }] = await tx`SELECT ordering_fee_percent FROM tenants WHERE id = ${venue.tenant_id}`
     const feePercent = Number(feePct) || 0
-    const feePence = Math.round(priced.subtotal_pence * feePercent / 100)
+    // The platform fee is on what the guest pays for the dishes (after promotions, before tips).
+    const feePence = Math.round((priced.subtotal_pence - priced.discount_pence) * feePercent / 100)
     const customerId = body.customer.email
       ? await upsertCustomer(tx, venue.tenant_id, { name: body.customer.name, email: body.customer.email, phone: body.customer.phone })
       : null
@@ -549,7 +577,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
                           status, is_asap, requested_for, promised_at, customer_id,
                           guest_name, guest_email, guest_phone, notes, allergy_note, marketing_opt_in,
                           data_consent_at, consent,
-                          currency, subtotal_pence, tip_pence, total_pence, vat_pence,
+                          currency, subtotal_pence, discount_pence, tip_pence, total_pence, vat_pence,
                           platform_fee_percent, platform_fee_pence,
                           payment_method, payment_status)
       VALUES (${venue.tenant_id}, ${venue.id}, 'web', 'collection', ${serviceDate}, ${Number(next)},
@@ -557,7 +585,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
               ${body.customer.name}, ${body.customer.email || null}, ${body.customer.phone || null},
               ${body.notes || null}, ${body.allergy_note || null}, ${!!body.marketing_opt_in},
               ${consentAt}, ${tx.json(consent)},
-              ${venue.currency || 'GBP'}, ${priced.subtotal_pence}, ${priced.tip_pence}, ${priced.total_pence}, ${priced.vat_pence},
+              ${venue.currency || 'GBP'}, ${priced.subtotal_pence}, ${priced.discount_pence}, ${priced.tip_pence}, ${priced.total_pence}, ${priced.vat_pence},
               ${feePercent}, ${feePence},
               ${gateway.key}, 'unpaid')
       RETURNING ${ORDER_COLS}
@@ -565,9 +593,15 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
     for (const [i, l] of priced.lines.entries()) {
       await tx`
         INSERT INTO order_items (order_id, tenant_id, menu_item_id, name, options, qty,
-                                 unit_price_pence, line_total_pence, vat_rate, vat_pence, note, sort_order)
+                                 unit_price_pence, line_total_pence, discount_pence, vat_rate, vat_pence, note, sort_order)
         VALUES (${order.id}, ${venue.tenant_id}, ${l.item_id}, ${l.name}, ${tx.json(l.options)}, ${l.qty},
-                ${l.unit_pence}, ${l.line_total_pence}, ${l.vat_rate}, ${l.vat_pence}, ${l.note}, ${i})
+                ${l.unit_pence}, ${l.line_total_pence}, ${l.discount_pence || 0}, ${l.vat_rate}, ${l.vat_pence}, ${l.note}, ${i})
+      `
+    }
+    for (const p of priced.promotions) {
+      await tx`
+        INSERT INTO order_promotions (order_id, tenant_id, promotion_id, name, code, discount_pence)
+        VALUES (${order.id}, ${venue.tenant_id}, ${p.id}, ${p.name}, ${p.code}, ${p.discount_pence})
       `
     }
     await addEvent(tx, order, 'status', { to: 'pending_payment', actor: 'guest', detail: { channel: 'web' } })
@@ -886,12 +920,13 @@ export async function expireStaleOrders(log) {
 export async function loadAdminOrder(tx, id) {
   const o = await loadOrderRow(tx, id)
   if (!o) return null
-  const [items, events, payments] = await Promise.all([
+  const [items, events, payments, promos] = await Promise.all([
     loadItems(tx, id),
     tx`SELECT * FROM order_events WHERE order_id = ${id} ORDER BY created_at`,
     tx`SELECT id, gateway, gateway_ref, amount_pence, refunded_pence, status, created_at FROM order_payments WHERE order_id = ${id} ORDER BY created_at`,
+    loadOrderPromotions(tx, id),
   ])
-  return adminOrder(o, items, { events, payments })
+  return adminOrder(o, items, { events, payments }, promos)
 }
 
 export async function loadPublicOrderByToken(token) {
@@ -904,10 +939,11 @@ export async function loadPublicOrderByToken(token) {
   return withTenant(meta.tenant_id, async tx => {
     const o = await loadOrderRow(tx, meta.id)
     const items = await loadItems(tx, meta.id)
+    const promotions = await loadOrderPromotions(tx, meta.id)
     const [pending] = await tx`
       SELECT id, gateway FROM order_payments WHERE order_id = ${meta.id} AND status IN ('pending', 'failed')
        ORDER BY created_at DESC LIMIT 1
     `
-    return { order: o, items, venue: { name: meta.venue_name, timezone: meta.timezone }, pendingPayment: pending || null }
+    return { order: o, items, promotions, venue: { name: meta.venue_name, timezone: meta.timezone }, pendingPayment: pending || null }
   })
 }

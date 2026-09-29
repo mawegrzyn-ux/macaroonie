@@ -8,8 +8,11 @@
 //     /order-api/pricing.js) — shows the same totals while the guest builds
 //     the basket, so the checkout total never jumps.
 //
-// Plain ESM, no dependencies, no DOM.
+// Plain ESM, no dependencies, no DOM. Promotions (discounts) come from
+// ./promotions.js, served next to this file as /order-api/promotions.js.
 //
+import { applyPromotions } from './promotions.js'
+
 // A dish's choices come from its ad-hoc variants (one required choice) and
 // its attached variant groups:
 //   mode 'base'  — the option price IS the dish price (Chicken £12.50)
@@ -144,7 +147,11 @@ export function tipFor(subtotalPence, percent) {
 
 // A whole basket. itemsById: { [menuItemId]: item (with vat_rate) },
 // lines: [{ item_id, qty, choices, note }].
-export function priceBasket(itemsById, lines, { tipPercent = 0 } = {}) {
+// With `promos` (+ `promoCtx`, see shared/promotions.js) the discounts are
+// taken off: subtotal stays the full price, discount_pence is what the
+// promotions take off, VAT is on what is paid per line, the tip is a % of
+// the discounted subtotal, total = subtotal - discount + tip.
+export function priceBasket(itemsById, lines, { tipPercent = 0, promos = null, promoCtx = {} } = {}) {
   const out = []
   const errors = []
   let subtotal = 0
@@ -162,13 +169,31 @@ export function priceBasket(itemsById, lines, { tipPercent = 0 } = {}) {
     subtotal += lineTotal
     vat += lineVat
     out.push({
-      item_id: item.id, name: item.name, qty, options: priced.options,
+      item_id: item.id, section_id: item.section_id ?? null, name: item.name, qty, options: priced.options,
       unit_pence: priced.unit_pence, line_total_pence: lineTotal,
       vat_rate: rate, vat_pence: lineVat, note: line.note ? String(line.note).slice(0, 300) : null,
     })
   }
-  const tip = tipFor(subtotal, tipPercent)
-  return { lines: out, errors, subtotal_pence: subtotal, vat_pence: vat, tip_pence: tip, total_pence: subtotal + tip }
+  let discount = 0
+  let promo = null
+  if (promos && promos.length && out.length) {
+    promo = applyPromotions(out, promos, promoCtx)
+    vat = 0
+    out.forEach((l, i) => {
+      l.discount_pence = promo.line_discounts[i] || 0
+      l.vat_pence = vatIncluded(l.line_total_pence - l.discount_pence, l.vat_rate)
+      vat += l.vat_pence
+    })
+    discount = promo.discount_pence
+  } else {
+    out.forEach(l => { l.discount_pence = 0 })
+  }
+  const net = subtotal - discount
+  const tip = tipFor(net, tipPercent)
+  return {
+    lines: out, errors, subtotal_pence: subtotal, discount_pence: discount, vat_pence: vat, tip_pence: tip, total_pence: net + tip,
+    promotions: promo ? promo.applied : [], promo_offers: promo ? promo.offers : [], promo_notices: promo ? promo.notices : [],
+  }
 }
 
 export function formatPence(pence, currency = 'GBP') {

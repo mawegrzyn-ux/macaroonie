@@ -69,6 +69,7 @@ import RotaDashboard   from '@/pages/RotaDashboard'
 import HSActionLog     from '@/pages/HSActionLog'
 import Orders          from '@/pages/Orders'
 import OrderingSettings from '@/pages/OrderingSettings'
+import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
@@ -149,6 +150,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="customers" element={<Customers />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="orders/settings" element={<OrderingSettings />} />
+                <Route path="promotions" element={<Promotions />} />
                 <Route path="venues"    element={<Venues />} />
                 <Route path="tables"   element={<Tables />} />
                 <Route path="schedule" element={<Schedule />} />

@@ -5,6 +5,28 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Promotions for online ordering]
+
+**Migration 131** (`promotions`, `order_promotions`, `orders.discount_pence`, `order_items.discount_pence`; new module `promotions`, nav link under Online orders).
+
+- New **Online orders → Promotions** page. Set up:
+  - % or £ off the whole order, % or £ off chosen dishes or whole sections, and Buy X get Y (the cheapest free, or a % off).
+  - Conditions: a minimum spend, a particular dish in the basket, and a cap on the discount.
+  - How guests get it: automatic, tap to apply in the basket, or a promo code.
+  - A limit on the number of uses, dates and times of day (like menu times), and which venues.
+  - Priority by dragging the list, and "can't be combined with other promotions".
+  - Each promotion can be switched on and off, copied or deleted, and the list shows its uses and the total discount given.
+- On the ordering page, guests now see:
+  - each discount as its own line in the basket, at checkout and on their order page;
+  - offers they can tap to apply, and hints such as "Spend £5.50 more to get 10% off";
+  - a "Have a promo code?" box, and labels (e.g. 2 FOR 1) on the dishes an offer covers.
+- Links like `/order?promo=CODE` apply a code for the guest.
+- The server works out every discount again when the order is placed. A promotion that has just run out is removed with a message.
+- Staff see discounts on the order, the printed ticket, the confirmation email and the Report, which now shows the discounts given and each promotion's use.
+- New **Promo** website block: shows one promotion (heading, what it takes off, small print, a code if it has one) with an Order now button that opens the ordering page with the offer ready. It has Banner and Voucher card styles and hides itself when the promotion is off, ended or used up.
+
+---
+
 ## [2026-09-29 — Online ordering: search as an icon beside the categories]
 
 - The Online ordering block's search can now show as a round magnifier icon at the start of the category bar, on phones only or everywhere, instead of a full-width box. The icon stays put while the categories scroll under it; tapping it opens the search box, and the cross (or Escape) closes it.

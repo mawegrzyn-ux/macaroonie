@@ -23,6 +23,7 @@ import customersRoutes  from './routes/customers.js'
 import paymentsRoutes, { webhookRoutes } from './routes/payments.js'
 import orderApiRoutes, { paymentWebhookRoutes } from './routes/orderApi.js'
 import ordersRoutes from './routes/orders.js'
+import promotionsRoutes from './routes/promotions.js'
 import websiteRoutes    from './routes/website.js'
 import publicSiteRoutes from './routes/publicSite.js'
 import siteRendererRoutes from './routes/siteRenderer.js'
@@ -191,6 +192,7 @@ export async function buildApp() {
   await app.register(widgetApiRoutes,        { prefix: '/widget-api' })
   await app.register(orderApiRoutes,         { prefix: '/order-api' })
   await app.register(ordersRoutes,           { prefix: '/api/orders' })
+  await app.register(promotionsRoutes,       { prefix: '/api/promotions' })
   await app.register(reviewsRoutes,          { prefix: '/api/reviews' })
   await app.register(backlogRoutes,          { prefix: '/api/backlog' })
   await app.register(issueLogRoutes,         { prefix: '/api/issues' })

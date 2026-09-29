@@ -19,6 +19,7 @@ export const DEFAULT_NAV_TREE = [
         label: 'Online orders', icon: 'ShoppingBag', route: '/orders', module: 'web_orders',
         children: [
           { label: 'Ordering setup', icon: 'Settings2', route: '/orders/settings', module: 'web_ordering_setup' },
+          { label: 'Promotions', icon: 'BadgePercent', route: '/promotions', module: 'promotions' },
         ],
       },
       {

@@ -2578,6 +2578,72 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               AvailabilityModal, PauseButton, useRealtimeOrders (venue WebSocket), printTicket
               (80mm browser print). Menus.jsx sends is_orderable / vat_rate_* in its save payload;
               VariantGroupsManager sends price_mode / min_select / max_select.
+              <Mono> components/orders/ScheduleEditor.jsx</Mono> (date range + times of day) is shared by
+              Ordering setup and Promotions.
+            </P>
+            <H3>Promotions (migration 131)</H3>
+            <P>
+              Module <Mono>promotions</Mono> (group <Mono>web_ordering</Mono>), page{' '}
+              <Mono>pages/Promotions.jsx</Mono> (<Mono>/promotions</Mono>), API{' '}
+              <Mono>routes/promotions.js</Mono> (<Mono>/api/promotions</Mono>: GET list with uses and
+              discount given, GET /catalog, POST, PUT /:id, PATCH /:id/active, PATCH /reorder, DELETE).
+              The discount rules are one file, <Mono>shared/promotions.js</Mono>:{' '}
+              <Mono>priceBasket(itemsById, lines, {'{ tipPercent, promos, promoCtx }'})</Mono> calls{' '}
+              <Mono>applyPromotions()</Mono>, so the server (<Mono>createOrder()</Mono>, the quote
+              route) and the guest page (served as <Mono>/order-api/promotions.js</Mono>, which imports{' '}
+              <Mono>/order-api/menuSchedule.js</Mono>) take off exactly the same amounts.
+            </P>
+            <DataTable
+              head={['Table / column', 'Notes']}
+              rows={[
+                ['promotions', "Tenant-wide. kind basket | item | bogo; discount_type percent | amount + discount_value (% or pence); item_ids + section_ids (item/bogo scope, both empty = every dish); buy_qty, get_qty, get_percent (bogo); min_subtotal_pence, required_item_ids (any one), max_discount_pence; apply_mode auto | manual | code + code (unique per tenant, case-insensitive); max_uses; schedule jsonb (menu schedule shape); venue_ids (empty = all); exclusive; sort_order = priority; badge_text, description."],
+                ['order_promotions', "One row per promotion an order used: promotion_id (SET NULL on delete), copied name and code, discount_pence."],
+                ['orders.discount_pence, order_items.discount_pence', "subtotal_pence stays the full price; total = subtotal - discount + tip. Line VAT is on line_total - line discount. The tip % and the platform fee are on the discounted subtotal; the minimum order is checked on the full subtotal."],
+              ]}
+            />
+            <DataTable
+              head={['Rule', 'Where / how']}
+              rows={[
+                ['In play', "Automatic ones; manual ones in promoCtx.chosen (OrderBody.promo_ids); code ones in promoCtx.unlocked (ids found from OrderBody.promo_codes by findByCode()). Each must pass isLiveAt(): is_active, venue_ids, menuOnAt(schedule, at) with at = venue-local time of ordering."],
+                ['Conditions', "unmet(): min_subtotal (before discounts), required_item, no_items (item/bogo with no covered dish), bogo_qty (fewer than buy + get covered units)."],
+                ['Order', "sort_order ascending. Each promotion discounts what is left on each line (rem[]). Exclusive: applies only when nothing has yet, then closes the list; skipped ones get a not_combinable notice."],
+                ['Maths', "basket: % of the remaining total, or min(amount, remaining), spread over lines by allocate() (largest remainder, whole pence). item: per covered line, % of remaining or amount x qty. bogo: covered units sorted dearest first, in each group of buy + get the get cheapest are get_percent off. max_discount_pence scales the lines down with allocate()."],
+                ['Guest feedback', "offers (manual ones that would apply, with saving_pence), notices (min_subtotal with short_pence, bogo_qty with more, required_item, no_items, not_now, not_combinable). Automatic ones only produce min_subtotal / bogo_qty notices. noticeText() words them."],
+                ['Uses', "Orders not rejected / cancelled / expired (promoSvc FREE_STATUSES). venuePromotions() drops used-up and ended ones; createOrder() calls lockUses() (FOR UPDATE on limited promotions, then a count) inside its transaction and returns 422 code promo_invalid when one has just run out. An unknown code is also 422 promo_invalid."],
+              ]}
+            />
+            <DataTable
+              head={['Route', 'Notes']}
+              rows={[
+                ['GET /order-api/venues/:id', "Adds promotions (running, non-code, publicPromotion(): no code) and has_promo_codes."],
+                ['POST /order-api/venues/:id/promo-code', "{ code } -> { promotion } including its code, or 404 \"That code isn't valid\". The page keeps unlocked promotions and chosen offer ids in localStorage maca_promos_<venueId> and re-checks saved codes on load."],
+                ['POST .../quote, POST .../orders', "promo_codes (max 5) and promo_ids (max 20) in the body."],
+                ['GET /order-api/orders/:token, admin order detail and board', "promotions: [{ name, code, discount_pence }] (loadOrderPromotions())."],
+                ['GET /api/orders/report', "totals.discount_pence, days[].discount_pence, promotions: [{ name, orders, discount_pence }]."],
+              ]}
+            />
+            <P>
+              Guest page (<Mono>shared/ordering.eta</Mono>): discount rows in the basket, checkout and
+              status page; offers with Apply; notices; the promo code box; badge_text on dishes an
+              item/bogo promotion covers (<Mono>promoBadges()</Mono>, live ones only); an offers strip
+              under the title. Deep links: <Mono>?promo=CODE</Mono> checks and applies a code,{' '}
+              <Mono>?offer=&lt;id&gt;</Mono> chooses a manual offer; both are then removed from the
+              address. On a <Mono>promo_invalid</Mono> error the page re-reads the venue&apos;s
+              promotions and re-checks its codes. Staff: the order detail, printed ticket and
+              confirmation email show one line per promotion.
+            </P>
+            <H3>Promo block (promo_cta)</H3>
+            <P>
+              <Mono>blocks/promo_cta.eta</Mono>, editor <Mono>PromoCtaEditor.jsx</Mono>, canvas{' '}
+              <Mono>PromoCtaCanvas</Mono> in <Mono>canvas/dataBlocks.jsx</Mono> (same markup; keep in
+              step). Data: promo_id, heading, text, show_code, show_terms, button_text, button_link,
+              style banner | card, bg / fg (theme roles), container. <Mono>loadOrRender404()</Mono>{' '}
+              attaches <Mono>site_promotions</Mono> (<Mono>sitePromotions()</Mono> in siteRenderer.js:
+              running today per <Mono>promoRunning()</Mono>, with summary, terms and link from{' '}
+              <Mono>promoSummary()</Mono> / <Mono>promoTerms()</Mono> / <Mono>promoLink()</Mono>). Live
+              data, not in the published snapshot, so the block hides as soon as the promotion stops.
+              A one-venue promotion links to <Mono>/locations/:slug/order</Mono> when there are several
+              ordering venues. The site bundle now carries <Mono>tenant_id</Mono> for this.
             </P>
           </section>
 
