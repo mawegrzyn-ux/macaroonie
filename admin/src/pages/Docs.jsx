@@ -2506,6 +2506,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>html, body</Mono>. With <Mono>hidden</Mono> on both, body became a scroll container and no
               sticky element on a tenant site worked, including the header block&apos;s sticky header.
             </P>
+            <P>
+              Dish cards already in the basket get <Mono>is-in</Mono> (primary outline) and a{' '}
+              <Mono>.mo-in-basket</Mono> badge with the quantity summed over every basket line for that dish
+              (<Mono>inBasket()</Mono> in <Mono>itemCardHtml()</Mono>). Every basket change calls{' '}
+              <Mono>draw()</Mono>, so the cards update with it; no option, always on.
+            </P>
             <H3>Collection slots</H3>
             <P>
               Computed, never stored (<Mono>computeSlots()</Mono>): slot times every{' '}

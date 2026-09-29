@@ -2546,6 +2546,11 @@ export default function Help() {
               Publish, like any other page change. Your staging address shows them straight away.
             </P>
             <P>
+              Dishes a guest already has in their basket show a small basket badge with how many they
+              have, and an outline in your main colour, so they can see what they've picked while they
+              browse.
+            </P>
+            <P>
               A menu with set times shows them to guests ("Dinner is available every day
               18:00–22:00"), and guests can browse and add from it outside those hours to order for
               later. At checkout only collection times when every dish in the basket is served are
