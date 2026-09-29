@@ -2057,6 +2057,12 @@ export default function Help() {
               block that's set its own inset to that step — so you don't need to separately tune
               mobile spacing per block.
             </P>
+            <P>
+              After clicking <strong>Save layout</strong>, publish the site again: the live site
+              shows the last published version, so a new mobile value appears there only after the
+              next publish. The mobile value applies on phones held upright; turn the phone sideways
+              and the normal value is used.
+            </P>
             <InfoBox type="tip">
               A practical use: set step 1 to a fixed 20px for tight mobile margins, and set a
               different step to 5% so wide-screen margins scale with the page instead of staying

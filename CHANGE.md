@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Boxed inset: mobile values now save]
+
+- The per-step **Mobile** value in Website → Brand & theme → Layout now saves. Before, the Layout card appeared to save but the mobile value was thrown away by the server, so phones kept the desktop padding. Save again, then republish the site.
+- The step value boxes accept typing again: you can clear a box and type a new number. Before, clearing it put 0 straight back and the cursor jumped.
+- A failed Layout save now shows the error next to the Save button.
+
+---
+
 ## [2026-09-29 — Technical docs page no longer blank]
 
 - The in-app technical documentation page (/docs) loads again. A code sample in the Overview tiles section was being run as code instead of shown as text, which crashed the whole page.

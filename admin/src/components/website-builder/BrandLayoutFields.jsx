@@ -1,5 +1,37 @@
 // Theme layout knobs shown on Brand & theme: container max width + boxed inset.
+import { useEffect, useRef, useState } from 'react'
 import { BOXED_STEPS, DEFAULT_BOXED_STEP, DEFAULT_BOXED_STEPS, DEFAULT_CONTAINER_MAX_PX } from './boxedLayout'
+
+// Number field that keeps what the operator types while focused. Clamping
+// Number(e.target.value) as the controlled value turned an emptied field
+// straight back into 0 and moved the caret, so the value couldn't be
+// retyped (same bug as the menu price inputs, see PriceInput). Valid
+// numbers are passed up as you type; the text is tidied on blur.
+function StepNumberInput({ value, onChange, className }) {
+  const [text, setText] = useState(String(value ?? ''))
+  const focused = useRef(false)
+  useEffect(() => { if (!focused.current) setText(String(value ?? '')) }, [value])
+  const clamp = n => Math.max(0, Math.min(200, n))
+  return (
+    <input
+      type="text" inputMode="decimal" value={text}
+      onFocus={() => { focused.current = true }}
+      onChange={e => {
+        setText(e.target.value)
+        const n = parseFloat(e.target.value)
+        if (!Number.isNaN(n)) onChange(clamp(n))
+      }}
+      onBlur={() => {
+        focused.current = false
+        const n = parseFloat(text)
+        const next = Number.isNaN(n) ? (value ?? 0) : clamp(n)
+        setText(String(next))
+        if (next !== value) onChange(next)
+      }}
+      className={className}
+    />
+  )
+}
 
 export function BrandLayoutFields({ theme, setPath }) {
   const cw = theme?.spacing?.container_max_px ?? DEFAULT_CONTAINER_MAX_PX
@@ -53,9 +85,9 @@ export function BrandLayoutFields({ theme, setPath }) {
           {steps.map((s, idx) => (
             <div key={idx} className="border rounded-md p-1.5">
               <p className="text-[10px] text-muted-foreground text-center mb-1">Step {idx + 1}</p>
-              <input
-                type="number" min={0} max={200} value={s.value}
-                onChange={e => setStepValue(idx, { value: Math.max(0, Math.min(200, Number(e.target.value))) })}
+              <StepNumberInput
+                value={s.value}
+                onChange={v => setStepValue(idx, { value: v })}
                 className="w-full h-9 rounded border bg-background px-1.5 text-sm text-center touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
               />
               <select
@@ -77,9 +109,9 @@ export function BrandLayoutFields({ theme, setPath }) {
               </label>
               {s.mobile_value != null && (
                 <div className="mt-1">
-                  <input
-                    type="number" min={0} max={200} value={s.mobile_value}
-                    onChange={e => setStepValue(idx, { mobile_value: Math.max(0, Math.min(200, Number(e.target.value))) })}
+                  <StepNumberInput
+                    value={s.mobile_value}
+                    onChange={v => setStepValue(idx, { mobile_value: v })}
                     className="w-full h-8 rounded border bg-background px-1.5 text-xs text-center touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
                   />
                   <select
