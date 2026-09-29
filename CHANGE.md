@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-29 — Website builder: Publish button]
+
+- **Publish** is now its own button at the top of the website builder menu, above Home, showing when the site was last published (or that it hasn't been). It opens a window with the staging link, Publish now, scheduling and Override staging with production.
+- "Domain & publish" is now **Domain**: subdomain, custom domain and the Site is live switch.
+
+---
+
 ## [2026-09-29 — Website: Heading block]
 
 - New **Heading** block for the page builder: a section title with an optional small line above and line below, heading level H1 to H4, size, alignment, font (theme heading, theme body or any listed font), weight, italic, capitals, a short bar or lines either side, theme colours, background and spacing. Edit on the page or in the panel; large sizes shrink to fit on phones.

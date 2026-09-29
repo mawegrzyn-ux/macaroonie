@@ -3052,6 +3052,17 @@ GET /robots.txt`}</Code>
               block renders nothing when heading, eyebrow and subheading are all empty.
             </P>
 
+            <H3>Publishing (admin)</H3>
+            <P>
+              <Mono>Website.jsx</Mono>: <Mono>PublishButton</Mono> sits at the top of the builder's left menu
+              (above the Site / location switcher and Home) and shows <Mono>tenant_site.published_at</Mono> or{' '}
+              <Mono>scheduled_publish_at</Mono>; it opens <Mono>PublishModal</Mono> (staging link,{' '}
+              <Mono>POST /website/tenant-site/publish</Mono>, <Mono>POST|DELETE /website/tenant-site/schedule-publish</Mono>,{' '}
+              <Mono>POST /website/tenant-site/override-staging</Mono>, all invalidating <Mono>['tenant-site']</Mono>).
+              The <Mono>tenant-domain</Mono> section (<Mono>TenantDomainSection</Mono>, now labelled Domain) keeps the
+              subdomain, custom domain, DNS verify and the <Mono>is_published</Mono> switch with their own Save.
+            </P>
+
             <H3>Admin page</H3>
             <P>
               <Mono>admin/src/pages/Website.jsx</Mono> at the <Mono>/website</Mono> route.

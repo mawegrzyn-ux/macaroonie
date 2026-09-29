@@ -2047,6 +2047,18 @@ export default function Help() {
               and below. An empty Heading block shows nothing on the live site.
             </P>
 
+            <H3>Publishing your site</H3>
+            <P>
+              Every change you make in the website builder shows on your <strong>staging</strong> address straight
+              away. Guests only see it once you publish. The <strong>Publish</strong> button sits at the top of the
+              website menu, above Home, with the last publish time underneath (or <em>Not published yet</em>).
+              Tap it to open the publish window: copy or open your staging link, <strong>Publish now</strong>,
+              schedule a publish for later (or cancel one), or <strong>Override staging with production</strong> to
+              throw away unpublished edits (asks you to confirm). Your address, custom domain and the{' '}
+              <strong>Site is live</strong> switch are under <strong>Domain</strong>; while the site is switched off,
+              the publish window reminds you that visitors see a 404 page.
+            </P>
+
             <H3>Theme manager — how it works</H3>
             <P>
               The <strong>Theme</strong> section controls the look &amp; feel of your site
@@ -2140,7 +2152,7 @@ export default function Help() {
             <H3>Custom domain</H3>
             <P>
               You can point your own domain (e.g. <Mono>www.yourrestaurant.com</Mono>) at your
-              Macaroonie site. Open <strong>Domain & publish → How to connect your domain</strong>
+              Macaroonie site. Open <strong>Domain → How to connect your domain</strong>
               for the full walkthrough (including the exact DNS records to add at GoDaddy,
               Cloudflare, Namecheap, and the rest). The short version:
             </P>
