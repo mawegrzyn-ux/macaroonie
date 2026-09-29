@@ -74,7 +74,7 @@ const WIDGET_ITEMS = [
 ]
 const SITE_ITEMS = [
   { key: 'tenant-brand',     label: 'Brand & theme',     icon: Palette },
-  { key: 'tenant-domain',    label: 'Domain & publish',  icon: Globe },
+  { key: 'tenant-domain',    label: 'Domain',            icon: Globe },
   { key: 'tenant-seo',       label: 'SEO',               icon: Search },
   { key: 'tenant-legal',     label: 'Legal & cookies',   icon: Shield },
   { key: 'tenant-analytics', label: 'Analytics',         icon: BarChart3 },
@@ -564,6 +564,233 @@ function defaultScheduleValue() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// ── Publish (modal) ───────────────────────────────────────────
+//
+// Opened from the Publish button at the top of the website menu
+// (PublishButton). Staging preview link, publish now, schedule, and
+// resetting staging to production. The Domain section keeps the address
+// and the Site is live switch.
+
+function publishedLabel(at) {
+  return new Date(at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+export function PublishButton({ tenantSite, onClick }) {
+  const ts = tenantSite || {}
+  const status = ts.scheduled_publish_at
+    ? 'Scheduled ' + publishedLabel(ts.scheduled_publish_at)
+    : ts.published_at ? 'Last published ' + publishedLabel(ts.published_at) : 'Not published yet'
+  return (
+    <div className="px-2 mb-3">
+      <button type="button" onClick={onClick}
+        className="w-full min-h-[48px] inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold shadow-sm hover:opacity-90 touch-manipulation">
+        <Rocket className="w-4 h-4" /> Publish
+      </button>
+      <p className={cn('mt-1 px-1 text-[11px] leading-tight text-center', ts.published_at || ts.scheduled_publish_at ? 'text-muted-foreground' : 'text-amber-600')}>
+        {status}
+      </p>
+    </div>
+  )
+}
+
+export function PublishModal({ tenantSite, onClose }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [scheduleAt, setScheduleAt] = useState(defaultScheduleValue())
+  const [confirmOverride, setConfirmOverride] = useState(false)
+
+  const publishNow = useMutation({
+    mutationFn: () => api.post('/website/tenant-site/publish', {}),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+  })
+
+  const schedulePublish = useMutation({
+    mutationFn: () => api.post('/website/tenant-site/schedule-publish', {
+      at: new Date(scheduleAt).toISOString(),
+    }),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+  })
+
+  const cancelSchedule = useMutation({
+    mutationFn: () => api.delete('/website/tenant-site/schedule-publish'),
+    onSuccess:  () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+  })
+
+  const overrideStaging = useMutation({
+    mutationFn: () => api.post('/website/tenant-site/override-staging', {}),
+    onSuccess:  () => {
+      setConfirmOverride(false)
+      qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      qc.invalidateQueries({ queryKey: ['brand-defaults'] })
+      qc.invalidateQueries({ queryKey: ['website-config'] })
+      qc.invalidateQueries({ queryKey: ['website-configs'] })
+      qc.invalidateQueries({ queryKey: ['website-pages'] })
+    },
+  })
+
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const liveUrl = tenantSite.custom_domain && tenantSite.custom_domain_verified
+    ? `https://${tenantSite.custom_domain}`
+    : tenantSite.subdomain_slug ? `https://${tenantSite.subdomain_slug}.macaroonie.com` : null
+  const stagingUrl = tenantSite.subdomain_slug
+    ? `https://staging-${tenantSite.subdomain_slug}.macaroonie.com`
+    : null
+  const hasPendingSchedule = !!tenantSite.scheduled_publish_at
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}
+      role="dialog" aria-modal="true" aria-label="Publish your website">
+      <div className="bg-background sm:rounded-xl shadow-2xl w-full sm:max-w-xl max-h-[85vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 bg-background px-5 h-14 border-b flex items-center justify-between">
+          <h2 className="font-semibold text-sm inline-flex items-center gap-2"><Rocket className="w-4 h-4 text-primary" /> Publish your website</h2>
+          <button type="button" onClick={onClose} aria-label="Close"
+            className="w-11 h-11 -mr-2 inline-flex items-center justify-center rounded-lg hover:bg-accent touch-manipulation">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-4">
+          {publishNow.isSuccess && (
+            <div className="text-sm bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5"><Check className="w-4 h-4" /> Published. Your edits are live.</span>
+              {liveUrl && <a href={liveUrl} target="_blank" rel="noopener" className="text-xs underline inline-flex items-center gap-1">View site <ExternalLink className="w-3 h-3" /></a>}
+            </div>
+          )}
+          {publishNow.isError && (
+            <p className="text-sm text-destructive">{publishNow.error?.body?.error || publishNow.error?.message || 'Could not publish'}</p>
+          )}
+          {!tenantSite.is_published && (
+            <div className="text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2 flex items-start gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              The site is switched off (Domain, Site is live), so visitors see a 404 page even after you publish.
+            </div>
+          )}
+          <SectionCard title="Staging"
+            description="Every edit goes live on staging straight away: a private preview that search engines are told to ignore. Nothing reaches your live site until you publish."
+            action={stagingUrl && (
+              <a href={stagingUrl} target="_blank" rel="noopener"
+                 className="text-xs text-primary hover:underline inline-flex items-center gap-1">
+                Open staging <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          >
+            {stagingUrl ? (
+              <div className="text-xs bg-muted/60 rounded-md px-3 py-2 space-y-1">
+                <CopyChip value={stagingUrl} />
+                <p className="text-muted-foreground">
+                  Always shows your current draft, including unsaved pages. Marked <code className="text-[10px]">noindex</code> so it never appears in search results, and never uses your custom domain.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Set a subdomain in Domain to get a staging preview link.</p>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Publish to production"
+            description="Freezes the current staging content and makes it live at your production URL(s).">
+            <div className="space-y-4">
+              <div className="text-xs text-muted-foreground">
+                {tenantSite.published_at
+                  ? <>Last published {new Date(tenantSite.published_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</>
+                  : <span className="text-amber-600 inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Never published — production will 404 until you publish.</span>}
+              </div>
+
+              {hasPendingSchedule && (
+                <div className="flex items-center justify-between gap-3 text-xs bg-primary/5 border border-primary/20 rounded-md px-3 py-2">
+                  <span className="inline-flex items-center gap-1.5 text-foreground">
+                    <CalendarClock className="w-3.5 h-3.5" />
+                    Scheduled for {new Date(tenantSite.scheduled_publish_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <button type="button" onClick={() => cancelSchedule.mutate()} disabled={cancelSchedule.isPending}
+                    className="text-muted-foreground hover:text-foreground underline disabled:opacity-50 touch-manipulation">
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => publishNow.mutate()}
+                disabled={publishNow.isPending}
+                className="w-full min-h-[44px] inline-flex items-center justify-center gap-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md px-3 py-2 disabled:opacity-50 touch-manipulation"
+              >
+                {publishNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+                {publishNow.isPending ? 'Publishing…' : 'Publish now'}
+              </button>
+
+              <div className="border rounded-lg p-3 space-y-2">
+                <p className="text-xs font-medium">Or schedule for later</p>
+                <div className="flex items-stretch gap-2">
+                  <input
+                    type="datetime-local"
+                    value={scheduleAt}
+                    onChange={e => setScheduleAt(e.target.value)}
+                    className="flex-1 min-h-[44px] border rounded-md px-3 text-sm touch-manipulation"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => schedulePublish.mutate()}
+                    disabled={schedulePublish.isPending || !scheduleAt}
+                    className="shrink-0 min-h-[44px] inline-flex items-center gap-1.5 border text-sm font-medium rounded-md px-3 disabled:opacity-50 touch-manipulation hover:bg-accent"
+                  >
+                    {schedulePublish.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {hasPendingSchedule ? 'Reschedule' : 'Schedule'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t pt-4">
+                {!confirmOverride ? (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmOverride(true)}
+                    className="w-full min-h-[44px] inline-flex items-center justify-center gap-1.5 text-sm border border-destructive/40 text-destructive rounded-lg hover:bg-destructive/5 touch-manipulation"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Override staging with production
+                  </button>
+                ) : (
+                  <div className="border border-destructive/40 rounded-lg p-3 space-y-2">
+                    <p className="text-xs text-destructive flex items-start gap-1.5">
+                      <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      This discards every staging edit made since the last publish and resets staging to match what's live in production now. It cannot be undone.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => overrideStaging.mutate()}
+                        disabled={overrideStaging.isPending}
+                        className="flex-1 min-h-[44px] py-1.5 text-sm bg-destructive text-destructive-foreground rounded-lg disabled:opacity-50 touch-manipulation"
+                      >
+                        {overrideStaging.isPending ? 'Working…' : 'Confirm override'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmOverride(false)}
+                        className="flex-1 min-h-[44px] py-1.5 text-sm border rounded-lg hover:bg-accent touch-manipulation"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {overrideStaging.isError && (
+                  <p className="text-xs text-destructive mt-2">
+                    {overrideStaging.error?.body?.error || overrideStaging.error?.message}
+                  </p>
+                )}
+              </div>
+            </div>
+          </SectionCard>
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TenantDomainSection({ tenantSite }) {
   const api = useApi()
   const qc  = useQueryClient()
@@ -574,8 +801,6 @@ function TenantDomainSection({ tenantSite }) {
   const [verifying,  setVerifying]  = useState(false)
   const [verifyResult, setVerifyResult] = useState(null)
   const [guideOpen, setGuideOpen] = useState(false)
-  const [scheduleAt, setScheduleAt] = useState(defaultScheduleValue())
-  const [confirmOverride, setConfirmOverride] = useState(false)
 
   const dirty = slug !== (tenantSite.subdomain_slug || '') ||
                 domain !== (tenantSite.custom_domain || '') ||
@@ -628,35 +853,6 @@ function TenantDomainSection({ tenantSite }) {
     onError:    (e) => setVerifyResult({ verified: false, error: e?.body?.error || e.message }),
   })
 
-  const publishNow = useMutation({
-    mutationFn: () => api.post('/website/tenant-site/publish', {}),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
-  })
-
-  const schedulePublish = useMutation({
-    mutationFn: () => api.post('/website/tenant-site/schedule-publish', {
-      at: new Date(scheduleAt).toISOString(),
-    }),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
-  })
-
-  const cancelSchedule = useMutation({
-    mutationFn: () => api.delete('/website/tenant-site/schedule-publish'),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
-  })
-
-  const overrideStaging = useMutation({
-    mutationFn: () => api.post('/website/tenant-site/override-staging', {}),
-    onSuccess:  () => {
-      setConfirmOverride(false)
-      qc.invalidateQueries({ queryKey: ['tenant-site'] })
-      qc.invalidateQueries({ queryKey: ['brand-defaults'] })
-      qc.invalidateQueries({ queryKey: ['website-config'] })
-      qc.invalidateQueries({ queryKey: ['website-configs'] })
-      qc.invalidateQueries({ queryKey: ['website-pages'] })
-    },
-  })
-
   function onReset() {
     setSlug(tenantSite.subdomain_slug || '')
     setDomain(tenantSite.custom_domain || '')
@@ -668,10 +864,6 @@ function TenantDomainSection({ tenantSite }) {
     : null
   const customLiveUrl = tenantSite.custom_domain && tenantSite.custom_domain_verified
     ? `https://${tenantSite.custom_domain}` : null
-  const stagingUrl = tenantSite.subdomain_slug
-    ? `https://staging-${tenantSite.subdomain_slug}.macaroonie.com`
-    : null
-  const hasPendingSchedule = !!tenantSite.scheduled_publish_at
 
   return (
     <div className="space-y-5">
@@ -771,120 +963,9 @@ function TenantDomainSection({ tenantSite }) {
       <SaveBar dirty={dirty} saving={save.isPending} error={save.error}
         onReset={onReset} onSave={() => save.mutate()} />
 
-      <SectionCard title="Staging"
-        description="Every edit here goes live on staging immediately — a private preview that search engines are told to ignore. Nothing reaches production until you publish."
-        action={stagingUrl && (
-          <a href={stagingUrl} target="_blank" rel="noopener"
-             className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-            Open staging <ExternalLink className="w-3 h-3" />
-          </a>
-        )}
-      >
-        {stagingUrl ? (
-          <div className="text-xs bg-muted/60 rounded-md px-3 py-2 space-y-1">
-            <CopyChip value={stagingUrl} />
-            <p className="text-muted-foreground">
-              Always shows your current draft, including unsaved pages. Marked <code className="text-[10px]">noindex</code> so it never appears in search results, and never uses your custom domain.
-            </p>
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground">Set a subdomain above to get a staging preview link.</p>
-        )}
-      </SectionCard>
-
-      <SectionCard title="Publish to production"
-        description="Freezes the current staging content and makes it live at your production URL(s).">
-        <div className="space-y-4">
-          <div className="text-xs text-muted-foreground">
-            {tenantSite.published_at
-              ? <>Last published {new Date(tenantSite.published_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</>
-              : <span className="text-amber-600 inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Never published — production will 404 until you publish.</span>}
-          </div>
-
-          {hasPendingSchedule && (
-            <div className="flex items-center justify-between gap-3 text-xs bg-primary/5 border border-primary/20 rounded-md px-3 py-2">
-              <span className="inline-flex items-center gap-1.5 text-foreground">
-                <CalendarClock className="w-3.5 h-3.5" />
-                Scheduled for {new Date(tenantSite.scheduled_publish_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </span>
-              <button type="button" onClick={() => cancelSchedule.mutate()} disabled={cancelSchedule.isPending}
-                className="text-muted-foreground hover:text-foreground underline disabled:opacity-50 touch-manipulation">
-                Cancel
-              </button>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => publishNow.mutate()}
-            disabled={publishNow.isPending}
-            className="w-full min-h-[44px] inline-flex items-center justify-center gap-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md px-3 py-2 disabled:opacity-50 touch-manipulation"
-          >
-            {publishNow.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
-            {publishNow.isPending ? 'Publishing…' : 'Publish now'}
-          </button>
-
-          <div className="border rounded-lg p-3 space-y-2">
-            <p className="text-xs font-medium">Or schedule for later</p>
-            <div className="flex items-stretch gap-2">
-              <input
-                type="datetime-local"
-                value={scheduleAt}
-                onChange={e => setScheduleAt(e.target.value)}
-                className="flex-1 min-h-[44px] border rounded-md px-3 text-sm touch-manipulation"
-              />
-              <button
-                type="button"
-                onClick={() => schedulePublish.mutate()}
-                disabled={schedulePublish.isPending || !scheduleAt}
-                className="shrink-0 min-h-[44px] inline-flex items-center gap-1.5 border text-sm font-medium rounded-md px-3 disabled:opacity-50 touch-manipulation hover:bg-accent"
-              >
-                {schedulePublish.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                {hasPendingSchedule ? 'Reschedule' : 'Schedule'}
-              </button>
-            </div>
-          </div>
-
-          <div className="border-t pt-4">
-            {!confirmOverride ? (
-              <button
-                type="button"
-                onClick={() => setConfirmOverride(true)}
-                className="w-full min-h-[44px] inline-flex items-center justify-center gap-1.5 text-sm border border-destructive/40 text-destructive rounded-lg hover:bg-destructive/5 touch-manipulation"
-              >
-                <RotateCcw className="w-3.5 h-3.5" /> Override staging with production
-              </button>
-            ) : (
-              <div className="border border-destructive/40 rounded-lg p-3 space-y-2">
-                <p className="text-xs text-destructive flex items-start gap-1.5">
-                  <TriangleAlert className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  This discards every staging edit made since the last publish and resets staging to match what's live in production now. It cannot be undone.
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => overrideStaging.mutate()}
-                    disabled={overrideStaging.isPending}
-                    className="flex-1 min-h-[44px] py-1.5 text-sm bg-destructive text-destructive-foreground rounded-lg disabled:opacity-50 touch-manipulation"
-                  >
-                    {overrideStaging.isPending ? 'Working…' : 'Confirm override'}
-                  </button>
-                  <button
-                    onClick={() => setConfirmOverride(false)}
-                    className="flex-1 min-h-[44px] py-1.5 text-sm border rounded-lg hover:bg-accent touch-manipulation"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-            {overrideStaging.isError && (
-              <p className="text-xs text-destructive mt-2">
-                {overrideStaging.error?.body?.error || overrideStaging.error?.message}
-              </p>
-            )}
-          </div>
-        </div>
-      </SectionCard>
+      <p className="text-xs text-muted-foreground">
+        To put your edits live, use <strong>Publish</strong> at the top of the website menu.
+      </p>
 
       <CustomDomainGuideModal
         open={guideOpen}
@@ -3760,6 +3841,7 @@ export default function Website() {
   const [mode, setMode] = useState(() =>
     sectionParam && !String(sectionParam).startsWith('tenant-') ? 'venue' : 'tenant')
   const [active, setActive] = useState(() => sectionParam || 'tenant-page')
+  const [publishOpen, setPublishOpen] = useState(false)
   const [venueId, setVenueId] = useState(null)
 
   useEffect(() => {
@@ -3847,6 +3929,7 @@ export default function Website() {
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="w-56 shrink-0 border-r overflow-y-auto py-4 px-2">
+        {tenantSite?.id && <PublishButton tenantSite={tenantSite} onClick={() => setPublishOpen(true)} />}
         {!soleVenue && (
           <div className="px-2 mb-3 space-y-1">
             <button type="button" onClick={() => { setMode('tenant'); setActive('tenant-page') }}
@@ -3873,6 +3956,7 @@ export default function Website() {
 
         <NavGroups groups={navGroups} active={active} onSelect={selectNav} />
       </aside>
+      {publishOpen && tenantSite?.id && <PublishModal tenantSite={tenantSite} onClose={() => setPublishOpen(false)} />}
 
       <main className="flex-1 overflow-y-auto">
         <div className={cn('p-6', active !== 'page' && active !== 'tenant-page' && active !== 'tenant-pages' && active !== 'pages' && 'max-w-3xl mx-auto')}>
