@@ -162,6 +162,7 @@ const CookingBody = z.object({
 // Editing an already-logged check — the dish identity (menu_item_id /
 // dish_name) is fixed once created, only the reading itself can change.
 const CookingPatch = z.object({
+  session_id:         z.string().uuid().nullable().optional(),
   core_temp_c:        z.number().optional(),
   corrective_action:  z.string().max(2000).nullable().optional(),
   notes:              z.string().max(2000).nullable().optional(),
@@ -800,13 +801,33 @@ export default async function foodSafetyRoutes(app) {
     preHandler: requirePermission('food_safety', 'manage'),
   }, async (req) => {
     const body = CookingSessionBody.parse(req.body)
+    // A new session goes to the end of the list unless told otherwise.
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO fs_cooking_sessions (tenant_id, venue_id, label, time_of_day, required_items_count, sort_order)
       VALUES (${req.tenantId}, ${body.venue_id}, ${body.label}, ${body.time_of_day ?? null},
-              ${body.required_items_count ?? 1}, ${body.sort_order ?? 0})
+              ${body.required_items_count ?? 1},
+              COALESCE(${body.sort_order ?? null}::int, (
+                SELECT COALESCE(max(sort_order), -1) + 1 FROM fs_cooking_sessions
+                 WHERE tenant_id = ${req.tenantId} AND venue_id = ${body.venue_id} AND is_active
+              )))
       RETURNING *
     `)
     return row
+  })
+
+  // Must be registered before /cooking-sessions/:id.
+  app.patch('/cooking-sessions/reorder', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      const owned = await tx`SELECT id FROM fs_cooking_sessions WHERE id = ANY(${ids}::uuid[]) AND tenant_id = ${req.tenantId}`
+      if (owned.length !== ids.length) throw httpError(404, 'One or more cooking sessions not found')
+      for (let i = 0; i < ids.length; i++) {
+        await tx`UPDATE fs_cooking_sessions SET sort_order = ${i}, updated_at = now() WHERE id = ${ids[i]} AND tenant_id = ${req.tenantId}`
+      }
+    })
+    return { ok: true }
   })
 
   app.patch('/cooking-sessions/:id', {
@@ -943,10 +964,18 @@ export default async function foodSafetyRoutes(app) {
     if (!fields.length) throw httpError(400, 'No fields to update')
 
     const [existing] = await withTenant(req.tenantId, tx => tx`
-      SELECT core_temp_c FROM fs_cooking_checks
+      SELECT core_temp_c, venue_id FROM fs_cooking_checks
        WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
     `)
     if (!existing) throw httpError(404, 'Cooking check not found')
+    if (body.session_id) {
+      const [session] = await withTenant(req.tenantId, tx => tx`
+        SELECT id FROM fs_cooking_sessions
+         WHERE id = ${body.session_id} AND tenant_id = ${req.tenantId}
+           AND venue_id = ${existing.venue_id}
+      `)
+      if (!session) throw httpError(404, 'Cooking session not found')
+    }
 
     const temp = body.core_temp_c ?? existing.core_temp_c
     const updates = { ...body, is_within_range: temp >= 75 }

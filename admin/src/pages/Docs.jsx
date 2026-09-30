@@ -1197,7 +1197,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['fs_hold_stations', 'Named hot/cold hold stations (migration 090). sort_order for drag-reorder — replaces an earlier fixed set.'],
                 ['fs_hold_capture_times', 'Named capture times for hold checks, same pattern as fs_capture_times.'],
                 ['fs_hold_checks', 'One row per hold-station reading per capture time per day.'],
-                ['fs_cooking_sessions', 'Named cooking-check sessions (migration 090) — e.g. "Lunch service" — with a required_items_count target.'],
+                ['fs_cooking_sessions', 'Named cooking-check sessions (migration 090) — e.g. "Lunch service" — with a required_items_count target and optional time_of_day. sort_order for drag-reorder; a new session goes to the end (max + 1).'],
                 ['fs_cooking_checks', 'One row per dish checked: menu_item_id (or a free-text dish_name for off-menu items), core_temp_c, corrective_action.'],
               ]}
             />
@@ -1206,8 +1206,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Mounted at <Mono>/api/food-safety</Mono>, gated by <Mono>requirePermission('food_safety', …)</Mono>.
               Every collection follows the same shape: <Mono>GET</Mono> list for a venue/date,
               <Mono> POST</Mono> create, <Mono>PATCH</Mono> update by id, plus a
-              <Mono> /reorder</Mono> endpoint for the two drag-reorderable lists
-              (equipment, hold stations). See <Mono>src/routes/foodSafety.js</Mono> for the full
+              <Mono> /reorder</Mono> endpoint for the three drag-reorderable lists
+              (equipment, hold stations, cooking sessions). <Mono>PATCH /cooking/:id</Mono>{' '}
+              also takes <Mono>session_id</Mono> (checked against the reading's venue) so a
+              reading can be moved to another session. See <Mono>src/routes/foodSafety.js</Mono> for the full
               route list — it mirrors the schema above one-for-one (equipment, capture-times,
               temp-logs, deliveries, hold-stations, hold-capture-times, holds, cooking-sessions,
               cooking, plus a <Mono>GET /defaults</Mono> for the built-in target/min/max per
@@ -1218,8 +1220,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['File', 'Purpose']}
               rows={[
                 ['api/src/routes/foodSafety.js', 'All food-safety routes.'],
-                ['admin/src/pages/FoodSafety.jsx', 'Tabs: Today, Equipment, Deliveries, Holds, Cooking. Deliveries tab is entry-form + current-week list with click-to-edit.'],
-                ['admin/src/components/foodSafety/shared.jsx', 'Shared panels reused by both FoodSafety.jsx and HSDashboard.jsx widgets — TempChecksTable, DeliveryChecksPanel/Board, HoldChecksTable, CookingChecksPanel, EndOfDayReview. One implementation of each check type, not two.'],
+                ['admin/src/pages/FoodSafety.jsx', 'Recording only. Tabs: Today (fridge checks + counts), Deliveries (entry-form + current-week list with click-to-edit), Holds, Cooking. Empty states open H&S settings on the right section.'],
+                ['admin/src/components/hs/HsSetup.jsx', 'All food safety setup, shown as sections of the H&S settings window (HsSettings.jsx): SETUP_SECTIONS + HsSetupSection. Fridges & freezers and Hold stations (sortable lists), Fridge check times (/capture-times) and Hold check times (/hold-capture-times, kept separate), Cooking sessions (CookingSessionsSettings from shared.jsx, sortable). Remove/deactivate confirms inline. After any change it invalidates every fs-* query key so open check pages refresh.'],
+                ['admin/src/components/foodSafety/shared.jsx', 'Shared panels reused by both FoodSafety.jsx and HSDashboard.jsx widgets — TempChecksTable, DeliveryChecksPanel/Board, HoldChecksTable, CookingChecksPanel, EndOfDayReview. One implementation of each check type, not two. CookingChecksPanel: the session is picked in CookingEntryModal (default: last picked in this panel, else sessionForNow(): on today, the latest session whose time_of_day has passed, else the first); Today\'s checks is grouped by session in sort order with n/required per group, readings without a (live) session last.'],
               ]}
             />
             <InfoBox type="info">
@@ -1315,7 +1318,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET/PATCH /api/hs-settings', 'routes/hsSettings.js. GET ?venue_id=&date= returns { follow_opening_days, closed } (view on any of food_safety, checklists, hs_dashboard, dashboard); PATCH { follow_opening_days } is owner/admin.'],
                 ['GET /api/checklists/due', 'Each row gains not_required: true for daily templates when the venue is closed that day. Weekly and monthly rows are never not_required.'],
                 ['GET /api/dashboard-tiles/hs-status', 'computeHsStatus() drops daily checklists and fridge/hold/cooking from expected (and completed) on a closed venue-day; unresolved out-of-range readings still count. Venue-days and days gain closed; status is \'closed\' when nothing is expected or unresolved, future days included. Checklist breakdown rows carry not_required.'],
-                ['Admin', 'components/hs/HsSettings.jsx: HsSettingsButton (Food safety, Checklists, H&S Dashboard header via DashboardPage config.HeaderExtra) and ClosedDayNotice (those pages, config.Notice, MobileHSDashboard). Checklists Today groups not_required rows; Dashboard.jsx has a closed status style.'],
+                ['Admin', 'components/hs/HsSettings.jsx: HsSettingsButton({ venueId, section, label }) opens the H&S settings window (General = this switch, owner/admin; the food safety setup sections from HsSetup.jsx need food_safety manage) on the page\'s venue. Used by Food safety, Checklists and the H&S Dashboard header (config.HeaderExtra, now passed venueId). ClosedDayNotice (those pages, config.Notice, MobileHSDashboard). Checklists Today groups not_required rows; Dashboard.jsx has a closed status style.'],
               ]}
             />
             <H3>Key files</H3>

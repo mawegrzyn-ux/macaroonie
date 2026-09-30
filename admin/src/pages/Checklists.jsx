@@ -515,7 +515,7 @@ export default function Checklists() {
               <input type="date" value={date} onChange={e => setDate(e.target.value)}
                 className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
             )}
-            <HsSettingsButton />
+            <HsSettingsButton venueId={venueId || null} />
           </div>
         </div>
 

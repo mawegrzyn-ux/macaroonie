@@ -7,7 +7,15 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, X, AlertTriangle, Check, Minus, Settings, Trash2 } from 'lucide-react'
+import { Plus, X, AlertTriangle, Check, Minus, Trash2, GripVertical } from 'lucide-react'
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
+} from '@dnd-kit/sortable'
+import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
+import { CSS } from '@dnd-kit/utilities'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -1039,10 +1047,12 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
 //
 // Menu categories as tabs, menu items as buttons — click a dish, log its
 // core temperature (steppers + optional corrective-action note), no
-// typing a dish name each time. "Sessions" (configured via the gear icon)
-// define how many times a day this happens and how many items must be
-// checked each time to meet criteria. A live "today's checks" side panel
-// works like a till receipt while working through service.
+// typing a dish name each time. "Sessions" (set up in H&S settings, drag
+// to set their order) define how many times a day this happens and
+// how many items must be checked each time to meet criteria. The session
+// a reading belongs to is picked in the temperature pop-up. A live
+// "today's checks" side panel, grouped by session with each session's
+// progress, works like a till receipt while working through service.
 
 function CookingSessionForm({ initial, onCancel, onSave, isSaving }) {
   const [label, setLabel] = useState(initial?.label ?? '')
@@ -1086,7 +1096,43 @@ function CookingSessionForm({ initial, onCancel, onSave, isSaving }) {
   )
 }
 
-function CookingSessionsModal({ venueId, onClose }) {
+function SortableSessionRow({ session: s, confirming, removing, onEdit, onRemove, onConfirmRemove, onCancelRemove }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: s.id })
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+  return (
+    <li ref={setNodeRef} style={style} className="flex items-center gap-2 pl-1 pr-3 py-2 bg-background">
+      <button type="button" {...attributes} {...listeners}
+        className="w-10 h-10 shrink-0 flex items-center justify-center text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation"
+        title="Drag to reorder" aria-label={`Move ${s.label}`}>
+        <GripVertical className="w-4 h-4" />
+      </button>
+      <span className="flex-1 min-w-0">
+        <span className="block text-sm font-medium">{s.label}</span>
+        <span className="block text-xs text-muted-foreground">
+          {s.time_of_day ? `${timeLabel(s.time_of_day)} · ` : ''}{s.required_items_count} item{s.required_items_count === 1 ? '' : 's'} required
+        </span>
+      </span>
+      {confirming ? (
+        <>
+          <button type="button" onClick={onConfirmRemove} disabled={removing}
+            className="text-xs font-medium rounded px-2 min-h-[36px] bg-destructive text-destructive-foreground touch-manipulation disabled:opacity-50">
+            Yes, remove
+          </button>
+          <button type="button" onClick={onCancelRemove}
+            className="text-xs rounded px-2 min-h-[36px] border touch-manipulation">Cancel</button>
+        </>
+      ) : (
+        <>
+          <button type="button" onClick={onEdit} className="text-xs text-primary hover:underline px-1 min-h-[36px] touch-manipulation">Edit</button>
+          <button type="button" onClick={onRemove} className="text-xs text-red-600 hover:underline px-1 min-h-[36px] touch-manipulation">Remove</button>
+        </>
+      )}
+    </li>
+  )
+}
+
+// Cooking sessions setup, shown in H&S settings (components/hs/HsSetup.jsx).
+export function CookingSessionsSettings({ venueId }) {
   const api = useApi()
   const qc = useQueryClient()
   const [form, setForm] = useState(null) // 'new' | session row | null
@@ -1107,37 +1153,51 @@ function CookingSessionsModal({ venueId, onClose }) {
   })
   const deactivate = useMutation({
     mutationFn: id => api.delete(`/food-safety/cooking-sessions/${id}`),
-    onSuccess: invalidate,
+    onSuccess: () => { invalidate(); setConfirmRemove(null) },
   })
+  const [confirmRemove, setConfirmRemove] = useState(null)
+  const reorder = useMutation({
+    mutationFn: ids => api.patch('/food-safety/cooking-sessions/reorder', { ids }),
+    onError: invalidate,
+  })
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 150, tolerance: 6 } }),
+  )
+  function onDragEnd({ active, over }) {
+    if (!over || active.id === over.id) return
+    const next = arrayMove(sessions, sessions.findIndex(s => s.id === active.id), sessions.findIndex(s => s.id === over.id))
+    qc.setQueryData(['fs-cooking-sessions', venueId], next)
+    reorder.mutate(next.map(s => s.id))
+  }
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-1">
-          <h2 className="text-lg font-semibold">Cooking check sessions</h2>
-          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
-        </div>
-        <p className="text-xs text-muted-foreground mb-4">
+    <div>
+      <div>
+        <p className="text-sm text-muted-foreground mb-4">
           How many times a day cooking checks happen, and how many items must be checked each time to meet criteria.
+          Drag the handle to change the order.
         </p>
 
         {sessions.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4">No sessions yet.</p>
         ) : (
-          <ul className="border rounded-lg divide-y mb-3">
-            {sessions.map(s => (
-              <li key={s.id} className="flex items-center gap-2 px-3 py-2">
-                <span className="flex-1 min-w-0">
-                  <span className="block text-sm font-medium">{s.label}</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {s.time_of_day ? `${timeLabel(s.time_of_day)} · ` : ''}{s.required_items_count} item{s.required_items_count === 1 ? '' : 's'} required
-                  </span>
-                </span>
-                <button type="button" onClick={() => setForm(s)} className="text-xs text-primary hover:underline">Edit</button>
-                <button type="button" onClick={() => deactivate.mutate(s.id)} className="text-xs text-red-600 hover:underline">Remove</button>
-              </li>
-            ))}
-          </ul>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}>
+            <SortableContext items={sessions.map(s => s.id)} strategy={verticalListSortingStrategy}>
+              <ul className="border rounded-lg divide-y mb-3">
+                {sessions.map(s => (
+                  <SortableSessionRow key={s.id} session={s}
+                    confirming={confirmRemove === s.id}
+                    removing={deactivate.isPending}
+                    onEdit={() => setForm(s)}
+                    onRemove={() => setConfirmRemove(s.id)}
+                    onConfirmRemove={() => deactivate.mutate(s.id)}
+                    onCancelRemove={() => setConfirmRemove(null)} />
+                ))}
+              </ul>
+            </SortableContext>
+          </DndContext>
         )}
 
         {form ? (
@@ -1168,7 +1228,7 @@ function CookingSessionsModal({ venueId, onClose }) {
 // Done) flushes any pending change first, since unmounting would
 // otherwise drop it. There's no Cancel — once something's been logged,
 // closing just stops editing it rather than undoing it.
-function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate, onUpdate, onDelete, isDeleting, isSaving }) {
+function CookingEntryModal({ target, venueId, date, sessions, defaultSessionId, onSessionPicked, onClose, onCreate, onUpdate, onDelete, isDeleting, isSaving }) {
   // Editing an already-logged check (opened by tapping it in the "Today's
   // checks" list) pre-fills from that check and, since checkId is already
   // set, every save below routes to onUpdate instead of onCreate.
@@ -1177,6 +1237,11 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
   const [note, setNote] = useState(() => target.existingCheck?.corrective_action ?? '')
   const [customName, setCustomName] = useState('')
   const [checkId, setCheckId] = useState(() => target.existingCheck?.id ?? null)
+  const [sessionId, setSessionId] = useState(() =>
+    target.existingCheck ? (target.existingCheck.session_id ?? '') : (defaultSessionId || ''))
+  // The debounced save reads the session from here, so a session picked
+  // while a save is pending is the one it uses.
+  const sessionRef = useRef(sessionId)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const timerRef = useRef(null)
 
@@ -1194,7 +1259,7 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
     onCreate({
       venue_id: venueId,
       check_date: date,
-      session_id: sessionId || null,
+      session_id: sessionRef.current || null,
       menu_item_id: target.custom ? null : target.itemId,
       dish_name: target.custom ? customName.trim() : null,
       core_temp_c: coreTemp,
@@ -1214,6 +1279,15 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
 
   function close() { flushSave(); onClose() }
 
+  // Picking a session: a reading already saved moves to it straight away;
+  // otherwise it is used when the reading is first saved.
+  function pickSession(id) {
+    setSessionId(id)
+    sessionRef.current = id
+    onSessionPicked?.(id)
+    if (checkId) onUpdate(checkId, { session_id: id || null })
+  }
+
   function bump(delta) {
     setTemp(prev => {
       const current = prev === '' ? 75 : Number(prev)
@@ -1227,12 +1301,32 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-sm p-6">
+      <div className="bg-background rounded-xl shadow-xl w-full max-w-sm max-h-[85vh] overflow-y-auto p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">{target.custom ? 'Log a dish' : target.itemName}</h2>
           <button type="button" onClick={close} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
         </div>
         <div className="space-y-4">
+          {sessions.length > 0 && (
+            <div>
+              <p className="text-sm font-medium mb-1.5">Session</p>
+              <div className="flex flex-wrap gap-1.5">
+                {sessions.map(s => (
+                  <button key={s.id} type="button" onClick={() => pickSession(s.id)}
+                    aria-pressed={sessionId === s.id}
+                    className={cn(
+                      'rounded-lg border px-3 min-h-[44px] text-sm font-medium touch-manipulation',
+                      sessionId === s.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-accent',
+                    )}>
+                    {s.label}
+                  </button>
+                ))}
+                {target.existingCheck && !target.existingCheck.session_id && !sessionId && (
+                  <span className="text-xs text-muted-foreground self-center">No session yet</span>
+                )}
+              </div>
+            </div>
+          )}
           {target.custom && (
             <div>
               <label className="block text-sm font-medium mb-1">Dish name *</label>
@@ -1321,18 +1415,30 @@ function CookingEntryModal({ target, venueId, date, sessionId, onClose, onCreate
   )
 }
 
-// Full cooking-checks experience for one venue/date: session tabs +
-// required-count progress, menu category tabs + item buttons, the
-// temp-entry modal, and a live "today's checks" side panel. Used by the
-// Food safety page's Cooking tab and the H&S Dashboard's cooking-checks
-// widget.
+// The session a new reading goes into when the pop-up opens: on today's
+// date, the latest session whose time has come (else the first by time);
+// otherwise, or when no session has a time, the first in the list.
+function sessionForNow(sessions, date) {
+  if (!sessions.length) return ''
+  const timed = sessions.filter(s => s.time_of_day).sort((a, b) => a.time_of_day.localeCompare(b.time_of_day))
+  if (!timed.length || date !== format(new Date(), 'yyyy-MM-dd')) return sessions[0].id
+  const now = format(new Date(), 'HH:mm:ss')
+  const started = timed.filter(s => s.time_of_day <= now)
+  return (started.length ? started[started.length - 1] : timed[0]).id
+}
+
+// Full cooking-checks experience for one venue/date: menu category tabs +
+// item buttons, the temp-entry modal (where the reading's session is
+// picked), and a live "today's checks" side panel grouped by session with
+// each session's required-count progress. Used by the Food safety page's
+// Cooking tab and the H&S Dashboard's cooking-checks widget.
 export function CookingChecksPanel({ venueId, date }) {
   const api = useApi()
   const qc = useQueryClient()
-  const [sessionId, setSessionId] = useState('')
+  // The last session picked in the pop-up, reused for the next reading.
+  const [lastSessionId, setLastSessionId] = useState('')
   const [activeSectionId, setActiveSectionId] = useState('')
   const [entryTarget, setEntryTarget] = useState(null)
-  const [sessionsOpen, setSessionsOpen] = useState(false)
 
   const enabled = !!venueId
 
@@ -1343,8 +1449,7 @@ export function CookingChecksPanel({ venueId, date }) {
   })
 
   useEffect(() => {
-    if (sessionId && !sessions.some(s => s.id === sessionId)) setSessionId('')
-    if (!sessionId && sessions.length) setSessionId(sessions[0].id)
+    if (lastSessionId && !sessions.some(s => s.id === lastSessionId)) setLastSessionId('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions])
 
@@ -1395,42 +1500,29 @@ export function CookingChecksPanel({ venueId, date }) {
 
   if (!enabled) return null
 
-  const activeSession = sessions.find(s => s.id === sessionId) ?? null
-  const sessionChecks = activeSession ? checks.filter(c => c.session_id === activeSession.id) : checks
-  const countDone = sessionChecks.length
-  const target = activeSession?.required_items_count ?? null
   const activeSection = sections.find(s => s.id === activeSectionId) ?? null
+
+  // Today's checks by session, in the sessions' order; readings with no
+  // session (or one since removed) come last.
+  const groups = sessions.map(s => ({
+    key: s.id, label: s.label, required: s.required_items_count,
+    checks: checks.filter(c => c.session_id === s.id),
+  }))
+  const known = new Set(sessions.map(s => s.id))
+  const others = checks.filter(c => !c.session_id || !known.has(c.session_id))
+  for (const c of others) {
+    const key = c.session_id || 'none'
+    let g = groups.find(x => x.key === key)
+    if (!g) groups.push(g = { key, label: c.session_label || 'No session', required: null, checks: [] })
+    g.checks.push(c)
+  }
+  const shownGroups = groups.filter(g => g.checks.length || g.required != null)
 
   return (
     <div className="flex flex-col lg:flex-row gap-4">
       <div className="flex-1 min-w-0 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1 overflow-x-auto pb-1">
-            {sessions.map(s => (
-              <button key={s.id} type="button" onClick={() => setSessionId(s.id)}
-                className={cn(
-                  'px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap touch-manipulation',
-                  s.id === sessionId ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
-                )}>
-                {s.label}
-              </button>
-            ))}
-            {sessions.length === 0 && <span className="text-sm text-muted-foreground">No sessions configured</span>}
-          </div>
-          <button type="button" onClick={() => setSessionsOpen(true)}
-            className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation shrink-0" title="Manage sessions">
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
-
-        {activeSession && (
-          <div className={cn(
-            'rounded-lg px-3 py-2 text-sm inline-flex items-center gap-1.5',
-            countDone >= target ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800',
-          )}>
-            {countDone >= target ? <Check className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
-            {countDone}/{target} items checked for {activeSession.label}
-          </div>
+        {sessions.length === 0 && (
+          <p className="text-sm text-muted-foreground">No cooking sessions yet. Add them in H&amp;S settings, Cooking sessions.</p>
         )}
 
         {sections.length === 0 ? (
@@ -1480,28 +1572,51 @@ export function CookingChecksPanel({ venueId, date }) {
 
       <div className="lg:w-72 shrink-0 border rounded-xl p-3 space-y-2 max-h-[420px] overflow-y-auto">
         <p className="text-xs font-semibold text-muted-foreground uppercase">Today's checks ({checks.length})</p>
-        {checks.length === 0 ? (
+        {shownGroups.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">None yet</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {checks.map(c => (
-              <li key={c.id} className="border-b pb-1.5 last:border-0">
-                <button type="button"
-                  onClick={() => setEntryTarget({ itemName: c.dish_name, existingCheck: c })}
-                  className="w-full flex items-center justify-between gap-2 text-sm text-left rounded-lg px-1.5 py-1 -mx-1.5 min-h-[44px] touch-manipulation hover:bg-accent"
-                  title="Tap to edit this reading">
-                  <span className="min-w-0">
-                    <span className="block font-medium truncate">{c.dish_name}</span>
-                    <span className="block text-[11px] text-muted-foreground">
-                      {format(new Date(c.recorded_at), 'HH:mm')}{c.session_label ? ` · ${c.session_label}` : ''}
-                    </span>
+        ) : shownGroups.map(g => {
+          const met = g.required != null && g.checks.length >= g.required
+          return (
+            <div key={g.key} className="pt-1">
+              <div className="flex items-center justify-between gap-2 border-b pb-1 mb-1">
+                <span className="text-sm font-semibold truncate">{g.label}</span>
+                {g.required != null ? (
+                  <span className={cn(
+                    'shrink-0 inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5',
+                    met ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800',
+                  )}>
+                    {met ? <Check className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+                    {g.checks.length}/{g.required}
                   </span>
-                  <Badge ok={c.is_within_range}>{c.core_temp_c}°C</Badge>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+                ) : (
+                  <span className="shrink-0 text-[11px] text-muted-foreground">{g.checks.length}</span>
+                )}
+              </div>
+              {g.checks.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-1">None yet</p>
+              ) : (
+                <ul className="space-y-1">
+                  {g.checks.map(c => (
+                    <li key={c.id}>
+                      <button type="button"
+                        onClick={() => setEntryTarget({ itemName: c.dish_name, existingCheck: c })}
+                        className="w-full flex items-center justify-between gap-2 text-sm text-left rounded-lg px-1.5 py-1 -mx-1.5 min-h-[44px] touch-manipulation hover:bg-accent"
+                        title="Tap to edit this reading">
+                        <span className="min-w-0">
+                          <span className="block font-medium truncate">{c.dish_name}</span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {format(new Date(c.recorded_at), 'HH:mm')}
+                          </span>
+                        </span>
+                        <Badge ok={c.is_within_range}>{c.core_temp_c}°C</Badge>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {entryTarget && (
@@ -1509,7 +1624,9 @@ export function CookingChecksPanel({ venueId, date }) {
           target={entryTarget}
           venueId={venueId}
           date={date}
-          sessionId={sessionId}
+          sessions={sessions}
+          defaultSessionId={lastSessionId || sessionForNow(sessions, date)}
+          onSessionPicked={setLastSessionId}
           onClose={() => setEntryTarget(null)}
           onCreate={(body, cb) => createCheck.mutate(body, { onSuccess: row => cb(row.id) })}
           onUpdate={(id, body) => updateCheck.mutate({ id, ...body })}
@@ -1517,10 +1634,6 @@ export function CookingChecksPanel({ venueId, date }) {
           isDeleting={deleteCheck.isPending}
           isSaving={createCheck.isPending || updateCheck.isPending}
         />
-      )}
-
-      {sessionsOpen && (
-        <CookingSessionsModal venueId={venueId} onClose={() => setSessionsOpen(false)} />
       )}
     </div>
   )

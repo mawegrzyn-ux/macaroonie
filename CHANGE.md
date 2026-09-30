@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-30 — Food safety: setup in H&S settings, cooking sessions by session]
+
+- H&S settings is now one window with a section for each kind of setup: General, Fridges & freezers, Fridge check times, Hold stations, Hold check times and Cooking sessions, with a venue picker. The Food safety page keeps only the checks: the Equipment tab and the station and time lists under Holds are gone, and so is the cooking panel's gear. Where nothing is set up yet, the page offers a button straight into the right section. Removing anything now asks to confirm.
+- Cooking sessions can be dragged into order. New sessions go to the end.
+- The session is picked in the temperature pop-up instead of tabs above the dishes. It starts on the session you picked last, or on the session running now by its time. Reopening a reading lets you move it to another session.
+- Today's checks is grouped by session, each showing how many of its required items are done (e.g. Dinner 1/2).
+
+---
+
 ## [2026-09-30 — Menus: several print designs per menu, and hiding sections]
 
 **Migrations:** `135_menu_print_designs.sql`, `136_menu_section_visibility.sql`
