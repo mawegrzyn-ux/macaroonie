@@ -1526,10 +1526,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['cash_day_balance', 'useReconWeek() — day figures for ctx.selectedDay'],
                 ['cash_week_balance', 'useReconWeek() — weekDayTotal, weekExpenses, weekCardExpenses, weekCashWages, weekVariance'],
                 ['cash_recon_grid', 'SpreadsheetView with hideHeader (editable; saves through PUT /daily/:date)'],
-                ['cash_wages_paid', 'WeekWagesEditor (GET /wages/:week_start + config, Save = PUT /wages/:week_start); HeaderValue: cash paid'],
+                ['cash_wages_paid', 'WeekWagesEditor (GET /wages/:week_start + config, Save = PUT /wages/:week_start); HeaderValue: cash paid. Widget options (WAGES_OPTIONS in widgets.jsx, widget.settings): hide_manage → hideManage (no add/copy/set default/remove), hide_bulk → hideBulk (no Pay everyone in full / Paid on for all), paid_only → paidOnly (Name + Paid columns, Paid total only). Hidden fields still round-trip through toRow()/toPayload().'],
                 ['cash_petty_cash', 'PettyCashPanel (exported from MobileExpenses.jsx) for ctx.selectedDay'],
                 ['cash_week_expenses', 'useReconWeek() — detail.days[date].expenses grouped by day (read-only), dayExpenses/weekExpenses/weekCardExpenses totals; day heading sets ctx.selectedDay. Added in migration 102 (CHECK constraint only)'],
-                ['cash_week_staff', 'Same WeekWagesEditor as cash_wages_paid (both keys kept so existing dashboards keep working). Added in migration 104; standardised in migration 137.'],
+                ['cash_week_staff', 'Same WeekWagesEditor and the same options as cash_wages_paid (both keys kept so existing dashboards keep working). Added in migration 104; standardised in migration 137.'],
                 ['cash_week_summary_grid', 'useReconWeek() — the SpreadsheetView row set with only the WEEK column (weekTotal per source/SC/channel, weekDayTotal, weekExpenses, weekCardExpenses, weekCashWages, weekVariance); read-only. ScEffectBadge exported from CashRecon.jsx for it. Added in migration 103 (CHECK constraint only)'],
               ]}
             />
