@@ -2724,6 +2724,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               gotcha applies here same as the variant-visibility toggles: grep all three render
               sites, not just one, before considering a menu-item display change done.
             </P>
+            <P>
+              Dish order: each <Mono>SectionEditor</Mono> wraps its items in its own{' '}
+              <Mono>DndContext</Mono> + <Mono>SortableContext</Mono> (Pointer, Touch and Keyboard
+              sensors, <Mono>restrictToVerticalAxis</Mono> + <Mono>restrictToParentElement</Mono>),
+              so a dish can only be dropped within its own section. <Mono>ItemRow</Mono> uses{' '}
+              <Mono>useSortable</Mono> with the grip button as the activator, so tapping the row
+              still opens the dish panel. The drop reorders the draft with <Mono>arrayMove</Mono>;
+              the save payload's <Mono>sort_order</Mono> is the array index, so nothing server-side
+              changed.
+            </P>
             <H3>Print layout (menu_print.eta)</H3>
             <P>
               The print page is built from designed pages: sections are split into page groups

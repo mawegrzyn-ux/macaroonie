@@ -2443,6 +2443,12 @@ export default function Help() {
               options and online ordering VAT. The section heading shows badges for what is set
               (Highlight, VAT, New page…). Deleting a section is in its panel and asks you to confirm.
             </P>
+            <P>
+              To change the order of dishes, drag a dish by its grip (the dotted handle on the left
+              of the row) up or down. A dish stays in its own section; to move it to another
+              section, delete it and add it there. The small arrows still move a dish one place at
+              a time. Click <strong>Save changes</strong> to keep the new order.
+            </P>
             <DataTable
               head={['Field', 'What it does']}
               rows={[
