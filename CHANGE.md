@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-30 — office and ops addresses, platform page with register interest]
+
+**Migration:** `138_platform_interest.sql`
+
+- The admin moves to office.macaroonie.com and the phone app to ops.macaroonie.com. On its own address the phone app installs as a separate app on Android too. The Mobile view / Standard view buttons switch between the two.
+- macaroonie.com becomes a page about the platform with a register-interest form (name, email, company, phone, number of sites, message, consent). Old admin links there forward to office.macaroonie.com. Guest links (manage booking, reservations) and the API keep working on macaroonie.com.
+- Platform admins see the forms on the Platform page's Registered interest tab: contact details, status (New / Contacted / Closed), notes, delete. With INTEREST_NOTIFY_EMAIL set, each form is also emailed.
+- office and ops can't be used as a restaurant's site address.
+- Server steps (DNS, nginx scripts, Auth0 settings) are in Docs → Deployment → Moving to office / ops.
+
+---
+
 ## [2026-09-30 — Cash Dashboard: wage widget options]
 
 - The Wages paid and Week staff list widgets have three options in Edit layout: Hide list changes (no Add staff, Copy from, Set as default or remove buttons), Hide pay-all options (no Pay everyone in full or Paid on for all), and Name and Paid only (just each person's name and what they were paid, with the Full button).

@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Smartphone, LayoutDashboard } from 'lucide-react'
+import { mobileHref, standardHref } from '@/lib/hosts'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 const QUERY = '(max-width: 700px)'
@@ -37,7 +38,12 @@ export default function MobileViewToggle({ target }) {
   return (
     <button
       type="button"
-      onClick={() => navigate(goingToMobile ? '/mobile' : '/')}
+      onClick={() => {
+        // On office./ops. the other view is on the other host (lib/hosts.js).
+        const href = goingToMobile ? mobileHref() : standardHref()
+        if (href) window.location.assign(href)
+        else navigate(goingToMobile ? '/mobile' : '/')
+      }}
       className="fixed bottom-4 left-4 z-40 flex items-center gap-2 pl-3 pr-4 py-3 rounded-full bg-[#0f5c4f] text-white shadow-lg touch-manipulation min-h-[48px]"
       aria-label={goingToMobile ? 'Switch to mobile view' : 'Switch to standard view'}
     >

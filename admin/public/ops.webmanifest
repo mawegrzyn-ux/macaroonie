@@ -1,12 +1,12 @@
 {
   "name": "Macaroonie Ops",
   "short_name": "Ops",
-  "description": "Mobile-optimised operator tools for Macaroonie (H&S dashboard and more)",
+  "description": "Macaroonie operator tools on your phone (ops site)",
   "theme_color": "#0f5c4f",
   "background_color": "#ffffff",
   "display": "standalone",
   "orientation": "portrait",
-  "scope": "/mobile/",
+  "scope": "/",
   "start_url": "/mobile/",
   "icons": [
     {
@@ -20,5 +20,6 @@
       "type": "image/png",
       "purpose": "any maskable"
     }
-  ]
+  ],
+  "id": "/mobile/"
 }

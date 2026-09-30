@@ -27,6 +27,7 @@ import promotionsRoutes from './routes/promotions.js'
 import websiteRoutes    from './routes/website.js'
 import publicSiteRoutes from './routes/publicSite.js'
 import siteRendererRoutes from './routes/siteRenderer.js'
+import platformSite       from './routes/platformSite.js'
 import cashReconRoutes  from './routes/cashRecon.js'
 import manageBookingRoutes  from './routes/manageBooking.js'
 import emailTemplateRoutes from './routes/emailTemplates.js'
@@ -156,6 +157,11 @@ export async function buildApp() {
   app.setErrorHandler(errorHandler)
 
   // ── Routes ───────────────────────────────────────────────
+
+  // The platform page on the apex domain (register interest) and the
+  // redirect of old admin paths there to office.{root}. Its hook is global,
+  // so it is registered before every route plugin.
+  await app.register(platformSite)
 
   // Stripe webhook first — must bypass JSON body parser
   await app.register(webhookRoutes)

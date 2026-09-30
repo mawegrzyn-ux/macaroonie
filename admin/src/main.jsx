@@ -12,6 +12,13 @@ if (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) {
   document.documentElement.setAttribute('data-touch', '')
 }
 
+// ops.<domain> is the phone app's own origin: point the page at its manifest
+// before anything renders, so Android installs it as "Macaroonie Ops" and not
+// as the admin (MobileShell swaps the other tags when it mounts).
+if (typeof window !== 'undefined' && window.location.hostname.startsWith('ops.')) {
+  document.querySelector('link[rel="manifest"]')?.setAttribute('href', '/ops.webmanifest')
+}
+
 import AppShell    from '@/components/layout/AppShell'
 import MobileShell from '@/components/mobile/MobileShell'
 import MobileHub   from '@/pages/mobile/MobileHub'
@@ -74,6 +81,7 @@ import MobileOrders    from '@/pages/mobile/MobileOrders'
 import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
 import './index.css'
+import { IS_OPS_HOST } from '@/lib/hosts'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -143,7 +151,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <RequireAuth>
             <TenantGate>
             <Routes>
-              <Route element={<AppShell />}>
+              {/* ops.<domain> is the phone app only (lib/hosts.js) */}
+              <Route element={IS_OPS_HOST ? <Navigate to="/mobile" replace /> : <AppShell />}>
                 <Route index          element={<Dashboard />} />
                 <Route path="timeline" element={<Timeline />} />
                 <Route path="bookings"   element={<Bookings />} />

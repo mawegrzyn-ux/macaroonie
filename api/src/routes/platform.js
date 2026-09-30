@@ -8,6 +8,9 @@
 //   POST /api/platform/tenants            — create tenant (platform admin)
 //   PATCH /api/platform/tenants/:id       — update tenant (platform admin)
 //   GET  /api/platform/tenants/:id/stats  — tenant stats (platform admin)
+//   GET  /api/platform/interest           — register-interest forms (platform admin, migration 138)
+//   PATCH /api/platform/interest/:id      — { status?, notes? }
+//   DELETE /api/platform/interest/:id
 
 import { z } from 'zod'
 import { sql, withTenant } from '../config/db.js'
@@ -32,6 +35,11 @@ const TenantBody = z.object({
   // When true (default), creates the Auth0 organization automatically
   // and enables Username-Password + Google connections on it.
   auto_provision:    z.boolean().default(true),
+})
+
+const InterestPatch = z.object({
+  status: z.enum(['new', 'contacted', 'closed']).optional(),
+  notes:  z.string().max(4000).nullable().optional(),
 })
 
 const TenantPatch = z.object({
@@ -388,5 +396,43 @@ export default async function platformRoutes(app) {
     `
 
     return { tenant, stats: counts }
+  })
+
+  // ── Register interest (platform page, migration 138) ─────
+  // platform_interest is global (no RLS), like backlog_items.
+
+  app.get('/platform/interest', {
+    preHandler: [requireAuth, requirePlatformAdmin],
+  }, async () => {
+    return sql`
+      SELECT id, name, email, company, phone, sites, message, status, notes,
+             consent_at, created_at, updated_at
+        FROM platform_interest
+       ORDER BY created_at DESC
+       LIMIT 500
+    `
+  })
+
+  app.patch('/platform/interest/:id', {
+    preHandler: [requireAuth, requirePlatformAdmin],
+  }, async (req) => {
+    const body = InterestPatch.parse(req.body)
+    const fields = Object.keys(body)
+    if (!fields.length) throw httpError(400, 'Nothing to update')
+    const [row] = await sql`
+      UPDATE platform_interest SET ${sql(body, ...fields)}, updated_at = now()
+       WHERE id = ${req.params.id}
+      RETURNING id, name, email, company, phone, sites, message, status, notes, consent_at, created_at, updated_at
+    `
+    if (!row) throw httpError(404, 'Not found')
+    return row
+  })
+
+  app.delete('/platform/interest/:id', {
+    preHandler: [requireAuth, requirePlatformAdmin],
+  }, async (req) => {
+    const [row] = await sql`DELETE FROM platform_interest WHERE id = ${req.params.id} RETURNING id`
+    if (!row) throw httpError(404, 'Not found')
+    return { ok: true }
   })
 }
