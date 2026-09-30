@@ -2143,6 +2143,12 @@ export default function Help() {
               appears once you have more than one venue — a single-venue restaurant just has the
               one Brand &amp; theme, no tabs to manage.
             </P>
+            <P>
+              The page builder previews every page in the site's template and Brand &amp; theme:
+              the home page, extra pages and modals, and each location page. A location page, and
+              any page belonging to that location, previews with its own override when the
+              location has one. The small label next to "Page builder" shows the template in use.
+            </P>
             <InfoBox type="info">
               There used to be a separate "Identity" page under each venue for site name/tagline/
               logo/favicon. It's gone — Brand &amp; theme now covers identity, colours, typography
