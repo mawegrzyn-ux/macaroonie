@@ -1035,15 +1035,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>wages_cash</Mono> and <Mono>wages.unassigned_cash_wages</Mono> (wages on a day
               with no daily report count as unassigned there, since that route only has variances for
               reported days). The day view reads the same week-detail query. Paid date is validated to
-              the week (422 otherwise) on the whole-list <Mono>PUT /wages/:week_start</Mono>,{' '}
-              <Mono>PATCH .../entries/:id/paid</Mono> (<Mono>{'{ paid, paid_date? }'}</Mono>: omitted
-              keeps the day, unpaid clears it) and the new{' '}
-              <Mono>PATCH .../entries/:id/paid-date</Mono> (<Mono>{'{ paid_date }'}</Mono>, works on a
-              submitted report like /paid). <Mono>PaidDaySelect</Mono> is exported from{' '}
-              <Mono>CashRecon.jsx</Mono> and used by WagesView, MobileWages and the Wages paid widget.
-              Every whole-list PUT caller passes <Mono>paid_date</Mono> through (WagesView, MobileWages,
-              the week staff widget carries the saved one by entry id); rota fill-wages never touches
-              it. Implemented
+              the week (422 otherwise) on the whole-list <Mono>PUT /wages/:week_start</Mono>, the only
+              wage write route since migration 137 (the per-entry <Mono>/paid</Mono> and{' '}
+              <Mono>/paid-date</Mono> PATCHes and wage submit/unsubmit were removed).{' '}
+              <Mono>PaidDaySelect</Mono> is exported from <Mono>CashRecon.jsx</Mono> and used by{' '}
+              <Mono>WeekWagesEditor</Mono>; rota fill-wages never touches <Mono>paid_date</Mono>.
+              Implemented
               once in <Mono>reconCalc()</Mono> (<Mono>variance(date)</Mono>,{' '}
               <Mono>weekVariance()</Mono>), mirrored by the day view's <Mono>const variance</Mono>{' '}
               and by the <Mono>GET .../week/:week_start</Mono> route's per-day <Mono>variance</Mono>{' '}
@@ -1074,11 +1071,31 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Table', 'Purpose']}
               rows={[
                 ['cash_staff', 'Per-venue staff list with a default_rate, pay_type (hourly | fixed, migration 104), and since migration 106 role_id (staff_roles) and pay_basis (week | day | shift, used by fixed staff). default_rate is £/hr for hourly, £ per week/day/shift for fixed. pay_type seeds entry_type when the person is added to a week. CRUD and reorder moved to /api/rota/venues/:venueId/staff* (see Staff & Rota); GET /cash-recon/config still returns the rows.'],
-                ['cash_wage_reports', 'One per venue per ISO week (week_start), status draft/submitted.'],
-                ['cash_wage_entries', 'One per staff member per report. total is the full wage cost; cash_amount is only the cash-paid portion — the two legitimately differ when part or all of a wage goes by bank transfer.'],
+                ['cash_wage_reports', 'One per venue per ISO week (week_start) plus notes. status / submitted_at were dropped in migration 137: wages are never submitted or locked (days are).'],
+                ['cash_wage_entries', 'One per staff member per report. total is the full wage cost; cash_amount is only the cash-paid portion — the two legitimately differ when part or all of a wage goes by bank transfer. A part-paid row (0 < cash_amount < total) carries the difference into next week\'s rota pay (carried_owed, see Staff & Rota). The whole-list PUT keeps an entry\'s id when the client sends one that was already in that week (anything else gets a new id).'],
                 ['cash_wage_defaults', "(migration 093) tenant_id, venue_id, staff_id, entry_type, sort_order — UNIQUE(venue_id, staff_id). The venue's saved default staff list for 'Set as default'; entries without a staff_id (ad-hoc) are never included since there's no stable identity to carry over week to week."],
               ]}
             />
+            <H3>WeekWagesEditor (one wages editor)</H3>
+            <P>
+              <Mono>components/cashRecon/WagesTable.jsx</Mono> exports <Mono>WeekWagesEditor</Mono>{' '}
+              (<Mono>{'{ venueId, weekStart, defaultPaidDay, showWeekNotes, layout }'}</Mono>), used by
+              the Cash Recon Wages page (<Mono>WagesView</Mono>), both Cash Dashboard wage widgets
+              (<Mono>cash_wages_paid</Mono> and <Mono>cash_week_staff</Mono> render the same editor,
+              with <Mono>defaultPaidDay = ctx.selectedDay</Mono>) and <Mono>MobileWages.jsx</Mono>{' '}
+              (<Mono>layout="cards"</Mono>). Columns: Name, Total, Paid (<Mono>cash_amount</Mono>, with a
+              Full button), Paid on, Notes. Pay type, hours and rate are not shown: <Mono>toRow()</Mono>{' '}
+              / <Mono>toPayload()</Mono> carry them through unchanged, except that typing a Total sets{' '}
+              <Mono>entry_type = 'fixed'</Mono> and clears hours/rate. Edits live in a local draft
+              (reset when venue or week changes) and are written by Save with the whole-list PUT;
+              Discard drops them. A payment defaults its <Mono>paid_date</Mono> to{' '}
+              <Mono>defaultPaidDay</Mono>, else today when it is in the week; a row with no cash paid
+              is sent with <Mono>paid_date: null</Mono>. Set as default posts each staff member's own{' '}
+              <Mono>cash_staff.pay_type</Mono> as the entry_type (types aren't edited here). Layout is
+              a table row per person from 640px of its own width (<Mono>ResizeObserver</Mono>), cards
+              below. Save invalidates the wages, week, week-detail and <Mono>rota-pay</Mono> queries
+              (a part-paid row changes next week's rota pay).
+            </P>
             <H3>Filling a week's wage entries</H3>
             <P>
               <Mono>CashRecon.jsx</Mono> exports the one implementation used by{' '}
@@ -1509,10 +1526,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['cash_day_balance', 'useReconWeek() — day figures for ctx.selectedDay'],
                 ['cash_week_balance', 'useReconWeek() — weekDayTotal, weekExpenses, weekCardExpenses, weekCashWages, weekVariance'],
                 ['cash_recon_grid', 'SpreadsheetView with hideHeader (editable; saves through PUT /daily/:date)'],
-                ['cash_wages_paid', 'GET /wages/:week_start + PATCH .../entries/:id/paid (works when submitted)'],
+                ['cash_wages_paid', 'WeekWagesEditor (GET /wages/:week_start + config, Save = PUT /wages/:week_start); HeaderValue: cash paid'],
                 ['cash_petty_cash', 'PettyCashPanel (exported from MobileExpenses.jsx) for ctx.selectedDay'],
                 ['cash_week_expenses', 'useReconWeek() — detail.days[date].expenses grouped by day (read-only), dayExpenses/weekExpenses/weekCardExpenses totals; day heading sets ctx.selectedDay. Added in migration 102 (CHECK constraint only)'],
-                ['cash_week_staff', 'GET /wages/:week_start + config. Local draft of the week\'s entries (pay type, hours x rate or fixed total, add/remove, copy from one of the last 8 weeks via qc.fetchQuery on the same wages key); Save sends the whole-tree PUT /wages/:week_start, carrying cash_amount over from the saved entry by id (an entry that was fully paid stays fully paid at its new total). Set as default posts /wages/:week_start/set-default. New weeks fill from defaultWageEntries(config). Read-only when the report is submitted. Added in migration 104'],
+                ['cash_week_staff', 'Same WeekWagesEditor as cash_wages_paid (both keys kept so existing dashboards keep working). Added in migration 104; standardised in migration 137.'],
                 ['cash_week_summary_grid', 'useReconWeek() — the SpreadsheetView row set with only the WEEK column (weekTotal per source/SC/channel, weekDayTotal, weekExpenses, weekCardExpenses, weekCashWages, weekVariance); read-only. ScEffectBadge exported from CashRecon.jsx for it. Added in migration 103 (CHECK constraint only)'],
               ]}
             />
@@ -1626,7 +1643,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['PUT .../weeks/:week/pot-lines { amounts: [{ line_id, amount }] }; PUT .../weeks/:week/pots/:potId/manual { amounts: [{ staff_id, amount }] }', 'rota_tips manage', 'Weekly manual line values (null clears; may be negative; percent lines 400 outside -100..100) and manual shares (422 unless the pot is manual). Both return the recomputed pay payload. POST /pots/:id/lines takes { name, kind }.'],
                 ['PATCH .../staff/:staffId { pay_override }, POST .../tip-moves { kind, action (move | add | remove, default move), from_staff_id (move only), lines: [{ to_staff_id, amount }], note (required for add / remove) }, DELETE .../tip-moves/:id, POST .../reset-moves { kind: points | money | all }', 'rota_pay manage (pay override); rota_tips manage (moves, reset)', 'Each returns the recomputed pay payload (which includes moves: each with from_name, lines with names, total). A move whose lines add up to more than the giver has now (points, or tip_share for money) is 422, and so is a remove line bigger than that person\'s balance; moving to yourself or listing a person twice is 400. The UI (TipMoveModal in rota.jsx) turns equal / by amount / by % into final amounts with splitEvenly() / splitByPercent(), which work in hundredths so the lines add up exactly.'],
                 ['POST .../tip-nudge { staff_id, direction: plus | minus }; POST .../reset-unallocated', 'rota_tips manage', 'Moves 0.50 (NUDGE_STEP in rota.js) between the person\'s tip total and the week\'s unallocated pot by adding -0.50 / +0.50 to rota_week_staff.tip_unallocated. Minus is 422 when the person\'s tip_share is under 0.50, plus is 422 when totals.tips_unallocated is under 0.50. A pg_advisory_xact_lock on the venue week serialises rapid taps so two can\'t pass the same balance check. reset-unallocated sets every nudge back to 0. computeRotaWeek() adds tip_unallocated into tip_share and reports totals.tips_unallocated = -sum of nudges; the UI is NudgeTotal in rota.jsx.'],
-                ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header (422 if submitted), updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Hourly people get hours = paid_hours (worked + PTO) and rate = pay / paid_hours; everyone else a fixed total. Tips are not written.'],
+                ['POST .../pay-adjustments { staff_id, kind: extra | deduction | advance, amount > 0, note }; PATCH .../pay-adjustments/:id { amount?, note? }; DELETE .../pay-adjustments/:id', 'rota_pay manage', 'Migration 137. Each returns the recomputed pay payload. The staff member must belong to the venue. An advance also inserts an advance_repay row (same amount and note, source_id = the advance) in the following week; changing the advance\'s amount changes its repayment too if the repayment still equals the old amount; deleting the advance cascades to it. advance_repay can\'t be created directly but can be edited or deleted like any row.'],
+                ['POST .../fill-wages', 'rota_pay manage', 'Upserts the cash_wage_reports header, updates rostered people\'s cash_wage_entries by staff_id (fully paid rows stay fully paid at the new total), inserts the rest, leaves other rows alone. Rostered includes anyone with pay adjustments or carried_owed. The total written is pay (after adjustments); hourly people get hours = paid_hours (worked + PTO) and rate = base_pay / paid_hours. Notes list the adjustments (new rows, or existing rows with empty notes). Tips are not written.'],
               ]}
             />
             <H3>Calculation (services/rotaCalc.js)</H3>
@@ -1651,7 +1669,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['Fixed / week', 'default_rate if the person has any on or pto entry that week.'],
                 ['Fixed / day', 'default_rate x distinct days with an on or pto entry.'],
                 ['Fixed / shift', 'Sum of (shift amount x fraction worked); shift amount = staff_shift_rates rate, else default_rate.'],
-                ['Pay override', 'rota_week_staff.pay_override replaces the computed pay for that week.'],
+                ['Pay override', 'rota_week_staff.pay_override replaces the computed pay for that week (base_pay).'],
+                ['Pay adjustments', 'rota_pay_adjustments (migration 137): venue, staff, week_start, kind extra | deduction | advance | advance_repay, amount > 0, note, source_id (repay → its advance, ON DELETE CASCADE). computeRotaWeek({ payAdjustments, carriedOwed }) returns base_pay, adjustments[], extra_pay, deductions, advance, advance_repay, carried_owed, pay = max(0, base_pay + extra − deductions + advance − advance_repay + carried_owed) and pay_shortfall (the part below 0, not carried). carried_owed comes from last week\'s Cash Recon wage rows with 0 < cash_amount < total (sum of total − cash_amount per staff_id), loaded in computeWeek(). All these fields are in PAY_ROW_FIELDS, so redactWeek() strips them without rota_pay. UI: the Adjustments column and PayAdjustModal in rota.jsx.'],
                 ['Points', 'Sum of shift.points x fraction x role multiplier (1 with no role), plus points_adjustment (sum of point moves in minus out), floored at 0.'],
                 ['Pot total', 'gross = sum of the venue\'s week cash_sc_entries for sources with that tip_pot_id, plus the pot\'s manual lines for the week: base = sources + £ lines (floored at 0), each percent line adds round2(base x pct / 100), so % lines never compound; gross = max(0, sources + every line\'s value). Each line in the summary carries value (its £ effect). surcharges apply in order, each amount = round2(remaining x pct / 100) where remaining starts at gross and drops by each amount, so they compound; surcharge = gross - remaining; total (what is shared, and what difference is measured against) = remaining. Pot summaries return gross, surcharges ([{ name, pct, amount }]), surcharge (their sum) and total; totals add tips_gross and surcharges (tips_in stays after surcharges). Active pots are listed, plus inactive ones still holding money that week.'],
                 ['Points pot share', 'pot total x person points / total points (pot_shares_exact), rounded to a multiple of rota_settings.tip_round_to with tip_round_mode nearest | up | down (migration 107; roundTip() works in whole pence).'],
@@ -1968,49 +1987,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Mobile Wages</H3>
             <P>
-              <Mono>admin/src/pages/mobile/MobileWages.jsx</Mono> (<Mono>/mobile/wages</Mono>).
-              Desktop's <Mono>WagesView</Mono> shows an 8-column grid (Staff / Type / Hours / Rate
-              / Total / Cash paid / Notes / Remove) that only survives phone width via{' '}
-              <Mono>overflow-x-auto</Mono> horizontal scrolling — not a real reflow. The mobile
-              page instead renders a single-row-per-entry table (one bordered card, column labels
-              "Staff" / "To be paid" / "Paid" shown once in a header row rather than repeated per
-              entry) with two controls per row: <Mono>total</Mono> ("To be paid", a number field)
-              and a "Paid" <b>checkbox</b> — not a second amount field, plus a delete icon. Ticking
-              "Paid" counts the entry's full <Mono>total</Mono> toward cash reconciliation;
-              unticked counts nothing. The checkbox is a UI simplification over the underlying{' '}
-              <Mono>cash_amount</Mono> column (which can still hold a partial amount on desktop) —{' '}
-              <Mono>buildPayload()</Mono> derives <Mono>cash_amount</Mono> as{' '}
-              <Mono>paid ? total : 0</Mono> from a local <Mono>paid</Mono> boolean, itself
-              initialised from the loaded entry as <Mono>cash_amount &gt; 0</Mono>. Every other
-              field on an entry (<Mono>entry_type</Mono>, <Mono>hours</Mono>, <Mono>rate</Mono>,{' '}
-              <Mono>notes</Mono>) is read from the loaded entry and passed straight back through on
-              every save unchanged — this page never edits them, so an hourly entry configured on
-              desktop keeps its hours/rate intact after a mobile-only edit. Same auto-populate
-              behaviour as desktop (server entries → venue's <Mono>wage_defaults</Mono> → full
-              active-staff roster, in that order), same add-staff (from the staff list, or
-              ad-hoc)/remove/submit/unsubmit/"Set as default" actions, same{' '}
-              <Mono>/venues/:id/cash-recon/wages/:week_start[/submit|/unsubmit|/set-default]</Mono>{' '}
-              endpoints for everything except marking paid.
-            </P>
-            <P>
-              <b>Editing a submitted report.</b> The whole-tree{' '}
-              <Mono>PUT /venues/:id/cash-recon/wages/:week_start</Mono> rejects any save once the
-              week's report status is <Mono>submitted</Mono> ("unsubmit first") — this locks{' '}
-              <Mono>total</Mono>/<Mono>hours</Mono>/<Mono>rate</Mono>/staff list as intended, but
-              marking staff actually paid in cash is a separate step that routinely happens{' '}
-              <i>after</i> submission, not before it. So the "Paid" checkbox does not go through
-              that endpoint once submitted — it calls a dedicated{' '}
-              <Mono>PATCH /venues/:id/cash-recon/wages/:week_start/entries/:entryId/paid</Mono>{' '}
-              (body <Mono>{'{ paid: boolean }'}</Mono>) that sets just that one entry's{' '}
-              <Mono>cash_amount</Mono> to its own <Mono>total</Mono> (paid) or <Mono>0</Mono> (not
-              paid), with no submitted-status check at all. Before submission, the checkbox still
-              goes through the normal debounced whole-tree <Mono>PUT</Mono> like any other field.
-              "To be paid" editing and add/remove staff are disabled (add/remove hidden entirely)
-              on this page while the report is submitted, with a one-line note explaining why —
-              closing off the "type into a locked field, autosave silently 422s, 'Save failed'
-              with no explanation" trap that existed before this. Desktop's <Mono>WagesView</Mono>{' '}
-              does not yet have either the checkbox or the submitted-input lock — see
-              CLAUDE.md's Outstanding items.
+              <Mono>admin/src/pages/mobile/MobileWages.jsx</Mono> (<Mono>/mobile/wages</Mono>) is a venue
+              picker and week navigator over <Mono>WeekWagesEditor</Mono> with{' '}
+              <Mono>layout="cards"</Mono> (see Cash Reconciliation), so it shows exactly what the
+              desktop Wages page and the dashboard widgets show. The earlier Paid checkbox, the
+              per-entry <Mono>/paid</Mono> endpoint and the submitted-report lock are gone with wage
+              submission (migration 137).
             </P>
           </section>
 

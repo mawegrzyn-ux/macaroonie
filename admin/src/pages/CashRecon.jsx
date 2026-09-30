@@ -17,11 +17,12 @@ import {
   ArrowLeft, Settings, ChevronLeft, ChevronRight,
   Plus, Trash2, Pencil, Check, Camera, X, Loader2,
   ChevronUp, ChevronDown, Lock, MessageSquare, Table2,
-  AlertTriangle, Star, CreditCard,
+  AlertTriangle, CreditCard,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
+import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -950,11 +951,6 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
               <td className="sticky left-0 bg-background px-3 py-1 text-xs font-medium border-r border-border/60 min-w-[150px] z-10">
                 <span className="flex items-center gap-1">
                   Wages (cash paid)
-                  {detail?.wages_status && (
-                    <span className={cn('text-[10px] rounded-full px-1.5 py-px', detail.wages_status === 'submitted' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700')}>
-                      {detail.wages_status === 'submitted' ? 'Subm' : 'Draft'}
-                    </span>
-                  )}
                   {parseNum(detail?.wages_total) !== parseNum(detail?.wages_cash_total) && (
                     <AlertTriangle
                       className="w-3.5 h-3.5 text-amber-600"
@@ -1125,7 +1121,6 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
                     />
                   )}
                 </span>
-                <StatusBadge status={w?.status ?? 'none'} />
               </div>
               {w?.total_wages != null
                 ? (
@@ -1917,403 +1912,24 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
 
 // ── WAGES VIEW ───────────────────────────────────────────────────────────────
 
+// Wages for the week: the shared WeekWagesEditor (Name, Total, Paid, Paid
+// on, Notes, explicit Save), the same editor the Cash Dashboard wage widgets
+// and /mobile/wages use. Wages aren't submitted; the days are.
 function WagesView({ venueId, weekStart, onBack }) {
-  const api = useApi()
-  const qc  = useQueryClient()
-
-  const [saving,  setSaving]  = useState(false)
-  const [saved,   setSaved]   = useState(false)
-  const [saveErr, setSaveErr] = useState(false)
-  const saveTimerRef = useRef(null)
-
-  const { data: config } = useQuery({
-    queryKey: ['cash-recon-config', venueId],
-    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/config`),
-    enabled:  !!venueId,
-  })
-
-  const { data: wagesData, isLoading } = useQuery({
-    queryKey: ['cash-recon-wages', venueId, weekStart],
-    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/wages/${weekStart}`),
-    enabled:  !!venueId && !!weekStart,
-  })
-
-  const [entries,  setEntries]  = useState([])
-  const [notes,    setNotes]    = useState('')
-  const [addOpen,  setAddOpen]  = useState(false)
-  const [addMode,  setAddMode]  = useState('template') // 'template' | 'adhoc'
-  const [addStaff, setAddStaff] = useState('')
-  const [addAdhoc, setAddAdhoc] = useState('')
-
-  const activeStaff  = useMemo(() => (config?.staff ?? []).filter(s => s.is_active), [config])
-
-  // Track which week we've already initialised so refetching config doesn't wipe entered data
-  const initializedWeek = useRef(null)
-
-  useEffect(() => {
-    // `wagesData` is `undefined` while the query hasn't resolved yet, but a
-    // resolved `null` means "confirmed — no wage report exists for this week
-    // yet" (see GET .../wages/:week_start: `if (!header) return null`). Only
-    // the former should block initialisation — treating `null` the same way
-    // meant a brand-new week (never saved before) never reached the
-    // auto-populate branch below, so "Set as default" appeared to do nothing
-    // the moment you moved to a week that had no prior data.
-    if (wagesData === undefined || !config) return
-    // Reset initialised flag when week changes
-    if (initializedWeek.current !== weekStart) {
-      initializedWeek.current = weekStart
-      setNotes(wagesData?.notes ?? '')
-      const serverEntries = wagesData?.entries ?? []
-      // Saved entries win; a new week fills from the default wage list, or
-      // the active staff roster when no default has been set.
-      setEntries(serverEntries.length > 0 ? serverEntries : defaultWageEntries(config))
-    }
-  }, [wagesData, config, weekStart])
-
-  const totalWages     = useMemo(() => entries.reduce((s, e) => s + parseNum(e.total ?? (parseNum(e.hours) * parseNum(e.rate))), 0), [entries])
-  const totalCashWages = useMemo(() => entries.reduce((s, e) => s + parseNum(e.cash_amount ?? 0), 0), [entries])
-
-  function triggerSave(data) {
-    clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(async () => {
-      setSaving(true); setSaved(false); setSaveErr(false)
-      try {
-        await api.put(`/venues/${venueId}/cash-recon/wages/${weekStart}`, data)
-        qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
-        qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
-      } catch {
-        setSaveErr(true)
-      } finally {
-        setSaving(false)
-      }
-    }, 800)
-  }
-
-  function buildPayload(list = entries) {
-    return { entries: list.map(e => {
-      const et = e.entry_type ?? 'fixed'
-      return {
-        staff_id:    e.staff_id ?? null,
-        name:        e.name,
-        entry_type:  et,
-        hours:       et === 'fixed' ? null : parseNum(e.hours),
-        rate:        et === 'fixed' ? null : parseNum(e.rate),
-        total:       parseNum(e.total ?? (et === 'hourly' ? parseNum(e.hours) * parseNum(e.rate) : 0)),
-        cash_amount: parseNum(e.cash_amount ?? 0),
-        paid_date:   e.paid_date || null,
-        notes:       e.notes ?? '',
-      }
-    }), notes }
-  }
-
-  // Paid on day. Before submission it saves with everything else; once the
-  // week is submitted the whole-list save is locked, so each entry's day goes
-  // through PATCH .../entries/:id/paid-date instead.
-  async function savePaidDays(next, changed) {
-    setEntries(next)
-    if (!isSubmitted) { triggerSave(buildPayload(next)); return }
-    setSaving(true); setSaved(false); setSaveErr(false)
-    try {
-      for (const e of changed.filter(x => x.id)) {
-        await api.patch(`/venues/${venueId}/cash-recon/wages/${weekStart}/entries/${e.id}/paid-date`, { paid_date: e.paid_date || null })
-      }
-      qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] })
-      qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
-      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-    } catch {
-      setSaveErr(true)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function setPaidDay(idx, day) {
-    const next = entries.map((e, i) => i === idx ? { ...e, paid_date: day } : e)
-    savePaidDays(next, [next[idx]])
-  }
-
-  function setAllPaidDays(day) {
-    const next = entries.map(e => ({ ...e, paid_date: day }))
-    savePaidDays(next, next)
-  }
-
-  function handleEntryBlur() {
-    triggerSave(buildPayload())
-  }
-
-  function updateEntry(idx, field, value) {
-    setEntries(p => p.map((e, i) => {
-      if (i !== idx) return e
-      const updated = { ...e, [field]: value }
-      if (field === 'hours' || field === 'rate') {
-        const h = parseNum(field === 'hours' ? value : e.hours)
-        const r = parseNum(field === 'rate'  ? value : e.rate)
-        if (h > 0 && r > 0) updated.total = (h * r).toFixed(2)
-      }
-      return updated
-    }))
-  }
-
-  function addFromTemplate() {
-    const member = activeStaff.find(s => s.id === addStaff)
-    if (!member) return
-    const next = [...entries, wageEntryForStaff(member)]
-    setEntries(next)
-    setAddStaff('')
-    setAddOpen(false)
-    triggerSave(buildPayload(next))
-  }
-
-  function addAdhocEntry() {
-    if (!addAdhoc.trim()) return
-    const newEntry = { staff_id: null, name: addAdhoc.trim(), entry_type: 'fixed', hours: '', rate: '', total: '', cash_amount: '', notes: '' }
-    setEntries(p => [...p, newEntry])
-    setAddAdhoc('')
-    setAddOpen(false)
-    triggerSave(buildPayload([...entries, newEntry]))
-  }
-
-  function removeEntry(idx) {
-    const next = entries.filter((_, i) => i !== idx)
-    setEntries(next)
-    triggerSave(buildPayload(next))
-  }
-
-  const submitMutation = useMutation({
-    mutationFn: (action) => api.post(`/venues/${venueId}/cash-recon/wages/${weekStart}/${action}`, buildPayload()),
-    onSuccess:  () => {
-      qc.invalidateQueries({ queryKey: ['cash-recon-wages', venueId, weekStart] })
-      qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
-      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId, weekStart] })
-    },
-  })
-
-  const [defaultSaved, setDefaultSaved] = useState(false)
-  const setDefaultMutation = useMutation({
-    mutationFn: () => api.post(`/venues/${venueId}/cash-recon/wages/${weekStart}/set-default`, {
-      entries: entries.map(e => ({ staff_id: e.staff_id ?? null, entry_type: e.entry_type ?? 'fixed' })),
-    }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['cash-recon-config', venueId] })
-      setDefaultSaved(true)
-      setTimeout(() => setDefaultSaved(false), 2000)
-    },
-  })
-
-  const currentStatus = wagesData?.status ?? 'none'
-  const isSubmitted   = currentStatus === 'submitted'
-  const staffEntryCount = entries.filter(e => e.staff_id).length
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Header */}
       <div className="sticky top-0 z-10 bg-background border-b px-4 max-lg:notouch:pl-14 py-3 flex items-center gap-3">
         <IconBtn onClick={onBack} title="Back"><ArrowLeft className="w-5 h-5" /></IconBtn>
-        <div>
-          <div className="text-sm font-semibold">Wages — Week of {format(parseISO(weekStart), 'd MMMM yyyy')}</div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <StatusBadge status={currentStatus} />
-            <SaveIndicator saving={saving} saved={saved} error={saveErr} />
-          </div>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          {!isSubmitted && (
-            <button type="button" disabled={submitMutation.isPending} onClick={() => submitMutation.mutate('submit')}
-              className="h-10 px-4 rounded-xl bg-green-600 text-white text-sm font-medium touch-manipulation hover:bg-green-700 disabled:opacity-50">
-              {submitMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit'}
-            </button>
-          )}
-          {isSubmitted && (
-            <button type="button" disabled={submitMutation.isPending} onClick={() => submitMutation.mutate('unsubmit')}
-              className="h-10 px-4 rounded-xl border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50">
-              Unsubmit
-            </button>
-          )}
-        </div>
+        <div className="text-sm font-semibold">Wages — Week of {format(parseISO(weekStart), 'd MMMM yyyy')}</div>
       </div>
-
-      <div className="p-4 space-y-4 pb-32">
-        <SectionCard
-          title="Staff Wages"
-          action={
-            entries.length > 0 && (
-              <button
-                type="button"
-                disabled={setDefaultMutation.isPending || staffEntryCount === 0}
-                onClick={() => setDefaultMutation.mutate()}
-                className="flex items-center gap-1 text-xs text-primary touch-manipulation hover:underline disabled:opacity-50"
-                title="Save this week's staff list (and Fixed/Hourly settings) as the default for future weeks. Ad-hoc entries without a staff record are not included."
-              >
-                {setDefaultMutation.isPending
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <Star className={cn('w-3.5 h-3.5', defaultSaved && 'fill-primary')} />}
-                {defaultSaved ? 'Saved as default' : 'Set as default'}
-              </button>
-            )
-          }
-        >
-          <div className="space-y-2">
-            {entries.length === 0 && !addOpen && (
-              <p className="text-sm text-muted-foreground">No staff entries yet. {activeStaff.length > 0 ? 'Add staff below, then use "Set as default" to reuse this list every week.' : 'Add staff in Settings first.'}</p>
-            )}
-
-            {entries.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>Cash wages come out of the till on the <strong>Paid on</strong> day, so that day's variance counts them.</span>
-                <label className="ml-auto flex items-center gap-2">
-                  Set all to
-                  <PaidDaySelect weekStart={weekStart} value="" emptyLabel="Choose…"
-                    onChange={day => { if (day) setAllPaidDays(day) }} />
-                </label>
-              </div>
-            )}
-
-            {entries.length > 0 && (
-              <div className="hidden sm:grid grid-cols-[minmax(120px,1fr)_92px_64px_76px_84px_84px_96px_minmax(100px,1fr)_40px] gap-2 px-1 text-[11px] font-medium text-muted-foreground">
-                <span>Staff</span>
-                <span>Type</span>
-                <span>Hours</span>
-                <span>Rate</span>
-                <span>Total (£)</span>
-                <span>Cash paid (£)</span>
-                <span>Paid on</span>
-                <span>Notes</span>
-                <span></span>
-              </div>
-            )}
-
-            <div className="overflow-x-auto">
-              <div className="space-y-1.5 min-w-[860px] sm:min-w-0">
-                {entries.map((entry, idx) => {
-                  const isHourly = (entry.entry_type ?? 'fixed') === 'hourly'
-                  return (
-                    <div key={idx} className="grid grid-cols-[minmax(120px,1fr)_92px_64px_76px_84px_84px_96px_minmax(100px,1fr)_40px] gap-2 items-center rounded-xl border p-1.5">
-                      <span className="text-sm font-medium truncate px-1.5" title={entry.name}>{entry.name}</span>
-
-                      <button
-                        type="button"
-                        onClick={() => updateEntry(idx, 'entry_type', isHourly ? 'fixed' : 'hourly')}
-                        className={cn(
-                          'h-10 rounded-lg text-[11px] font-medium touch-manipulation transition-colors',
-                          isHourly ? 'bg-primary text-primary-foreground' : 'border text-muted-foreground hover:bg-muted'
-                        )}
-                        title="Toggle Fixed / Hourly"
-                      >
-                        {isHourly ? '⏱ Hourly' : '£ Fixed'}
-                      </button>
-
-                      {isHourly ? (
-                        <AmountInput value={entry.hours} onChange={v => updateEntry(idx, 'hours', v)} onBlur={handleEntryBlur} placeholder="0" />
-                      ) : (
-                        <div className="h-10 flex items-center justify-center text-xs text-muted-foreground/40">—</div>
-                      )}
-
-                      {isHourly ? (
-                        <AmountInput value={entry.rate} onChange={v => updateEntry(idx, 'rate', v)} onBlur={handleEntryBlur} placeholder="0.00" />
-                      ) : (
-                        <div className="h-10 flex items-center justify-center text-xs text-muted-foreground/40">—</div>
-                      )}
-
-                      <AmountInput value={entry.total} onChange={v => updateEntry(idx, 'total', v)} onBlur={handleEntryBlur} placeholder="auto" />
-
-                      <AmountInput value={entry.cash_amount} onChange={v => updateEntry(idx, 'cash_amount', v)} onBlur={handleEntryBlur} placeholder="0.00" />
-
-                      <PaidDaySelect weekStart={weekStart} value={entry.paid_date} onChange={day => setPaidDay(idx, day)} />
-
-                      <TextInput placeholder="Notes" value={entry.notes ?? ''} onChange={v => updateEntry(idx, 'notes', v)} onBlur={handleEntryBlur} />
-
-                      <IconBtn onClick={() => removeEntry(idx)} title="Remove" className="text-destructive hover:bg-destructive/10 w-10 h-10">
-                        <Trash2 className="w-4 h-4" />
-                      </IconBtn>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Add staff */}
-            {addOpen ? (
-              <div className="rounded-xl border p-3 bg-muted/20 space-y-2">
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setAddMode('template')}
-                    className={cn('flex-1 h-9 rounded-lg text-sm touch-manipulation border transition-colors', addMode === 'template' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted')}>
-                    From staff list
-                  </button>
-                  <button type="button" onClick={() => setAddMode('adhoc')}
-                    className={cn('flex-1 h-9 rounded-lg text-sm touch-manipulation border transition-colors', addMode === 'adhoc' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted')}>
-                    Ad-hoc
-                  </button>
-                </div>
-                {addMode === 'template' ? (
-                  <>
-                    <select
-                      value={addStaff}
-                      onChange={e => setAddStaff(e.target.value)}
-                      className="h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    >
-                      <option value="">Select staff member…</option>
-                      {activeStaff.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}{staffRateLabel(s) ? ` (${staffRateLabel(s)})` : ''}</option>
-                      ))}
-                    </select>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={addFromTemplate} disabled={!addStaff}
-                        className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50">Add</button>
-                      <button type="button" onClick={() => setAddOpen(false)}
-                        className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <TextInput placeholder="Name *" value={addAdhoc} onChange={setAddAdhoc} />
-                    <div className="flex gap-2">
-                      <button type="button" onClick={addAdhocEntry} disabled={!addAdhoc.trim()}
-                        className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50">Add</button>
-                      <button type="button" onClick={() => setAddOpen(false)}
-                        className="flex-1 h-10 rounded-xl border text-sm touch-manipulation hover:bg-muted">Cancel</button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : (
-              <button type="button" onClick={() => setAddOpen(true)}
-                className="w-full h-12 rounded-xl border-2 border-dashed text-sm text-muted-foreground touch-manipulation hover:border-primary/60 hover:text-foreground transition-colors flex items-center justify-center gap-2">
-                <Plus className="w-4 h-4" /> Add staff member
-              </button>
-            )}
-          </div>
+      <div className="p-4 pb-32 max-w-5xl">
+        <SectionCard title="Staff wages">
+          <p className="text-xs text-muted-foreground mb-3">
+            Cash wages come out of the till on the <strong>Paid on</strong> day, so that day's variance counts them.
+            Anything not paid in full carries to next week's rota pay.
+          </p>
+          <WeekWagesEditor venueId={venueId} weekStart={weekStart} showWeekNotes />
         </SectionCard>
-
-        {/* Notes */}
-        <SectionCard title="Notes">
-          <textarea
-            value={notes}
-            onChange={e => setNotes(e.target.value)}
-            onBlur={() => triggerSave(buildPayload())}
-            rows={3}
-            placeholder="Any notes for this week's wages…"
-            className="w-full rounded-xl border bg-background px-3 py-2.5 text-base touch-manipulation resize-none focus:outline-none focus:ring-2 focus:ring-primary/40"
-          />
-        </SectionCard>
-
-        {/* Summary */}
-        <div className="rounded-2xl border bg-card shadow-sm p-4 space-y-2">
-          <h3 className="text-sm font-semibold mb-2">Summary</h3>
-          <div className="flex justify-between text-sm"><span>Total wages</span><span className="font-bold">{fmt(totalWages)}</span></div>
-          <div className="flex justify-between text-sm"><span>Total cash wages</span><span className="font-bold">{fmt(totalCashWages)}</span></div>
-        </div>
       </div>
     </div>
   )
