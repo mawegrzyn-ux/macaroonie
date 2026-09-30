@@ -1,197 +1,38 @@
 // src/pages/FoodSafety.jsx
-// SFBB food safety temperature & delivery logs (per venue).
+// SFBB food safety temperature & delivery logs (per venue). Recording only:
+// fridges, hold stations, check times and cooking sessions are set up in
+// H&S settings (components/hs/HsSetup.jsx).
 
 import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
-} from '@dnd-kit/core'
-import {
-  SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import { Plus, X, Thermometer, Truck, Flame, Snowflake, ChefHat, Clock, GripVertical } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { Thermometer, Truck, Flame, ChefHat } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
 import {
-  TYPE_LABELS, HOLD_TYPE_LABELS, timeLabel, TempChecksTable,
-  DeliveryChecksBoard, HoldChecksTable, HoldStationModal, HoldCaptureTimeModal,
-  CookingChecksPanel, EndOfDayReview,
+  TempChecksTable, DeliveryChecksBoard, HoldChecksTable, CookingChecksPanel, EndOfDayReview,
 } from '@/components/foodSafety/shared'
 
 const TABS = [
   { key: 'today',     label: 'Today',     icon: Thermometer },
-  { key: 'equipment', label: 'Equipment', icon: Snowflake },
   { key: 'deliveries',label: 'Deliveries',icon: Truck },
   { key: 'holds',     label: 'Holds',     icon: Flame },
   { key: 'cooking',   label: 'Cooking',   icon: ChefHat },
 ]
 
-const DEFAULTS = {
-  fridge:    { target: 5,   min: -2,  max: 8 },
-  freezer:   { target: -18, min: -30, max: -15 },
-  hot_hold:  { target: 63,  min: 63,  max: 100 },
-  cold_hold: { target: 5,   min: -2,  max: 8 },
-  other:     { target: null, min: null, max: null },
-}
-
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
 }
 
-// Drag-to-reorder row for the Equipment / Hold stations management tables —
-// grip handle is its own button so dragging never fights with the row's
-// Edit/Deactivate links.
-function SortableRow({ id, children }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+// Shown where a check list is empty because nothing is set up yet.
+function SetupPrompt({ text, venueId, section, label }) {
   return (
-    <tr ref={setNodeRef} style={style} className="border-b last:border-0 bg-background">
-      <td className="pl-3 pr-1 py-3 w-8">
-        <button type="button" {...attributes} {...listeners}
-          className="p-1.5 text-muted-foreground cursor-grab active:cursor-grabbing touch-manipulation" title="Drag to reorder">
-          <GripVertical className="w-4 h-4" />
-        </button>
-      </td>
-      {children}
-    </tr>
-  )
-}
-
-function EquipmentModal({ initial, venueId, onClose, onSave, isSaving }) {
-  const [name, setName] = useState(initial?.name ?? '')
-  const [type, setType] = useState(initial?.equipment_type ?? 'fridge')
-  const [target, setTarget] = useState(initial?.target_temp_c ?? DEFAULTS.fridge.target)
-  const [min, setMin] = useState(initial?.min_temp_c ?? DEFAULTS.fridge.min)
-  const [max, setMax] = useState(initial?.max_temp_c ?? DEFAULTS.fridge.max)
-  const [location, setLocation] = useState(initial?.location ?? '')
-  const [notes, setNotes] = useState(initial?.notes ?? '')
-
-  function applyType(t) {
-    setType(t)
-    const d = DEFAULTS[t] || DEFAULTS.other
-    setTarget(d.target)
-    setMin(d.min)
-    setMax(d.max)
-  }
-
-  function submit(e) {
-    e.preventDefault()
-    if (!name.trim()) return
-    onSave({
-      venue_id: venueId,
-      name: name.trim(),
-      equipment_type: type,
-      target_temp_c: target != null && target !== '' ? Number(target) : null,
-      min_temp_c: min != null && min !== '' ? Number(min) : null,
-      max_temp_c: max != null && max !== '' ? Number(max) : null,
-      location: location.trim() || null,
-      notes: notes.trim() || null,
-    })
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">{initial ? 'Edit equipment' : 'Add equipment'}</h2>
-          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
-        </div>
-        <form onSubmit={submit} className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">Name *</label>
-            <input value={name} onChange={e => setName(e.target.value)} required
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]"
-              placeholder="Walk-in fridge 1" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Type</label>
-            <select value={type} onChange={e => applyType(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]">
-              {Object.entries(TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <label className="block text-xs font-medium mb-1">Target °C</label>
-              <input type="number" step="0.1" value={target ?? ''} onChange={e => setTarget(e.target.value)}
-                className="w-full border rounded px-2 py-2 text-sm bg-background min-h-[44px]" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1">Min °C</label>
-              <input type="number" step="0.1" value={min ?? ''} onChange={e => setMin(e.target.value)}
-                className="w-full border rounded px-2 py-2 text-sm bg-background min-h-[44px]" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1">Max °C</label>
-              <input type="number" step="0.1" value={max ?? ''} onChange={e => setMax(e.target.value)}
-                className="w-full border rounded px-2 py-2 text-sm bg-background min-h-[44px]" />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Location</label>
-            <input value={location} onChange={e => setLocation(e.target.value)}
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]"
-              placeholder="Kitchen / Prep" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Notes</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-              className="w-full border rounded px-3 py-2 text-sm bg-background resize-none" />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={isSaving || !name.trim()}
-              className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
-              {isSaving ? 'Saving…' : 'Save'}
-            </button>
-            <button type="button" onClick={onClose}
-              className="px-4 py-2 border rounded text-sm min-h-[44px]">Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  )
-}
-
-function CaptureTimeModal({ initial, venueId, onClose, onSave, isSaving }) {
-  const [label, setLabel] = useState(initial?.label ?? '')
-  const [time, setTime] = useState(initial ? timeLabel(initial.time_of_day) : '09:00')
-
-  function submit(e) {
-    e.preventDefault()
-    if (!label.trim() || !time) return
-    onSave({ venue_id: venueId, label: label.trim(), time_of_day: time })
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-sm p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">{initial ? 'Edit capture time' : 'Add capture time'}</h2>
-          <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
-        </div>
-        <form onSubmit={submit} className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium mb-1">Label *</label>
-            <input value={label} onChange={e => setLabel(e.target.value)} required
-              placeholder="e.g. Morning check"
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" autoFocus />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Time *</label>
-            <input type="time" value={time} onChange={e => setTime(e.target.value)} required
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
-          </div>
-          <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={isSaving || !label.trim()}
-              className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
-              {isSaving ? 'Saving…' : 'Save'}
-            </button>
-            <button type="button" onClick={onClose} className="px-4 py-2 border rounded text-sm min-h-[44px]">Cancel</button>
-          </div>
-        </form>
+    <div className="border rounded-xl p-8 text-center">
+      <p className="text-muted-foreground text-sm mb-3">{text}</p>
+      <div className="flex justify-center">
+        <HsSettingsButton venueId={venueId} section={section} label={label}
+          className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] touch-manipulation" />
       </div>
     </div>
   )
@@ -199,20 +40,10 @@ function CaptureTimeModal({ initial, venueId, onClose, onSave, isSaving }) {
 
 export default function FoodSafety() {
   const api = useApi()
-  const qc = useQueryClient()
 
   const [tab, setTab] = useState('today')
   const [venueId, setVenueId] = useState('')
   const [date, setDate] = useState(todayStr())
-  const [eqModal, setEqModal] = useState(null)
-  const [ctModal, setCtModal] = useState(null)
-  const [holdStationModal, setHoldStationModal] = useState(null)
-  const [holdCtModal, setHoldCtModal] = useState(null)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor),
-  )
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -224,18 +55,6 @@ export default function FoodSafety() {
   }, [venues, venueId])
 
   const enabled = !!venueId
-
-  const { data: equipment = [], isLoading: eqLoading } = useQuery({
-    queryKey: ['fs-equipment', venueId],
-    queryFn: () => api.get(`/food-safety/equipment?venue_id=${venueId}`),
-    enabled,
-  })
-
-  const { data: captureTimes = [] } = useQuery({
-    queryKey: ['fs-capture-times', venueId],
-    queryFn: () => api.get(`/food-safety/capture-times?venue_id=${venueId}`),
-    enabled,
-  })
 
   const { data: deliveries = [] } = useQuery({
     queryKey: ['fs-deliveries', venueId, date],
@@ -249,101 +68,10 @@ export default function FoodSafety() {
     enabled,
   })
 
-  const { data: holdStations = [] } = useQuery({
-    queryKey: ['fs-hold-stations', venueId],
-    queryFn: () => api.get(`/food-safety/hold-stations?venue_id=${venueId}`),
-    enabled,
-  })
-
-  const { data: holdCaptureTimes = [] } = useQuery({
-    queryKey: ['fs-hold-capture-times', venueId],
-    queryFn: () => api.get(`/food-safety/hold-capture-times?venue_id=${venueId}`),
-    enabled,
-  })
-
   const { data: cooking = [] } = useQuery({
     queryKey: ['fs-cooking', venueId, date],
     queryFn: () => api.get(`/food-safety/cooking?venue_id=${venueId}&date=${date}`),
     enabled,
-  })
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['fs-equipment'] })
-    qc.invalidateQueries({ queryKey: ['fs-capture-times'] })
-    qc.invalidateQueries({ queryKey: ['fs-temp-logs'] })
-    qc.invalidateQueries({ queryKey: ['fs-deliveries'] })
-    qc.invalidateQueries({ queryKey: ['fs-hold-stations'] })
-    qc.invalidateQueries({ queryKey: ['fs-hold-capture-times'] })
-    qc.invalidateQueries({ queryKey: ['fs-holds'] })
-    qc.invalidateQueries({ queryKey: ['fs-cooking'] })
-  }
-
-  const createEq = useMutation({
-    mutationFn: body => api.post('/food-safety/equipment', body),
-    onSuccess: () => { invalidate(); setEqModal(null) },
-  })
-  const patchEq = useMutation({
-    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/equipment/${id}`, body),
-    onSuccess: () => { invalidate(); setEqModal(null) },
-  })
-  const deactivateEq = useMutation({
-    mutationFn: id => api.delete(`/food-safety/equipment/${id}`),
-    onSuccess: invalidate,
-  })
-  const reorderEq = useMutation({
-    mutationFn: ids => api.patch('/food-safety/equipment/reorder', { ids }),
-  })
-  function handleEqDragEnd({ active, over }) {
-    if (!over || active.id === over.id) return
-    const reordered = arrayMove(equipment, equipment.findIndex(e => e.id === active.id), equipment.findIndex(e => e.id === over.id))
-    qc.setQueryData(['fs-equipment', venueId], reordered)
-    reorderEq.mutate(reordered.map(e => e.id), { onError: () => qc.invalidateQueries({ queryKey: ['fs-equipment', venueId] }) })
-  }
-  const createCt = useMutation({
-    mutationFn: body => api.post('/food-safety/capture-times', body),
-    onSuccess: () => { invalidate(); setCtModal(null) },
-  })
-  const patchCt = useMutation({
-    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/capture-times/${id}`, body),
-    onSuccess: () => { invalidate(); setCtModal(null) },
-  })
-  const deactivateCt = useMutation({
-    mutationFn: id => api.delete(`/food-safety/capture-times/${id}`),
-    onSuccess: invalidate,
-  })
-
-  const createHoldStation = useMutation({
-    mutationFn: body => api.post('/food-safety/hold-stations', body),
-    onSuccess: () => { invalidate(); setHoldStationModal(null) },
-  })
-  const patchHoldStation = useMutation({
-    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/hold-stations/${id}`, body),
-    onSuccess: () => { invalidate(); setHoldStationModal(null) },
-  })
-  const deactivateHoldStation = useMutation({
-    mutationFn: id => api.delete(`/food-safety/hold-stations/${id}`),
-    onSuccess: invalidate,
-  })
-  const reorderHoldStations = useMutation({
-    mutationFn: ids => api.patch('/food-safety/hold-stations/reorder', { ids }),
-  })
-  function handleHoldStationDragEnd({ active, over }) {
-    if (!over || active.id === over.id) return
-    const reordered = arrayMove(holdStations, holdStations.findIndex(s => s.id === active.id), holdStations.findIndex(s => s.id === over.id))
-    qc.setQueryData(['fs-hold-stations', venueId], reordered)
-    reorderHoldStations.mutate(reordered.map(s => s.id), { onError: () => qc.invalidateQueries({ queryKey: ['fs-hold-stations', venueId] }) })
-  }
-  const createHoldCt = useMutation({
-    mutationFn: body => api.post('/food-safety/hold-capture-times', body),
-    onSuccess: () => { invalidate(); setHoldCtModal(null) },
-  })
-  const patchHoldCt = useMutation({
-    mutationFn: ({ id, ...body }) => api.patch(`/food-safety/hold-capture-times/${id}`, body),
-    onSuccess: () => { invalidate(); setHoldCtModal(null) },
-  })
-  const deactivateHoldCt = useMutation({
-    mutationFn: id => api.delete(`/food-safety/hold-capture-times/${id}`),
-    onSuccess: invalidate,
   })
 
   return (
@@ -360,7 +88,7 @@ export default function FoodSafety() {
             )}
             <input type="date" value={date} onChange={e => setDate(e.target.value)}
               className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
-            <HsSettingsButton />
+            <HsSettingsButton venueId={venueId || null} />
           </div>
         </div>
 
@@ -373,7 +101,7 @@ export default function FoodSafety() {
               return (
                 <button key={t.key} type="button" onClick={() => setTab(t.key)}
                   className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium whitespace-nowrap transition-colors',
+                    'flex items-center gap-1.5 px-3 min-h-[44px] rounded-md text-sm font-medium whitespace-nowrap transition-colors touch-manipulation',
                     tab === t.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
                   )}>
                   <Icon className="w-3.5 h-3.5" />
@@ -396,15 +124,8 @@ export default function FoodSafety() {
             <TempChecksTable
               venueId={venueId}
               date={date}
-              emptyState={
-                <div className="border rounded-xl p-8 text-center">
-                  <p className="text-muted-foreground text-sm mb-3">No equipment yet. Add fridges and freezers first.</p>
-                  <button type="button" onClick={() => setEqModal('new')}
-                    className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
-                    <Plus className="w-4 h-4" /> Add equipment
-                  </button>
-                </div>
-              }
+              emptyState={<SetupPrompt venueId={venueId} section="equipment" label="Add fridges and freezers"
+                text="No fridges or freezers yet. Add them in H&S settings." />}
             />
 
             <div className="grid sm:grid-cols-3 gap-3">
@@ -422,212 +143,20 @@ export default function FoodSafety() {
               </div>
             </div>
           </div>
-        ) : tab === 'equipment' ? (
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="font-semibold">Equipment list</h2>
-              <button type="button" onClick={() => setEqModal('new')}
-                className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
-                <Plus className="w-4 h-4" /> Add
-              </button>
-            </div>
-            {equipment.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">No active equipment.</p>
-            ) : (
-              <div className="border rounded-xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 border-b">
-                    <tr>
-                      <th className="w-8" />
-                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
-                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
-                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Target</th>
-                      <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Min / Max</th>
-                      <th className="w-32" />
-                    </tr>
-                  </thead>
-                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleEqDragEnd}>
-                    <SortableContext items={equipment.map(e => e.id)} strategy={verticalListSortingStrategy}>
-                      <tbody>
-                        {equipment.map(eq => (
-                          <SortableRow key={eq.id} id={eq.id}>
-                            <td className="px-4 py-3 font-medium">{eq.name}</td>
-                            <td className="px-4 py-3 text-muted-foreground">{TYPE_LABELS[eq.equipment_type]}</td>
-                            <td className="px-4 py-3">{eq.target_temp_c != null ? `${eq.target_temp_c}°C` : '—'}</td>
-                            <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-                              {eq.min_temp_c ?? '—'} / {eq.max_temp_c ?? '—'}°C
-                            </td>
-                            <td className="px-4 py-3 space-x-2">
-                              <button type="button" onClick={() => setEqModal(eq)} className="text-xs text-primary hover:underline">Edit</button>
-                              <button type="button" onClick={() => deactivateEq.mutate(eq.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
-                            </td>
-                          </SortableRow>
-                        ))}
-                      </tbody>
-                    </SortableContext>
-                  </DndContext>
-                </table>
-              </div>
-            )}
-
-            <div className="flex justify-between items-center mb-4 mt-8">
-              <div>
-                <h2 className="font-semibold">Capture times</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  When temperature checks happen each day. Shown as a picker on the Today tab —
-                  leave empty to log a single ad-hoc reading per day instead.
-                </p>
-              </div>
-              <button type="button" onClick={() => setCtModal('new')}
-                className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] shrink-0">
-                <Plus className="w-4 h-4" /> Add
-              </button>
-            </div>
-            {captureTimes.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">No capture times configured.</p>
-            ) : (
-              <div className="border rounded-xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 border-b">
-                    <tr>
-                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Label</th>
-                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Time</th>
-                      <th className="w-32" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {captureTimes.map(ct => (
-                      <tr key={ct.id} className="border-b last:border-0">
-                        <td className="px-4 py-3 font-medium">{ct.label}</td>
-                        <td className="px-4 py-3 text-muted-foreground flex items-center gap-1.5">
-                          <Clock className="w-3.5 h-3.5" /> {timeLabel(ct.time_of_day)}
-                        </td>
-                        <td className="px-4 py-3 space-x-2">
-                          <button type="button" onClick={() => setCtModal(ct)} className="text-xs text-primary hover:underline">Edit</button>
-                          <button type="button" onClick={() => deactivateCt.mutate(ct.id)} className="text-xs text-red-600 hover:underline">Remove</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
         ) : tab === 'deliveries' ? (
           <div>
             <h2 className="font-semibold mb-4">Delivery checks</h2>
             <DeliveryChecksBoard venueId={venueId} date={date} />
           </div>
         ) : tab === 'holds' ? (
-          <div className="space-y-8">
-            <div>
-              <h2 className="font-semibold mb-4">Hot / cold hold checks — {format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}</h2>
-              <HoldChecksTable
-                venueId={venueId}
-                date={date}
-                emptyState={
-                  <div className="border rounded-xl p-8 text-center">
-                    <p className="text-muted-foreground text-sm mb-3">No hold stations yet. Add a bain-marie, salad bar or other station first.</p>
-                    <button type="button" onClick={() => setHoldStationModal('new')}
-                      className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
-                      <Plus className="w-4 h-4" /> Add hold station
-                    </button>
-                  </div>
-                }
-              />
-            </div>
-
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="font-semibold">Hold stations</h2>
-                <button type="button" onClick={() => setHoldStationModal('new')}
-                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px]">
-                  <Plus className="w-4 h-4" /> Add
-                </button>
-              </div>
-              {holdStations.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">No active hold stations.</p>
-              ) : (
-                <div className="border rounded-xl overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 border-b">
-                      <tr>
-                        <th className="w-8" />
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Name</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Type</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Target</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground hidden md:table-cell">Min / Max</th>
-                        <th className="w-32" />
-                      </tr>
-                    </thead>
-                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleHoldStationDragEnd}>
-                      <SortableContext items={holdStations.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                        <tbody>
-                          {holdStations.map(st => (
-                            <SortableRow key={st.id} id={st.id}>
-                              <td className="px-4 py-3 font-medium">{st.name}</td>
-                              <td className="px-4 py-3 text-muted-foreground">{HOLD_TYPE_LABELS[st.hold_type]}</td>
-                              <td className="px-4 py-3">{st.target_temp_c != null ? `${st.target_temp_c}°C` : '—'}</td>
-                              <td className="px-4 py-3 text-muted-foreground hidden md:table-cell">
-                                {st.min_temp_c ?? '—'} / {st.max_temp_c ?? '—'}°C
-                              </td>
-                              <td className="px-4 py-3 space-x-2">
-                                <button type="button" onClick={() => setHoldStationModal(st)} className="text-xs text-primary hover:underline">Edit</button>
-                                <button type="button" onClick={() => deactivateHoldStation.mutate(st.id)} className="text-xs text-red-600 hover:underline">Deactivate</button>
-                              </td>
-                            </SortableRow>
-                          ))}
-                        </tbody>
-                      </SortableContext>
-                    </DndContext>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <div className="flex justify-between items-center mb-4">
-                <div>
-                  <h2 className="font-semibold">Capture times</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    When hold checks happen each day — leave empty to log a single ad-hoc reading per day instead.
-                  </p>
-                </div>
-                <button type="button" onClick={() => setHoldCtModal('new')}
-                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] shrink-0">
-                  <Plus className="w-4 h-4" /> Add
-                </button>
-              </div>
-              {holdCaptureTimes.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">No capture times configured.</p>
-              ) : (
-                <div className="border rounded-xl overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 border-b">
-                      <tr>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Label</th>
-                        <th className="text-left px-4 py-3 font-medium text-muted-foreground">Time</th>
-                        <th className="w-32" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {holdCaptureTimes.map(ct => (
-                        <tr key={ct.id} className="border-b last:border-0">
-                          <td className="px-4 py-3 font-medium">{ct.label}</td>
-                          <td className="px-4 py-3 text-muted-foreground flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5" /> {timeLabel(ct.time_of_day)}
-                          </td>
-                          <td className="px-4 py-3 space-x-2">
-                            <button type="button" onClick={() => setHoldCtModal(ct)} className="text-xs text-primary hover:underline">Edit</button>
-                            <button type="button" onClick={() => deactivateHoldCt.mutate(ct.id)} className="text-xs text-red-600 hover:underline">Remove</button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
+          <div>
+            <h2 className="font-semibold mb-4">Hot / cold hold checks — {format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}</h2>
+            <HoldChecksTable
+              venueId={venueId}
+              date={date}
+              emptyState={<SetupPrompt venueId={venueId} section="hold_stations" label="Add hold stations"
+                text="No hold stations yet. Add a bain-marie, salad bar or other station in H&S settings." />}
+            />
           </div>
         ) : tab === 'cooking' ? (
           <div>
@@ -635,51 +164,6 @@ export default function FoodSafety() {
             <CookingChecksPanel venueId={venueId} date={date} />
           </div>
         ) : null}
-
-        {eqModal && (
-          <EquipmentModal
-            initial={eqModal === 'new' ? null : eqModal}
-            venueId={venueId}
-            onClose={() => setEqModal(null)}
-            onSave={body => eqModal === 'new'
-              ? createEq.mutate(body)
-              : patchEq.mutate({ id: eqModal.id, ...body })}
-            isSaving={createEq.isPending || patchEq.isPending}
-          />
-        )}
-        {ctModal && (
-          <CaptureTimeModal
-            initial={ctModal === 'new' ? null : ctModal}
-            venueId={venueId}
-            onClose={() => setCtModal(null)}
-            onSave={body => ctModal === 'new'
-              ? createCt.mutate(body)
-              : patchCt.mutate({ id: ctModal.id, ...body })}
-            isSaving={createCt.isPending || patchCt.isPending}
-          />
-        )}
-        {holdStationModal && (
-          <HoldStationModal
-            initial={holdStationModal === 'new' ? null : holdStationModal}
-            venueId={venueId}
-            onClose={() => setHoldStationModal(null)}
-            onSave={body => holdStationModal === 'new'
-              ? createHoldStation.mutate(body)
-              : patchHoldStation.mutate({ id: holdStationModal.id, ...body })}
-            isSaving={createHoldStation.isPending || patchHoldStation.isPending}
-          />
-        )}
-        {holdCtModal && (
-          <HoldCaptureTimeModal
-            initial={holdCtModal === 'new' ? null : holdCtModal}
-            venueId={venueId}
-            onClose={() => setHoldCtModal(null)}
-            onSave={body => holdCtModal === 'new'
-              ? createHoldCt.mutate(body)
-              : patchHoldCt.mutate({ id: holdCtModal.id, ...body })}
-            isSaving={createHoldCt.isPending || patchHoldCt.isPending}
-          />
-        )}
       </div>
     </div>
   )

@@ -610,7 +610,7 @@ export function DashboardPage({ config }) {
               {editing ? 'Done editing' : 'Edit layout'}
             </button>
           )}
-          {config.HeaderExtra && <config.HeaderExtra />}
+          {config.HeaderExtra && <config.HeaderExtra venueId={venueId || null} />}
           <button type="button" onClick={toggleFullscreen} title={isFullscreen ? 'Exit full screen' : 'Full screen'}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg border hover:bg-accent px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
             {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}

@@ -1259,20 +1259,32 @@ export default function Help() {
             <DataTable
               head={['Tab', 'What it is']}
               rows={[
-                ['Today', 'A single-page overview of everything logged so far today, across all check types.'],
-                ['Equipment', 'Fridge/freezer temperature checks. One row per piece of equipment, one column per configured capture time (e.g. AM/PM). Drag the grip handle to reorder equipment. Each unlogged reading starts pre-filled at the low end of that equipment\'s normal range, so you only need to nudge the +/- steppers or overtype it — nothing saves until you actually touch the cell.'],
+                ['Today', 'Fridge/freezer temperature checks, plus a count of today\'s deliveries, hold checks and cooking checks. One row per fridge or freezer, one column per fridge check time (e.g. AM/PM). Each unlogged reading starts pre-filled at the low end of that fridge\'s normal range, so you only need to nudge the +/- steppers or overtype it — nothing saves until you actually touch the cell.'],
                 ['Deliveries', 'Log a delivery: supplier, temperature, condition. The main view is an entry form on one side and a list of this week\'s deliveries on the other — click any item in the list to load it back into the form for editing.'],
-                ['Holds', 'Hot-hold and cold-hold checks for food kept warm/cold for service. Same reorderable-station pattern (and same pre-filled reading) as Equipment.'],
-                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a menu category tab, then tap the dish you just cooked — no typing a dish name each time. A stepper lets you dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents). Tap any entry in the "Today\'s checks" list on the right to reopen it, correct the reading, or delete it entirely (double-confirm) if it was logged in error.'],
+                ['Holds', 'Hot-hold and cold-hold checks for food kept warm/cold for service. Same layout (and same pre-filled reading) as the fridge checks on Today, one column per hold check time.'],
+                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a menu category tab, then tap the dish you just cooked — no typing a dish name each time. In the pop-up, pick the session (Lunch, Dinner, ...) the reading belongs to and dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents). The session starts on the one you picked last, or on today\'s current session by its time. The "Today\'s checks" list on the right is grouped by session, each with how many of its required items are done (e.g. 1/2). Tap any entry to reopen it, move it to another session, correct the reading, or delete it (double-confirm) if it was logged in error.'],
               ]}
             />
-            <H3>Sessions & stations</H3>
+            <H3>Setting it up (H&amp;S settings)</H3>
             <P>
-              Use the gear icon on the Cooking tab to define <strong>sessions</strong> (e.g. "Lunch
-              service", "Dinner service") — how many times a day cooking checks happen and how
-              many items must be checked each time. Equipment and Hold pages work similarly:
-              manage the list of fridges/freezers or hold stations from their own settings, and
-              drag to reorder how they appear in the grid.
+              Everything the checks are built from is set up in <strong>H&amp;S settings</strong>
+              (the button at the top of the Food safety, Checklists and H&amp;S Dashboard pages).
+              Pick the venue at the top right of the settings window, then a section:
+            </P>
+            <DataTable
+              head={['Section', 'What you set up']}
+              rows={[
+                ['General', 'Follow restaurant opening days (owners and admins, all venues). See Closed days below.'],
+                ['Fridges & freezers', 'Each fridge or freezer with its target, min and max temperature. Drag the handle to set the order they appear.'],
+                ['Fridge check times', 'When fridge and freezer temperatures are checked each day (e.g. 09:00 Opening, 17:00 Evening). Leave empty for one reading per day.'],
+                ['Hold stations', 'Hot and cold holding stations (bain-marie, salad bar, ...) with their safe range. Drag to reorder.'],
+                ['Hold check times', 'When hold checks happen each day. Kept separate from the fridge check times.'],
+                ['Cooking sessions', 'How many times a day cooking checks happen (e.g. Lunch, Dinner), with an optional time and how many items must be checked in each. Drag the handle to set their order.'],
+              ]}
+            />
+            <P>
+              Removing or deactivating anything asks you to confirm first. Readings already logged
+              are kept. Deliveries need no setup: the supplier is typed in with each delivery.
             </P>
             <H3>Out-of-range readings</H3>
             <P>
@@ -1335,9 +1347,9 @@ export default function Help() {
             </P>
             <H3>Closed days (H&amp;S settings)</H3>
             <P>
-              Owners and admins can turn on <strong>Follow restaurant opening days</strong> from the{' '}
-              <strong>H&amp;S settings</strong> button on the Food safety, Checklists or H&amp;S
-              Dashboard page. It applies to every venue. When it's on, on a day a venue is closed:
+              Owners and admins can turn on <strong>Follow restaurant opening days</strong> in{' '}
+              <strong>H&amp;S settings</strong>, General (the button on the Food safety, Checklists
+              or H&amp;S Dashboard page). It applies to every venue. When it's on, on a day a venue is closed:
             </P>
             <DataTable
               head={['What', 'On a closed day']}
