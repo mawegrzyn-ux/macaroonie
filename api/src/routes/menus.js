@@ -78,6 +78,9 @@ const SectionBody = z.object({
   // Web ordering (migration 127): section VAT, used when a dish has none.
   vat_rate_takeaway: z.number().min(0).max(100).nullable().optional(),
   vat_rate_eat_in:   z.number().min(0).max(100).nullable().optional(),
+  // Where the section shows (migration 136): everywhere, printed menus
+  // only (website_hidden), or nowhere (hidden).
+  visibility: z.enum(['show', 'website_hidden', 'hidden']).default('show'),
   items:      z.array(ItemBody).default([]),
 })
 
@@ -93,8 +96,9 @@ const PrintSettings = z.object({
   variant_columns: z.number().int().min(1).max(3).optional(),
 })
 
-// menus.print_layout (migration 121) — the menu designer's hand-placed
-// layout. Rendered by shared/menuLayout.js; see the shape there.
+// A print design's layout (menu_print_designs.layout, migrations 121 and
+// 135) — the menu designer's hand-placed layout. Rendered by
+// shared/menuLayout.js; see the shape there.
 const LayoutBlock = z.object({
   id:   z.string().min(1).max(64),
   type: z.enum(BLOCK_TYPES),
@@ -331,11 +335,44 @@ export async function loadMenuFull(tx, menuId, tenantId) {
 
   await attachVariantGroupsToItems(tx, sections.flatMap(s => s.items || []))
 
+  const [{ count: design_count }] = await tx`
+    SELECT count(*)::int AS count FROM menu_print_designs
+     WHERE menu_id = ${menuId} AND tenant_id = ${tenantId}
+  `
+
   return {
     ...menu,
     sections,
     callouts,
     dietary_tags: tags,
+    design_count,
+  }
+}
+
+// A menu's print designs, oldest first (menu_print_designs, migration 135).
+async function loadDesigns(tx, menuId, tenantId) {
+  return tx`
+    SELECT id, name, layout, created_at, updated_at
+      FROM menu_print_designs
+     WHERE menu_id = ${menuId} AND tenant_id = ${tenantId}
+     ORDER BY created_at, id
+  `
+}
+
+// Points a copied layout at the copy's sections, dishes and footer notes
+// (newId: old id -> new id). Blocks whose section or dish is gone are dropped.
+function remapLayout(layout, newId) {
+  const remap = b => ({
+    ...b, ref: b.ref ? (newId[b.ref] ?? null) : null,
+    ...(Array.isArray(b.opts?.callout_ids)
+      ? { opts: { ...b.opts, callout_ids: b.opts.callout_ids.map(cid => newId[cid]).filter(Boolean) } }
+      : {}),
+  })
+  const keep = b => !(b.type === 'section' || b.type === 'item') || b.ref
+  return {
+    ...layout,
+    master: (layout.master || []).map(remap).filter(keep),
+    pages: (layout.pages || []).map(p => ({ ...p, blocks: (p.blocks || []).map(remap).filter(keep) })),
   }
 }
 
@@ -364,8 +401,10 @@ async function loadPrintMenu(tx, menuId, tenantId) {
     `
     if (v) { address_line1 = v.address_line1; postcode = v.postcode; phone = v.phone }
   }
+  const designs = await loadDesigns(tx, menuId, tenantId)
   return {
     ...menu,
+    designs,
     tenant_name:    meta?.tenant_name ?? null,
     logo_url:       meta?.logo_url ?? null,
     primary_colour: meta?.primary_colour ?? null,
@@ -388,7 +427,7 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
   // whole tree. Acceptable because only one admin edits at a time.
   // Sections and dishes are re-inserted under the ids the client sent
   // (new ones get a fresh id), so the designed print layout
-  // (menus.print_layout), which points at them by id, survives a save.
+  // (menu_print_designs.layout), which points at them by id, survives a save.
   await tx`DELETE FROM menu_sections WHERE menu_id = ${menuId}`
   await tx`DELETE FROM menu_callouts WHERE menu_id = ${menuId}`
 
@@ -396,12 +435,13 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
     const [s] = await tx`
       INSERT INTO menu_sections (id, menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order,
                                  print_break_before, print_keep_together,
-                                 vat_rate_takeaway, vat_rate_eat_in)
+                                 vat_rate_takeaway, vat_rate_eat_in, visibility)
       VALUES (${section.id ?? randomUUID()}, ${menuId}, ${tenantId}, ${section.title},
               ${section.subtitle ?? null}, ${section.highlight ?? false}, ${section.image_url ?? null},
               ${section.sort_order ?? si},
               ${section.print_break_before ?? 'none'}, ${section.print_keep_together ?? false},
-              ${section.vat_rate_takeaway ?? null}, ${section.vat_rate_eat_in ?? null})
+              ${section.vat_rate_takeaway ?? null}, ${section.vat_rate_eat_in ?? null},
+              ${section.visibility ?? 'show'})
       RETURNING id
     `
     for (const [ii, item] of (section.items || []).entries()) {
@@ -497,6 +537,8 @@ export default async function menusRoutes(app) {
     }
     const data = await withTenant(meta.tenant_id, tx => loadMenuFull(tx, req.params.menuId, meta.tenant_id))
     if (!data) throw httpError(404, 'Menu not found')
+    // Website only shows sections set to show everywhere (migration 136).
+    data.sections = (data.sections || []).filter(s => (s.visibility || 'show') === 'show')
     reply.header('Cache-Control', 'public, max-age=30, stale-while-revalidate=120')
     return data
   })
@@ -517,10 +559,13 @@ export default async function menusRoutes(app) {
 
     reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
 
-    // A designed layout (menu designer) replaces the automatic one.
-    // ?auto=1 still shows the automatic layout, for comparison.
-    if (menu.print_layout && !req.query?.auto) {
-      const layout = normalizeLayout(menu.print_layout)
+    // A print design (menu designer) replaces the automatic layout: the one
+    // picked with ?design=<id>, else the menu's chosen one
+    // (menus.print_design_id). ?auto=1 shows the automatic layout.
+    const wanted = req.query?.design || menu.print_design_id
+    const design = !req.query?.auto && wanted ? (menu.designs || []).find(d => d.id === wanted) : null
+    if (design) {
+      const layout = normalizeLayout(design.layout)
       const ctx = buildContext(menu, layout)
       const g = layoutGeometry(layout)
       return reply.view('menu_print_designed.eta', {
@@ -534,7 +579,12 @@ export default async function menusRoutes(app) {
         orientation: layout.orientation,
       })
     }
-    return reply.view('menu_print.eta', { menu })
+    // Sections hidden everywhere don't print (migration 136). The designed
+    // print drops them in buildContext() instead, so the designer can
+    // tell a hidden section from a deleted one.
+    return reply.view('menu_print.eta', {
+      menu: { ...menu, sections: (menu.sections || []).filter(s => s.visibility !== 'hidden') },
+    })
   })
 
   // ── Authenticated admin routes — scoped so addHook doesn't ──
@@ -552,9 +602,13 @@ export default async function menusRoutes(app) {
     const venue_id = req.query?.venue_id || null
     return withTenant(req.tenantId, async tx => {
       const rows = await (venue_id
-        ? tx`SELECT m.*, v.name AS venue_name FROM menus m LEFT JOIN venues v ON v.id = m.venue_id
+        ? tx`SELECT m.*, v.name AS venue_name,
+                    (SELECT count(*)::int FROM menu_print_designs d WHERE d.menu_id = m.id) AS design_count
+               FROM menus m LEFT JOIN venues v ON v.id = m.venue_id
               WHERE m.tenant_id = ${req.tenantId} AND m.venue_id = ${venue_id} ORDER BY m.sort_order, m.name`
-        : tx`SELECT m.*, v.name AS venue_name FROM menus m LEFT JOIN venues v ON v.id = m.venue_id
+        : tx`SELECT m.*, v.name AS venue_name,
+                    (SELECT count(*)::int FROM menu_print_designs d WHERE d.menu_id = m.id) AS design_count
+               FROM menus m LEFT JOIN venues v ON v.id = m.venue_id
               WHERE m.tenant_id = ${req.tenantId} ORDER BY m.sort_order, m.name`)
       return rows
     })
@@ -576,19 +630,102 @@ export default async function menusRoutes(app) {
     return data
   })
 
-  // { layout: {...} } saves a designed layout; { layout: null } goes back
-  // to the automatic one.
-  app.put('/:id/print-layout', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  // ── Print designs (menu_print_designs, migration 135) ─────
+  // A menu can have any number of named designs. menus.print_design_id is
+  // the one the print page uses (null = automatic layout). Designs save
+  // on their own, never through the whole-tree PATCH.
+  const DesignName = z.string().trim().min(1).max(80)
+  const menuOf = async (tx, req) => {
     if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
-    const { layout } = z.object({ layout: LayoutBody.nullable() }).parse(req.body)
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE menus
-         SET print_layout = ${layout ? tx.json(layout) : null}, updated_at = now()
-       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
-       RETURNING id, print_layout
-    `)
-    if (!row) throw httpError(404, 'Menu not found')
-    return row
+    const [m] = await tx`
+      SELECT id, print_design_id FROM menus
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} LIMIT 1
+    `
+    if (!m) throw httpError(404, 'Menu not found')
+    return m
+  }
+  const designOf = async (tx, req) => {
+    if (!z.string().uuid().safeParse(req.params.designId).success) throw httpError(404, 'Design not found')
+    const [d] = await tx`
+      SELECT id FROM menu_print_designs
+       WHERE id = ${req.params.designId} AND menu_id = ${req.params.id} AND tenant_id = ${req.tenantId}
+    `
+    if (!d) throw httpError(404, 'Design not found')
+    return d
+  }
+
+  // { name, layout } — a new design. A menu's first design is also made
+  // the one used for printing.
+  app.post('/:id/designs', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+    const body = z.object({ name: DesignName, layout: LayoutBody }).parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const menu = await menuOf(tx, req)
+      const [{ count }] = await tx`
+        SELECT count(*)::int AS count FROM menu_print_designs
+         WHERE menu_id = ${menu.id} AND tenant_id = ${req.tenantId}
+      `
+      const [d] = await tx`
+        INSERT INTO menu_print_designs (tenant_id, menu_id, name, layout)
+        VALUES (${req.tenantId}, ${menu.id}, ${body.name}, ${tx.json(body.layout)})
+        RETURNING id, name, layout, created_at, updated_at
+      `
+      if (count === 0 && !menu.print_design_id) {
+        await tx`UPDATE menus SET print_design_id = ${d.id}, updated_at = now()
+                  WHERE id = ${menu.id} AND tenant_id = ${req.tenantId}`
+      }
+      return d
+    })
+    return reply.code(201).send(row)
+  })
+
+  // { name?, layout? }
+  app.put('/:id/designs/:designId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = z.object({ name: DesignName.optional(), layout: LayoutBody.optional() }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await menuOf(tx, req)
+      const d = await designOf(tx, req)
+      const [row] = await tx`
+        UPDATE menu_print_designs
+           SET name   = COALESCE(${body.name ?? null}, name),
+               layout = COALESCE(${body.layout ? tx.json(body.layout) : null}::jsonb, layout),
+               updated_at = now()
+         WHERE id = ${d.id} AND tenant_id = ${req.tenantId}
+         RETURNING id, name, layout, created_at, updated_at
+      `
+      return row
+    })
+  })
+
+  // Deleting the design used for printing sends printing back to the
+  // automatic layout (ON DELETE SET NULL).
+  app.delete('/:id/designs/:designId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    return withTenant(req.tenantId, async tx => {
+      await menuOf(tx, req)
+      const d = await designOf(tx, req)
+      await tx`DELETE FROM menu_print_designs WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`
+      return { ok: true }
+    })
+  })
+
+  // { design_id } — the design the print page uses; null = automatic layout.
+  app.put('/:id/print-design', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { design_id } = z.object({ design_id: z.string().uuid().nullable() }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      const menu = await menuOf(tx, req)
+      if (design_id) {
+        const [d] = await tx`
+          SELECT id FROM menu_print_designs
+           WHERE id = ${design_id} AND menu_id = ${menu.id} AND tenant_id = ${req.tenantId}
+        `
+        if (!d) throw httpError(404, 'Design not found')
+      }
+      const [row] = await tx`
+        UPDATE menus SET print_design_id = ${design_id}, updated_at = now()
+         WHERE id = ${menu.id} AND tenant_id = ${req.tenantId}
+         RETURNING id, print_design_id
+      `
+      return row
+    })
   })
 
   app.post('/', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
@@ -643,6 +780,7 @@ export default async function menusRoutes(app) {
         print_break_before: s.print_break_before ?? 'none', print_keep_together: !!s.print_keep_together,
         vat_rate_takeaway: s.vat_rate_takeaway != null ? Number(s.vat_rate_takeaway) : null,
         vat_rate_eat_in: s.vat_rate_eat_in != null ? Number(s.vat_rate_eat_in) : null,
+        visibility: s.visibility || 'show',
         items: (s.items || []).map(it => ({
           id: (newId[it.id] = randomUUID()),
           name: it.name, native_name: it.native_name ?? null, description: it.description ?? null,
@@ -672,21 +810,19 @@ export default async function menusRoutes(app) {
       })
 
       await upsertMenuTree(tx, req.tenantId, row.id, { sections, callouts })
-      if (full.print_layout) {
-        const remap = b => ({
-          ...b, ref: b.ref ? (newId[b.ref] ?? null) : null,
-          ...(Array.isArray(b.opts?.callout_ids)
-            ? { opts: { ...b.opts, callout_ids: b.opts.callout_ids.map(cid => newId[cid]).filter(Boolean) } }
-            : {}),
-        })
-        const keep = b => !(b.type === 'section' || b.type === 'item') || b.ref
-        const layout = {
-          ...full.print_layout,
-          master: (full.print_layout.master || []).map(remap).filter(keep),
-          pages: (full.print_layout.pages || []).map(p => ({ ...p, blocks: (p.blocks || []).map(remap).filter(keep) })),
+
+      // Every print design comes along, pointed at the copy's rows, and the
+      // copy prints with the same design as the original.
+      for (const d of await loadDesigns(tx, full.id, req.tenantId)) {
+        const [copy] = await tx`
+          INSERT INTO menu_print_designs (tenant_id, menu_id, name, layout, created_at)
+          VALUES (${req.tenantId}, ${row.id}, ${d.name}, ${tx.json(remapLayout(d.layout, newId))}, ${d.created_at})
+          RETURNING id
+        `
+        if (d.id === full.print_design_id) {
+          await tx`UPDATE menus SET print_design_id = ${copy.id} WHERE id = ${row.id} AND tenant_id = ${req.tenantId}`
+          row.print_design_id = copy.id
         }
-        await tx`UPDATE menus SET print_layout = ${tx.json(layout)} WHERE id = ${row.id}`
-        row.print_layout = layout
       }
       return row
     })

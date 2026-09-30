@@ -2449,6 +2449,15 @@ export default function Help() {
               section, delete it and add it there. The small arrows still move a dish one place at
               a time. Click <strong>Save changes</strong> to keep the new order.
             </P>
+            <P>
+              <strong>Where a section shows.</strong> In a section's panel, <strong>Where it
+              shows</strong> has three choices. <strong>Everywhere</strong> is the usual.{' '}
+              <strong>Hide on website</strong> keeps the section on printed menus but leaves it off
+              your website and online ordering (so its dishes can't be ordered online), for example a
+              set menu you only hand out in the restaurant. <strong>Hide everywhere</strong> takes it
+              off printed menus too; it stays on this page so you can show it again later. The
+              section heading shows a <strong>Print only</strong> or <strong>Hidden</strong> badge.
+            </P>
             <DataTable
               head={['Field', 'What it does']}
               rows={[
@@ -2516,6 +2525,8 @@ export default function Help() {
                 ['Put variant options side by side', 'Page setup has "Variant options per row" (1, 2 or 3) for every dish. A dish block, or a section showing its dishes, can pick its own number or use the default.'],
                 ['Change the fonts', 'Page setup > Fonts: one font for headings and prices, one for text, one for the handwritten lines (taglines, handwritten text). Any font from the website builder can be used. "Use website fonts" copies the headings and text fonts from Website > Brand & theme; "Standard fonts" goes back to the usual three.'],
                 ['Choose which footer notes print', 'Select the Footer notes block and untick "Show all notes", then tick the notes you want in that spot. Put a second Footer notes block elsewhere to print the others there. With "Show all notes" ticked, notes you add to the menu later appear automatically; with your own pick, they don\'t until you tick them.'],
+                ['Make another design for the same menu', 'Use the Designs bar under the top bar. "Copy" starts a new design from the one open (handy for an A3 poster and an A5 table card of the same menu); "New design" starts a blank one. Name it in the panel on the right (with nothing selected) and tap Save. Tap a design\'s name to open it; save or undo your changes first.'],
+                ['Choose which design prints', 'Open the design and tap "Use this design for printing" in the panel on the right. The design used for printing has a Printing badge. "Use the automatic layout instead" goes back to the automatic layout.'],
                 ['Give one block its own font', 'Select it and pick a font under Look > Font. Everything in that block uses it. "Use the menu fonts again" undoes it.'],
               ]}
             />
@@ -2526,12 +2537,19 @@ export default function Help() {
               changes the print too. A red line along the bottom of a block means its text is cut
               off; an orange outline means two blocks overlap.
             </P>
+            <P>
+              A section set to <strong>Hide everywhere</strong> doesn't print and isn't listed on
+              the left; a block you had already placed for it stays on the page with a note, and
+              prints nothing.
+            </P>
             <InfoBox type="info">
-              Nothing changes until you tap <strong>Save</strong>. Once saved, the menu's Print
-              button and the <strong>Open as printable PDF</strong> link on your website both use
-              your design. To go back to the automatic layout, use{' '}
-              <strong>Use the automatic layout</strong> in the panel on the right (with nothing
-              selected). The Print layout settings above only apply to the automatic layout.
+              Nothing changes until you tap <strong>Save</strong>. Your first saved design is used
+              for printing: the menu's Print button and the <strong>Open as printable PDF</strong>{' '}
+              link on your website both use it. Later designs are saved without changing what
+              prints until you tap <strong>Use this design for printing</strong>. To delete a
+              design, open it and use <strong>Delete this design</strong> at the bottom of the
+              panel on the right; if it was the one used for printing, printing goes back to the
+              automatic layout. The Print layout settings above only apply to the automatic layout.
             </InfoBox>
           </section>
 

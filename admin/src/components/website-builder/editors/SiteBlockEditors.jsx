@@ -430,6 +430,7 @@ export function MenuInlineEditor({ data, onChange }) {
                                 ? 'bg-background hover:bg-accent'
                                 : 'bg-muted/40 text-muted-foreground'}`}>
                           {s.title}
+                          {(s.visibility || 'show') !== 'show' && <span className="ml-1 opacity-70">(hidden on website)</span>}
                         </button>
                       )
                     })}

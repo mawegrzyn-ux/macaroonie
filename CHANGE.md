@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-30 — Menus: several print designs per menu, and hiding sections]
+
+**Migrations:** `135_menu_print_designs.sql`, `136_menu_section_visibility.sql`
+
+- Menu designer: a menu can have any number of print designs (e.g. an A3 poster and an A5 table card). A Designs bar under the top bar opens each design, copies the open one or starts a blank one. Each design has a name, and one is chosen for printing (Print button and the website's PDF link); the rest are kept without changing what prints. Deleting the printing design goes back to the automatic layout. Existing designs become "Design 1" and keep printing.
+- Menus: each section has "Where it shows": Everywhere, Hide on website (printed menus only; also left out of online ordering), or Hide everywhere (not printed either, kept on the page to show again later). The section heading shows a Print only or Hidden badge.
+- Copying a menu copies all its designs and section visibility.
+
+---
+
 ## [2026-09-30 — Menus: dish option prices no longer reset]
 
 - Fixed: in a dish's panel, changing one option's price (for example Fried egg) reset that dish's other custom option prices to the group default, often £0.00, and saving lost them. Every custom price now stays until you change or reset it.

@@ -1,7 +1,7 @@
 // shared/menuLayout.js
 //
-// Designed print layouts for structured menus (menus.print_layout,
-// migration 121). ONE renderer used in two places:
+// Designed print layouts for structured menus (menu_print_designs.layout,
+// migrations 121 + 135). ONE renderer used in two places:
 //
 //   - api/src/views/menu_print_designed.eta (the printable page), through
 //     renderPageHtml(), called by GET /api/menus/:id/print
@@ -271,6 +271,7 @@ export function buildContext(menu, layout) {
   const itemsById = {}
   const sectionIdOfItem = {}
   for (const s of sections) {
+    if (s.visibility === 'hidden') continue   // hidden everywhere: never printed (migration 136)
     sectionsById[s.id] = s
     for (const it of (s.items || [])) { itemsById[it.id] = it; sectionIdOfItem[it.id] = s.id }
   }
@@ -302,7 +303,7 @@ export function placementSummary(menu, layout) {
       if ((b.opts || {}).mode === 'full') sectionFull.add(b.ref)
     }
   }
-  return (menu.sections || []).map(s => ({
+  return (menu.sections || []).filter(s => s.visibility !== 'hidden').map(s => ({
     section: s,
     placed: sectionPlaced.has(s.id),
     full: sectionFull.has(s.id),

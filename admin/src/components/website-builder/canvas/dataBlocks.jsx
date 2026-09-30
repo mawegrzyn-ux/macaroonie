@@ -769,6 +769,7 @@ export function MenuInlineCanvas({ data, onChange }) {
   const isUnpriced = p => p == null || Number(p) === 0
   const formatVariantPrice = p => (hideZeroPriced && Number(p) === 0) ? '' : formatPrice(p)
   const filteredSections = (menu?.sections || [])
+    .filter(s => (s.visibility || 'show') === 'show')   // same as the site (migration 136)
     .filter(s => sectionFilter.length === 0 || sectionFilter.includes(s.id))
     .map(s => ({
       ...s,

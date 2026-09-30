@@ -179,6 +179,9 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
     const rules = variantRules(full)
     const sections = []
     for (const s of full.sections || []) {
+      // Online ordering is part of the website: sections hidden on the
+      // website (or everywhere) can't be ordered (migration 136).
+      if ((s.visibility || 'show') !== 'show') continue
       const items = []
       for (const it of s.items || []) {
         if (it.is_orderable === false) continue
