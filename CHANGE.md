@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-30 — Menus: dish option prices no longer reset]
+
+- Fixed: in a dish's panel, changing one option's price (for example Fried egg) reset that dish's other custom option prices to the group default, often £0.00, and saving lost them. Every custom price now stays until you change or reset it.
+- Fixed: on Variant groups, the price boxes can be cleared and typed into normally (typing 1.75 used to come out as 0.02).
+
+---
+
 ## [2026-09-30 — Menu designer: pick which footer notes print]
 
 - Menu designer: the Footer notes block has a "Show all notes" switch. Untick it and tick the notes you want in that spot, e.g. allergy notice at the bottom of page 1 and the service charge note on page 2. With all notes on, new notes appear automatically.

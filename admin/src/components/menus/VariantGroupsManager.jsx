@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, X, Loader2, Layers } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { Field, Input, Btn, parsePrice } from './shared'
+import { Field, Input, Btn, PriceInput } from './shared'
 
 function emptyGroup() {
   return { name: '', price_mode: 'base', min_select: 1, max_select: 1, options: [{ label: '', price_pence: 0 }] }
@@ -145,11 +145,11 @@ export function VariantGroupsManager() {
                     return { ...d, options }
                   })}
                   placeholder="Label (e.g. Chicken)" className="flex-1" />
-                <Input
-                  value={o.price_pence == null ? '' : (o.price_pence / 100).toFixed(2)}
-                  onChange={e => setDraft(d => {
+                <PriceInput
+                  pence={o.price_pence}
+                  onChange={pence => setDraft(d => {
                     const options = d.options.slice()
-                    options[i] = { ...options[i], price_pence: parsePrice(e.target.value) ?? 0 }
+                    options[i] = { ...options[i], price_pence: pence ?? 0 }
                     return { ...d, options }
                   })}
                   placeholder="£0.00" className="w-28 font-mono" />
