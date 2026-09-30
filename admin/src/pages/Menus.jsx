@@ -351,9 +351,7 @@ function MenuEditor({ id, onBack }) {
             variant_groups: (it.variant_groups || []).map((g, gi) => ({
               group_id: g.group_id,
               sort_order: gi,
-              overrides: g.overrides || (g.options || [])
-                .filter(o => o.overridden)
-                .map(o => ({ option_id: o.option_id, price_pence: o.price_pence })),
+              overrides: overridesOf(g),
             })),
             dietary: it.dietary || [],
           })),
@@ -1102,6 +1100,17 @@ function ItemImagePicker({ url, onChange }) {
   )
 }
 
+// A dish's price overrides for one attached group. A group loaded from the
+// server carries them as options[].overridden (loadMenuFull's shape); one
+// edited here carries overrides[]. Always read through this, or editing
+// one option drops the others' overrides.
+function overridesOf(attached) {
+  if (Array.isArray(attached.overrides)) return attached.overrides
+  return (attached.options || [])
+    .filter(o => o.overridden)
+    .map(o => ({ option_id: o.option_id, price_pence: o.price_pence }))
+}
+
 function mergeAttachedGroup(attached, library) {
   const lib = (library || []).find(g => g.id === attached.group_id)
   const ovMap = {}
@@ -1160,7 +1169,7 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
     onChange({
       variant_groups: attached.map(g => {
         if (g.group_id !== groupId) return g
-        const overrides = (g.overrides || []).filter(o => o.option_id !== optionId)
+        const overrides = overridesOf(g).filter(o => o.option_id !== optionId)
         if (pence != null && Number(pence) !== Number(defaultPence)) {
           overrides.push({ option_id: optionId, price_pence: Number(pence) })
         }
