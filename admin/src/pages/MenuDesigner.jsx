@@ -5,7 +5,12 @@
 // whole sections, single dishes, text, images, lines, footer notes, the
 // allergen key and page numbers are blocks dropped on it, dragged to move
 // and resized from the corner handle. Blocks set to "Show on every page"
-// repeat on every page (menus.print_layout.master).
+// repeat on every page (layout.master).
+//
+// A menu can have any number of designs (menu_print_designs, migration
+// 135), switched with the bar under the top bar and kept in the URL
+// (?design=<id>). menus.print_design_id is the one the print page and the
+// website's menu link use; null = the automatic layout.
 //
 // Blocks stay linked to the menu: they store only a section / dish id and
 // their place on the grid, and every block's content is drawn by
@@ -20,10 +25,11 @@
 // Every tray entry also has a + button that adds it to the current page
 // without dragging.
 //
-// Nothing saves until Save (PUT /api/menus/:id/print-layout).
+// Nothing saves until Save (POST /api/menus/:id/designs for a new design,
+// PUT /api/menus/:id/designs/:designId after that).
 
 import { useState, useEffect, useMemo, useRef, useLayoutEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Minus, Printer, Save, Settings as SettingsIcon, GripVertical,
@@ -147,6 +153,7 @@ function regrid(layout, next) {
 export default function MenuDesigner() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const api = useApi()
   const qc = useQueryClient()
 
@@ -157,6 +164,8 @@ export default function MenuDesigner() {
 
   const [layout, setLayout] = useState(null)
   const [savedJson, setSavedJson] = useState('null')
+  const [designId, setDesignId] = useState(null)      // saved design being edited; null = new, not saved yet
+  const [designName, setDesignName] = useState('')
   const [sel, setSel] = useState(null)            // { scope: 'page'|'master', id }
   const [curPageId, setCurPageId] = useState(null)
   const [zoom, setZoom] = useState(null)          // null = fit to width
@@ -172,16 +181,51 @@ export default function MenuDesigner() {
   const dragRef = useRef(null)
   const live = useRef({})
 
-  // Load: the saved layout, or nothing (automatic layout) until started.
+  const designs = menu?.designs || []
+
+  // Open a saved design (or none: the start screen) in the editor.
+  const openDesign = useCallback((d) => {
+    const l = d ? normalizeLayout(d.layout) : null
+    setDesignId(d?.id ?? null)
+    setDesignName(d?.name ?? '')
+    setLayout(l)
+    setSavedJson(JSON.stringify(l))
+    setCurPageId(l?.pages[0]?.id ?? null)
+    setSel(null)
+    setNeedsFit(new Set())
+    setSearchParams(d ? { design: d.id } : {}, { replace: true })
+  }, [setSearchParams])
+
+  // First load: the design in the URL, else the one used for printing,
+  // else the first. Later switches go through openDesign() directly, so a
+  // refetch never replaces what is being edited.
   const loadedFor = useRef(null)
   useEffect(() => {
     if (!menu || loadedFor.current === menu.id) return
     loadedFor.current = menu.id
-    const l = menu.print_layout ? normalizeLayout(menu.print_layout) : null
-    setLayout(l)
-    setSavedJson(JSON.stringify(l))
-    setCurPageId(l?.pages[0]?.id ?? null)
+    const list = menu.designs || []
+    const wanted = searchParams.get('design')
+    openDesign(list.find(d => d.id === wanted) || list.find(d => d.id === menu.print_design_id) || list[0] || null)
   }, [menu])
+
+  const nextName = () => {
+    const names = new Set(designs.map(d => d.name))
+    let n = designs.length + 1
+    while (names.has(`Design ${n}`)) n++
+    return `Design ${n}`
+  }
+  // A new design, not saved until Save.
+  function startDesign(from) {
+    const l = from ? structuredClone(from) : newLayout(menu)
+    setDesignId(null)
+    setDesignName(from ? `${designName || 'Design'} copy` : nextName())
+    setLayout(l)
+    setSavedJson('null')
+    setCurPageId(l.pages[0].id)
+    setSel(null)
+    setNeedsFit(from ? new Set() : new Set([l.pages[0].blocks[0].id]))
+    setSearchParams({}, { replace: true })
+  }
 
   // Shared print styles, only while the designer is open.
   useEffect(() => {
@@ -227,23 +271,41 @@ export default function MenuDesigner() {
     return () => ro.disconnect()
   }, [geo?.pageW, !!layout])
 
+  const refreshMenu = () => {
+    qc.invalidateQueries({ queryKey: ['menu-design', id] })
+    qc.invalidateQueries({ queryKey: ['menu', id] })
+    qc.invalidateQueries({ queryKey: ['menus'] })
+  }
   const save = useMutation({
-    mutationFn: () => api.put(`/menus/${id}/print-layout`, { layout }),
+    mutationFn: () => designId
+      ? api.put(`/menus/${id}/designs/${designId}`, { layout })
+      : api.post(`/menus/${id}/designs`, { name: designName.trim() || nextName(), layout }),
     onSuccess: (row) => {
       // Take the server's copy (defaults filled in) so "Saved" compares like with like.
-      const l = row.print_layout ? normalizeLayout(row.print_layout) : null
+      const l = normalizeLayout(row.layout)
       setLayout(l)
       setSavedJson(JSON.stringify(l))
-      qc.invalidateQueries({ queryKey: ['menu', id] })
-      qc.invalidateQueries({ queryKey: ['menus'] })
+      setDesignId(row.id)
+      setDesignName(row.name)
+      setSearchParams({ design: row.id }, { replace: true })
+      refreshMenu()
     },
   })
+  const rename = useMutation({
+    mutationFn: (name) => api.put(`/menus/${id}/designs/${designId}`, { name }),
+    onSuccess: (row) => { setDesignName(row.name); refreshMenu() },
+  })
+  const setPrinting = useMutation({
+    mutationFn: (design_id) => api.put(`/menus/${id}/print-design`, { design_id }),
+    onSuccess: refreshMenu,
+  })
   const reset = useMutation({
-    mutationFn: () => api.put(`/menus/${id}/print-layout`, { layout: null }),
+    mutationFn: () => api.delete(`/menus/${id}/designs/${designId}`),
     onSuccess: () => {
-      setLayout(null); setSavedJson('null'); setSel(null); setConfirmReset(false)
-      qc.invalidateQueries({ queryKey: ['menu', id] })
-      qc.invalidateQueries({ queryKey: ['menus'] })
+      setConfirmReset(false)
+      const rest = designs.filter(d => d.id !== designId)
+      openDesign(rest.find(d => d.id === menu.print_design_id) || rest[0] || null)
+      refreshMenu()
     },
   })
 
@@ -496,7 +558,7 @@ export default function MenuDesigner() {
   const selected = sel && layout ? findBlock(layout, sel.id) : null
   const curPage = layout ? (layout.pages.find(p => p.id === curPageId) || layout.pages[0]) : null
   const curPageIndex = layout && curPage ? layout.pages.indexOf(curPage) : 0
-  const printUrl = `/api/menus/${id}/print`
+  const printUrl = `/api/menus/${id}/print${designId ? `?design=${designId}` : ''}`
 
   return (
     <div className="h-full flex flex-col bg-muted/30">
@@ -507,7 +569,7 @@ export default function MenuDesigner() {
           <ArrowLeft className="w-4 h-4" /> Menu
         </button>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold truncate">Print design · {menu.name}</p>
+          <p className="text-sm font-semibold truncate">Print design · {menu.name}{layout && designName ? ` · ${designName}` : ''}</p>
           <p className="text-[11px] text-muted-foreground truncate">
             {layout ? `${layout.paper_size} ${layout.orientation}${layout.fold !== 'none' ? ' · folded' : ''} · ${layout.pages.length} page${layout.pages.length === 1 ? '' : 's'} · grid ${geo.cols} x ${geo.rows}` : 'Automatic layout'}
           </p>
@@ -549,12 +611,20 @@ export default function MenuDesigner() {
         </div>
       )}
 
+      {(designs.length > 0 || layout) && (
+        <DesignBar designs={designs} designId={designId} designName={designName} layout={layout}
+          printingId={menu.print_design_id} dirty={dirty}
+          onOpen={openDesign}
+          onNew={() => startDesign(null)}
+          onCopy={() => layout && startDesign(layout)} />
+      )}
+
       {!layout ? (
-        <StartScreen menu={menu} onStart={() => {
-          const l = newLayout(menu)
-          setLayout(l); setCurPageId(l.pages[0].id)
-          setNeedsFit(new Set([l.pages[0].blocks[0].id]))
-        }} />
+        designs.length ? (
+          <div className="flex-1 flex items-center justify-center p-6 text-sm text-muted-foreground">Pick a design above.</div>
+        ) : (
+          <StartScreen menu={menu} onStart={() => startDesign(null)} />
+        )
       ) : (
         <div className="flex-1 min-h-0 flex">
           <Tray menu={menu} layout={layout} curPageIndex={curPageIndex}
@@ -599,10 +669,18 @@ export default function MenuDesigner() {
             ) : (
               <PagePanel page={curPage} pageIndex={curPageIndex} layout={layout}
                 onPatch={patch => patchPage(curPage.id, patch)}
+                design={{
+                  id: designId, name: designName,
+                  printing: !!designId && menu.print_design_id === designId,
+                  printingOther: designs.find(d => d.id === menu.print_design_id)?.name || null,
+                }}
+                onNameDraft={setDesignName}
+                onRename={name => rename.mutate(name)} renaming={rename.isPending}
+                onUsePrinting={() => setPrinting.mutate(designId)}
+                onUseAutomatic={() => setPrinting.mutate(null)} settingPrinting={setPrinting.isPending}
                 confirmReset={confirmReset} setConfirmReset={setConfirmReset}
                 resetting={reset.isPending} onReset={() => reset.mutate()}
-                savedExists={savedJson !== 'null'}
-                onDiscardNew={() => { setLayout(null); setSel(null) }} />
+                onDiscardNew={() => openDesign(designs.find(d => d.id === menu.print_design_id) || designs[0] || null)} />
             )}
           </aside>
         </div>
@@ -781,6 +859,19 @@ function placeholderFor(block) {
   }
 }
 
+// A section / dish block whose content isn't drawn: deleted from the menu,
+// or its section is set to "Hide everywhere" on the Menus page.
+function missingText(block, menu) {
+  const sections = menu?.sections || []
+  const sec = block.type === 'item'
+    ? sections.find(s => (s.items || []).some(it => it.id === block.ref))
+    : sections.find(s => s.id === block.ref)
+  if (sec?.visibility === 'hidden') {
+    return 'The section "' + String(sec.title).replace(/</g, '&lt;') + '" is set to Hide everywhere on the menu page, so this block doesn\'t print. Show it again there, or remove this block.'
+  }
+  return 'This ' + (block.type === 'item' ? 'dish' : 'section') + ' was deleted from the menu. Remove this block.'
+}
+
 function DesignBlock({
   block, scope, pageId, pageIndex, layout, ctx, geo, selected, dragging, overlap, needsFit, fontsTick, handle,
   onPointerDown, onResizePointerDown, onFit,
@@ -791,7 +882,7 @@ function DesignBlock({
 
   const inner = ctx ? renderBlockInner(block, ctx, pageIndex) : ''
   const html = inner == null
-    ? '<div class="md-ph md-missing">This ' + (block.type === 'item' ? 'dish' : 'section') + ' was deleted from the menu. Remove this block.</div>'
+    ? '<div class="md-ph md-missing">' + missingText(block, ctx.menu) + '</div>'
     : inner === '' ? '<div class="md-ph">' + placeholderFor(block).replace(/</g, '&lt;') + '</div>' : inner
 
   useLayoutEffect(() => {
@@ -1196,8 +1287,14 @@ function TypeOptions({ block, o, menu, layout, onOpts, openMedia }) {
   }
 }
 
-function PagePanel({ page, pageIndex, layout, onPatch, confirmReset, setConfirmReset, resetting, onReset, savedExists, onDiscardNew }) {
+function PagePanel({
+  page, pageIndex, layout, onPatch, design, onNameDraft, onRename, renaming,
+  onUsePrinting, onUseAutomatic, settingPrinting, confirmReset, setConfirmReset, resetting, onReset, onDiscardNew,
+}) {
+  const [name, setName] = useState(design.name)
+  useEffect(() => setName(design.name), [design.id, design.name])
   if (!page) return null
+  const saved = !!design.id
   return (
     <div onPointerDown={e => e.stopPropagation()}>
       <div className="px-4 h-12 border-b flex items-center">
@@ -1211,6 +1308,44 @@ function PagePanel({ page, pageIndex, layout, onPatch, confirmReset, setConfirmR
             : 'No blocks are set to show on every page yet. Select a block and tick "Show on every page".'}
         </p>
       </PanelSection>
+      <PanelSection title="This design">
+        <div>
+          <p className="text-[11px] text-muted-foreground mb-0.5">Name</p>
+          <div className="flex gap-1.5">
+            <input value={name} maxLength={80}
+              onChange={e => { setName(e.target.value); if (!saved) onNameDraft(e.target.value) }}
+              className="flex-1 min-w-0 text-sm border rounded-md px-2 min-h-[40px]" />
+            {saved && (
+              <button onClick={() => onRename(name.trim())}
+                disabled={renaming || !name.trim() || name.trim() === design.name}
+                className="text-sm border rounded-md px-3 min-h-[40px] touch-manipulation disabled:opacity-50 hover:bg-accent">
+                {renaming ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Rename'}
+              </button>
+            )}
+          </div>
+        </div>
+        {!saved ? (
+          <p className="text-[11px] text-muted-foreground">Not saved yet. Save to keep it; printing doesn't change until you choose it.</p>
+        ) : design.printing ? (
+          <div className="space-y-2">
+            <p className="text-xs inline-flex items-center gap-1.5 text-emerald-700"><Check className="w-3.5 h-3.5" /> Print and the website's menu link use this design.</p>
+            <button onClick={onUseAutomatic} disabled={settingPrinting}
+              className="w-full inline-flex items-center justify-center gap-1.5 text-sm border rounded-md min-h-[44px] hover:bg-accent touch-manipulation disabled:opacity-50">
+              <RotateCcw className="w-4 h-4" /> Use the automatic layout instead
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[11px] text-muted-foreground">
+              {design.printingOther ? `Printing uses "${design.printingOther}".` : 'Printing uses the automatic layout.'}
+            </p>
+            <button onClick={onUsePrinting} disabled={settingPrinting}
+              className="w-full inline-flex items-center justify-center gap-1.5 text-sm rounded-md min-h-[44px] bg-primary text-primary-foreground touch-manipulation disabled:opacity-50">
+              {settingPrinting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />} Use this design for printing
+            </button>
+          </div>
+        )}
+      </PanelSection>
       <PanelSection title="How it works">
         <ul className="text-xs text-muted-foreground space-y-1.5 list-disc pl-4">
           <li>Drag anything from the left onto a page, or tap + to add it to the current page.</li>
@@ -1220,11 +1355,11 @@ function PagePanel({ page, pageIndex, layout, onPatch, confirmReset, setConfirmR
           <li>Names, prices and allergens always come from the menu, so the design stays up to date.</li>
         </ul>
       </PanelSection>
-      <PanelSection title="Automatic layout">
-        {savedExists ? (
+      <PanelSection>
+        {saved ? (
           confirmReset ? (
             <div className="space-y-2">
-              <p className="text-xs">Delete this design? The print and the website link go back to the automatic layout.</p>
+              <p className="text-xs">Delete "{design.name}"?{design.printing ? ' Printing goes back to the automatic layout.' : ''}</p>
               <div className="flex gap-2">
                 <button onClick={onReset} disabled={resetting}
                   className="flex-1 inline-flex items-center justify-center gap-1.5 text-sm rounded-md min-h-[44px] bg-destructive text-destructive-foreground touch-manipulation disabled:opacity-50">
@@ -1236,16 +1371,55 @@ function PagePanel({ page, pageIndex, layout, onPatch, confirmReset, setConfirmR
           ) : (
             <button onClick={() => setConfirmReset(true)}
               className="w-full inline-flex items-center justify-center gap-1.5 text-sm border rounded-md min-h-[44px] text-destructive hover:bg-destructive/10 touch-manipulation">
-              <RotateCcw className="w-4 h-4" /> Use the automatic layout
+              <Trash2 className="w-4 h-4" /> Delete this design
             </button>
           )
         ) : (
-          <>
-            <p className="text-[11px] text-muted-foreground">This design is not saved yet. Until you save, printing uses the automatic layout.</p>
-            <button onClick={onDiscardNew} className="w-full text-sm border rounded-md min-h-[44px] hover:bg-accent touch-manipulation">Discard this design</button>
-          </>
+          <button onClick={onDiscardNew} className="w-full text-sm border rounded-md min-h-[44px] hover:bg-accent touch-manipulation">Discard this design</button>
         )}
       </PanelSection>
+    </div>
+  )
+}
+
+// The menu's designs, one pill each, plus New / Copy. Switching is locked
+// while there are unsaved changes, so nothing is lost without Save.
+function DesignBar({ designs, designId, designName, layout, printingId, dirty, onOpen, onNew, onCopy }) {
+  const lockTitle = 'Save or discard your changes first'
+  return (
+    <div className="shrink-0 border-b bg-background px-4 py-2 flex items-center gap-2 overflow-x-auto">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground shrink-0">Designs</span>
+      {designs.map(d => {
+        const active = d.id === designId
+        return (
+          <button key={d.id} onClick={() => !active && onOpen(d)} disabled={!active && dirty}
+            title={!active && dirty ? lockTitle : undefined} aria-pressed={active}
+            className={cn('shrink-0 inline-flex items-center gap-1.5 text-sm rounded-full border px-3 min-h-[40px] touch-manipulation',
+              active ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-accent disabled:opacity-50')}>
+            {d.name}
+            {d.id === printingId && (
+              <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full inline-flex items-center gap-0.5',
+                active ? 'bg-white/20' : 'bg-emerald-100 text-emerald-800')}>
+                <Printer className="w-3 h-3" /> Printing
+              </span>
+            )}
+          </button>
+        )
+      })}
+      {layout && !designId && (
+        <span className="shrink-0 inline-flex items-center gap-1.5 text-sm rounded-full border border-dashed border-primary text-primary px-3 min-h-[40px]">
+          {designName || 'New design'} <span className="text-[10px]">(not saved)</span>
+        </span>
+      )}
+      <div className="flex-1" />
+      <button onClick={onCopy} disabled={dirty || !layout} title={dirty ? lockTitle : 'Start a new design from this one'}
+        className="shrink-0 inline-flex items-center gap-1.5 text-sm border rounded-md px-3 min-h-[40px] touch-manipulation hover:bg-accent disabled:opacity-50">
+        <Copy className="w-4 h-4" /> Copy
+      </button>
+      <button onClick={onNew} disabled={dirty} title={dirty ? lockTitle : 'Start a blank design'}
+        className="shrink-0 inline-flex items-center gap-1.5 text-sm border rounded-md px-3 min-h-[40px] touch-manipulation hover:bg-accent disabled:opacity-50">
+        <Plus className="w-4 h-4" /> New design
+      </button>
     </div>
   )
 }

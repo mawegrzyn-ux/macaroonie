@@ -146,7 +146,7 @@ function MenuList({ onEdit }) {
                       {m.is_published
                         ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">PUBLISHED</span>
                         : <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">DRAFT</span>}
-                      {m.print_layout && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">DESIGNED PRINT</span>}
+                      {m.print_design_id && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">DESIGNED PRINT</span>}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
                       <code>/menus/{m.slug}</code> · {venue}
@@ -255,7 +255,7 @@ function ensureIds(menu) {
   // Existing sections/items/notes carry a server id already; new ones get a
   // fresh uuid here. Both are sent on save and the server keeps them, so
   // a section or dish keeps its id for good — the print designer
-  // (menus.print_layout) points at them by id.
+  // (menu_print_designs.layout) points at them by id.
   return {
     ...menu,
     sections: (menu.sections || []).map(s => ({
@@ -328,6 +328,7 @@ function MenuEditor({ id, onBack }) {
           print_keep_together: !!s.print_keep_together,
           vat_rate_takeaway: s.vat_rate_takeaway ?? null,
           vat_rate_eat_in: s.vat_rate_eat_in ?? null,
+          visibility: s.visibility || 'show',
           sort_order: si,
           items: (s.items || []).map((it, ii) => ({
             id: it.id,
@@ -440,7 +441,7 @@ function MenuEditor({ id, onBack }) {
             <button onClick={() => navigate(`/menus/${id}/design`)}
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2 min-h-[44px] touch-manipulation">
               <LayoutTemplate className="w-3.5 h-3.5" /> Design print
-              {draft.print_layout && <span className="text-[10px] px-1 rounded bg-blue-100 text-blue-700">on</span>}
+              {draft.design_count > 0 && <span className="text-[10px] px-1 rounded bg-blue-100 text-blue-700">{draft.design_count}</span>}
             </button>
           )}
           {dirty ? (
@@ -695,7 +696,7 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, selectedSection
     const section = {
       id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, image_url: null,
       print_break_before: 'none', print_keep_together: false,
-      vat_rate_takeaway: null, vat_rate_eat_in: null, items: [],
+      vat_rate_takeaway: null, vat_rate_eat_in: null, visibility: 'show', items: [],
     }
     onChange([...sections, section])
     onSelectSection(section.id)
@@ -799,6 +800,8 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
           {breakLabel && <Badge title="Print">{breakLabel}</Badge>}
           {section.print_keep_together && <Badge title="Print">Keep together</Badge>}
         </div>
+        {section.visibility === 'hidden' && <Badge title="Not printed, not on the website, not orderable">Hidden</Badge>}
+        {section.visibility === 'website_hidden' && <Badge title="Printed menus only: not on the website or online ordering">Print only</Badge>}
         <span className="text-[11px] text-muted-foreground shrink-0">{items.length} dish{items.length === 1 ? '' : 'es'}</span>
         <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
           <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 min-h-[32px] disabled:opacity-30">↑</button>
@@ -899,6 +902,13 @@ function RateInput({ value, onChange, placeholder }) {
 
 // ── Section drawer — the section's settings, opened by tapping its header ──
 
+// menu_sections.visibility (migration 136). Online ordering counts as the website.
+const SECTION_VISIBILITY = [
+  { key: 'show',           label: 'Everywhere',        hint: 'Printed menus, the website and online ordering.' },
+  { key: 'website_hidden', label: 'Hide on website',   hint: 'Printed menus only. Left out of the website and online ordering.' },
+  { key: 'hidden',         label: 'Hide everywhere',   hint: 'Not printed, not on the website, not orderable. It stays here so you can show it again.' },
+]
+
 function SectionDrawer({ section, onChange, onRemove, onClose }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const count = (section.items || []).length
@@ -948,6 +958,25 @@ function SectionDrawer({ section, onChange, onRemove, onClose }) {
             onChange={e => onChange({ highlight: e.target.checked })} />
           Highlight this section
         </label>
+
+        <div className="rounded-md border p-3 space-y-2">
+          <p className="text-xs font-medium">Where it shows</p>
+          <div className="grid grid-cols-3 gap-1.5">
+            {SECTION_VISIBILITY.map(o => (
+              <button key={o.key} type="button" onClick={() => onChange({ visibility: o.key })}
+                aria-pressed={(section.visibility || 'show') === o.key}
+                className={cn('text-xs rounded-md border px-2 min-h-[44px] touch-manipulation leading-tight',
+                  (section.visibility || 'show') === o.key
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-background hover:bg-accent')}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            {SECTION_VISIBILITY.find(o => o.key === (section.visibility || 'show')).hint}
+          </p>
+        </div>
 
         <div className="rounded-md border p-3 space-y-2">
           <p className="text-xs font-medium">Print</p>

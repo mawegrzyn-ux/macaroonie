@@ -1,5 +1,5 @@
 <%
-/* Designed print layout (menus.print_layout, migration 121). Every page is
+/* Designed print layout (menu_print_designs.layout, migrations 121 + 135). Every page is
    built by shared/menuLayout.js renderPageHtml(), the same renderer the
    admin menu designer draws with. This file only wraps the pages. */
 const m = it.menu

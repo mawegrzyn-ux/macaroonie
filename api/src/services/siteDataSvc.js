@@ -571,6 +571,7 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
              ), '[]'::json) AS items
         FROM menu_sections s
        WHERE s.menu_id = ANY(${menuIdsArr}::uuid[])
+         AND s.visibility = 'show'   -- website_hidden / hidden sections stay off the site (migration 136)
        ORDER BY s.sort_order
     `
 
