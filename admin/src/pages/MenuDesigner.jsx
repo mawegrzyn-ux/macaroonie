@@ -37,7 +37,7 @@ import {
   BLOCK_LABELS, FITTABLE, GRID_COLS, ROW_MM, MAX_PAGES, MENU_LAYOUT_CSS, DEFAULT_FONTS, layoutFontsUrl,
   normalizeLayout, layoutGeometry, pageBlocks, pageStyle, contentStyle, blockStyle, blockClass,
   toReactStyle, buildContext, placementSummary, renderBlockInner,
-  colAtMm, rowAtMm, crossesFold, foldGapBox,
+  colAtMm, rowAtMm, crossesFold, foldGapBox, pickedCallouts,
 } from '@shared/menuLayout.js'
 import { FONT_OPTIONS } from '@shared/fonts.js'
 import { FontPicker } from '@/components/website-builder/FontPicker'
@@ -773,7 +773,9 @@ function placeholderFor(block) {
     case 'intro':    return 'Intro line: empty. Set it in the menu\'s Settings.'
     case 'text':     return 'Text: type it in the panel on the right.'
     case 'image':    return 'Image: pick one in the panel on the right.'
-    case 'callouts': return 'Footer notes: none yet. Add them on the menu page.'
+    case 'callouts': return Array.isArray(block.opts?.callout_ids)
+      ? 'Footer notes: none picked. Choose them in the panel on the right.'
+      : 'Footer notes: none yet. Add them on the menu page.'
     case 'key':      return 'Allergen key: no dietary tags yet.'
     default:         return BLOCK_LABELS[block.type] || block.type
   }
@@ -1145,9 +1147,37 @@ function TypeOptions({ block, o, menu, layout, onOpts, openMedia }) {
         </PanelSection>
       )
     case 'callouts': {
-      const n = (menu.callouts || []).length
+      const all = menu.callouts || []
+      const picking = Array.isArray(o.callout_ids)
+      const picked = new Set(picking ? o.callout_ids : all.map(c => c.id))
+      const n = pickedCallouts(menu, o).length
+      const toggle = (id, on) => onOpts({ callout_ids: all.map(c => c.id).filter(cid => cid === id ? on : picked.has(cid)) })
       return (
         <PanelSection title="Footer notes">
+          {all.length === 0
+            ? <p className="text-xs text-muted-foreground">This menu has no footer notes yet. Add them on the menu page.</p>
+            : (
+              <div>
+                <Check2 label="Show all notes" checked={!picking}
+                  onChange={v => onOpts({ callout_ids: v ? undefined : all.map(c => c.id) })} />
+                <p className="text-[11px] text-muted-foreground mb-1">
+                  {picking ? 'Only the ticked notes print here. Notes you add later are not included.' : 'Every note prints here, including ones you add later.'}
+                </p>
+                {picking && (
+                  <div className="border rounded-md divide-y">
+                    {all.map(c => (
+                      <label key={c.id} className="flex items-start gap-2 px-2.5 py-2 min-h-[44px] cursor-pointer touch-manipulation">
+                        <input type="checkbox" checked={picked.has(c.id)} onChange={e => toggle(c.id, e.target.checked)} className="w-4 h-4 mt-0.5 shrink-0" />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium truncate">{c.title}</span>
+                          {c.body && <span className="block text-[11px] text-muted-foreground line-clamp-2">{c.body}</span>}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           <p className="text-[11px] text-muted-foreground mb-0.5">Columns</p>
           <Segmented value={String(o.columns || Math.min(4, Math.max(1, n)))} options={[['1', '1'], ['2', '2'], ['3', '3'], ['4', '4']]} onChange={v => onOpts({ columns: Number(v) })} />
         </PanelSection>

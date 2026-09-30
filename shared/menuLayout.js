@@ -53,6 +53,19 @@ export const BLOCK_LABELS = {
 }
 
 // Text-bearing blocks whose height can be fitted to their content.
+/**
+ * The footer notes a callouts block shows, in the menu's order. No
+ * `opts.callout_ids` = every note (new ones included); a list = only
+ * those notes (ids of deleted notes are ignored).
+ */
+export function pickedCallouts(menu, opts) {
+  const all = menu?.callouts || []
+  const ids = opts?.callout_ids
+  if (!Array.isArray(ids)) return all
+  const want = new Set(ids)
+  return all.filter(c => want.has(c.id))
+}
+
 export const FITTABLE = new Set(['header', 'intro', 'section', 'item', 'text', 'callouts', 'key', 'footer', 'page_number'])
 
 function num(v, lo, hi, dflt) {
@@ -420,7 +433,7 @@ export function renderBlockInner(block, ctx, pageIndex) {
       return '<div class="ml-rule ml-rule-' + style + '"></div>'
     }
     case 'callouts': {
-      const callouts = m.callouts || []
+      const callouts = pickedCallouts(m, o)
       if (!callouts.length) return ''
       const cols = num(o.columns, 1, 4, Math.min(4, callouts.length))
       return '<div class="ml-callouts" style="grid-template-columns:repeat(' + cols + ',1fr)">' +

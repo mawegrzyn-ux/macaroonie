@@ -252,7 +252,7 @@ function NewMenuModal({ venues, onClose, onCreated }) {
 // ════════════════════════════════════════════════════════════
 
 function ensureIds(menu) {
-  // Existing sections/items carry a server id already; new ones get a
+  // Existing sections/items/notes carry a server id already; new ones get a
   // fresh uuid here. Both are sent on save and the server keeps them, so
   // a section or dish keeps its id for good — the print designer
   // (menus.print_layout) points at them by id.
@@ -263,6 +263,9 @@ function ensureIds(menu) {
       id: s.id || crypto.randomUUID(),
       items: (s.items || []).map(it => ({ ...it, id: it.id || crypto.randomUUID() })),
     })),
+    // Footer notes keep their ids too: a designer footer-notes block can
+    // pick which ones it shows (opts.callout_ids).
+    callouts: (menu.callouts || []).map(c => ({ ...c, id: c.id || crypto.randomUUID() })),
   }
 }
 
@@ -1330,7 +1333,7 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
 // ── Callouts ─────────────────────────────────────────────────
 
 function CalloutsPanel({ callouts, onChange }) {
-  const add = () => onChange([...callouts, { kind: 'custom', title: 'New callout', body: '' }])
+  const add = () => onChange([...callouts, { id: crypto.randomUUID(), kind: 'custom', title: 'New callout', body: '' }])
   const set = (i, patch) => {
     const next = callouts.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
   }
