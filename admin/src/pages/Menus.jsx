@@ -23,6 +23,14 @@ import {
   Sparkles, Printer, Image as ImageIcon, Layers, GripVertical, Copy,
   Settings as SettingsIcon, LayoutTemplate,
 } from 'lucide-react'
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable'
+import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
+import { CSS } from '@dnd-kit/utilities'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
@@ -748,6 +756,20 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
     const next = items.slice();[next[i], next[j]] = [next[j], next[i]]
     onItemsChange(next)
   }
+  // Drag to reorder. Each section has its own DndContext, so a dish can
+  // only be dropped among the dishes of its own section.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const onDragEnd = ({ active, over }) => {
+    if (!over || active.id === over.id) return
+    const from = items.findIndex(it => it.id === active.id)
+    const to = items.findIndex(it => it.id === over.id)
+    if (from < 0 || to < 0) return
+    onItemsChange(arrayMove(items, from, to))
+  }
 
   return (
     <div className={cn('border rounded-lg overflow-hidden bg-sky-50',
@@ -784,15 +806,22 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
       </div>
       {open && (
         <div className="p-2 space-y-1">
-          {items.map((it, i) => (
-            <ItemRow key={it.id} item={it}
-              index={i} total={items.length}
-              selected={it.id === selectedItemId}
-              onSelect={() => onSelectItem(it.id)}
-              onRemove={() => removeItem(i)}
-              onMoveUp={() => moveItem(i, -1)}
-              onMoveDown={() => moveItem(i, 1)} />
-          ))}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}
+            modifiers={[restrictToVerticalAxis, restrictToParentElement]}>
+            <SortableContext items={items.map(it => it.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-1">
+                {items.map((it, i) => (
+                  <ItemRow key={it.id} item={it}
+                    index={i} total={items.length}
+                    selected={it.id === selectedItemId}
+                    onSelect={() => onSelectItem(it.id)}
+                    onRemove={() => removeItem(i)}
+                    onMoveUp={() => moveItem(i, -1)}
+                    onMoveDown={() => moveItem(i, 1)} />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
           <button onClick={addItem}
             className="w-full text-xs border-2 border-dashed border-amber-300 rounded-md py-2 text-amber-800/70 hover:bg-amber-100 hover:text-amber-900 bg-amber-50/40">
             + Add dish
@@ -958,17 +987,27 @@ function SectionDrawer({ section, onChange, onRemove, onClose }) {
 }
 
 // Compact row — name, price, attached-group + dietary badges. Click
-// anywhere on the row to open it in the drawer.
+// anywhere on the row to open it in the drawer; drag the grip to reorder
+// within the section.
 function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, onMoveDown }) {
   const groupCount = (item.variant_groups || []).length
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   return (
     <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
       onClick={onSelect}
       className={cn(
-        'flex items-center gap-2 px-2.5 py-2 rounded-md border cursor-pointer bg-white hover:border-primary/50',
+        'relative flex items-center gap-2 pr-2.5 py-1 rounded-md border cursor-pointer bg-white hover:border-primary/50',
         selected ? 'border-primary ring-1 ring-primary/30 bg-primary/5' : 'border-amber-200',
+        isDragging && 'z-10 shadow-lg opacity-90',
       )}>
-      <GripVertical className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+      <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners}
+        onClick={e => e.stopPropagation()}
+        aria-label={`Drag to reorder ${item.name || 'dish'}`}
+        className="w-10 min-h-[44px] flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing touch-none text-muted-foreground hover:text-foreground">
+        <GripVertical className="w-4 h-4" />
+      </button>
       {item.image_url
         ? <img src={item.image_url} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
         : <ImageIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}

@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-30 — Menus: drag dishes to reorder]
+
+- Menus: drag a dish by its grip to reorder it within its section, on touch screens as well as with a mouse. A dish can't be dragged into another section. The arrow buttons still work. Save changes keeps the order.
+
+---
+
 ## [2026-09-29 — Page builder previews every page in the site's template]
 
 - Fixed: the page builder showed the Classic template (and default colours) for extra pages, modals and location pages, while the home page showed the site's real template (e.g. Onethai). The canvas took the template and theme from the page being edited, and only the home page carries them. Every page now previews with the site's template and Brand & theme, or the location's own when it has a site override, matching the live site.
