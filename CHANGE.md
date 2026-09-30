@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-30 — Rota pay adjustments, cash advances, one wages list]
+
+**Migration:** `137_rota_pay_adjustments.sql`
+
+- Rota pay: a new Adjustments column. Tap it to add extra pay, a deduction or a cash advance for the week, each with a note; tap one to change it, or remove it (asks first). Total pay is rota pay plus adjustments, and it is what Fill Cash Recon wages writes (with the adjustments in the wage row's notes).
+- Cash advance: paid now from the till, so it is added to this week's pay and wages, and taken off next week's pay automatically ("Advance repaid").
+- Not paid in full: when someone is paid part of their wage in cash, the rest is added to their rota pay next week as "Owed from last week". A row with no cash paid isn't carried (bank transfer, or not paid yet).
+- Wages are no longer submitted (days still are), so the wages list is never locked.
+- One wages list everywhere: the Cash Recon Wages page, the Cash Dashboard's Wages paid and Week staff list widgets and the phone Wages page all show Name, Total, Paid, Paid on and Notes (no pay type), with a Full button per person and Pay everyone in full. Changes are kept with Save or thrown away with Discard changes.
+
+---
+
 ## [2026-09-30 — Food safety: setup in H&S settings, cooking sessions by session]
 
 - H&S settings is now one window with a section for each kind of setup: General, Fridges & freezers, Fridge check times, Hold stations, Hold check times and Cooking sessions, with a venue picker. The Food safety page keeps only the checks: the Equipment tab and the station and time lists under Holds are gone, and so is the cooking panel's gear. Where nothing is set up yet, the page offers a button straight into the right section. Removing anything now asks to confirm.

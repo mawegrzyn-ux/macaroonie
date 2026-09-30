@@ -1171,22 +1171,34 @@ export default function Help() {
             </P>
             <H3>Wages</H3>
             <P>
-              Open a week's <strong>Wages</strong> card to log staff pay. Each staff member is one
-              compact row: Fixed or Hourly, hours/rate (hourly only), total cost, and how much of
-              that was actually <strong>paid in cash</strong> — the two can differ when part or
-              all of a wage goes by bank transfer instead of the till.
+              Open a week's <strong>Wages</strong> card to log staff pay. The Wages page, the Cash
+              Dashboard's Wages paid and Week staff list widgets, and the phone Wages page all show the
+              same list: <strong>Name</strong>, <strong>Total</strong> (what they're owed for the week),{' '}
+              <strong>Paid</strong> (the cash handed over from the till), <strong>Paid on</strong> and{' '}
+              <strong>Notes</strong>. Tap <strong>Full</strong> to pay someone their whole total, or{' '}
+              <strong>Pay everyone in full</strong>. Nothing is written until you tap{' '}
+              <strong>Save</strong>; <strong>Discard changes</strong> throws your edits away.
             </P>
             <P>
-              <strong>Paid on</strong> is the day the cash came out of the till. Pick it per person, or
-              use <strong>Set all to</strong> for everyone at once. It can still be changed after the
-              week is submitted. On the phone Wages page and the dashboard's Wages paid widget,
-              ticking <strong>Paid</strong> fills in today (or the day selected on the dashboard), with
-              a day picker under the name to change it.
+              Wages are not submitted any more (the days are), so the list is never locked. The
+              totals under the list show Total, Paid (cash) and Left to pay.
+            </P>
+            <P>
+              <strong>Paid on</strong> is the day the cash came out of the till. It fills in today (or
+              the day selected on the dashboard) when you enter a payment; change it per person, or
+              use <strong>Paid on for all</strong>.
+            </P>
+            <P>
+              <strong>Not paid in full.</strong> If someone is paid part of their total in cash, the row
+              shows what's left, and the Rota adds it to their pay next week as{' '}
+              <strong>Owed from last week</strong>. A row with nothing paid in cash isn't carried (it
+              may have gone by bank transfer, or not be paid yet).
             </P>
             <DataTable
               head={['Control', 'What it does']}
               rows={[
-                ['Set as default', 'Saves the current week\'s staff list (who\'s included, and their Fixed/Hourly setting) as this venue\'s default. Any future week you open that has no saved wages yet auto-populates from this list instead of your full staff roster.'],
+                ['Set as default', 'Saves the current week\'s staff list (who\'s included) as this venue\'s default. Any future week you open that has no saved wages yet auto-populates from this list instead of your full staff roster.'],
+                ['Copy from', 'Replaces the list with the names and totals from one of the last 8 weeks (nothing marked paid). Save to keep it.'],
                 ['Cash-only net balance', 'The net cash position (in the daily/weekly totals) subtracts only the cash-paid portion of wages, not the full wage cost — a wage paid by bank transfer no longer drags down your cash figure.'],
                 ['Imbalance flag', 'An amber warning icon appears wherever a week\'s wages are shown whenever Total wages doesn\'t match Cash paid, so a data-entry slip doesn\'t go unnoticed.'],
               ]}
@@ -1213,13 +1225,10 @@ export default function Help() {
             <P>
               The pay type is used whenever that person is added to a week: a new week filled from
               your staff list, or someone added on the Wages page or the Week staff list widget, starts
-              as Fixed with their weekly amount (per-day and per-shift staff start blank, since the
-              amount depends on the rota), or as Hourly with their rate ready for the hours. The
-              quickest way to fill a week from the rota is the <strong>Fill Cash Recon wages</strong>{' '}
-              button on the Rota page. You
-              can still switch a single week's entry between Fixed and Hourly without changing the
-              staff record. If you have saved a default wage list, its Fixed/Hourly choices are used
-              for new weeks instead.
+              with their weekly amount if they're Fixed per week, and blank otherwise (hourly, per-day
+              and per-shift pay depends on the rota). The quickest way to fill a week from the rota is
+              the <strong>Fill Cash Recon wages</strong> button on the Rota page. Typing a Total on the
+              Wages list sets that week's amount directly.
             </P>
             <H3>Service charge sources — Takings/Income effect</H3>
             <P>
@@ -1442,10 +1451,10 @@ export default function Help() {
                 ['Day balance', 'The selected day: income, service charges, takings, cash expenses, card expenses and the variance.'],
                 ['Week balance', 'The week: income, takings, cash expenses, wages paid in cash and the variance, plus how many days are submitted.'],
                 ['Reconciliation grid', 'The full week grid from Cash Recon. You can type into it the same way; tap a day heading to select that day.'],
-                ['Wages paid', 'The title bar shows the total paid in cash so far. This week\'s staff with what each is owed and a Paid tick box. Ticking works even after the wages are submitted.'],
+                ['Wages paid', 'The title bar shows the total paid in cash so far. The week\'s wages list (Name, Total, Paid, Paid on, Notes), the same as the Wages page. A payment is recorded on the day selected on the dashboard. Save to keep changes.'],
                 ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
                 ['Week expenses', 'The title bar shows the week\'s cash expenses total. Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
-                ['Week staff list', 'Manage who is on this week\'s wages: switch each person between Fixed and Hourly, enter hours and rate or a fixed amount, add someone from your staff list (or a one-off name), remove someone, copy the list from one of the last 8 weeks, and Set as default for new weeks. Changes are only written when you tap Save (Discard changes throws them away). Paid ticks are kept. Locked once the week\'s wages are submitted, except Set as default.'],
+                ['Week staff list', 'The same wages list as the Wages paid widget: add someone from your staff list (or a one-off name), remove someone, copy the list from one of the last 8 weeks, and Set as default for new weeks. Changes are only written when you tap Save (Discard changes throws them away).'],
                 ['Week summary grid', 'The title bar shows the week\'s variance. The reconciliation grid with the individual days taken out: every income source, service charge and payment channel with its week total, then cash expenses and wages paid out of the till, and the variance. Read only, and always matches the WEEK column of the full grid.'],
               ]}
             />
@@ -1577,11 +1586,25 @@ export default function Help() {
             <H3>Hours and pay</H3>
             <P>
               Below the rota (for anyone with rota pay access) each rostered person's hours and pay
-              for the week (hours worked, with any time off listed under them). Tap a pay figure to override it for this week; <strong>Use calculated</strong>{' '}
-              goes back. <strong>Fill Cash Recon wages</strong> writes everyone's pay into that week's
-              Cash Recon wages: existing rows are updated (someone already marked Paid stays paid at
-              the new amount), missing people are added, and other rows are left alone. It is blocked
-              once the week's wages are submitted.
+              for the week (hours worked, with any time off listed under them). <strong>Rota pay</strong> is
+              what the rota works out; tap it to override it for this week (<strong>Use calculated</strong>{' '}
+              goes back). <strong>Adjustments</strong> opens that person's pay for the week, where you can add:
+            </P>
+            <DataTable
+              head={['Adjustment', 'What it does']}
+              rows={[
+                ['Extra pay', 'Added to this week\'s pay (a bonus, extra hours, a covered shift). Add a note to say why.'],
+                ['Deduction', 'Taken off this week\'s pay. If deductions are more than the pay, pay stops at £0.00 and the table shows how much was short; the rest isn\'t carried over.'],
+                ['Cash advance', 'Money handed over now, from the till: added to this week\'s pay (so it goes into this week\'s wages and the till count), and taken off next week\'s pay automatically as Advance repaid. Removing the advance removes the repayment too; change the repayment next week if it\'s paid back differently.'],
+                ['Owed from last week', 'Not added by hand: when last week\'s Cash Recon wages paid someone less than their total in cash, the rest is added here. Paying it in last week\'s wages removes it.'],
+              ]}
+            />
+            <P>
+              Tap any adjustment to change its amount or note, or the bin to remove it (it asks first).{' '}
+              <strong>Total pay</strong> is rota pay plus adjustments. <strong>Fill Cash Recon wages</strong>{' '}
+              writes everyone's total pay into that week's Cash Recon wages, with a note listing any
+              adjustments: existing rows are updated (someone already paid in full stays paid at the new
+              amount), missing people are added, and other rows are left alone.
             </P>
             <H3>Tip pots</H3>
             <P>
@@ -1713,12 +1736,9 @@ export default function Help() {
               Placed — the same order screen as the desktop page, just full-screen on your phone
               instead of a side panel. <strong>Cash Up</strong> is the fourth: a plain list of the
               week's days with status, income and variance at a glance — tap a day to open the
-              full declaration. <strong>Wages</strong> is the fifth: this week's staff list
-              stripped down to just names, what's owed, and a <strong>Paid</strong> checkbox —
-              tick it once you've actually handed someone their cash, and that amount counts
-              toward this week's cash reconciliation; leave it unticked and it doesn't. You can
-              still tick or untick "Paid" after you've submitted the week's report — submitting
-              only locks the amounts themselves, not who's been paid since.
+              full declaration. <strong>Wages</strong> is the fifth: the week's wages list, one card
+              per person with Total, Paid (tap <strong>Full</strong> to pay the whole total), Paid on and
+              Notes, the same as the desktop Wages page. Tap <strong>Save</strong> to keep changes.
             </P>
             <P>
               If you open the regular desktop admin portal on a phone held upright, you'll see a

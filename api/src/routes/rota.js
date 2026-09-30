@@ -33,6 +33,9 @@
 //   PUT    /venues/:venueId/weeks/:week/pot-lines       { amounts: [{ line_id, amount }] }
 //   PUT    /venues/:venueId/weeks/:week/pots/:potId/manual  { amounts: [{ staff_id, amount }] }
 //   PATCH  /venues/:venueId/weeks/:week/staff/:staffId  { pay_override }
+//   POST   /venues/:venueId/weeks/:week/pay-adjustments { staff_id, kind: extra|deduction|advance, amount, note }
+//   PATCH  /venues/:venueId/weeks/:week/pay-adjustments/:id { amount?, note? }
+//   DELETE /venues/:venueId/weeks/:week/pay-adjustments/:id
 //   POST   /venues/:venueId/weeks/:week/tip-moves       { kind: points | money, action: move | add | remove, from_staff_id (move only), lines: [{ to_staff_id, amount }], note (required for add/remove) }
 //   DELETE /venues/:venueId/weeks/:week/tip-moves/:id
 //   POST   /venues/:venueId/weeks/:week/reset-moves     { kind: points | money | all }
@@ -298,14 +301,36 @@ async function computeWeek(tx, tenantId, venueId, monday) {
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
   `
   const moves = await loadMoves(tx, tenantId, venueId, monday)
+  // Pay adjustments this week (migration 137), and what last week's Cash
+  // Recon wage rows left unpaid (total - cash paid), which carries in.
+  // Only part-paid rows carry: a row with no cash paid at all is either paid
+  // another way (bank transfer) or not paid yet, and isn't counted as owed.
+  const payAdjustments = await tx`
+    SELECT id, staff_id, kind, amount::float8 AS amount, note, source_id
+      FROM rota_pay_adjustments
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
+     ORDER BY created_at, id
+  `
+  const owedRows = await tx`
+    SELECT e.staff_id, SUM(e.total - e.cash_amount)::float8 AS owed
+      FROM cash_wage_entries e
+      JOIN cash_wage_reports r ON r.id = e.wage_report_id AND r.tenant_id = ${tenantId}
+     WHERE e.tenant_id = ${tenantId} AND r.venue_id = ${venueId}
+       AND r.week_start = ${addDays(monday, -7)}::date AND e.staff_id IS NOT NULL
+       AND e.cash_amount > 0 AND e.cash_amount < e.total
+     GROUP BY e.staff_id
+    HAVING SUM(e.total - e.cash_amount) > 0.004
+  `
+  const carriedOwed = Object.fromEntries(owedRows.map(r => [r.staff_id, r.owed]))
   const withEntries = [...new Set([
+    ...payAdjustments.map(a => a.staff_id), ...owedRows.map(r => r.staff_id),
     ...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id),
     ...weekStaff.filter(w => w.pay_override != null || w.tip_unallocated !== 0).map(w => w.staff_id),
     ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]).filter(Boolean),
   ])]
   const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
-  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, moves, pots: potInputs, tipRounding })
+  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, moves, pots: potInputs, tipRounding, payAdjustments, carriedOwed })
   const nameOf = new Map(staff.map(s => [s.id, s.name]))
   return {
     ...result,
@@ -322,7 +347,8 @@ async function computeWeek(tx, tenantId, venueId, monday) {
 // The pay payload covers two permissions: `rota_pay` (hours and pay) and
 // `rota_tips` (pots, points, shares, moves). Strip whichever the caller
 // can't view, so a role can be given one without the other.
-const PAY_ROW_FIELDS = ['pay_type', 'pay_basis', 'computed_pay', 'pay_override', 'pay']
+const PAY_ROW_FIELDS = ['pay_type', 'pay_basis', 'computed_pay', 'pay_override', 'pay', 'base_pay', 'adjustments',
+  'extra_pay', 'deductions', 'advance', 'advance_repay', 'carried_owed', 'pay_shortfall']
 const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'tip_adjustment', 'tip_unallocated', 'points',
   'pot_shares', 'pot_shares_exact', 'tip_share', 'tip_share_from_pots']
 const TIP_TOTAL_FIELDS = ['points', 'tips_gross', 'surcharges', 'tips_in', 'tips_shared',
@@ -928,6 +954,92 @@ export default async function rotaRoutes(app) {
     })
   })
 
+  // Pay adjustments (migration 137): extra pay, a deduction, or a cash
+  // advance. An advance also books its repayment (advance_repay) in the
+  // next week, linked by source_id, so it comes off next week's pay;
+  // deleting the advance deletes the repayment. A repayment can be edited
+  // (e.g. to spread it) or deleted on its own.
+  app.post('/venues/:venueId/weeks/:week/pay-adjustments', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    const body = z.object({
+      staff_id: z.string().uuid(),
+      kind:     z.enum(['extra', 'deduction', 'advance']),
+      amount:   z.coerce.number().positive().max(1_000_000),
+      note:     z.string().trim().max(500).nullable().optional(),
+    }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      const [st] = await tx`
+        SELECT id FROM cash_staff WHERE id = ${body.staff_id} AND venue_id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
+      `
+      if (!st) throw httpError(404, 'Staff member not found')
+      const amount = Math.round(body.amount * 100) / 100
+      const [adj] = await tx`
+        INSERT INTO rota_pay_adjustments (tenant_id, venue_id, staff_id, week_start, kind, amount, note, created_by)
+        VALUES (${req.tenantId}, ${req.params.venueId}, ${body.staff_id}, ${monday}::date, ${body.kind},
+                ${amount}, ${body.note || null}, ${req.user?.email ?? null})
+        RETURNING id
+      `
+      if (body.kind === 'advance') {
+        await tx`
+          INSERT INTO rota_pay_adjustments (tenant_id, venue_id, staff_id, week_start, kind, amount, note, source_id, created_by)
+          VALUES (${req.tenantId}, ${req.params.venueId}, ${body.staff_id}, ${addDays(monday, 7)}::date, 'advance_repay',
+                  ${amount}, ${body.note || null}, ${adj.id}, ${req.user?.email ?? null})
+        `
+      }
+      return weekFor(req, tx, monday)
+    })
+  })
+
+  app.patch('/venues/:venueId/weeks/:week/pay-adjustments/:id', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    const body = z.object({
+      amount: z.coerce.number().positive().max(1_000_000).optional(),
+      note:   z.string().trim().max(500).nullable().optional(),
+    }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      const [adj] = await tx`
+        SELECT id, kind, amount::float8 AS amount FROM rota_pay_adjustments
+         WHERE id = ${req.params.id} AND venue_id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
+           AND week_start = ${monday}::date
+      `
+      if (!adj) throw httpError(404, 'Adjustment not found')
+      const amount = body.amount != null ? Math.round(body.amount * 100) / 100 : adj.amount
+      await tx`
+        UPDATE rota_pay_adjustments SET amount = ${amount}, updated_at = now()
+         WHERE id = ${adj.id} AND tenant_id = ${req.tenantId}
+      `
+      if (body.note !== undefined) {
+        await tx`UPDATE rota_pay_adjustments SET note = ${body.note || null} WHERE id = ${adj.id} AND tenant_id = ${req.tenantId}`
+      }
+      // Changing an advance changes what comes off next week, unless next
+      // week's repayment was already changed by hand.
+      if (adj.kind === 'advance' && body.amount != null) {
+        await tx`
+          UPDATE rota_pay_adjustments SET amount = ${amount}, updated_at = now()
+           WHERE source_id = ${adj.id} AND tenant_id = ${req.tenantId} AND amount = ${adj.amount}
+        `
+      }
+      return weekFor(req, tx, monday)
+    })
+  })
+
+  app.delete('/venues/:venueId/weeks/:week/pay-adjustments/:id', { preHandler: requirePermission('rota_pay', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      const [row] = await tx`
+        DELETE FROM rota_pay_adjustments
+         WHERE id = ${req.params.id} AND venue_id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
+           AND week_start = ${monday}::date
+        RETURNING id
+      `
+      if (!row) throw httpError(404, 'Adjustment not found')
+      return weekFor(req, tx, monday)
+    })
+  })
+
   // A tip move takes points or £ from one person and gives it to one or more
   // others. Zero-sum: the lines add up to exactly what the giver loses. The
   // UI works out an equal / by amount / by % split; the API stores the final
@@ -1073,19 +1185,18 @@ export default async function rotaRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
       const week = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
-      const rostered = week.rows.filter(r => r.entry_count > 0 || r.pay_override != null)
+      const rostered = week.rows.filter(r => r.entry_count > 0 || r.pay_override != null || r.adjustments.length > 0 || r.carried_owed > 0)
       if (!rostered.length) throw httpError(422, 'Nobody is on the rota this week')
 
       const [report] = await tx`
         INSERT INTO cash_wage_reports (tenant_id, venue_id, week_start)
         VALUES (${req.tenantId}, ${req.params.venueId}, ${monday}::date)
         ON CONFLICT (tenant_id, venue_id, week_start) DO UPDATE SET updated_at = now()
-        RETURNING id, status
+        RETURNING id
       `
-      if (report.status === 'submitted') throw httpError(422, 'This week\'s wages are submitted. Unsubmit them in Cash Recon first.')
 
       const existing = await tx`
-        SELECT id, staff_id, total::float8 AS total, cash_amount::float8 AS cash_amount
+        SELECT id, staff_id, total::float8 AS total, cash_amount::float8 AS cash_amount, notes
           FROM cash_wage_entries WHERE wage_report_id = ${report.id} AND tenant_id = ${req.tenantId}
       `
       const byStaff = new Map(existing.filter(e => e.staff_id).map(e => [e.staff_id, e]))
@@ -1096,9 +1207,17 @@ export default async function rotaRoutes(app) {
         const values = {
           entry_type: hourly ? 'hourly' : 'fixed',
           hours:      hourly ? r.paid_hours : null,
-          rate:       hourly ? Math.round((r.pay / r.paid_hours) * 100) / 100 : null,
+          rate:       hourly ? Math.round((r.base_pay / r.paid_hours) * 100) / 100 : null,
           total:      r.pay,
         }
+        // Adjustments behind the total, for the wage row's notes.
+        const why = [
+          r.extra_pay > 0 && `extra ${r.extra_pay.toFixed(2)}`,
+          r.deductions > 0 && `deduction ${r.deductions.toFixed(2)}`,
+          r.advance > 0 && `advance ${r.advance.toFixed(2)}`,
+          r.advance_repay > 0 && `advance repaid ${r.advance_repay.toFixed(2)}`,
+          r.carried_owed > 0 && `owed from last week ${r.carried_owed.toFixed(2)}`,
+        ].filter(Boolean).join(', ') || null
         const prev = byStaff.get(r.staff_id)
         if (prev) {
           const fullyPaid = prev.cash_amount > 0 && prev.cash_amount === prev.total
@@ -1106,15 +1225,16 @@ export default async function rotaRoutes(app) {
             UPDATE cash_wage_entries
                SET entry_type = ${values.entry_type}, hours = ${values.hours}, rate = ${values.rate},
                    total = ${values.total}, name = ${r.name},
-                   cash_amount = ${fullyPaid ? values.total : prev.cash_amount}
+                   cash_amount = ${fullyPaid ? values.total : prev.cash_amount},
+                   notes = ${prev.notes || why}
              WHERE id = ${prev.id}
           `
           updated++
         } else {
           await tx`
-            INSERT INTO cash_wage_entries (tenant_id, wage_report_id, staff_id, name, entry_type, hours, rate, total, cash_amount)
+            INSERT INTO cash_wage_entries (tenant_id, wage_report_id, staff_id, name, entry_type, hours, rate, total, cash_amount, notes)
             VALUES (${req.tenantId}, ${report.id}, ${r.staff_id}, ${r.name}, ${values.entry_type},
-                    ${values.hours}, ${values.rate}, ${values.total}, 0)
+                    ${values.hours}, ${values.rate}, ${values.total}, 0, ${why})
           `
           added++
         }

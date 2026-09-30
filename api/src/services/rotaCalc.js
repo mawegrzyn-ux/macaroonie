@@ -32,7 +32,14 @@
 //     fixed / day        default_rate x days worked.
 //     fixed / shift      sum(shift amount x fraction worked); shift amount =
 //                        staff_shift_rates.rate, else default_rate.
-//     A pay_override for the week replaces the computed pay.
+//     A pay_override for the week replaces the computed pay (base_pay).
+//   Pay adjustments (rota_pay_adjustments, migration 137) then apply:
+//     pay = base_pay + extra - deductions + advance - advance_repay
+//           + carried_owed, never below 0 (pay_shortfall = what didn't fit).
+//     advance is cash given early this week; its advance_repay row sits in
+//     the next week. carried_owed is what last week's Cash Recon wage row
+//     left unpaid (total - cash paid, part-paid rows only), passed in by
+//     the route.
 //   Tip pots (tip_pots, migration 108): each pot's gross is its allocated
 //   service charge sources plus its manual lines for the week. A line is £
 //   (kind 'amount') or % (kind 'percent', migration 115); either may be
@@ -114,7 +121,7 @@ export function periodsOverlap(periods) {
  * @param {Array}  p.moves      tip moves [{ kind: 'points'|'money', action: 'move'|'add'|'remove', from_staff_id, lines: [{ to_staff_id, amount }] }]
  * @param {number} p.tipPot     amount to share out
  */
-export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves = [], pots = [], tipRounding = null }) {
+export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves = [], pots = [], tipRounding = null, payAdjustments = [], carriedOwed = {} }) {
   const shiftById = new Map(shifts.map(s => [s.id, { ...s, span: span(s.start_time, s.end_time) }]))
   const adjByStaff = new Map(weekStaff.map(w => [w.staff_id, w]))
   const moved = { points: new Map(), money: new Map() }
@@ -216,6 +223,13 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     const adjustment = round2(moved.points.get(st.id) ?? 0)
     const computedPay = round2(pay)
     const payOverride = adj?.pay_override == null ? null : round2(num(adj.pay_override))
+    const basePay = payOverride ?? computedPay
+    const myAdj = payAdjustments.filter(a => a.staff_id === st.id)
+    const sumKind = k => round2(myAdj.filter(a => a.kind === k).reduce((s, a) => s + num(a.amount), 0))
+    const extra = sumKind('extra'), deductions = sumKind('deduction')
+    const advance = sumKind('advance'), advanceRepay = sumKind('advance_repay')
+    const owed = round2(num(carriedOwed[st.id]))
+    const rawPay = round2(basePay + extra - deductions + advance - advanceRepay + owed)
 
     return {
       staff_id:        st.id,
@@ -233,7 +247,15 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       shift_fractions: shiftFractions,
       computed_pay:    computedPay,
       pay_override:    payOverride,
-      pay:             payOverride ?? computedPay,
+      base_pay:        basePay,
+      adjustments:     myAdj.map(a => ({ id: a.id, kind: a.kind, amount: round2(num(a.amount)), note: a.note ?? null, source_id: a.source_id ?? null })),
+      extra_pay:       extra,
+      deductions,
+      advance,
+      advance_repay:   advanceRepay,
+      carried_owed:    owed,
+      pay:             Math.max(0, rawPay),
+      pay_shortfall:   rawPay < 0 ? round2(-rawPay) : 0,
       base_points:     points,
       points_adjustment: adjustment,
       tip_adjustment:  round2(moved.money.get(st.id) ?? 0),

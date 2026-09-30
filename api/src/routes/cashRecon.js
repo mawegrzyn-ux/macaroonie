@@ -45,10 +45,7 @@
 // Weekly wages:
 //   GET    /:venueId/cash-recon/wages/:week_start
 //   PUT    /:venueId/cash-recon/wages/:week_start
-//   PATCH  /:venueId/cash-recon/wages/:week_start/entries/:entryId/paid
 //   POST   /:venueId/cash-recon/wages/:week_start/set-default
-//   POST   /:venueId/cash-recon/wages/:week_start/submit
-//   POST   /:venueId/cash-recon/wages/:week_start/unsubmit
 
 import { z }                            from 'zod'
 import { withTenant }                   from '../config/db.js'
@@ -56,6 +53,7 @@ import { requireAuth, requireRole }     from '../middleware/auth.js'
 import { httpError }                    from '../middleware/error.js'
 import { getStorage }                   from '../services/storageSvc.js'
 import path                             from 'node:path'
+import { randomUUID }                   from 'node:crypto'
 import { resolveOpenDaysForWeek }       from '../services/openDays.js'
 
 // ── Schemas ───────────────────────────────────────────────────
@@ -982,7 +980,6 @@ export default async function cashReconRoutes(app) {
       // Fetch wage report for this week
       const [wageReport] = await tx`
         SELECT wr.id,
-               wr.status,
                COALESCE(SUM(we.total), 0) AS total_wages,
                COALESCE(SUM(we.cash_amount), 0) AS total_cash_wages
           FROM cash_wage_reports wr
@@ -990,17 +987,16 @@ export default async function cashReconRoutes(app) {
          WHERE wr.venue_id   = ${venueId}
            AND wr.tenant_id  = ${req.tenantId}
            AND wr.week_start = ${mondayStr}::date
-         GROUP BY wr.id, wr.status
+         GROUP BY wr.id
       `
 
       const wages = wageReport
         ? {
-            status: wageReport.status,
             total_wages: Number(wageReport.total_wages),
             total_cash_wages: Number(wageReport.total_cash_wages),
             unassigned_cash_wages: Math.round((Number(wageReport.total_cash_wages) - assignedToReportedDays) * 100) / 100,
           }
-        : { status: null, total_wages: 0, total_cash_wages: 0, unassigned_cash_wages: 0 }
+        : { total_wages: 0, total_cash_wages: 0, unassigned_cash_wages: 0 }
 
       return { days, wages }
     })
@@ -1065,7 +1061,7 @@ export default async function cashReconRoutes(app) {
       const expenseByRpt = groupByReport(expenseRows)
 
       const [wages] = await tx`
-        SELECT wr.status,
+        SELECT wr.id,
                COALESCE(SUM(we.total), 0) AS total_wages,
                COALESCE(SUM(we.cash_amount), 0) AS total_cash_wages
           FROM cash_wage_reports wr
@@ -1074,7 +1070,7 @@ export default async function cashReconRoutes(app) {
          WHERE wr.venue_id   = ${venueId}
            AND wr.tenant_id  = ${req.tenantId}
            AND wr.week_start = ${weekStart}::date
-         GROUP BY wr.id, wr.status
+         GROUP BY wr.id
       `
 
       const days = {}
@@ -1107,7 +1103,6 @@ export default async function cashReconRoutes(app) {
         days,
         wages_total:      wages ? String(wages.total_wages) : null,
         wages_cash_total: wages ? String(wages.total_cash_wages) : null,
-        wages_status:     wages?.status ?? null,
         // Cash wages paid out of the till per day (by paid_date).
         wages_cash_by_date: await wagesCashByDate(tx, req.tenantId, venueId, weekStart),
       }
@@ -1618,24 +1613,25 @@ export default async function cashReconRoutes(app) {
         RETURNING *
       `
 
-      if (report.status === 'submitted') {
-        throw httpError(422, 'Cannot edit a submitted wage report — unsubmit first')
-      }
       const inWeek = new Set(weekDatesOf(mondayStr))
       if (body.entries.some(e => e.paid_date && !inWeek.has(e.paid_date))) {
         throw httpError(422, 'Paid on must be a day in this week')
       }
 
-      // Replace all entries (DELETE + INSERT)
-      await tx`
+      // Replace all entries (DELETE + INSERT). An entry keeps its id when
+      // the client sends one it already had in this week, so ids are stable
+      // across saves; any other id (e.g. copied from another week) is new.
+      const oldIds = new Set((await tx`
         DELETE FROM cash_wage_entries
          WHERE wage_report_id = ${report.id}
            AND tenant_id      = ${req.tenantId}
-      `
+        RETURNING id
+      `).map(r => r.id))
 
       if (body.entries.length > 0) {
         await tx`
           INSERT INTO cash_wage_entries ${tx(body.entries.map(e => ({
+            id:             e.id && oldIds.has(e.id) ? e.id : randomUUID(),
             tenant_id:      req.tenantId,
             wage_report_id: report.id,
             staff_id:       e.staff_id ?? null,
@@ -1651,103 +1647,6 @@ export default async function cashReconRoutes(app) {
         `
       }
 
-      return loadWageReport(tx, req.tenantId, report.id)
-    })
-  })
-
-  // PATCH /:venueId/cash-recon/wages/:week_start/entries/:entryId/paid
-  // Marks a single wage entry paid/unpaid — sets cash_amount to the entry's
-  // own `total` when paid, or 0 when not. Deliberately bypasses the
-  // "submitted" lock the whole-tree PUT above enforces: submitting a wage
-  // report finalises the AMOUNTS (total/hours/rate), but ticking staff off
-  // as actually handed their cash is a separate step that routinely happens
-  // after submission, not before it. Locking this too just produced a
-  // silent "Save failed" every time an operator ticked someone off post-
-  // submission — see the mobile Wages "Save failed" gotcha in CLAUDE.md.
-  app.patch('/:venueId/cash-recon/wages/:week_start/entries/:entryId/paid', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
-  }, async (req) => {
-    const { venueId, week_start, entryId } = req.params
-    // paid_date: the day the cash came out of the till. Omitted = keep the
-    // entry's current day; unticking Paid clears it.
-    const { paid, paid_date } = z.object({
-      paid:      z.boolean(),
-      paid_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-    }).parse(req.body)
-    const mondayStr = toMondayStr(week_start)
-
-    return withTenant(req.tenantId, async tx => {
-      await assertVenueOwnership(tx, req.tenantId, venueId)
-
-      const [report] = await tx`
-        SELECT id FROM cash_wage_reports
-         WHERE venue_id   = ${venueId}
-           AND tenant_id  = ${req.tenantId}
-           AND week_start = ${mondayStr}::date
-      `
-      if (!report) throw httpError(404, 'Wage report not found')
-
-      const [entry] = await tx`
-        SELECT id, total FROM cash_wage_entries
-         WHERE id             = ${entryId}
-           AND wage_report_id = ${report.id}
-           AND tenant_id      = ${req.tenantId}
-      `
-      if (!entry) throw httpError(404, 'Wage entry not found')
-      if (paid_date && !weekDatesOf(mondayStr).includes(paid_date)) {
-        throw httpError(422, 'Paid on must be a day in this week')
-      }
-
-      if (!paid) {
-        await tx`
-          UPDATE cash_wage_entries SET cash_amount = 0, paid_date = NULL
-           WHERE id = ${entryId}
-        `
-      } else if (paid_date !== undefined) {
-        await tx`
-          UPDATE cash_wage_entries SET cash_amount = ${entry.total}, paid_date = ${paid_date}
-           WHERE id = ${entryId}
-        `
-      } else {
-        await tx`
-          UPDATE cash_wage_entries SET cash_amount = ${entry.total}
-           WHERE id = ${entryId}
-        `
-      }
-
-      return loadWageReport(tx, req.tenantId, report.id)
-    })
-  })
-
-  // PATCH /:venueId/cash-recon/wages/:week_start/entries/:entryId/paid-date
-  // Sets only the day a wage came out of the till. Like .../paid above, this
-  // works on a submitted report: recording when cash was handed over is a
-  // separate step from finalising the amounts.
-  app.patch('/:venueId/cash-recon/wages/:week_start/entries/:entryId/paid-date', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
-  }, async (req) => {
-    const { venueId, week_start, entryId } = req.params
-    const { paid_date } = z.object({
-      paid_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
-    }).parse(req.body)
-    const mondayStr = toMondayStr(week_start)
-    if (paid_date && !weekDatesOf(mondayStr).includes(paid_date)) {
-      throw httpError(422, 'Paid on must be a day in this week')
-    }
-
-    return withTenant(req.tenantId, async tx => {
-      await assertVenueOwnership(tx, req.tenantId, venueId)
-      const [report] = await tx`
-        SELECT id FROM cash_wage_reports
-         WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId} AND week_start = ${mondayStr}::date
-      `
-      if (!report) throw httpError(404, 'Wage report not found')
-      const [row] = await tx`
-        UPDATE cash_wage_entries SET paid_date = ${paid_date}
-         WHERE id = ${entryId} AND wage_report_id = ${report.id} AND tenant_id = ${req.tenantId}
-        RETURNING id
-      `
-      if (!row) throw httpError(404, 'Wage entry not found')
       return loadWageReport(tx, req.tenantId, report.id)
     })
   })
@@ -1803,70 +1702,6 @@ export default async function cashReconRoutes(app) {
            AND d.tenant_id = ${req.tenantId}
          ORDER BY d.sort_order
       `
-    })
-  })
-
-  // POST /:venueId/cash-recon/wages/:week_start/submit
-  app.post('/:venueId/cash-recon/wages/:week_start/submit', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
-  }, async (req) => {
-    const { venueId, week_start } = req.params
-    const mondayStr = toMondayStr(week_start)
-
-    return withTenant(req.tenantId, async tx => {
-      await assertVenueOwnership(tx, req.tenantId, venueId)
-
-      const [report] = await tx`
-        SELECT * FROM cash_wage_reports
-         WHERE venue_id   = ${venueId}
-           AND tenant_id  = ${req.tenantId}
-           AND week_start = ${mondayStr}::date
-      `
-      if (!report) throw httpError(404, 'Wage report not found')
-      if (report.status === 'submitted') throw httpError(422, 'Wage report is already submitted')
-
-      await tx`
-        UPDATE cash_wage_reports
-           SET status       = 'submitted',
-               submitted_at = now(),
-               updated_at   = now()
-         WHERE id        = ${report.id}
-           AND tenant_id = ${req.tenantId}
-      `
-
-      return loadWageReport(tx, req.tenantId, report.id)
-    })
-  })
-
-  // POST /:venueId/cash-recon/wages/:week_start/unsubmit (admin/owner only)
-  app.post('/:venueId/cash-recon/wages/:week_start/unsubmit', {
-    preHandler: requireRole('admin', 'owner'),
-  }, async (req) => {
-    const { venueId, week_start } = req.params
-    const mondayStr = toMondayStr(week_start)
-
-    return withTenant(req.tenantId, async tx => {
-      await assertVenueOwnership(tx, req.tenantId, venueId)
-
-      const [report] = await tx`
-        SELECT * FROM cash_wage_reports
-         WHERE venue_id   = ${venueId}
-           AND tenant_id  = ${req.tenantId}
-           AND week_start = ${mondayStr}::date
-      `
-      if (!report) throw httpError(404, 'Wage report not found')
-      if (report.status === 'draft') throw httpError(422, 'Wage report is already in draft')
-
-      await tx`
-        UPDATE cash_wage_reports
-           SET status       = 'draft',
-               submitted_at = NULL,
-               updated_at   = now()
-         WHERE id        = ${report.id}
-           AND tenant_id = ${req.tenantId}
-      `
-
-      return loadWageReport(tx, req.tenantId, report.id)
     })
   })
 }

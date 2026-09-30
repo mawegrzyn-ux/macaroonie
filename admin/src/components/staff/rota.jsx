@@ -736,7 +736,160 @@ export function RotaDayList({ venueId, weekStart, day }) {
 // ── Pay ───────────────────────────────────────────────────────
 
 function rostered(rows) {
-  return rows.filter(r => r.entry_count > 0 || r.pay_override != null)
+  return rows.filter(r => r.entry_count > 0 || r.pay_override != null || r.adjustments?.length > 0 || r.carried_owed > 0)
+}
+
+// Pay adjustments (rota_pay_adjustments, migration 137). A cash advance is
+// paid now (added to this week's pay, so it goes in this week's wages and
+// the till) and comes off next week's pay as an "advance repaid" line the
+// API creates with it. "Owed from last week" is not stored: it's what last
+// week's Cash Recon wage row left unpaid.
+const ADJ_KINDS = [
+  { value: 'extra',     label: 'Extra pay',    sign: 1 },
+  { value: 'deduction', label: 'Deduction',    sign: -1 },
+  { value: 'advance',   label: 'Cash advance', sign: 1 },
+]
+const ADJ_LABEL = { extra: 'Extra pay', deduction: 'Deduction', advance: 'Cash advance', advance_repay: 'Advance repaid' }
+const ADJ_SIGN = { extra: 1, deduction: -1, advance: 1, advance_repay: -1 }
+
+function adjustmentsNet(r) {
+  const sum = (r.adjustments ?? []).reduce((s, a) => s + ADJ_SIGN[a.kind] * a.amount, 0)
+  return Math.round((sum + (r.carried_owed ?? 0)) * 100) / 100
+}
+
+function signed(n) {
+  return `${n < 0 ? '−' : '+'}${fmt(Math.abs(n))}`
+}
+
+function AdjustmentLine({ a, canEdit, busy, onSave, onDelete }) {
+  const [editing, setEditing] = useState(false)
+  const [amount, setAmount] = useState(String(a.amount))
+  const [note, setNote] = useState(a.note ?? '')
+  const sign = ADJ_SIGN[a.kind]
+  if (editing) {
+    return (
+      <div className="rounded-lg border p-2 space-y-2">
+        <div className="text-xs font-medium">{ADJ_LABEL[a.kind]}</div>
+        <div className="flex gap-2">
+          <input className={cn(inputCls, 'w-28')} inputMode="decimal" value={amount} aria-label="Amount"
+            onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} />
+          <input className={inputCls} value={note} placeholder="Note" aria-label="Note" onChange={e => setNote(e.target.value)} />
+        </div>
+        <div className="flex gap-2">
+          <button type="button" disabled={busy || !(Number(amount) > 0)}
+            onClick={() => onSave({ amount: Number(amount), note: note.trim() || null }, () => setEditing(false))}
+            className="h-11 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50">Save</button>
+          <button type="button" onClick={() => { setEditing(false); setAmount(String(a.amount)); setNote(a.note ?? '') }}
+            className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted">Cancel</button>
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <button type="button" disabled={!canEdit} onClick={() => setEditing(true)}
+        className={cn('flex-1 min-w-0 min-h-[44px] rounded-lg px-2 text-left touch-manipulation', canEdit && 'hover:bg-muted')}>
+        <span className="flex items-center justify-between gap-2 text-sm">
+          <span className="truncate">{ADJ_LABEL[a.kind]}</span>
+          <span className={cn('tabular-nums shrink-0', sign < 0 ? 'text-red-700' : 'text-green-700')}>{signed(sign * a.amount)}</span>
+        </span>
+        {(a.note || a.kind === 'advance' || a.kind === 'advance_repay') && (
+          <span className="block text-[11px] text-muted-foreground truncate">
+            {a.note}
+            {a.kind === 'advance' && `${a.note ? ' · ' : ''}comes off next week's pay`}
+            {a.kind === 'advance_repay' && `${a.note ? ' · ' : ''}advance given last week`}
+          </span>
+        )}
+      </button>
+      {canEdit && <ConfirmDelete onConfirm={onDelete} disabled={busy} label={`Remove ${ADJ_LABEL[a.kind]}`} confirmLabel="Remove" />}
+    </div>
+  )
+}
+
+function PayAdjustModal({ venueId, weekStart, row, canEdit, setPay, onClose }) {
+  const api = useApi()
+  const [kind, setKind] = useState('extra')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const base = `/rota/venues/${venueId}/weeks/${weekStart}/pay-adjustments`
+  const add = useMutation({
+    mutationFn: () => api.post(base, { staff_id: row.staff_id, kind, amount: Number(amount), note: note.trim() || null }),
+    onSuccess: d => { setPay(d); setAmount(''); setNote('') },
+  })
+  const patch = useMutation({
+    mutationFn: ({ id, body }) => api.patch(`${base}/${id}`, body),
+    onSuccess: d => setPay(d),
+  })
+  const del = useMutation({
+    mutationFn: id => api.delete(`${base}/${id}`),
+    onSuccess: d => setPay(d),
+  })
+  const busy = add.isPending || patch.isPending || del.isPending
+  const hint = kind === 'advance'
+    ? 'Paid now from the till: added to this week\'s pay, and taken off next week\'s pay automatically.'
+    : kind === 'deduction' ? 'Taken off this week\'s pay.' : 'Added to this week\'s pay.'
+
+  return createPortal(
+    <Modal title={`Pay: ${row.name}`} onClose={onClose}>
+      <div className="rounded-xl border divide-y">
+        <div className="flex items-center justify-between px-3 py-2 text-sm">
+          <span>Rota pay{row.pay_override != null ? ' (override)' : ''}</span>
+          <span className="tabular-nums">{fmt(row.base_pay)}</span>
+        </div>
+        {(row.adjustments ?? []).length > 0 && (
+          <div className="px-1 py-1 space-y-1">
+            {row.adjustments.map(a => (
+              <AdjustmentLine key={a.id} a={a} canEdit={canEdit} busy={busy}
+                onSave={(body, done) => patch.mutate({ id: a.id, body }, { onSuccess: done })}
+                onDelete={() => del.mutate(a.id)} />
+            ))}
+          </div>
+        )}
+        {row.carried_owed > 0 && (
+          <div className="px-3 py-2">
+            <div className="flex items-center justify-between text-sm">
+              <span>Owed from last week</span>
+              <span className="tabular-nums text-green-700">{signed(row.carried_owed)}</span>
+            </div>
+            <div className="text-[11px] text-muted-foreground">Last week's wages weren't paid in full in Cash Recon. Pay it there to remove this.</div>
+          </div>
+        )}
+        <div className="flex items-center justify-between px-3 py-2 text-sm font-semibold bg-muted/40">
+          <span>Total pay</span>
+          <span className="tabular-nums">{fmt(row.pay)}</span>
+        </div>
+      </div>
+      {row.pay_shortfall > 0 && (
+        <p className="flex items-start gap-1.5 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Deductions are {fmt(row.pay_shortfall)} more than this week's pay, so pay is £0.00. The rest isn't carried over.
+        </p>
+      )}
+
+      {canEdit && (
+        <div className="rounded-xl border p-3 space-y-2">
+          <div className="text-sm font-medium">Add</div>
+          <Segmented value={kind} options={ADJ_KINDS} onChange={setKind} className="w-full [&>button]:flex-1" />
+          <div className="flex gap-2">
+            <label className="flex items-center gap-1 h-11 w-32 shrink-0 rounded-lg border bg-background px-2 text-sm focus-within:ring-2 focus-within:ring-primary/40">
+              <span className="text-muted-foreground">£</span>
+              <input inputMode="decimal" value={amount} placeholder="0.00" aria-label="Amount"
+                onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                className="w-full min-w-0 bg-transparent text-right tabular-nums outline-none touch-manipulation" />
+            </label>
+            <input className={inputCls} value={note} placeholder="Note (optional)" aria-label="Note" onChange={e => setNote(e.target.value)} />
+          </div>
+          <p className="text-[11px] text-muted-foreground">{hint}</p>
+          <button type="button" onClick={() => add.mutate()} disabled={busy || !(Number(amount) > 0)}
+            className="h-11 w-full rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
+            {add.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Add {ADJ_KINDS.find(k => k.value === kind).label.toLowerCase()}
+          </button>
+        </div>
+      )}
+      <ErrorNote error={add.error || patch.error || del.error} />
+    </Modal>,
+    document.body,
+  )
 }
 
 function MoneyEdit({ value, onSave, onClear, saving, placeholder }) {
@@ -762,8 +915,13 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
   const qc = useQueryClient()
   const { data, isLoading, error } = useRotaPay(venueId, weekStart)
   const [editing, setEditing] = useState(null)
+  const [adjusting, setAdjusting] = useState(null)
   const [confirmFill, setConfirmFill] = useState(false)
-  const setPay = d => qc.setQueryData(['rota-pay', venueId, weekStart], d)
+  const setPay = d => {
+    qc.setQueryData(['rota-pay', venueId, weekStart], d)
+    // An advance also changes next week's pay.
+    qc.invalidateQueries({ queryKey: ['rota-pay', venueId], predicate: q => q.queryKey[2] !== weekStart })
+  }
 
   const override = useMutation({
     mutationFn: ({ staffId, pay_override }) => api.patch(`/rota/venues/${venueId}/weeks/${weekStart}/staff/${staffId}`, { pay_override }),
@@ -795,7 +953,9 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
                 <th className="text-left px-3 py-2 font-medium">Staff</th>
                 <th className="text-left px-2 py-2 font-medium">Pay</th>
                 <th className="text-right px-2 py-2 font-medium">Hours</th>
-                <th className="text-right px-3 py-2 font-medium">Pay</th>
+                <th className="text-right px-2 py-2 font-medium">Rota pay</th>
+                <th className="text-right px-2 py-2 font-medium">Adjustments</th>
+                <th className="text-right px-3 py-2 font-medium">Total pay</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -817,17 +977,53 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
                       </div>
                     ))}
                   </td>
-                  <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                  <td className="px-2 py-1.5 text-right whitespace-nowrap">
                     {editing === r.staff_id ? (
                       <MoneyEdit value={r.pay_override} placeholder={String(r.computed_pay)} saving={override.isPending}
                         onSave={v => override.mutate({ staffId: r.staff_id, pay_override: v })}
                         onClear={r.pay_override != null ? () => override.mutate({ staffId: r.staff_id, pay_override: null }) : null} />
                     ) : (
                       <button type="button" disabled={!canEdit} onClick={() => setEditing(r.staff_id)}
-                        className={cn('min-h-[40px] px-2 rounded-lg tabular-nums touch-manipulation', canEdit && 'hover:bg-muted underline decoration-dotted underline-offset-4')}>
-                        {fmt(r.pay)}
+                        className={cn('min-h-[44px] px-2 rounded-lg tabular-nums touch-manipulation', canEdit && 'hover:bg-muted underline decoration-dotted underline-offset-4')}>
+                        {fmt(r.base_pay)}
                         {r.pay_override != null && <span className="block text-[10px] text-amber-700 no-underline">override (calc {fmt(r.computed_pay)})</span>}
                       </button>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                    {(() => {
+                      const net = adjustmentsNet(r)
+                      const has = (r.adjustments?.length ?? 0) > 0 || r.carried_owed > 0
+                      if (!has && !canEdit) return <span className="text-muted-foreground">—</span>
+                      return (
+                        <button type="button" onClick={() => setAdjusting(r.staff_id)}
+                          className="min-h-[44px] px-2 rounded-lg touch-manipulation hover:bg-muted text-right">
+                          {has ? (
+                            <>
+                              <span className={cn('block tabular-nums', net < 0 ? 'text-red-700' : net > 0 ? 'text-green-700' : '')}>{net === 0 ? fmt(0) : signed(net)}</span>
+                              <span className="block text-[10px] text-muted-foreground">
+                                {[
+                                  r.extra_pay > 0 && 'extra',
+                                  r.deductions > 0 && 'deduction',
+                                  r.advance > 0 && 'advance',
+                                  r.advance_repay > 0 && 'advance repaid',
+                                  r.carried_owed > 0 && 'owed',
+                                ].filter(Boolean).join(', ')}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Plus className="w-3.5 h-3.5" /> Add</span>
+                          )}
+                        </button>
+                      )
+                    })()}
+                  </td>
+                  <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums font-medium">
+                    {fmt(r.pay)}
+                    {r.pay_shortfall > 0 && (
+                      <span className="flex items-center justify-end gap-1 text-[10px] font-normal text-amber-700">
+                        <AlertTriangle className="w-3 h-3" /> {fmt(r.pay_shortfall)} short
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -837,6 +1033,8 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
               <tr>
                 <td className="px-3 py-2" colSpan={2}>Total</td>
                 <td className="px-2 py-2 text-right tabular-nums">{fmtHours(data.totals.hours)}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{fmt(rows.reduce((s, r) => s + (r.base_pay ?? 0), 0))}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{signed(Math.round(rows.reduce((s, r) => s + adjustmentsNet(r), 0) * 100) / 100)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.pay)}</td>
               </tr>
             </tfoot>
@@ -867,8 +1065,14 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
       )}
       <p className="text-[11px] text-muted-foreground">
         Hours are hours worked. Paid time off (PTO) is paid like the shift; SICK, UTO and ABS are unpaid, and none of them earn tip points.
-        Tap a pay figure to override it for this week. Filling wages updates rostered people's wage rows (a row already marked Paid stays paid) and adds anyone missing; tips are not added to wages.
+        Tap a rota pay figure to override it for this week. Tap Adjustments to add extra pay, a deduction or a cash advance (paid now, taken off next week's pay).
+        Wages not paid in full last week in Cash Recon are added as Owed from last week.
+        Filling wages writes each person's total pay into this week's wage rows (a row already paid in full stays paid) and adds anyone missing; tips are not added to wages.
       </p>
+      {adjusting && data.rows.find(r => r.staff_id === adjusting) && (
+        <PayAdjustModal venueId={venueId} weekStart={weekStart} canEdit={canEdit} setPay={setPay}
+          row={data.rows.find(r => r.staff_id === adjusting)} onClose={() => setAdjusting(null)} />
+      )}
     </div>
   )
 }
