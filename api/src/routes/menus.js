@@ -122,6 +122,7 @@ const LayoutBlock = z.object({
     url:              z.string().max(2000).optional(),
     fit:              z.enum(['contain', 'cover']).optional(),
     font:             z.enum(FONT_OPTIONS).optional(),
+    callout_ids:      z.array(z.string().uuid()).max(50).optional(),
   }).default({}),
 })
 
@@ -455,8 +456,8 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
 
   for (const [ci, c] of (body.callouts || []).entries()) {
     await tx`
-      INSERT INTO menu_callouts (menu_id, tenant_id, kind, title, body, sort_order)
-      VALUES (${menuId}, ${tenantId}, ${c.kind || 'custom'},
+      INSERT INTO menu_callouts (id, menu_id, tenant_id, kind, title, body, sort_order)
+      VALUES (${c.id ?? randomUUID()}, ${menuId}, ${tenantId}, ${c.kind || 'custom'},
               ${c.title}, ${c.body ?? null}, ${c.sort_order ?? ci})
     `
   }
@@ -665,11 +666,19 @@ export default async function menusRoutes(app) {
           dietary: it.dietary || [],
         })),
       }))
-      const callouts = (full.callouts || []).map(c => ({ kind: c.kind, title: c.title, body: c.body ?? null, sort_order: c.sort_order }))
+      const callouts = (full.callouts || []).map(c => {
+        const id = randomUUID(); newId[c.id] = id
+        return { id, kind: c.kind, title: c.title, body: c.body ?? null, sort_order: c.sort_order }
+      })
 
       await upsertMenuTree(tx, req.tenantId, row.id, { sections, callouts })
       if (full.print_layout) {
-        const remap = b => ({ ...b, ref: b.ref ? (newId[b.ref] ?? null) : null })
+        const remap = b => ({
+          ...b, ref: b.ref ? (newId[b.ref] ?? null) : null,
+          ...(Array.isArray(b.opts?.callout_ids)
+            ? { opts: { ...b.opts, callout_ids: b.opts.callout_ids.map(cid => newId[cid]).filter(Boolean) } }
+            : {}),
+        })
         const keep = b => !(b.type === 'section' || b.type === 'item') || b.ref
         const layout = {
           ...full.print_layout,

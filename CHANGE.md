@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-30 — Menu designer: pick which footer notes print]
+
+- Menu designer: the Footer notes block has a "Show all notes" switch. Untick it and tick the notes you want in that spot, e.g. allergy notice at the bottom of page 1 and the service charge note on page 2. With all notes on, new notes appear automatically.
+- Footer notes now keep their ids when the menu is saved (they were re-created with new ids on every save), so a pick survives edits to the menu. Copying a menu carries the pick over to the copy's notes.
+
+---
+
 ## [2026-09-30 — Menus: drag dishes to reorder]
 
 - Menus: drag a dish by its grip to reorder it within its section, on touch screens as well as with a mouse. A dish can't be dragged into another section. The arrow buttons still work. Save changes keeps the order.
