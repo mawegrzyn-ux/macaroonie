@@ -120,8 +120,14 @@ function useWidth() {
  *                            the week
  * @param showWeekNotes       show the week's own notes box (the Wages page)
  * @param layout              'auto' (by width) | 'cards'
+ * @param hideManage          no Add staff / Copy from / Set as default / remove
+ * @param hideBulk            no Pay everyone in full / Paid on for all
+ * @param paidOnly            just Name and Paid per person (Cash Dashboard options)
  */
-export function WeekWagesEditor({ venueId, weekStart, defaultPaidDay, showWeekNotes = false, layout = 'auto' }) {
+export function WeekWagesEditor({
+  venueId, weekStart, defaultPaidDay, showWeekNotes = false, layout = 'auto',
+  hideManage = false, hideBulk = false, paidOnly = false,
+}) {
   const api = useApi()
   const qc = useQueryClient()
   const [rootRef, width] = useWidth()
@@ -320,6 +326,7 @@ export function WeekWagesEditor({ venueId, weekStart, defaultPaidDay, showWeekNo
   }
 
   function removeButton(r, idx) {
+    if (hideManage) return null
     return (
       <button type="button" aria-label={`Remove ${r.name}`}
         onClick={() => edit(rows.filter((_, i) => i !== idx))}
@@ -348,7 +355,7 @@ export function WeekWagesEditor({ venueId, weekStart, defaultPaidDay, showWeekNo
         </p>
       )}
 
-      {rows.length > 0 && (
+      {rows.length > 0 && !hideBulk && (
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={payAllInFull}
             className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
@@ -366,7 +373,28 @@ export function WeekWagesEditor({ venueId, weekStart, defaultPaidDay, showWeekNo
         <p className="text-sm text-muted-foreground py-2">No staff on this week yet.</p>
       )}
 
-      {rows.length > 0 && wide && (
+      {rows.length > 0 && paidOnly && (
+        <div className="rounded-xl border">
+          <div className="flex items-center gap-2 px-2 py-1.5 border-b text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="flex-1">Name</span><span className="w-44 shrink-0">Paid</span>
+            {!hideManage && <span className="w-11 shrink-0" />}
+          </div>
+          <div className="divide-y">
+            {rows.map((r, idx) => (
+              <div key={r.id ?? `${r.staff_id ?? 'adhoc'}-${idx}`} className="px-2 py-1.5 space-y-1">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">{nameCell(r)}</div>
+                  <div className="w-44 shrink-0">{paidCell(r, idx)}</div>
+                  {removeButton(r, idx)}
+                </div>
+                {unpaidNote(r)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {rows.length > 0 && !paidOnly && wide && (
         <div className="rounded-xl border">
           <div className={cn(GRID, 'px-2 py-1.5 border-b text-[11px] font-medium uppercase tracking-wide text-muted-foreground')}>
             <span>Name</span><span>Total</span><span>Paid</span><span>Paid on</span><span>Notes</span><span />
@@ -393,7 +421,7 @@ export function WeekWagesEditor({ venueId, weekStart, defaultPaidDay, showWeekNo
         </div>
       )}
 
-      {rows.length > 0 && !wide && (
+      {rows.length > 0 && !paidOnly && !wide && (
         <div className="rounded-xl border divide-y">
           {rows.map((r, idx) => (
             <div key={r.id ?? `${r.staff_id ?? 'adhoc'}-${idx}`} className="p-2 space-y-1.5">
@@ -431,9 +459,9 @@ export function WeekWagesEditor({ venueId, weekStart, defaultPaidDay, showWeekNo
 
       {rows.length > 0 && (
         <div className="rounded-xl bg-muted/30 px-3 py-2 space-y-0.5 text-sm">
-          <div className="flex justify-between"><span>Total</span><span className="tabular-nums">{fmt(total)}</span></div>
-          <div className="flex justify-between"><span>Paid (cash)</span><span className="tabular-nums">{fmt(paid)}</span></div>
-          <div className="flex justify-between font-semibold"><span>Left to pay</span><span className="tabular-nums">{fmt(left)}</span></div>
+          {!paidOnly && <div className="flex justify-between"><span>Total</span><span className="tabular-nums">{fmt(total)}</span></div>}
+          <div className={cn('flex justify-between', paidOnly && 'font-semibold')}><span>Paid (cash)</span><span className="tabular-nums">{fmt(paid)}</span></div>
+          {!paidOnly && <div className="flex justify-between font-semibold"><span>Left to pay</span><span className="tabular-nums">{fmt(left)}</span></div>}
         </div>
       )}
 
@@ -499,7 +527,7 @@ export function WeekWagesEditor({ venueId, weekStart, defaultPaidDay, showWeekNo
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 pt-1">
+      {!hideManage && <div className="flex flex-wrap gap-2 pt-1">
         {panel === null && (
           <>
             <button type="button" onClick={() => setPanel('add')}
@@ -518,7 +546,7 @@ export function WeekWagesEditor({ venueId, weekStart, defaultPaidDay, showWeekNo
           className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted disabled:opacity-50 flex items-center gap-1.5">
           {setDefault.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4" />} Set as default
         </button>
-      </div>
+      </div>}
 
       {canSave && (
         <div className="flex gap-2 pt-1">

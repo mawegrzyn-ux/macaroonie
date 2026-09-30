@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-09-30 — Cash Dashboard: wage widget options]
+
+- The Wages paid and Week staff list widgets have three options in Edit layout: Hide list changes (no Add staff, Copy from, Set as default or remove buttons), Hide pay-all options (no Pay everyone in full or Paid on for all), and Name and Paid only (just each person's name and what they were paid, with the Full button).
+
+---
+
 ## [2026-09-30 — Rota pay adjustments, cash advances, one wages list]
 
 **Migration:** `137_rota_pay_adjustments.sql`

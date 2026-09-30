@@ -32,6 +32,15 @@ import {
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 import { WeekWagesEditor } from './WagesTable'
 
+// Display options for the two wage widgets (widget.settings), passed to
+// WeekWagesEditor. Saving still writes the whole week (hidden fields are
+// sent back unchanged).
+const WAGES_OPTIONS = [
+  { key: 'hide_manage', label: 'Hide list changes', hint: 'No Add staff, Copy from, Set as default or remove buttons' },
+  { key: 'hide_bulk',   label: 'Hide pay-all options', hint: 'No Pay everyone in full or Paid on for all' },
+  { key: 'paid_only',   label: 'Name and Paid only', hint: 'Show just each name and what they were paid' },
+]
+
 export const CASH_WIDGET_TYPES = [
   { key: 'cash_day_tiles',    label: 'Days of the week',       icon: LayoutGrid,   defaultTitle: 'This week',
     options: [
@@ -41,11 +50,13 @@ export const CASH_WIDGET_TYPES = [
   { key: 'cash_day_balance',  label: 'Day balance',            icon: Scale,        defaultTitle: 'Day balance' },
   { key: 'cash_week_balance', label: 'Week balance',           icon: CalendarDays, defaultTitle: 'Week balance' },
   { key: 'cash_recon_grid',   label: 'Reconciliation grid',    icon: Table2,       defaultTitle: 'Reconciliation', flush: true },
-  { key: 'cash_wages_paid',   label: 'Wages paid',             icon: Users,        defaultTitle: 'Wages paid', HeaderValue: WagesPaidHeader },
+  { key: 'cash_wages_paid',   label: 'Wages paid',             icon: Users,        defaultTitle: 'Wages paid', HeaderValue: WagesPaidHeader,
+    options: WAGES_OPTIONS },
   { key: 'cash_petty_cash',   label: 'Petty cash',             icon: Receipt,      defaultTitle: 'Petty cash' },
   { key: 'cash_week_expenses', label: 'Week expenses',         icon: ListChecks,   defaultTitle: 'Expenses this week', HeaderValue: WeekExpensesHeader },
   { key: 'cash_week_summary_grid', label: 'Week summary grid', icon: Sigma,        defaultTitle: 'Week summary', flush: true, HeaderValue: WeekSummaryHeader },
-  { key: 'cash_week_staff',   label: 'Week staff list',        icon: UserCog,      defaultTitle: 'Staff this week', HeaderValue: WagesPaidHeader },
+  { key: 'cash_week_staff',   label: 'Week staff list',        icon: UserCog,      defaultTitle: 'Staff this week', HeaderValue: WagesPaidHeader,
+    options: WAGES_OPTIONS },
 ]
 
 function todayStr() {
@@ -462,8 +473,11 @@ function WeekSummaryGridWidget({ venueId, ctx }) {
 // on, Notes, explicit Save), the same editor as the Cash Recon Wages page.
 // A payment entered here is recorded on the day selected on the dashboard.
 
-function WeekWagesWidget({ venueId, ctx }) {
-  return <WeekWagesEditor venueId={venueId} weekStart={ctx.weekStart} defaultPaidDay={ctx.selectedDay} />
+function WeekWagesWidget({ venueId, ctx, settings }) {
+  return (
+    <WeekWagesEditor venueId={venueId} weekStart={ctx.weekStart} defaultPaidDay={ctx.selectedDay}
+      hideManage={!!settings?.hide_manage} hideBulk={!!settings?.hide_bulk} paidOnly={!!settings?.paid_only} />
+  )
 }
 
 // ── Petty cash ─────────────────────────────────────────────────
@@ -555,11 +569,11 @@ export function renderCashWidget({ widget, venueId, ctx }) {
     case 'cash_day_balance':  return <DayBalanceWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_balance': return <WeekBalanceWidget venueId={venueId} ctx={ctx} />
     case 'cash_recon_grid':   return <ReconGridWidget venueId={venueId} ctx={ctx} />
-    case 'cash_wages_paid':   return <WeekWagesWidget venueId={venueId} ctx={ctx} />
+    case 'cash_wages_paid':   return <WeekWagesWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
     case 'cash_petty_cash':   return <PettyCashWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_expenses': return <WeekExpensesWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_summary_grid': return <WeekSummaryGridWidget venueId={venueId} ctx={ctx} />
-    case 'cash_week_staff':   return <WeekWagesWidget venueId={venueId} ctx={ctx} />
+    case 'cash_week_staff':   return <WeekWagesWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
     default:                  return null
   }
 }
