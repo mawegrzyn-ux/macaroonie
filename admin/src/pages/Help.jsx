@@ -2092,7 +2092,9 @@ export default function Help() {
               Every change you make in the website builder shows on your <strong>staging</strong> address straight
               away. Guests only see it once you publish. The <strong>Publish</strong> button sits at the top of the
               website menu, above Home, with the last publish time underneath (or <em>Not published yet</em>).
-              Tap it to open the publish window: copy or open your staging link, <strong>Publish now</strong>,
+              The <strong>Staging</strong> button next to it opens your staging site in a new tab, so you can check
+              your edits before publishing (it appears once your site has an address under Domain).
+              Tap Publish to open the publish window: copy or open your staging link, <strong>Publish now</strong>,
               schedule a publish for later (or cancel one), or <strong>Override staging with production</strong> to
               throw away unpublished edits (asks you to confirm). Your address, custom domain and the{' '}
               <strong>Site is live</strong> switch are under <strong>Domain</strong>; while the site is switched off,

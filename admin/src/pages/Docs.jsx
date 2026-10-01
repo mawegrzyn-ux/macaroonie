@@ -3086,7 +3086,8 @@ GET /robots.txt`}</Code>
             <P>
               <Mono>Website.jsx</Mono>: <Mono>PublishButton</Mono> sits at the top of the builder's left menu
               (above the Site / location switcher and Home) and shows <Mono>tenant_site.published_at</Mono> or{' '}
-              <Mono>scheduled_publish_at</Mono>; it opens <Mono>PublishModal</Mono> (staging link,{' '}
+              <Mono>scheduled_publish_at</Mono>, with a Staging link beside it (<Mono>staging-{'{subdomain_slug}'}</Mono>,
+              new tab, only when a subdomain is set); it opens <Mono>PublishModal</Mono> (staging link,{' '}
               <Mono>POST /website/tenant-site/publish</Mono>, <Mono>POST|DELETE /website/tenant-site/schedule-publish</Mono>,{' '}
               <Mono>POST /website/tenant-site/override-staging</Mono>, all invalidating <Mono>['tenant-site']</Mono>).
               The <Mono>tenant-domain</Mono> section (<Mono>TenantDomainSection</Mono>, now labelled Domain) keeps the
