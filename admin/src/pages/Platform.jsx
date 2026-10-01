@@ -1,6 +1,7 @@
 // src/pages/Platform.jsx
 //
-// Platform admin dashboard — tenant list, create, edit, stats.
+// Platform admin dashboard — tenant list, create, edit, stats, and the
+// register-interest forms from the platform page (InterestPanel).
 // Only accessible to platform admins (gated in API + hidden in nav).
 
 import { useState } from 'react'
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import InterestPanel from '@/components/platform/InterestPanel'
 
 const PLAN_COLOURS = {
   starter:    'bg-gray-100 text-gray-600',
@@ -23,6 +25,7 @@ export default function Platform() {
   const qc  = useQueryClient()
   const [creating, setCreating] = useState(false)
   const [editing,  setEditing]  = useState(null)
+  const [tab,      setTab]      = useState('tenants')   // 'tenants' | 'interest'
 
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 120_000 })
 
@@ -33,6 +36,13 @@ export default function Platform() {
     queryFn:  () => api.get('/platform/tenants'),
     enabled:  isPlatformAdmin,
   })
+
+  const { data: interest = [], isLoading: interestLoading } = useQuery({
+    queryKey: ['platform-interest'],
+    queryFn:  () => api.get('/platform/interest'),
+    enabled:  isPlatformAdmin,
+  })
+  const newInterest = interest.filter(r => r.status === 'new').length
 
   const activeTenants   = tenants.filter(t => t.is_active)
   const inactiveTenants = tenants.filter(t => !t.is_active)
@@ -62,6 +72,22 @@ export default function Platform() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6 space-y-6">
+          <div className="inline-flex rounded-lg border overflow-hidden">
+            {[['tenants', 'Tenants'], ['interest', 'Registered interest']].map(([v, l]) => (
+              <button key={v} type="button" onClick={() => setTab(v)}
+                className={cn('h-11 px-4 text-sm font-medium touch-manipulation inline-flex items-center gap-2',
+                  tab === v ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-muted')}>
+                {l}
+                {v === 'interest' && newInterest > 0 && (
+                  <span className={cn('rounded-full px-1.5 text-[11px]', tab === v ? 'bg-white/20' : 'bg-amber-100 text-amber-800')}>{newInterest} new</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'interest' && <InterestPanel rows={interest} isLoading={interestLoading} />}
+
+          {tab === 'tenants' && <>
           {/* Stats overview */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <StatCard icon={Building2} label="Active tenants" value={activeTenants.length} />
@@ -117,6 +143,7 @@ export default function Platform() {
               )}
             </>
           )}
+          </>}
         </div>
       </div>
     </div>

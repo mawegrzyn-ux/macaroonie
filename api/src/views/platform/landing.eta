@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Macaroonie: one platform for every site of your restaurant franchise</title>
+<meta name="description" content="Bookings, websites, online ordering, cash-up, rota and food safety for multi-site restaurant and quick-service franchises. Register your interest.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta property="og:title" content="Macaroonie">
+<meta property="og:description" content="One platform for every site of your restaurant franchise.">
+<meta name="theme-color" content="#630812">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --maroon: #630812; --maroon-dark: #4a0610; --pink: #f4a7b9; --pink-soft: #fde8ee;
+    --cream: #fdf6ec; --ink: #1f1a1b; --muted: #6b6264; --line: #eadfe1; --white: #ffffff;
+    --ok: #166534; --err: #b91c1c;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; font-family: Inter, system-ui, -apple-system, sans-serif; color: var(--ink); background: var(--white); line-height: 1.55; }
+  h1, h2, h3 { font-family: Fraunces, Georgia, serif; line-height: 1.15; margin: 0; }
+  a { color: inherit; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+
+  header.top { position: sticky; top: 0; z-index: 10; background: rgba(255,255,255,0.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  header.top .wrap { display: flex; align-items: center; gap: 16px; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: Fraunces, Georgia, serif; font-weight: 700; font-size: 22px; color: var(--maroon); }
+  .brand svg { width: 34px; height: 34px; }
+  nav.links { margin-left: auto; display: flex; align-items: center; gap: 22px; font-size: 15px; }
+  nav.links a { text-decoration: none; color: var(--muted); }
+  nav.links a:hover { color: var(--ink); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 20px; border-radius: 999px; font-weight: 600; font-size: 15px; text-decoration: none; border: 2px solid transparent; cursor: pointer; font-family: inherit; }
+  .btn-primary { background: var(--maroon); color: var(--white); }
+  .btn-primary:hover { background: var(--maroon-dark); }
+  .btn-ghost { border-color: var(--maroon); color: var(--maroon); background: transparent; }
+  .btn-ghost:hover { background: var(--pink-soft); }
+  nav.links .btn { min-height: 40px; padding: 0 16px; font-size: 14px; }
+
+  .hero { background: linear-gradient(180deg, var(--cream) 0%, var(--white) 100%); padding: 72px 0 64px; }
+  .hero .wrap { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: 48px; align-items: center; }
+  .eyebrow { display: inline-block; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--maroon); background: var(--pink-soft); padding: 6px 12px; border-radius: 999px; margin-bottom: 18px; }
+  .hero h1 { font-size: clamp(34px, 5vw, 56px); color: var(--maroon); }
+  .hero p.lead { font-size: 19px; color: var(--muted); margin: 20px 0 28px; max-width: 34em; }
+  .hero .ctas { display: flex; flex-wrap: wrap; gap: 12px; }
+  .hero-card { background: var(--white); border: 1px solid var(--line); border-radius: 20px; padding: 22px; box-shadow: 0 20px 50px rgba(99, 8, 18, 0.08); }
+  .hero-card h3 { font-size: 18px; margin-bottom: 14px; }
+  .hero-card ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+  .hero-card li { display: flex; align-items: center; gap: 12px; font-size: 15px; padding: 10px 12px; border-radius: 12px; background: var(--cream); }
+  .hero-card li b { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--maroon); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--pink); flex: none; }
+
+  section { padding: 72px 0; }
+  section h2 { font-size: clamp(28px, 3.6vw, 40px); color: var(--maroon); }
+  section p.sub { color: var(--muted); font-size: 17px; max-width: 40em; margin: 12px 0 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 18px; margin-top: 36px; }
+  .card { border: 1px solid var(--line); border-radius: 18px; padding: 22px; background: var(--white); }
+  .card .icon { width: 44px; height: 44px; border-radius: 12px; background: var(--pink-soft); color: var(--maroon); display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
+  .card .icon svg { width: 22px; height: 22px; }
+  .card h3 { font-size: 19px; margin-bottom: 6px; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  .band { background: var(--maroon); color: var(--white); }
+  .band h2 { color: var(--white); }
+  .band p.sub { color: rgba(255,255,255,0.8); }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 18px; margin-top: 36px; }
+  .step { border: 1px solid rgba(255,255,255,0.2); border-radius: 18px; padding: 22px; }
+  .step .n { font-family: Fraunces, Georgia, serif; font-size: 34px; color: var(--pink); }
+  .step h3 { font-size: 19px; margin: 6px 0; }
+  .step p { margin: 0; color: rgba(255,255,255,0.8); font-size: 15px; }
+
+  .interest .wrap { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 48px; align-items: start; }
+  form.card { padding: 26px; }
+  .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  label.f { display: block; margin-bottom: 14px; font-size: 14px; font-weight: 500; }
+  label.f span.req { color: var(--maroon); }
+  label.f input, label.f select, label.f textarea { display: block; width: 100%; margin-top: 6px; min-height: 48px; padding: 10px 14px; font: inherit; font-size: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--white); color: var(--ink); }
+  label.f textarea { min-height: 110px; resize: vertical; }
+  label.f input:focus, label.f select:focus, label.f textarea:focus { outline: 2px solid var(--pink); border-color: var(--maroon); }
+  label.check { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; color: var(--muted); margin: 6px 0 18px; cursor: pointer; }
+  label.check input { width: 22px; height: 22px; flex: none; margin: 0; accent-color: var(--maroon); }
+  .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .msg { margin-top: 14px; font-size: 15px; }
+  .msg.ok { color: var(--ok); }
+  .msg.err { color: var(--err); }
+  .thanks { text-align: center; padding: 30px 10px; }
+  .thanks h3 { font-size: 26px; color: var(--maroon); margin-bottom: 8px; }
+  ul.ticks { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 10px; }
+  ul.ticks li { display: flex; gap: 10px; align-items: flex-start; }
+  ul.ticks li::before { content: ""; width: 18px; height: 18px; margin-top: 3px; flex: none; border-radius: 50%; background: var(--pink-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23630812' stroke-width='3'%3E%3Cpath d='M5 12l5 5L19 7'/%3E%3C/svg%3E") center / 12px no-repeat; }
+
+  footer { border-top: 1px solid var(--line); padding: 28px 0; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+  footer .wrap a { margin-left: auto; }
+
+  @media (max-width: 860px) {
+    .hero .wrap, .interest .wrap { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+    nav.links a.hide-sm { display: none; }
+    .hero { padding: 48px 0; }
+    section { padding: 56px 0; }
+  }
+  @media (max-width: 520px) {
+    .row2 { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .brand span { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Macaroonie home">
+      <svg viewBox="0 0 64 64" aria-hidden="true">
+        <ellipse cx="32" cy="42" rx="22" ry="10" fill="#f4a7b9"/>
+        <ellipse cx="32" cy="34" rx="22" ry="5" fill="#fdf3c8"/>
+        <ellipse cx="32" cy="26" rx="22" ry="10" fill="#f4a7b9"/>
+        <circle cx="22" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
+        <circle cx="32" cy="27" r="1.8" fill="#e8829a" opacity="0.7"/>
+        <circle cx="42" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
+        <ellipse cx="28" cy="20" rx="8" ry="4" fill="white" opacity="0.25"/>
+      </svg>
+      <span>Macaroonie</span>
+    </a>
+    <nav class="links">
+      <a class="hide-sm" href="#features">Features</a>
+      <a class="hide-sm" href="#franchise">For franchises</a>
+      <a class="hide-sm" href="#interest">Register interest</a>
+      <a class="btn btn-ghost" href="<%= it.officeUrl %>">Sign in</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow">For restaurant and QSR franchises</span>
+        <h1>Run every site of your franchise from one place.</h1>
+        <p class="lead">Bookings, websites, online ordering, cash-up, rotas and food safety, built for the front of house and the office. Each master franchisee gets their own workspace, and every location gets what it needs.</p>
+        <div class="ctas">
+          <a class="btn btn-primary" href="#interest">Register interest</a>
+          <a class="btn btn-ghost" href="#features">See what's included</a>
+        </div>
+      </div>
+      <div class="hero-card" aria-hidden="true">
+        <h3>Tonight at a glance</h3>
+        <ul>
+          <li><span class="dot"></span>Bookings, dinner <b>46 covers</b></li>
+          <li><span class="dot"></span>Online orders, collection <b>18</b></li>
+          <li><span class="dot"></span>Fridge checks done <b>6 / 6</b></li>
+          <li><span class="dot"></span>Staff on shift <b>9</b></li>
+          <li><span class="dot"></span>Yesterday's cash-up <b>Balanced</b></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>Everything a site needs, in one login</h2>
+      <p class="sub">Made for tablets at the host stand and phones on the floor. Switch on the parts you need, per franchise.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg></div>
+          <h3>Table bookings</h3>
+          <p>A live timeline of every table, smart table allocation, walk-ins, and a booking widget for your website with email confirmations and reminders.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
+          <h3>A website for every location</h3>
+          <p>One brand site with a page for each location: menus, opening hours, gallery and bookings, edited with a drag-and-drop page builder.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg></div>
+          <h3>Online ordering</h3>
+          <p>Collection orders from your own site, with meal deals, codes and offers, a live kitchen board and printed tickets. No marketplace commission.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
+          <h3>Menus and print</h3>
+          <p>One menu feeds the website, online ordering and printed menus. Design your print layouts, with allergens and dietary tags kept up to date.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg></div>
+          <h3>Cash-up</h3>
+          <p>Daily declarations, petty cash with receipt photos, wages paid from the till and a variance that tells you straight away if a day doesn't balance.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 11a3 3 0 1 0 0-6M21 20a6 6 0 0 0-4-5.6"/></svg></div>
+          <h3>Staff, rota and tips</h3>
+          <p>Weekly rotas, sickness and holidays, pay with adjustments and advances, and tip pots shared out by points.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <h3>Food safety and checklists</h3>
+          <p>Fridge, hot-hold and cooking temperatures, deliveries, opening and closing checklists, and an action log, with dashboards for every site.</p>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+          <h3>A phone app for managers</h3>
+          <p>Cash-up, wages, expenses, order sheets and safety checks from a phone, installed like an app.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="franchise">
+    <div class="wrap">
+      <h2>Built for franchise groups</h2>
+      <p class="sub">Master franchisees each run their own workspace with their own locations, people and settings, on one platform.</p>
+      <div class="steps">
+        <div class="step"><div class="n">1</div><h3>Your own workspace</h3><p>Each franchisee's locations, staff, menus and data are kept separate from everyone else's.</p></div>
+        <div class="step"><div class="n">2</div><h3>Roles and permissions</h3><p>Owners, managers and staff see only what they need, with your own custom roles.</p></div>
+        <div class="step"><div class="n">3</div><h3>One brand, many sites</h3><p>Share a brand and a website across locations, with local hours, menus and bookings for each.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="interest" id="interest">
+    <div class="wrap">
+      <div>
+        <h2>Register your interest</h2>
+        <p class="sub">We're onboarding our first franchise groups. Leave your details and we'll be in touch to show you round.</p>
+        <ul class="ticks">
+          <li>A walkthrough with your own locations and menus</li>
+          <li>Help moving your bookings, menus and staff across</li>
+          <li>No obligation</li>
+        </ul>
+      </div>
+      <form class="card" id="interest-form" novalidate>
+        <div id="interest-fields">
+          <div class="row2">
+            <label class="f">Your name <span class="req">*</span><input name="name" autocomplete="name" required maxlength="200"></label>
+            <label class="f">Email <span class="req">*</span><input name="email" type="email" autocomplete="email" required maxlength="320"></label>
+          </div>
+          <div class="row2">
+            <label class="f">Company or brand<input name="company" autocomplete="organization" maxlength="200"></label>
+            <label class="f">Phone<input name="phone" type="tel" inputmode="tel" autocomplete="tel" maxlength="50"></label>
+          </div>
+          <label class="f">Number of sites
+            <select name="sites">
+              <option value="">Choose…</option>
+              <option>1</option>
+              <option>2 to 5</option>
+              <option>6 to 20</option>
+              <option>21 or more</option>
+            </select>
+          </label>
+          <label class="f">Anything we should know?<textarea name="message" maxlength="4000" placeholder="What you'd like to use, which systems you use today…"></textarea></label>
+          <div class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
+          <label class="check"><input type="checkbox" name="consent"><span>I agree that Macaroonie may store these details and contact me about the platform. We won't share them or use them for anything else.</span></label>
+          <button class="btn btn-primary" type="submit" id="interest-submit" style="width:100%">Register interest</button>
+          <p class="msg" id="interest-msg" role="status" aria-live="polite"></p>
+        </div>
+        <div class="thanks" id="interest-thanks" hidden>
+          <h3>Thank you</h3>
+          <p>We've got your details and will be in touch soon.</p>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>&copy; <%= it.year %> Macaroonie</span>
+    <a href="<%= it.officeUrl %>">Sign in to Macaroonie</a>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var form = document.getElementById('interest-form')
+  var msg = document.getElementById('interest-msg')
+  var btn = document.getElementById('interest-submit')
+  function show(text, ok) { msg.textContent = text; msg.className = 'msg ' + (ok ? 'ok' : 'err') }
+  form.addEventListener('submit', function (e) {
+    e.preventDefault()
+    var data = {}
+    new FormData(form).forEach(function (v, k) { data[k] = typeof v === 'string' ? v.trim() : v })
+    data.consent = form.elements.consent.checked
+    if (!data.name) return show('Please enter your name.')
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email || '')) return show('Please enter a valid email address.')
+    if (!data.consent) return show('Please tick the box so we can store your details.')
+    btn.disabled = true
+    btn.textContent = 'Sending…'
+    fetch('/api/platform-interest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }).then(function (res) {
+      if (res.ok) {
+        document.getElementById('interest-fields').hidden = true
+        document.getElementById('interest-thanks').hidden = false
+        return
+      }
+      throw new Error(res.status === 429 ? 'Too many tries. Please wait a few minutes and try again.' : 'Something went wrong. Please try again.')
+    }).catch(function (err) {
+      show(err.message || 'Something went wrong. Please try again.')
+      btn.disabled = false
+      btn.textContent = 'Register interest'
+    })
+  })
+})()
+</script>
+</body>
+</html>

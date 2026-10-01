@@ -29,6 +29,9 @@ const schema = z.object({
   // Email (SendGrid)
   SENDGRID_API_KEY:      z.string().optional(),
   EMAIL_FROM:            z.string().email().default('noreply@macaroonie.com'),
+  // Who gets an email for each register-interest form on the platform page
+  // (routes/platformSite.js). Unset = stored only (Platform page lists them).
+  INTEREST_NOTIFY_EMAIL: z.string().email().optional(),
 
   // Website CMS — file uploads + subdomain serving
   UPLOAD_DIR:            z.string().default('/home/ubuntu/app/uploads'),

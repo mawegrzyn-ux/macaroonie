@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Smartphone, X } from 'lucide-react'
+import { mobileHref } from '@/lib/hosts'
 
 const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 const DISMISSED_KEY = 'maca_mobile_prompt_dismissed'
@@ -44,7 +45,9 @@ export default function MobileSuggestModal() {
 
   function openMobile() {
     try { localStorage.setItem(DISMISSED_KEY, '1') } catch { /* ignore */ }
-    navigate('/mobile')
+    const href = mobileHref()
+    if (href) window.location.assign(href)
+    else navigate('/mobile')
   }
 
   if (!show) return null

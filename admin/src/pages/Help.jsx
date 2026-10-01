@@ -100,6 +100,11 @@ export default function Help() {
               Welcome to Macaroonie. Follow this checklist to get your restaurant set up and ready to take
               bookings. Each step links to a section in this guide.
             </P>
+            <InfoBox type="tip">
+              Macaroonie lives at <strong>office.macaroonie.com</strong>. The phone app is at{' '}
+              <strong>ops.macaroonie.com</strong> (see Mobile App). <strong>macaroonie.com</strong> is the
+              public page about the platform, and old admin links there forward to office.macaroonie.com.
+            </InfoBox>
 
             <div className="space-y-3 mb-6">
               {[
@@ -1709,19 +1714,22 @@ export default function Help() {
           <section id="mobile-app" data-help="">
             <H2>Mobile App</H2>
             <P>
-              Visit <strong>macaroonie.com/mobile</strong> on a phone (signed in with your usual
+              Visit <strong>ops.macaroonie.com</strong> on a phone (signed in with your usual
               account) for a phone-sized version of the app, starting with the H&amp;S Dashboard.
               It's the same data and the same Complete/log actions as the desktop page — just
               laid out in a single column for a phone screen instead of a resizable grid.
             </P>
             <H3>Installing it as an app</H3>
             <P>
-              On the <strong>/mobile</strong> page, use your browser's <strong>Add to Home
+              On <strong>ops.macaroonie.com</strong>, use your browser's <strong>Add to Home
               Screen</strong> (Safari: Share → Add to Home Screen; Android Chrome: menu → Add to
               Home screen or the install banner). It installs under its own name, <strong>
               Macaroonie Ops</strong>, with its own icon — separate from the main desktop app if
               you also have that installed — and opens straight into the mobile section, full
-              screen, no browser address bar.
+              screen, no browser address bar. Because it has its own address, Android installs it as
+              a separate app too. The first time you open it you sign in again (and pick your
+              restaurant, if you have more than one). If you installed it earlier from
+              macaroonie.com/mobile, remove that icon and add it again from ops.macaroonie.com.
             </P>
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
@@ -3152,6 +3160,13 @@ export default function Help() {
               <strong> Tenants</strong> link at the bottom of the sidebar (shield icon) and
               can create, edit, and deactivate tenants from the platform dashboard. Platform
               admins bypass all role restrictions within any tenant.
+            </P>
+            <P>
+              The platform dashboard's <strong>Registered interest</strong> tab lists everyone who filled in
+              the form on macaroonie.com (newest first, with a count of new ones on the tab). Tap the email or
+              phone to get in touch, set each one to <strong>New</strong>, <strong>Contacted</strong> or{' '}
+              <strong>Closed</strong>, keep a note (with its own Save), or delete it (it asks first).{' '}
+              <strong>Open</strong> hides closed ones; <strong>All</strong> shows everything.
             </P>
 
             <H3>Creating a new tenant (master franchisee)</H3>

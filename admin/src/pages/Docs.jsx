@@ -579,13 +579,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <li>
                 <strong>Application Login URI on the SPA app.</strong>
                 Applications → Macaroonie Admin → Settings → Application URIs →
-                <strong> Application Login URI</strong> = <Mono>https://macaroonie.com</Mono>.
+                <strong> Application Login URI</strong> = <Mono>https://office.macaroonie.com</Mono>{' '}
+                (the admin's address since migration 138; it was <Mono>https://macaroonie.com</Mono>).
                 Without this, every <Mono>POST /api/v2/organizations/.../invitations</Mono> returns 400
                 "A default login route is required to generate the invitation url".
               </li>
               <li>
                 <strong>Allowed Callback / Logout / Web Origins on the SPA app.</strong>
-                Same Settings page → ensure all three include <Mono>https://macaroonie.com</Mono>.
+                Same Settings page → all three must include <Mono>https://office.macaroonie.com</Mono>{' '}
+                and <Mono>https://ops.macaroonie.com</Mono> (the phone app signs in on its own origin;
+                the SDK's <Mono>redirect_uri</Mono> is <Mono>window.location.origin</Mono>). Keep{' '}
+                <Mono>https://macaroonie.com</Mono> until the apex has been switched to the platform page.
               </li>
               <li>
                 <strong>Connections enabled at the application level.</strong>
@@ -3383,6 +3387,50 @@ allTables sorted by sort_order → target at index i
           {/* ── DEPLOYMENT ────────────────────────────────── */}
           <section id="deployment" data-doc="">
             <H2>Deployment</H2>
+            <H3>Hosts</H3>
+            <DataTable
+              head={['Host', 'Serves', 'Where']}
+              rows={[
+                ['office.macaroonie.com', 'The admin portal (admin/dist) plus the API paths', 'nginx: scripts/nginx-office-ops.sh'],
+                ['ops.macaroonie.com', 'The same admin build; / goes to /mobile/, the SPA sends any non-/mobile route to /mobile (IS_OPS_HOST in lib/hosts.js), and the page links /ops.webmanifest (scope /) so Android installs it as its own app', 'nginx: scripts/nginx-office-ops.sh'],
+                ['macaroonie.com (and www.)', 'The platform page with the register-interest form (routes/platformSite.js, views/platform/landing.eta). Other GETs 301 to the same path on office.; API paths (/api, /manage, /reservations, /widget-api, /ws, /webhooks, /uploads, /order-api) pass through; /sw.js is a service worker that removes itself so an admin installed on the apex stops showing', 'nginx: scripts/nginx-apex-landing.sh'],
+                ['{slug}.macaroonie.com / custom domains', 'Tenant sites (routes/siteRenderer.js). office and ops are in RESERVED_SUBDOMAINS', 'wildcard server block'],
+              ]}
+            />
+            <P>
+              <Mono>services/platformHost.js</Mono> (<Mono>platformHostKind(host)</Mono>,{' '}
+              <Mono>officeOrigin()</Mono>, <Mono>opsOrigin()</Mono>) is the API's one host check; the
+              admin's is <Mono>lib/hosts.js</Mono> (<Mono>IS_OPS_HOST</Mono>, <Mono>IS_OFFICE_HOST</Mono>,{' '}
+              <Mono>mobileHref()</Mono>, <Mono>standardHref()</Mono>), used by{' '}
+              <Mono>MobileViewToggle</Mono> and <Mono>MobileSuggestModal</Mono> to switch host instead of
+              route on office./ops. On any other host (localhost) both views stay in one origin.
+              The platform page hook is global (<Mono>fastify-plugin</Mono>) and registered before every
+              route plugin in <Mono>app.js</Mono>.
+            </P>
+            <H3>Moving to office / ops (one-off, in order)</H3>
+            <ol className="list-decimal pl-5 space-y-1.5 text-sm mb-4">
+              <li>DNS: the wildcard <Mono>*</Mono> record covers office and ops; without one, add A records for both.</li>
+              <li><Mono>sudo DOMAIN=macaroonie.com CERTBOT_EMAIL=… bash scripts/nginx-office-ops.sh</Mono> (writes <Mono>sites-available/macaroonie-office</Mono>, runs certbot for both names; <Mono>DRY_RUN=1</Mono> prints the config).</li>
+              <li>Auth0 (Applications → Macaroonie Admin → Settings): add office and ops to Allowed Callback URLs, Allowed Logout URLs and Allowed Web Origins; set Application Login URI to office.</li>
+              <li>Check sign-in on office. and ops.</li>
+              <li><Mono>sudo bash scripts/nginx-apex-landing.sh</Mono>: the apex <Mono>location /</Mono> and sw.js locations proxy to the API (backup kept; restored if <Mono>nginx -t</Mono> fails).</li>
+            </ol>
+            <P>
+              Browser storage is per origin, so each person signs in once on the new address and their
+              saved view settings (theme colour, timeline, last restaurant, shortcuts, launcher order) start
+              from defaults once.
+            </P>
+            <H3>Register interest</H3>
+            <P>
+              <Mono>platform_interest</Mono> (migration 138): global, no RLS, like <Mono>backlog_items</Mono>.
+              Written by <Mono>POST /api/platform-interest</Mono> (public, 5 per 10 minutes per IP,{' '}
+              <Mono>consent: true</Mono> required, a filled <Mono>website</Mono> honeypot gets 204 and is not
+              stored); read and changed by platform admins through <Mono>GET/PATCH/DELETE
+              /api/platform/interest[/:id]</Mono> (status new | contacted | closed, notes). Admin UI:
+              Platform page → Registered interest (<Mono>components/platform/InterestPanel.jsx</Mono>).
+              With <Mono>INTEREST_NOTIFY_EMAIL</Mono> and <Mono>SENDGRID_API_KEY</Mono> set, each form is
+              also emailed there (reply-to the sender).
+            </P>
             <H3>Environment variables</H3>
             <DataTable
               head={['Variable', 'App', 'Description']}
@@ -3396,6 +3444,7 @@ allTables sorted by sort_order → target at index i
                 ['VITE_AUTH0_DOMAIN', 'Admin', 'Auth0 domain for SPA login'],
                 ['VITE_AUTH0_CLIENT_ID', 'Admin', 'Auth0 SPA client ID'],
                 ['VITE_AUTH0_AUDIENCE', 'Admin', 'JWT audience (same as API)'],
+                ['INTEREST_NOTIFY_EMAIL', 'API', 'Optional. Receives an email for each register-interest form on the platform page.'],
               ]}
             />
             <H3>Running locally</H3>

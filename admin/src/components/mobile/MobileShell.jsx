@@ -19,6 +19,7 @@ import { useApi } from '@/lib/api'
 import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
 import MobileViewToggle from '@/components/MobileViewToggle'
+import { IS_OPS_HOST } from '@/lib/hosts'
 
 // Lets a mobile page (e.g. a full-page detail drilled into from a list —
 // see MobileCashUp's day view) suppress this shell's own header when it
@@ -57,7 +58,9 @@ export function MobileLogoutButton({ className }) {
 }
 
 const MAIN_MANIFEST_HREF = '/manifest.webmanifest'
-const MOBILE_MANIFEST_HREF = '/mobile.webmanifest'
+// On ops.<domain> the phone app has the whole origin, so its manifest's
+// scope is / (lib/hosts.js); elsewhere it shares the origin with the admin.
+const MOBILE_MANIFEST_HREF = IS_OPS_HOST ? '/ops.webmanifest' : '/mobile.webmanifest'
 const MAIN_TOUCH_ICON = '/apple-touch-icon.png'
 const MOBILE_TOUCH_ICON = '/mobile-apple-touch-icon.png'
 const MAIN_THEME_COLOR = '#630812'

@@ -36,6 +36,8 @@ import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
 export const RESERVED_SUBDOMAINS = new Set([
   'www', 'api', 'admin', 'app', 'mail', 'static', 'assets',
   'cdn', 'ws', 'stripe', 'webhook', 'webhooks',
+  // The admin portal and the phone app (services/platformHost.js).
+  'office', 'ops',
 ])
 
 // The staging environment for a tenant always lives at

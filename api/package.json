@@ -18,6 +18,7 @@
     "bullmq": "^5.4.2",
     "eta": "^3.4.0",
     "fastify": "^4.26.2",
+    "fastify-plugin": "^4.5.1",
     "ioredis": "^5.3.2",
     "jwks-rsa": "^3.1.0",
     "pino": "^8.19.0",
