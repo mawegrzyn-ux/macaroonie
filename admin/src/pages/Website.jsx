@@ -567,7 +567,8 @@ function defaultScheduleValue() {
 // ── Publish (modal) ───────────────────────────────────────────
 //
 // Opened from the Publish button at the top of the website menu
-// (PublishButton). Staging preview link, publish now, schedule, and
+// (PublishButton, which also has a Staging link that opens the staging
+// site in a new tab). Staging preview link, publish now, schedule, and
 // resetting staging to production. The Domain section keeps the address
 // and the Site is live switch.
 
@@ -580,12 +581,23 @@ export function PublishButton({ tenantSite, onClick }) {
   const status = ts.scheduled_publish_at
     ? 'Scheduled ' + publishedLabel(ts.scheduled_publish_at)
     : ts.published_at ? 'Last published ' + publishedLabel(ts.published_at) : 'Not published yet'
+  const stagingUrl = ts.subdomain_slug ? `https://staging-${ts.subdomain_slug}.macaroonie.com` : null
   return (
     <div className="px-2 mb-3">
-      <button type="button" onClick={onClick}
-        className="w-full min-h-[48px] inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold shadow-sm hover:opacity-90 touch-manipulation">
-        <Rocket className="w-4 h-4" /> Publish
-      </button>
+      <div className="flex gap-2">
+        <button type="button" onClick={onClick}
+          className="flex-1 min-w-0 min-h-[48px] inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold shadow-sm hover:opacity-90 touch-manipulation">
+          <Rocket className="w-4 h-4" /> Publish
+        </button>
+        {stagingUrl && (
+          <a href={stagingUrl} target="_blank" rel="noopener"
+            title="Open the staging site in a new tab" aria-label="Open staging site"
+            className="shrink-0 w-12 min-h-[48px] inline-flex flex-col items-center justify-center gap-0.5 rounded-lg border bg-background text-foreground hover:bg-accent touch-manipulation">
+            <ExternalLink className="w-4 h-4" />
+            <span className="text-[10px] leading-none font-medium">Staging</span>
+          </a>
+        )}
+      </div>
       <p className={cn('mt-1 px-1 text-[11px] leading-tight text-center', ts.published_at || ts.scheduled_publish_at ? 'text-muted-foreground' : 'text-amber-600')}>
         {status}
       </p>

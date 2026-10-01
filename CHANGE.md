@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-01 — Website builder: Staging link next to Publish]
+
+- A Staging button next to Publish at the top of the website menu opens the staging site in a new tab, without opening the publish window. It shows once the site has an address under Domain.
+
+---
+
 ## [2026-09-30 — office and ops addresses, platform page with register interest]
 
 **Migration:** `138_platform_interest.sql`
