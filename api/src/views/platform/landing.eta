@@ -71,6 +71,19 @@
   .step h3 { font-size: 19px; margin: 6px 0; }
   .step p { margin: 0; color: rgba(255,255,255,0.8); font-size: 15px; }
 
+  .card .soon { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--maroon); background: var(--pink-soft); padding: 4px 10px; border-radius: 999px; margin-bottom: 12px; }
+  .card ul.points { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
+  .card ul.points li { margin-top: 4px; }
+  .note { margin-top: 20px; color: var(--muted); font-size: 15px; }
+
+  .team { background: var(--cream); }
+  .team .wrap { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr); gap: 48px; align-items: center; }
+  .team p.body { color: var(--muted); font-size: 17px; margin: 14px 0 0; max-width: 36em; }
+  .facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  .fact { background: var(--white); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+  .fact b { display: block; font-family: Fraunces, Georgia, serif; font-size: 26px; color: var(--maroon); line-height: 1.1; }
+  .fact span { display: block; margin-top: 6px; color: var(--muted); font-size: 14px; }
+
   .interest .wrap { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: 48px; align-items: start; }
   form.card { padding: 26px; }
   .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
@@ -96,7 +109,7 @@
   footer .wrap a { margin-left: auto; }
 
   @media (max-width: 860px) {
-    .hero .wrap, .interest .wrap { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+    .hero .wrap, .interest .wrap, .team .wrap { grid-template-columns: minmax(0, 1fr); gap: 32px; }
     nav.links a.hide-sm { display: none; }
     .hero { padding: 48px 0; }
     section { padding: 56px 0; }
@@ -126,6 +139,7 @@
     <nav class="links">
       <a class="hide-sm" href="#features">Features</a>
       <a class="hide-sm" href="#franchise">For franchises</a>
+      <a class="hide-sm" href="#roadmap">Roadmap</a>
       <a class="hide-sm" href="#interest">Register interest</a>
       <a class="btn btn-ghost" href="<%= it.officeUrl %>">Sign in</a>
     </nav>
@@ -214,6 +228,67 @@
         <div class="step"><div class="n">1</div><h3>Your own workspace</h3><p>Each franchisee's locations, staff, menus and data are kept separate from everyone else's.</p></div>
         <div class="step"><div class="n">2</div><h3>Roles and permissions</h3><p>Owners, managers and staff see only what they need, with your own custom roles.</p></div>
         <div class="step"><div class="n">3</div><h3>One brand, many sites</h3><p>Share a brand and a website across locations, with local hours, menus and bookings for each.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <div class="wrap">
+      <h2>Coming next</h2>
+      <p class="sub">The next big step is the counter and the kitchen: a till, kitchen screens and self-order kiosks, working from the same menus, offers and orders as everything else.</p>
+      <div class="grid">
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+          <span class="soon">In development</span>
+          <h3>EPOS</h3>
+          <p>A till for counter and table service, built on the menu you already manage here.</p>
+          <ul class="points">
+            <li>Till, online and kiosk orders in one place</li>
+            <li>Takings flow straight into the cash-up</li>
+            <li>Tables linked to bookings</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M6 7h4M6 11h4M14 7h4M14 11h4M8 21h8"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>Kitchen display screens</h3>
+          <p>Orders from the till, the website and kiosks on screens in the kitchen, in place of printed tickets.</p>
+          <ul class="points">
+            <li>Screens per station, bump when ready</li>
+            <li>Timers so nothing waits too long</li>
+            <li>Ready alerts back to front of house</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="16" rx="2"/><path d="M9 22h6M12 18v4M9 6h6M9 10h6"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>Self-order kiosks</h3>
+          <p>Guests order and pay at a screen in the restaurant, with the same menu, meal deals and offers as online.</p>
+          <ul class="points">
+            <li>Upsells and meal deals on screen</li>
+            <li>Allergens and dietary tags on every dish</li>
+            <li>Orders go straight to the kitchen</li>
+          </ul>
+        </div>
+      </div>
+      <p class="note">Working with us early means a say in how these are built. Tell us what you use today when you register.</p>
+    </div>
+  </section>
+
+  <section class="team" id="team">
+    <div class="wrap">
+      <div>
+        <h2>Who's building Macaroonie</h2>
+        <p class="body">We're a small team with more than fifteen years in multi-site hospitality and leisure: restaurant franchises, gyms, attractions and racecourses, in the UK, across Europe and in the US.</p>
+        <p class="body">Not just from the IT side. We've worked hand in hand with operations, finance, HR, marketing, procurement and the kitchen, so we know how a site really runs, from the opening checks to the end-of-week cash-up.</p>
+        <p class="body">Our strength is talking to everyone: crew on the floor, site and area managers, head office and the board. We turn what each of them needs into tools that hold up on a busy Friday night, and bring people with us through the change.</p>
+        <p class="body">Macaroonie is the platform we always wanted on site: one place for the whole operation, made for the people who run it every day.</p>
+      </div>
+      <div class="facts">
+        <div class="fact"><b>15+ years</b><span>in multi-site hospitality and leisure</span></div>
+        <div class="fact"><b>Every department</b><span>operations, finance, HR, marketing and the kitchen</span></div>
+        <div class="fact"><b>Floor to board</b><span>at home with site teams and leadership alike</span></div>
+        <div class="fact"><b>Since 2014</b><span>rolling out tills, kiosks and booking systems</span></div>
       </div>
     </div>
   </section>
