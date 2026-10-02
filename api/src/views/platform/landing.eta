@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Macaroonie: one platform for every site of your restaurant franchise</title>
-<meta name="description" content="Bookings, websites, online ordering, cash-up, rota and food safety for multi-site restaurant and quick-service franchises. Register your interest.">
+<title>Macaroonie: one platform for restaurants, pubs and hospitality groups</title>
+<meta name="description" content="Bookings, websites, online ordering, cash-up, rotas and food safety for independents, multi-site groups and franchises. Register your interest.">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta property="og:title" content="Macaroonie">
-<meta property="og:description" content="One platform for every site of your restaurant franchise.">
+<meta property="og:description" content="One platform for your restaurant, pub or hospitality group.">
 <meta name="theme-color" content="#630812">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -74,6 +74,8 @@
   .card .soon { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--maroon); background: var(--pink-soft); padding: 4px 10px; border-radius: 999px; margin-bottom: 12px; }
   .card ul.points { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
   .card ul.points li { margin-top: 4px; }
+  h3.group { font-size: 22px; color: var(--maroon); margin-top: 40px; }
+  h3.group + .grid { margin-top: 18px; }
   .note { margin-top: 20px; color: var(--muted); font-size: 15px; }
 
   .team { background: var(--cream); }
@@ -138,8 +140,9 @@
     </a>
     <nav class="links">
       <a class="hide-sm" href="#features">Features</a>
-      <a class="hide-sm" href="#franchise">For franchises</a>
+      <a class="hide-sm" href="#who">Who it's for</a>
       <a class="hide-sm" href="#roadmap">Roadmap</a>
+      <a class="hide-sm" href="#how">How we build</a>
       <a class="hide-sm" href="#interest">Register interest</a>
       <a class="btn btn-ghost" href="<%= it.officeUrl %>">Sign in</a>
     </nav>
@@ -150,9 +153,9 @@
   <section class="hero">
     <div class="wrap">
       <div>
-        <span class="eyebrow">For restaurant and QSR franchises</span>
-        <h1>Run every site of your franchise from one place.</h1>
-        <p class="lead">Bookings, websites, online ordering, cash-up, rotas and food safety, built for the front of house and the office. Each master franchisee gets their own workspace, and every location gets what it needs.</p>
+        <span class="eyebrow">For restaurants, pubs and hospitality groups</span>
+        <h1>Run one site or many, all from one place.</h1>
+        <p class="lead">Bookings, websites, online ordering, cash-up, rotas and food safety, built for the front of house and the office. For single sites, multi-site groups and franchises alike, with every location getting what it needs.</p>
         <div class="ctas">
           <a class="btn btn-primary" href="#interest">Register interest</a>
           <a class="btn btn-ghost" href="#features">See what's included</a>
@@ -174,7 +177,7 @@
   <section id="features">
     <div class="wrap">
       <h2>Everything a site needs, in one login</h2>
-      <p class="sub">Made for tablets at the host stand and phones on the floor. Switch on the parts you need, per franchise.</p>
+      <p class="sub">Made for tablets at the host stand and phones on the floor. Switch on just the parts you need.</p>
       <div class="grid">
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg></div>
@@ -199,12 +202,12 @@
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/></svg></div>
           <h3>Cash-up</h3>
-          <p>Daily declarations, petty cash with receipt photos, wages paid from the till and a variance that tells you straight away if a day doesn't balance.</p>
+          <p>Daily declarations, petty cash with receipt photos, and a variance that tells you straight away if a day doesn't balance.</p>
         </div>
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0M16 11a3 3 0 1 0 0-6M21 20a6 6 0 0 0-4-5.6"/></svg></div>
           <h3>Staff, rota and tips</h3>
-          <p>Weekly rotas, sickness and holidays, pay with adjustments and advances, and tip pots shared out by points.</p>
+          <p>Weekly rotas, sickness and holidays, wages with adjustments and advances, and tip pots shared out by points.</p>
         </div>
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7l8-4z"/><path d="M9 12l2 2 4-4"/></svg></div>
@@ -220,12 +223,12 @@
     </div>
   </section>
 
-  <section class="band" id="franchise">
+  <section class="band" id="who">
     <div class="wrap">
-      <h2>Built for franchise groups</h2>
-      <p class="sub">Master franchisees each run their own workspace with their own locations, people and settings, on one platform.</p>
+      <h2>Built for any size of operation</h2>
+      <p class="sub">An independent restaurant, a regional group or a franchise network: start with one site and add more as you grow, without changing systems.</p>
       <div class="steps">
-        <div class="step"><div class="n">1</div><h3>Your own workspace</h3><p>Each franchisee's locations, staff, menus and data are kept separate from everyone else's.</p></div>
+        <div class="step"><div class="n">1</div><h3>Your own workspace</h3><p>Your locations, staff, menus and data are yours alone. Franchise networks give each franchisee a workspace of their own.</p></div>
         <div class="step"><div class="n">2</div><h3>Roles and permissions</h3><p>Owners, managers and staff see only what they need, with your own custom roles.</p></div>
         <div class="step"><div class="n">3</div><h3>One brand, many sites</h3><p>Share a brand and a website across locations, with local hours, menus and bookings for each.</p></div>
       </div>
@@ -235,7 +238,8 @@
   <section id="roadmap">
     <div class="wrap">
       <h2>Coming next</h2>
-      <p class="sub">The next big step is the counter and the kitchen: a till, kitchen screens and self-order kiosks, working from the same menus, offers and orders as everything else.</p>
+      <p class="sub">Two big steps next: the counter and the kitchen, working from the same menus, offers and orders as everything else, and AI that helps you run the business.</p>
+      <h3 class="group">The counter and the kitchen</h3>
       <div class="grid">
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
@@ -270,8 +274,68 @@
             <li>Orders go straight to the kitchen</li>
           </ul>
         </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7-4.5-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.5-9 9-9 9z"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>Loyalty</h3>
+          <p>Reward your regulars with points or stamps, earned and spent at the till, online and at the kiosk.</p>
+          <ul class="points">
+            <li>One guest account across every site</li>
+            <li>Rewards built on the offers you already run</li>
+            <li>See who your regulars are and what they order</li>
+          </ul>
+        </div>
+      </div>
+      <h3 class="group">AI that works for you</h3>
+      <div class="grid">
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15l4-4 3 3 5-6"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>AI insights</h3>
+          <p>Your bookings, sales, labour and waste read for you, with the things worth acting on brought to the top.</p>
+          <ul class="points">
+            <li>Busy-night forecasts to plan staff and prep</li>
+            <li>Early warnings when costs or cash drift</li>
+            <li>Compare sites and spot what the best ones do</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9 11h.01M12 11h.01M15 11h.01"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>AI assistant</h3>
+          <p>Ask in plain English and get the answer, or get the job done, without hunting through screens.</p>
+          <ul class="points">
+            <li>"How did last week compare to the same week last year?"</li>
+            <li>Help writing menus, offers and rotas</li>
+            <li>Only ever sees what your role allows</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0V7zM12 16v5"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>Connect your own AI (MCP)</h3>
+          <p>A Model Context Protocol server, so the AI tools your team already uses can work with your Macaroonie data.</p>
+          <ul class="points">
+            <li>Works with Claude, ChatGPT and other MCP clients</li>
+            <li>You choose what each connection can see and do</li>
+            <li>Every action logged against the person who made it</li>
+          </ul>
+        </div>
       </div>
       <p class="note">Working with us early means a say in how these are built. Tell us what you use today when you register.</p>
+    </div>
+  </section>
+
+  <section class="band" id="how">
+    <div class="wrap">
+      <h2>How we build it</h2>
+      <p class="sub">Building AI-first lets a small team move at a speed established suppliers can't match. So we build to measure: the software fits your operation, not the other way round.</p>
+      <div class="steps">
+        <div class="step"><div class="n">Fast</div><h3>AI-centric rapid development</h3><p>AI is built into how we design, write and test. What a site asks for on Monday can be live by the end of the week, not on next year's roadmap.</p></div>
+        <div class="step"><div class="n">Fitted</div><h3>Built to measure</h3><p>Tell us how your sites run and we shape the platform around it, instead of asking you to bend your operation to fit software made for someone else.</p></div>
+        <div class="step"><div class="n">Modern</div><h3>A modern, open stack</h3><p>Node.js, PostgreSQL and React, running in the browser on tablets, phones and desktops, with phone apps that install straight from the web. No servers on site, nothing to install.</p></div>
+        <div class="step"><div class="n">Secure</div><h3>Security from the ground up</h3><p>Each business's data kept apart, invitation-only sign-in, roles that limit who sees what, encrypted connections, and tools for GDPR requests and guest consent.</p></div>
+      </div>
     </div>
   </section>
 
@@ -279,16 +343,16 @@
     <div class="wrap">
       <div>
         <h2>Who's building Macaroonie</h2>
-        <p class="body">We're a small team with more than fifteen years in multi-site hospitality and leisure: restaurant franchises, gyms, attractions and racecourses, in the UK, across Europe and in the US.</p>
-        <p class="body">Not just from the IT side. We've worked hand in hand with operations, finance, HR, marketing, procurement and the kitchen, so we know how a site really runs, from the opening checks to the end-of-week cash-up.</p>
+        <p class="body">We're a small team with more than 25 years in hospitality. We started as operators, running chain restaurants, hotels, and independent pubs and restaurants, before moving into technology.</p>
+        <p class="body">Since then we've delivered technology for multi-site businesses: restaurant franchises, gyms, attractions and racecourses, in the UK, across Europe and in the US. We've worked hand in hand with operations, finance, HR, marketing, procurement and the kitchen, so we know how a site really runs, from the opening checks to the end-of-week cash-up.</p>
         <p class="body">Our strength is talking to everyone: crew on the floor, site and area managers, head office and the board. We turn what each of them needs into tools that hold up on a busy Friday night, and bring people with us through the change.</p>
-        <p class="body">Macaroonie is the platform we always wanted on site: one place for the whole operation, made for the people who run it every day.</p>
+        <p class="body">Macaroonie is the platform we wanted when we were running sites ourselves: one place for the whole operation, made for the people who run it every day.</p>
       </div>
       <div class="facts">
-        <div class="fact"><b>15+ years</b><span>in multi-site hospitality and leisure</span></div>
+        <div class="fact"><b>25+ years</b><span>in hospitality, operations first, then technology</span></div>
         <div class="fact"><b>Every department</b><span>operations, finance, HR, marketing and the kitchen</span></div>
         <div class="fact"><b>Floor to board</b><span>at home with site teams and leadership alike</span></div>
-        <div class="fact"><b>Since 2014</b><span>rolling out tills, kiosks and booking systems</span></div>
+        <div class="fact"><b>Operators first</b><span>chain restaurants, hotels, pubs and independents</span></div>
       </div>
     </div>
   </section>
@@ -297,7 +361,7 @@
     <div class="wrap">
       <div>
         <h2>Register your interest</h2>
-        <p class="sub">We're onboarding our first franchise groups. Leave your details and we'll be in touch to show you round.</p>
+        <p class="sub">We're onboarding our first customers, from single sites to groups. Leave your details and we'll be in touch to show you round.</p>
         <ul class="ticks">
           <li>A walkthrough with your own locations and menus</li>
           <li>Help moving your bookings, menus and staff across</li>
