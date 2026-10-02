@@ -9,7 +9,8 @@ Migrations are listed where a database change is required.
 
 - macaroonie.com now speaks to single sites, multi-site groups and franchises, not only franchisees (headline, intro, "Built for any size of operation" section, menu link "Who it's for").
 - Wages are no longer described as cash only.
-- Roadmap adds Loyalty (planned).
+- Roadmap adds Loyalty, and a second group, AI that works for you: AI insights, an AI assistant, and an MCP server for your own AI tools (all planned).
+- New How we build it section: AI-centric rapid development, built to measure, a modern stack, security.
 - Team section: 25+ years in hospitality, starting as operators of chain restaurants, hotels, pubs and independents before moving into technology.
 
 ---

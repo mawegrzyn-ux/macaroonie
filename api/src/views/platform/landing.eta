@@ -74,6 +74,8 @@
   .card .soon { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--maroon); background: var(--pink-soft); padding: 4px 10px; border-radius: 999px; margin-bottom: 12px; }
   .card ul.points { margin: 12px 0 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
   .card ul.points li { margin-top: 4px; }
+  h3.group { font-size: 22px; color: var(--maroon); margin-top: 40px; }
+  h3.group + .grid { margin-top: 18px; }
   .note { margin-top: 20px; color: var(--muted); font-size: 15px; }
 
   .team { background: var(--cream); }
@@ -140,6 +142,7 @@
       <a class="hide-sm" href="#features">Features</a>
       <a class="hide-sm" href="#who">Who it's for</a>
       <a class="hide-sm" href="#roadmap">Roadmap</a>
+      <a class="hide-sm" href="#how">How we build</a>
       <a class="hide-sm" href="#interest">Register interest</a>
       <a class="btn btn-ghost" href="<%= it.officeUrl %>">Sign in</a>
     </nav>
@@ -235,7 +238,8 @@
   <section id="roadmap">
     <div class="wrap">
       <h2>Coming next</h2>
-      <p class="sub">The next big step is the counter and the kitchen: a till, kitchen screens, self-order kiosks and a loyalty scheme, working from the same menus, offers and orders as everything else.</p>
+      <p class="sub">Two big steps next: the counter and the kitchen, working from the same menus, offers and orders as everything else, and AI that helps you run the business.</p>
+      <h3 class="group">The counter and the kitchen</h3>
       <div class="grid">
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
@@ -282,7 +286,56 @@
           </ul>
         </div>
       </div>
+      <h3 class="group">AI that works for you</h3>
+      <div class="grid">
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5M4 19h16M8 15l4-4 3 3 5-6"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>AI insights</h3>
+          <p>Your bookings, sales, labour and waste read for you, with the things worth acting on brought to the top.</p>
+          <ul class="points">
+            <li>Busy-night forecasts to plan staff and prep</li>
+            <li>Early warnings when costs or cash drift</li>
+            <li>Compare sites and spot what the best ones do</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M9 11h.01M12 11h.01M15 11h.01"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>AI assistant</h3>
+          <p>Ask in plain English and get the answer, or get the job done, without hunting through screens.</p>
+          <ul class="points">
+            <li>"How did last week compare to the same week last year?"</li>
+            <li>Help writing menus, offers and rotas</li>
+            <li>Only ever sees what your role allows</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 7V3M15 7V3M7 7h10v4a5 5 0 0 1-10 0V7zM12 16v5"/></svg></div>
+          <span class="soon">Planned</span>
+          <h3>Connect your own AI (MCP)</h3>
+          <p>A Model Context Protocol server, so the AI tools your team already uses can work with your Macaroonie data.</p>
+          <ul class="points">
+            <li>Works with Claude, ChatGPT and other MCP clients</li>
+            <li>You choose what each connection can see and do</li>
+            <li>Every action logged against the person who made it</li>
+          </ul>
+        </div>
+      </div>
       <p class="note">Working with us early means a say in how these are built. Tell us what you use today when you register.</p>
+    </div>
+  </section>
+
+  <section class="band" id="how">
+    <div class="wrap">
+      <h2>How we build it</h2>
+      <p class="sub">Building AI-first lets a small team move at a speed established suppliers can't match. So we build to measure: the software fits your operation, not the other way round.</p>
+      <div class="steps">
+        <div class="step"><div class="n">Fast</div><h3>AI-centric rapid development</h3><p>AI is built into how we design, write and test. What a site asks for on Monday can be live by the end of the week, not on next year's roadmap.</p></div>
+        <div class="step"><div class="n">Fitted</div><h3>Built to measure</h3><p>Tell us how your sites run and we shape the platform around it, instead of asking you to bend your operation to fit software made for someone else.</p></div>
+        <div class="step"><div class="n">Modern</div><h3>A modern, open stack</h3><p>Node.js, PostgreSQL and React, running in the browser on tablets, phones and desktops, with phone apps that install straight from the web. No servers on site, nothing to install.</p></div>
+        <div class="step"><div class="n">Secure</div><h3>Security from the ground up</h3><p>Each business's data kept apart, invitation-only sign-in, roles that limit who sees what, encrypted connections, and tools for GDPR requests and guest consent.</p></div>
+      </div>
     </div>
   </section>
 
