@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-02 — Platform page: any size of business, loyalty, 25 years]
+
+- macaroonie.com now speaks to single sites, multi-site groups and franchises, not only franchisees (headline, intro, "Built for any size of operation" section, menu link "Who it's for").
+- Wages are no longer described as cash only.
+- Roadmap adds Loyalty (planned).
+- Team section: 25+ years in hospitality, starting as operators of chain restaurants, hotels, pubs and independents before moving into technology.
+
+---
+
 ## [2026-10-02 — Platform page: roadmap and team]
 
 - macaroonie.com has two new sections: Coming next (EPOS in development, kitchen display screens and self-order kiosks planned) and Who's building Macaroonie (the team's background across hospitality operations and every department). A Roadmap link is in the top menu.
