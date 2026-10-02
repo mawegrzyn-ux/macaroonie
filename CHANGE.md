@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-02 — office/ops nginx script: HTTPS without certbot editing]
+
+- `scripts/nginx-office-ops.sh` now sets up HTTPS for office and ops itself: it uses a certificate already on the server that covers both names (the wildcard one does), or gets one with certbot's webroot mode, and writes the redirect from http itself. Fixes what the first run left behind (office answering with the API's 404, then redirecting to itself). Running it again on the server rewrites the file cleanly.
+
+---
+
 ## [2026-10-01 — Website builder: Staging link next to Publish]
 
 - A Staging button next to Publish at the top of the website menu opens the staging site in a new tab, without opening the publish window. It shows once the site has an address under Domain.

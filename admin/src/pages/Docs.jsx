@@ -3411,7 +3411,7 @@ allTables sorted by sort_order → target at index i
             <H3>Moving to office / ops (one-off, in order)</H3>
             <ol className="list-decimal pl-5 space-y-1.5 text-sm mb-4">
               <li>DNS: the wildcard <Mono>*</Mono> record covers office and ops; without one, add A records for both.</li>
-              <li><Mono>sudo DOMAIN=macaroonie.com CERTBOT_EMAIL=… bash scripts/nginx-office-ops.sh</Mono> (writes <Mono>sites-available/macaroonie-office</Mono>, runs certbot for both names; <Mono>DRY_RUN=1</Mono> prints the config).</li>
+              <li><Mono>sudo DOMAIN=macaroonie.com bash scripts/nginx-office-ops.sh</Mono>: writes <Mono>sites-available/macaroonie-office</Mono> with HTTPS for both names (port 80 only answers ACME challenges and redirects). Certificate: <Mono>CERT_NAME</Mono> if given, else any certificate in <Mono>/etc/letsencrypt/live</Mono> covering both names (the <Mono>*.macaroonie.com</Mono> wildcard does), else <Mono>certbot certonly --webroot</Mono> on the existing certbot account (<Mono>CERTBOT_EMAIL</Mono> only if there is none). Certbot never edits the file. <Mono>DRY_RUN=1</Mono> prints the config.</li>
               <li>Auth0 (Applications → Macaroonie Admin → Settings): add office and ops to Allowed Callback URLs, Allowed Logout URLs and Allowed Web Origins; set Application Login URI to office.</li>
               <li>Check sign-in on office. and ops.</li>
               <li><Mono>sudo bash scripts/nginx-apex-landing.sh</Mono>: the apex <Mono>location /</Mono> and sw.js locations proxy to the API (backup kept; restored if <Mono>nginx -t</Mono> fails).</li>
@@ -3420,6 +3420,14 @@ allTables sorted by sort_order → target at index i
               Browser storage is per origin, so each person signs in once on the new address and their
               saved view settings (theme colour, timeline, last restaurant, shortcuts, launcher order) start
               from defaults once.
+            </P>
+            <P>
+              If office returns the API's JSON 404 (<Mono>Route GET:/ not found</Mono>), the office block has no{' '}
+              <Mono>listen 443</Mono> and the <Mono>*.macaroonie.com</Mono> tenant block is answering:{' '}
+              <Mono>sudo nginx -T | grep -n "server_name\|listen"</Mono> shows it. If office redirects to itself,
+              certbot's <Mono>if ($host = office…) {'{'} return 301 https://… {'}'}</Mono> sits in a block that now
+              also serves 443. Both happened on the first run (Oct 2026, with <Mono>certbot --nginx</Mono>); running
+              the current script again rewrites the file cleanly.
             </P>
             <H3>Register interest</H3>
             <P>
