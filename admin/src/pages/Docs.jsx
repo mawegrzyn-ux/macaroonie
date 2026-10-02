@@ -3394,7 +3394,7 @@ allTables sorted by sort_order → target at index i
               rows={[
                 ['office.macaroonie.com', 'The admin portal (admin/dist) plus the API paths', 'nginx: scripts/nginx-office-ops.sh'],
                 ['ops.macaroonie.com', 'The same admin build; / goes to /mobile/, the SPA sends any non-/mobile route to /mobile (IS_OPS_HOST in lib/hosts.js), and the page links /ops.webmanifest (scope /) so Android installs it as its own app', 'nginx: scripts/nginx-office-ops.sh'],
-                ['macaroonie.com (and www.)', 'The platform page with the register-interest form (routes/platformSite.js, views/platform/landing.eta). Other GETs 301 to the same path on office.; API paths (/api, /manage, /reservations, /widget-api, /ws, /webhooks, /uploads, /order-api) pass through; /sw.js is a service worker that removes itself so an admin installed on the apex stops showing', 'nginx: scripts/nginx-apex-landing.sh'],
+                ['macaroonie.com (and www.)', 'The platform page: features, franchises, roadmap (EPOS, kitchen screens, kiosks), team and the register-interest form (routes/platformSite.js, views/platform/landing.eta, plain HTML, edit the copy there). Other GETs 301 to the same path on office.; API paths (/api, /manage, /reservations, /widget-api, /ws, /webhooks, /uploads, /order-api) pass through; /sw.js is a service worker that removes itself so an admin installed on the apex stops showing', 'nginx: scripts/nginx-apex-landing.sh'],
                 ['{slug}.macaroonie.com / custom domains', 'Tenant sites (routes/siteRenderer.js). office and ops are in RESERVED_SUBDOMAINS', 'wildcard server block'],
               ]}
             />

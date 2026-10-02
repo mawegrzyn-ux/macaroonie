@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-02 — Platform page: roadmap and team]
+
+- macaroonie.com has two new sections: Coming next (EPOS in development, kitchen display screens and self-order kiosks planned) and Who's building Macaroonie (the team's background across hospitality operations and every department). A Roadmap link is in the top menu.
+
+---
+
 ## [2026-10-02 — office/ops nginx script: HTTPS without certbot editing]
 
 - `scripts/nginx-office-ops.sh` now sets up HTTPS for office and ops itself: it uses a certificate already on the server that covers both names (the wildcard one does), or gets one with certbot's webroot mode, and writes the redirect from http itself. Fixes what the first run left behind (office answering with the API's 404, then redirecting to itself). Running it again on the server rewrites the file cleanly.
