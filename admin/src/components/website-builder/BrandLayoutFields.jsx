@@ -138,7 +138,7 @@ export function BrandLayoutFields({ theme, setPath }) {
       <div>
         <p className="text-sm font-medium mb-1">Boxed inset — default step</p>
         <p className="text-xs text-muted-foreground mb-2">
-          Side padding inside boxed (and wide) blocks. Blocks can override this in the inspector.
+          Side padding inside boxed (and wide) blocks. Each block can override this in its settings.
         </p>
         <div className="grid grid-cols-5 gap-1.5">
           {BOXED_STEPS.map(s => {

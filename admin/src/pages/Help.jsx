@@ -40,6 +40,7 @@ const SECTIONS = [
   { id: 'issues',              label: 'Issue Log' },
   { id: 'feature-requests',    label: 'Feature Requests' },
   { id: 'changelog',           label: 'What is New' },
+  { id: 'test-data',           label: 'Test Data (pre-prod)' },
   { id: 'faq',                 label: 'FAQ & Troubleshooting' },
 ]
 
@@ -2068,7 +2069,7 @@ export default function Help() {
                 ['Contact',          'Phone, email, Instagram, Facebook, X, TikTok, YouTube.'],
                 ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
                 ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
-                ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours. Every block also has an Anchor ID in the inspector for in-page links.'],
+                ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours. Every block also has an Anchor ID in its settings for in-page links.'],
                 ['Pages',            'Standalone pages or modal overlays. Link picker lists them plus block anchors.'],
                 ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
                 ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
@@ -3479,6 +3480,48 @@ export default function Help() {
             <P>
               New entries are published by platform admin — they appear automatically for all tenants
               as soon as they are published. Unpublished drafts are only visible to platform admin.
+            </P>
+          </section>
+
+          <section id="test-data" data-help="">
+            <H2>Test data (pre-prod)</H2>
+            <P>
+              The <strong>Test data</strong> page fills a venue with practice records while
+              Macaroonie is in testing. Pick the venue at the top. It has four parts: generate
+              dummy bookings, clear bookings, generate past health &amp; safety logs, and clear
+              generated health &amp; safety logs.
+            </P>
+            <H3>Generate past health &amp; safety logs</H3>
+            <P>
+              Choose a past date range (up to today, a year at most) and what to fill. Use
+              <strong> Preview</strong> to see roughly how much it will make, then
+              <strong> Generate</strong>.
+            </P>
+            <DataTable
+              head={['What', 'What it makes']}
+              rows={[
+                ['Fridge & freezer temperatures', 'One reading per fridge or freezer per check time, inside its limits.'],
+                ['Hot & cold hold checks', 'One reading per hold station per hold check time, inside its limits.'],
+                ['Cooking checks', 'Each cooking session gets its required number of checks, with dishes picked at random from your published menus, all at 75°C or above.'],
+                ['Past order sheets', 'Placed orders on each order sheet template delivery day, with most of the items at quantities around the suggested ones.'],
+                ['Delivery checks', 'One check for every placed order sheet delivered in the range: the supplier name, the items on the order, and a product temperature by category (chilled 1-5°C, frozen -22 to -18°C).'],
+                ['Checklists & audits', 'Daily, weekly and monthly checklists (the monthly audit included) marked complete with every task ticked. Pick which checklists to include. One that someone had already started is completed and ticked off too.'],
+              ]}
+            />
+            <P>
+              <strong>Readings out of range</strong> sets roughly what share of readings fall
+              outside the limits, each with a corrective action written in, so reports and the
+              Overview tiles show what a real log looks like. 0 keeps everything in range.
+              <strong> Skip days the venue is closed</strong> leaves closed days empty.
+              Days that already have a reading are left alone, so running it twice does not
+              double anything up. Readings are signed with your venue staff names.
+            </P>
+            <H3>Clear generated health &amp; safety logs</H3>
+            <P>
+              Removes only what the generator made, for the dates and types you choose, after
+              you type DELETE. Readings and checklists people entered are never removed. A
+              checklist that had been started before the generator completed it stays
+              completed.
             </P>
           </section>
 

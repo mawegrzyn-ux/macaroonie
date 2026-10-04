@@ -126,7 +126,7 @@ export function HeaderCanvas({ data, onChange, selected, config }) {
           fontSize: 11, color: 'var(--c-muted)', background: 'rgba(0,0,0,0.04)',
           padding: '2px 8px', borderRadius: 4,
         }}>
-          Header — {links.length} link{links.length === 1 ? '' : 's'} · open inspector to add more
+          Header — {links.length} link{links.length === 1 ? '' : 's'} · open the block settings to add more
         </div>
       )}
     </header>
@@ -263,7 +263,7 @@ export function ScrollingTextCanvas({ data }) {
         paddingLeft: 32,
       }}>
         {looped.length === 0 ? (
-          <span style={{ opacity: 0.6 }}>Add phrases in the inspector →</span>
+          <span style={{ opacity: 0.6 }}>Add phrases in the block settings →</span>
         ) : looped.map((item, i) => (
           <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 48 }}>
             {item}
@@ -394,7 +394,7 @@ export function DishListCanvas({ data, onChange }) {
               ))}
               {(col.dishes || []).length === 0 && (
                 <p style={{ color: 'var(--c-muted)', fontSize: 13, fontStyle: 'italic' }}>
-                  No dishes yet — add some in the inspector.
+                  No dishes yet — add some in the block settings.
                 </p>
               )}
             </div>
@@ -494,7 +494,7 @@ export function OrderOptionsCanvas({ data }) {
           ))}
           {cards.length === 0 && (
             <p style={{ color: p.muted, fontStyle: 'italic', fontSize: 13 }}>
-              No cards yet — add some in the inspector.
+              No cards yet — add some in the block settings.
             </p>
           )}
         </div>

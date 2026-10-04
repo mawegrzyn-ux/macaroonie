@@ -22,6 +22,10 @@ import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
+import { HS_KINDS, generateHsData, clearGenerated } from '../services/hsTestDataSvc.js'
+import { localParts } from '../services/orderSvc.js'
+
+const HS_MAX_DAYS = 366
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const DAY_MS  = 86_400_000
@@ -215,6 +219,68 @@ export default async function testDataRoutes(app) {
       await tx`DELETE FROM bookings WHERE id = ANY(${ids}::uuid[])`
 
       return { count: ids.length, deleted: ids.length }
+    })
+  })
+
+  // ── H&S logs for past dates (see services/hsTestDataSvc.js) ───
+  // Past only: date_to may not be after the venue's today.
+  async function hsRange(tx, req, body) {
+    const [venue] = await tx`
+      SELECT id, timezone FROM venues WHERE id = ${req.params.venueId} AND tenant_id = ${req.tenantId}
+    `
+    if (!venue) throw httpError(404, 'Venue not found')
+    if (body.date_to < body.date_from) throw httpError(422, 'date_to must be on or after date_from')
+    const today = localParts(new Date(), venue.timezone || 'UTC').date
+    if (body.date_to > today) throw httpError(422, 'Only past dates (up to today) can be filled')
+    const days = Math.round((Date.parse(body.date_to) - Date.parse(body.date_from)) / DAY_MS) + 1
+    if (days > HS_MAX_DAYS) throw httpError(422, `Range too large — max ${HS_MAX_DAYS} days at a time`)
+  }
+
+  const HsKinds = z.array(z.enum(HS_KINDS)).min(1)
+
+  // POST /:venueId/test-data/hs/generate  { dry_run: true } previews the counts.
+  app.post('/:venueId/test-data/hs/generate', { preHandler: requirePermission('test_data', 'manage') }, async (req) => {
+    const body = z.object({
+      date_from:  z.string().regex(DATE_RE),
+      date_to:    z.string().regex(DATE_RE),
+      kinds:      HsKinds,
+      issue_pct:  z.number().int().min(0).max(30).optional().default(0),
+      skip_closed: z.boolean().optional().default(true),
+      checklist_template_ids: z.array(z.string().uuid()).nullable().optional(),
+      dry_run:    z.boolean().optional().default(false),
+    }).parse(req.body)
+
+    return withTenant(req.tenantId, async tx => {
+      await hsRange(tx, req, body)
+      return generateHsData(tx, req.tenantId, req.params.venueId, {
+        dateFrom: body.date_from, dateTo: body.date_to, kinds: body.kinds,
+        issuePct: body.issue_pct, skipClosed: body.skip_closed,
+        checklistTemplateIds: body.checklist_template_ids ?? null,
+        fallbackRecorder: req.user?.email ?? null, dryRun: body.dry_run,
+      })
+    })
+  })
+
+  // POST /:venueId/test-data/hs/clear — only rows the generator made.
+  app.post('/:venueId/test-data/hs/clear', { preHandler: requirePermission('test_data', 'manage') }, async (req) => {
+    const body = z.object({
+      date_from: z.string().regex(DATE_RE),
+      date_to:   z.string().regex(DATE_RE),
+      kinds:     HsKinds,
+      dry_run:   z.boolean().optional().default(false),
+      confirm:   z.boolean().optional().default(false),
+    }).parse(req.body)
+    if (!body.dry_run && body.confirm !== true) {
+      throw httpError(422, 'confirm must be true to delete (or use dry_run to preview)')
+    }
+    if (body.date_to < body.date_from) throw httpError(422, 'date_to must be on or after date_from')
+
+    return withTenant(req.tenantId, async tx => {
+      const [venue] = await tx`SELECT id FROM venues WHERE id = ${req.params.venueId} AND tenant_id = ${req.tenantId}`
+      if (!venue) throw httpError(404, 'Venue not found')
+      return clearGenerated(tx, req.tenantId, req.params.venueId, {
+        dateFrom: body.date_from, dateTo: body.date_to, kinds: body.kinds, dryRun: body.dry_run,
+      })
     })
   })
 }

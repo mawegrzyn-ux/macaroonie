@@ -323,15 +323,18 @@ async function buildLiveTenantBundle(ts, { includeUnpublished, isStaging }) {
 
   // If any menu_inline block on the home page references a menu, hydrate
   // the menus map so the SSR partial can render without an extra query.
-  const menusById = await loadInlineMenus(ts.tenant_id, ts.home_blocks)
+  // Extra pages and modals render through the same bundle, so their
+  // blocks are hydrated too, not only the home page's.
+  const pageBlocks = (bundle.pages || []).map(p => p.blocks)
+  const menusById = await loadInlineMenus(ts.tenant_id, ts.home_blocks, ...pageBlocks)
 
   // Same pattern for `gallery` blocks — pre-resolve each block's image
   // set (by category or hand-picked item ids) so the partial can render
   // without per-block DB queries.
-  const galleryByBlock = await loadGalleryItemsForBlocks(ts.tenant_id, ts.home_blocks)
+  const galleryByBlock = await loadGalleryItemsForBlocks(ts.tenant_id, ts.home_blocks, ...pageBlocks)
 
   // Pre-resolve DB-backed reviews_band blocks
-  const reviewsByBlock = await loadReviewsForBlocks(ts.tenant_id, ts.home_blocks)
+  const reviewsByBlock = await loadReviewsForBlocks(ts.tenant_id, ts.home_blocks, ...pageBlocks)
 
   const sole = soleVenueOf(bundle.venues)
   let config = ts
@@ -409,9 +412,10 @@ async function buildPublishedTenantBundle(ts) {
 
   const pages = snap.tenant_pages || []
 
-  const menusById      = await loadInlineMenus(ts.tenant_id, tenantSiteFrozen.home_blocks)
-  const galleryByBlock = await loadGalleryItemsForBlocks(ts.tenant_id, tenantSiteFrozen.home_blocks)
-  const reviewsByBlock = await loadReviewsForBlocks(ts.tenant_id, tenantSiteFrozen.home_blocks)
+  const pageBlocks     = pages.map(p => p.blocks)
+  const menusById      = await loadInlineMenus(ts.tenant_id, tenantSiteFrozen.home_blocks, ...pageBlocks)
+  const galleryByBlock = await loadGalleryItemsForBlocks(ts.tenant_id, tenantSiteFrozen.home_blocks, ...pageBlocks)
+  const reviewsByBlock = await loadReviewsForBlocks(ts.tenant_id, tenantSiteFrozen.home_blocks, ...pageBlocks)
 
   const sole = soleVenueOf(venuesWithFrozenConfig)
   let config = tenantSiteFrozen
@@ -741,12 +745,15 @@ export async function loadLocationBundle(tenantBundle, venueSlug) {
     }
   })
 
+  // The location's own extra pages and modals render through this bundle too.
+  const venuePageBlocks = (result.pages || []).map(p => p.blocks)
+
   // Merge tenant + venue inline-menu hydration. The location page may
   // reference menus via menu_inline blocks in either page_blocks (this
   // page's blocks) or home_blocks (header/footer if shared).
   const menusById = {
     ...(tenantBundle.menus_by_id || {}),
-    ...(await loadInlineMenus(tenantId, result.mergedConfig.page_blocks)),
+    ...(await loadInlineMenus(tenantId, result.mergedConfig.page_blocks, ...venuePageBlocks)),
   }
 
   // Same merge for gallery hydration — page-level gallery blocks can
@@ -754,13 +761,13 @@ export async function loadLocationBundle(tenantBundle, venueSlug) {
   // blocks (typically none, but handle it).
   const galleryByBlock = {
     ...(tenantBundle.gallery_items_by_block || {}),
-    ...(await loadGalleryItemsForBlocks(tenantId, result.mergedConfig.page_blocks)),
+    ...(await loadGalleryItemsForBlocks(tenantId, result.mergedConfig.page_blocks, ...venuePageBlocks)),
   }
 
   // Reviews hydration for DB-backed reviews_band blocks on location pages
   const reviewsByBlock = {
     ...(tenantBundle.reviews_by_block || {}),
-    ...(await loadReviewsForBlocks(tenantId, result.mergedConfig.page_blocks)),
+    ...(await loadReviewsForBlocks(tenantId, result.mergedConfig.page_blocks, ...venuePageBlocks)),
   }
 
   return {

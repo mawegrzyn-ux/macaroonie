@@ -237,7 +237,7 @@ export function GalleryCanvas({ data, onChange }) {
             hint={source === 'items'
               ? 'No images selected.'
               : (categoryId ? 'No images in this category.' : 'No images in your Media library.')}
-            where="Configure the gallery in the inspector or upload images on the Media page" />
+            where="Set up the gallery in the block settings or upload images on the Media page" />
         ) : (
           <div style={gridStyle}>
             {resolved.map(img => {
@@ -788,7 +788,7 @@ export function MenuInlineCanvas({ data, onChange }) {
         {!data.menu_id ? (
           <EmptyPanel Icon={BookOpen} title="Menu"
             hint="No menu picked."
-            where="Pick one in the inspector" />
+            where="Pick a menu in the block settings" />
         ) : isLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 24, color: 'var(--c-muted)' }}>
             <Loader2 className="animate-spin" size={20} />
