@@ -7,6 +7,8 @@
 // Pay model (see services/rotaCalc.js in the API):
 //   Hourly  default hourly rate, optional different hourly rate per shift
 //   Fixed   per week, per day, or per shift (optional amount per shift)
+// Paid by (migration 140): cash in hand, bank transfer, or a split (a fixed
+// amount by bank each week, the rest cash); see shared/payMethod.js.
 
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -14,12 +16,16 @@ import { UsersRound, Plus, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { PAY_TYPES, staffRateLabel } from '@/pages/CashRecon'
+import { PAY_METHODS, payMethodLabel } from '@shared/payMethod.js'
 import {
   useVenues, useVenueChoice, useRotaSetup, PageHeader, VenuePicker, Segmented,
   SortableRows, Modal, Field, inputCls, ConfirmDelete, ErrorNote, PAY_BASES, hhmm,
 } from '@/components/staff/shared'
 
-const EMPTY = { name: '', role_id: null, pay_type: 'fixed', pay_basis: 'week', default_rate: '', is_active: true, shift_rates: {} }
+const EMPTY = {
+  name: '', role_id: null, pay_type: 'fixed', pay_basis: 'week', default_rate: '',
+  pay_method: 'cash', bank_amount: '', is_active: true, shift_rates: {},
+}
 
 function rateLabel(payType, basis) {
   if (payType === 'hourly') return 'Hourly rate (£ per hour)'
@@ -31,7 +37,12 @@ function rateLabel(payType, basis) {
 function StaffEditor({ venueId, initial, roles, shifts, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
-  const [form, setForm] = useState(() => ({ ...EMPTY, ...initial, default_rate: initial?.default_rate ?? '' }))
+  const [form, setForm] = useState(() => ({
+    ...EMPTY, ...initial,
+    default_rate: initial?.default_rate ?? '',
+    pay_method:   initial?.pay_method ?? 'cash',
+    bank_amount:  initial?.bank_amount ?? '',
+  }))
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const perShift = form.pay_type === 'hourly' || form.pay_basis === 'shift'
   const activeShifts = shifts.filter(s => s.is_active || form.shift_rates[s.id] != null)
@@ -44,6 +55,8 @@ function StaffEditor({ venueId, initial, roles, shifts, onClose }) {
         pay_type:     form.pay_type,
         pay_basis:    form.pay_basis,
         default_rate: form.default_rate === '' ? null : Number(form.default_rate),
+        pay_method:   form.pay_method,
+        bank_amount:  form.pay_method === 'split' && form.bank_amount !== '' ? Number(form.bank_amount) : null,
         is_active:    form.is_active,
         shift_rates:  perShift
           ? Object.entries(form.shift_rates)
@@ -130,6 +143,17 @@ function StaffEditor({ venueId, initial, roles, shifts, onClose }) {
           )}
         </Field>
       )}
+      <Field label="Paid by" hint={form.pay_method === 'split'
+        ? 'This amount goes by bank transfer each week; the rest is cash in hand. A week that pays less goes all to the bank.'
+        : 'Shown on the rota pay and wages as bank transfer or cash in hand.'}>
+        <Segmented value={form.pay_method} options={PAY_METHODS} onChange={v => set({ pay_method: v })} />
+      </Field>
+      {form.pay_method === 'split' && (
+        <Field label="Bank transfer each week (£)">
+          <input className={inputCls} inputMode="decimal" value={form.bank_amount ?? ''}
+            onChange={e => set({ bank_amount: e.target.value.replace(/[^0-9.]/g, '') })} placeholder="0.00" />
+        </Field>
+      )}
       <label className="flex items-center gap-3 min-h-[44px] touch-manipulation">
         <input type="checkbox" className="w-5 h-5" checked={form.is_active} onChange={e => set({ is_active: e.target.checked })} />
         <span className="text-sm">Active (shown on the rota and new wage weeks)</span>
@@ -195,6 +219,9 @@ export default function Staff() {
                     {rate ? ` · ${rate}` : ''}
                     {shiftRateCount > 0 ? ` · ${shiftRateCount} shift rate${shiftRateCount > 1 ? 's' : ''}` : ''}
                   </span>
+                  {(s.pay_method ?? 'cash') !== 'cash' && (
+                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">{payMethodLabel(s.pay_method, s.bank_amount)}</span>
+                  )}
                   {!s.is_active && <span className="text-[11px] text-muted-foreground">Inactive</span>}
                 </button>
               )

@@ -23,6 +23,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
+import { splitPay } from '@shared/payMethod.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -166,6 +167,7 @@ export function wageEntryForStaff(staff, entryType = staff.pay_type ?? 'fixed') 
     hours:       '',
     rate:        hourly ? rate : '',
     total:       weekly ? rate : '',
+    bank_amount: weekly && rate ? String(splitPay(rate, staff.pay_method, staff.bank_amount).bank || '') : '',
     cash_amount: '',
     notes:       '',
   }

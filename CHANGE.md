@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-04 — Staff paid by cash, bank transfer or a split]
+
+- Staff page: **Paid by** for each person: Cash in hand, Bank transfer, or Split (a fixed amount by bank transfer each week, the rest cash in hand). Migration 140.
+- Rota pay table adds Bank and Cash columns when anyone that week is paid by bank; the Rota dashboard's Hours and pay widget has a **Show bank transfer and cash** option.
+- Wages list (Cash Recon Wages page, phone Wages page) has a **Bank** column, filled from the person's Paid by setting and editable; Full pays only the cash part, and the totals show Bank transfer, Paid (cash) and Cash left to pay. The Cash Dashboard wage widgets have a **Show bank transfer** option.
+- Fill Cash Recon wages writes each person's bank transfer part. Only unpaid cash carries to next week's rota pay.
+
+---
+
 ## [2026-10-04 — Test data: past H&S logs; menu blocks on extra pages]
 
 - Test data page: **Generate past health & safety logs** for a chosen past date range. Fills fridge/freezer and hold readings inside each unit's limits, cooking checks with random dishes from your published menus, past order sheets on their delivery days, delivery checks matched to the order sheets (supplier, items, chilled/frozen temperature), and marks past checklists and audits complete with every task ticked. Optional share of out-of-range readings with corrective actions. **Clear generated** removes only what it made. Migration 139.

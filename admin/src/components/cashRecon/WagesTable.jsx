@@ -4,17 +4,22 @@
 // (cash_wage_entries), used by the Cash Recon Wages page, both Cash
 // Dashboard wage widgets (Week staff list, Wages paid) and /mobile/wages.
 //
-// Every place shows the same columns: Name, Total, Paid, Paid on, Notes.
+// Every place shows the same columns: Name, Total, Bank, Paid, Paid on,
+// Notes (the Cash Dashboard widgets hide Bank unless their Show bank
+// transfer option is on).
 // Pay type, hours and rate are not shown; they are kept as loaded and sent
 // back unchanged, except that typing a Total makes the row a fixed amount.
 // Wages are not submitted (days are): edits are held in a local draft and
 // written by Save (the whole-list PUT), or dropped by Discard.
 //
-// Paid is the cash handed over from the till, on the Paid on day (that
-// day's variance counts it). A row paid less than its total shows what's
-// left; the Rota adds that to the person's pay next week ("Owed from last
-// week", routes/rota.js). A row with nothing paid in cash isn't carried
-// (bank transfer, or not paid yet).
+// Bank is the part of the total paid by bank transfer (migration 140),
+// filled from the person's pay method (shared/payMethod.js) when a total is
+// typed, and editable. The rest is cash in hand: Paid is the cash handed
+// over from the till, on the Paid on day (that day's variance counts it),
+// and Full pays the cash part. A row paid less cash than its cash part
+// shows what's left; the Rota adds that to the person's pay next week
+// ("Owed from last week", routes/rota.js). A row with no cash paid isn't
+// carried (paid another way, or not paid yet).
 //
 // Layout follows the space it's given (ResizeObserver): a table row per
 // person from 640px, a card per person below that.
@@ -25,6 +30,7 @@ import { format, subWeeks, parseISO } from 'date-fns'
 import { Check, Loader2, Plus, Trash2, Copy, Star, X, AlertTriangle } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { splitPay } from '@shared/payMethod.js'
 import {
   fmt, parseNum, getMonday, isoWeekDates, staffRateLabel, wageEntryForStaff, defaultWageEntries, PaidDaySelect,
 } from '@/pages/CashRecon'
@@ -52,6 +58,7 @@ function toRow(e) {
     hours:       e.hours ?? '',
     rate:        e.rate ?? '',
     total,
+    bank_amount: parseNum(e.bank_amount) > 0 ? String(e.bank_amount) : '',
     cash_amount: cash > 0 ? String(e.cash_amount) : '',
     paid_date:   cash > 0 ? (e.paid_date ?? null) : null,
     notes:       e.notes ?? '',
@@ -69,14 +76,20 @@ function toPayload(r) {
     hours:       hourly && r.hours !== '' ? parseNum(r.hours) : null,
     rate:        hourly && r.rate !== '' ? parseNum(r.rate) : null,
     total:       round2(parseNum(r.total)),
+    bank_amount: round2(parseNum(r.bank_amount)),
     cash_amount: round2(cash),
     paid_date:   cash > 0 ? (r.paid_date || null) : null,
     notes:       r.notes?.trim() ? r.notes.trim() : null,
   }
 }
 
+/** The cash part of a row: total less what goes by bank transfer. */
+export function cashDueOf(r) {
+  return round2(Math.max(0, parseNum(r.total) - parseNum(r.bank_amount)))
+}
+
 export function unpaidOf(r) {
-  return round2(Math.max(0, parseNum(r.total) - parseNum(r.cash_amount)))
+  return round2(Math.max(0, cashDueOf(r) - parseNum(r.cash_amount)))
 }
 
 function MoneyField({ value, onChange, label, placeholder = '0.00', className }) {
@@ -123,10 +136,12 @@ function useWidth() {
  * @param hideManage          no Add staff / Copy from / Set as default / remove
  * @param hideBulk            no Pay everyone in full / Paid on for all
  * @param paidOnly            just Name and Paid per person (Cash Dashboard options)
+ * @param showBank            show the Bank transfer column (off in widgets
+ *                            unless their option is on)
  */
 export function WeekWagesEditor({
   venueId, weekStart, defaultPaidDay, showWeekNotes = false, layout = 'auto',
-  hideManage = false, hideBulk = false, paidOnly = false,
+  hideManage = false, hideBulk = false, paidOnly = false, showBank = true,
 }) {
   const api = useApi()
   const qc = useQueryClient()
@@ -184,21 +199,31 @@ export function WeekWagesEditor({
   function edit(next) { setDraft(next); setNotice(null) }
   function update(idx, patch) { edit(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r))) }
 
-  // Typing a total makes the row a fixed amount (hours x rate no longer apply).
+  // Typing a total makes the row a fixed amount (hours x rate no longer apply)
+  // and refills Bank from the person's pay method.
   function setTotal(idx, v) {
-    update(idx, { total: v, entry_type: 'fixed', hours: '', rate: '' })
+    const r = rows[idx]
+    const staff = r.staff_id ? staffById[r.staff_id] : null
+    const patch = { total: v, entry_type: 'fixed', hours: '', rate: '' }
+    if (staff) {
+      const { bank } = splitPay(parseNum(v), staff.pay_method, staff.bank_amount)
+      patch.bank_amount = bank > 0 ? bank.toFixed(2) : ''
+    }
+    update(idx, patch)
   }
   function setPaid(idx, v) {
     const r = rows[idx]
     const paid = parseNum(v) > 0
     update(idx, { cash_amount: v, paid_date: paid ? (r.paid_date || payDay) : null })
   }
+  const cashDueStr = r => (cashDueOf(r) > 0 ? cashDueOf(r).toFixed(2) : '')
   function payInFull(idx) {
     const r = rows[idx]
-    update(idx, { cash_amount: r.total, paid_date: r.paid_date || payDay })
+    const due = cashDueStr(r)
+    update(idx, { cash_amount: due, paid_date: due ? (r.paid_date || payDay) : null })
   }
   function payAllInFull() {
-    edit(rows.map(r => (parseNum(r.total) > 0 ? { ...r, cash_amount: r.total, paid_date: r.paid_date || payDay } : r)))
+    edit(rows.map(r => (cashDueOf(r) > 0 ? { ...r, cash_amount: cashDueStr(r), paid_date: r.paid_date || payDay } : r)))
   }
   function setAllPaidDays(day) {
     edit(rows.map(r => (parseNum(r.cash_amount) > 0 ? { ...r, paid_date: day } : r)))
@@ -284,12 +309,26 @@ export function WeekWagesEditor({
   const onList = new Set(rows.map(r => r.staff_id).filter(Boolean))
   const addable = (config.staff ?? []).filter(s => s.is_active && !onList.has(s.id))
   const total = round2(rows.reduce((s, r) => s + parseNum(r.total), 0))
+  const bank = round2(rows.reduce((s, r) => s + parseNum(r.bank_amount), 0))
   const paid = round2(rows.reduce((s, r) => s + parseNum(r.cash_amount), 0))
   const left = round2(rows.reduce((s, r) => s + unpaidOf(r), 0))
-  const GRID = 'grid grid-cols-[minmax(7rem,1.2fr)_6.5rem_10rem_7rem_minmax(7rem,1fr)_2.75rem] gap-2 items-center'
+  const GRID = showBank
+    ? 'grid grid-cols-[minmax(7rem,1.2fr)_6.5rem_6.5rem_10rem_7rem_minmax(7rem,1fr)_2.75rem] gap-2 items-center'
+    : 'grid grid-cols-[minmax(7rem,1.2fr)_6.5rem_10rem_7rem_minmax(7rem,1fr)_2.75rem] gap-2 items-center'
+
+  function bankField(r, idx) {
+    return <MoneyField label={`${r.name} bank transfer`} value={r.bank_amount} onChange={v => update(idx, { bank_amount: v })} />
+  }
 
   function unpaidNote(r) {
-    const cash = parseNum(r.cash_amount), tot = parseNum(r.total)
+    const cash = parseNum(r.cash_amount), tot = cashDueOf(r)
+    if (parseNum(r.bank_amount) > parseNum(r.total) + 0.004) {
+      return (
+        <p className="flex items-center gap-1.5 text-xs text-amber-700">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Bank transfer is more than the total.
+        </p>
+      )
+    }
     if (cash > 0 && cash < tot - 0.004) {
       return (
         <p className="flex items-center gap-1.5 text-xs text-amber-700">
@@ -301,7 +340,7 @@ export function WeekWagesEditor({
     if (cash > tot + 0.004) {
       return (
         <p className="flex items-center gap-1.5 text-xs text-amber-700">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Paid {fmt(round2(cash - tot))} more than the total.
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> Paid {fmt(round2(cash - tot))} more than the {parseNum(r.bank_amount) > 0 ? 'cash part' : 'total'}.
         </p>
       )
     }
@@ -309,11 +348,12 @@ export function WeekWagesEditor({
   }
 
   function paidCell(r, idx) {
-    const full = parseNum(r.total) > 0 && Math.abs(parseNum(r.cash_amount) - parseNum(r.total)) < 0.005
+    const due = cashDueOf(r)
+    const full = due > 0 && Math.abs(parseNum(r.cash_amount) - due) < 0.005
     return (
       <div className="flex items-center gap-1 min-w-0">
         <MoneyField label={`${r.name} paid`} value={r.cash_amount} onChange={v => setPaid(idx, v)} className="flex-1 min-w-0" />
-        <button type="button" onClick={() => payInFull(idx)} disabled={parseNum(r.total) <= 0 || full}
+        <button type="button" onClick={() => payInFull(idx)} disabled={due <= 0 || full}
           aria-label={`Pay ${r.name} in full`}
           className={cn(
             'h-11 px-2 shrink-0 rounded-lg border text-xs font-medium touch-manipulation transition-colors disabled:cursor-default',
@@ -342,6 +382,9 @@ export function WeekWagesEditor({
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium" title={r.name}>{r.name}</span>
         {!r.staff_id && <span className="block text-[10px] text-muted-foreground">one-off</span>}
+        {!showBank && parseNum(r.bank_amount) > 0 && (
+          <span className="block text-[10px] text-muted-foreground">{fmt(parseNum(r.bank_amount))} by bank</span>
+        )}
         {staff && staff.is_active === false && <span className="block text-[10px] text-muted-foreground">inactive</span>}
       </span>
     )
@@ -376,7 +419,9 @@ export function WeekWagesEditor({
       {rows.length > 0 && paidOnly && (
         <div className="rounded-xl border">
           <div className="flex items-center gap-2 px-2 py-1.5 border-b text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            <span className="flex-1">Name</span><span className="w-44 shrink-0">Paid</span>
+            <span className="flex-1">Name</span>
+            {showBank && <span className="w-28 shrink-0">Bank</span>}
+            <span className="w-44 shrink-0">Paid</span>
             {!hideManage && <span className="w-11 shrink-0" />}
           </div>
           <div className="divide-y">
@@ -384,6 +429,7 @@ export function WeekWagesEditor({
               <div key={r.id ?? `${r.staff_id ?? 'adhoc'}-${idx}`} className="px-2 py-1.5 space-y-1">
                 <div className="flex items-center gap-2">
                   <div className="flex-1 min-w-0">{nameCell(r)}</div>
+                  {showBank && <div className="w-28 shrink-0">{bankField(r, idx)}</div>}
                   <div className="w-44 shrink-0">{paidCell(r, idx)}</div>
                   {removeButton(r, idx)}
                 </div>
@@ -397,7 +443,7 @@ export function WeekWagesEditor({
       {rows.length > 0 && !paidOnly && wide && (
         <div className="rounded-xl border">
           <div className={cn(GRID, 'px-2 py-1.5 border-b text-[11px] font-medium uppercase tracking-wide text-muted-foreground')}>
-            <span>Name</span><span>Total</span><span>Paid</span><span>Paid on</span><span>Notes</span><span />
+            <span>Name</span><span>Total</span>{showBank && <span>Bank</span>}<span>Paid (cash)</span><span>Paid on</span><span>Notes</span><span />
           </div>
           <div className="divide-y">
             {rows.map((r, idx) => (
@@ -405,6 +451,7 @@ export function WeekWagesEditor({
                 <div className={GRID}>
                   {nameCell(r)}
                   <MoneyField label={`${r.name} total`} value={r.total} onChange={v => setTotal(idx, v)} />
+                  {showBank && bankField(r, idx)}
                   {paidCell(r, idx)}
                   <PaidDaySelect weekStart={weekStart} value={r.paid_date} className="h-11 w-full min-w-0"
                     disabled={parseNum(r.cash_amount) <= 0}
@@ -434,8 +481,14 @@ export function WeekWagesEditor({
                   <span className="block text-[11px] text-muted-foreground mb-0.5">Total</span>
                   <MoneyField label={`${r.name} total`} value={r.total} onChange={v => setTotal(idx, v)} />
                 </div>
+                {showBank && (
+                  <div>
+                    <span className="block text-[11px] text-muted-foreground mb-0.5">Bank transfer</span>
+                    {bankField(r, idx)}
+                  </div>
+                )}
                 <div>
-                  <span className="block text-[11px] text-muted-foreground mb-0.5">Paid</span>
+                  <span className="block text-[11px] text-muted-foreground mb-0.5">Paid (cash)</span>
                   {paidCell(r, idx)}
                 </div>
                 <div>
@@ -460,8 +513,9 @@ export function WeekWagesEditor({
       {rows.length > 0 && (
         <div className="rounded-xl bg-muted/30 px-3 py-2 space-y-0.5 text-sm">
           {!paidOnly && <div className="flex justify-between"><span>Total</span><span className="tabular-nums">{fmt(total)}</span></div>}
+          {(showBank || bank > 0) && <div className="flex justify-between"><span>Bank transfer</span><span className="tabular-nums">{fmt(bank)}</span></div>}
           <div className={cn('flex justify-between', paidOnly && 'font-semibold')}><span>Paid (cash)</span><span className="tabular-nums">{fmt(paid)}</span></div>
-          {!paidOnly && <div className="flex justify-between font-semibold"><span>Left to pay</span><span className="tabular-nums">{fmt(left)}</span></div>}
+          {!paidOnly && <div className="flex justify-between font-semibold"><span>Cash left to pay</span><span className="tabular-nums">{fmt(left)}</span></div>}
         </div>
       )}
 

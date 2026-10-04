@@ -106,6 +106,8 @@ const StaffBody = z.object({
   pay_type:     z.enum(['hourly', 'fixed']).default('fixed'),
   pay_basis:    z.enum(['week', 'day', 'shift']).default('week'),
   default_rate: Money.nullable().optional(),
+  pay_method:   z.enum(['cash', 'bank', 'split']).default('cash'),
+  bank_amount:  Money.nullable().optional(),
   is_active:    z.boolean().optional(),
   shift_rates:  z.array(z.object({ shift_id: UUID, rate: Money })).optional(),
 })
@@ -216,7 +218,8 @@ async function assertPot(tx, tenantId, potId) {
 async function loadStaff(tx, tenantId, venueId, { activeOnly = false, alsoIds = [] } = {}) {
   const rows = await tx`
     SELECT s.id, s.name, s.role_id, s.pay_type, s.pay_basis,
-           s.default_rate::float8 AS default_rate, s.is_active, s.sort_order,
+           s.default_rate::float8 AS default_rate, s.pay_method, s.bank_amount::float8 AS bank_amount,
+           s.is_active, s.sort_order,
            r.name AS role_name, r.points_multiplier::float8 AS role_multiplier
       FROM cash_staff s
       LEFT JOIN staff_roles r ON r.id = s.role_id
@@ -302,9 +305,9 @@ async function computeWeek(tx, tenantId, venueId, monday) {
   `
   const moves = await loadMoves(tx, tenantId, venueId, monday)
   // Pay adjustments this week (migration 137), and what last week's Cash
-  // Recon wage rows left unpaid (total - cash paid), which carries in.
-  // Only part-paid rows carry: a row with no cash paid at all is either paid
-  // another way (bank transfer) or not paid yet, and isn't counted as owed.
+  // Recon wage rows left unpaid (total - bank transfer - cash paid), which
+  // carries in. Only part-paid rows carry: a row with no cash paid at all is
+  // either paid another way or not paid yet, and isn't counted as owed.
   const payAdjustments = await tx`
     SELECT id, staff_id, kind, amount::float8 AS amount, note, source_id
       FROM rota_pay_adjustments
@@ -312,14 +315,14 @@ async function computeWeek(tx, tenantId, venueId, monday) {
      ORDER BY created_at, id
   `
   const owedRows = await tx`
-    SELECT e.staff_id, SUM(e.total - e.cash_amount)::float8 AS owed
+    SELECT e.staff_id, SUM(e.total - e.bank_amount - e.cash_amount)::float8 AS owed
       FROM cash_wage_entries e
       JOIN cash_wage_reports r ON r.id = e.wage_report_id AND r.tenant_id = ${tenantId}
      WHERE e.tenant_id = ${tenantId} AND r.venue_id = ${venueId}
        AND r.week_start = ${addDays(monday, -7)}::date AND e.staff_id IS NOT NULL
-       AND e.cash_amount > 0 AND e.cash_amount < e.total
+       AND e.cash_amount > 0 AND e.cash_amount + e.bank_amount < e.total
      GROUP BY e.staff_id
-    HAVING SUM(e.total - e.cash_amount) > 0.004
+    HAVING SUM(e.total - e.bank_amount - e.cash_amount) > 0.004
   `
   const carriedOwed = Object.fromEntries(owedRows.map(r => [r.staff_id, r.owed]))
   const withEntries = [...new Set([
@@ -348,7 +351,8 @@ async function computeWeek(tx, tenantId, venueId, monday) {
 // `rota_tips` (pots, points, shares, moves). Strip whichever the caller
 // can't view, so a role can be given one without the other.
 const PAY_ROW_FIELDS = ['pay_type', 'pay_basis', 'computed_pay', 'pay_override', 'pay', 'base_pay', 'adjustments',
-  'extra_pay', 'deductions', 'advance', 'advance_repay', 'carried_owed', 'pay_shortfall']
+  'extra_pay', 'deductions', 'advance', 'advance_repay', 'carried_owed', 'pay_shortfall',
+  'pay_method', 'bank_pay', 'cash_pay']
 const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'tip_adjustment', 'tip_unallocated', 'points',
   'pot_shares', 'pot_shares_exact', 'tip_share', 'tip_share_from_pots']
 const TIP_TOTAL_FIELDS = ['points', 'tips_gross', 'surcharges', 'tips_in', 'tips_shared',
@@ -365,7 +369,7 @@ export function redactWeek(week, { pay, tips }) {
     return row
   })
   out.totals = { ...week.totals }
-  if (!seePay) delete out.totals.pay
+  if (!seePay) { delete out.totals.pay; delete out.totals.pay_bank; delete out.totals.pay_cash }
   if (!seeTips) {
     for (const f of TIP_TOTAL_FIELDS) delete out.totals[f]
     out.pots = []
@@ -691,9 +695,11 @@ export default async function rotaRoutes(app) {
          WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
       `
       const [row] = await tx`
-        INSERT INTO cash_staff (tenant_id, venue_id, name, role_id, pay_type, pay_basis, default_rate, is_active, sort_order)
+        INSERT INTO cash_staff (tenant_id, venue_id, name, role_id, pay_type, pay_basis, default_rate,
+                                pay_method, bank_amount, is_active, sort_order)
         VALUES (${req.tenantId}, ${req.params.venueId}, ${b.name}, ${b.role_id ?? null}, ${b.pay_type}, ${b.pay_basis},
-                ${b.default_rate ?? null}, ${b.is_active ?? true}, ${n})
+                ${b.default_rate ?? null}, ${b.pay_method}, ${b.pay_method === 'split' ? (b.bank_amount ?? null) : null},
+                ${b.is_active ?? true}, ${n})
         RETURNING id
       `
       if (b.shift_rates) await replaceShiftRates(tx, req.tenantId, row.id, b.shift_rates)
@@ -1196,7 +1202,8 @@ export default async function rotaRoutes(app) {
       `
 
       const existing = await tx`
-        SELECT id, staff_id, total::float8 AS total, cash_amount::float8 AS cash_amount, notes
+        SELECT id, staff_id, total::float8 AS total, bank_amount::float8 AS bank_amount,
+               cash_amount::float8 AS cash_amount, notes
           FROM cash_wage_entries WHERE wage_report_id = ${report.id} AND tenant_id = ${req.tenantId}
       `
       const byStaff = new Map(existing.filter(e => e.staff_id).map(e => [e.staff_id, e]))
@@ -1209,6 +1216,7 @@ export default async function rotaRoutes(app) {
           hours:      hourly ? r.paid_hours : null,
           rate:       hourly ? Math.round((r.base_pay / r.paid_hours) * 100) / 100 : null,
           total:      r.pay,
+          bank:       r.bank_pay,
         }
         // Adjustments behind the total, for the wage row's notes.
         const why = [
@@ -1220,21 +1228,23 @@ export default async function rotaRoutes(app) {
         ].filter(Boolean).join(', ') || null
         const prev = byStaff.get(r.staff_id)
         if (prev) {
-          const fullyPaid = prev.cash_amount > 0 && prev.cash_amount === prev.total
+          // Cash paid in full stays paid in full at the new cash figure.
+          const fullyPaid = prev.cash_amount > 0 && Math.abs(prev.cash_amount - (prev.total - prev.bank_amount)) < 0.005
           await tx`
             UPDATE cash_wage_entries
                SET entry_type = ${values.entry_type}, hours = ${values.hours}, rate = ${values.rate},
-                   total = ${values.total}, name = ${r.name},
-                   cash_amount = ${fullyPaid ? values.total : prev.cash_amount},
+                   total = ${values.total}, bank_amount = ${values.bank}, name = ${r.name},
+                   cash_amount = ${fullyPaid ? r.cash_pay : prev.cash_amount},
                    notes = ${prev.notes || why}
              WHERE id = ${prev.id}
           `
           updated++
         } else {
           await tx`
-            INSERT INTO cash_wage_entries (tenant_id, wage_report_id, staff_id, name, entry_type, hours, rate, total, cash_amount, notes)
+            INSERT INTO cash_wage_entries (tenant_id, wage_report_id, staff_id, name, entry_type, hours, rate,
+                                           total, bank_amount, cash_amount, notes)
             VALUES (${req.tenantId}, ${report.id}, ${r.staff_id}, ${r.name}, ${values.entry_type},
-                    ${values.hours}, ${values.rate}, ${values.total}, 0, ${why})
+                    ${values.hours}, ${values.rate}, ${values.total}, ${values.bank}, 0, ${why})
           `
           added++
         }

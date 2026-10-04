@@ -39,6 +39,7 @@ const WAGES_OPTIONS = [
   { key: 'hide_manage', label: 'Hide list changes', hint: 'No Add staff, Copy from, Set as default or remove buttons' },
   { key: 'hide_bulk',   label: 'Hide pay-all options', hint: 'No Pay everyone in full or Paid on for all' },
   { key: 'paid_only',   label: 'Name and Paid only', hint: 'Show just each name and what they were paid' },
+  { key: 'show_bank',   label: 'Show bank transfer', hint: 'Add the Bank column next to cash in hand' },
 ]
 
 export const CASH_WIDGET_TYPES = [
@@ -476,7 +477,8 @@ function WeekSummaryGridWidget({ venueId, ctx }) {
 function WeekWagesWidget({ venueId, ctx, settings }) {
   return (
     <WeekWagesEditor venueId={venueId} weekStart={ctx.weekStart} defaultPaidDay={ctx.selectedDay}
-      hideManage={!!settings?.hide_manage} hideBulk={!!settings?.hide_bulk} paidOnly={!!settings?.paid_only} />
+      hideManage={!!settings?.hide_manage} hideBulk={!!settings?.hide_bulk} paidOnly={!!settings?.paid_only}
+      showBank={!!settings?.show_bank} />
   )
 }
 
