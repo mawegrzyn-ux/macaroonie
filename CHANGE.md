@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-04 — Test data: past H&S logs; menu blocks on extra pages]
+
+- Test data page: **Generate past health & safety logs** for a chosen past date range. Fills fridge/freezer and hold readings inside each unit's limits, cooking checks with random dishes from your published menus, past order sheets on their delivery days, delivery checks matched to the order sheets (supplier, items, chilled/frozen temperature), and marks past checklists and audits complete with every task ticked. Optional share of out-of-range readings with corrective actions. **Clear generated** removes only what it made. Migration 139.
+- Website: a Menu, Gallery or Reviews block on an extra page or in a modal now shows its content. Before, a menu block there showed "Menu not configured — pick one in the inspector" on the live site even with a menu picked. An unconfigured menu block now shows nothing on the site.
+
+---
+
 ## [2026-10-02 — Platform page: any size of business, loyalty, 25 years]
 
 - macaroonie.com now speaks to single sites, multi-site groups and franchises, not only franchisees (headline, intro, "Built for any size of operation" section, menu link "Who it's for").

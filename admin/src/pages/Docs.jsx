@@ -33,6 +33,7 @@ const SECTIONS = [
   { id: 'media-library', label: 'Media Library' },
   { id: 'services',     label: 'Services & Jobs' },
   { id: 'data-flows',   label: 'Data Flows' },
+  { id: 'test-data',    label: 'Test Data Tools' },
   { id: 'deployment',   label: 'Deployment' },
 ]
 
@@ -3386,6 +3387,45 @@ allTables sorted by sort_order → target at index i
           </section>
 
           {/* ── DEPLOYMENT ────────────────────────────────── */}
+          <section id="test-data" data-doc="">
+            <H2>Test data tools</H2>
+            <P>
+              Pre-prod QA tooling on the Test data page, routes in <Mono>routes/testData.js</Mono>
+              (mounted at <Mono>/api/venues</Mono>, all gated by <Mono>test_data</Mono> manage).
+              Bookings: <Mono>POST /:venueId/test-data/seed</Mono> and <Mono>/clear</Mono>.
+              Health &amp; safety logs (migration 139): <Mono>services/hsTestDataSvc.js</Mono>.
+            </P>
+            <DataTable
+              head={['Route', 'Body', 'Notes']}
+              rows={[
+                ['POST /:venueId/test-data/hs/generate', 'date_from, date_to, kinds[], issue_pct (0-30), skip_closed, checklist_template_ids (null = all), dry_run', 'date_to may not be after the venue local today; at most 366 days. Returns counts per kind, days_filled, out_of_range, checklists_completed_existing and notes (e.g. no hold stations set up).'],
+                ['POST /:venueId/test-data/hs/clear', 'date_from, date_to, kinds[], dry_run, confirm', 'Deletes rows with is_generated = true only. confirm: true required unless dry_run.'],
+              ]}
+            />
+            <H3>What each kind writes</H3>
+            <DataTable
+              head={['Kind', 'Table', 'Rule']}
+              rows={[
+                ['temps', 'fs_temp_logs', 'Per active equipment x active fs_capture_times (one 09:00 reading a day when there are none). Cold units: up to 1.5°C below max; hot: 1.5-13.5°C above min; defaults by type when a limit is missing. is_within_range from the row limits, as POST /temp-logs does.'],
+                ['holds', 'fs_hold_checks', 'Per active station x fs_hold_capture_times, same value rule.'],
+                ['cooking', 'fs_cooking_checks', 'Per session: required_items_count minus checks already logged (a fresh session sometimes gets one extra). Dishes from the same published-menu query as /cooking/menu-items. Core 76-92°C.'],
+                ['orders', 'order_sheets + order_sheet_order_items', 'Templates assigned to the venue with delivery_days; status placed, placed_at the day before, 60-85% of active items, qty = suggested qty x 0.7-1.3 (else 1-6).'],
+                ['deliveries', 'fs_delivery_checks', 'One per placed order_sheet in range with no check yet (order_sheet_id, unique). vendor_name = template name; items jsonb = order lines with category and temp_c; product_temp_c by category: chilled (meat, poultry, fish, seafood, dairy, egg) 1-5°C, frozen -22 to -18°C, ambient none. Skipped when a check for that supplier and day already exists.'],
+                ['checklists', 'checklist_instances + checklist_instance_items', 'Every period the range touches (daily skips closed days), status completed, all active items ticked, completed_at on the last day of the period in range. An in_progress instance is completed and ticked but keeps is_generated = false.'],
+              ]}
+            />
+            <P>
+              <Mono>issue_pct</Mono> moves that share of readings 0.5-3°C past the limit that
+              matters (or a core temp of 68-74.5°C, or a warm delivery, which is then not
+              accepted) and writes a corrective action. Existing readings are never overwritten:
+              slots with a row are skipped. <Mono>recorded_by</Mono> is a random active
+              <Mono>cash_staff</Mono> name for the venue, else the caller email. Times are
+              venue local (<Mono>zonedToUtc()</Mono>). Rows are bulk inserted in chunks of 500
+              inside the request transaction; dry_run builds the same rows and inserts nothing,
+              so its counts are exact except for the random extra cooking check.
+            </P>
+          </section>
+
           <section id="deployment" data-doc="">
             <H2>Deployment</H2>
             <H3>Hosts</H3>

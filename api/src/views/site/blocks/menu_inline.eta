@@ -51,6 +51,8 @@ function _keepItem(item) {
   return _itemFilter.indexOf(item.id) !== -1
 }
 %>
+<%/* No menu picked (or it is gone): the site shows nothing, not the editor hint. */%>
+<% if (menu) { %>
 <style>
   <% if (_direction === 'rows') { %>
     /* Grid: sections placed left-to-right and wrap to the next row. Each
@@ -88,11 +90,7 @@ function _keepItem(item) {
         <%= d.heading %>
       </h2>
     <% } %>
-    <% if (!menu) { %>
-      <p style="text-align:center; color:var(--c-muted); font-style:italic;">
-        Menu not configured — pick one in the inspector.
-      </p>
-    <% } else { %>
+    <% if (menu) { %>
       <% if (_showSubheader && _subheaderText) { %>
         <p style="text-align:center; font-family:'Caveat',var(--f-heading),cursive; font-size:1.3rem; color:var(--c-primary); margin:-24px 0 24px;">
           <%= _subheaderText %>
@@ -224,3 +222,4 @@ function _keepItem(item) {
     <% } %>
   </div>
 </section>
+<% } %>
