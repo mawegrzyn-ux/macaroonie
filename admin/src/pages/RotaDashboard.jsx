@@ -33,7 +33,10 @@ function TipsHeader({ venueId, ctx }) {
 export const ROTA_WIDGET_TYPES = [
   { key: 'rota_grid',     label: 'Rota grid',       icon: CalendarRange, defaultTitle: 'Rota' },
   { key: 'rota_today',    label: "Who's on",        icon: Users,         defaultTitle: "Who's on" },
-  { key: 'rota_week_pay', label: 'Hours and pay',   icon: Wallet,        defaultTitle: 'Hours and pay', HeaderValue: PayHeader },
+  { key: 'rota_week_pay', label: 'Hours and pay',   icon: Wallet,        defaultTitle: 'Hours and pay', HeaderValue: PayHeader,
+    options: [
+      { key: 'show_bank', label: 'Show bank transfer and cash', hint: 'Split each total into what goes by bank transfer and what is paid in cash' },
+    ] },
   { key: 'rota_tips',     label: 'Tips',            icon: Coins,         defaultTitle: 'Tips', HeaderValue: TipsHeader,
     options: [
       { key: 'hide_pots',   label: 'Hide pots',         hint: 'Leave out the tip pot cards and the tips summary line' },
@@ -77,7 +80,7 @@ function RotaWidget({ widget, venueId, ctx }) {
     case 'rota_today':
       return <><DayChips ctx={ctx} /><RotaDayList venueId={venueId} weekStart={ctx.weekStart} day={ctx.selectedDay} /></>
     case 'rota_week_pay':
-      return <PayGate><RotaPayTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} /></PayGate>
+      return <PayGate><RotaPayTable venueId={venueId} weekStart={ctx.weekStart} canEdit={canEditPay} showSplit={!!widget.settings?.show_bank} /></PayGate>
     case 'rota_tips':
       return (
         <TipsGate>

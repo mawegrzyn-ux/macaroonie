@@ -36,6 +36,8 @@
 //   Pay adjustments (rota_pay_adjustments, migration 137) then apply:
 //     pay = base_pay + extra - deductions + advance - advance_repay
 //           + carried_owed, never below 0 (pay_shortfall = what didn't fit).
+//     pay is then split by the person's pay method (cash_staff.pay_method,
+//     migration 140) into bank_pay and cash_pay by shared/payMethod.js.
 //     advance is cash given early this week; its advance_repay row sits in
 //     the next week. carried_owed is what last week's Cash Recon wage row
 //     left unpaid (total - cash paid, part-paid rows only), passed in by
@@ -67,6 +69,8 @@
 //   reports distributed and difference (distributed - total): rounding can
 //   push a points pot slightly over or under; a manual pot is under while
 //   not everything has been handed out.
+
+import { splitPay } from '../../../shared/payMethod.js'
 
 export function toMinutes(t) {
   if (t == null) return null
@@ -230,6 +234,8 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     const advance = sumKind('advance'), advanceRepay = sumKind('advance_repay')
     const owed = round2(num(carriedOwed[st.id]))
     const rawPay = round2(basePay + extra - deductions + advance - advanceRepay + owed)
+    const payMethod = st.pay_method ?? 'cash'
+    const split = splitPay(Math.max(0, rawPay), payMethod, st.bank_amount)
 
     return {
       staff_id:        st.id,
@@ -256,6 +262,9 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       carried_owed:    owed,
       pay:             Math.max(0, rawPay),
       pay_shortfall:   rawPay < 0 ? round2(-rawPay) : 0,
+      pay_method:      payMethod,
+      bank_pay:        split.bank,
+      cash_pay:        split.cash,
       base_points:     points,
       points_adjustment: adjustment,
       tip_adjustment:  round2(moved.money.get(st.id) ?? 0),
@@ -331,6 +340,8 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       hours:  round2(rows.reduce((s, r) => s + r.hours, 0)),
       paid_hours: round2(rows.reduce((s, r) => s + r.paid_hours, 0)),
       pay:    round2(rows.reduce((s, r) => s + r.pay, 0)),
+      pay_bank: round2(rows.reduce((s, r) => s + r.bank_pay, 0)),
+      pay_cash: round2(rows.reduce((s, r) => s + r.cash_pay, 0)),
       points: totalPoints,
       tips_gross:  round2(potSummaries.reduce((s, p) => s + p.gross, 0)),
       surcharges:  round2(potSummaries.reduce((s, p) => s + p.surcharge, 0)),

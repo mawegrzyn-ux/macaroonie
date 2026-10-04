@@ -1180,14 +1180,17 @@ export default function Help() {
               Open a week's <strong>Wages</strong> card to log staff pay. The Wages page, the Cash
               Dashboard's Wages paid and Week staff list widgets, and the phone Wages page all show the
               same list: <strong>Name</strong>, <strong>Total</strong> (what they're owed for the week),{' '}
-              <strong>Paid</strong> (the cash handed over from the till), <strong>Paid on</strong> and{' '}
-              <strong>Notes</strong>. Tap <strong>Full</strong> to pay someone their whole total, or{' '}
+              <strong>Bank</strong> (the part paid by bank transfer), <strong>Paid</strong> (the cash handed
+              over from the till), <strong>Paid on</strong> and <strong>Notes</strong>. Bank fills in from the
+              person's Paid by setting on the Staff page when a total is entered, and can be changed. Tap{' '}
+              <strong>Full</strong> to pay someone the cash part (total less bank), or{' '}
               <strong>Pay everyone in full</strong>. Nothing is written until you tap{' '}
               <strong>Save</strong>; <strong>Discard changes</strong> throws your edits away.
             </P>
             <P>
               Wages are not submitted any more (the days are), so the list is never locked. The
-              totals under the list show Total, Paid (cash) and Left to pay.
+              totals under the list show Total, Bank transfer, Paid (cash) and Cash left to pay. Only
+              cash counts in the day's balance; bank transfers never come out of the till.
             </P>
             <P>
               <strong>Paid on</strong> is the day the cash came out of the till. It fills in today (or
@@ -1195,7 +1198,7 @@ export default function Help() {
               use <strong>Paid on for all</strong>.
             </P>
             <P>
-              <strong>Not paid in full.</strong> If someone is paid part of their total in cash, the row
+              <strong>Not paid in full.</strong> If someone is paid part of their cash in hand, the row
               shows what's left, and the Rota adds it to their pay next week as{' '}
               <strong>Owed from last week</strong>. A row with nothing paid in cash isn't carried (it
               may have gone by bank transfer, or not be paid yet).
@@ -1457,7 +1460,7 @@ export default function Help() {
                 ['Day balance', 'The selected day: income, service charges, takings, cash expenses, card expenses and the variance.'],
                 ['Week balance', 'The week: income, takings, cash expenses, wages paid in cash and the variance, plus how many days are submitted.'],
                 ['Reconciliation grid', 'The full week grid from Cash Recon. You can type into it the same way; tap a day heading to select that day.'],
-                ['Wages paid', 'The title bar shows the total paid in cash so far. The week\'s wages list (Name, Total, Paid, Paid on, Notes), the same as the Wages page. A payment is recorded on the day selected on the dashboard. Save to keep changes. In Edit layout you can switch on: Hide list changes (no Add staff, Copy from, Set as default or remove), Hide pay-all options (no Pay everyone in full or Paid on for all), and Name and Paid only.'],
+                ['Wages paid', 'The title bar shows the total paid in cash so far. The week\'s wages list (Name, Total, Paid, Paid on, Notes), the same as the Wages page. A payment is recorded on the day selected on the dashboard. Save to keep changes. In Edit layout you can switch on: Hide list changes (no Add staff, Copy from, Set as default or remove), Hide pay-all options (no Pay everyone in full or Paid on for all), Name and Paid only, and Show bank transfer (adds the Bank column; without it a person paid partly by bank shows the bank amount under their name).'],
                 ['Petty cash', 'The selected day\'s expenses, with the same add/edit form (receipt photo, VAT, paid by card) as the mobile Expenses page.'],
                 ['Week expenses', 'The title bar shows the week\'s cash expenses total. Every expense logged this week, grouped by day, with category, VAT and a Card badge for card-paid ones. Totals at the bottom: cash expenses, paid by card, and VAT included. Tap a day heading to select that day, then use the Petty cash widget to edit it.'],
                 ['Week staff list', 'The same wages list as the Wages paid widget: add someone from your staff list (or a one-off name), remove someone, copy the list from one of the last 8 weeks, and Set as default for new weeks. Changes are only written when you tap Save (Discard changes throws them away). Has the same three display options as Wages paid.'],
@@ -1499,6 +1502,13 @@ export default function Help() {
                 ['Fixed per shift', 'An amount per shift worked, with an optional different amount per shift (for example Lunch £40, Dinner £60).'],
               ]}
             />
+            <P>
+              <strong>Paid by</strong> sets how each person gets their pay: <strong>Cash in hand</strong>,{' '}
+              <strong>Bank transfer</strong>, or <strong>Split</strong>. With Split you enter the amount that
+              goes by bank transfer each week (for example £200) and the rest is cash in hand; a week that
+              pays less than that amount goes all to the bank. The rota pay and the wages list use this to
+              show the bank and cash parts.
+            </P>
             <P>
               Someone who already has wages or rota history is made inactive rather than deleted, so
               past weeks keep their figures.
@@ -1610,7 +1620,13 @@ export default function Help() {
               <strong>Total pay</strong> is rota pay plus adjustments. <strong>Fill Cash Recon wages</strong>{' '}
               writes everyone's total pay into that week's Cash Recon wages, with a note listing any
               adjustments: existing rows are updated (someone already paid in full stays paid at the new
-              amount), missing people are added, and other rows are left alone.
+              amount), missing people are added, and other rows are left alone. Each row also gets its
+              bank transfer part from the person's Paid by setting.
+            </P>
+            <P>
+              When anyone that week is paid partly or fully by bank transfer, the table adds{' '}
+              <strong>Bank</strong> and <strong>Cash</strong> columns: how much of each total goes by bank
+              transfer and how much is cash in hand.
             </P>
             <H3>Tip pots</H3>
             <P>
@@ -1697,7 +1713,7 @@ export default function Help() {
               rows={[
                 ['Rota grid', 'The week\'s rota, editable the same way as the Rota page. Tap a day heading to select that day.'],
                 ['Who\'s on', 'Everyone working the selected day, grouped by shift, plus anyone entered by hours. Day buttons along the top pick the day.'],
-                ['Hours and pay', 'The pay table from the Rota page; the title bar shows the week\'s total pay.'],
+                ['Hours and pay', 'The pay table from the Rota page; the title bar shows the week\'s total pay. In Edit layout, Show bank transfer and cash splits each total into Bank and Cash columns by each person\'s Paid by setting.'],
                 ['Tips', 'The tip pots and each person\'s share from the Rota page; the title bar shows the total shared with staff this week. In Edit layout, Hide pots / Hide staff shares / Hide moves pick which of its three parts show, so you can add the widget more than once and lay the parts out separately.'],
               ]}
             />

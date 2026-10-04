@@ -910,7 +910,12 @@ function MoneyEdit({ value, onSave, onClear, saving, placeholder }) {
 }
 
 /** Hours and pay per person, pay overrides, and "Fill wages" into Cash Recon. */
-export function RotaPayTable({ venueId, weekStart, canEdit }) {
+/**
+ * showSplit: true shows Bank and Cash columns (each person's total split by
+ * their pay method, from the API's bank_pay / cash_pay); 'auto' shows them
+ * when anyone this week has a bank part.
+ */
+export function RotaPayTable({ venueId, weekStart, canEdit, showSplit = 'auto' }) {
   const api = useApi()
   const qc = useQueryClient()
   const { data, isLoading, error } = useRotaPay(venueId, weekStart)
@@ -940,6 +945,7 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
   if (isLoading) return <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
   if (error) return <ErrorNote error={error} />
   const rows = rostered(data.rows)
+  const split = showSplit === 'auto' ? rows.some(r => r.bank_pay > 0) : !!showSplit
 
   return (
     <div className="space-y-3">
@@ -956,6 +962,8 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
                 <th className="text-right px-2 py-2 font-medium">Rota pay</th>
                 <th className="text-right px-2 py-2 font-medium">Adjustments</th>
                 <th className="text-right px-3 py-2 font-medium">Total pay</th>
+                {split && <th className="text-right px-2 py-2 font-medium">Bank</th>}
+                {split && <th className="text-right px-3 py-2 font-medium">Cash</th>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -1026,6 +1034,16 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
                       </span>
                     )}
                   </td>
+                  {split && (
+                    <td className="px-2 py-1.5 text-right whitespace-nowrap tabular-nums">
+                      {r.bank_pay > 0 ? fmt(r.bank_pay) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                  )}
+                  {split && (
+                    <td className="px-3 py-1.5 text-right whitespace-nowrap tabular-nums">
+                      {r.cash_pay > 0 ? fmt(r.cash_pay) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -1036,6 +1054,8 @@ export function RotaPayTable({ venueId, weekStart, canEdit }) {
                 <td className="px-2 py-2 text-right tabular-nums">{fmt(rows.reduce((s, r) => s + (r.base_pay ?? 0), 0))}</td>
                 <td className="px-2 py-2 text-right tabular-nums">{signed(Math.round(rows.reduce((s, r) => s + adjustmentsNet(r), 0) * 100) / 100)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.pay)}</td>
+                {split && <td className="px-2 py-2 text-right tabular-nums">{fmt(data.totals.pay_bank ?? 0)}</td>}
+                {split && <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.pay_cash ?? 0)}</td>}
               </tr>
             </tfoot>
           </table>
