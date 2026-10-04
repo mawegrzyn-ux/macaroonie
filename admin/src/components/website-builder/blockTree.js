@@ -2,12 +2,30 @@
 //
 // Pure helpers for working with the (potentially nested) home_blocks tree.
 // A "tree" is the top-level block list. Some block types are containers
-// (currently just `columns`) whose `data.columns` is an array of
-// { id, blocks: [...] } — each column is its own ordered list of children.
+// whose slot list (SLOT_FIELD: `data.columns` for Columns, `data.tabs` for
+// Tabs) is an array of { id, blocks: [...], ...extra } — each slot (a
+// column or a tab) is its own ordered list of children. A parent inside a
+// container is { kind: 'column', blockId, columnId } whatever the
+// container type ("column" = slot).
 //
 // The page builder uses these to find / update / remove / move blocks
 // anywhere in the tree without caring whether a block is at the top
 // level or nested inside a column.
+
+// ── Containers ───────────────────────────────────────────────
+
+/** Container block type → the data field holding its slots. */
+export const SLOT_FIELD = { columns: 'columns', tabs: 'tabs' }
+
+/** A container block's slots ([{ id, blocks }]), or null for any other block. */
+export function slotsOf(b) {
+  const f = SLOT_FIELD[b?.type]
+  return f && Array.isArray(b.data?.[f]) ? b.data[f] : null
+}
+
+function withSlots(b, slots) {
+  return { ...b, data: { ...b.data, [SLOT_FIELD[b.type]]: slots } }
+}
 
 // ── Walking ──────────────────────────────────────────────────
 
@@ -17,9 +35,7 @@ export function flattenBlocks(tree) {
   const walk = (list) => {
     for (const b of list) {
       out.push(b)
-      if (b.type === 'columns' && Array.isArray(b.data?.columns)) {
-        for (const col of b.data.columns) walk(col.blocks || [])
-      }
+      for (const col of slotsOf(b) || []) walk(col.blocks || [])
     }
   }
   walk(tree || [])
@@ -35,11 +51,9 @@ export function findBlock(tree, id) {
   const search = (list, parent) => {
     for (const b of list) {
       if (b.id === id) return { block: b, parent }
-      if (b.type === 'columns' && Array.isArray(b.data?.columns)) {
-        for (const col of b.data.columns) {
-          const found = search(col.blocks || [], { kind: 'column', blockId: b.id, columnId: col.id })
-          if (found) return found
-        }
+      for (const col of slotsOf(b) || []) {
+        const found = search(col.blocks || [], { kind: 'column', blockId: b.id, columnId: col.id })
+        if (found) return found
       }
     }
     return null
@@ -68,12 +82,9 @@ export function replaceBlock(tree, id, next) {
 function mapTree(tree, fn) {
   return (tree || []).map(b => {
     const next = fn(b) || b
-    if (next.type === 'columns' && Array.isArray(next.data?.columns)) {
-      const newCols = next.data.columns.map(col => ({
-        ...col,
-        blocks: mapTree(col.blocks || [], fn),
-      }))
-      return { ...next, data: { ...next.data, columns: newCols } }
+    const slots = slotsOf(next)
+    if (slots) {
+      return withSlots(next, slots.map(col => ({ ...col, blocks: mapTree(col.blocks || [], fn) })))
     }
     return next
   })
@@ -85,12 +96,9 @@ export function removeBlock(tree, id) {
   const out = []
   for (const b of (tree || [])) {
     if (b.id === id) continue
-    if (b.type === 'columns' && Array.isArray(b.data?.columns)) {
-      const newCols = b.data.columns.map(col => ({
-        ...col,
-        blocks: removeBlock(col.blocks || [], id),
-      }))
-      out.push({ ...b, data: { ...b.data, columns: newCols } })
+    const slots = slotsOf(b)
+    if (slots) {
+      out.push(withSlots(b, slots.map(col => ({ ...col, blocks: removeBlock(col.blocks || [], id) }))))
     } else {
       out.push(b)
     }
@@ -101,13 +109,10 @@ export function removeBlock(tree, id) {
 // Duplicate a block by id, inserting the dup right after it.
 export function duplicateBlock(tree, id) {
   return (tree || []).flatMap(b => {
-    if (b.type === 'columns' && Array.isArray(b.data?.columns)) {
-      // Recurse into columns first.
-      const newCols = b.data.columns.map(col => ({
-        ...col,
-        blocks: duplicateBlock(col.blocks || [], id),
-      }))
-      const next = { ...b, data: { ...b.data, columns: newCols } }
+    const slots = slotsOf(b)
+    if (slots) {
+      // Recurse into the slots first.
+      const next = withSlots(b, slots.map(col => ({ ...col, blocks: duplicateBlock(col.blocks || [], id) })))
       return b.id === id ? [next, cloneWithFreshIds(next)] : [next]
     }
     return b.id === id ? [b, cloneWithFreshIds(b)] : [b]
@@ -117,8 +122,10 @@ export function duplicateBlock(tree, id) {
 // Deep-clone a block and assign fresh UUIDs to it and any nested blocks.
 export function cloneWithFreshIds(block) {
   const data = structuredClone(block.data)
-  if (block.type === 'columns' && Array.isArray(data?.columns)) {
-    data.columns = data.columns.map(col => ({
+  const f = SLOT_FIELD[block.type]
+  if (f && Array.isArray(data?.[f])) {
+    data[f] = data[f].map(col => ({
+      ...col,
       id: crypto.randomUUID(),
       blocks: (col.blocks || []).map(cloneWithFreshIds),
     }))
@@ -141,14 +148,14 @@ export function insertAt(tree, parent, at, block) {
   if (parent.kind === 'column') {
     return mapTree(tree, (b) => {
       if (b.id !== parent.blockId) return b
-      const newCols = (b.data.columns || []).map(col => {
+      const newCols = (slotsOf(b) || []).map(col => {
         if (col.id !== parent.columnId) return col
         const blocks = (col.blocks || []).slice()
         const idx = at == null ? blocks.length : Math.max(0, Math.min(blocks.length, at))
         blocks.splice(idx, 0, block)
         return { ...col, blocks }
       })
-      return { ...b, data: { ...b.data, columns: newCols } }
+      return withSlots(b, newCols)
     })
   }
   return tree
@@ -168,11 +175,12 @@ export function moveWithinParent(tree, id, dir) {
     next.splice(newIdx, 0, moved)
     return next
   }
-  // Inside a column
+  // Inside a column or tab
   return mapTree(tree, (b) => {
-    if (b.type !== 'columns' || !Array.isArray(b.data?.columns)) return b
+    const slots = slotsOf(b)
+    if (!slots) return b
     let mutated = false
-    const newCols = b.data.columns.map(col => {
+    const newCols = slots.map(col => {
       const idx = (col.blocks || []).findIndex(c => c.id === id)
       if (idx < 0) return col
       const newIdx = idx + dir
@@ -183,7 +191,7 @@ export function moveWithinParent(tree, id, dir) {
       mutated = true
       return { ...col, blocks }
     })
-    return mutated ? { ...b, data: { ...b.data, columns: newCols } } : b
+    return mutated ? withSlots(b, newCols) : b
   })
 }
 
@@ -201,7 +209,7 @@ export function reorderWithinParent(tree, parent, fromId, toId) {
   if (parent.kind === 'column') {
     return mapTree(tree, (b) => {
       if (b.id !== parent.blockId) return b
-      const newCols = b.data.columns.map(col => {
+      const newCols = (slotsOf(b) || []).map(col => {
         if (col.id !== parent.columnId) return col
         const blocks = col.blocks || []
         const fromIdx = blocks.findIndex(c => c.id === fromId)
@@ -212,7 +220,7 @@ export function reorderWithinParent(tree, parent, fromId, toId) {
         next.splice(toIdx, 0, moved)
         return { ...col, blocks: next }
       })
-      return { ...b, data: { ...b.data, columns: newCols } }
+      return withSlots(b, newCols)
     })
   }
   return tree
@@ -236,7 +244,7 @@ export function listForParent(tree, parent) {
   if (parent.kind === 'column') {
     const found = findBlock(tree, parent.blockId)
     if (!found) return []
-    const col = (found.block.data?.columns || []).find(c => c.id === parent.columnId)
+    const col = (slotsOf(found.block) || []).find(c => c.id === parent.columnId)
     return col?.blocks || []
   }
   return []
@@ -247,9 +255,14 @@ export function parentKey(parent) {
   if (!parent || parent.kind === 'top') return 'top'
   return `col:${parent.blockId}:${parent.columnId}`
 }
+// A second droppable for the same slot: a Tabs block's tab button (the
+// slot body already uses parentKey, and dnd-kit ids must be unique).
+export function tabKey(parent) {
+  return `tab:${parent.blockId}:${parent.columnId}`
+}
 export function parseParentKey(key) {
   if (key === 'top') return { kind: 'top' }
-  const m = /^col:([^:]+):(.+)$/.exec(key)
+  const m = /^(?:col|tab):([^:]+):(.+)$/.exec(key)
   if (!m) return null
   return { kind: 'column', blockId: m[1], columnId: m[2] }
 }

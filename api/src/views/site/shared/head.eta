@@ -155,9 +155,10 @@ function collectBlockFonts(blocks) {
   for (const b of blocks) {
     pushFont(b?.data?.font_family)
     if (CAVEAT_BLOCKS.has(b?.type)) pushFont('Caveat')
-    /* `columns` containers hold nested blocks — recurse. */
-    if (Array.isArray(b?.data?.columns)) {
-      for (const col of b.data.columns) {
+    /* `columns` and `tabs` containers hold nested blocks — recurse. */
+    for (const slots of [b?.data?.columns, b?.data?.tabs]) {
+      if (!Array.isArray(slots)) continue
+      for (const col of slots) {
         if (Array.isArray(col?.blocks)) collectBlockFonts(col.blocks)
       }
     }

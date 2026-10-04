@@ -22,7 +22,7 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { InlineText }      from './InlineText'
 import { InlineRichText }  from './InlineRichText'
 import { BlockInserter }   from './BlockInserter'
-import { parentKey }       from '../blockTree'
+import { parentKey, tabKey } from '../blockTree'
 import { innerContainerStyle } from '../boxedLayout'
 import { headingLayout, styleObject } from '@shared/headingBlock.js'
 import { googleFontsUrl } from '@shared/fonts.js'
@@ -527,14 +527,14 @@ export function ColumnsCanvas({
               >
                 <SortableContext id={containerId} items={colBlocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
                   {colBlocks.length === 0 ? (
-                    <BlockInserter mode="empty" onPick={(k) => onAddInColumn?.(parentRef, 0, k)} />
+                    <BlockInserter nested mode="empty" onPick={(k) => onAddInColumn?.(parentRef, 0, k)} />
                   ) : (
                     <>
-                      <BlockInserter onPick={(k) => onAddInColumn?.(parentRef, 0, k)} />
+                      <BlockInserter nested onPick={(k) => onAddInColumn?.(parentRef, 0, k)} />
                       {colBlocks.map((child, i) => (
                         <div key={child.id}>
                           {renderChild(child, parentRef, i, colBlocks.length)}
-                          <BlockInserter onPick={(k) => onAddInColumn?.(parentRef, i + 1, k)} />
+                          <BlockInserter nested onPick={(k) => onAddInColumn?.(parentRef, i + 1, k)} />
                         </div>
                       ))}
                     </>
@@ -551,6 +551,99 @@ export function ColumnsCanvas({
         }
       `}</style>
     </section>
+  )
+}
+
+// ── Tabs (container block; each tab holds other blocks) ─────
+//
+// Shows one tab's blocks at a time, like the live site. Tapping a tab
+// switches the tab being edited; dropping a dragged block on a tab moves
+// it to the end of that tab (TabButton is a droppable `tab:` container).
+
+const TAB_ROLE_VAR = {
+  primary: '--c-primary', accent: '--c-accent', background: '--c-bg',
+  surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border',
+}
+
+export function tabColour(v) {
+  if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) return v
+  return `var(${TAB_ROLE_VAR[v] || '--c-primary'})`
+}
+
+export function TabsCanvas({ data, parentBlockId, onAddInColumn, renderChild }) {
+  const tabs = Array.isArray(data.tabs) ? data.tabs : []
+  const [activeId, setActiveId] = useState(tabs[0]?.id)
+  const active = tabs.find(t => t.id === activeId) || tabs[0]
+  const style = data.style || 'underline'
+  const colour = tabColour(data.active_colour)
+  const bg = data.background === 'surface' ? 'var(--c-surface)'
+           : data.background === 'accent'  ? 'var(--c-accent)'
+           : 'transparent'
+  const fg = data.background === 'accent' ? '#fff' : 'inherit'
+  const justify = data.align === 'left' ? 'flex-start' : 'center'
+
+  const blocks = active?.blocks || []
+  const parentRef = active ? { kind: 'column', blockId: parentBlockId, columnId: active.id } : null
+  const containerId = parentRef ? parentKey(parentRef) : null
+
+  return (
+    <section className="block" style={{ background: bg, color: fg, paddingTop: 48, paddingBottom: 48 }}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
+        <div role="tablist" style={{
+          display: 'flex', gap: style === 'underline' ? 4 : 8, justifyContent: justify,
+          overflowX: 'auto', marginBottom: 24,
+          borderBottom: style === 'underline' ? '1px solid var(--c-border, #e5e7eb)' : 'none',
+        }}>
+          {tabs.map(t => (
+            <TabButton key={t.id} tab={t} active={t.id === active?.id} style={style} colour={colour}
+              stretch={data.align === 'stretch'}
+              dropId={tabKey({ kind: 'column', blockId: parentBlockId, columnId: t.id })}
+              onClick={(e) => { e.stopPropagation(); setActiveId(t.id) }} />
+          ))}
+        </div>
+        {active && (
+          <ColumnDropZone containerId={containerId} isEmpty={blocks.length === 0}>
+            <SortableContext id={containerId} items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
+              {blocks.length === 0 ? (
+                <BlockInserter nested mode="empty" label={`Add a block to ${active.label || 'this tab'}`}
+                  onPick={(k) => onAddInColumn?.(parentRef, 0, k)} />
+              ) : (
+                <>
+                  <BlockInserter nested onPick={(k) => onAddInColumn?.(parentRef, 0, k)} />
+                  {blocks.map((child, i) => (
+                    <div key={child.id}>
+                      {renderChild(child, parentRef, i, blocks.length)}
+                      <BlockInserter nested onPick={(k) => onAddInColumn?.(parentRef, i + 1, k)} />
+                    </div>
+                  ))}
+                </>
+              )}
+            </SortableContext>
+          </ColumnDropZone>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function TabButton({ tab, active, style, colour, stretch, dropId, onClick }) {
+  const { setNodeRef, isOver } = useDroppable({ id: dropId, data: { kind: 'container', containerId: dropId } })
+  const base = {
+    padding: '10px 18px', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+    whiteSpace: 'nowrap', flex: stretch ? '1 1 0' : '0 0 auto',
+    fontFamily: 'var(--f-body, inherit)', background: 'transparent', border: 'none',
+    color: active ? colour : 'inherit', opacity: active ? 1 : 0.75,
+    outline: isOver ? '2px dashed var(--c-primary)' : 'none',
+  }
+  const looks = style === 'pills'
+    ? { borderRadius: 999, background: active ? colour : 'transparent', color: active ? '#fff' : 'inherit' }
+    : style === 'boxed'
+      ? { borderRadius: 'var(--r-md, 8px)', border: `1px solid ${active ? colour : 'var(--c-border, #e5e7eb)'}`, background: active ? colour : 'transparent', color: active ? '#fff' : 'inherit' }
+      : { borderBottom: `3px solid ${active ? colour : 'transparent'}`, marginBottom: -1 }
+  return (
+    <button ref={setNodeRef} type="button" role="tab" aria-selected={active} onClick={onClick} style={{ ...base, ...looks }}>
+      {tab.label || 'Tab'}
+    </button>
   )
 }
 

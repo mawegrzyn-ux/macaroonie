@@ -26,7 +26,7 @@ import {
   Image as ImageIcon, Type, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
-  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading,
+  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading, Folders,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -38,6 +38,8 @@ import { FindUsEditor }        from './editors/FindUsEditor'
 import { DividerEditor }       from './editors/DividerEditor'
 import { FaqEditor }           from './editors/FaqEditor'
 import { ColumnsEditor }       from './editors/ColumnsEditor'
+import { TabsEditor }          from './editors/TabsEditor'
+import { SLOT_FIELD }          from './blockTree'
 import { GuestplanWidgetEditor } from './editors/GuestplanWidgetEditor'
 import { OnlineOrderingEditor } from './editors/OnlineOrderingEditor'
 import { PromoCtaEditor } from './editors/PromoCtaEditor'
@@ -567,6 +569,27 @@ export const BLOCKS = [
     },
     editor: ColumnsEditor,
   },
+  {
+    key:         'tabs',
+    label:       'Tabs',
+    description: 'Tabs that each hold any other blocks; visitors switch between them.',
+    icon:        Folders,
+    category:    'layout',
+    isContainer: true,
+    defaultData: {
+      tabs: [
+        { id: null, label: 'Tab 1', anchor: '', blocks: [] },
+        { id: null, label: 'Tab 2', anchor: '', blocks: [] },
+      ],
+      style:         'underline', // underline | pills | boxed
+      align:         'center',    // left | center | stretch
+      active_colour: '',          // theme role; '' = primary
+      mobile:        'tabs',      // tabs | accordion
+      background:    'default',   // default | surface | accent
+      container:     'boxed',
+    },
+    editor: TabsEditor,
+  },
 ]
 
 export const BLOCK_BY_KEY = Object.fromEntries(BLOCKS.map(b => [b.key, b]))
@@ -605,9 +628,15 @@ export function collectAnchors(blocks) {
         const typeLabel = BLOCK_BY_KEY[b.type]?.label || b.type
         out.push({ id, label: heading || typeLabel, type: b.type })
       }
-      if (b?.type === 'columns') {
-        for (const col of b.data?.columns || []) walk(col.blocks)
+      // A tab's own link anchor opens that tab.
+      if (b?.type === 'tabs') {
+        for (const tab of b.data?.tabs || []) {
+          const a = sanitizeAnchorId(tab.anchor)
+          if (a && !seen.has(a)) { seen.add(a); out.push({ id: a, label: `${tab.label || 'Tab'} (tab)`, type: 'tabs' }) }
+        }
       }
+      const f = SLOT_FIELD[b?.type]
+      if (f) for (const col of b.data?.[f] || []) walk(col.blocks)
     }
   }
   walk(blocks)
@@ -619,9 +648,10 @@ export function newBlock(key) {
   if (!def) throw new Error(`Unknown block type: ${key}`)
   const data = structuredClone(def.defaultData)
   if (!('anchor_id' in data)) data.anchor_id = ''
-  // Container blocks need their child columns to get fresh ids too.
-  if (def.isContainer && Array.isArray(data.columns)) {
-    data.columns = data.columns.map(c => ({ ...c, id: crypto.randomUUID() }))
+  // Container blocks need their child slots (columns / tabs) to get fresh ids too.
+  const f = SLOT_FIELD[key]
+  if (def.isContainer && f && Array.isArray(data[f])) {
+    data[f] = data[f].map(c => ({ ...c, id: crypto.randomUUID() }))
   }
   return {
     id:   crypto.randomUUID(),
