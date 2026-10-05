@@ -15,9 +15,10 @@ import {
 } from '@dnd-kit/sortable'
 import {
   Save, RefreshCw, Layers, Loader2, Sparkles, X, ExternalLink, Monitor, Smartphone,
+  Maximize2, Minimize2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { newBlock, PAGE_TEMPLATES } from './blockRegistry'
+import { newBlock, PAGE_TEMPLATES, BLOCK_BY_KEY } from './blockRegistry'
 import { ThemeFrame }     from './canvas/ThemeFrame'
 import { resolveTheme }   from './canvas/themeResolver'
 import { BlockInserter }  from './canvas/BlockInserter'
@@ -137,6 +138,14 @@ export function PageBuilder({
   // "does this still read OK narrow" check, not a pixel-accurate device
   // preview — for that you'd need to render the canvas inside an iframe.
   const [previewMode, setPreviewMode] = useState('desktop')
+  // Full screen edit mode, remembered per browser (maca_builder_fullscreen).
+  const [fullScreen, setFullScreenState] = useState(() => {
+    try { return localStorage.getItem('maca_builder_fullscreen') === '1' } catch { return false }
+  })
+  function setFullScreen(on) {
+    setFullScreenState(on)
+    try { localStorage.setItem('maca_builder_fullscreen', on ? '1' : '0') } catch { /* private mode */ }
+  }
 
   // Shared header/footer show/hide — see showHeaderField/showFooterField.
   // A block of that type in `blocks` means "custom for this page"; absent
@@ -187,7 +196,7 @@ export function PageBuilder({
   //              cross-column, top↔column) under one DndContext.
 
   function isContainerId(id) {
-    return id === 'top' || (typeof id === 'string' && id.startsWith('col:'))
+    return id === 'top' || (typeof id === 'string' && (id.startsWith('col:') || id.startsWith('tab:')))
   }
   function sameParent(a, b) {
     if (!a || !b) return false
@@ -222,8 +231,8 @@ export function PageBuilder({
       destIndex = destList.findIndex(b => b.id === over.id)
     }
 
-    // No nested columns — silently bail.
-    if (sourceInfo.block.type === 'columns' && destParent.kind === 'column') return
+    // No containers inside containers (Columns or Tabs) — silently bail.
+    if (BLOCK_BY_KEY[sourceInfo.block.type]?.isContainer && destParent.kind === 'column') return
 
     if (sameParent(sourceParent, destParent)) {
       // Within the same parent. If the over target was the container
@@ -305,6 +314,7 @@ export function PageBuilder({
 
   // Add a block inside a column. Called from ColumnsCanvas.
   function addInColumn(parentRef, atIndex, key) {
+    if (BLOCK_BY_KEY[key]?.isContainer) return
     const block = newBlock(key)
     setBlocks(arr => insertAt(arr, parentRef, atIndex, block))
     setSelectedId(block.id)
@@ -317,6 +327,7 @@ export function PageBuilder({
   function insertAfter(afterId, key) {
     const info = findBlock(blocks, afterId)
     if (!info) return
+    if (info.parent.kind === 'column' && BLOCK_BY_KEY[key]?.isContainer) return
     const block = newBlock(key)
     setBlocks(arr => {
       const list = listForParent(arr, info.parent)
@@ -436,9 +447,15 @@ export function PageBuilder({
 
   return (
     <LinkCatalogProvider value={catalogValue}>
-    <div className="space-y-3">
+    {/* Full screen edit mode covers the app sidebar and the website menu
+        (z-[45]: over the AppShell burger at z-40, under modals at z-50):
+        toolbar on top, then the page and the block settings side by side,
+        each scrolling on its own. */}
+    <div className={fullScreen
+      ? 'fixed inset-0 z-[45] bg-muted flex flex-col gap-3 p-3'
+      : 'space-y-3'}>
       {/* Top toolbar */}
-      <div className="flex items-center justify-between border rounded-lg bg-background px-4 py-3 sticky top-0 z-10">
+      <div className={`flex items-center justify-between border rounded-lg bg-background px-4 py-3 ${fullScreen ? 'shrink-0' : 'sticky top-0 z-10'}`}>
         <div>
           <p className="text-sm font-semibold inline-flex items-center gap-1.5">
             <Layers className="w-4 h-4" /> Page builder
@@ -485,6 +502,12 @@ export function PageBuilder({
               <RefreshCw className="w-3.5 h-3.5" /> Reset
             </button>
           )}
+          <button type="button" onClick={() => setFullScreen(!fullScreen)}
+            title={fullScreen ? 'Exit full screen' : 'Full screen: hide the menus while you edit'}
+            className="inline-flex items-center gap-1.5 border rounded-md px-3 py-2 text-sm hover:bg-accent min-h-[36px] touch-manipulation">
+            {fullScreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline">{fullScreen ? 'Exit full screen' : 'Full screen'}</span>
+          </button>
           <button type="button" onClick={() => save.mutate()} disabled={!dirty || save.isPending}
             className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-md px-3 py-2 text-sm font-medium min-h-[36px] disabled:opacity-50">
             {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -495,14 +518,14 @@ export function PageBuilder({
 
       {/* Header/footer mode — shared default, custom for this page, or off.
           See setHeaderMode/setFooterMode above. */}
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border rounded-lg bg-background px-4 py-2.5">
+      <div className={`flex flex-wrap items-center gap-x-6 gap-y-2 border rounded-lg bg-background px-4 py-2.5 ${fullScreen ? 'shrink-0' : ''}`}>
         <ChromeModePicker label="Header" mode={headerMode} onChange={setHeaderMode} />
         <ChromeModePicker label="Footer" mode={footerMode} onChange={setFooterMode} />
       </div>
 
       {/* Canvas + Inspector */}
-      <div className="flex gap-3 items-start">
-        <div className="flex-1 min-w-0 border rounded-lg bg-muted/30">
+      <div className={fullScreen ? 'flex gap-3 flex-1 min-h-0' : 'flex gap-3 items-start'}>
+        <div className={`flex-1 min-w-0 border rounded-lg ${fullScreen ? 'bg-background overflow-y-auto' : 'bg-muted/30'}`}>
           <div
             onClick={() => { setSelectedId(null); setInspectorOpen(false) }}
             className={previewMode === 'mobile' ? 'px-4 py-6 flex justify-center' : 'px-12 py-6'}
@@ -557,6 +580,7 @@ export function PageBuilder({
             onClose={() => setInspectorOpen(false)}
             onJumpTo={onJumpTo}
             boxedSteps={boxedSteps}
+            fullHeight={fullScreen}
           />
         )}
       </div>

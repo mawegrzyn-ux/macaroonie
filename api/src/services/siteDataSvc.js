@@ -529,8 +529,9 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
     if (!Array.isArray(blocks)) return
     for (const b of blocks) {
       if (b?.type === 'menu_inline' && b?.data?.menu_id) menuIds.add(b.data.menu_id)
-      if (Array.isArray(b?.data?.columns)) {
-        for (const col of b.data.columns) walk(col?.blocks)
+      /* Containers: Columns (data.columns) and Tabs (data.tabs). */
+      for (const slots of [b?.data?.columns, b?.data?.tabs]) {
+        if (Array.isArray(slots)) for (const col of slots) walk(col?.blocks)
       }
     }
   }
@@ -614,8 +615,9 @@ async function loadGalleryItemsForBlocks(tenantId, ...blockArrays) {
     if (!Array.isArray(blocks)) return
     for (const b of blocks) {
       if (b?.type === 'gallery') galleryBlocks.push(b)
-      if (Array.isArray(b?.data?.columns)) {
-        for (const col of b.data.columns) walk(col?.blocks)
+      /* Containers: Columns (data.columns) and Tabs (data.tabs). */
+      for (const slots of [b?.data?.columns, b?.data?.tabs]) {
+        if (Array.isArray(slots)) for (const col of slots) walk(col?.blocks)
       }
     }
   }
@@ -796,8 +798,9 @@ async function loadReviewsForBlocks(tenantId, ...blockArrays) {
     if (!Array.isArray(blocks)) return
     for (const b of blocks) {
       if (b?.type === 'reviews_band' && b?.data?.source === 'db') reviewBlocks.push(b)
-      if (Array.isArray(b?.data?.columns)) {
-        for (const col of b.data.columns) walk(col?.blocks)
+      /* Containers: Columns (data.columns) and Tabs (data.tabs). */
+      for (const slots of [b?.data?.columns, b?.data?.tabs]) {
+        if (Array.isArray(slots)) for (const col of slots) walk(col?.blocks)
       }
     }
   }

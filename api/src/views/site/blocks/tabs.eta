@@ -1,0 +1,129 @@
+<%
+/* Tabs: a tab strip and one panel per tab, each panel holding other blocks
+   (data.tabs = [{ id, label, anchor, blocks }]). One panel shows at a time;
+   with mobile = 'accordion' phones get each tab as a drop-down section.
+   A tab's anchor (or any anchor inside a panel) in the URL opens that tab. */
+const d = it.block.data || {}
+const tabs = Array.isArray(d.tabs) ? d.tabs : []
+const tbStyle = d.style === 'pills' || d.style === 'boxed' ? d.style : 'underline'
+const roleVar = { primary: '--c-primary', accent: '--c-accent', background: '--c-bg', surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border' }
+const ac = d.active_colour || ''
+const colour = /^#[0-9a-fA-F]{6}$/.test(ac) ? ac : ('var(' + (roleVar[ac] || '--c-primary') + ')')
+const bg = d.background === 'surface' ? 'background:var(--c-surface);'
+        : d.background === 'accent'  ? 'background:var(--c-accent); color:#fff;'
+        : ''
+const cw = d.container === 'wide' ? '1400px' : d.container === 'full' ? 'none' : 'var(--cw)'
+const pad = d.boxed_step ? ('var(--boxed-step-' + Number(d.boxed_step) + ')') : 'var(--boxed-pad, 24px)'
+const containerStyle = (d.container === 'full')
+  ? 'width:100%; padding:0 ' + pad + ';'
+  : 'max-width:' + cw + '; margin:0 auto; padding:0 ' + pad + ';'
+const key = String(it.block.id || Math.random().toString(36).slice(2, 8)).replace(/[^A-Za-z0-9_-]/g, '')
+const cls = 'tabs-' + key
+const justify = d.align === 'left' ? 'flex-start' : 'center'
+const stretch = d.align === 'stretch'
+const accordion = d.mobile === 'accordion'
+function anchorOf(t) { return String(t.anchor || '').replace(/[^A-Za-z0-9_-]/g, '') }
+%>
+<% if (tabs.length) { %>
+<section class="block <%= cls %>" data-tabs="<%= key %>" style="<%= bg %> padding:48px 0;">
+  <style>
+    .<%= cls %> .tb-list { display:flex; gap:<%= tbStyle === 'underline' ? 4 : 8 %>px; justify-content:<%= justify %>; overflow-x:auto; margin-bottom:24px; -webkit-overflow-scrolling:touch;<%= tbStyle === 'underline' ? ' border-bottom:1px solid var(--c-border, #e5e7eb);' : '' %> }
+    .<%= cls %> .tb-tab { padding:10px 18px; font:inherit; font-size:15px; font-weight:600; cursor:pointer; white-space:nowrap; background:transparent; border:none; color:inherit; opacity:.75; <%= stretch ? 'flex:1 1 0;' : 'flex:0 0 auto;' %> }
+    .<%= cls %> .tb-tab[aria-selected="true"] { opacity:1; color:<%~ colour %>; }
+<% if (tbStyle === 'underline') { %>
+    .<%= cls %> .tb-tab { border-bottom:3px solid transparent; margin-bottom:-1px; }
+    .<%= cls %> .tb-tab[aria-selected="true"] { border-bottom-color:<%~ colour %>; }
+<% } else if (tbStyle === 'pills') { %>
+    .<%= cls %> .tb-tab { border-radius:999px; }
+    .<%= cls %> .tb-tab[aria-selected="true"] { background:<%~ colour %>; color:#fff; }
+<% } else { %>
+    .<%= cls %> .tb-tab { border-radius:var(--r-md, 8px); border:1px solid var(--c-border, #e5e7eb); }
+    .<%= cls %> .tb-tab[aria-selected="true"] { background:<%~ colour %>; border-color:<%~ colour %>; color:#fff; }
+<% } %>
+    .<%= cls %> .tb-panel { display:none; }
+    .<%= cls %> .tb-panel.is-active { display:block; }
+    .<%= cls %> .tb-acc { display:none; }
+<% if (accordion) { %>
+    @media (max-width: 700px) {
+      .<%= cls %> .tb-list { display:none; }
+      .<%= cls %> .tb-acc { display:flex; width:100%; align-items:center; justify-content:space-between; gap:12px; padding:14px 4px; font:inherit; font-size:16px; font-weight:600; color:inherit; background:transparent; border:none; border-bottom:1px solid var(--c-border, #e5e7eb); cursor:pointer; text-align:left; }
+      .<%= cls %> .tb-acc::after { content:'+'; font-size:20px; line-height:1; }
+      .<%= cls %> .tb-acc[aria-expanded="true"] { color:<%~ colour %>; }
+      .<%= cls %> .tb-acc[aria-expanded="true"]::after { content:'\2212'; }
+      .<%= cls %> .tb-panel, .<%= cls %> .tb-panel.is-active { display:none; padding:12px 0; }
+      .<%= cls %> .tb-panel.is-open { display:block; }
+    }
+<% } %>
+  </style>
+  <div style="<%= containerStyle %>">
+    <div class="tb-list" role="tablist">
+      <% tabs.forEach(function (t, i) { %>
+        <button type="button" class="tb-tab" role="tab" id="tb-<%= key %>-<%= i %>" aria-controls="tp-<%= key %>-<%= i %>" aria-selected="<%= i === 0 ? 'true' : 'false' %>" tabindex="<%= i === 0 ? 0 : -1 %>" data-i="<%= i %>"><%= t.label || 'Tab' %></button>
+      <% }) %>
+    </div>
+    <% tabs.forEach(function (t, i) { %>
+      <button type="button" class="tb-acc" aria-expanded="<%= i === 0 ? 'true' : 'false' %>" aria-controls="tp-<%= key %>-<%= i %>" data-i="<%= i %>"><%= t.label || 'Tab' %></button>
+      <div class="tb-panel<%= i === 0 ? ' is-active is-open' : '' %>" role="tabpanel" id="tp-<%= key %>-<%= i %>" aria-labelledby="tb-<%= key %>-<%= i %>" data-i="<%= i %>"<% if (anchorOf(t)) { %> data-anchor="<%= anchorOf(t) %>"<% } %>>
+        <% if (anchorOf(t)) { %><span id="<%= anchorOf(t) %>"></span><% } %>
+        <% for (const child of (t.blocks || [])) { %>
+          <%~ include('./renderer', { ...it, block: child }) %>
+        <% } %>
+      </div>
+    <% }) %>
+  </div>
+  <script>
+  (function () {
+    var root = document.querySelector('[data-tabs="<%= key %>"]');
+    if (!root) return;
+    var tabs = root.querySelectorAll('.tb-tab');
+    var accs = root.querySelectorAll('.tb-acc');
+    var panels = root.querySelectorAll('.tb-panel');
+    function show(i, focus) {
+      for (var n = 0; n < panels.length; n++) {
+        var on = n === i;
+        panels[n].classList.toggle('is-active', on);
+        panels[n].classList.toggle('is-open', on);
+        if (tabs[n]) { tabs[n].setAttribute('aria-selected', on ? 'true' : 'false'); tabs[n].tabIndex = on ? 0 : -1; }
+        if (accs[n]) accs[n].setAttribute('aria-expanded', on ? 'true' : 'false');
+      }
+      if (focus && tabs[i]) tabs[i].focus();
+    }
+    for (var a = 0; a < tabs.length; a++) {
+      tabs[a].addEventListener('click', function () { show(Number(this.dataset.i)); });
+      tabs[a].addEventListener('keydown', function (e) {
+        var i = Number(this.dataset.i), n = tabs.length;
+        if (e.key === 'ArrowRight') { e.preventDefault(); show((i + 1) % n, true); }
+        if (e.key === 'ArrowLeft')  { e.preventDefault(); show((i - 1 + n) % n, true); }
+        if (e.key === 'Home') { e.preventDefault(); show(0, true); }
+        if (e.key === 'End')  { e.preventDefault(); show(n - 1, true); }
+      });
+    }
+    /* Drop-down sections on phones open and close one at a time. */
+    for (var b = 0; b < accs.length; b++) {
+      accs[b].addEventListener('click', function () {
+        var i = Number(this.dataset.i);
+        if (panels[i].classList.contains('is-open')) {
+          panels[i].classList.remove('is-open');
+          this.setAttribute('aria-expanded', 'false');
+        } else {
+          show(i);
+        }
+      });
+    }
+    /* A link to a tab's anchor, or to anything inside a tab, opens that tab. */
+    function fromHash() {
+      var id = decodeURIComponent((location.hash || '').slice(1));
+      if (!id) return;
+      var el = document.getElementById(id);
+      if (!el || !root.contains(el)) return;
+      var panel = el.closest('.tb-panel');
+      if (!panel) return;
+      show(Number(panel.dataset.i));
+      el.scrollIntoView({ block: 'start' });
+    }
+    window.addEventListener('hashchange', fromHash);
+    fromHash();
+  })();
+  </script>
+</section>
+<% } %>

@@ -9,7 +9,7 @@ import {
 import { BOXED_STEPS, DEFAULT_BOXED_STEPS } from '../boxedLayout'
 import { FormRow } from '../shared'
 
-export function BlockInspector({ block, onChange, onClose, onJumpTo, boxedSteps }) {
+export function BlockInspector({ block, onChange, onClose, onJumpTo, boxedSteps, fullHeight = false }) {
   const steps = (Array.isArray(boxedSteps) && boxedSteps.length === DEFAULT_BOXED_STEPS.length)
     ? boxedSteps : DEFAULT_BOXED_STEPS
   useEffect(() => {
@@ -42,7 +42,7 @@ export function BlockInspector({ block, onChange, onClose, onJumpTo, boxedSteps 
   const showInset = showContainer && containerValue !== 'full'
 
   return (
-    <aside className="border-l bg-background flex flex-col w-[340px] shrink-0 max-h-[calc(100vh-180px)] sticky top-0">
+    <aside className={`border-l bg-background flex flex-col w-[340px] shrink-0 ${fullHeight ? 'h-full rounded-lg border' : 'max-h-[calc(100vh-180px)] sticky top-0'}`}>
       <div className="flex items-center gap-2 px-4 py-3 border-b">
         {Icon && <Icon className="w-4 h-4 text-primary" />}
         <p className="text-sm font-semibold flex-1 truncate">{def?.label || block.type}</p>

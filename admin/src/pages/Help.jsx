@@ -2104,6 +2104,26 @@ export default function Help() {
               and below. An empty Heading block shows nothing on the live site.
             </P>
 
+            <H3>Tabs block</H3>
+            <P>
+              Add a <strong>Tabs</strong> block (Layout) to put other blocks behind tabs, for example Lunch,
+              Dinner and Drinks menus. On the page, tap a tab to open it and use the + inside it to add blocks
+              to that tab. To move a block into another tab, drag it onto that tab's name. In the panel you can
+              rename tabs, drag them into a new order, add more (up to 10) and remove one (with a confirm, which
+              also removes its blocks). Choose the tab style (underline, pills or boxed), alignment, the colour
+              of the open tab, a background, and how phones show it: the tab strip (scrolls sideways) or
+              drop-down sections. Give a tab a <strong>link anchor</strong> (e.g. <Mono>dinner</Mono>) and a
+              link to <Mono>#dinner</Mono> opens that tab; a link to any anchor inside a tab opens it too.
+              Columns and Tabs can't be put inside a tab or a column.
+            </P>
+
+            <H3>Full screen editing</H3>
+            <P>
+              The <strong>Full screen</strong> button at the top of the page builder hides the app menu and the
+              website menu so you only see the page and the block settings. Each scrolls on its own. Tap{' '}
+              <strong>Exit full screen</strong> to get the menus back. The builder remembers your choice.
+            </P>
+
             <H3>Publishing your site</H3>
             <P>
               Every change you make in the website builder shows on your <strong>staging</strong> address straight

@@ -3083,6 +3083,38 @@ GET /robots.txt`}</Code>
               block renders nothing when heading, eyebrow and subheading are all empty.
             </P>
 
+            <H3>Container blocks: Columns and Tabs</H3>
+            <P>
+              A container holds other blocks in slots. <Mono>SLOT_FIELD</Mono> in{' '}
+              <Mono>website-builder/blockTree.js</Mono> names each container's slot list (<Mono>columns</Mono> →{' '}
+              <Mono>data.columns</Mono>, <Mono>tabs</Mono> → <Mono>data.tabs</Mono>); each slot is{' '}
+              <Mono>{'{ id, blocks, ...extra }'}</Mono> (a tab adds <Mono>label</Mono> and <Mono>anchor</Mono>). Every
+              tree helper (find, map, remove, duplicate, insert, move, reorder) goes through{' '}
+              <Mono>slotsOf()</Mono>, and a block's parent inside any container is{' '}
+              <Mono>{"{ kind: 'column', blockId, columnId }"}</Mono>. Drop ids: <Mono>col:block:slot</Mono> is a slot
+              body, <Mono>tab:block:slot</Mono> (<Mono>tabKey()</Mono>) a tab button, which drops the block at the end
+              of that tab; <Mono>parseParentKey()</Mono> reads both. No container inside a container: enforced in{' '}
+              <Mono>PageBuilder.jsx</Mono>'s drag end, <Mono>addInColumn</Mono> / <Mono>insertAfter</Mono>, and{' '}
+              <Mono>BlockInserter</Mono>'s <Mono>nested</Mono> prop (hides <Mono>isContainer</Mono> blocks).
+            </P>
+            <P>
+              Tabs: editor <Mono>TabsEditor.jsx</Mono> (tab list via <Mono>SortableRows</Mono>, style underline |
+              pills | boxed, align left | center | stretch, active_colour theme role, mobile tabs | accordion,
+              background), canvas <Mono>TabsCanvas</Mono> in <Mono>canvas/blockCanvas.jsx</Mono> (shows one slot at a
+              time), SSR <Mono>blocks/tabs.eta</Mono>: ARIA tablist with arrow keys, accordion at 700px and below
+              when mobile = accordion, first panel visible without JS, and a URL hash matching a tab's anchor or any
+              element inside a panel opens that panel. Server code that walks blocks for data (the three loaders in{' '}
+              <Mono>siteDataSvc.js</Mono>, <Mono>collectBlockFonts</Mono> in <Mono>head.eta</Mono>) walks{' '}
+              <Mono>data.columns</Mono> and <Mono>data.tabs</Mono>; a new container type must be added there and to{' '}
+              <Mono>SLOT_FIELD</Mono>, and <Mono>collectAnchors()</Mono> in <Mono>blockRegistry.js</Mono> lists tab
+              anchors for the link picker.
+            </P>
+            <P>
+              Full screen: <Mono>PageBuilder.jsx</Mono> state in localStorage <Mono>maca_builder_fullscreen</Mono>.
+              The root becomes <Mono>fixed inset-0 z-[45]</Mono> (above the AppShell burger at z-40, below modals at
+              z-50), the canvas and <Mono>BlockInspector</Mono> (<Mono>fullHeight</Mono>) each scroll on their own.
+            </P>
+
             <H3>Publishing (admin)</H3>
             <P>
               <Mono>Website.jsx</Mono>: <Mono>PublishButton</Mono> sits at the top of the builder's left menu

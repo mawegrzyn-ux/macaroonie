@@ -65,5 +65,7 @@ const _aid = _cleanAnchor || _fallbackAnchor
   <%~ include('./divider', it) %>
 <% } else if (t === 'columns') { %>
   <%~ include('./columns', it) %>
+<% } else if (t === 'tabs') { %>
+  <%~ include('./tabs', it) %>
 <% } %>
 <% if (_aid) { %></div><% } %>

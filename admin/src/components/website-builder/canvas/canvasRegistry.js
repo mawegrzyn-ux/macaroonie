@@ -5,7 +5,7 @@
 import {
   HeroCanvas, TextCanvas, ImageCanvas,
   CtaStripCanvas, DividerCanvas, FaqCanvas,
-  ColumnsCanvas, HeadingCanvas,
+  ColumnsCanvas, TabsCanvas, HeadingCanvas,
 } from './blockCanvas'
 import {
   HeaderCanvas, FooterCanvas, ScrollingTextCanvas,
@@ -37,6 +37,7 @@ export const CANVAS_BY_TYPE = {
   divider:        DividerCanvas,
   faq:            FaqCanvas,
   columns:        ColumnsCanvas,
+  tabs:           TabsCanvas,
   // Live-data blocks — each has its own faithful preview
   // (canvas/dataBlocks.jsx). Read from the actual venue config /
   // website tables / chosen menu and render the same shape the SSR

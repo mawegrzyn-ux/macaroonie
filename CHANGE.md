@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-04 — Website Tabs block; full-screen page builder]
+
+- Website page builder: new **Tabs** block (Layout). Each tab holds its own blocks: tap a tab on the page and add blocks to it, or drag a block onto a tab's name to move it there. Rename, reorder, add and remove tabs in the panel; choose underline, pills or boxed tabs, alignment, the open tab's colour, a background, and whether phones show tabs or drop-down sections. A tab's link anchor (e.g. #dinner) opens that tab from any link.
+- Page builder **Full screen** button: hides the app and website menus so only the page and the block settings show. No database change.
+
+---
+
 ## [2026-10-04 — Staff paid by cash, bank transfer or a split]
 
 - Staff page: **Paid by** for each person: Cash in hand, Bank transfer, or Split (a fixed amount by bank transfer each week, the rest cash in hand). Migration 140.

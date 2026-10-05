@@ -10,7 +10,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Plus, X, Search } from 'lucide-react'
 import { BLOCKS, BLOCK_CATEGORIES } from '../blockRegistry'
 
-export function BlockInserter({ onPick, mode = 'between', label }) {
+// nested: inside a column or tab, where Columns / Tabs can't go.
+export function BlockInserter({ onPick, mode = 'between', label, nested = false }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const wrapRef = useRef(null)
@@ -31,11 +32,12 @@ export function BlockInserter({ onPick, mode = 'between', label }) {
     }
   }, [open])
 
+  const pickable = nested ? BLOCKS.filter(b => !b.isContainer) : BLOCKS
   const filtered = query.trim()
-    ? BLOCKS.filter(b =>
+    ? pickable.filter(b =>
         b.label.toLowerCase().includes(query.toLowerCase()) ||
         b.description.toLowerCase().includes(query.toLowerCase()))
-    : BLOCKS
+    : pickable
 
   // The "always-visible" mode (used when canvas is empty) renders a bigger, dashed CTA.
   if (mode === 'empty') {
