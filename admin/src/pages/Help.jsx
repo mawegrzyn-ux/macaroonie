@@ -2890,6 +2890,13 @@ export default function Help() {
               change to a quantity autosaves a moment after you stop typing — there's no separate
               Save button while an order is still open.
             </P>
+            <P>
+              Tap <strong>Hide zero</strong> next to the search box to show only the lines that have a
+              quantity, so you can check what you're ordering at a glance. A line you take down to 0
+              stays on screen until you turn Hide zero off, so it doesn't vanish while you're tapping.
+              To add something that's hidden, type its name in the search box: searching always looks
+              through every item. The page remembers whether Hide zero is on.
+            </P>
             <DataTable
               head={['Status', 'What it means']}
               rows={[

@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import {
   X, Plus, Minus, ChevronDown, Package, ClipboardList,
-  CheckCircle, AlertCircle, Loader2, Search, Filter,
+  CheckCircle, AlertCircle, Loader2, Search, Filter, EyeOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/lib/api'
@@ -20,6 +20,16 @@ function fmtDate(dateStr) {
     return String(dateStr)
   }
 }
+
+// "Hide zero lines" on an order: remembered per browser.
+const HIDE_ZERO_KEY = 'maca_order_sheet_hide_zero'
+function readHideZero() {
+  try { return localStorage.getItem(HIDE_ZERO_KEY) === '1' } catch { return false }
+}
+function writeHideZero(on) {
+  try { localStorage.setItem(HIDE_ZERO_KEY, on ? '1' : '0') } catch { /* ignore */ }
+}
+const hasQty = v => v !== '' && v != null && Number(v) > 0
 
 function fmtDateShort(dateStr) {
   if (!dateStr) return ''
@@ -327,6 +337,11 @@ export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [actionError, setActionError] = useState('')
   const [searchQuery, setSearchQuery]   = useState('')
+  const [hideZero, setHideZeroState]    = useState(readHideZero)
+  // Lines shown while "hide zero" is on: those with a quantity when it was
+  // turned on (or the order loaded). A line taken down to 0 stays until the
+  // switch is turned off, so it never vanishes under the operator's finger.
+  const [keepIds, setKeepIds]           = useState(() => new Set())
 
   const autosaveTimerRef = useRef(null)
   const savedTimerRef    = useRef(null)
@@ -339,6 +354,7 @@ export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
       initial[item.id] = item.qty != null ? String(item.qty) : ''
     }
     setQtys(initial)
+    setKeepIds(new Set(Object.keys(initial).filter(id => hasQty(initial[id]))))
     setNotes(order.notes ?? '')
     setDeliveryDate(order.delivery_date ? String(order.delivery_date).slice(0, 10) : '')
     setDirty(false)
@@ -346,6 +362,12 @@ export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
     setActionError('')
     clearTimeout(autosaveTimerRef.current)
   }, [order?.id, order?.status]) // reset when id or status changes
+
+  function setHideZero(on) {
+    setHideZeroState(on)
+    writeHideZero(on)
+    if (on) setKeepIds(new Set(Object.keys(qtys).filter(id => hasQty(qtys[id]))))
+  }
 
   function scheduleAutosave() {
     clearTimeout(autosaveTimerRef.current)
@@ -505,8 +527,9 @@ export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
             </div>
           )}
 
-          {/* Search bar */}
-          <div className="relative">
+          {/* Search bar + hide zero lines */}
+          <div className="flex items-center gap-2">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <input
               type="text"
@@ -521,14 +544,27 @@ export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
               </button>
             )}
           </div>
+            <button type="button" onClick={() => setHideZero(!hideZero)} aria-pressed={hideZero}
+              title="Show only lines with a quantity. Searching still finds every item."
+              className={cn('flex items-center gap-1.5 border rounded-lg px-3 text-sm min-h-[40px] whitespace-nowrap touch-manipulation shrink-0',
+                hideZero ? 'bg-primary/10 border-primary text-primary font-medium' : 'text-muted-foreground hover:bg-accent')}>
+              <EyeOff className="w-3.5 h-3.5" />
+              Hide zero
+            </button>
+          </div>
 
           {/* Items table — overflow-y-clip keeps sticky thead working inside x-scroll */}
           <div className="overflow-x-auto overflow-y-clip -mx-4 px-4">
             {(() => {
               const allItems = order.items ?? []
+              // Searching always looks through every item, so a line hidden
+              // for being zero can still be found and given a quantity.
               const filtered = searchQuery
                 ? allItems.filter(i => i.name.toLowerCase().includes(searchQuery.toLowerCase()))
-                : allItems
+                : hideZero
+                  ? allItems.filter(i => hasQty(qtys[i.id]) || keepIds.has(i.id))
+                  : allItems
+              const hiddenCount = allItems.length - filtered.length
               // Group by category; use template name as fallback for uncategorised items
               const fallbackCat = order.template_name
               const groups = []
@@ -562,7 +598,9 @@ export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                     {filtered.length === 0 ? (
                       <tr>
                         <td colSpan={colCount} className="py-8 text-center text-sm text-muted-foreground">
-                          {searchQuery ? 'No items match your search' : 'No items in this template'}
+                          {searchQuery ? 'No items match your search'
+                            : hideZero && allItems.length ? 'No lines with a quantity yet. Turn off Hide zero or search to add items.'
+                            : 'No items in this template'}
                         </td>
                       </tr>
                     ) : groups.map(group => (
@@ -623,6 +661,13 @@ export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
                         ))}
                       </Fragment>
                     ))}
+                    {hideZero && !searchQuery && hiddenCount > 0 && filtered.length > 0 && (
+                      <tr>
+                        <td colSpan={colCount} className="py-2 text-center text-xs text-muted-foreground">
+                          {hiddenCount} line{hiddenCount === 1 ? '' : 's'} with no quantity hidden
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               )

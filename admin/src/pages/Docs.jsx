@@ -2336,6 +2336,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>suggested_qty</Mono>, so an operator filling in quantities can see what was
               ordered last time without leaving the page.
             </P>
+            <P>
+              <Mono>OrderDetail</Mono>'s <strong>Hide zero</strong> toggle (any status, so the desktop
+              page and <Mono>MobileOrderSheets.jsx</Mono> both get it) filters the item table to lines with
+              a quantity &gt; 0 plus <Mono>keepIds</Mono>: the lines that had a quantity when the toggle
+              was turned on or the order loaded, so a line stepped down to 0 doesn't disappear mid-edit.
+              A search query bypasses the filter, so hidden items can still be found and ordered. Display
+              only, no API change; remembered in localStorage <Mono>maca_order_sheet_hide_zero</Mono>.
+            </P>
             <H3>Two-module permission split</H3>
             <P>
               <Mono>order_sheets</Mono> gates the day-to-day page (view orders, and — at{' '}
