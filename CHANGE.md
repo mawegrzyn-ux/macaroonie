@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-06 — Order sheets: hide zero lines]
+
+- Order sheets: **Hide zero** button beside the search box on an order shows only the lines with a quantity. A line you take down to 0 stays until you turn it off, and searching still finds every item. Remembered per browser. Works on the phone Order Sheets page too. No database change.
+
+---
+
 ## [2026-10-04 — Website Tabs block; full-screen page builder]
 
 - Website page builder: new **Tabs** block (Layout). Each tab holds its own blocks: tap a tab on the page and add blocks to it, or drag a block onto a tab's name to move it there. Rename, reorder, add and remove tabs in the panel; choose underline, pills or boxed tabs, alignment, the open tab's colour, a background, and whether phones show tabs or drop-down sections. A tab's link anchor (e.g. #dinner) opens that tab from any link.
