@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-07 — Menu dietary list print]
+
+- Menus: **Dietary list** next to Print opens a sheet listing each dish with its dietary tags as icons, grouped by section, with a key of the icons used. **Choose dishes** lets you untick dishes to leave them out; the choice is remembered on that device. No database change.
+
+---
+
 ## [2026-10-06 — Order sheets: hide zero lines]
 
 - Order sheets: **Hide zero** button beside the search box on an order shows only the lines with a quantity. A line you take down to 0 stays until you turn it off, and searching still finds every item. Remembered per browser. Works on the phone Order Sheets page too. No database change.

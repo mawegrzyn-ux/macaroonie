@@ -2766,7 +2766,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>menu_print_designed.eta</Mono>, so the admin Print button and the website{' '}
               <Mono>menu_inline</Mono> block's PDF link show it; NULL = the automatic{' '}
               <Mono>menu_print.eta</Mono>. <Mono>?design=&lt;id&gt;</Mono> prints any of the menu's
-              designs, <Mono>?auto=1</Mono> the automatic layout.
+              designs, <Mono>?auto=1</Mono> the automatic layout. <Mono>?view=dietary</Mono> renders{' '}
+              <Mono>menu_print_dietary.eta</Mono> instead, whatever design is chosen: dish name and its
+              dietary tag chips (glyph + colour, icons only) per row, grouped by section, sections with{' '}
+              <Mono>visibility = 'hidden'</Mono> dropped, portrait on the menu's paper size, a key of
+              the tags used. Its <strong>Choose dishes</strong> mode is screen-side only: each row
+              carries <Mono>data-id</Mono> / <Mono>data-tags</Mono>, unticked ids are kept in
+              localStorage <Mono>maca_dietary_skip_&lt;menuId&gt;</Mono> (left-out ids, so new dishes
+              show), and the <Mono>.off</Mono> class hides rows, empty section rows and unused key
+              entries in print. Linked from the Menus list and editor (<Mono>Dietary list</Mono>).
             </P>
             <DataTable
               head={['Piece', 'Detail']}

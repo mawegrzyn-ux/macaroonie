@@ -2582,6 +2582,23 @@ export default function Help() {
               colour on paper and in a saved PDF, even with the print dialog's &ldquo;Background
               graphics&rdquo; option off. The cream page background does not print, which saves ink.
             </P>
+            <H3>Dietary list</H3>
+            <P>
+              Tap <strong>Dietary list</strong> next to <strong>Print</strong> (on the menus list or at
+              the top of a menu) for a simple sheet listing every dish in one column and its dietary
+              tags, as icons only, in the second, grouped by section. A key under the list says what
+              each icon used on it means. It prints portrait on the menu's paper size and runs onto
+              more pages when the menu is long. Sections set to hide everywhere are left out.
+            </P>
+            <P>
+              To print only some dishes, tap <strong>Choose dishes</strong> at the top of the list,
+              untick the dishes you don't want (tap a row or its tick box), then tap{' '}
+              <strong>Done</strong>. <strong>Tick all</strong> and <strong>Untick all</strong> help with
+              long menus. The top bar says how many dishes are in the list, a section with no ticked
+              dishes is left out, and the key only shows icons that are used. Your choice is
+              remembered on that device, and a dish added to the menu later is included until you
+              untick it.
+            </P>
             <H3>Designing the print yourself</H3>
             <P>
               For full control, open a menu and tap <strong>Design print</strong> (save the menu
