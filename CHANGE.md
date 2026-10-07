@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-07 — Ops app tidy-up]
+
+- Cash up day: a **Wages paid today** card lists the cash wages paid from the till that day (they count in the day's variance) and warns when cash wages have no Paid on day (those only count in the week).
+- Phone wages: Bank transfer and Paid on for all are hidden, Pay everyone in full is a solid button, each person has a bold header. Typing a paid amount or Full sets Paid on to today (this week).
+- Phone H&S Dashboard: logging only (no layout editing); the dashboard tabs sit in a framed strip with arrows to scroll.
+- The Ops app no longer shows the Standard view button.
+- No database change.
+
+---
+
 ## [2026-10-07 — Allergen lookup on the Ops phone app]
 
 - Ops app (/mobile): new **Allergens** module. Pick a menu, search a dish, or filter by allergen or diet (contains / free from). The menu and search stay at the top while scrolling.
