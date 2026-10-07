@@ -2607,8 +2607,16 @@ export default function Help() {
               lookup tile to the Overview, so front-of-house staff can answer allergy questions
               without editing anything. Tap a tag once to list dishes that have it, twice to list
               dishes free from it, and a third time to clear it. Sections hidden everywhere are left
-              out of the lookup.
+              out of the lookup. Tap a dish to see its tags written out in full.
             </InfoBox>
+            <P>
+              On a phone, open the Ops app (<strong>/mobile</strong>) and tap{' '}
+              <strong>Allergens</strong>. Pick the menu and search a dish; the menu and search box
+              stay at the top while you scroll. Tap <strong>Filter by allergen or diet</strong> to open
+              the tag buttons; once a filter is on, the button says which (for example
+              &ldquo;Free from Milk&rdquo;). Tap a dish to see its description and every tag by name.
+              The phone remembers the last menu you picked.
+            </P>
             <H3>Dietary list</H3>
             <P>
               Tap <strong>Dietary list</strong> next to <strong>Print</strong> (on the menus list or at

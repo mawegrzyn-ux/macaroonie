@@ -5,7 +5,7 @@
 // same "one registry drives nav + a picker" pattern as modules.js /
 // defaultNav.js elsewhere in this app.
 
-import { LayoutGrid, Receipt, ClipboardList, Wallet, Users, ShoppingBag } from 'lucide-react'
+import { LayoutGrid, Receipt, ClipboardList, Wallet, Users, ShoppingBag, Wheat } from 'lucide-react'
 
 export const MOBILE_MODULES = [
   {
@@ -49,5 +49,12 @@ export const MOBILE_MODULES = [
     description: 'Today\'s web orders: accept, mark ready, collected; pause and sold out',
     icon: ShoppingBag,
     path: '/mobile/orders',
+  },
+  {
+    key: 'allergens',
+    label: 'Allergens',
+    description: 'Look up a dish\'s allergens, or find dishes free from one',
+    icon: Wheat,
+    path: '/mobile/allergens',
   },
 ]

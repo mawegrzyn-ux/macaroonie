@@ -79,6 +79,7 @@ import Orders          from '@/pages/Orders'
 import OrderingSettings from '@/pages/OrderingSettings'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
+import MobileAllergens from '@/pages/mobile/MobileAllergens'
 import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
 import './index.css'
@@ -214,6 +215,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="cash-up"      element={<MobileCashUp />} />
                 <Route path="wages"        element={<MobileWages />} />
                 <Route path="orders"       element={<MobileOrders />} />
+                <Route path="allergens"    element={<MobileAllergens />} />
               </Route>
             </Routes>
             </TenantGate>

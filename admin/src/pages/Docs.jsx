@@ -1999,6 +1999,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               per-entry <Mono>/paid</Mono> endpoint and the submitted-report lock are gone with wage
               submission (migration 137).
             </P>
+            <H3>Mobile Allergens</H3>
+            <P>
+              <Mono>admin/src/pages/mobile/MobileAllergens.jsx</Mono> (<Mono>/mobile/allergens</Mono>,
+              registry key <Mono>allergens</Mono>) renders <Mono>AllergenLookup</Mono> from{' '}
+              <Mono>components/menus/AllergenMatrix.jsx</Mono> with <Mono>phone</Mono>: menu picker and
+              search in a <Mono>sticky top-0</Mono> bar inside <Mono>MobileShell</Mono>&apos;s scrolling{' '}
+              <Mono>main</Mono>, the tag filter folded behind one button that names the active filters,
+              bottom padding so the Standard view pill doesn&apos;t cover the last rows. Menu choice in
+              localStorage <Mono>maca_allergen_lookup_mobile</Mono>. Read-only, same{' '}
+              <Mono>GET /api/menus/:id/allergens</Mono> as the dashboard widget; no new API.
+            </P>
           </section>
 
           {/* ── H&S ACTION LOG ────────────────────────────── */}
@@ -2773,7 +2784,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (older) tags back on its next save.
             </P>
             <P>
-              Admin: <Mono>pages/MenuAllergenMatrix.jsx</Mono> (<Mono>/menus/allergens</Mono>, nav link
+              Every dish row in <Mono>AllergenLookup</Mono> is a button that expands to the description
+              and each tag by name (one open at a time). Admin: <Mono>pages/MenuAllergenMatrix.jsx</Mono> (<Mono>/menus/allergens</Mono>, nav link
               under Menus, seeded by the migration for existing tenants and by{' '}
               <Mono>defaultNav.js</Mono>) renders <Mono>AllergenMatrixEditor</Mono>;{' '}
               <Mono>AllergenLookup</Mono> is the read-only widget body (search, and a tag filter that

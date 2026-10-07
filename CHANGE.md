@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-07 — Allergen lookup on the Ops phone app]
+
+- Ops app (/mobile): new **Allergens** module. Pick a menu, search a dish, or filter by allergen or diet (contains / free from). The menu and search stay at the top while scrolling.
+- Allergen lookup (phone, H&S dashboard widget, Overview tile): tap a dish to see its description and every tag by name.
+- No database change.
+
+---
+
 ## [2026-10-07 — Allergen matrix and allergen lookup]
 
 - Menus: new **Allergen matrix** page (Menus, Allergen matrix). Pick a menu and search dishes; each dietary or allergen tag has its own column, tap a box to turn a tag on or off for a dish, then Save.
