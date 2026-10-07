@@ -183,6 +183,7 @@ export default function Help() {
                 ['Venues status', 'One card per venue with an active/inactive dot and table count.'],
                 ['H&S checks today', 'Combined Checklists + Food safety status for today. Below the overall badge, every checklist is listed by name (done/not done), plus one line each for fridge/freezer checks, hot/cold hold checks, and cooking checks (only the categories you actually have configured), and a delivery checks line showing how many deliveries were logged that day — grouped by venue if you have more than one. A delivery that failed a check with no corrective action noted turns the day red.'],
                 ['Week\'s H&S status', 'The same status as a Monday-to-Sunday strip for the current week — one coloured cell per day.'],
+                ['Allergen lookup', 'Pick a menu, search a dish, or tap allergen and dietary tags to list dishes that have them or are free from them (see Menus, Allergen matrix).'],
               ]}
             />
             <H3>H&amp;S status colours</H3>
@@ -1414,6 +1415,7 @@ export default function Help() {
                 ['Hot / cold hold checks', 'The Holds grid.'],
                 ['Cooking / reheat checks', 'The till-style cooking checks panel.'],
                 ['Action log', 'The full Action Log list (see below) for one venue.'],
+                ['Allergen lookup', 'Read-only allergen and dietary search over a menu (see Menus, Allergen matrix). The menu picked is remembered on that device for each widget.'],
               ]}
             />
             <P>
@@ -2582,6 +2584,31 @@ export default function Help() {
               colour on paper and in a saved PDF, even with the print dialog's &ldquo;Background
               graphics&rdquo; option off. The cream page background does not print, which saves ink.
             </P>
+            <H3>Allergen matrix</H3>
+            <P>
+              <strong>Menus &rarr; Allergen matrix</strong> shows every dish of one menu as a row and
+              every dietary or allergen tag as a column. Pick the menu at the top and use the search
+              box to find a dish by name. Tap a box to give that dish the tag (the box fills with the
+              tag&apos;s badge); tap it again to take it off. Changed boxes get an amber outline, and
+              nothing is stored until you tap <strong>Save</strong> (it says how many dishes you
+              changed). <strong>Discard</strong> puts everything back. You can&apos;t switch menu while
+              there are unsaved changes.
+            </P>
+            <P>
+              The columns are your dietary tags (Menus &rarr; Dietary tags), so add a tag there for
+              each allergen you want to track, for example the 14 UK allergens. A tag ticked here is
+              the same tag the dish shows on the website, the printed menu and the dietary list.
+              Sections hidden on the website or everywhere still show here, marked as hidden. If the
+              same menu is open in the menu editor, save one before changing the other, or the later
+              save puts back the tags it loaded.
+            </P>
+            <InfoBox type="tip">
+              Add an <strong>Allergen lookup</strong> widget to an H&amp;S dashboard, or the Allergen
+              lookup tile to the Overview, so front-of-house staff can answer allergy questions
+              without editing anything. Tap a tag once to list dishes that have it, twice to list
+              dishes free from it, and a third time to clear it. Sections hidden everywhere are left
+              out of the lookup.
+            </InfoBox>
             <H3>Dietary list</H3>
             <P>
               Tap <strong>Dietary list</strong> next to <strong>Print</strong> (on the menus list or at

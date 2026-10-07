@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS } from '../services/menuSeeds.js'
 import { randomUUID } from 'node:crypto'
@@ -280,6 +280,56 @@ async function loadVariantGroups(tx, tenantId) {
      ORDER BY g.sort_order, g.name
   `
   return groups
+}
+
+const AllergenMatrixBody = z.object({
+  items: z.array(z.object({
+    item_id: z.string().uuid(),
+    tag_ids: z.array(z.string().uuid()).max(100),
+  })).max(2000),
+})
+
+// Allergen matrix: a menu's sections and dishes (names only) with the ids
+// of the dietary tags each dish has, plus every tag of the tenant.
+// Hidden sections are included (marked by visibility) so staff can still
+// answer allergen questions about them.
+export async function loadAllergenMatrix(tx, menuId, tenantId) {
+  const [menu] = await tx`
+    SELECT m.id, m.name, m.updated_at, v.name AS venue_name
+      FROM menus m LEFT JOIN venues v ON v.id = m.venue_id
+     WHERE m.id = ${menuId} AND m.tenant_id = ${tenantId}
+  `
+  if (!menu) return null
+  const [tags, sections, items, links] = await Promise.all([
+    tx`SELECT id, code, label, glyph, colour, sort_order FROM menu_dietary_tags
+        WHERE tenant_id = ${tenantId} ORDER BY sort_order, label`,
+    tx`SELECT id, title, visibility, sort_order FROM menu_sections
+        WHERE menu_id = ${menuId} AND tenant_id = ${tenantId} ORDER BY sort_order, title`,
+    tx`SELECT i.id, i.section_id, i.name, i.native_name, i.description, i.sort_order
+         FROM menu_items i JOIN menu_sections s ON s.id = i.section_id
+        WHERE s.menu_id = ${menuId} AND i.tenant_id = ${tenantId}
+        ORDER BY i.sort_order, i.name`,
+    tx`SELECT mid.item_id, mid.tag_id FROM menu_item_dietary mid
+         JOIN menu_items i ON i.id = mid.item_id
+         JOIN menu_sections s ON s.id = i.section_id
+        WHERE s.menu_id = ${menuId} AND mid.tenant_id = ${tenantId}`,
+  ])
+  const tagsByItem = {}
+  for (const l of links) (tagsByItem[l.item_id] ||= []).push(l.tag_id)
+  const bySection = {}
+  for (const i of items) {
+    (bySection[i.section_id] ||= []).push({
+      id: i.id, name: i.name, native_name: i.native_name, description: i.description,
+      tag_ids: tagsByItem[i.id] || [],
+    })
+  }
+  return {
+    menu,
+    tags,
+    sections: sections.map(s => ({
+      id: s.id, title: s.title, visibility: s.visibility || 'show', items: bySection[s.id] || [],
+    })),
+  }
 }
 
 export async function loadMenuFull(tx, menuId, tenantId) {
@@ -875,6 +925,59 @@ export default async function menusRoutes(app) {
     `)
     if (!row) throw httpError(404, 'Menu not found')
     return { ok: true }
+  })
+
+  // ════════════════════════════════════════════════════════════
+  //   ALLERGEN MATRIX — every dish of a menu against every tag
+  // ════════════════════════════════════════════════════════════
+  //
+  // Read by the Allergen matrix page and the dashboard Allergen lookup.
+  // Saving writes only menu_item_dietary for the dishes sent, so it never
+  // touches the rest of the menu tree (no whole-tree PATCH).
+
+  app.get('/:id/allergens', async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
+    const data = await withTenant(req.tenantId, tx => loadAllergenMatrix(tx, req.params.id, req.tenantId))
+    if (!data) throw httpError(404, 'Menu not found')
+    return data
+  })
+
+  app.put('/:id/allergens', { preHandler: requirePermission('menus', 'manage') }, async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
+    const body = AllergenMatrixBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      const [menu] = await tx`
+        SELECT id FROM menus WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      `
+      if (!menu) throw httpError(404, 'Menu not found')
+      const itemIds = [...new Set(body.items.map(i => i.item_id))]
+      const owned = itemIds.length ? await tx`
+        SELECT i.id FROM menu_items i
+          JOIN menu_sections s ON s.id = i.section_id
+         WHERE s.menu_id = ${menu.id} AND i.tenant_id = ${req.tenantId}
+           AND i.id = ANY(${itemIds}::uuid[])
+      ` : []
+      if (owned.length !== itemIds.length) throw httpError(422, 'Some dishes are not on this menu any more. Reload and try again.')
+      const tagRows = await tx`SELECT id FROM menu_dietary_tags WHERE tenant_id = ${req.tenantId}`
+      const tagIds = new Set(tagRows.map(t => t.id))
+      if (itemIds.length) {
+        await tx`
+          DELETE FROM menu_item_dietary
+           WHERE tenant_id = ${req.tenantId} AND item_id = ANY(${itemIds}::uuid[])
+        `
+        const rows = []
+        for (const it of body.items) {
+          for (const tagId of new Set(it.tag_ids)) {
+            if (tagIds.has(tagId)) rows.push({ item_id: it.item_id, tag_id: tagId, tenant_id: req.tenantId })
+          }
+        }
+        if (rows.length) {
+          await tx`INSERT INTO menu_item_dietary ${tx(rows, 'item_id', 'tag_id', 'tenant_id')} ON CONFLICT DO NOTHING`
+        }
+        await tx`UPDATE menus SET updated_at = now() WHERE id = ${menu.id}`
+      }
+      return loadAllergenMatrix(tx, menu.id, req.tenantId)
+    })
   })
 
   // ════════════════════════════════════════════════════════════

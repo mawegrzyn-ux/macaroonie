@@ -58,7 +58,7 @@ export function DietaryTagsManager() {
   )
 }
 
-function TagChip({ tag, size = 'w-7 h-7' }) {
+export function TagChip({ tag, size = 'w-7 h-7' }) {
   return (
     <span className={`inline-flex items-center justify-center text-xs font-bold rounded shrink-0 px-1 ${size}`}
       style={{ background: tag.colour, color: '#fff', minWidth: '1.75rem' }}>{tag.glyph || '?'}</span>

@@ -369,6 +369,7 @@ function MenuEditor({ id, onBack }) {
     onSuccess: (m) => {
       qc.setQueryData(['menu', id], m)
       qc.invalidateQueries({ queryKey: ['menus'] })
+      qc.invalidateQueries({ queryKey: ['allergen-matrix', id] })
     },
   })
 

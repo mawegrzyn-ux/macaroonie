@@ -23,7 +23,7 @@ import { format, addDays, subDays, parseISO } from 'date-fns'
 import {
   Plus, Minus, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
   Pencil, Trash2, Check, ListChecks, Thermometer, Truck, Flame, ChefHat, LayoutGrid,
-  Maximize2, Minimize2, ClipboardCheck,
+  Maximize2, Minimize2, ClipboardCheck, Grid3x3,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -35,6 +35,7 @@ import {
 } from '@/components/foodSafety/shared'
 import { HSActionLogPanel } from '@/components/hsActionLog/shared'
 import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
+import { AllergenLookup } from '@/components/menus/AllergenMatrix'
 
 // Single source of truth for widget-type metadata — drives both the
 // "Add widget" type picker and the WidgetCard header/icon/default title.
@@ -45,6 +46,7 @@ const WIDGET_TYPES = [
   { key: 'hold_checks',     label: 'Hot / cold hold checks', icon: Flame,       defaultTitle: 'Hot / cold hold checks' },
   { key: 'cooking_checks',  label: 'Cooking / reheat checks',icon: ChefHat,     defaultTitle: 'Cooking / reheat checks' },
   { key: 'action_log',      label: 'Action log',             icon: ClipboardCheck, defaultTitle: 'Action log' },
+  { key: 'allergen_lookup', label: 'Allergen lookup',        icon: Grid3x3,     defaultTitle: 'Allergen lookup' },
 ]
 export const WIDGET_TYPE_BY_KEY = Object.fromEntries(WIDGET_TYPES.map(w => [w.key, w]))
 export const HS_WIDGET_TYPES = WIDGET_TYPES
@@ -402,6 +404,7 @@ function renderHsWidget({ widget, venueId, ctx, template, onChecklistState }) {
     case 'hold_checks':     return <HoldChecksTable venueId={venueId} date={date} />
     case 'cooking_checks':  return <CookingChecksPanel venueId={venueId} date={date} />
     case 'action_log':      return <HSActionLogPanel venueId={venueId} />
+    case 'allergen_lookup': return <AllergenLookup storeKey={`maca_allergen_lookup_${widget.id}`} />
     default:                return null
   }
 }

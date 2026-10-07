@@ -51,6 +51,7 @@ import Reviews        from '@/pages/Reviews'
 import Menus          from '@/pages/Menus'
 import MenuVariantGroups from '@/pages/MenuVariantGroups'
 import MenuDietaryTags from '@/pages/MenuDietaryTags'
+import MenuAllergenMatrix from '@/pages/MenuAllergenMatrix'
 import MenuDesigner from '@/pages/MenuDesigner'
 import Team           from '@/pages/Team'
 import Access         from '@/pages/Access'
@@ -184,6 +185,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="menus"            element={<Menus />} />
                 <Route path="menus/variant-groups" element={<MenuVariantGroups />} />
                 <Route path="menus/dietary-tags"    element={<MenuDietaryTags />} />
+                <Route path="menus/allergens"       element={<MenuAllergenMatrix />} />
                 <Route path="menus/:id/design"      element={<MenuDesigner />} />
                 <Route path="widget-test" element={<WidgetTest />} />
                 <Route path="test-data"   element={<TestData />} />
