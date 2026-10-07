@@ -26,6 +26,7 @@ import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
 import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
 import { TitleRename } from '@/components/dashboards/TitleRename'
+import { AllergenLookup } from '@/components/menus/AllergenMatrix'
 
 function resolveIcon(name) {
   return LucideIcons[name] || LucideIcons.Circle
@@ -42,6 +43,7 @@ const TILE_META = {
   venues_status:     { label: 'Venues status',          icon: 'Building2',    default_col_span: 2, default_height_px: 280 },
   hs_today_status:   { label: 'H&S checks today',       icon: 'ShieldCheck',  default_col_span: 2, default_height_px: 240 },
   hs_week_status:    { label: "Week's H&S status",      icon: 'CalendarCheck', default_col_span: 2, default_height_px: 240 },
+  allergen_lookup:   { label: 'Allergen lookup',        icon: 'Grid3x3',      default_col_span: 2, default_height_px: 480 },
 }
 
 // ── Shortcut registry ─────────────────────────────────────────────────────────
@@ -657,6 +659,7 @@ export default function Dashboard() {
       case 'venues_status':     return <VenuesStatusBody venues={venues} />
       case 'hs_today_status':   return <HsTodayStatusBody api={api} />
       case 'hs_week_status':    return <HsWeekStatusBody api={api} />
+      case 'allergen_lookup':   return <AllergenLookup storeKey="maca_allergen_lookup_overview" />
       default:                  return null
     }
   }

@@ -2195,6 +2195,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['venues_status', 'One row per venue from GET /api/venues.'],
                 ['hs_today_status', "Combined Checklists + Food safety status for today, from GET /api/dashboard-tiles/hs-status."],
                 ['hs_week_status', 'Same endpoint, Monday-to-Sunday range for the current week.'],
+                ['allergen_lookup', 'AllergenLookup from components/menus/AllergenMatrix.jsx over GET /api/menus/:id/allergens (migration 141). Menu choice in localStorage maca_allergen_lookup_overview.'],
               ]}
             />
             <H3>API — /api/dashboard-tiles</H3>
@@ -2754,6 +2755,37 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the page, since the screen layout then differs from print. Tested by rendering the
               template in headless Chromium and counting PDF pages: fitting designed pages give
               exactly one sheet each.
+            </P>
+            <H3>Allergen matrix (migration 141)</H3>
+            <P>
+              No new data tables: the matrix edits <Mono>menu_item_dietary</Mono> (dish to tag links)
+              against the tenant&apos;s <Mono>menu_dietary_tags</Mono>. <Mono>GET /api/menus/:id/allergens</Mono>{' '}
+              (any signed-in user) returns{' '}
+              <Mono>{'{ menu: { id, name, venue_name }, tags, sections: [{ id, title, visibility, items: [{ id, name, native_name, description, tag_ids }] }] }'}</Mono>{' '}
+              from <Mono>loadAllergenMatrix()</Mono> in <Mono>routes/menus.js</Mono>, every section
+              included. <Mono>PUT /api/menus/:id/allergens</Mono>{' '}
+              (<Mono>requirePermission(&apos;menus&apos;, &apos;manage&apos;)</Mono>) takes{' '}
+              <Mono>{'{ items: [{ item_id, tag_ids }] }'}</Mono> for the changed dishes only: 422 if any
+              dish isn&apos;t on that menu, tag ids not belonging to the tenant are dropped, then each
+              sent dish&apos;s links are replaced and <Mono>menus.updated_at</Mono> bumped. It never
+              goes through the whole-tree <Mono>PATCH /:id</Mono>, so it can&apos;t disturb sections,
+              prices or designs; but a menu editor draft loaded before the save will write its own
+              (older) tags back on its next save.
+            </P>
+            <P>
+              Admin: <Mono>pages/MenuAllergenMatrix.jsx</Mono> (<Mono>/menus/allergens</Mono>, nav link
+              under Menus, seeded by the migration for existing tenants and by{' '}
+              <Mono>defaultNav.js</Mono>) renders <Mono>AllergenMatrixEditor</Mono>;{' '}
+              <Mono>AllergenLookup</Mono> is the read-only widget body (search, and a tag filter that
+              cycles any / contains / free from; sections with <Mono>visibility = &apos;hidden&apos;</Mono>{' '}
+              left out). Both live in <Mono>components/menus/AllergenMatrix.jsx</Mono> and share{' '}
+              <Mono>useMenuChoice()</Mono> (menu choice in localStorage) and{' '}
+              <Mono>useAllergenMatrix()</Mono> (query key <Mono>['allergen-matrix', menuId]</Mono>).
+              Migration 141 adds <Mono>allergen_lookup</Mono> to the{' '}
+              <Mono>hs_dashboard_widgets.widget_type</Mono> CHECK (H&amp;S kind only,{' '}
+              <Mono>WIDGET_TYPES_BY_KIND.hs</Mono>; the widget remembers its menu as{' '}
+              <Mono>maca_allergen_lookup_&lt;widgetId&gt;</Mono>) and to the{' '}
+              <Mono>dashboard_tiles.tile_type</Mono> CHECK (<Mono>TILE_CATALOG</Mono>).
             </P>
             <H3>Menu designer (menu_print_designs)</H3>
             <P>

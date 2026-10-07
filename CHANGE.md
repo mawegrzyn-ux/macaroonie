@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-07 — Allergen matrix and allergen lookup]
+
+- Menus: new **Allergen matrix** page (Menus, Allergen matrix). Pick a menu and search dishes; each dietary or allergen tag has its own column, tap a box to turn a tag on or off for a dish, then Save.
+- Dashboards: **Allergen lookup** widget for H&S dashboards and an Allergen lookup tile for the Overview. Read-only: pick a menu, search a dish, or tap tags to list dishes that contain them or are free from them.
+- Migration 141: adds the new widget and tile types and the nav link for existing tenants.
+
+---
+
 ## [2026-10-07 — Menu dietary list print]
 
 - Menus: **Dietary list** next to Print opens a sheet listing each dish with its dietary tags as icons, grouped by section, with a key of the icons used. **Choose dishes** lets you untick dishes to leave them out; the choice is remembered on that device. No database change.

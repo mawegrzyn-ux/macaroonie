@@ -25,6 +25,7 @@ import {
   TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
 } from '@/components/foodSafety/shared'
 import { HSActionLogPanel } from '@/components/hsActionLog/shared'
+import { AllergenLookup } from '@/components/menus/AllergenMatrix'
 import { DashboardModal, AddWidgetModal, WIDGET_TYPE_BY_KEY } from '@/pages/HSDashboard'
 import { ClosedDayNotice } from '@/components/hs/HsSettings'
 
@@ -116,6 +117,7 @@ function MobileWidgetCard({ widget, venueId, date, editing, onRemove, onMoveUp, 
         {widget.widget_type === 'hold_checks' && <HoldChecksTable venueId={venueId} date={date} />}
         {widget.widget_type === 'cooking_checks' && <CookingChecksPanel venueId={venueId} date={date} />}
         {widget.widget_type === 'action_log' && <HSActionLogPanel venueId={venueId} />}
+        {widget.widget_type === 'allergen_lookup' && <AllergenLookup storeKey={`maca_allergen_lookup_${widget.id}`} />}
       </div>
     </div>
   )

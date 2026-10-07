@@ -27,6 +27,7 @@ export const TILE_CATALOG = [
   { tile_type: 'venues_status',     label: 'Venues status',          icon: 'Building2',      default_col_span: 2, default_height_px: 280 },
   { tile_type: 'hs_today_status',   label: 'H&S checks today',       icon: 'ShieldCheck',    default_col_span: 2, default_height_px: 240 },
   { tile_type: 'hs_week_status',    label: "Week's H&S status",      icon: 'CalendarCheck',  default_col_span: 2, default_height_px: 240 },
+  { tile_type: 'allergen_lookup',   label: 'Allergen lookup',        icon: 'Grid3x3',        default_col_span: 2, default_height_px: 480 },
 ]
 const TILE_TYPES = TILE_CATALOG.map(t => t.tile_type)
 
