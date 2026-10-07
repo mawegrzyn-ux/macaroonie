@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, X, Loader2, Check, EyeOff, AlertTriangle } from 'lucide-react'
+import { Search, X, Loader2, Check, EyeOff, AlertTriangle, ChevronDown, SlidersHorizontal } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { TagChip } from './DietaryTagsManager'
@@ -265,18 +265,22 @@ function SectionRows({ section, tags, tagsOf, savedTags, draft, onToggle, canEdi
   )
 }
 
-// ── Lookup (dashboard widget / Overview tile) ──────────────────
+// ── Lookup (dashboard widget / Overview tile / /mobile/allergens) ──
 
 // Tag filter states: tap cycles off -> contains -> free from -> off.
 const NEXT_MODE = { undefined: 'has', has: 'not', not: undefined }
 
-export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu' }) {
+// `phone` (the /mobile page): menu + search stick to the top while the
+// list scrolls, and the tag filter folds away behind one button.
+export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone = false }) {
   const { menus, menuId, setMenuId, isLoading: menusLoading } = useMenuChoice(storeKey)
   const { data, isLoading } = useAllergenMatrix(menuId)
   const [search, setSearch] = useState('')
   const [modes, setModes] = useState({})   // tag id -> 'has' | 'not'
+  const [openId, setOpenId] = useState(null)   // dish shown with full tag names
+  const [showTags, setShowTags] = useState(!phone)
 
-  useEffect(() => { setModes({}) }, [menuId])
+  useEffect(() => { setModes({}); setOpenId(null) }, [menuId])
 
   const tags = data?.tags || []
   const tagById = useMemo(() => Object.fromEntries(tags.map(t => [t.id, t])), [tags])
@@ -314,14 +318,33 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu' }) {
     return <p className="text-sm text-muted-foreground p-4 text-center">No menus yet.</p>
   }
 
-  return (
-    <div className="p-3 space-y-2">
-      <div className="flex flex-wrap gap-2">
-        <MenuSelect menus={menus} value={menuId} onChange={setMenuId} className="flex-1 min-w-[9rem]" />
-        <SearchBox value={search} onChange={setSearch} className="flex-[2] min-w-[10rem]" />
-      </div>
+  const controls = (
+    <div className="flex flex-wrap gap-2">
+      <MenuSelect menus={menus} value={menuId} onChange={setMenuId} className="flex-1 min-w-[9rem]" />
+      <SearchBox value={search} onChange={setSearch} className="flex-[2] min-w-[10rem]" />
+      {phone && tags.length > 0 && (
+        <button type="button" onClick={() => setShowTags(v => !v)} aria-expanded={showTags}
+          className={cn('w-full inline-flex items-center gap-2 px-3 min-h-[44px] rounded-md border text-sm touch-manipulation',
+            active.length > 0 && 'border-foreground font-medium')}>
+          <SlidersHorizontal className="w-4 h-4" />
+          <span className="flex-1 min-w-0 text-left truncate">
+            {active.length
+              ? active.map(([id, m]) => `${m === 'has' ? 'Has' : 'Free from'} ${tagById[id]?.label ?? ''}`).join(' · ')
+              : 'Filter by allergen or diet'}
+          </span>
+          <ChevronDown className={cn('w-4 h-4 transition-transform', showTags && 'rotate-180')} />
+        </button>
+      )}
+    </div>
+  )
 
-      {tags.length > 0 && (
+  return (
+    <div className={cn('space-y-2', phone ? 'px-3 pb-24' : 'p-3')}>
+      {phone
+        ? <div className="sticky top-0 z-10 bg-background -mx-3 px-3 pt-3 pb-2 border-b">{controls}</div>
+        : controls}
+
+      {tags.length > 0 && showTags && (
         <div>
           <div className="flex flex-wrap gap-1.5">
             {tags.map(t => {
@@ -358,27 +381,50 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu' }) {
             {sections.map(s => (
               <div key={s.id}>
                 <div className="px-2.5 py-1 bg-muted/50 text-[11px] font-semibold uppercase tracking-wide">{s.title}</div>
-                {s.items.map(i => (
-                  <div key={i.id} className="flex items-start gap-2 px-2.5 py-2 border-t first:border-t-0">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium leading-snug">{i.name}</div>
-                      {i.native_name && <div className="text-xs text-muted-foreground">{i.native_name}</div>}
+                {s.items.map(i => {
+                  const itemTags = i.tag_ids.map(id => tagById[id]).filter(Boolean)
+                    .sort((a, b) => (a.sort_order - b.sort_order) || a.label.localeCompare(b.label))
+                  const open = openId === i.id
+                  return (
+                    <div key={i.id} className={cn('border-t first:border-t-0', open && 'bg-muted/30')}>
+                      <button type="button" onClick={() => setOpenId(open ? null : i.id)} aria-expanded={open}
+                        className="w-full flex items-start gap-2 px-2.5 py-2 text-left min-h-[48px] touch-manipulation">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium leading-snug">{i.name}</div>
+                          {i.native_name && <div className="text-xs text-muted-foreground">{i.native_name}</div>}
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-1 max-w-[60%]">
+                          {itemTags.map(t => (
+                            <span key={t.id} title={t.label}
+                              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-white"
+                              style={{ background: t.colour }}>
+                              <span className="font-bold">{t.glyph}</span>
+                              {!phone && <span className="hidden sm:inline">{t.label}</span>}
+                            </span>
+                          ))}
+                          {itemTags.length === 0 && <span className="text-[11px] text-muted-foreground">No tags</span>}
+                        </div>
+                      </button>
+                      {open && (
+                        <div className="px-2.5 pb-3 space-y-2 text-sm">
+                          {i.description && <p className="text-muted-foreground">{i.description}</p>}
+                          {itemTags.length ? (
+                            <ul className="space-y-1">
+                              {itemTags.map(t => (
+                                <li key={t.id} className="flex items-center gap-2">
+                                  <TagChip tag={t} size="w-6 h-6" />
+                                  <span>{t.label}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-muted-foreground">No allergen or dietary tags recorded for this dish.</p>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex flex-wrap justify-end gap-1 max-w-[60%]">
-                      {i.tag_ids.map(id => tagById[id]).filter(Boolean)
-                        .sort((a, b) => (a.sort_order - b.sort_order) || a.label.localeCompare(b.label))
-                        .map(t => (
-                          <span key={t.id} title={t.label}
-                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-white"
-                            style={{ background: t.colour }}>
-                            <span className="font-bold">{t.glyph}</span>
-                            <span className="hidden sm:inline">{t.label}</span>
-                          </span>
-                        ))}
-                      {i.tag_ids.length === 0 && <span className="text-[11px] text-muted-foreground">No tags</span>}
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             ))}
             {sections.length === 0 && (
