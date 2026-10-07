@@ -1,0 +1,229 @@
+<%
+/* Dietary list print (GET /api/menus/:id/print?view=dietary): every dish in
+   one column and its dietary tags, as icons only, in the second. Grouped by
+   section. A key under the list says what each icon used here means.
+   Always portrait; the menu's paper size (A4 / A3) is kept. The list flows
+   onto as many sheets as it needs, with the column headings repeated.
+   "Choose dishes" (screen only) ticks dishes on and off; only ticked dishes
+   print, and the key lists only icons on them. The dishes left out are
+   remembered per menu in this browser (localStorage), so a dish added to
+   the menu later is in the list until someone unticks it. */
+const m = it.menu
+const tags = m.dietary_tags || []
+const tagsByCode = Object.fromEntries(tags.map(t => [t.code, t]))
+const sections = (m.sections || []).filter(s => (s.items || []).length)
+const tenantName = m.tenant_name || ''
+const paperSize = m.print_paper_size === 'A3' ? 'A3' : 'A4'
+const sheetWidthMm = paperSize === 'A3' ? 297 : 210
+const usedCodes = new Set()
+sections.forEach(function (s) {
+  (s.items || []).forEach(function (item) {
+    (item.dietary || []).forEach(function (c) { if (tagsByCode[c]) usedCodes.add(c) })
+  })
+})
+const keyTags = tags.filter(t => usedCodes.has(t.code))
+const dishCount = sections.reduce(function (n, s) { return n + s.items.length }, 0)
+%><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title><%= m.name %> — dietary list</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --plum: <%= m.primary_colour || '#630812' %>;
+      --line: rgba(0, 0, 0, 0.12);
+      --ink: #2a1c1a;
+      --muted: #7a6b62;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: #f0ece5; color: var(--ink); font-family: 'Inter', sans-serif; line-height: 1.4; -webkit-font-smoothing: antialiased; }
+    .print-bar {
+      position: sticky; top: 0; z-index: 50;
+      background: var(--plum); color: #f5efe6;
+      padding: 10px 24px; font-size: 13px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .print-bar button {
+      background: #f5efe6; color: var(--plum); border: none; padding: 8px 18px; border-radius: 4px;
+      font-weight: 600; cursor: pointer; font-family: inherit; font-size: 13px;
+    }
+    .sheet {
+      width: <%= sheetWidthMm %>mm; max-width: 100%;
+      margin: 16px auto; padding: 14mm 14mm 12mm;
+      background: #fff; box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+    }
+    .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 6mm; border-bottom: 2px solid var(--plum); padding-bottom: 3mm; margin-bottom: 4mm; }
+    .head h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 22px; color: var(--plum); line-height: 1.15; }
+    .head .sub { font-size: 12px; color: var(--muted); margin-top: 1mm; }
+    .head .right { text-align: right; font-size: 11px; color: var(--muted); }
+    .head .right strong { color: var(--ink); font-size: 12px; }
+
+    table.dl { width: 100%; border-collapse: collapse; }
+    table.dl thead { display: table-header-group; }
+    table.dl th { text-align: left; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 1.5mm 2mm; border-bottom: 1px solid var(--line); }
+    table.dl th.tags-col, table.dl td.tags { width: 42%; }
+    table.dl td { padding: 1.6mm 2mm; border-bottom: 1px solid var(--line); vertical-align: middle; font-size: 12.5px; }
+    table.dl tr { break-inside: avoid; page-break-inside: avoid; }
+    table.dl tr.section td { padding-top: 4mm; border-bottom: 1.5px solid var(--plum); font-family: 'Fraunces', serif; font-weight: 600; font-size: 14px; color: var(--plum); }
+    table.dl tr.section { break-after: avoid; page-break-after: avoid; }
+    .name { font-weight: 500; }
+    .native { font-weight: 400; color: var(--muted); font-size: 11px; margin-left: 4px; }
+    .icons { display: flex; flex-wrap: wrap; gap: 4px; }
+    .tag-chip {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 20px; height: 20px; padding: 0 5px; border-radius: 4px;
+      color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .none { color: #c8beb6; }
+    .key { margin-top: 6mm; padding-top: 3mm; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 2mm 5mm; font-size: 11px; color: var(--muted); break-inside: avoid; page-break-inside: avoid; }
+    .key .pair { display: inline-flex; align-items: center; gap: 5px; }
+    .empty { padding: 10mm 0; text-align: center; color: var(--muted); font-size: 13px; }
+    .print-bar .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .print-bar button.ghost { background: transparent; color: #f5efe6; border: 1px solid rgba(245,239,230,0.6); }
+    .print-bar button[hidden] { display: none; }
+    .pick { display: none; width: 22px; height: 22px; margin-right: 8px; vertical-align: middle; accent-color: var(--plum); cursor: pointer; }
+    body.picking .pick { display: inline-block; }
+    body.picking tr.dish { cursor: pointer; }
+    body.picking tr.dish.off td { opacity: 0.4; }
+    tr.dish.off, tr.section.off, .key .pair.off { display: none; }
+    body.picking tr.dish.off, body.picking tr.section.off { display: table-row; }
+    .pick-note { display: none; font-size: 12px; color: var(--muted); background: #f7f3ee; border: 1px solid var(--line); border-radius: 4px; padding: 2mm 3mm; margin-bottom: 3mm; }
+    body.picking .pick-note { display: block; }
+
+    @page { size: <%= paperSize %> portrait; margin: 10mm; }
+    @media print {
+      html, body { background: #fff; }
+      .print-bar, .pick, .pick-note { display: none !important; }
+      body.picking tr.dish.off, body.picking tr.section.off { display: none; }
+      body.picking tr.dish.off td { opacity: 1; }
+      /* Own padding too: Chrome's Margins Minimum / None replaces @page margin. */
+      .sheet { width: auto; margin: 0; padding: 3mm; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="print-bar">
+    <span><%= m.name %> — dietary list · <span id="dl-count"><%= dishCount %> dish<%= dishCount === 1 ? '' : 'es' %></span></span>
+    <span class="actions">
+      <% if (dishCount) { %>
+      <button type="button" class="ghost" id="dl-all" hidden>Tick all</button>
+      <button type="button" class="ghost" id="dl-none" hidden>Untick all</button>
+      <button type="button" class="ghost" id="dl-pick">Choose dishes</button>
+      <% } %>
+      <button type="button" onclick="window.print()">Save as PDF / Print</button>
+    </span>
+  </div>
+  <div class="sheet">
+    <div class="head">
+      <div>
+        <h1><%= m.name %></h1>
+        <div class="sub">Dietary information</div>
+      </div>
+      <% if (tenantName) { %><div class="right"><strong><%= tenantName %></strong></div><% } %>
+    </div>
+
+    <% if (!sections.length) { %>
+      <div class="empty">This menu has no dishes yet.</div>
+    <% } else { %>
+    <div class="pick-note">Tick the dishes to include. Unticked dishes are left out of the printed list. Your choice is remembered on this device.</div>
+    <table class="dl">
+      <thead>
+        <tr><th>Dish</th><th class="tags-col">Dietary</th></tr>
+      </thead>
+      <tbody>
+        <% sections.forEach(function (s) { %>
+          <tr class="section"><td colspan="2"><%= s.title %></td></tr>
+          <% s.items.forEach(function (item) { %>
+            <% const _tags = (item.dietary || []).map(function (c) { return tagsByCode[c] }).filter(Boolean) %>
+            <% const _codes = _tags.map(function (t) { return t.code }).join(' ') %>
+            <tr class="dish" data-id="<%= item.id %>" data-tags="<%= _codes %>">
+              <td><input type="checkbox" class="pick" checked aria-label="Include <%= item.name %>" /><span class="name"><%= item.name %></span><% if (item.native_name) { %><span class="native"><%= item.native_name %></span><% } %></td>
+              <td class="tags">
+                <% if (_tags.length) { %>
+                  <span class="icons">
+                    <% _tags.forEach(function (tag) { %>
+                      <span class="tag-chip" style="background: <%= tag.colour %>;" title="<%= tag.label %>" aria-label="<%= tag.label %>"><%= tag.glyph %></span>
+                    <% }) %>
+                  </span>
+                <% } else { %>
+                  <span class="none" aria-label="None">&ndash;</span>
+                <% } %>
+              </td>
+            </tr>
+          <% }) %>
+        <% }) %>
+      </tbody>
+    </table>
+    <% } %>
+
+    <% if (keyTags.length) { %>
+      <div class="key">
+        <% keyTags.forEach(function (tag) { %>
+          <span class="pair" data-tag="<%= tag.code %>"><span class="tag-chip" style="background: <%= tag.colour %>;"><%= tag.glyph %></span><%= tag.label %></span>
+        <% }) %>
+      </div>
+    <% } %>
+  </div>
+  <script>
+  (function () {
+    var KEY = 'maca_dietary_skip_<%= m.id %>';
+    var total = <%= dishCount %>;
+    var skip = {};
+    try { (JSON.parse(localStorage.getItem(KEY) || '[]') || []).forEach(function (id) { skip[id] = true }) } catch (e) {}
+    var rows = Array.prototype.slice.call(document.querySelectorAll('tr.dish'));
+    var pickBtn = document.getElementById('dl-pick');
+    var allBtn = document.getElementById('dl-all');
+    var noneBtn = document.getElementById('dl-none');
+    var picking = false;
+    function save() {
+      try { localStorage.setItem(KEY, JSON.stringify(Object.keys(skip))) } catch (e) {}
+    }
+    function apply() {
+      var shown = 0, usedTags = {};
+      rows.forEach(function (r) {
+        var off = !!skip[r.dataset.id];
+        r.classList.toggle('off', off);
+        r.querySelector('.pick').checked = !off;
+        if (!off) {
+          shown++;
+          (r.dataset.tags || '').split(' ').forEach(function (c) { if (c) usedTags[c] = true });
+        }
+      });
+      /* A section heading goes when none of its dishes are left. */
+      Array.prototype.forEach.call(document.querySelectorAll('tr.section'), function (sec) {
+        var any = false, n = sec.nextElementSibling;
+        while (n && n.classList.contains('dish')) { if (!n.classList.contains('off')) any = true; n = n.nextElementSibling }
+        sec.classList.toggle('off', !any);
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.key .pair'), function (p) {
+        p.classList.toggle('off', !usedTags[p.dataset.tag]);
+      });
+      var c = document.getElementById('dl-count');
+      if (c) c.textContent = (shown === total ? total : shown + ' of ' + total) + ' dish' + (total === 1 ? '' : 'es');
+    }
+    function setPicking(on) {
+      picking = on;
+      document.body.classList.toggle('picking', on);
+      if (pickBtn) pickBtn.textContent = on ? 'Done' : 'Choose dishes';
+      if (allBtn) allBtn.hidden = !on;
+      if (noneBtn) noneBtn.hidden = !on;
+    }
+    rows.forEach(function (r) {
+      r.addEventListener('click', function (e) {
+        if (!picking) return;
+        if (skip[r.dataset.id]) delete skip[r.dataset.id]; else skip[r.dataset.id] = true;
+        save(); apply();
+      });
+    });
+    if (pickBtn) pickBtn.addEventListener('click', function () { setPicking(!picking) });
+    if (allBtn) allBtn.addEventListener('click', function () { skip = {}; save(); apply() });
+    if (noneBtn) noneBtn.addEventListener('click', function () { rows.forEach(function (r) { skip[r.dataset.id] = true }); save(); apply() });
+    apply();
+  })();
+  </script>
+</body>
+</html>

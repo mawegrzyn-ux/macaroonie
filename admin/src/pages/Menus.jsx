@@ -21,7 +21,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Trash2, Loader2, X, ChevronDown, ChevronRight,
   Sparkles, Printer, Image as ImageIcon, Layers, GripVertical, Copy,
-  Settings as SettingsIcon, LayoutTemplate,
+  Settings as SettingsIcon, LayoutTemplate, Leaf,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors,
@@ -157,6 +157,11 @@ function MenuList({ onEdit }) {
                     <a href={liveUrl} target="_blank" rel="noopener"
                       className="text-xs inline-flex items-center gap-1 text-muted-foreground hover:text-foreground px-2 py-1.5">
                       <Printer className="w-3.5 h-3.5" /> Print
+                    </a>
+                    <a href={`${liveUrl}?view=dietary`} target="_blank" rel="noopener"
+                      title="Print a list of dishes with their dietary icons"
+                      className="text-xs inline-flex items-center gap-1 text-muted-foreground hover:text-foreground px-2 py-1.5">
+                      <Leaf className="w-3.5 h-3.5" /> Dietary list
                     </a>
                     <button onClick={() => onEdit(m.id)}
                       className="text-xs text-primary hover:underline px-2 py-1.5">Edit</button>
@@ -445,15 +450,28 @@ function MenuEditor({ id, onBack }) {
             </button>
           )}
           {dirty ? (
-            <span title="Save your changes first — the print page shows what's saved, not this draft."
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 cursor-not-allowed select-none">
-              <Printer className="w-3.5 h-3.5" /> Print
-            </span>
+            <>
+              <span title="Save your changes first — the print page shows what's saved, not this draft."
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 cursor-not-allowed select-none">
+                <Printer className="w-3.5 h-3.5" /> Print
+              </span>
+              <span title="Save your changes first — the dietary list shows what's saved, not this draft."
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 cursor-not-allowed select-none">
+                <Leaf className="w-3.5 h-3.5" /> Dietary list
+              </span>
+            </>
           ) : (
-            <a href={printUrl} target="_blank" rel="noopener"
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2">
-              <Printer className="w-3.5 h-3.5" /> Print
-            </a>
+            <>
+              <a href={printUrl} target="_blank" rel="noopener"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2">
+                <Printer className="w-3.5 h-3.5" /> Print
+              </a>
+              <a href={`${printUrl}?view=dietary`} target="_blank" rel="noopener"
+                title="Print a list of dishes with their dietary icons"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2">
+                <Leaf className="w-3.5 h-3.5" /> Dietary list
+              </a>
+            </>
           )}
           <Btn disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
             {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}

@@ -559,6 +559,14 @@ export default async function menusRoutes(app) {
 
     reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
 
+    // ?view=dietary: dish names and their dietary tags (icons only) as a
+    // two-column list, whatever print design the menu uses.
+    if (req.query?.view === 'dietary') {
+      return reply.view('menu_print_dietary.eta', {
+        menu: { ...menu, sections: (menu.sections || []).filter(s => s.visibility !== 'hidden') },
+      })
+    }
+
     // A print design (menu designer) replaces the automatic layout: the one
     // picked with ?design=<id>, else the menu's chosen one
     // (menus.print_design_id). ?auto=1 shows the automatic layout.
