@@ -1752,7 +1752,7 @@ export default function Help() {
             </P>
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
-              over time — it's a home screen of tiles, one per available mobile module.
+              over time — it's a home screen of tiles, two to a row, one per available mobile module.
               <strong> Expenses</strong> is the second one: it shows a whole week (Monday to
               Sunday) of petty cash expenses, with the week's cash, card and VAT totals at the top.
               Use the arrows to move a week back or forward, tap the week to jump to any date, or

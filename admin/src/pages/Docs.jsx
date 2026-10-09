@@ -1783,7 +1783,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>admin/src/mobile/registry.js</Mono> exports <Mono>MOBILE_MODULES</Mono> — the
               same "one array drives a picker" pattern as <Mono>modules.js</Mono> /{' '}
               <Mono>defaultNav.js</Mono>. <Mono>MobileHub.jsx</Mono> (the <Mono>/mobile</Mono>{' '}
-              index route) renders one tile per entry. Shipping a new mobile-optimised page is:
+              index route) renders one tile per entry, in a two-column grid. Shipping a new mobile-optimised page is:
               add an entry here, add the route in <Mono>main.jsx</Mono>, build the page — no
               changes to the shell or hub.
             </P>

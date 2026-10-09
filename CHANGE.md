@@ -11,6 +11,7 @@ Migrations are listed where a database change is required.
 - Phone wages: Bank transfer and Paid on for all are hidden, Pay everyone in full is a solid button, each person has a bold header. Typing a paid amount or Full sets Paid on to today (this week).
 - Phone H&S Dashboard: logging only (no layout editing); the dashboard tabs sit in a framed strip with arrows to scroll.
 - The Ops app no longer shows the Standard view button.
+- Ops app home: module buttons two per row.
 - No database change.
 
 ---
