@@ -4,14 +4,18 @@
 
 @layer base {
   :root {
+    /* --page is the canvas behind every page; --background is the surface
+       of cards, panels, sidebars and modals. The step between the two (plus
+       --border) is what keeps a card from blending into the page. */
+    --page:               220 16% 95%;
     --background:         0 0% 100%;
     --foreground:         224 14% 10%;
-    --border:             220 13% 91%;
+    --border:             220 13% 86%;
     --primary:            353 85% 21%;
     --primary-foreground: 0 0% 100%;
-    --muted:              220 14% 96%;
-    --muted-foreground:   220 9% 46%;
-    --accent:             220 14% 96%;
+    --muted:              220 14% 94%;
+    --muted-foreground:   220 9% 40%;
+    --accent:             220 14% 92%;
     --accent-foreground:  224 14% 10%;
     --destructive:        0 84% 60%;
     --destructive-foreground: 0 0% 100%;
@@ -24,7 +28,29 @@
   }
 
   * { border-color: hsl(var(--border)); }
-  body { background: hsl(var(--background)); color: hsl(var(--foreground)); }
+  body { background: hsl(var(--page)); color: hsl(var(--foreground)); }
+}
+
+@layer components {
+  /* A bordered element with no background of its own (a list, a table
+     frame, an input, an outlined button) is a surface: white on the grey
+     page. Specificity is one class, so it beats Tailwind's preflight on
+     buttons (it comes later) and loses to every bg-* utility (utilities
+     come later still) and to hover:/disabled: variants (two classes). An
+     element that must stay see-through over a coloured parent sets
+     bg-transparent. */
+  .border:where(:not([class*=" bg-"]):not([class^="bg-"])) {
+    background-color: hsl(var(--background));
+  }
+
+  /* Card header bar, the Rota dashboard look: the tenant's website accent
+     (SettingsContext.applySiteTheme sets --site-accent / --site-accent-soft
+     from GET /api/me's site_theme), falling back to the site's default
+     pink. Use on the first row of a white, bordered card. */
+  .section-head {
+    background: var(--site-accent-soft, rgba(244, 167, 185, 0.16));
+    border-bottom: 2px solid var(--site-accent, #f4a7b9);
+  }
 }
 
 /* Timeline styles */

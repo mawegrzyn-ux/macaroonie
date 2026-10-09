@@ -39,7 +39,7 @@ export default function TestData() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div>
           <h1 className="font-semibold flex items-center gap-2">
             <FlaskConical className="w-4 h-4" /> Test data
@@ -72,12 +72,12 @@ export default function TestData() {
 
 function SectionCard({ title, description, children }) {
   return (
-    <div className="rounded-lg border p-4 space-y-3">
-      <div>
+    <div className="rounded-xl border bg-background overflow-hidden">
+      <div className="px-4 py-3 section-head">
         <h2 className="text-sm font-semibold">{title}</h2>
         {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
       </div>
-      {children}
+      <div className="p-4 space-y-3">{children}</div>
     </div>
   )
 }

@@ -57,10 +57,12 @@ const TextInput = forwardRef(function TextInput({ className = '', ...props }, re
 
 function Section({ title, description, children }) {
   return (
-    <div className="border rounded-lg p-5">
-      <h3 className="font-semibold text-sm mb-1">{title}</h3>
-      {description && <p className="text-xs text-muted-foreground mb-4">{description}</p>}
-      <div className="space-y-4">{children}</div>
+    <div className="border rounded-xl bg-background overflow-hidden">
+      <div className="px-5 py-3 section-head">
+        <h3 className="font-semibold text-sm">{title}</h3>
+        {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
+      </div>
+      <div className="p-5 space-y-4">{children}</div>
     </div>
   )
 }
@@ -139,7 +141,7 @@ export default function Rules() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <h1 className="font-semibold">Booking rules</h1>
         <select
           value={venueId ?? ''}

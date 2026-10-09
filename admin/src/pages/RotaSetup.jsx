@@ -75,7 +75,7 @@ function SettingsCard({ settings }) {
 
   return (
     <section className="rounded-xl border overflow-hidden">
-      <div className="px-4 py-3 border-b bg-muted/30">
+      <div className="px-4 py-3 section-head">
         <h2 className="text-sm font-semibold">Rota settings</h2>
       </div>
       <div className="p-4 space-y-4">

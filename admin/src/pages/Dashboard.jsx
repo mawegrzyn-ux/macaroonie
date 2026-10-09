@@ -185,7 +185,7 @@ function Shortcuts() {
 
       {showPicker && (
         <div className="border rounded-xl bg-background overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/30">
+          <div className="flex items-center justify-between px-4 py-3 section-head">
             <p className="text-sm font-semibold">Add a shortcut</p>
             <button onClick={() => setShowPicker(false)} className="p-1 text-muted-foreground hover:text-foreground touch-manipulation">
               <X className="w-4 h-4" />
@@ -280,7 +280,7 @@ function TileCard({
         'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
         editing && 'ring-1 ring-primary/30 border-dashed',
       )}>
-      <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
+      <div className="flex items-center gap-2 px-4 py-3 section-head">
         <span className="w-8 h-8 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon className="w-4 h-4" />
         </span>
@@ -666,7 +666,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-4 sm:px-6 max-lg:notouch:pl-14 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between gap-2 px-4 sm:px-6 max-lg:notouch:pl-14 h-14 border-b shrink-0 bg-background">
         <div className="min-w-0">
           <h1 className="font-semibold truncate">Overview</h1>
           <p className="text-xs text-muted-foreground truncate">{format(new Date(), 'EEEE d MMMM yyyy')}</p>

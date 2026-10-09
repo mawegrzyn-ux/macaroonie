@@ -2160,6 +2160,22 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>SectionCard</Mono> header/footer bars) never repaints the app's own hover
               surfaces.
             </P>
+            <H3>Page colours and card headers (admin/src/index.css)</H3>
+            <P>
+              The admin uses the Rota dashboard's look everywhere: a light grey page canvas,
+              white cards, and an accent header bar on each card. The pieces:
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['--page / bg-page', 'The grey canvas (220 16% 95%). Set on body, AppShell\'s and MobileShell\'s root, TenantGate and the H&S / Cash / Rota dashboard root.'],
+                ['--background / bg-background', 'White surfaces: cards, page title bars, sidebar, modals, and the list-and-detail workspaces (Bookings, Timeline, Customers, Cash Recon\'s week grid).'],
+                ['--border, --muted, --muted-foreground, --accent', 'Darker than before (border 86%, muted 94%, muted text 40%, hover 92%) so lines, fills and secondary text read on both white and grey.'],
+                ['.border:where(...) rule', 'Any element with the plain border class and no bg-* class gets a white background (one-class specificity, in @layer components): lists, table frames, inputs and outlined buttons turn white on the grey page with no per-page edits. bg-* utilities and hover:/disabled: variants still win. An element that must stay see-through over a coloured parent sets bg-transparent.'],
+                ['.section-head', 'The card header bar: --site-accent-soft background and a 2px --site-accent bottom border (the tenant\'s website accent, default pink). Used by every shared SectionCard / Card / Section component, dashboard widget and Overview tile header, the Rota page panels and Cash Recon\'s SectionCard. Don\'t combine it with border-b (that resets the border width to 1px).'],
+                ['bg-card', 'Mapped to --background in tailwind.config.js (it was used but never defined).'],
+              ]}
+            />
             <H3>Seeding</H3>
             <P>
               <Mono>api/src/config/defaultNav.js</Mono> exports <Mono>DEFAULT_NAV_TREE</Mono> +

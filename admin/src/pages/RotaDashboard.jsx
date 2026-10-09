@@ -16,14 +16,14 @@ import {
   RotaGrid, RotaDayList, RotaPayTable, RotaTipsTable, useRotaPerms, useRotaPay,
 } from '@/components/staff/rota'
 
-function PayHeader({ venueId, ctx }) {
+export function PayHeader({ venueId, ctx }) {
   const { canSeePay } = useRotaPerms()
   const { data } = useRotaPay(venueId, ctx.weekStart, canSeePay)
   if (!data || data.totals.pay == null) return null
   return <span className="text-sm font-semibold tabular-nums">{fmt(data.totals.pay)}</span>
 }
 
-function TipsHeader({ venueId, ctx }) {
+export function TipsHeader({ venueId, ctx }) {
   const { canSeeTips } = useRotaPerms()
   const { data } = useRotaPay(venueId, ctx.weekStart, canSeeTips)
   if (!data || data.totals.tips_shared == null) return null

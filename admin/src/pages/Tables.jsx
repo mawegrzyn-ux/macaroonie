@@ -548,7 +548,7 @@ export default function Tables() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 gap-4">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 gap-4 bg-background">
         <div className="flex items-center gap-3">
           <h1 className="font-semibold">Tables</h1>
           {/* Saving indicator */}

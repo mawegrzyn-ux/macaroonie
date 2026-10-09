@@ -122,7 +122,7 @@ export default function InterestPanel({ rows, isLoading }) {
   const list = show === 'open' ? rows.filter(r => r.status !== 'closed') : rows
   return (
     <div className="border rounded-xl overflow-hidden bg-background">
-      <div className="px-5 py-3 border-b bg-muted/40 flex flex-wrap items-center gap-3">
+      <div className="px-5 py-3 section-head flex flex-wrap items-center gap-3">
         <h2 className="text-sm font-semibold">Registered interest</h2>
         <span className="text-xs text-muted-foreground">From the form on the platform page</span>
         <div className="ml-auto inline-flex rounded-lg border overflow-hidden">

@@ -202,7 +202,7 @@ export function ImageEditor({ item, onClose, onSaved }) {
           <div className="flex items-center gap-2">
             <button onClick={onClose}
               className="text-sm text-white/70 hover:text-white px-4 py-2">Cancel</button>
-            <div className="inline-flex items-center gap-1 rounded-md border border-white/20 p-0.5">
+            <div className="inline-flex items-center gap-1 rounded-md border border-white/20 bg-transparent p-0.5">
               <button onClick={() => setSaveMode('new')}
                 className={cn('px-3 py-1.5 text-xs rounded', saveMode === 'new' ? 'bg-primary text-primary-foreground' : 'hover:bg-white/10')}>
                 Save as new

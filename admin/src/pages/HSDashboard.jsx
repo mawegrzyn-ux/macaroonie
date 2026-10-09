@@ -219,8 +219,7 @@ function WidgetCard({
         'border rounded-xl bg-background shadow-sm overflow-hidden flex flex-col',
         editing && 'ring-1 ring-primary/30 border-dashed',
       )}>
-      <div className="flex items-center gap-2 px-4 py-3"
-        style={{ background: 'var(--site-accent-soft, rgba(244,167,185,0.16))', borderBottom: '2px solid var(--site-accent, #f4a7b9)' }}>
+      <div className="flex items-center gap-2 px-4 py-3 section-head">
         <span className="w-8 h-8 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon className="w-4 h-4" />
         </span>
@@ -558,7 +557,7 @@ export function DashboardPage({ config }) {
     <div
       ref={containerRef}
       className={cn(
-        'p-4 md:p-6 bg-background overflow-y-auto',
+        'p-4 md:p-6 bg-page overflow-y-auto',
         pseudoFullscreen ? 'fixed inset-0 z-50'
           : nativeFullscreen ? 'w-screen h-screen'
           : 'h-full w-full',

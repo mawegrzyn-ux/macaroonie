@@ -126,7 +126,7 @@ export default function MobileShell() {
 
   return (
     <div
-      className="flex flex-col bg-background text-foreground"
+      className="flex flex-col bg-page text-foreground"
       style={{ height: '100dvh' }}
     >
       {!headerHidden && (

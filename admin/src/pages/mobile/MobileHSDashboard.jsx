@@ -41,8 +41,7 @@ function MobileWidgetCard({ widget, venueId, date }) {
 
   return (
     <div className="border rounded-xl bg-background shadow-sm overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2.5"
-        style={{ background: 'var(--site-accent-soft, rgba(244,167,185,0.16))', borderBottom: '2px solid var(--site-accent, #f4a7b9)' }}>
+      <div className="flex items-center gap-2 px-3 py-2.5 section-head">
         <span className="w-8 h-8 shrink-0 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
           <Icon className="w-4 h-4" />
         </span>

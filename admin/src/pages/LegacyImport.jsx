@@ -70,7 +70,7 @@ export default function LegacyImport() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div>
           <h1 className="font-semibold flex items-center gap-2">
             <FileSpreadsheet className="w-4 h-4" /> Legacy data import

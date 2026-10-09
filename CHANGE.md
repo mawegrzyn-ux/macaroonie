@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-09 — App colour scheme: grey page, white cards, accent card headers]
+
+- Every page now uses the Rota dashboard's look: a light grey page background, white cards, and a coloured header band on each card in your website's accent colour. Settings, Booking rules, Ordering setup, Menus, Website builder, Emails, Team, Modules & roles, Platform, Test data and the Overview tiles all get the band.
+- Stronger lines and secondary text throughout, so lists, tables, inputs and buttons stand out from the page instead of blending into it.
+- Page title bars are white. Bookings, Timeline, Customers and the Cash Recon week grid keep a white work area.
+- The Rota page's grid, Hours and pay, and Tips now sit in cards like the Rota dashboard, with the week's totals in the headers.
+- No database change.
+
+---
+
 ## [2026-10-09 — Tip pots: paid in cash or by bank, to shares or specific people]
 
 - Rota setup, each tip pot: **Paid in** Cash or Bank transfer, and **Paid to** each person's share or **specific people**.

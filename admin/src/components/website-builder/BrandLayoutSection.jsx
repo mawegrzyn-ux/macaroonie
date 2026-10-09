@@ -57,7 +57,7 @@ export function BrandLayoutSection({ venueId = null }) {
 
   return (
     <div className="bg-background border rounded-xl overflow-hidden">
-      <div className="px-5 py-3 border-b bg-muted/40">
+      <div className="px-5 py-3 section-head">
         <h2 className="text-sm font-semibold">Layout</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
           Container max width (boxed blocks) and side inset. Default width 1100px, inset step 2 (24px).

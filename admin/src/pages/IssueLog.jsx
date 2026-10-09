@@ -199,7 +199,7 @@ function DetailPanel({ issue, onClose, isPlatformAdmin, onUpdate, isUpdating }) 
 
   return (
     <div className="fixed inset-y-0 right-0 z-40 w-[420px] bg-background border-l shadow-xl flex flex-col">
-      <div className="flex items-center justify-between p-4 border-b shrink-0">
+      <div className="flex items-center justify-between p-4 border-b shrink-0 bg-background">
         <h2 className="font-semibold text-sm truncate pr-4">{issue.title}</h2>
         <button onClick={onClose} className="p-1.5 rounded hover:bg-accent touch-manipulation shrink-0">
           <X className="w-4 h-4" />

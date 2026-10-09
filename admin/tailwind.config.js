@@ -6,8 +6,10 @@ export default {
   theme: {
     extend: {
       colors: {
+        page:       'hsl(var(--page))',
         border:     'hsl(var(--border))',
         background: 'hsl(var(--background))',
+        card:       'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         primary: {
           DEFAULT:    'hsl(var(--primary))',

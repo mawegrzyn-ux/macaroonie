@@ -111,7 +111,7 @@ export default function Launcher() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div>
           <h1 className="font-semibold flex items-center gap-2"><LayoutGrid className="w-4 h-4" /> Quick access</h1>
           <p className="text-xs text-muted-foreground">Your shortcuts — drag to reorder, hide what you don't need</p>

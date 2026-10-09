@@ -57,7 +57,7 @@ export default function Platform() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div>
           <h1 className="font-semibold">Platform</h1>
           <p className="text-xs text-muted-foreground">
@@ -116,7 +116,7 @@ export default function Platform() {
           ) : (
             <>
               <div className="border rounded-xl overflow-hidden bg-background">
-                <div className="px-5 py-3 border-b bg-muted/40">
+                <div className="px-5 py-3 section-head">
                   <h2 className="text-sm font-semibold">Active tenants</h2>
                 </div>
                 <div className="divide-y">
@@ -131,7 +131,7 @@ export default function Platform() {
 
               {inactiveTenants.length > 0 && (
                 <div className="border rounded-xl overflow-hidden bg-background">
-                  <div className="px-5 py-3 border-b bg-muted/40">
+                  <div className="px-5 py-3 section-head">
                     <h2 className="text-sm font-semibold text-muted-foreground">Inactive tenants</h2>
                   </div>
                   <div className="divide-y">
@@ -226,7 +226,7 @@ function CreateTenantCard({ onClose, onCreated }) {
 
   return (
     <div className="border rounded-xl overflow-hidden bg-background">
-      <div className="px-5 py-3 border-b bg-muted/40 flex items-center justify-between">
+      <div className="px-5 py-3 section-head flex items-center justify-between">
         <h2 className="text-sm font-semibold">Create tenant</h2>
         <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
       </div>
@@ -329,7 +329,7 @@ function EditTenantCard({ tenant, onClose, onSaved }) {
 
   return (
     <div className="border rounded-xl overflow-hidden bg-background">
-      <div className="px-5 py-3 border-b bg-muted/40 flex items-center justify-between">
+      <div className="px-5 py-3 section-head flex items-center justify-between">
         <h2 className="text-sm font-semibold">Edit: {tenant.name}</h2>
         <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
       </div>

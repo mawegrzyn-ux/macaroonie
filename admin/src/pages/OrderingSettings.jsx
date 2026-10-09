@@ -19,12 +19,12 @@ const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0]
 
 function Section({ title, children, hint }) {
   return (
-    <section className="rounded-lg border bg-background p-4 md:p-5 space-y-4">
-      <div>
-        <h2 className="font-semibold">{title}</h2>
+    <section className="rounded-xl border bg-background overflow-hidden">
+      <div className="px-4 md:px-5 py-3 section-head">
+        <h2 className="text-sm font-semibold">{title}</h2>
         {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
       </div>
-      {children}
+      <div className="p-4 md:p-5 space-y-4">{children}</div>
     </section>
   )
 }

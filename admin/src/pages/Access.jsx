@@ -27,7 +27,7 @@ export default function Access() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div>
           <h1 className="font-semibold flex items-center gap-2">
             <Shield className="w-4 h-4" /> Access
@@ -304,7 +304,7 @@ function RoleEditor({ role, modules, onClose }) {
       </div>
 
       <div className="border rounded-xl overflow-hidden bg-background">
-        <div className="px-5 py-3 border-b bg-muted/40">
+        <div className="px-5 py-3 section-head">
           <h2 className="text-sm font-semibold">{isNew ? 'New role' : `Edit: ${role.label}`}</h2>
         </div>
         <div className="p-5 space-y-4">
@@ -342,7 +342,7 @@ function RoleEditor({ role, modules, onClose }) {
 
       {/* Permission matrix */}
       <div className="border rounded-xl overflow-hidden bg-background">
-        <div className="px-5 py-3 border-b bg-muted/40">
+        <div className="px-5 py-3 section-head">
           <h2 className="text-sm font-semibold">Permissions</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             Module-level access. <span className="font-mono">none</span> = hidden, <span className="font-mono">view</span> = read-only,
