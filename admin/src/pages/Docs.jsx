@@ -1783,7 +1783,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>admin/src/mobile/registry.js</Mono> exports <Mono>MOBILE_MODULES</Mono> — the
               same "one array drives a picker" pattern as <Mono>modules.js</Mono> /{' '}
               <Mono>defaultNav.js</Mono>. <Mono>MobileHub.jsx</Mono> (the <Mono>/mobile</Mono>{' '}
-              index route) renders one tile per entry. Shipping a new mobile-optimised page is:
+              index route) renders one tile per entry, in a two-column grid. Shipping a new mobile-optimised page is:
               add an entry here, add the route in <Mono>main.jsx</Mono>, build the page — no
               changes to the shell or hub.
             </P>
@@ -1829,15 +1829,16 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <H3>Mobile H&amp;S Dashboard</H3>
             <P>
               <Mono>admin/src/pages/mobile/MobileHSDashboard.jsx</Mono> is a parallel
-              implementation of <Mono>HSDashboard.jsx</Mono> — same dashboards-as-tabs, same
-              add/remove/reorder-widget mutations, same six widget types, same underlying{' '}
+              implementation of <Mono>HSDashboard.jsx</Mono> for logging only — same dashboards-as-tabs
+              (<Mono>DashboardTabs</Mono>: framed strip, arrow buttons that scroll it, shown while there
+              is more that way), same widget types, same underlying{' '}
               <Mono>/api/hs-dashboards/*</Mono> endpoints and the same shared body components (
               <Mono>ChecklistRunPanel</Mono>, <Mono>TempChecksTable</Mono>,{' '}
               <Mono>DeliveryChecksPanel</Mono>, <Mono>HoldChecksTable</Mono>,{' '}
               <Mono>CookingChecksPanel</Mono>, <Mono>HSActionLogPanel</Mono>) — full interactivity,
-              not a read-only view. <Mono>DashboardModal</Mono>, <Mono>AddWidgetModal</Mono> and{' '}
-              <Mono>WIDGET_TYPE_BY_KEY</Mono> are exported from <Mono>HSDashboard.jsx</Mono> and
-              reused as-is rather than duplicated.
+              for checks. Layout editing (dashboards and widgets) was removed from the Ops app: it is
+              done on the desktop page. <Mono>WIDGET_TYPE_BY_KEY</Mono> is imported from{' '}
+              <Mono>HSDashboard.jsx</Mono>.
             </P>
             <P>
               The one deliberate difference: mobile ignores <Mono>col_span</Mono> and{' '}
@@ -1942,11 +1943,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               requirement, no dismissal — it reappears on every visit rather than offering once).
               It takes a <Mono>target</Mono> prop: <Mono>{"target=\"mobile\""}</Mono> (mounted in{' '}
               <Mono>AppShell.jsx</Mono>, next to <Mono>MobileSuggestModal</Mono>) navigates to{' '}
-              <Mono>/mobile</Mono>; <Mono>{"target=\"standard\""}</Mono> (mounted in{' '}
-              <Mono>MobileShell.jsx</Mono>, after its <Mono>{'<Outlet />'}</Mono>) navigates back to{' '}
-              <Mono>/</Mono>. Before this shipped, <Mono>MobileShell</Mono>'s own header back-arrow
-              only ever returned to the <Mono>/mobile</Mono> hub — there was no route back to the
-              full desktop admin from inside <Mono>/mobile/*</Mono> short of editing the URL by hand.
+              <Mono>/mobile</Mono>. The <Mono>{"target=\"standard\""}</Mono> copy in{' '}
+              <Mono>MobileShell.jsx</Mono> was removed once the Ops app had its own host (ops.):
+              the phone app has no link back to the standard view.
             </P>
             <H3>Mobile Cash Up</H3>
             <P>
@@ -1997,7 +1996,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>layout="cards"</Mono> (see Cash Reconciliation), so it shows exactly what the
               desktop Wages page and the dashboard widgets show. The earlier Paid checkbox, the
               per-entry <Mono>/paid</Mono> endpoint and the submitted-report lock are gone with wage
-              submission (migration 137).
+              submission (migration 137). It passes <Mono>showBank={'{false}'}</Mono> and{' '}
+              <Mono>hidePaidOnForAll</Mono> (Bank is still filled from the pay method; Paid on is set by{' '}
+              <Mono>setPaid()</Mono> / <Mono>payInFull()</Mono> to today when today is in the week). In
+              the cards layout each person has a header strip with the name in a larger font. The day
+              declaration (<Mono>DayView</Mono>) has a read-only Wages paid today card from{' '}
+              <Mono>['cash-recon-wages', venueId, week]</Mono>: entries with <Mono>paid_date</Mono> = the
+              day, plus a warning for cash paid with no day (counts in the week only).
             </P>
             <H3>Mobile Allergens</H3>
             <P>

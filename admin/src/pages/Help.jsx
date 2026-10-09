@@ -1752,7 +1752,7 @@ export default function Help() {
             </P>
             <P>
               More mobile-optimised pages will appear on the <strong>/mobile</strong> hub screen
-              over time — it's a home screen of tiles, one per available mobile module.
+              over time — it's a home screen of tiles, two to a row, one per available mobile module.
               <strong> Expenses</strong> is the second one: it shows a whole week (Monday to
               Sunday) of petty cash expenses, with the week's cash, card and VAT totals at the top.
               Use the arrows to move a week back or forward, tap the week to jump to any date, or
@@ -1763,9 +1763,20 @@ export default function Help() {
               Placed — the same order screen as the desktop page, just full-screen on your phone
               instead of a side panel. <strong>Cash Up</strong> is the fourth: a plain list of the
               week's days with status, income and variance at a glance — tap a day to open the
-              full declaration. <strong>Wages</strong> is the fifth: the week's wages list, one card
-              per person with Total, Paid (tap <strong>Full</strong> to pay the whole total), Paid on and
-              Notes, the same as the desktop Wages page. Tap <strong>Save</strong> to keep changes.
+              full declaration, which also lists the <strong>wages paid today</strong> (they count in
+              that day's variance; wages with no Paid on day only count in the week).{' '}
+              <strong>Wages</strong> is the fifth: the week's wages list, one card per person with Total,
+              Paid (tap <strong>Full</strong> to pay the cash part), Paid on and Notes. Typing a Paid
+              amount or tapping Full sets Paid on to today when you're on this week. On the phone the
+              Bank transfer column and Paid on for all are left out (a person paid partly by bank
+              shows the bank amount under their name); use the desktop Wages page for those. Tap{' '}
+              <strong>Save</strong> to keep changes.
+            </P>
+            <P>
+              On the phone the <strong>H&amp;S Dashboard</strong> is for logging checks only: switch
+              between your dashboards with the tabs (the small arrows scroll them when there are
+              more), tick checklists and enter temperatures. Adding, removing and arranging widgets
+              and dashboards is done on the H&amp;S Dashboard in the office admin.
             </P>
             <P>
               If you open the regular desktop admin portal on a phone held upright, you'll see a
@@ -1777,10 +1788,9 @@ export default function Help() {
             <P>
               Beyond that one-time pop-up, whenever you're on a phone-sized screen you'll also see
               a small floating <strong>Mobile view</strong> button in the bottom-left corner of the
-              regular desktop admin pages — tap it any time to jump to <strong>/mobile</strong>.
-              And once you're in the mobile section, the same button shows there too, labelled{' '}
-              <strong>Standard view</strong>, to jump straight back to the full desktop admin. It's
-              always there on a phone screen, so you can switch back and forth as often as you like.
+              regular desktop admin pages — tap it any time to jump to <strong>/mobile</strong>. The
+              Ops app itself has no link back to the standard view: it's the phone app, and the full
+              admin is at office.macaroonie.com.
             </P>
             <InfoBox type="tip">
               This is the same login and the same restaurant data as the desktop admin portal —

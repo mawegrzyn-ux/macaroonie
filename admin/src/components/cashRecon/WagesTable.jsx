@@ -135,13 +135,15 @@ function useWidth() {
  * @param layout              'auto' (by width) | 'cards'
  * @param hideManage          no Add staff / Copy from / Set as default / remove
  * @param hideBulk            no Pay everyone in full / Paid on for all
+ * @param hidePaidOnForAll    keep Pay everyone in full, drop Paid on for all
+ *                            (/mobile/wages: paying sets the day to today)
  * @param paidOnly            just Name and Paid per person (Cash Dashboard options)
  * @param showBank            show the Bank transfer column (off in widgets
  *                            unless their option is on)
  */
 export function WeekWagesEditor({
   venueId, weekStart, defaultPaidDay, showWeekNotes = false, layout = 'auto',
-  hideManage = false, hideBulk = false, paidOnly = false, showBank = true,
+  hideManage = false, hideBulk = false, paidOnly = false, showBank = true, hidePaidOnForAll = false,
 }) {
   const api = useApi()
   const qc = useQueryClient()
@@ -376,11 +378,11 @@ export function WeekWagesEditor({
     )
   }
 
-  function nameCell(r) {
+  function nameCell(r, big = false) {
     const staff = r.staff_id ? staffById[r.staff_id] : null
     return (
       <span className="min-w-0">
-        <span className="block truncate text-sm font-medium" title={r.name}>{r.name}</span>
+        <span className={cn('block truncate', big ? 'text-base font-semibold' : 'text-sm font-medium')} title={r.name}>{r.name}</span>
         {!r.staff_id && <span className="block text-[10px] text-muted-foreground">one-off</span>}
         {!showBank && parseNum(r.bank_amount) > 0 && (
           <span className="block text-[10px] text-muted-foreground">{fmt(parseNum(r.bank_amount))} by bank</span>
@@ -401,14 +403,16 @@ export function WeekWagesEditor({
       {rows.length > 0 && !hideBulk && (
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={payAllInFull}
-            className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+            className="h-11 px-4 rounded-lg bg-green-600 text-white text-sm font-semibold shadow-sm touch-manipulation hover:bg-green-700 active:bg-green-800 flex items-center gap-1.5">
             <Check className="w-4 h-4" /> Pay everyone in full
           </button>
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Paid on for all
-            <PaidDaySelect weekStart={weekStart} value="" emptyLabel="Choose…" className="h-11"
-              onChange={day => { if (day) setAllPaidDays(day) }} />
-          </label>
+          {!hidePaidOnForAll && (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              Paid on for all
+              <PaidDaySelect weekStart={weekStart} value="" emptyLabel="Choose…" className="h-11"
+                onChange={day => { if (day) setAllPaidDays(day) }} />
+            </label>
+          )}
         </div>
       )}
 
@@ -469,42 +473,44 @@ export function WeekWagesEditor({
       )}
 
       {rows.length > 0 && !paidOnly && !wide && (
-        <div className="rounded-xl border divide-y">
+        <div className="space-y-3">
           {rows.map((r, idx) => (
-            <div key={r.id ?? `${r.staff_id ?? 'adhoc'}-${idx}`} className="p-2 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0">{nameCell(r)}</div>
+            <div key={r.id ?? `${r.staff_id ?? 'adhoc'}-${idx}`} className="rounded-xl border overflow-hidden">
+              <div className="flex items-center gap-2 px-3 min-h-[48px] bg-muted/60 border-b">
+                <div className="flex-1 min-w-0">{nameCell(r, true)}</div>
                 {removeButton(r, idx)}
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <span className="block text-[11px] text-muted-foreground mb-0.5">Total</span>
-                  <MoneyField label={`${r.name} total`} value={r.total} onChange={v => setTotal(idx, v)} />
-                </div>
-                {showBank && (
+              <div className="p-2 space-y-1.5">
+                <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <span className="block text-[11px] text-muted-foreground mb-0.5">Bank transfer</span>
-                    {bankField(r, idx)}
+                    <span className="block text-[11px] text-muted-foreground mb-0.5">Total</span>
+                    <MoneyField label={`${r.name} total`} value={r.total} onChange={v => setTotal(idx, v)} />
                   </div>
-                )}
-                <div>
-                  <span className="block text-[11px] text-muted-foreground mb-0.5">Paid (cash)</span>
-                  {paidCell(r, idx)}
+                  {showBank && (
+                    <div>
+                      <span className="block text-[11px] text-muted-foreground mb-0.5">Bank transfer</span>
+                      {bankField(r, idx)}
+                    </div>
+                  )}
+                  <div>
+                    <span className="block text-[11px] text-muted-foreground mb-0.5">Paid (cash)</span>
+                    {paidCell(r, idx)}
+                  </div>
+                  <div>
+                    <span className="block text-[11px] text-muted-foreground mb-0.5">Paid on</span>
+                    <PaidDaySelect weekStart={weekStart} value={r.paid_date} className="h-11 w-full"
+                      disabled={parseNum(r.cash_amount) <= 0}
+                      onChange={day => update(idx, { paid_date: day })} />
+                  </div>
+                  <div>
+                    <span className="block text-[11px] text-muted-foreground mb-0.5">Notes</span>
+                    <input type="text" value={r.notes} placeholder="Notes" aria-label={`${r.name} notes`}
+                      onChange={ev => update(idx, { notes: ev.target.value })}
+                      className="h-11 w-full min-w-0 rounded-lg border bg-background px-2 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40" />
+                  </div>
                 </div>
-                <div>
-                  <span className="block text-[11px] text-muted-foreground mb-0.5">Paid on</span>
-                  <PaidDaySelect weekStart={weekStart} value={r.paid_date} className="h-11 w-full"
-                    disabled={parseNum(r.cash_amount) <= 0}
-                    onChange={day => update(idx, { paid_date: day })} />
-                </div>
-                <div>
-                  <span className="block text-[11px] text-muted-foreground mb-0.5">Notes</span>
-                  <input type="text" value={r.notes} placeholder="Notes" aria-label={`${r.name} notes`}
-                    onChange={ev => update(idx, { notes: ev.target.value })}
-                    className="h-11 w-full min-w-0 rounded-lg border bg-background px-2 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40" />
-                </div>
+                {unpaidNote(r)}
               </div>
-              {unpaidNote(r)}
             </div>
           ))}
         </div>
@@ -513,7 +519,7 @@ export function WeekWagesEditor({
       {rows.length > 0 && (
         <div className="rounded-xl bg-muted/30 px-3 py-2 space-y-0.5 text-sm">
           {!paidOnly && <div className="flex justify-between"><span>Total</span><span className="tabular-nums">{fmt(total)}</span></div>}
-          {(showBank || bank > 0) && <div className="flex justify-between"><span>Bank transfer</span><span className="tabular-nums">{fmt(bank)}</span></div>}
+          {showBank && <div className="flex justify-between"><span>Bank transfer</span><span className="tabular-nums">{fmt(bank)}</span></div>}
           <div className={cn('flex justify-between', paidOnly && 'font-semibold')}><span>Paid (cash)</span><span className="tabular-nums">{fmt(paid)}</span></div>
           {!paidOnly && <div className="flex justify-between font-semibold"><span>Cash left to pay</span><span className="tabular-nums">{fmt(left)}</span></div>}
         </div>

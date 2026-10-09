@@ -1175,6 +1175,18 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
     staleTime: 0,
   })
   const wagesPaidToday = parseNum(weekDetail?.wages_cash_by_date?.[date] ?? 0)
+  // The week's wage entries, to list who was paid today and flag cash paid
+  // with no Paid on day (that only counts in the week's variance).
+  const { data: weekWages } = useQuery({
+    queryKey: ['cash-recon-wages', venueId, weekOfDay],
+    queryFn:  () => api.get(`/venues/${venueId}/cash-recon/wages/${weekOfDay}`),
+    enabled:  !!venueId && !!weekOfDay,
+  })
+  const wageEntries = weekWages?.entries ?? []
+  const paidTodayEntries = wageEntries.filter(e => e.paid_date === date && parseNum(e.cash_amount) > 0)
+  const paidNoDay = wageEntries
+    .filter(e => !e.paid_date && parseNum(e.cash_amount) > 0)
+    .reduce((s, e) => s + parseNum(e.cash_amount), 0)
 
   // Local form state
   const [incomeValues,  setIncomeValues]  = useState({})
@@ -1581,8 +1593,35 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
           config={config}
         />
 
-        {/* Summary: the variance only. Cash wages are weekly, so they count
-            in the week's variance on the grid, not here. */}
+        {/* Wages paid from the till today (cash_wage_entries.paid_date).
+            Read-only here: wages are edited on the Wages page. */}
+        <SectionCard
+          title="Wages paid today"
+          footer={<><span>Total wages paid today</span><span>{fmt(wagesPaidToday)}</span></>}
+        >
+          {paidTodayEntries.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No cash wages paid on this day.</p>
+          ) : (
+            <div className="divide-y">
+              {paidTodayEntries.map(e => (
+                <div key={e.id} className="flex items-center justify-between py-1.5 text-sm">
+                  <span className="font-medium">{e.name}</span>
+                  <span className="tabular-nums">{fmt(parseNum(e.cash_amount))}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {paidNoDay > 0 && (
+            <p className="flex items-start gap-1.5 text-xs text-amber-700 mt-2">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              {fmt(paidNoDay)} of this week's cash wages has no Paid on day, so it only counts in the week, not in a day's variance. Set the day on the Wages page.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">Record wages on the Wages page; they count in the variance of the day they were paid.</p>
+        </SectionCard>
+
+        {/* Summary: the day's variance, including cash expenses and the
+            wages paid from the till today. */}
         <div className="rounded-2xl border bg-card shadow-sm p-4 space-y-1">
           <div className={cn('flex justify-between text-sm font-semibold', variance === 0 ? 'text-green-600' : 'text-red-600')}>
             <span>Variance</span>

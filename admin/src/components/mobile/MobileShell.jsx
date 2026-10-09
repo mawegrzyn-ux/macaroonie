@@ -18,7 +18,6 @@ import { ArrowLeft, LogOut, LayoutGrid } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
-import MobileViewToggle from '@/components/MobileViewToggle'
 import { IS_OPS_HOST } from '@/lib/hosts'
 
 // Lets a mobile page (e.g. a full-page detail drilled into from a list —
@@ -165,7 +164,6 @@ export default function MobileShell() {
           <Outlet />
         </HeaderVisibilityContext.Provider>
       </main>
-      <MobileViewToggle target="standard" />
     </div>
   )
 }

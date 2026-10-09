@@ -3,8 +3,11 @@
 // Phone Wages view: venue picker and week navigator over the shared
 // WeekWagesEditor (components/cashRecon/WagesTable.jsx), the same Name,
 // Total, Paid, Paid on, Notes editor as the Cash Recon Wages page and the
-// Cash Dashboard wage widgets, always as one card per person here. Edits
-// save with Save; wages are not submitted (the days are).
+// Cash Dashboard wage widgets, always as one card per person here. The
+// phone hides Bank transfer (still filled from each person's pay method)
+// and Paid on for all: entering an amount or Full sets Paid on to today
+// when the week is this week. Edits save with Save; wages are not
+// submitted (the days are).
 
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -51,7 +54,7 @@ export default function MobileWages() {
         </button>
       )}
 
-      {venueId && <WeekWagesEditor venueId={venueId} weekStart={weekStart} layout="cards" showWeekNotes />}
+      {venueId && <WeekWagesEditor venueId={venueId} weekStart={weekStart} layout="cards" showWeekNotes showBank={false} hidePaidOnForAll />}
     </div>
   )
 }

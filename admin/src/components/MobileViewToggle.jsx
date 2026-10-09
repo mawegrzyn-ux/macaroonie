@@ -1,8 +1,8 @@
 // src/components/MobileViewToggle.jsx
-// Persistent floating button (bottom-left) letting a phone-width touch
-// visitor jump straight between the desktop AppShell and the /mobile
-// experience without hunting for a menu item. Mounted once in AppShell
-// (target="mobile") and once in MobileShell (target="standard") — unlike
+// Persistent floating button (bottom-left) sending a phone-width touch
+// visitor from the desktop AppShell to the Ops app (/mobile). Mounted in
+// AppShell only (target="mobile"); the Ops app has no link back to the
+// standard view since it is the phone app in its own right. Unlike
 // MobileSuggestModal (a one-time, dismissible nudge shown only on first
 // detection), this is an always-available toggle, shown any time the
 // viewport is phone-width, on every visit.
