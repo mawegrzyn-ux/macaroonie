@@ -10,6 +10,7 @@
 //   POST   /roles    PATCH /roles/:id    DELETE /roles/:id    PUT /roles/reorder  { ids }
 //   Tip pots (migration 108):
 //   POST   /pots     PATCH /pots/:id     DELETE /pots/:id     PUT /pots/reorder   { ids }
+//          a pot carries payout_method cash | bank and payout_to shares | people (migration 143)
 //   PUT    /pots/:id/sources           { source_ids }  Cash Recon SC sources feeding the pot
 //   POST   /pots/:id/lines             { name, kind: amount | percent }  manual line (value entered weekly, may be negative)
 //   PATCH  /pot-lines/:id  DELETE /pot-lines/:id  PUT /pots/:id/lines/reorder { ids }
@@ -32,6 +33,7 @@
 //   GET    /venues/:venueId/weeks/:week/pay
 //   PUT    /venues/:venueId/weeks/:week/pot-lines       { amounts: [{ line_id, amount }] }
 //   PUT    /venues/:venueId/weeks/:week/pots/:potId/manual  { amounts: [{ staff_id, amount }] }
+//   PUT    /venues/:venueId/weeks/:week/pots/:potId/payees  { staff_ids }  who a 'people' pot is paid to (carries forward)
 //   PATCH  /venues/:venueId/weeks/:week/staff/:staffId  { pay_override }
 //   POST   /venues/:venueId/weeks/:week/pay-adjustments { staff_id, kind: extra|deduction|advance, amount, note }
 //   PATCH  /venues/:venueId/weeks/:week/pay-adjustments/:id { amount?, note? }
@@ -82,6 +84,10 @@ const RolePatch = RoleBody.partial().extend({ is_active: z.boolean().optional() 
 const PotBody = z.object({
   name:           z.string().trim().min(1).max(100),
   distribution:   z.enum(['house', 'points', 'manual']).default('points'),
+  // How it is paid out (migration 143): cash or bank, to each person's
+  // share or to the people picked for the week.
+  payout_method:  z.enum(['cash', 'bank']).default('cash'),
+  payout_to:      z.enum(['shares', 'people']).default('shares'),
   // Applied in this order, each on what is left after the ones before it.
   surcharges: z.array(z.object({
     name: z.string().trim().max(60).nullable().optional(),
@@ -187,7 +193,7 @@ function loadRoles(tx, tenantId) {
 /** Tip pots with their manual lines and allocated SC source ids (all venues). */
 async function loadPots(tx, tenantId) {
   const [pots, lines, sources] = await Promise.all([
-    tx`SELECT id, name, distribution, surcharges, sort_order, is_active FROM tip_pots
+    tx`SELECT id, name, distribution, payout_method, payout_to, surcharges, sort_order, is_active FROM tip_pots
         WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
     tx`SELECT id, pot_id, name, kind, sort_order, is_active FROM tip_pot_lines
         WHERE tenant_id = ${tenantId} ORDER BY sort_order, created_at`,
@@ -282,6 +288,14 @@ async function computeWeek(tx, tenantId, venueId, monday) {
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
   `
   const lineAmt = new Map(lineAmounts.map(l => [l.line_id, l.amount]))
+  // Who each pot is paid to: this week's pick, else the latest earlier one.
+  const payeeRows = await tx`
+    SELECT DISTINCT ON (pot_id) pot_id, week_start::text AS week_start, staff_ids
+      FROM rota_week_pot_payees
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start <= ${monday}::date
+     ORDER BY pot_id, week_start DESC
+  `
+  const payeesOf = new Map(payeeRows.map(r => [r.pot_id, r]))
 
   // Active pots, plus inactive ones that still hold money this week.
   const potInputs = pots.map(p => {
@@ -291,8 +305,11 @@ async function computeWeek(tx, tenantId, venueId, monday) {
       .map(l => ({ id: l.id, name: l.name, kind: l.kind, amount: lineAmt.get(l.id) ?? 0, is_active: l.is_active }))
     const manual = {}
     for (const m of manualRows.filter(m => m.pot_id === p.id)) manual[m.staff_id] = m.amount
+    const pick = payeesOf.get(p.id)
     return {
       id: p.id, name: p.name, distribution: p.distribution, is_active: p.is_active,
+      payout_method: p.payout_method, payout_to: p.payout_to,
+      payees: pick?.staff_ids ?? [], payees_week: pick?.week_start ?? null,
       surcharges: p.surcharges,
       sources, sources_total: sources.reduce((s, x) => s + x.amount, 0), lines, manual,
     }
@@ -330,11 +347,14 @@ async function computeWeek(tx, tenantId, venueId, monday) {
     ...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id),
     ...weekStaff.filter(w => w.pay_override != null || w.tip_unallocated !== 0).map(w => w.staff_id),
     ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]).filter(Boolean),
+    ...potInputs.filter(p => p.payout_to === 'people').flatMap(p => p.payees),
   ])]
   const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
   const result = computeRotaWeek({ shifts, staff, entries, weekStaff, moves, pots: potInputs, tipRounding, payAdjustments, carriedOwed })
   const nameOf = new Map(staff.map(s => [s.id, s.name]))
+  // Which week each pot's payees were picked in (null = never picked).
+  result.pots.forEach((p, i) => { p.payees_week = potInputs[i].payees_week })
   return {
     ...result,
     week_start: monday,
@@ -354,9 +374,9 @@ const PAY_ROW_FIELDS = ['pay_type', 'pay_basis', 'computed_pay', 'pay_override',
   'extra_pay', 'deductions', 'advance', 'advance_repay', 'carried_owed', 'pay_shortfall',
   'pay_method', 'bank_pay', 'cash_pay']
 const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'tip_adjustment', 'tip_unallocated', 'points',
-  'pot_shares', 'pot_shares_exact', 'tip_share', 'tip_share_from_pots']
+  'pot_shares', 'pot_shares_exact', 'tip_share', 'tip_share_from_pots', 'tip_balance', 'tip_cash', 'tip_bank']
 const TIP_TOTAL_FIELDS = ['points', 'tips_gross', 'surcharges', 'tips_in', 'tips_shared',
-  'kept_by_house', 'tips_added', 'tips_taken_out', 'tips_unallocated']
+  'kept_by_house', 'tips_added', 'tips_taken_out', 'tips_unallocated', 'tips_bank', 'tips_cash', 'tips_handed_on']
 
 export function redactWeek(week, { pay, tips }) {
   const out = { ...week, access: { pay, tips } }
@@ -375,6 +395,7 @@ export function redactWeek(week, { pay, tips }) {
     out.pots = []
     out.moves = []
     out.tip_rounding = null
+    out.tip_settled_in = null
   }
   return out
 }
@@ -573,8 +594,9 @@ export default async function rotaRoutes(app) {
     const [row] = await withTenant(req.tenantId, async tx => {
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM tip_pots WHERE tenant_id = ${req.tenantId}`
       return tx`
-        INSERT INTO tip_pots (tenant_id, name, distribution, surcharges, sort_order)
-        VALUES (${req.tenantId}, ${b.name}, ${b.distribution}, ${tx.json(cleanSurcharges(b.surcharges))}, ${n})
+        INSERT INTO tip_pots (tenant_id, name, distribution, payout_method, payout_to, surcharges, sort_order)
+        VALUES (${req.tenantId}, ${b.name}, ${b.distribution}, ${b.payout_method}, ${b.payout_to},
+                ${tx.json(cleanSurcharges(b.surcharges))}, ${n})
         RETURNING id
       `
     })
@@ -941,6 +963,32 @@ export default async function rotaRoutes(app) {
           pot_id: req.params.potId, staff_id: r.staff_id, amount: r.amount,
         })))}`
       }
+      return weekFor(req, tx, monday)
+    })
+  })
+
+  // Who a 'people' pot is paid to this week (migration 143). Carries forward
+  // to later weeks until changed; an empty list means nobody (paid as shares).
+  app.put('/venues/:venueId/weeks/:week/pots/:potId/payees', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    const { staff_ids } = z.object({ staff_ids: z.array(UUID).max(50) }).parse(req.body)
+    const ids = [...new Set(staff_ids)]
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      await assertPot(tx, req.tenantId, req.params.potId)
+      if (ids.length) {
+        const ok = await tx`
+          SELECT id FROM cash_staff
+           WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
+             AND id = ANY(${ids}::uuid[])
+        `
+        if (ok.length !== ids.length) throw httpError(400, 'Unknown staff member for this venue')
+      }
+      await tx`
+        INSERT INTO rota_week_pot_payees (tenant_id, venue_id, week_start, pot_id, staff_ids)
+        VALUES (${req.tenantId}, ${req.params.venueId}, ${monday}::date, ${req.params.potId}, ${ids}::uuid[])
+        ON CONFLICT (venue_id, week_start, pot_id) DO UPDATE SET staff_ids = EXCLUDED.staff_ids, updated_at = now()
+      `
       return weekFor(req, tx, monday)
     })
   })

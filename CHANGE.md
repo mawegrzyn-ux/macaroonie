@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-09 — Tip pots: paid in cash or by bank, to shares or specific people]
+
+- Rota setup, each tip pot: **Paid in** Cash or Bank transfer, and **Paid to** each person's share or **specific people**.
+- A pot paid to specific people goes in full to the people picked on the Rota page (Change on the pot's card), split equally; the pick carries on to later weeks. Everyone's other tips are adjusted in cash so each person still gets their share overall (e.g. £200 cash + £40 card shared by 6: the card tips go by bank to one person, who gets no cash; the other five get £40 cash each).
+- The tips table shows a Bank and a Cash column per person and a Pay out line. Someone paid more than their share through such a pot shows "hands on £x".
+- Database: migration 143 (tip_pots.payout_method, payout_to; rota_week_pot_payees).
+
+---
+
 ## [2026-10-09 — Checklists: Tick all; cooking check items]
 
 - Checklists (Checklists page, H&S Dashboard, Ops app): **Tick all** ticks every task at once. The Complete button is gone: a checklist is complete as soon as every task is ticked, and unticking any task makes it not done again. On a dashboard widget, tap **All done** then **Untick all** to undo a Tick all.

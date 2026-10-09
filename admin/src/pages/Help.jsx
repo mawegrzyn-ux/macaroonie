@@ -1646,6 +1646,33 @@ export default function Help() {
                 ['Kept by house', 'Counted as tips in, but not shared with staff.'],
               ]}
             />
+            <H3>Paying a pot out: cash or bank, shares or specific people</H3>
+            <P>
+              In the pot's settings, <strong>Paid in</strong> says whether the pot is paid in{' '}
+              <strong>Cash</strong> or by <strong>Bank transfer</strong>, and <strong>Paid to</strong>{' '}
+              says who receives it:
+            </P>
+            <DataTable
+              head={['Paid to', 'What happens']}
+              rows={[
+                ['Each person\'s share', 'Everyone is paid their own share of the pot, in cash or by bank as set.'],
+                ['Specific people', 'The whole pot goes to the people you pick on the Rota page (tap Change on the pot\'s card), split equally between them. Their pick is kept for the following weeks until you change it, and older weeks keep what they had. Until someone is picked the pot is paid as shares.'],
+              ]}
+            />
+            <P>
+              Everyone still gets their share overall. When a pot goes to specific people, the people it
+              was paid to get less of the other tips and everyone else gets more, in cash (or by bank when
+              no pot is paid in cash). Example: £200 cash tips and £40 card tips shared equally between 6
+              people is £40 each. With the card tips paid by bank to Cara, Cara gets £40 by bank transfer
+              and nothing in cash, and the other five get £40 cash each: £200 cash and £40 by bank in all.
+            </P>
+            <P>
+              The table under the pots then shows a <strong>Bank</strong> and a <strong>Cash</strong>{' '}
+              column for each person, and a <strong>Pay out</strong> line with the totals. Tip moves and
+              +/− nudges are paid the same way as the adjustment. If a pot paid to someone is bigger than
+              their share of everything, their cash shows <strong>hands on £x</strong>: they pass that
+              much to the others, and the Pay out line says how much in total.
+            </P>
             <P>
               A pot can also have <strong>fees and surcharges</strong>, for example card fees and tax:
               in the pot's settings tap <strong>Add fee</strong> for each one and give it a name and a

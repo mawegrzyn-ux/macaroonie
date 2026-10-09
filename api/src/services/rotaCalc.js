@@ -69,6 +69,18 @@
 //   reports distributed and difference (distributed - total): rounding can
 //   push a points pot slightly over or under; a manual pot is under while
 //   not everything has been handed out.
+//   Paying tips out (migration 143): each pot is paid in cash or by bank
+//   (payout_method). payout_to 'shares' pays every person their own share
+//   of the pot that way; 'people' pays the whole pot to the payees picked
+//   for the week, split equally: its real total for a points pot (so a bank
+//   transfer is exactly the money that came in, whatever the shares rounded
+//   to), what was entered (`distributed`) for a manual pot. Each
+//   person must still receive their tip_share overall, so the difference
+//   (tip_share - what the pots paid them) is settled in cash, or by bank
+//   when no pot is paid in cash: tip_balance. That also pays out tip moves
+//   and nudges, which belong to no pot. tip_cash (or tip_bank) can come out
+//   below 0 when a payee got more than their share: they hand that much on.
+//   Pots with no payees for the week are paid as shares (no_payees).
 
 import { splitPay } from '../../../shared/payMethod.js'
 
@@ -92,6 +104,19 @@ function overlap([a1, a2], [b1, b2]) {
 
 const round2 = n => Math.round((n + Number.EPSILON) * 100) / 100
 const num = v => (v == null || v === '' ? 0 : Number(v) || 0)
+
+/** `amount` split into n parts in whole pence, the odd pence to the first parts. */
+export function splitPence(amount, n) {
+  if (n <= 0) return []
+  const pence = Math.round(num(amount) * 100)
+  const each = Math.trunc(pence / n)
+  let rest = pence - each * n
+  return Array.from({ length: n }, () => {
+    const step = rest > 0 ? 1 : rest < 0 ? -1 : 0
+    rest -= step
+    return (each + step) / 100
+  })
+}
 
 /**
  * Round an amount to a multiple of `to` (e.g. 0.5, 1, 5), in whole pence so
@@ -333,6 +358,40 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     r.tip_share = round2(Math.max(0, r.tip_share_from_pots + r.tip_adjustment + r.tip_unallocated))
   }
 
+  // Paying out: what each pot pays whom, in cash or by bank.
+  const rowById = new Map(rows.map(r => [r.staff_id, r]))
+  const paid = new Map(rows.map(r => [r.staff_id, { cash: 0, bank: 0 }]))
+  pots.forEach((pot, i) => {
+    const summary = potSummaries[i]
+    const method = pot.payout_method === 'bank' ? 'bank' : 'cash'
+    const wantsPeople = pot.payout_to === 'people'
+    summary.payout_method = method
+    summary.payout_to = wantsPeople ? 'people' : 'shares'
+    summary.payees = []
+    summary.no_payees = false
+    if (pot.distribution === 'house') return
+    const payees = wantsPeople ? [...new Set(pot.payees ?? [])].filter(id => rowById.has(id)) : []
+    if (payees.length) {
+      const amount = pot.distribution === 'manual' ? summary.distributed : summary.total
+      summary.paid_to_people = amount
+      splitPence(amount, payees.length).forEach((amount, k) => {
+        paid.get(payees[k])[method] += amount
+        summary.payees.push({ staff_id: payees[k], name: rowById.get(payees[k]).name, amount })
+      })
+    } else {
+      summary.no_payees = wantsPeople
+      for (const r of rows) paid.get(r.staff_id)[method] += r.pot_shares[pot.id] ?? 0
+    }
+  })
+  const settleIn = pots.some(p => p.distribution !== 'house' && p.payout_method !== 'bank') ? 'cash' : 'bank'
+  for (const r of rows) {
+    const got = paid.get(r.staff_id)
+    const balance = round2(r.tip_share - got.cash - got.bank)
+    r.tip_balance = balance
+    r.tip_cash = round2(got.cash + (settleIn === 'cash' ? balance : 0))
+    r.tip_bank = round2(got.bank + (settleIn === 'bank' ? balance : 0))
+  }
+
   return {
     rows,
     pots: potSummaries,
@@ -351,7 +410,11 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       tips_added:    round2(adjusted.added),
       tips_taken_out: round2(adjusted.removed),
       tips_unallocated: round2(-rows.reduce((s, r) => s + r.tip_unallocated, 0)),
+      tips_bank:      round2(rows.reduce((s, r) => s + r.tip_bank, 0)),
+      tips_cash:      round2(rows.reduce((s, r) => s + Math.max(0, r.tip_cash), 0)),
+      tips_handed_on: round2(rows.reduce((s, r) => s + Math.max(0, -r.tip_cash) + Math.max(0, -r.tip_bank), 0)),
     },
+    tip_settled_in: settleIn,
     tip_rounding: roundTo ? { to: roundTo, mode: roundMode } : null,
   }
 }
