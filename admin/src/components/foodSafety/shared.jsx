@@ -1045,9 +1045,11 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
 
 // ── Cooking / reheat checks ──────────────────────────────────────
 //
-// Menu categories as tabs, menu items as buttons — click a dish, log its
+// Categories as tabs, dishes as buttons — click a dish, log its
 // core temperature (steppers + optional corrective-action note), no
-// typing a dish name each time. "Sessions" (set up in H&S settings, drag
+// typing a dish name each time. The dishes come from the venue's published
+// menus, its own cooking list, or both (H&S settings, Cooking items;
+// GET /food-safety/cooking/items). "Sessions" (set up in H&S settings, drag
 // to set their order) define how many times a day this happens and
 // how many items must be checked each time to meet criteria. The session
 // a reading belongs to is picked in the temperature pop-up. A live
@@ -1260,7 +1262,8 @@ function CookingEntryModal({ target, venueId, date, sessions, defaultSessionId, 
       venue_id: venueId,
       check_date: date,
       session_id: sessionRef.current || null,
-      menu_item_id: target.custom ? null : target.itemId,
+      menu_item_id: !target.custom && target.kind !== 'own' ? target.itemId : null,
+      cooking_item_id: !target.custom && target.kind === 'own' ? target.itemId : null,
       dish_name: target.custom ? customName.trim() : null,
       core_temp_c: coreTemp,
       corrective_action: rawNote.trim() || null,
@@ -1427,8 +1430,8 @@ function sessionForNow(sessions, date) {
   return (started.length ? started[started.length - 1] : timed[0]).id
 }
 
-// Full cooking-checks experience for one venue/date: menu category tabs +
-// item buttons, the temp-entry modal (where the reading's session is
+// Full cooking-checks experience for one venue/date: category tabs + dish
+// buttons (menus and/or the venue's own list), the temp-entry modal (where the reading's session is
 // picked), and a live "today's checks" side panel grouped by session with
 // each session's required-count progress. Used by the Food safety page's
 // Cooking tab and the H&S Dashboard's cooking-checks widget.
@@ -1453,22 +1456,13 @@ export function CookingChecksPanel({ venueId, date }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions])
 
-  const { data: menuRows = [] } = useQuery({
-    queryKey: ['fs-cooking-menu-items', venueId],
-    queryFn: () => api.get(`/food-safety/cooking/menu-items?venue_id=${venueId}`),
+  const { data: picker } = useQuery({
+    queryKey: ['fs-cooking-items', venueId],
+    queryFn: () => api.get(`/food-safety/cooking/items?venue_id=${venueId}`),
     enabled,
   })
-
-  const sections = useMemo(() => {
-    const bySection = new Map()
-    for (const row of menuRows) {
-      if (!bySection.has(row.section_id)) {
-        bySection.set(row.section_id, { id: row.section_id, title: row.section_title, items: [] })
-      }
-      bySection.get(row.section_id).items.push({ id: row.item_id, name: row.item_name })
-    }
-    return Array.from(bySection.values())
-  }, [menuRows])
+  const sections = useMemo(() => picker?.sections ?? [], [picker])
+  const itemSource = picker?.item_source ?? 'menus'
 
   useEffect(() => {
     if (activeSectionId && !sections.some(s => s.id === activeSectionId)) setActiveSectionId('')
@@ -1526,8 +1520,13 @@ export function CookingChecksPanel({ venueId, date }) {
         )}
 
         {sections.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-8 text-center border rounded-xl">
-            No menu items yet — build a menu on the Menus page first, or log a custom dish below.
+          <p className="text-sm text-muted-foreground py-8 text-center border rounded-xl px-4">
+            {itemSource === 'menus'
+              ? 'No dishes on a published menu yet. Build one on the Menus page, or add your own items in H&S settings, Cooking items.'
+              : itemSource === 'own'
+                ? 'No cooking items yet. Add them in H&S settings, Cooking items.'
+                : 'No dishes yet. Publish a menu, or add your own items in H&S settings, Cooking items.'}
+            {' '}You can still log a dish below.
           </p>
         ) : (
           <>
@@ -1546,10 +1545,11 @@ export function CookingChecksPanel({ venueId, date }) {
             </div>
             <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2">
               {(activeSection?.items ?? []).map(item => {
-                const countToday = checks.filter(c => c.menu_item_id === item.id).length
+                const countToday = checks.filter(c =>
+                  item.kind === 'own' ? c.cooking_item_id === item.id : c.menu_item_id === item.id).length
                 return (
                   <button key={item.id} type="button"
-                    onClick={() => setEntryTarget({ itemId: item.id, itemName: item.name })}
+                    onClick={() => setEntryTarget({ itemId: item.id, itemName: item.name, kind: item.kind })}
                     className="relative border rounded-lg px-2 py-4 min-h-[72px] text-sm font-medium text-center flex items-center justify-center bg-muted/60 hover:bg-accent hover:border-primary/40 touch-manipulation">
                     {item.name}
                     {countToday > 0 && (
@@ -1566,7 +1566,7 @@ export function CookingChecksPanel({ venueId, date }) {
 
         <button type="button" onClick={() => setEntryTarget({ custom: true })}
           className="text-xs text-primary hover:underline">
-          + Log a dish not on the menu
+          + Log a dish not on the list
         </button>
       </div>
 

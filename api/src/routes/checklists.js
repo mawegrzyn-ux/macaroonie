@@ -22,8 +22,11 @@
 //                                                  status for that date
 //   GET    /instance?template_id=&date=
 //   PUT    /instance                               { template_id, date,
-//                                                    items, notes,
-//                                                    mark_complete }
+//                                                    items, notes }
+//
+// There is no separate "complete" step: an instance is 'completed' as soon
+// as every active task is ticked (who/when = the save that ticked the last
+// one), and goes back to 'in_progress' when any task is unticked.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -69,7 +72,6 @@ const InstancePutBody = z.object({
   date:           z.string().regex(DATE_RE),
   items:          z.array(InstanceItemInput).default([]),
   notes:          z.string().max(2000).nullable().optional(),
-  mark_complete:  z.boolean().optional(),
 })
 
 /** Loads a template (must belong to this tenant) or throws 404. */
@@ -371,9 +373,15 @@ export default async function checklistsRoutes(app) {
       const template = await loadTemplate(tx, req.tenantId, body.template_id)
       const periodStart = periodStartFor(template.frequency, body.date)
 
-      const completedBy    = req.user?.email ?? null
-      const shouldComplete = body.mark_complete === true
-      const shouldReopen   = body.mark_complete === false
+      // Complete = every active task ticked. A save that keeps it complete
+      // keeps the original who/when.
+      const active = await tx`
+        SELECT id FROM checklist_template_items
+         WHERE template_id = ${template.id} AND tenant_id = ${req.tenantId} AND is_active = true
+      `
+      const ticked = new Set(body.items.filter(it => it.checked).map(it => it.template_item_id))
+      const complete = active.length > 0 && active.every(r => ticked.has(r.id))
+      const completedBy = req.user?.email ?? null
 
       const [instance] = await tx`
         INSERT INTO checklist_instances
@@ -381,25 +389,21 @@ export default async function checklistsRoutes(app) {
            status, completed_by, completed_at)
         VALUES
           (${req.tenantId}, ${template.venue_id}, ${template.id}, ${periodStart}, ${body.notes ?? null},
-           ${shouldComplete ? 'completed' : 'in_progress'},
-           ${shouldComplete ? completedBy : null},
-           ${shouldComplete ? new Date() : null})
+           ${complete ? 'completed' : 'in_progress'},
+           ${complete ? completedBy : null},
+           ${complete ? new Date() : null})
         ON CONFLICT (template_id, period_start) DO UPDATE
           SET notes        = EXCLUDED.notes,
-              status       = CASE
-                                WHEN ${shouldComplete} THEN 'completed'
-                                WHEN ${shouldReopen}   THEN 'in_progress'
-                                ELSE checklist_instances.status
-                              END,
+              status       = EXCLUDED.status,
               completed_by = CASE
-                                WHEN ${shouldComplete} THEN ${completedBy}
-                                WHEN ${shouldReopen}   THEN NULL
-                                ELSE checklist_instances.completed_by
+                                WHEN NOT ${complete} THEN NULL
+                                WHEN checklist_instances.status = 'completed' THEN checklist_instances.completed_by
+                                ELSE EXCLUDED.completed_by
                               END,
               completed_at = CASE
-                                WHEN ${shouldComplete} THEN now()
-                                WHEN ${shouldReopen}   THEN NULL
-                                ELSE checklist_instances.completed_at
+                                WHEN NOT ${complete} THEN NULL
+                                WHEN checklist_instances.status = 'completed' THEN checklist_instances.completed_at
+                                ELSE now()
                               END,
               updated_at   = now()
         RETURNING *

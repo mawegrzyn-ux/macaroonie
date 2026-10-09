@@ -2,14 +2,17 @@
 //
 // The per-venue food safety setup shown in H&S settings (HsSettings.jsx):
 // fridges & freezers, their check times, hold stations, their check times
-// (kept separate: /capture-times vs /hold-capture-times) and cooking
-// sessions. The check pages (Food safety, H&S Dashboard widgets) only
+// (kept separate: /capture-times vs /hold-capture-times), cooking
+// sessions, and cooking items (where the cooking-check dish buttons come
+// from: menus, the venue's own list, or both, migration 142). The check pages (Food safety, H&S Dashboard widgets) only
 // record readings; everything they are set up with lives here.
 //
 // Lists save as you go: Add / Edit open a small form with its own Save,
-// drag reorders straight away, Remove asks to confirm first.
+// drag reorders straight away, Remove asks to confirm first. The cooking
+// item source is a choice with its own Save.
 
 import { useState } from 'react'
+import { cn } from '@/lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -39,6 +42,7 @@ const EQUIPMENT_DEFAULTS = {
 const FS_KEYS = [
   'fs-equipment', 'fs-capture-times', 'fs-temp-logs', 'fs-hold-stations',
   'fs-hold-capture-times', 'fs-holds', 'fs-cooking-sessions', 'fs-cooking',
+  'fs-cooking-items', 'fs-cooking-settings', 'fs-cooking-own-items',
   'dashboard-hs-status-today', 'dashboard-hs-status-week',
 ]
 
@@ -48,6 +52,7 @@ export const SETUP_SECTIONS = [
   { key: 'hold_stations',      label: 'Hold stations' },
   { key: 'hold_capture_times', label: 'Hold check times' },
   { key: 'cooking_sessions',   label: 'Cooking sessions' },
+  { key: 'cooking_items',      label: 'Cooking items' },
 ]
 
 export function HsSetupSection({ section, venueId }) {
@@ -58,6 +63,7 @@ export function HsSetupSection({ section, venueId }) {
     case 'hold_stations':      return <HoldStationsSettings venueId={venueId} />
     case 'hold_capture_times': return <CaptureTimesSettings venueId={venueId} kind="hold" />
     case 'cooking_sessions':   return <CookingSessionsSettings venueId={venueId} />
+    case 'cooking_items':      return <CookingItemsSettings venueId={venueId} />
     default:                   return null
   }
 }
@@ -380,6 +386,128 @@ function CaptureTimeModal({ initial, venueId, onClose, onSave, isSaving, error }
             className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
         </Field>
         <FormButtons isSaving={isSaving} disabled={!label.trim()} onClose={onClose} error={error} />
+      </form>
+    </FormModal>
+  )
+}
+
+// ── Cooking items (picker source + own list) ───────────────────
+
+const ITEM_SOURCE_OPTIONS = [
+  { value: 'menus', label: 'Menus',         hint: 'Dishes on this venue\'s published menus, one tab per menu section.' },
+  { value: 'own',   label: 'Our own items', hint: 'Only the list below, one tab per category.' },
+  { value: 'both',  label: 'Both',          hint: 'Menu tabs first, then the tabs from the list below.' },
+]
+
+function CookingItemsSettings({ venueId }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const invalidate = useFsInvalidate()
+  const [modal, setModal] = useState(null)
+  const [confirmId, setConfirmId] = useState(null)
+  const [source, setSource] = useState(null)
+
+  const { data: settings } = useQuery({
+    queryKey: ['fs-cooking-settings', venueId],
+    queryFn: () => api.get(`/food-safety/cooking-settings?venue_id=${venueId}`),
+  })
+  const savedSource = settings?.item_source ?? 'menus'
+  const value = source ?? savedSource
+  const dirty = source !== null && source !== savedSource
+  const saveSource = useMutation({
+    mutationFn: () => api.put('/food-safety/cooking-settings', { venue_id: venueId, item_source: value }),
+    onSuccess: () => { invalidate(); setSource(null) },
+  })
+
+  const key = ['fs-cooking-own-items', venueId]
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: key, queryFn: () => api.get(`/food-safety/cooking-items?venue_id=${venueId}`),
+  })
+  const create = useMutation({ mutationFn: b => api.post('/food-safety/cooking-items', b), onSuccess: () => { invalidate(); setModal(null) } })
+  const patch  = useMutation({ mutationFn: ({ id, ...b }) => api.patch(`/food-safety/cooking-items/${id}`, b), onSuccess: () => { invalidate(); setModal(null) } })
+  const remove = useMutation({ mutationFn: id => api.delete(`/food-safety/cooking-items/${id}`), onSuccess: () => { invalidate(); setConfirmId(null) } })
+  const reorder = useMutation({ mutationFn: ids => api.patch('/food-safety/cooking-items/reorder', { ids }), onError: invalidate })
+
+  const categories = [...new Set(rows.map(r => r.category).filter(Boolean))]
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="text-sm font-medium mb-2">Dishes to pick from when logging a cooking check</p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {ITEM_SOURCE_OPTIONS.map(o => (
+            <button key={o.value} type="button" onClick={() => setSource(o.value)} aria-pressed={value === o.value}
+              className={cn(
+                'text-left rounded-lg border px-3 py-2.5 min-h-[44px] touch-manipulation',
+                value === o.value ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'hover:bg-accent',
+              )}>
+              <span className="block text-sm font-medium">{o.label}</span>
+              <span className="block text-xs text-muted-foreground mt-0.5">{o.hint}</span>
+            </button>
+          ))}
+        </div>
+        {saveSource.error && <p className="text-sm text-destructive mt-2">{saveSource.error.body?.error || saveSource.error.message}</p>}
+        <div className="flex justify-end mt-3">
+          <button type="button" onClick={() => saveSource.mutate()} disabled={!dirty || saveSource.isPending}
+            className="px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium min-h-[44px] touch-manipulation disabled:opacity-50">
+            {saveSource.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <SectionHead
+          hint={`Your own cooking items${value === 'menus' ? ' (not shown while the choice above is Menus)' : ''}. Items with the same category share a tab; items without one go under "Our items". Drag to set the order.`}
+          onAdd={() => setModal('new')} />
+        {isLoading ? null : rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center border rounded-lg">No items yet.</p>
+        ) : (
+          <SortableList rows={rows}
+            confirmId={confirmId} setConfirmId={setConfirmId} removing={remove.isPending}
+            onEdit={setModal} onRemove={id => remove.mutate(id)}
+            onReorder={next => { qc.setQueryData(key, next); reorder.mutate(next.map(r => r.id)) }}
+            render={r => (
+              <>
+                <span className="block text-sm font-medium truncate">{r.name}</span>
+                <span className="block text-xs text-muted-foreground truncate">{r.category || 'Our items'}</span>
+              </>
+            )} />
+        )}
+      </div>
+
+      {modal && (
+        <CookingItemModal initial={modal === 'new' ? null : modal} venueId={venueId} categories={categories}
+          onClose={() => setModal(null)} isSaving={create.isPending || patch.isPending}
+          error={create.error || patch.error}
+          onSave={b => modal === 'new' ? create.mutate(b) : patch.mutate({ id: modal.id, name: b.name, category: b.category })} />
+      )}
+    </div>
+  )
+}
+
+function CookingItemModal({ initial, venueId, categories, onClose, onSave, isSaving, error }) {
+  const [name, setName] = useState(initial?.name ?? '')
+  const [category, setCategory] = useState(initial?.category ?? '')
+  function submit(e) {
+    e.preventDefault()
+    if (!name.trim()) return
+    onSave({ venue_id: venueId, name: name.trim(), category: category.trim() || null })
+  }
+  return (
+    <FormModal title={initial ? 'Edit cooking item' : 'Add cooking item'} onClose={onClose} narrow>
+      <form onSubmit={submit} className="space-y-3">
+        <Field label="Name *">
+          <input value={name} onChange={e => setName(e.target.value)} required autoFocus placeholder="e.g. Chicken breast"
+            className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+        </Field>
+        <Field label="Category (tab)">
+          <input value={category} onChange={e => setCategory(e.target.value)} list="fs-cooking-categories"
+            placeholder="e.g. Meat" className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+          <datalist id="fs-cooking-categories">
+            {categories.map(c => <option key={c} value={c} />)}
+          </datalist>
+        </Field>
+        <FormButtons isSaving={isSaving} disabled={!name.trim()} onClose={onClose} error={error} />
       </form>
     </FormModal>
   )

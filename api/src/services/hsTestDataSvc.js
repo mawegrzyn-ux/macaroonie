@@ -9,7 +9,8 @@
 //   temps      — one fridge/freezer reading per equipment per check time
 //   holds      — one hold reading per station per hold check time
 //   cooking    — each cooking session's required number of checks, dishes
-//                picked at random from the venue's published menus
+//                picked at random from the venue's cooking picker (published
+//                menus, its own cooking list, or both; services/cookingItems.js)
 //   orders     — past order sheets from templates with delivery days set
 //                (status placed, random quantities around the suggested ones)
 //   deliveries — one delivery check per placed order sheet delivered that
@@ -29,6 +30,7 @@ import { randomUUID } from 'node:crypto'
 import { periodStartFor } from '../utils/checklistPeriod.js'
 import { openDatesOrNull } from './openDays.js'
 import { zonedToUtc } from './orderSvc.js'
+import { loadCookingPicker } from './cookingItems.js'
 
 export const HS_KINDS = ['temps', 'holds', 'cooking', 'orders', 'deliveries', 'checklists']
 
@@ -275,17 +277,10 @@ export async function generateHsData(tx, tenantId, venueId, opts) {
        WHERE venue_id = ${venueId} AND tenant_id = ${tenantId} AND is_active = true
        ORDER BY sort_order, time_of_day
     `
-    // Same dish list the Food safety page's cooking picker shows.
-    const dishes = await tx`
-      SELECT i.id, i.name
-        FROM menu_items i
-        JOIN menu_sections s ON s.id = i.section_id
-        JOIN menus m ON m.id = s.menu_id
-       WHERE i.tenant_id = ${tenantId}
-         AND m.tenant_id = ${tenantId}
-         AND m.is_published = true
-         AND (m.venue_id = ${venueId} OR m.venue_id IS NULL)
-    `
+    // Same dish list the Food safety page's cooking picker shows (menus,
+    // the venue's own list, or both, per its cooking item source).
+    const picker = await loadCookingPicker(tx, tenantId, venueId)
+    const dishes = picker.sections.flatMap(sec => sec.items)
     const existing = await tx`
       SELECT check_date::text AS d, session_id, count(*)::int AS n FROM fs_cooking_checks
        WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}
@@ -296,7 +291,9 @@ export async function generateHsData(tx, tenantId, venueId, opts) {
     const dayHasAny = new Set(existing.map(r => r.d))
 
     if (!dishes.length) {
-      out.notes.push('No dishes on a published menu, so no cooking checks')
+      out.notes.push(picker.item_source === 'own'
+        ? 'No items on the venue\'s own cooking list, so no cooking checks'
+        : 'No dishes to pick from (published menus or own cooking list), so no cooking checks')
     } else {
       // No sessions set up: two checks a day (lunch, dinner), if the day has none.
       const plan = sessions.length
@@ -317,7 +314,10 @@ export async function generateHsData(tx, tenantId, venueId, opts) {
             rows.cooking.push({
               tenant_id: tenantId, venue_id: venueId, check_date: d,
               recorded_at: at(d, s.time, tz, mins),
-              session_id: s.id, menu_item_id: dish.id, dish_name: dish.name,
+              session_id: s.id,
+              menu_item_id: dish.kind === 'menu' ? dish.id : null,
+              cooking_item_id: dish.kind === 'own' ? dish.id : null,
+              dish_name: dish.name,
               core_temp_c: t, is_within_range: !bad,
               corrective_action: bad ? pick(FIXES.cook) : null,
               recorded_by: who(), is_generated: true,

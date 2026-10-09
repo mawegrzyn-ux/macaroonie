@@ -1281,7 +1281,7 @@ export default function Help() {
                 ['Today', 'Fridge/freezer temperature checks, plus a count of today\'s deliveries, hold checks and cooking checks. One row per fridge or freezer, one column per fridge check time (e.g. AM/PM). Each unlogged reading starts pre-filled at the low end of that fridge\'s normal range, so you only need to nudge the +/- steppers or overtype it — nothing saves until you actually touch the cell.'],
                 ['Deliveries', 'Log a delivery: supplier, temperature, condition. The main view is an entry form on one side and a list of this week\'s deliveries on the other — click any item in the list to load it back into the form for editing.'],
                 ['Holds', 'Hot-hold and cold-hold checks for food kept warm/cold for service. Same layout (and same pre-filled reading) as the fridge checks on Today, one column per hold check time.'],
-                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a menu category tab, then tap the dish you just cooked — no typing a dish name each time. In the pop-up, pick the session (Lunch, Dinner, ...) the reading belongs to and dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents). The session starts on the one you picked last, or on today\'s current session by its time. The "Today\'s checks" list on the right is grouped by session, each with how many of its required items are done (e.g. 1/2). Tap any entry to reopen it, move it to another session, correct the reading, or delete it (double-confirm) if it was logged in error.'],
+                ['Cooking', 'Cooking/reheat core-temperature checks. Pick a category tab, then tap the dish you just cooked (the dishes come from your menus, your own cooking list, or both: see Cooking items in H&S settings) — no typing a dish name each time. In the pop-up, pick the session (Lunch, Dinner, ...) the reading belongs to and dial in the core temperature (target: ≥75°C for 30 seconds, or FSA equivalents). The session starts on the one you picked last, or on today\'s current session by its time. The "Today\'s checks" list on the right is grouped by session, each with how many of its required items are done (e.g. 1/2). Tap any entry to reopen it, move it to another session, correct the reading, or delete it (double-confirm) if it was logged in error.'],
               ]}
             />
             <H3>Setting it up (H&amp;S settings)</H3>
@@ -1299,6 +1299,7 @@ export default function Help() {
                 ['Hold stations', 'Hot and cold holding stations (bain-marie, salad bar, ...) with their safe range. Drag to reorder.'],
                 ['Hold check times', 'When hold checks happen each day. Kept separate from the fridge check times.'],
                 ['Cooking sessions', 'How many times a day cooking checks happen (e.g. Lunch, Dinner), with an optional time and how many items must be checked in each. Drag the handle to set their order.'],
+                ['Cooking items', 'Which dishes the cooking check buttons show: Menus (the venue\'s published menus, one tab per menu section), Our own items (a list you keep here, one tab per category), or Both. Choose and tap Save. Add your own items with a name and an optional category; items without a category go under "Our items". Drag to reorder. Whatever the choice, "Log a dish not on the list" still lets you type any dish.'],
               ]}
             />
             <P>
@@ -1339,7 +1340,7 @@ export default function Help() {
             <DataTable
               head={['Tab', 'What it is']}
               rows={[
-                ['Today', 'Whatever checklists are due today. Tick items off as you go — ticking the last required item marks the whole checklist complete, recording who completed it and when.'],
+                ['Today', 'Whatever checklists are due today. Tick items off as you go, or tap Tick all to tick every task at once. There is no separate Complete button: ticking the last task marks the whole checklist complete, recording who completed it and when.'],
                 ['Checklists', 'The builder. Create a checklist, give it a name and optional department, set its frequency (daily / weekly / monthly), and add/reorder/remove its individual tasks.'],
               ]}
             />
@@ -1355,14 +1356,13 @@ export default function Help() {
               who completed it and at what time — useful for shift handover and due-diligence
               records.
             </InfoBox>
-            <H3>Made a mistake? Reopen it</H3>
+            <H3>Made a mistake? Untick it</H3>
             <P>
-              A completed checklist can be reopened so items can be re-ticked or corrected. On the
-              Checklists page, tap <strong>Reopen this checklist</strong> under a completed
-              checklist and confirm. On the H&amp;S Dashboard, tap the green{' '}
-              <strong>Complete</strong> badge in a checklist widget's header, then confirm{' '}
-              <strong>Yes, reopen</strong>. Reopening clears who/when it was completed by — it
-              goes back to showing as not-yet-done until someone completes it again.
+              Untick any task and the checklist goes back to not-yet-done (who/when it was
+              completed is cleared); tick it again to complete it. If <strong>Tick all</strong>{' '}
+              was tapped by mistake on the H&amp;S Dashboard, tap the green{' '}
+              <strong>All done</strong> badge in the widget's header, then{' '}
+              <strong>Untick all</strong>.
             </P>
             <H3>Closed days (H&amp;S settings)</H3>
             <P>
@@ -1409,7 +1409,7 @@ export default function Help() {
             <DataTable
               head={['Widget', 'Shows']}
               rows={[
-                ['Checklist', 'One specific checklist, tick-and-complete right on the dashboard — the "Complete" action sits in the widget\'s own header.'],
+                ['Checklist', 'One specific checklist, ticked right on the dashboard. Tick all sits in the widget\'s own header; once every task is ticked it shows All done (tap it to untick all).'],
                 ['Temperature checks', 'The Equipment (fridge/freezer) grid.'],
                 ['Delivery checks', 'The delivery log entry form + this week\'s list.'],
                 ['Hot / cold hold checks', 'The Holds grid.'],
@@ -1735,7 +1735,7 @@ export default function Help() {
             <P>
               Visit <strong>ops.macaroonie.com</strong> on a phone (signed in with your usual
               account) for a phone-sized version of the app, starting with the H&amp;S Dashboard.
-              It's the same data and the same Complete/log actions as the desktop page — just
+              It's the same data and the same Tick all/log actions as the desktop page — just
               laid out in a single column for a phone screen instead of a resizable grid.
             </P>
             <H3>Installing it as an app</H3>
