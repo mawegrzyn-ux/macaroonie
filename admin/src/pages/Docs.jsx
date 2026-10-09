@@ -1206,7 +1206,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               SFBB-style due-diligence logging, per venue and per day. Migration 076 (core
               tables), 077 (equipment capture times), 090 (hold stations + cooking sessions as
-              their own reorderable/manageable entities rather than fixed enums).
+              their own reorderable/manageable entities rather than fixed enums), 142 (cooking
+              items: where the cooking-check dish buttons come from).
             </P>
             <H3>Schema</H3>
             <DataTable
@@ -1220,7 +1221,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['fs_hold_capture_times', 'Named capture times for hold checks, same pattern as fs_capture_times.'],
                 ['fs_hold_checks', 'One row per hold-station reading per capture time per day.'],
                 ['fs_cooking_sessions', 'Named cooking-check sessions (migration 090) — e.g. "Lunch service" — with a required_items_count target and optional time_of_day. sort_order for drag-reorder; a new session goes to the end (max + 1).'],
-                ['fs_cooking_checks', 'One row per dish checked: menu_item_id (or a free-text dish_name for off-menu items), core_temp_c, corrective_action.'],
+                ['fs_cooking_settings', 'Migration 142. One row per venue: item_source menus | own | both (no row = menus). Edited in H&S settings, Cooking items (GET/PUT /cooking-settings).'],
+                ['fs_cooking_items', 'Migration 142. The venue\'s own cooking-check list: name, optional category (its tab; none = "Our items"), sort_order (drag), is_active (soft delete). /cooking-items CRUD + /cooking-items/reorder.'],
+                ['fs_cooking_checks', 'One row per dish checked: menu_item_id (a menu dish) or cooking_item_id (an own-list item, migration 142), or neither for a typed one-off; dish_name always holds the name at the time. core_temp_c, corrective_action.'],
               ]}
             />
             <H3>API</H3>
@@ -1236,6 +1239,17 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               temp-logs, deliveries, hold-stations, hold-capture-times, holds, cooking-sessions,
               cooking, plus a <Mono>GET /defaults</Mono> for the built-in target/min/max per
               equipment type).
+            </P>
+            <P>
+              The cooking picker's tabs and dish buttons come from{' '}
+              <Mono>GET /cooking/items?venue_id=</Mono>, which returns{' '}
+              <Mono>{'{ item_source, sections: [{ id, title, kind, items: [{ id, name, kind }] }] }'}</Mono>{' '}
+              from <Mono>loadCookingPicker()</Mono> in <Mono>services/cookingItems.js</Mono>: menu
+              sections of the venue's published menus (venue and tenant-wide), then own-list items
+              grouped by category, per <Mono>fs_cooking_settings.item_source</Mono>. The H&amp;S
+              test data generator calls the same loader. <Mono>POST /cooking</Mono> takes{' '}
+              <Mono>menu_item_id</Mono>, <Mono>cooking_item_id</Mono> or a typed{' '}
+              <Mono>dish_name</Mono>, and copies the name into <Mono>dish_name</Mono>.
             </P>
             <H3>Key files</H3>
             <DataTable
@@ -1319,7 +1333,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Mounted at <Mono>/api/checklists</Mono>, gated by <Mono>requirePermission('checklists', …)</Mono>.
               <Mono> GET /due</Mono> returns every template due for a venue/date. <Mono>GET
               /instance</Mono> + <Mono>PUT /instance</Mono> load/save the tick state for one
-              template on one date — the instance row is created lazily on first PUT. Template
+              template on one date — the instance row is created lazily on first PUT. There is
+              no complete action: <Mono>PUT /instance</Mono> sets status{' '}
+              <Mono>completed</Mono> when every active template item is ticked (keeping the first{' '}
+              <Mono>completed_by</Mono>/<Mono>completed_at</Mono> while it stays complete) and{' '}
+              <Mono>in_progress</Mono> with both cleared otherwise. Tick all is the client sending
+              every item checked. Template
               CRUD and item CRUD/reorder live under <Mono>/templates</Mono> and
               <Mono> /templates/:id/items</Mono>.
             </P>
@@ -1349,25 +1368,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               rows={[
                 ['api/src/routes/checklists.js', 'All checklist routes.'],
                 ['admin/src/pages/Checklists.jsx', 'Two tabs: Today (tick off what\'s due) and Checklists (the template builder).'],
-                ['admin/src/components/checklists/shared.jsx', 'ChecklistRunPanel — the tick-list UI, reused as-is by both Checklists.jsx and the H&S Dashboard\'s checklist widget. Accepts a hideHeader + onStateChange mode so the host can render its own "Complete" affordance.'],
+                ['admin/src/components/checklists/shared.jsx', 'ChecklistRunPanel — the tick-list UI, reused as-is by both Checklists.jsx and the H&S Dashboard\'s checklist widget, with a Tick all button. Accepts a hideHeader + onStateChange mode ({ isCompleted, isPending, hasItems, tickAll, untickAll }) so the host renders ChecklistHeaderAction (Tick all, then an All done badge that offers a confirmed Untick all) in its own header.'],
               ]}
             />
             <InfoBox type="info">
-              Reopening (<Mono>PUT /instance</Mono> with <Mono>mark_complete: false</Mono>) was
-              already fully implemented in <Mono>ChecklistRunPanel</Mono>'s own full-width footer
-              (used by <Mono>Checklists.jsx</Mono>) — double-confirm, then clears{' '}
-              <Mono>completed_by</Mono>/<Mono>completed_at</Mono> and sets status back to{' '}
-              <Mono>in_progress</Mono>. It was missing from <Mono>hideHeader</Mono> mode (the H&S
-              Dashboard / mobile H&S Dashboard widget card): that mode's{' '}
-              <Mono>onStateChange</Mono> callback only exposed <Mono>markComplete</Mono>, not a
-              reopen action, so a completed widget showed a static badge with no way back. Fixed
-              by adding <Mono>reopen: () =&gt; save.mutate({'{'} markComplete: false {'}'})</Mono>{' '}
-              to that callback's payload; each widget-card host (
-              <Mono>HSDashboard.jsx</Mono>'s <Mono>WidgetCard</Mono>,{' '}
-              <Mono>MobileHSDashboard.jsx</Mono>'s <Mono>MobileWidgetCard</Mono>) manages its own
-              local <Mono>confirmReopen</Mono> boolean and renders the same double-confirm
-              affordance inline in its compact header, since there's no room there for the
-              full-panel's dedicated footer block.
+              Completion used to be a separate step (a Complete button, then Reopen with a
+              double confirm). Since October 2026 it follows the ticks only, so the dashboard
+              widgets and the Checklists page can never disagree about it, and fixing a task is
+              just unticking it.
             </InfoBox>
             <H3>Legacy spreadsheet import</H3>
             <P>
@@ -3505,7 +3513,7 @@ allTables sorted by sort_order → target at index i
               rows={[
                 ['temps', 'fs_temp_logs', 'Per active equipment x active fs_capture_times (one 09:00 reading a day when there are none). Cold units: up to 1.5°C below max; hot: 1.5-13.5°C above min; defaults by type when a limit is missing. is_within_range from the row limits, as POST /temp-logs does.'],
                 ['holds', 'fs_hold_checks', 'Per active station x fs_hold_capture_times, same value rule.'],
-                ['cooking', 'fs_cooking_checks', 'Per session: required_items_count minus checks already logged (a fresh session sometimes gets one extra). Dishes from the same published-menu query as /cooking/menu-items. Core 76-92°C.'],
+                ['cooking', 'fs_cooking_checks', 'Per session: required_items_count minus checks already logged (a fresh session sometimes gets one extra). Dishes from loadCookingPicker() (services/cookingItems.js), the same list the cooking picker shows: menus, the venue\'s own list or both. Core 76-92°C.'],
                 ['orders', 'order_sheets + order_sheet_order_items', 'Templates assigned to the venue with delivery_days; status placed, placed_at the day before, 60-85% of active items, qty = suggested qty x 0.7-1.3 (else 1-6).'],
                 ['deliveries', 'fs_delivery_checks', 'One per placed order_sheet in range with no check yet (order_sheet_id, unique). vendor_name = template name; items jsonb = order lines with category and temp_c; product_temp_c by category: chilled (meat, poultry, fish, seafood, dairy, egg) 1-5°C, frozen -22 to -18°C, ambient none. Skipped when a check for that supplier and day already exists.'],
                 ['checklists', 'checklist_instances + checklist_instance_items', 'Every period the range touches (daily skips closed days), status completed, all active items ticked, completed_at on the last day of the period in range. An in_progress instance is completed and ticked but keeps is_generated = false.'],

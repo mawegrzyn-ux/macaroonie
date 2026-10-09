@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+import { ITEM_SOURCES, loadCookingPicker } from '../services/cookingItems.js'
 
 const EQUIPMENT_TYPES = ['fridge', 'freezer', 'hot_hold', 'cold_hold', 'other']
 
@@ -147,6 +148,7 @@ const CookingBody = z.object({
   venue_id:           z.string().uuid(),
   session_id:         z.string().uuid().nullable().optional(),
   menu_item_id:       z.string().uuid().nullable().optional(),
+  cooking_item_id:    z.string().uuid().nullable().optional(),
   dish_name:          z.string().min(1).max(200).nullable().optional(),
   check_date:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   core_temp_c:        z.number(),
@@ -155,9 +157,24 @@ const CookingBody = z.object({
   notes:              z.string().max(2000).nullable().optional(),
   recorded_by:        z.string().max(200).nullable().optional(),
 }).refine(
-  b => !!b.menu_item_id || !!(b.dish_name && b.dish_name.trim()),
-  { message: 'Either menu_item_id or dish_name is required' },
+  b => !!b.menu_item_id || !!b.cooking_item_id || !!(b.dish_name && b.dish_name.trim()),
+  { message: 'A menu dish, an own-list item or a dish name is required' },
 )
+
+// The venue's own cooking-check list (migration 142).
+const CookingItemBody = z.object({
+  venue_id: z.string().uuid(),
+  name:     z.string().trim().min(1).max(200),
+  category: z.string().trim().max(100).nullable().optional(),
+})
+const CookingItemPatch = z.object({
+  name:     z.string().trim().min(1).max(200).optional(),
+  category: z.string().trim().max(100).nullable().optional(),
+})
+const CookingSettingsBody = z.object({
+  venue_id:    z.string().uuid(),
+  item_source: z.enum(ITEM_SOURCES),
+})
 
 // Editing an already-logged check — the dish identity (menu_item_id /
 // dish_name) is fixed once created, only the reading itself can change.
@@ -863,29 +880,120 @@ export default async function foodSafetyRoutes(app) {
     return row
   })
 
-  // ── Menu items for the cooking-check picker ───────────────
-  // Flattened section (category) + item list for the venue's published
-  // menu(s) — just enough for "categories as tabs, items as buttons".
-  // Tenant-wide menus (venue_id IS NULL) are included alongside the
-  // venue's own, same inheritance rule the public site uses.
+  // ── Cooking-check picker + item source + own list (migration 142) ──
+  // The picker's tabs and dish buttons come from loadCookingPicker()
+  // (services/cookingItems.js): the venue's published menus, its own list,
+  // or both, per fs_cooking_settings.item_source.
 
-  app.get('/cooking/menu-items', {
+  app.get('/cooking/items', {
     preHandler: requirePermission('food_safety', 'view'),
   }, async (req) => {
     const { venue_id } = req.query
     if (!venue_id) throw httpError(400, 'venue_id required')
+    return withTenant(req.tenantId, tx => loadCookingPicker(tx, req.tenantId, venue_id))
+  })
 
-    return withTenant(req.tenantId, tx => tx`
-      SELECT s.id AS section_id, s.title AS section_title, s.sort_order AS section_sort,
-             i.id AS item_id, i.name AS item_name, i.sort_order AS item_sort
-        FROM menu_items i
-        JOIN menu_sections s ON s.id = i.section_id
-        JOIN menus m ON m.id = s.menu_id
-       WHERE i.tenant_id = ${req.tenantId}
-         AND m.is_published = true
-         AND (m.venue_id = ${venue_id} OR m.venue_id IS NULL)
-       ORDER BY m.sort_order, s.sort_order, i.sort_order
+  app.get('/cooking-settings', {
+    preHandler: requirePermission('food_safety', 'view'),
+  }, async (req) => {
+    const { venue_id } = req.query
+    if (!venue_id) throw httpError(400, 'venue_id required')
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      SELECT item_source FROM fs_cooking_settings
+       WHERE tenant_id = ${req.tenantId} AND venue_id = ${venue_id}
     `)
+    return { item_source: row?.item_source ?? 'menus' }
+  })
+
+  app.put('/cooking-settings', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = CookingSettingsBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      const [venue] = await tx`SELECT id FROM venues WHERE id = ${body.venue_id} AND tenant_id = ${req.tenantId}`
+      if (!venue) throw httpError(404, 'Venue not found')
+      const [row] = await tx`
+        INSERT INTO fs_cooking_settings (tenant_id, venue_id, item_source)
+        VALUES (${req.tenantId}, ${body.venue_id}, ${body.item_source})
+        ON CONFLICT (venue_id) DO UPDATE SET item_source = EXCLUDED.item_source
+        RETURNING item_source
+      `
+      return row
+    })
+  })
+
+  app.get('/cooking-items', {
+    preHandler: requirePermission('food_safety', 'view'),
+  }, async (req) => {
+    const { venue_id } = req.query
+    if (!venue_id) throw httpError(400, 'venue_id required')
+    return withTenant(req.tenantId, tx => tx`
+      SELECT * FROM fs_cooking_items
+       WHERE tenant_id = ${req.tenantId} AND venue_id = ${venue_id} AND is_active = true
+       ORDER BY sort_order, name
+    `)
+  })
+
+  app.post('/cooking-items', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = CookingItemBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      const [venue] = await tx`SELECT id FROM venues WHERE id = ${body.venue_id} AND tenant_id = ${req.tenantId}`
+      if (!venue) throw httpError(404, 'Venue not found')
+      const [row] = await tx`
+        INSERT INTO fs_cooking_items (tenant_id, venue_id, name, category, sort_order)
+        VALUES (${req.tenantId}, ${body.venue_id}, ${body.name}, ${body.category || null},
+                (SELECT COALESCE(max(sort_order), -1) + 1 FROM fs_cooking_items
+                  WHERE tenant_id = ${req.tenantId} AND venue_id = ${body.venue_id}))
+        RETURNING *
+      `
+      return row
+    })
+  })
+
+  // Must be registered before /cooking-items/:id.
+  app.patch('/cooking-items/reorder', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      const owned = await tx`SELECT id FROM fs_cooking_items WHERE id = ANY(${ids}::uuid[]) AND tenant_id = ${req.tenantId}`
+      if (owned.length !== ids.length) throw httpError(404, 'One or more cooking items not found')
+      for (let i = 0; i < ids.length; i++) {
+        await tx`UPDATE fs_cooking_items SET sort_order = ${i} WHERE id = ${ids[i]} AND tenant_id = ${req.tenantId}`
+      }
+    })
+    return { ok: true }
+  })
+
+  app.patch('/cooking-items/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const body = CookingItemPatch.parse(req.body)
+    if (body.category !== undefined) body.category = body.category || null
+    const fields = Object.keys(body).filter(k => body[k] !== undefined)
+    if (!fields.length) throw httpError(400, 'No fields to update')
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_cooking_items
+         SET ${tx(Object.fromEntries(fields.map(k => [k, body[k]])), ...fields)}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Cooking item not found')
+    return row
+  })
+
+  app.delete('/cooking-items/:id', {
+    preHandler: requirePermission('food_safety', 'manage'),
+  }, async (req) => {
+    const [row] = await withTenant(req.tenantId, tx => tx`
+      UPDATE fs_cooking_items SET is_active = false
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+       RETURNING *
+    `)
+    if (!row) throw httpError(404, 'Cooking item not found')
+    return row
   })
 
   // ── Cooking checks ────────────────────────────────────────
@@ -930,8 +1038,16 @@ export default async function foodSafetyRoutes(app) {
       `)
       if (!item) throw httpError(404, 'Menu item not found')
       dishName = item.name
+    } else if (body.cooking_item_id) {
+      const [item] = await withTenant(req.tenantId, tx => tx`
+        SELECT name FROM fs_cooking_items
+         WHERE id = ${body.cooking_item_id} AND tenant_id = ${req.tenantId}
+           AND venue_id = ${body.venue_id}
+      `)
+      if (!item) throw httpError(404, 'Cooking item not found')
+      dishName = item.name
     }
-    if (!dishName) throw httpError(400, 'Either menu_item_id or dish_name is required')
+    if (!dishName) throw httpError(400, 'A menu dish, an own-list item or a dish name is required')
 
     if (body.session_id) {
       const [session] = await withTenant(req.tenantId, tx => tx`
@@ -944,11 +1060,11 @@ export default async function foodSafetyRoutes(app) {
 
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO fs_cooking_checks
-        (tenant_id, venue_id, check_date, session_id, menu_item_id, dish_name, core_temp_c, hold_seconds,
+        (tenant_id, venue_id, check_date, session_id, menu_item_id, cooking_item_id, dish_name, core_temp_c, hold_seconds,
          is_within_range, corrective_action, notes, recorded_by)
       VALUES
         (${req.tenantId}, ${body.venue_id}, ${checkDate}, ${body.session_id ?? null}, ${body.menu_item_id ?? null},
-         ${dishName}, ${body.core_temp_c}, ${body.hold_seconds ?? null}, ${inRange},
+         ${body.menu_item_id ? null : body.cooking_item_id ?? null}, ${dishName}, ${body.core_temp_c}, ${body.hold_seconds ?? null}, ${inRange},
          ${body.corrective_action ?? null}, ${body.notes ?? null},
          ${body.recorded_by ?? req.user?.email ?? null})
       RETURNING *

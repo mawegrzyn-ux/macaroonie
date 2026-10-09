@@ -11,10 +11,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
-import { ChevronLeft, ChevronRight, Check, LayoutGrid } from 'lucide-react'
+import { ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { ChecklistRunPanel, FREQUENCY_LABELS } from '@/components/checklists/shared'
+import { ChecklistRunPanel, ChecklistHeaderAction, FREQUENCY_LABELS } from '@/components/checklists/shared'
 import {
   TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
 } from '@/components/foodSafety/shared'
@@ -38,8 +38,6 @@ function MobileWidgetCard({ widget, venueId, date }) {
     : null
 
   const [checklistState, setChecklistState] = useState(null)
-  const [confirmReopen, setConfirmReopen] = useState(false)
-  useEffect(() => { if (!checklistState?.isCompleted) setConfirmReopen(false) }, [checklistState?.isCompleted])
 
   return (
     <div className="border rounded-xl bg-background shadow-sm overflow-hidden">
@@ -54,32 +52,7 @@ function MobileWidgetCard({ widget, venueId, date }) {
             <span className="block text-xs text-muted-foreground">{FREQUENCY_LABELS[widget.checklist_frequency]}</span>
           )}
         </span>
-        {isChecklist && checklistState && (
-          checklistState.isCompleted ? (
-            confirmReopen ? (
-              <div className="flex items-center gap-1 shrink-0">
-                <button type="button" onClick={() => { checklistState.reopen(); setConfirmReopen(false) }} disabled={checklistState.isPending}
-                  className="text-xs font-medium px-2 py-1.5 rounded-md bg-amber-600 text-white disabled:opacity-50 min-h-[36px] touch-manipulation">
-                  {checklistState.isPending ? 'Working…' : 'Reopen'}
-                </button>
-                <button type="button" onClick={() => setConfirmReopen(false)}
-                  className="text-xs font-medium px-2 py-1.5 rounded-md border min-h-[36px] touch-manipulation">
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button type="button" onClick={() => setConfirmReopen(true)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 rounded-md px-1.5 py-1.5 min-h-[36px] shrink-0 touch-manipulation">
-                <Check className="w-3.5 h-3.5" /> Done
-              </button>
-            )
-          ) : (
-            <button type="button" onClick={checklistState.markComplete} disabled={checklistState.isPending}
-              className="shrink-0 text-xs font-medium px-2.5 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50 min-h-[36px] touch-manipulation">
-              {checklistState.isPending ? 'Saving…' : 'Complete'}
-            </button>
-          )
-        )}
+        {isChecklist && <ChecklistHeaderAction state={checklistState} />}
       </div>
 
       <div className="p-3 overflow-x-auto">

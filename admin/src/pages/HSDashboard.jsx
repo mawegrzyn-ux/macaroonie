@@ -28,7 +28,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
-import { ChecklistRunPanel, FREQUENCY_LABELS } from '@/components/checklists/shared'
+import { ChecklistRunPanel, ChecklistHeaderAction, FREQUENCY_LABELS } from '@/components/checklists/shared'
 import { TitleRename } from '@/components/dashboards/TitleRename'
 import {
   TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
@@ -205,12 +205,9 @@ function WidgetCard({
     ? { id: widget.checklist_template_id, name: widget.checklist_name, frequency: widget.checklist_frequency }
     : null
 
-  // Handed up by ChecklistRunPanel (via its hideHeader mode) so the
-  // complete action can live in this card's own title bar instead of a
-  // full-width button at the bottom of the checklist.
+  // Handed up by ChecklistRunPanel (via its hideHeader mode) so Tick all
+  // can live in this card's own title bar (ChecklistHeaderAction).
   const [checklistState, setChecklistState] = useState(null)
-  const [confirmReopen, setConfirmReopen] = useState(false)
-  useEffect(() => { if (!checklistState?.isCompleted) setConfirmReopen(false) }, [checklistState?.isCompleted])
 
   const colSpan  = Math.min(widget.col_span ?? 1, columnCount)
   const rows     = rowSpanFor(widget.height_px ?? 480)
@@ -236,33 +233,7 @@ function WidgetCard({
         {meta.HeaderValue && !editing && (
           <meta.HeaderValue widget={widget} venueId={venueId} ctx={ctx} />
         )}
-        {isChecklist && !editing && checklistState && (
-          checklistState.isCompleted ? (
-            confirmReopen ? (
-              <div className="flex items-center gap-1 shrink-0">
-                <button type="button" onClick={() => { checklistState.reopen(); setConfirmReopen(false) }} disabled={checklistState.isPending}
-                  className="text-xs font-medium px-2 py-1.5 rounded-md bg-amber-600 text-white disabled:opacity-50 min-h-[32px] touch-manipulation">
-                  {checklistState.isPending ? 'Working…' : 'Yes, reopen'}
-                </button>
-                <button type="button" onClick={() => setConfirmReopen(false)}
-                  className="text-xs font-medium px-2 py-1.5 rounded-md border min-h-[32px] touch-manipulation">
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <button type="button" onClick={() => setConfirmReopen(true)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 rounded-md px-1.5 py-1.5 min-h-[32px] shrink-0 touch-manipulation"
-                title="Tap to reopen">
-                <Check className="w-3.5 h-3.5" /> Complete
-              </button>
-            )
-          ) : (
-            <button type="button" onClick={checklistState.markComplete} disabled={checklistState.isPending}
-              className="shrink-0 text-xs font-medium px-2.5 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50 min-h-[32px] touch-manipulation">
-              {checklistState.isPending ? 'Saving…' : 'Complete'}
-            </button>
-          )
-        )}
+        {isChecklist && !editing && <ChecklistHeaderAction state={checklistState} />}
         {editing && (
           <div className="flex items-center gap-0.5 shrink-0">
             <button type="button" onClick={onMoveUp} disabled={isFirst}

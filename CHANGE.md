@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-09 — Checklists: Tick all; cooking check items]
+
+- Checklists (Checklists page, H&S Dashboard, Ops app): **Tick all** ticks every task at once. The Complete button is gone: a checklist is complete as soon as every task is ticked, and unticking any task makes it not done again. On a dashboard widget, tap **All done** then **Untick all** to undo a Tick all.
+- H&S settings, new **Cooking items** section (per venue): choose whether the cooking check buttons show your **menus**, **your own items**, or **both**, and keep the own list (name + optional category, drag to reorder). "Log a dish not on the list" still lets you type any dish.
+- The H&S test data generator picks cooking dishes from the same list.
+- Database: migration 142 (fs_cooking_settings, fs_cooking_items, fs_cooking_checks.cooking_item_id).
+
+---
+
 ## [2026-10-07 — Ops app tidy-up]
 
 - Cash up day: a **Wages paid today** card lists the cash wages paid from the till that day (they count in the day's variance) and warns when cash wages have no Paid on day (those only count in the week).
