@@ -21,7 +21,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Trash2, Loader2, X, ChevronDown, ChevronRight,
   Sparkles, Printer, Image as ImageIcon, Layers, GripVertical, Copy,
-  Settings as SettingsIcon, LayoutTemplate, Leaf,
+  Settings as SettingsIcon, LayoutTemplate, Leaf, EyeOff,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors,
@@ -1230,7 +1230,10 @@ function AllergenPicker({ tags, item, onSet }) {
                 : <span className="inline-flex items-center justify-center rounded text-[11px] font-bold min-w-[1.75rem] h-7 px-1 shrink-0 border border-muted-foreground/30">{t.glyph}</span>}
               <span className="min-w-0 leading-tight">
                 <span className={cn('block text-xs truncate', level && 'font-medium text-foreground')}>{t.label}</span>
-                <span className="block text-[10px]">{level ? LEVEL_LABELS[level] : 'No'}</span>
+                <span className="flex items-center gap-1 text-[10px]">
+                  {level ? LEVEL_LABELS[level] : 'No'}
+                  {t.show_on_menu === false && <EyeOff className="w-3 h-3 shrink-0" aria-label="Not shown on menus" />}
+                </span>
               </span>
             </button>
           )
@@ -1371,13 +1374,14 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
               const active = (item.dietary || []).includes(t.code)
               return (
                 <button key={t.id} type="button" onClick={() => toggleDietary(t.code)}
-                  title={t.label}
+                  title={t.show_on_menu === false ? `${t.label} (not shown on menus)` : t.label}
                   className={cn(
-                    'text-[11px] px-2 py-1 rounded-full font-bold border',
+                    'text-[11px] px-2 py-1 rounded-full font-bold border inline-flex items-center gap-1',
                     active ? 'border-transparent text-white' : 'border-muted text-muted-foreground hover:border-primary bg-white',
                   )}
                   style={active ? { background: t.colour } : {}}>
                   {t.glyph}
+                  {t.show_on_menu === false && <EyeOff className="w-3 h-3" />}
                 </button>
               )
             })}

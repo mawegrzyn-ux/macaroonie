@@ -2728,6 +2728,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['menu_sections.vat_rate_takeaway / vat_rate_eat_in', 'Migration 127. Nullable numeric(5,2), 0-100. Section VAT for web ordering, used for dishes without their own rate (see vatRateFor in the Web Ordering section). SectionBody accepts both; upsertMenuTree and /duplicate carry them. Edited in the section side panel (SectionDrawer in Menus.jsx), where section title, subtitle, image, highlight and print options also live now; the section row only shows badges.'],
                 ['menu_dietary_tags (admin page)', 'Route /menus/dietary-tags (MenuDietaryTags.jsx, DietaryTagsManager.jsx), titled Allergens & dietary tags since migration 145 (which also renames the default nav label from Dietary tags). Two Cards, Allergens and Dietary tags, each a drag-sortable list (SortableRows, PATCH /menus/dietary/reorder { ids }). Add and edit use one modal (TagModal: type, label, glyph, code, colour) calling POST /menus/dietary and PATCH /menus/dietary/:id; merge (POST /menus/dietary/:id/merge { into_id }) and delete are in the modal with inline confirms. An amber bar offers POST /menus/dietary/standard-allergens when any of the 14 is missing.'],
                 ['menu_dietary_tags.kind / standard_key', 'Migration 145. kind dietary | allergen (default dietary). standard_key = which of the 14 UK allergens the tag is (celery, gluten, crustaceans, eggs, fish, lupin, milk, molluscs, mustard, nuts, peanuts, sesame, soya, sulphites), unique per tenant, only on allergens. The migration turns existing tags that match one by code or exact label (n / Nuts, Dairy, Soy...) into that allergen, then inserts the ones each tenant is missing. A standard allergen cannot become a dietary tag (PATCH 422).'],
+                ['menu_dietary_tags.show_on_menu', 'Migration 146. Boolean, default true. Off = staff-only: left out of every guest surface, kept in the matrix, lookup and menu editor. TagModal On menus Show / Hide; the tags page marks the row Not on menus.'],
                 ['menu_item_dietary.level', 'Migration 145. contains | may_contain | removable (default contains); no row = the dish does not have it. Dietary tags are always contains: tagLevel() in menus.js forces it on every write, and turning an allergen into a dietary tag resets its links to contains.'],
                 ['menu_sections.image_url', 'Migration 095. Nullable text (a Media library URL). A small category icon/image next to the section heading — capped at 1.3em (website block / canvas) or 1.6em (print) so it never renders larger than the heading font next to it, regardless of the uploaded image\'s actual resolution.'],
               ]}
@@ -2840,6 +2841,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               filled = Contains, outlined on a pale tint = May contain, filled with an asterisk = Can
               be removed. The dish panel in Menus.jsx (<Mono>AllergenPicker</Mono>) and the matrix
               cycle an allergen No, Contains, May contain, Can be removed; dietary tags toggle.
+            </P>
+            <P>
+              Tags with <Mono>show_on_menu</Mono> off (migration 146) are dropped where guest data is
+              loaded, so the six renderers above skip their codes (each already ignores a code with no
+              tag): <Mono>loadPrintMenu()</Mono> (automatic and designed print, dietary list, and the
+              designer, which draws what prints) and <Mono>GET /menus/public/:menuId</Mono> filter{' '}
+              <Mono>dietary_tags</Mono> through <Mono>menuTags()</Mono>; <Mono>loadInlineMenus()</Mono>{' '}
+              filters tags, dish codes and levels in SQL; <Mono>loadOrderingMenu()</Mono> filters tags,
+              codes and levels; <Mono>MenuInlineCanvas</Mono> uses <Mono>menuTags()</Mono> itself because
+              it reads the admin menu route. <Mono>usedTags()</Mono> / <Mono>hasRemovable()</Mono> only
+              count shown tags, so the &quot;Can be removed&quot; note goes when the only removable
+              allergen is hidden. <Mono>loadMenuFull()</Mono> and the matrix keep every tag.
             </P>
             <H3>Allergen matrix (migration 141)</H3>
             <P>

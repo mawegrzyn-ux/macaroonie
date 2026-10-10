@@ -546,6 +546,7 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
                SELECT json_agg(jsonb_build_object('id', t.id, 'code', t.code, 'label', t.label, 'glyph', t.glyph, 'colour', t.colour, 'kind', t.kind)
                                ORDER BY t.kind = 'allergen', t.sort_order, t.label)
                  FROM menu_dietary_tags t WHERE t.tenant_id = m.tenant_id
+                  AND t.show_on_menu   -- tags hidden on menus stay staff-only (migration 146)
              ), '[]'::json) AS dietary_tags
         FROM menus m
        WHERE m.id = ANY(${ids}::uuid[])
@@ -570,14 +571,14 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
                    SELECT json_agg(t.code ORDER BY t.kind = 'allergen', t.sort_order, t.label)
                      FROM menu_item_dietary mid
                      JOIN menu_dietary_tags t ON t.id = mid.tag_id
-                    WHERE mid.item_id = i.id
+                    WHERE mid.item_id = i.id AND t.show_on_menu
                  ), '[]'::json),
                  -- Allergen levels other than 'contains' (migration 145)
                  'allergen_levels', COALESCE((
                    SELECT json_object_agg(t.code, mid.level)
                      FROM menu_item_dietary mid
                      JOIN menu_dietary_tags t ON t.id = mid.tag_id
-                    WHERE mid.item_id = i.id AND mid.level <> 'contains'
+                    WHERE mid.item_id = i.id AND mid.level <> 'contains' AND t.show_on_menu
                  ), '{}'::json)
                ) ORDER BY i.sort_order)
                  FROM menu_items i WHERE i.section_id = s.id
