@@ -222,7 +222,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
     menus,
     itemsById,
     itemMenus,
-    dietary_tags: (dietaryTags || []).map(t => ({ code: t.code, label: t.label, glyph: t.glyph, colour: t.colour, kind: t.kind })),
+    dietary_tags: (dietaryTags || []).map(t => ({ code: t.code, label: t.label, glyph: t.glyph, colour: t.colour, kind: t.kind, in_key: t.in_key })),
   }
 }
 

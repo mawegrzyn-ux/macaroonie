@@ -539,6 +539,14 @@ export function MenuInlineEditor({ data, onChange }) {
                 onChange={set('hide_prices')}
                 label="Hide prices"
               />
+              <Toggle
+                checked={data.show_allergen_notice !== false}
+                onChange={set('show_allergen_notice')}
+                label="Show allergen notice"
+              />
+              <p className="text-[11px] text-muted-foreground -mt-1">
+                Its words and which tags it lists are set in Menus &gt; Allergens &amp; dietary.
+              </p>
             </div>
           </div>
 

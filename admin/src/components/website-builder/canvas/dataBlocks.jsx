@@ -15,7 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent } from 'lucide-react'
 import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
-import { isRemovable, hasRemovable, menuTags, REMOVABLE_NOTE } from '@shared/menuTags.js'
+import { isRemovable, menuTags, allergenKey } from '@shared/menuTags.js'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
 
@@ -779,6 +779,10 @@ export function MenuInlineCanvas({ data, onChange }) {
       items: (s.items || []).filter(it => itemFilter.length === 0 || itemFilter.includes(it.id)),
     }))
     .filter(s => s.items.length > 0)
+  // The allergen notice under the menu, as menu_inline.eta (migration 147).
+  const key = menu ? allergenKey(menu.dietary_tags, filteredSections, menu.allergen_notice) : null
+  const showNotice = data.show_allergen_notice !== false && !!key &&
+    !!(key.title || key.body || key.tags.length || key.removable)
 
   const containerStyle = direction === 'rows'
     ? { display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: '36px 48px', alignItems: 'start' }
@@ -862,7 +866,7 @@ export function MenuInlineCanvas({ data, onChange }) {
                             // Same as menu_inline.eta: a removable allergen gets an asterisk.
                             const removable = isRemovable(item, code)
                             return (
-                              <span key={code} title={removable ? `${tag.label} (${REMOVABLE_NOTE.toLowerCase()})` : tag.label} style={{
+                              <span key={code} title={removable ? `${tag.label} (${key.removable_note.toLowerCase()})` : tag.label} style={{
                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                 minWidth: 14, height: 14, padding: '0 4px', borderRadius: 3,
                                 color: '#fff', fontSize: 9, fontWeight: 700, marginLeft: 3,
@@ -940,8 +944,30 @@ export function MenuInlineCanvas({ data, onChange }) {
                 </div>
               ))}
             </div>
-            {filteredSections.some(sec => sec.items.some(it => hasRemovable(it, shownTags))) && (
-              <p style={{ textAlign: 'center', marginTop: 24, fontSize: '0.85rem', color: 'var(--c-muted)' }}>* {REMOVABLE_NOTE}</p>
+            {showNotice ? (
+              <div style={{ maxWidth: 720, margin: '32px auto 0', textAlign: 'center', fontSize: '0.85rem', color: 'var(--c-muted)', lineHeight: 1.5 }}>
+                {key.title && (
+                  <div style={{ fontFamily: 'var(--f-heading)', fontSize: '1rem', fontWeight: 500, color: 'var(--c-text)', marginBottom: 4 }}>{key.title}</div>
+                )}
+                {key.body && <p style={{ margin: '0 0 8px' }}>{key.body}</p>}
+                {(key.tags.length > 0 || key.removable) && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '6px 14px' }}>
+                    {key.tags.map(t => (
+                      <span key={t.code} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          minWidth: 14, height: 14, padding: '0 4px', borderRadius: 3,
+                          color: '#fff', fontSize: 9, fontWeight: 700, background: t.colour,
+                        }}>{t.glyph}</span>
+                        {t.label}
+                      </span>
+                    ))}
+                    {key.removable && <span>* {key.removable_note}</span>}
+                  </div>
+                )}
+              </div>
+            ) : key?.removable && (
+              <p style={{ textAlign: 'center', marginTop: 24, fontSize: '0.85rem', color: 'var(--c-muted)' }}>* {key.removable_note}</p>
             )}
           </>
         )}

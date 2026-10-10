@@ -854,7 +854,7 @@ function placeholderFor(block) {
     case 'callouts': return Array.isArray(block.opts?.callout_ids)
       ? 'Footer notes: none picked. Choose them in the panel on the right.'
       : 'Footer notes: none yet. Add them on the menu page.'
-    case 'key':      return 'Allergen key: no dietary tags yet.'
+    case 'key':      return 'Allergen key: nothing to list. Pick the tags in Menus > Allergens & dietary > Allergen notice.'
     default:         return BLOCK_LABELS[block.type] || block.type
   }
 }
@@ -1260,8 +1260,17 @@ function TypeOptions({ block, o, menu, layout, onOpts, openMedia }) {
                       <label key={c.id} className="flex items-start gap-2 px-2.5 py-2 min-h-[44px] cursor-pointer touch-manipulation">
                         <input type="checkbox" checked={picked.has(c.id)} onChange={e => toggle(c.id, e.target.checked)} className="w-4 h-4 mt-0.5 shrink-0" />
                         <span className="min-w-0">
-                          <span className="block text-sm font-medium truncate">{c.title}</span>
-                          {c.body && <span className="block text-[11px] text-muted-foreground line-clamp-2">{c.body}</span>}
+                          {c.kind === 'allergens' ? (
+                            <>
+                              <span className="block text-sm font-medium truncate">{menu.allergen_notice?.title || 'Allergen notice'}</span>
+                              <span className="block text-[11px] text-muted-foreground">The allergen notice from Allergens &amp; dietary</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="block text-sm font-medium truncate">{c.title}</span>
+                              {c.body && <span className="block text-[11px] text-muted-foreground line-clamp-2">{c.body}</span>}
+                            </>
+                          )}
                         </span>
                       </label>
                     ))}

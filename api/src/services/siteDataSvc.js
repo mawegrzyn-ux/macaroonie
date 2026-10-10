@@ -22,7 +22,7 @@
 //   3. website_config (when rendering a location, or the sole venue on home)
 
 import { sql, withTenant } from '../config/db.js'
-import { attachVariantGroupsToItems } from '../routes/menus.js'
+import { attachVariantGroupsToItems, loadAllergenNotice } from '../routes/menus.js'
 
 // A venue with website_config.use_brand_override = true replaces the
 // tenant's Brand & theme with its own values for these fields — wholesale,
@@ -543,13 +543,15 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
     const menus = await tx`
       SELECT m.*,
              COALESCE((
-               SELECT json_agg(jsonb_build_object('id', t.id, 'code', t.code, 'label', t.label, 'glyph', t.glyph, 'colour', t.colour, 'kind', t.kind)
+               SELECT json_agg(jsonb_build_object('id', t.id, 'code', t.code, 'label', t.label, 'glyph', t.glyph,
+                                                  'colour', t.colour, 'kind', t.kind, 'in_key', t.in_key)
                                ORDER BY t.kind = 'allergen', t.sort_order, t.label)
                  FROM menu_dietary_tags t WHERE t.tenant_id = m.tenant_id
                   AND t.show_on_menu   -- tags hidden on menus stay staff-only (migration 146)
              ), '[]'::json) AS dietary_tags
         FROM menus m
        WHERE m.id = ANY(${ids}::uuid[])
+         AND m.tenant_id = ${tenantId}
          AND m.is_published = true
     `
     if (!menus.length) return {}
@@ -589,9 +591,10 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
        ORDER BY s.sort_order
     `
 
+    const allergen_notice = await loadAllergenNotice(tx, tenantId)   // migration 147
     const byMenu = {}
     for (const m of menus) {
-      byMenu[m.id] = { ...m, sections: [], intro_fonts_url: buildGoogleFontsUrl(extractRichTextFonts(m.intro_line)) }
+      byMenu[m.id] = { ...m, sections: [], allergen_notice, intro_fonts_url: buildGoogleFontsUrl(extractRichTextFonts(m.intro_line)) }
     }
     for (const s of sections) byMenu[s.menu_id]?.sections.push(s)
     const allItems = sections.flatMap(s => s.items || [])

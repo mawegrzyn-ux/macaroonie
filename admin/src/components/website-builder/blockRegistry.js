@@ -199,6 +199,7 @@ export const BLOCKS = [
       // Subheader (menu tagline rendered in script font)
       show_subheader: true,
       subheader_text: '',      // blank = use menu.tagline
+      show_allergen_notice: true,   // the allergen notice under the menu (migration 147)
       container:   'boxed',
     },
     editor:      MenuInlineEditor,

@@ -270,6 +270,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 <script type="module">
 import { optionPriceText, priceLine, priceBasket, formatPence } from '/order-api/pricing.js'
 import { venueNow, noticeText, promoSummary, promoTerms, covers, coversIds, isLiveAt } from '/order-api/promotions.js'
+import { allergenKey, noticeOf } from '/order-api/menuTags.js'
 
 const CFG = JSON.parse(document.getElementById('mo-config').textContent)
 const OPT = CFG.opts || {}
@@ -370,6 +371,7 @@ async function startOrdering() {
   const cur = venue.currency || 'GBP'
   const money = p => formatPence(p, cur)
   const tags = Object.fromEntries((data.dietary_tags || []).map(t => [t.code, t]))
+  const removableNote = noticeOf(data.allergen_notice).removable_note
   const itemsById = {}
   for (const m of data.menus) for (const s of m.sections) for (const i of s.items) itemsById[i.id] = i
 
@@ -522,7 +524,7 @@ async function startOrdering() {
     return (codes || []).map(c => {
       if (!tags[c]) return ''
       const rm = (levels || {})[c] === 'removable'
-      return '<span class="mo-tag" title="' + esc(tags[c].label + (rm ? ' (can be removed on request)' : '')) + '" style="background:' + esc(tags[c].colour) + '">' +
+      return '<span class="mo-tag" title="' + esc(tags[c].label + (rm ? ' (' + removableNote.toLowerCase() + ')' : '')) + '" style="background:' + esc(tags[c].colour) + '">' +
         esc(tags[c].glyph) + (rm ? '<span class="mo-star">*</span>' : '') + '</span>'
     }).join('')
   }
@@ -630,18 +632,20 @@ async function startOrdering() {
     const menus = data.menus
     if (!menus.length) return '<div class="mo-banner">There is nothing to order right now.</div>'
     let h = navHtml() + '<div id="mo-menu-body">' + menuBodyHtml() + '</div>'
-    const usedTags = new Set()
-    let removable = false
-    for (const x of menus) for (const s of x.sections) for (const i of s.items) {
-      for (const c of i.dietary || []) usedTags.add(c)
-      if (Object.values(i.allergen_levels || {}).includes('removable')) removable = true
+    // The allergen notice (Menus > Allergens & dietary, migration 147) for
+    // every orderable dish, then its online-ordering line.
+    const key = allergenKey(data.dietary_tags, menus.flatMap(x => x.sections), data.allergen_notice)
+    let n = ''
+    if (key.title) n += '<strong style="display:block;color:inherit;font-size:1rem;margin-bottom:2px;">' + esc(key.title) + '</strong>'
+    if (key.body) n += '<p class="mo-muted" style="margin:0 0 6px;">' + esc(key.body) + '</p>'
+    if (key.tags.length || key.removable) {
+      n += '<p class="mo-muted" style="margin:0 0 6px;">' + key.tags.map(t => tagHtml([t.code]) + esc(t.label)).join(' &nbsp; ') +
+        (key.removable ? (key.tags.length ? ' &nbsp; ' : '') + '* ' + esc(key.removable_note) : '') + '</p>'
     }
-    const keyTags = (data.dietary_tags || []).filter(t => usedTags.has(t.code))
-    if (keyTags.length) {
-      h += '<p class="mo-muted" style="margin-top:24px;font-size:.9rem;">' + keyTags.map(t => tagHtml([t.code]) + esc(t.label)).join(' &nbsp; ') +
-        (removable ? ' &nbsp; * Can be removed on request' : '') + '</p>'
+    if (key.ordering_text) {
+      n += '<p class="mo-muted" style="margin:0;">' + esc(key.ordering_text) + (venue.phone ? ' You can also call us on ' + esc(venue.phone) + '.' : '') + '</p>'
     }
-    h += '<p class="mo-muted" style="font-size:.9rem;">Allergies or dietary needs? Tell us in the allergy note at checkout' + (venue.phone ? ', or call us on ' + esc(venue.phone) : '') + ' before you order.</p>'
+    if (n) h += '<div class="mo-allergen-notice" style="margin-top:24px;font-size:.9rem;">' + n + '</div>'
     return h
   }
 

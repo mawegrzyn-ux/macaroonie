@@ -28,6 +28,7 @@ import { promoSummary, promoTerms, promoLink, promoRunning, venueNow } from '../
 import { formatPence } from '../../../shared/orderPricing.js'
 import { googleFontsUrl } from '../../../shared/fonts.js'
 import { headingLayout, styleString } from '../../../shared/headingBlock.js'
+import { allergenKey } from '../../../shared/menuTags.js'
 import { env }            from '../config/env.js'
 import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
 
@@ -165,7 +166,7 @@ export default async function siteRendererRoutes(app) {
 
   // Shared block renderers the Eta partials call (it.siteBlocks), so a
   // block's styles live in one file used by the site and the builder canvas.
-  const SITE_BLOCKS = { headingLayout, styleString, googleFontsUrl }
+  const SITE_BLOCKS = { headingLayout, styleString, googleFontsUrl, allergenKey }
 
   const renderSite = async (reply, view, data) => {
     const tpl = templateOf(data.config)

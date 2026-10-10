@@ -22,7 +22,7 @@ import {
   normalizeLayout, layoutGeometry, buildContext, renderPageHtml, layoutFontsUrl,
 } from '../../../shared/menuLayout.js'
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
-import { ALLERGEN_LEVELS, REMOVABLE_NOTE, usedTags, menuTags } from '../../../shared/menuTags.js'
+import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -199,6 +199,15 @@ const MenuFullBody = MenuMetaBody.extend({
   callouts: z.array(CalloutBody).default([]),
 })
 
+const NoticeBody = z.object({
+  title:          z.string().trim().max(100),
+  body:           z.string().trim().max(1000),
+  removable_note: z.string().trim().min(1).max(100),
+  ordering_text:  z.string().trim().max(300),
+  used_only:      z.boolean(),
+  key_tag_ids:    z.array(z.string().uuid()).max(500).optional(),
+})
+
 const DietaryBody = z.object({
   code:       z.string().regex(/^[a-z0-9_-]{1,16}$/),
   label:      z.string().min(1).max(60),
@@ -341,13 +350,23 @@ export async function loadAllergenMatrix(tx, menuId, tenantId) {
   }
 }
 
+// The tenant's allergen notice (migration 147), filled in with the default
+// words when it has none (shared/menuTags.js noticeOf()).
+export async function loadAllergenNotice(tx, tenantId) {
+  const [row] = await tx`
+    SELECT title, body, removable_note, ordering_text, used_only
+      FROM menu_allergen_notice WHERE tenant_id = ${tenantId}
+  `
+  return noticeOf(row)
+}
+
 export async function loadMenuFull(tx, menuId, tenantId) {
   const [menu] = await tx`
     SELECT * FROM menus WHERE id = ${menuId} AND tenant_id = ${tenantId} LIMIT 1
   `
   if (!menu) return null
 
-  const [sections, callouts, tags, itemDietary] = await Promise.all([
+  const [sections, callouts, tags, itemDietary, allergen_notice] = await Promise.all([
     tx`
       SELECT s.*,
              COALESCE(json_agg(DISTINCT jsonb_build_object(
@@ -377,6 +396,7 @@ export async function loadMenuFull(tx, menuId, tenantId) {
        WHERE mid.tenant_id = ${tenantId}
        ORDER BY t.kind = 'allergen', t.sort_order, t.label
     `,
+    loadAllergenNotice(tx, tenantId),
   ])
 
   // Sort items + attach dietary codes (in tag order) and allergen levels
@@ -408,6 +428,7 @@ export async function loadMenuFull(tx, menuId, tenantId) {
     sections,
     callouts,
     dietary_tags: tags,
+    allergen_notice,
     design_count,
   }
 }
@@ -640,12 +661,12 @@ export default async function menusRoutes(app) {
     // two-column list, whatever print design the menu uses.
     // Sections hidden everywhere don't print (migration 136). The designed
     // print drops them in buildContext() instead, so the designer can
-    // tell a hidden section from a deleted one. The key lists only the
-    // tags the printed dishes use (shared/menuTags.js).
+    // tell a hidden section from a deleted one. The key is the tenant's
+    // allergen notice for the printed dishes (allergenKey(), migration 147).
     const printed = { ...menu, sections: (menu.sections || []).filter(s => s.visibility !== 'hidden') }
-    const key = usedTags(menu.dietary_tags, printed.sections)
+    const key = allergenKey(menu.dietary_tags, printed.sections, menu.allergen_notice)
     if (req.query?.view === 'dietary') {
-      return reply.view('menu_print_dietary.eta', { menu: printed, key, removableNote: REMOVABLE_NOTE })
+      return reply.view('menu_print_dietary.eta', { menu: printed, key })
     }
 
     // A print design (menu designer) replaces the automatic layout: the one
@@ -668,7 +689,7 @@ export default async function menusRoutes(app) {
         orientation: layout.orientation,
       })
     }
-    return reply.view('menu_print.eta', { menu: printed, key, removableNote: REMOVABLE_NOTE })
+    return reply.view('menu_print.eta', { menu: printed, key })
   })
 
   // ── Authenticated admin routes — scoped so addHook doesn't ──
@@ -1027,6 +1048,33 @@ export default async function menusRoutes(app) {
       RETURNING *
     `)
     return reply.code(201).send(row)
+  })
+
+  // ── Allergen notice (migration 147) ─────────────────────────
+  // The words and the key shown under menus. Which tags the key lists is
+  // menu_dietary_tags.in_key (sent as key_tag_ids, returned by /dietary/all).
+  app.get('/allergen-notice', async (req) => {
+    return withTenant(req.tenantId, tx => loadAllergenNotice(tx, req.tenantId))
+  })
+
+  app.put('/allergen-notice', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const body = NoticeBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await tx`
+        INSERT INTO menu_allergen_notice (tenant_id, title, body, removable_note, ordering_text, used_only)
+        VALUES (${req.tenantId}, ${body.title}, ${body.body}, ${body.removable_note}, ${body.ordering_text}, ${body.used_only})
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          title = EXCLUDED.title, body = EXCLUDED.body, removable_note = EXCLUDED.removable_note,
+          ordering_text = EXCLUDED.ordering_text, used_only = EXCLUDED.used_only
+      `
+      if (body.key_tag_ids) {
+        await tx`
+          UPDATE menu_dietary_tags SET in_key = (id = ANY(${body.key_tag_ids}::uuid[]))
+           WHERE tenant_id = ${req.tenantId}
+        `
+      }
+      return loadAllergenNotice(tx, req.tenantId)
+    })
   })
 
   // Adds whichever of the 14 standard allergens the tenant doesn't have.

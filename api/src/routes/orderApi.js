@@ -32,11 +32,13 @@ import {
 } from '../services/orderSvc.js'
 import { priceBasket } from '../../../shared/orderPricing.js'
 import { venuePromotions, publicPromotion, findByCode } from '../services/promoSvc.js'
+import { loadAllergenNotice } from './menus.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // shared/orderPricing.js imports ./promotions.js, which imports
-// ./menuSchedule.js: all three are served side by side under /order-api.
-const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule'].map(n =>
+// ./menuSchedule.js: all three are served side by side under /order-api,
+// with ./menuTags.js (the allergen notice's key, migration 147).
+const SHARED_JS = Object.fromEntries(['orderPricing', 'promotions', 'menuSchedule', 'menuTags'].map(n =>
   [n, readFileSync(path.join(__dirname, '../../../shared/' + n + '.js'), 'utf8')]))
 
 const uuid = z.string().uuid()
@@ -123,14 +125,16 @@ export default async function orderApiRoutes(app) {
   app.get('/pricing.js', serveJs('orderPricing'))
   app.get('/promotions.js', serveJs('promotions'))
   app.get('/menuSchedule.js', serveJs('menuSchedule'))
+  app.get('/menuTags.js', serveJs('menuTags'))
 
   app.get('/venues/:venueId', async (req) => {
     const { venue, settings } = await requireOrderingVenue(req.params.venueId)
     const today = localParts(new Date(), venue.timezone).date
-    const [menu, privacy, promos] = await withTenant(venue.tenant_id, async tx => [
+    const [menu, privacy, promos, allergenNotice] = await withTenant(venue.tenant_id, async tx => [
       await loadOrderingMenu(tx, venue, settings, { dates: orderingDates(venue, settings), now: new Date() }),
       await loadPrivacy(tx, venue.tenant_id),
       await venuePromotions(tx, venue, today),
+      await loadAllergenNotice(tx, venue.tenant_id),
     ])
     const gateways = checkoutGateways(settings, { venue })
     return {
@@ -152,6 +156,7 @@ export default async function orderApiRoutes(app) {
       },
       menus: menu.menus.map(m => ({ ...m, sections: m.sections.map(s => ({ ...s, items: s.items.map(publicItem) })) })),
       dietary_tags: menu.dietary_tags,
+      allergen_notice: allergenNotice,   // migration 147
       privacy,
       // Automatic and tap-to-apply offers; a code offer only reaches the
       // guest through /promo-code, once they have typed its code.

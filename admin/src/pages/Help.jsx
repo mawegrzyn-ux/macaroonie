@@ -2594,7 +2594,7 @@ export default function Help() {
                 ['Category icon', 'A small image/icon next to a section\'s title (e.g. a little flame for "Spicy", a leaf for "Vegan Specials"). Upload something roughly square — 64×64 or 96×96 px works well — it always displays small, no bigger than the heading text next to it, regardless of the source size.'],
                 ['House favourite', 'Highlights the dish with the featured styling.'],
                 ['Dietary tags', 'Small coloured badges (vegan, gluten-free, spicy, …) shown next to the dish name. Tap one in the dish panel to switch it on or off.'],
-                ['Allergens', 'One tile per allergen. Tap a tile to step through No, Contains, May contain and Can be removed. All three show the allergen\'s badge on the menu; Can be removed adds a small asterisk, explained under the menu as "Can be removed on request".'],
+                ['Allergens', 'One tile per allergen. Tap a tile to step through No, Contains, May contain and Can be removed. All three show the allergen\'s badge on the menu; Can be removed adds a small asterisk, explained by the allergen notice\'s asterisk note.'],
               ]}
             />
             <H3>Allergens and dietary tags</H3>
@@ -2614,15 +2614,15 @@ export default function Help() {
               cross-contact), <strong>Can be removed</strong> (the dish has it but the kitchen can
               make it without), or no setting (the dish doesn&apos;t have it). On the website, the
               printed menu, the dietary list and online ordering the first three look the same, the
-              allergen&apos;s badge, except that Can be removed adds a small asterisk. The printed key
-              then says &ldquo;* Can be removed on request&rdquo;.
+              allergen&apos;s badge, except that Can be removed adds a small asterisk, explained by the
+              allergen notice (below).
             </P>
             <P>
               If you had your own tag for an allergen before, for example &ldquo;N&rdquo; for nuts,
               it was turned into that allergen, so dishes kept their badge. If you end up with two tags
               for the same thing, open the one you don&apos;t want and use <strong>Merge into another
-              tag</strong>: every dish moves onto the tag you pick and the old one is deleted. A
-              printed key now lists only the badges the printed dishes use.
+              tag</strong>: every dish moves onto the tag you pick and the old one is deleted. Which
+              badges a key under a menu lists is set in the allergen notice (below).
             </P>
             <P>
               <strong>Keeping a tag off menus.</strong> Open a tag and set <strong>On menus</strong> to{' '}
@@ -2633,6 +2633,33 @@ export default function Help() {
               so staff can answer allergy questions. The list marks it <strong>Not on menus</strong>, and
               the matrix and dish panel show a crossed-out eye next to it.
             </P>
+            <P>
+              <strong>The allergen notice.</strong> The <strong>Allergen notice</strong> card at the bottom
+              of the same page sets what guests read under your menus. One notice is used everywhere:
+            </P>
+            <DataTable
+              head={['Setting', 'What it does']}
+              rows={[
+                ['Title and Text', 'Your own words, for example "Allergies & Diet" and "Please tell us about any allergies before you order." Leave the title blank for none.'],
+                ['Tags in the key', 'Tap a badge to put it in the key under the notice, or take it out. All and None do a whole list at once. A tag hidden on menus is greyed out: it is never in the key.'],
+                ['Which ticked tags a menu lists', 'Only the ones its dishes use (each menu lists just the ticked badges that appear on it), or All of them (every ticked badge, whatever the menu).'],
+                ['Asterisk note', 'Explains the asterisk on a dish whose allergen can be removed, for example "Ask us to leave it out". Shown whenever a dish on the menu has one, so it can\'t be blank.'],
+                ['Online ordering line', 'An extra line shown only on the online ordering page, followed by the venue\'s phone number when it has one. Leave it blank for none.'],
+              ]}
+            />
+            <P>
+              The preview shows the notice as guests will see it. Click <strong>Save notice</strong> to
+              apply it, or <strong>Discard</strong> to go back. Where it shows:
+            </P>
+            <DataTable
+              head={['Where', 'How']}
+              rows={[
+                ['Printed menus', 'Add an Allergies & Diet footer note to the menu (Footer callouts on the menu page). It prints the notice and its key; it no longer has words of its own. In the menu designer, the Footer notes block prints it the same way, and the Allergen key block prints only the key.'],
+                ['Dietary list', 'At the bottom of the list. With "Only the ones its dishes use", the key follows the dishes you tick under Choose dishes.'],
+                ['Website menu block', 'Under the menu, on by default. Untick "Show allergen notice" in the block settings to leave it off (the asterisk note still shows when a dish needs it).'],
+                ['Online ordering', 'Under the menu, followed by the online ordering line.'],
+              ]}
+            />
             <InfoBox type="tip">
               Every reading here saves as part of the whole menu — click <strong>Save</strong> at
               the top of the page once you're done editing, same as any other admin form.

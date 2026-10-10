@@ -34,7 +34,7 @@
 // deleted renders nothing (renderBlockInner returns null).
 
 import { FONT_WEIGHTS, fontStack, googleFontsUrl } from './fonts.js'
-import { usedTags, isRemovable, REMOVABLE_NOTE } from './menuTags.js'
+import { allergenKey, isRemovable } from './menuTags.js'
 
 export const BLOCK_TYPES = [
   'header', 'intro', 'section', 'item', 'text', 'image',
@@ -281,8 +281,9 @@ export function buildContext(menu, layout) {
   return {
     menu: m,
     tagsByCode: Object.fromEntries((m.dietary_tags || []).map(t => [t.code, t])),
-    // The key lists only tags that printed dishes use.
-    key: usedTags(m.dietary_tags, Object.values(sectionsById)),
+    // The tenant's allergen notice and the tags its key lists for the
+    // printed dishes (migration 147).
+    key: allergenKey(m.dietary_tags, Object.values(sectionsById), m.allergen_notice),
     sectionsById, itemsById, sectionIdOfItem, placedItemIds,
     pageCount: l.pages.length,
     variantColumns: l.variant_columns,
@@ -343,7 +344,7 @@ function itemHtml(item, ctx, opts) {
   const hasVar = adhoc.length > 0 || groups.some(g => g.options && g.options.length)
 
   const tags = (item.dietary || []).map(code => ctx.tagsByCode[code]).filter(Boolean)
-    .map(t => tagChipHtml(t, isRemovable(item, t.code)))
+    .map(t => tagChipHtml(t, isRemovable(item, t.code), ctx.key.removable_note))
     .join('')
   // Variant options: a block's own column count, else the layout's default.
   // Each option is one label + price pair; pairs fill the columns row by row.
@@ -442,14 +443,18 @@ export function renderBlockInner(block, ctx, pageIndex) {
       const cols = num(o.columns, 1, 4, Math.min(4, callouts.length))
       return '<div class="ml-callouts" style="grid-template-columns:repeat(' + cols + ',1fr)">' +
         callouts.map(c => {
-          let h = '<div class="ml-callout"><strong>' + esc(c.title) + '</strong>'
-          if (c.body) h += '<p>' + esc(c.body) + '</p>'
-          if (c.kind === 'allergens' && ctx.key.tags.length) h += keyHtml(ctx)
+          // An "Allergies & Diet" note shows the allergen notice, not its own words.
+          const k = ctx.key
+          const title = c.kind === 'allergens' ? k.title : c.title
+          const body = c.kind === 'allergens' ? k.body : c.body
+          let h = '<div class="ml-callout">' + (title ? '<strong>' + esc(title) + '</strong>' : '')
+          if (body) h += '<p>' + esc(body) + '</p>'
+          if (c.kind === 'allergens') h += keyHtml(ctx)
           return h + '</div>'
         }).join('') + '</div>'
     }
     case 'key':
-      return ctx.key.tags.length ? keyHtml(ctx) : ''
+      return keyHtml(ctx)
     case 'footer':
       return '<div class="ml-foot">' + esc(o.text || m.footer_motto || '— honest cooking, made fresh in our kitchen —') + '</div>'
     case 'page_number':
@@ -461,17 +466,21 @@ export function renderBlockInner(block, ctx, pageIndex) {
 
 // A dish's tag badge; an allergen that can be removed gets a small
 // asterisk (shared/menuTags.js).
-function tagChipHtml(t, removable) {
+function tagChipHtml(t, removable, note) {
   return '<span class="ml-tag" style="background:' + esc(t.colour) + '" title="' +
-    esc(t.label + (removable ? ' (' + REMOVABLE_NOTE.toLowerCase() + ')' : '')) + '">' + esc(t.glyph) +
+    esc(t.label + (removable ? ' (' + note.toLowerCase() + ')' : '')) + '">' + esc(t.glyph) +
     (removable ? '<span class="ml-star">*</span>' : '') + '</span>'
 }
 
+// The notice's key: the tags it lists, then the asterisk note when a
+// printed dish has an allergen that can be removed. Empty when neither.
 function keyHtml(ctx) {
-  return '<div class="ml-key">' + ctx.key.tags.map(t =>
+  const k = ctx.key
+  if (!k.tags.length && !k.removable) return ''
+  return '<div class="ml-key">' + k.tags.map(t =>
     '<span class="ml-pair"><span class="ml-tag" style="background:' + esc(t.colour) + '">' + esc(t.glyph) + '</span>' + esc(t.label) + '</span>'
   ).join('') +
-    (ctx.key.removable ? '<span class="ml-pair ml-star-note">* ' + esc(REMOVABLE_NOTE) + '</span>' : '') + '</div>'
+    (k.removable ? '<span class="ml-pair ml-star-note">* ' + esc(k.removable_note) + '</span>' : '') + '</div>'
 }
 
 // Whole printed page, for the Eta print view.

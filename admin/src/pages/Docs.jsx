@@ -2729,6 +2729,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['menu_dietary_tags (admin page)', 'Route /menus/dietary-tags (MenuDietaryTags.jsx, DietaryTagsManager.jsx), titled Allergens & dietary tags since migration 145 (which also renames the default nav label from Dietary tags). Two Cards, Allergens and Dietary tags, each a drag-sortable list (SortableRows, PATCH /menus/dietary/reorder { ids }). Add and edit use one modal (TagModal: type, label, glyph, code, colour) calling POST /menus/dietary and PATCH /menus/dietary/:id; merge (POST /menus/dietary/:id/merge { into_id }) and delete are in the modal with inline confirms. An amber bar offers POST /menus/dietary/standard-allergens when any of the 14 is missing.'],
                 ['menu_dietary_tags.kind / standard_key', 'Migration 145. kind dietary | allergen (default dietary). standard_key = which of the 14 UK allergens the tag is (celery, gluten, crustaceans, eggs, fish, lupin, milk, molluscs, mustard, nuts, peanuts, sesame, soya, sulphites), unique per tenant, only on allergens. The migration turns existing tags that match one by code or exact label (n / Nuts, Dairy, Soy...) into that allergen, then inserts the ones each tenant is missing. A standard allergen cannot become a dietary tag (PATCH 422).'],
                 ['menu_dietary_tags.show_on_menu', 'Migration 146. Boolean, default true. Off = staff-only: left out of every guest surface, kept in the matrix, lookup and menu editor. TagModal On menus Show / Hide; the tags page marks the row Not on menus.'],
+                ['menu_dietary_tags.in_key', 'Migration 147. Boolean, default true (new tags are in the key). Whether the allergen notice key lists the tag. Written only by PUT /menus/allergen-notice (key_tag_ids sets every tag of the tenant). A tag with show_on_menu off is never listed, whatever in_key says.'],
+                ['menu_allergen_notice', 'Migration 147. One row per tenant (tenant_id PK, RLS): title, body, removable_note (explains the asterisk), ordering_text (online ordering only), used_only (key lists only ticked tags the dishes use). No row = DEFAULT_NOTICE in shared/menuTags.js. Seeded from each tenant\'s first allergens footer note.'],
                 ['menu_item_dietary.level', 'Migration 145. contains | may_contain | removable (default contains); no row = the dish does not have it. Dietary tags are always contains: tagLevel() in menus.js forces it on every write, and turning an allergen into a dietary tag resets its links to contains.'],
                 ['menu_sections.image_url', 'Migration 095. Nullable text (a Media library URL). A small category icon/image next to the section heading — capped at 1.3em (website block / canvas) or 1.6em (print) so it never renders larger than the heading font next to it, regardless of the uploaded image\'s actual resolution.'],
               ]}
@@ -2810,8 +2812,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>ensureStandardAllergens()</Mono> in <Mono>services/menuSeeds.js</Mono>, called for
               new tenants in <Mono>POST /api/platform/tenants</Mono>, by the menu seed route and by the
               tags page button), <Mono>ALLERGEN_LEVELS</Mono>, <Mono>LEVEL_LABELS</Mono>,{' '}
-              <Mono>REMOVABLE_NOTE</Mono>, <Mono>levelOf()</Mono>, <Mono>isRemovable()</Mono> and{' '}
-              <Mono>usedTags()</Mono>.
+              <Mono>REMOVABLE_NOTE</Mono>, <Mono>levelOf()</Mono>, <Mono>isRemovable()</Mono>,{' '}
+              <Mono>menuTags()</Mono>, <Mono>hasRemovable()</Mono> and the allergen notice helpers{' '}
+              <Mono>DEFAULT_NOTICE</Mono>, <Mono>noticeOf()</Mono> and <Mono>allergenKey()</Mono>{' '}
+              (migration 147, below).
             </P>
             <P>
               In the menu tree a dish keeps <Mono>dietary</Mono> (codes of every tag it shows, both
@@ -2831,10 +2835,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Six places draw the badges and must stay in step: <Mono>menu_print.eta</Mono>,{' '}
               <Mono>menu_print_dietary.eta</Mono>, <Mono>shared/menuLayout.js</Mono> (designed print
               and designer canvas), <Mono>blocks/menu_inline.eta</Mono>, <Mono>MenuInlineCanvas</Mono>{' '}
-              in <Mono>dataBlocks.jsx</Mono>, and <Mono>shared/ordering.eta</Mono>. The printed keys
-              (automatic and designed) now list only the tags the printed dishes use, so adding the
-              14 allergens doesn&apos;t fill every key; the website block and its canvas add the
-              asterisk note under the menu when a shown dish needs it.
+              in <Mono>dataBlocks.jsx</Mono>, and <Mono>shared/ordering.eta</Mono>. What the key
+              under a menu lists, and the asterisk note&apos;s words, come from the allergen notice
+              (below).
             </P>
             <P>
               Staff tools show the levels apart with <Mono>LevelChip</Mono> (AllergenMatrix.jsx):
@@ -2850,10 +2853,45 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>dietary_tags</Mono> through <Mono>menuTags()</Mono>; <Mono>loadInlineMenus()</Mono>{' '}
               filters tags, dish codes and levels in SQL; <Mono>loadOrderingMenu()</Mono> filters tags,
               codes and levels; <Mono>MenuInlineCanvas</Mono> uses <Mono>menuTags()</Mono> itself because
-              it reads the admin menu route. <Mono>usedTags()</Mono> / <Mono>hasRemovable()</Mono> only
-              count shown tags, so the &quot;Can be removed&quot; note goes when the only removable
-              allergen is hidden. <Mono>loadMenuFull()</Mono> and the matrix keep every tag.
+              it reads the admin menu route. <Mono>allergenKey()</Mono> / <Mono>hasRemovable()</Mono> only
+              count shown tags, so the asterisk note goes when the only removable allergen is hidden.{' '}
+              <Mono>loadMenuFull()</Mono> and the matrix keep every tag.
             </P>
+            <H3>Allergen notice (migration 147)</H3>
+            <P>
+              One notice per tenant, built in the <Mono>AllergenNoticeCard</Mono> on the Allergens &amp;
+              dietary page (<Mono>DietaryTagsManager.jsx</Mono>): title, body, which tags its key lists
+              (<Mono>menu_dietary_tags.in_key</Mono>), <Mono>used_only</Mono>, the asterisk note and an
+              online-ordering line, with a preview and explicit Save / Discard. The draft keeps key ticks
+              as changes over each tag&apos;s <Mono>in_key</Mono>, so a tag added meanwhile keeps its own
+              value. API: <Mono>GET /api/menus/allergen-notice</Mono> (the notice through{' '}
+              <Mono>noticeOf()</Mono>) and <Mono>PUT /api/menus/allergen-notice</Mono>{' '}
+              (<Mono>requireRole(&apos;admin&apos;, &apos;owner&apos;)</Mono>, body{' '}
+              <Mono>{'{ title, body, removable_note, ordering_text, used_only, key_tag_ids? }'}</Mono>; upserts the
+              row and sets <Mono>in_key = id = ANY(key_tag_ids)</Mono> for every tag of the tenant in one
+              transaction; <Mono>removable_note</Mono> can&apos;t be blank).
+            </P>
+            <P>
+              <Mono>loadAllergenNotice(tx, tenantId)</Mono> in <Mono>routes/menus.js</Mono> loads it;{' '}
+              <Mono>loadMenuFull()</Mono> attaches it as <Mono>allergen_notice</Mono> (so print, the
+              designer, the public menu JSON and the builder canvas have it), <Mono>loadInlineMenus()</Mono>{' '}
+              attaches it to each website menu, and <Mono>GET /order-api/venues/:id</Mono> returns it.
+              Every renderer builds the key with{' '}
+              <Mono>allergenKey(tags, sections, notice)</Mono>: the notice&apos;s words plus the tags shown
+              on menus, ticked for the key and (with <Mono>used_only</Mono>) used by those sections&apos;
+              dishes, and <Mono>removable</Mono> when a dish shows a removable allergen.
+            </P>
+            <DataTable
+              head={['Surface', 'How the notice shows']}
+              rows={[
+                ['menu_print.eta', 'A footer note of kind allergens prints the notice (title, body, key, asterisk note) instead of its own title/body. The print route passes it.key = allergenKey(...) for the printed sections.'],
+                ['shared/menuLayout.js', 'buildContext() sets ctx.key from allergenKey(). The callouts block prints the notice for an allergens note; the key block prints only the key (empty when it has nothing to list). Chip tooltips use removable_note.'],
+                ['menu_print_dietary.eta', 'Notice title/body above the key. The key div carries data-used-only when used_only is on; only then does the Choose dishes script hide key pairs no ticked dish uses.'],
+                ['blocks/menu_inline.eta + MenuInlineCanvas', 'Under the menu unless block data show_allergen_notice is false (editor toggle Show allergen notice); then only the asterisk note shows when needed. The .eta gets allergenKey through it.siteBlocks (siteRenderer.js SITE_BLOCKS), for the sections and dishes the block keeps.'],
+                ['shared/ordering.eta', 'Imports allergenKey / noticeOf from /order-api/menuTags.js (shared/menuTags.js served by orderApi.js). The notice, then ordering_text plus the venue phone, under the menu; replaced the fixed allergy sentence.'],
+                ['Menus.jsx CalloutsPanel / MenuDesigner.jsx', 'An Allergies & Diet note has no title/body inputs, just a link to the Allergens & dietary page; its stored title stays (CalloutBody needs one). The designer picker names it after the notice.'],
+              ]}
+            />
             <H3>Allergen matrix (migration 141)</H3>
             <P>
               No new data tables: the matrix edits <Mono>menu_item_dietary</Mono> (dish to tag links)
@@ -2903,8 +2941,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               designs, <Mono>?auto=1</Mono> the automatic layout. <Mono>?view=dietary</Mono> renders{' '}
               <Mono>menu_print_dietary.eta</Mono> instead, whatever design is chosen: dish name and its
               dietary tag chips (glyph + colour, icons only) per row, grouped by section, sections with{' '}
-              <Mono>visibility = 'hidden'</Mono> dropped, portrait on the menu's paper size, a key of
-              the tags used (from <Mono>usedTags()</Mono>, plus the Can be removed note; rows with a
+              <Mono>visibility = 'hidden'</Mono> dropped, portrait on the menu's paper size, the
+              allergen notice and its key (from <Mono>allergenKey()</Mono>, plus the asterisk note; rows with a
               removable allergen carry <Mono>data-removable</Mono> so the note hides with them). Its <strong>Choose dishes</strong> mode is screen-side only: each row
               carries <Mono>data-id</Mono> / <Mono>data-tags</Mono>, unticked ids are kept in
               localStorage <Mono>maca_dietary_skip_&lt;menuId&gt;</Mono> (left-out ids, so new dishes
