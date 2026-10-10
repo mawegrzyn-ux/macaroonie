@@ -1101,7 +1101,7 @@ export function RotaPayTable({ venueId, weekStart, canEdit, showSplit = 'auto' }
 
 const DIST_LABEL = { points: 'By points', manual: 'Manual', house: 'Kept by house' }
 
-function tipRows(data) {
+export function tipRows(data) {
   return data.rows.filter(r => r.entry_count > 0 || r.tip_share > 0 || r.points_adjustment !== 0 || r.tip_adjustment !== 0
     || r.tip_unallocated !== 0 || (r.tip_cash ?? 0) !== 0 || (r.tip_bank ?? 0) !== 0)
 }
@@ -1193,7 +1193,7 @@ function PayeesModal({ pot, data, base, setPay, onClose }) {
 }
 
 /** A person's tips bank or cash figure; below 0 means they hand that much on to others. */
-function TipMoneyCell({ value }) {
+export function TipMoneyCell({ value }) {
   if (value < 0) {
     return <span className="text-red-700 font-medium" title="Paid more than their share through a pot paid to them: hands this much on">hands on {fmt(-value)}</span>
   }
