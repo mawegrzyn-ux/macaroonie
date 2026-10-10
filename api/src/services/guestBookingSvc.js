@@ -13,7 +13,7 @@ import { sql, withTenant }  from '../config/db.js'
 import { httpError }        from '../middleware/error.js'
 import { broadcastBooking } from './broadcastSvc.js'
 import { notificationQueue } from '../jobs/queues.js'
-import { allocateBestFit, combinationIsFree, tableIsFree } from './occupancySvc.js'
+import { allocateBestFit, combinationIsFree, ensureUnallocatedTable, tableIsFree } from './occupancySvc.js'
 
 // A fragment per query (postgres.js fragments are built inline).
 const bookingSelect = () => sql`
@@ -99,14 +99,28 @@ function overlaps(aStart, aEnd, bStart, bEnd) {
  * Move a booking to a new date / time / party size (each optional; the
  * rest stay as they are). `booking` comes from loadBookingByToken/ById.
  * `staff: true` skips the booking cutoff (staff can change a booking close
- * to its time); everything else applies to both. Returns the updated row.
+ * to its time); everything else applies to both.
+ *
+ * `overrideLimits: true` (staff only: the staff AI's override_limits) also
+ * lets the booking go past the venue's guest limits: the party-size range in
+ * booking_rules and the time slot's covers limit. A table that still fits
+ * (ignoring its minimum) is kept, else the best free fit, else the booking
+ * goes on the Unallocated row to be seated on the timeline. A time that
+ * isn't a booking slot, or is blocked in the schedule (cap 0), still fails.
+ *
+ * `dryRun: true` runs every check and returns { limits, unallocated, table }
+ * without changing anything (the staff AI's Confirm card).
+ *
+ * Returns the updated row; with overrideLimits it also carries `limits`
+ * (the limits it went past, as text) and `unallocated`.
  * Throws httpError 4xx with a message fit for the guest.
  */
-export async function rescheduleBooking(booking, { date, time, covers: newCovers } = {}, { staff = false } = {}) {
+export async function rescheduleBooking(booking, { date, time, covers: newCovers } = {}, { staff = false, overrideLimits = false, dryRun = false } = {}) {
   if (!date && !time && !newCovers) throw httpError(422, 'Nothing to change')
   if (CLOSED.includes(booking.status)) throw httpError(422, 'This booking is ' + booking.status.replace('_', ' ') + ' and can\'t be changed')
+  const override = staff && overrideLimits
 
-  const updated = await withTenant(booking.t_tenant_id, async tx => {
+  const out = await withTenant(booking.t_tenant_id, async tx => {
     const timezone = booking.venue_timezone || 'UTC'
     const durationMs = new Date(booking.ends_at).getTime() - new Date(booking.starts_at).getTime()
     const current = await venueLocalParts(booking.starts_at, timezone)
@@ -114,6 +128,7 @@ export async function rescheduleBooking(booking, { date, time, covers: newCovers
     const newDate = date || current.local_date
     const newTime = time || current.local_time
     const covers  = newCovers ?? booking.covers
+    const limits  = []
 
     const localStr = newDate + ' ' + newTime + ':00'
     const [{ ts: startsAt }] = await tx`
@@ -126,7 +141,8 @@ export async function rescheduleBooking(booking, { date, time, covers: newCovers
         FROM booking_rules WHERE venue_id = ${booking.t_venue_id}
     `
     if (rules && (covers < rules.min_covers || covers > rules.max_covers)) {
-      throw httpError(422, `Party size must be between ${rules.min_covers} and ${rules.max_covers}`)
+      if (!override) throw httpError(422, `Party size must be between ${rules.min_covers} and ${rules.max_covers}`)
+      limits.push(partySizeLimit(covers, rules))
     }
     if (startsAt.getTime() < Date.now()) throw httpError(422, 'That time has already passed')
     if (!staff) {
@@ -144,44 +160,54 @@ export async function rescheduleBooking(booking, { date, time, covers: newCovers
     const slot = slots.find(s => new Date(s.slot_time).getTime() === startsAt.getTime())
     if (!slot) throw httpError(422, 'That time is not a bookable slot')
 
-    const selfInSlot = overlaps(
-      new Date(booking.starts_at), new Date(booking.ends_at),
-      startsAt, endsAt,
-    )
-    const remaining = Number(slot.available_covers ?? 0) + (selfInSlot ? booking.covers : 0)
-    if (remaining < covers) {
-      throw httpError(422, slot.reason && slot.reason !== 'available'
-        ? 'That slot is ' + String(slot.reason).replace('_', ' ')
-        : 'That slot is no longer available for this party size')
+    // available_covers is NULL when the slot has no covers limit.
+    if (slot.available_covers != null) {
+      const selfInSlot = overlaps(
+        new Date(booking.starts_at), new Date(booking.ends_at),
+        startsAt, endsAt,
+      )
+      const remaining = Number(slot.available_covers) + (selfInSlot ? booking.covers : 0)
+      if (remaining < covers) {
+        if (!override || slot.reason === 'unavailable') {
+          throw httpError(422, slot.reason && slot.reason !== 'available'
+            ? 'That slot is ' + String(slot.reason).replace('_', ' ')
+            : 'That slot is no longer available for this party size')
+        }
+        limits.push(coversLimit(newTime, remaining))
+      }
     }
 
     let tableId       = booking.table_id
     let combinationId = booking.combination_id
+    let tableLabel    = null
     let keep          = false
 
     if (combinationId) {
       const [combo] = await tx`
-        SELECT min_covers, max_covers, is_active
+        SELECT name, min_covers, max_covers, is_active
           FROM table_combinations WHERE id = ${combinationId}
       `
-      if (combo?.is_active && covers >= combo.min_covers && covers <= combo.max_covers) {
+      if (combo?.is_active && (override || covers >= combo.min_covers) && covers <= combo.max_covers) {
         keep = await combinationIsFree(tx, combinationId, startsAt, endsAt, {
           excludeBookingId: booking.id, lock: true,
         })
+        tableLabel = combo.name
       }
     } else if (tableId) {
       const [tbl] = await tx`
-        SELECT min_covers, max_covers, is_unallocated, is_active
+        SELECT label, min_covers, max_covers, is_unallocated, is_active
           FROM tables WHERE id = ${tableId}
       `
       if (tbl && !tbl.is_unallocated && tbl.is_active
-          && covers >= tbl.min_covers && covers <= tbl.max_covers) {
+          && (override || covers >= tbl.min_covers) && covers <= tbl.max_covers) {
         keep = await tableIsFree(tx, tableId, startsAt, endsAt, {
           excludeBookingId: booking.id, lock: true,
         })
+        tableLabel = tbl.label
       }
     }
 
+    let unallocated = false
     if (!keep) {
       const alloc = await allocateBestFit(tx, {
         venueId: booking.t_venue_id,
@@ -190,13 +216,24 @@ export async function rescheduleBooking(booking, { date, time, covers: newCovers
         windowEnd: endsAt,
         excludeBookingId: booking.id,
         allowDisplace: false,
+        ignoreMinCovers: override,
       })
-      if (!alloc) {
+      if (alloc) {
+        tableId       = alloc.tableId
+        combinationId = alloc.combinationId
+        tableLabel    = alloc.label
+      } else if (override && limits.length) {
+        // Past the usual limits and nothing free fits: seat it on the timeline.
+        tableId       = dryRun ? null : await ensureUnallocatedTable(tx, booking.t_venue_id, booking.t_tenant_id)
+        combinationId = null
+        tableLabel    = null
+        unallocated   = true
+      } else {
         throw httpError(409, 'No tables available for the new time — please pick another slot')
       }
-      tableId       = alloc.tableId
-      combinationId = alloc.combinationId
     }
+
+    if (dryRun) return { limits, unallocated, table: tableLabel }
 
     const [row] = await tx`
       UPDATE bookings
@@ -209,12 +246,25 @@ export async function rescheduleBooking(booking, { date, time, covers: newCovers
        WHERE id = ${booking.id} AND tenant_id = ${booking.t_tenant_id}
       RETURNING *
     `
-    return row
+    return override ? { ...row, limits, unallocated } : row
   })
+  if (dryRun) return out
 
-  broadcastBooking('booking.updated', updated)
+  broadcastBooking('booking.updated', out)
   queueBookingEmail(booking, 'modification')
-  return updated
+  return out
+}
+
+/** "14 people is over the usual 1 to 8 per booking", for override cards. */
+export function partySizeLimit(covers, rules) {
+  const people = covers + (covers === 1 ? ' person' : ' people')
+  return people + ' is ' + (covers > rules.max_covers ? 'over' : 'under') +
+    ' the usual ' + rules.min_covers + ' to ' + rules.max_covers + ' per booking'
+}
+
+/** "Over the 19:00 covers limit (4 covers left)", for override cards. */
+export function coversLimit(time, left) {
+  return 'Over the ' + time + ' covers limit (' + (left > 0 ? left + (left === 1 ? ' cover' : ' covers') + ' left' : 'full') + ')'
 }
 
 /** Cancel a booking (callers check canCancel / permissions first). */

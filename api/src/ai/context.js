@@ -72,23 +72,41 @@ export async function callApi(ctx, method, url, { body } = {}) {
   return data
 }
 
-/** Staff permission check: the module's level for this person, same rule
- *  as requirePermission(). */
-export async function requireStaffPermission(ctx, moduleKey, level) {
-  if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
+// What a refused permission says, per module and level.
+const DENIED = {
+  bookings:      { view: 'see bookings',              manage: 'change bookings' },
+  customers:     { view: 'see customers',             manage: 'change customers' },
+  checklists:    { view: 'see checklists',            manage: 'tick checklists' },
+  food_safety:   { view: 'see food safety logs',      manage: 'log food safety checks' },
+  hs_action_log: { view: 'see the H&S action log',    manage: 'change the H&S action log' },
+}
+
+/** This staff member's level for a module ('none' | 'view' | 'manage'),
+ *  same rule as requirePermission(). */
+export async function staffPermissionLevel(ctx, moduleKey) {
+  if (!isStaff(ctx)) return 'none'
   const req = {
     isPlatformAdmin: !!ctx.principal?.isPlatformAdmin,
     tenantId: ctx.tenantId,
     user: { sub: ctx.principal?.sub },
   }
-  const have = await permissionLevel(req, moduleKey)
-  if (RANK[have] < RANK[level]) {
-    const what = moduleKey === 'bookings' ? (level === 'manage' ? 'change bookings' : 'see bookings') : 'use this'
+  return permissionLevel(req, moduleKey)
+}
+
+export const levelAtLeast = (have, level) => RANK[have] >= RANK[level]
+
+/** Staff permission check: throws unless the person has `level` on the module. */
+export async function requireStaffPermission(ctx, moduleKey, level) {
+  if (!isStaff(ctx)) throw new ToolError('Not available here', 403)
+  const have = await staffPermissionLevel(ctx, moduleKey)
+  if (!levelAtLeast(have, level)) {
+    const what = DENIED[moduleKey]?.[level] || 'use this'
     throw new ToolError('You don\'t have permission to ' + what + '. Ask an owner or admin.', 403)
   }
 }
 
-/** Audit log row for a tool call that touched (or tried to touch) a booking. */
+/** Audit log row for a tool call that changed (or tried to change) something:
+ *  a booking, or (H&S tools) a check, checklist or action log entry. */
 export async function audit(ctx, { tenantId, tool, input, ok, result, bookingId }) {
   const tid = tenantId ?? ctx.tenantId ?? null
   const row = {

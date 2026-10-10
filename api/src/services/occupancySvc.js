@@ -65,6 +65,8 @@ export async function assertAllocationFree(tx, {
 
 /**
  * Best-fit table or combination for a party.
+ * `ignoreMinCovers` lets a party smaller than a table's minimum have it
+ * (staff booking past the usual limits); the maximum always applies.
  * Returns { tableId, combinationId, label, displaced, displacedIds } or null.
  */
 export async function allocateBestFit(tx, {
@@ -74,6 +76,7 @@ export async function allocateBestFit(tx, {
   windowEnd,
   excludeBookingId = null,
   allowDisplace = false,
+  ignoreMinCovers = false,
 } = {}) {
   const startIso = iso(startsAt)
   const endIso   = iso(windowEnd)
@@ -84,7 +87,7 @@ export async function allocateBestFit(tx, {
      WHERE t.venue_id       = ${venueId}
        AND t.is_active      = true
        AND t.is_unallocated = false
-       AND t.min_covers    <= ${covers}
+       AND (${ignoreMinCovers} OR t.min_covers <= ${covers})
        AND t.max_covers    >= ${covers}
        AND table_is_free(
              t.id,
@@ -116,7 +119,7 @@ export async function allocateBestFit(tx, {
       FROM table_combinations c
      WHERE c.venue_id   = ${venueId}
        AND c.is_active  = true
-       AND c.min_covers <= ${covers}
+       AND (${ignoreMinCovers} OR c.min_covers <= ${covers})
        AND c.max_covers >= ${covers}
        AND combination_is_free(
              c.id,
@@ -154,6 +157,25 @@ export async function allocateBestFit(tx, {
   }
 
   return null
+}
+
+/**
+ * The venue's Unallocated row (where bookings without a table wait to be
+ * seated on the timeline), created if the venue doesn't have one yet.
+ */
+export async function ensureUnallocatedTable(tx, venueId, tenantId) {
+  const [row] = await tx`
+    SELECT id FROM tables
+     WHERE venue_id = ${venueId} AND tenant_id = ${tenantId} AND is_unallocated = true
+     LIMIT 1
+  `
+  if (row) return row.id
+  const [created] = await tx`
+    INSERT INTO tables (venue_id, tenant_id, label, min_covers, max_covers, is_active, is_unallocated, sort_order)
+    VALUES (${venueId}, ${tenantId}, 'Unallocated', 1, 9999, true, true, -999)
+    RETURNING id
+  `
+  return created.id
 }
 
 export async function tryWidgetDisplace(tx, venueId, covers, startsAt, windowEnd) {

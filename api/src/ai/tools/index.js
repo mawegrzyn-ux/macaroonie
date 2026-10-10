@@ -7,7 +7,7 @@
 //                              sent to the model / MCP client as JSON Schema)
 //   run(ctx, input)            does the work, returns a plain object
 //   readOnly                   only reads (MCP readOnlyHint)
-//   confirm                    changes a booking: in a chat it doesn't run
+//   confirm                    changes something: in a chat it doesn't run
 //                              when the model calls it. The server stores a
 //                              pending action and the person presses Confirm
 //                              on a card (src/ai/chat.js); describe(ctx,
@@ -16,14 +16,18 @@
 //                              asks the person, and run() is called directly.
 //   destructive                cancels (MCP destructiveHint)
 //
-// Guest tools: tools/guest.js. Staff tools: tools/staff.js.
+// Guest tools: tools/guest.js. Staff tools: tools/staff.js (bookings) and
+// tools/hs.js (health & safety, checklists, action log).
 
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
 import { ToolError, isStaff } from '../context.js'
 import { guestTools } from './guest.js'
-import { staffTools } from './staff.js'
+import { staffTools as bookingTools } from './staff.js'
+import { hsTools } from './hs.js'
 
+// Staff get the booking tools and the H&S / checklist tools (tools/hs.js).
+const staffTools = [...bookingTools, ...hsTools]
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 
 export function toolsFor(ctx) {

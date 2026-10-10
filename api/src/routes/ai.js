@@ -15,7 +15,7 @@
 //   GET    /tokens                     access tokens for the staff MCP
 //   POST   /tokens                     { name } -> the token, shown once
 //   DELETE /tokens/:id                 revoke
-//   GET    /activity                   audit log of AI booking changes
+//   GET    /activity                   audit log of changes made through AI
 //
 //   GET    /platform/tenants           every tenant's limit and usage (platform admin)
 //   PATCH  /platform/tenants/:id       { monthly_token_limit } (platform admin)

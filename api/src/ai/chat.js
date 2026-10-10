@@ -351,6 +351,9 @@ const TOOL_LABELS = {
   request_booking_code: 'Emailed a code', verify_booking_code: 'Checked the code',
   get_booking: 'Looked up the booking', list_venues: 'Looked up venues', find_bookings: 'Searched bookings',
   day_overview: 'Looked at the day', find_customer: 'Searched customers',
+  hs_status: 'Looked at H&S for the day', food_safety_day: 'Looked at the food safety log',
+  checklists_due: 'Looked at the checklists', get_checklist: 'Opened the checklist',
+  list_hs_actions: 'Looked at the action log',
 }
 
 /** The conversation as display items: user / assistant text, a short line
