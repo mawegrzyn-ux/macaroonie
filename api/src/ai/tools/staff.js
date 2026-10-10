@@ -10,13 +10,23 @@
 // Reads are direct SQL with an explicit tenant filter. Moving a booking to
 // another date / time / party size uses services/guestBookingSvc.js (the
 // same rules as the guest manage page, without the booking cutoff).
+//
+// override_limits (create_booking, change_booking): staff can book past the
+// venue's guest limits, the party-size range in booking_rules and a time
+// slot's covers limit, the way the timeline's manual allocation can. Without
+// it the tool refuses and says which limit is in the way, so the assistant
+// asks first; with it the Confirm card lists the limits being overridden.
+// A new booking past the limits goes in through POST /bookings/admin-override
+// on the best free table that fits, or the Unallocated row if none does.
+// Times outside the booking times, or blocked in the schedule, still fail.
 
 import { z } from 'zod'
 import { sql, withTenant } from '../../config/db.js'
 import { ToolError, callApi, audit, requireStaffPermission } from '../context.js'
-import { loadBookingById, rescheduleBooking } from '../../services/guestBookingSvc.js'
+import { loadBookingById, rescheduleBooking, partySizeLimit, coversLimit } from '../../services/guestBookingSvc.js'
+import { allocateBestFit } from '../../services/occupancySvc.js'
 import {
-  DateStr, TimeStr, PartySize, localParts, longDate, whenText, reference, realEmail,
+  DateStr, TimeStr, StaffPartySize, localParts, longDate, whenText, reference, realEmail,
   venueRules, nearestTimes, asTool,
 } from './util.js'
 
@@ -27,7 +37,8 @@ const STATUS_LABELS = {
 }
 const BookingRef = z.string().min(6).max(40).describe('booking_id, or the 8-character reference')
 
-async function staffVenue(ctx, venueId) {
+/** An active venue of this tenant (shared with the H&S tools). */
+export async function staffVenue(ctx, venueId) {
   const [v] = await sql`
     SELECT id, tenant_id, name, timezone FROM venues
      WHERE id = ${venueId} AND tenant_id = ${ctx.tenantId} AND is_active = true
@@ -99,6 +110,86 @@ async function bookableSlots(ctx, venue, date, partySize) {
     .filter(s => s.available && (s.table_id || s.combination_id))
     .map(s => ({ ...s, local: localParts(s.slot_time, venue.timezone).time }))
   return slots
+}
+
+const people = n => n + (n === 1 ? ' person' : ' people')
+
+const OVERRIDE_HINT = ' If the staff member wants it anyway, call the tool again with override_limits: true' +
+  ' (they see the limits on the Confirm card).'
+
+/**
+ * How a new booking would go in. Inside the venue's guest limits with a
+ * free table: { slot } (the normal hold + confirm path). Past the party-size
+ * range or the time's covers limit: { limits, startsAt, tableIds, table }
+ * where limits are the overridden limits as text and tableIds the best free
+ * fit (empty = the Unallocated row). Throws when the time can't be booked
+ * here at all, or when the only problem is that no table is free.
+ */
+async function newBookingPlan(ctx, venue, rules, { date, time, party_size }) {
+  const outside = party_size < rules.min_covers || party_size > rules.max_covers
+  if (!outside) {
+    const slot = (await bookableSlots(ctx, venue, date, party_size)).find(s => s.local === time)
+    if (slot) return { slot, limits: [] }
+  }
+
+  const res = await callApi(ctx, 'GET', `/api/venues/${venue.id}/slots?date=${date}&covers=${party_size}`)
+  const rows = (res?.slots || []).map(s => ({ ...s, local: localParts(s.slot_time, venue.timezone).time }))
+  const row = rows.find(s => s.local === time)
+  if (!row) {
+    throw new ToolError(rows.length
+      ? time + ' isn\'t one of ' + venue.name + '\'s booking times on ' + longDate(date) +
+        ' (they run ' + rows[0].local + ' to ' + rows[rows.length - 1].local + '). For other times use the timeline.'
+      : venue.name + ' isn\'t taking bookings on ' + longDate(date) +
+        ' (closed, too far ahead, or too close to the time). For that, use the timeline.', 422)
+  }
+  if (row.reason === 'unavailable') {
+    throw new ToolError(time + ' is blocked in ' + venue.name + '\'s schedule on ' + longDate(date) + '. To book it anyway, use the timeline.', 422)
+  }
+
+  const limits = []
+  if (outside) limits.push(partySizeLimit(party_size, rules))
+  if (row.reason === 'full') limits.push(coversLimit(time, Number(row.available_covers ?? 0)))
+  if (!limits.length) {
+    const free = rows.filter(s => s.available).map(s => s.local)
+    throw new ToolError(time + ' has no free table for ' + party_size + '. ' +
+      (free.length ? 'Nearest free times: ' + nearestTimes(free, time).join(', ') + '. ' : '') +
+      'To book it anyway, use the timeline.', 409)
+  }
+
+  const startsAt = new Date(row.slot_time)
+  const windowEnd = new Date(startsAt.getTime() + (rules.slot_duration_mins + rules.buffer_after_mins) * 60_000)
+  const fit = await withTenant(ctx.tenantId, async tx => {
+    const alloc = await allocateBestFit(tx, {
+      venueId: venue.id, covers: party_size, startsAt, windowEnd, ignoreMinCovers: true,
+    })
+    if (!alloc) return { tableIds: [], table: null }
+    if (!alloc.combinationId) return { tableIds: [alloc.tableId], table: alloc.label }
+    const members = await tx`
+      SELECT m.table_id FROM table_combination_members m
+        JOIN table_combinations c ON c.id = m.combination_id
+       WHERE m.combination_id = ${alloc.combinationId} AND c.tenant_id = ${ctx.tenantId}
+    `
+    return { tableIds: members.map(m => m.table_id), table: alloc.label }
+  })
+  return { limits, startsAt, ...fit }
+}
+
+/** "Over the usual limits" card lines for a table plan. */
+const tableLine = plan => plan.table
+  ? 'Table: ' + plan.table
+  : 'No free table fits: it goes on the Unallocated row to seat on the timeline'
+
+/** Free times on a day, for a failed move. */
+async function freeTimesNote(ctx, venue, date, partySize, time) {
+  const times = (await bookableSlots(ctx, venue, date, partySize).catch(() => [])).map(s => s.local)
+  const near = time ? nearestTimes(times, time) : times.slice(0, 8)
+  return near.length ? 'Free times that day: ' + near.join(', ') + '. ' : ''
+}
+
+/** What a move would need: the limits it goes past ([] = none) and where it
+ *  would sit. Runs the real move as a dry run, so the card matches. */
+async function moveCheck(ctx, b, { date, time, party_size }) {
+  return asTool(() => rescheduleBooking(b, { date, time, covers: party_size }, { staff: true, overrideLimits: true, dryRun: true }))
 }
 
 const ACTIVE = sql`b.status NOT IN ('cancelled', 'no_show')`
@@ -218,19 +309,33 @@ export const staffTools = [
   {
     name: 'check_availability',
     title: 'Check availability',
-    description: 'Times with a free table at a venue on a date for a party size (restaurant local times).',
+    description:
+      'Times with a free table at a venue on a date for a party size (restaurant local times). ' +
+      'Also says when the party is outside the venue\'s usual party sizes.',
     input: z.object({
       venue_id:   z.string().uuid(),
       date:       DateStr,
-      party_size: PartySize,
+      party_size: StaffPartySize,
       time:       TimeStr.optional(),
     }),
     readOnly: true,
     async run(ctx, { venue_id, date, party_size, time }) {
       await requireStaffPermission(ctx, 'bookings', 'view')
       const venue = await staffVenue(ctx, venue_id)
-      const times = (await bookableSlots(ctx, venue, date, party_size)).map(s => s.local)
+      const rules = await venueRules(venue)
       const base = { venue: venue.name, date, day: longDate(date), party_size }
+      if (party_size < rules.min_covers || party_size > rules.max_covers) {
+        const res = await callApi(ctx, 'GET', `/api/venues/${venue.id}/slots?date=${date}&covers=${party_size}`)
+        const times = (res?.slots || []).filter(s => s.reason !== 'unavailable').map(s => localParts(s.slot_time, venue.timezone).time)
+        return {
+          ...base,
+          usual_party_sizes: rules.min_covers + ' to ' + rules.max_covers,
+          booking_times: times,
+          message: partySizeLimit(party_size, rules) + ', so no time is free in the normal way.' +
+            (times.length ? OVERRIDE_HINT.replace('call the tool again', 'book it') : ' The venue has no booking times that day.'),
+        }
+      }
+      const times = (await bookableSlots(ctx, venue, date, party_size)).map(s => s.local)
       if (time) {
         const ok = times.includes(time)
         return { ...base, time, available: ok, ...(ok ? {} : { nearest_free_times: nearestTimes(times, time) }) }
@@ -244,33 +349,46 @@ export const staffTools = [
     title: 'Make a booking',
     description:
       'Books a table at a free time (check_availability first). Email and phone are optional. ' +
-      'Read the details back and only call this once the staff member has agreed them.',
+      'Read the details back and only call this once the staff member has agreed them. ' +
+      'If the party is outside the venue\'s usual party sizes or the time is over its covers limit, it refuses ' +
+      'and says why: tell the staff member, and only if they still want it set override_limits: true.',
     input: z.object({
       venue_id:    z.string().uuid(),
       date:        DateStr,
       time:        TimeStr,
-      party_size:  PartySize,
+      party_size:  StaffPartySize,
       guest_name:  z.string().min(1).max(200),
       guest_email: z.string().email().optional(),
       guest_phone: z.string().max(30).optional(),
       notes:       z.string().max(1000).optional().describe('Notes from the guest (allergies, occasion)'),
       status:      z.enum(['unconfirmed', 'confirmed', 'reconfirmed']).optional(),
+      override_limits: z.boolean().optional()
+        .describe('Book past the usual party sizes or the time\'s covers limit. Only when the staff member has asked for it.'),
     }),
     confirm: true,
     async describe(ctx, input) {
       await requireStaffPermission(ctx, 'bookings', 'manage')
       const venue = await staffVenue(ctx, input.venue_id)
+      const rules = await venueRules(venue)
+      if (rules.requires_deposit) {
+        throw new ToolError(venue.name + ' takes a deposit, so bookings there need the payment flow. Use the booking widget.', 422)
+      }
+      const plan = await newBookingPlan(ctx, venue, rules, input)
+      if (plan.limits.length && !input.override_limits) throw new ToolError(plan.limits.join('. ') + '.' + OVERRIDE_HINT, 409)
+      const over = plan.limits.length > 0
       return {
-        title: 'Make this booking?',
+        title: over ? 'Book past the usual limits?' : 'Make this booking?',
         lines: [
           venue.name,
           longDate(input.date) + ' at ' + input.time,
-          input.party_size + (input.party_size === 1 ? ' person' : ' people'),
+          people(input.party_size),
           input.guest_name + [input.guest_email, input.guest_phone].filter(Boolean).map(s => ', ' + s).join(''),
           ...(input.notes ? ['Notes: ' + input.notes] : []),
           ...(input.status ? ['Status: ' + STATUS_LABELS[input.status]] : []),
+          ...(over ? [tableLine(plan)] : []),
         ],
-        confirmLabel: 'Make booking',
+        ...(over ? { warningTitle: 'Past the usual limits', warnings: plan.limits } : {}),
+        confirmLabel: over ? 'Book anyway' : 'Make booking',
       }
     },
     async run(ctx, input) {
@@ -280,40 +398,56 @@ export const staffTools = [
       if (rules.requires_deposit) {
         throw new ToolError(venue.name + ' takes a deposit, so bookings there need the payment flow. Use the booking widget.', 422)
       }
-      const slots = await bookableSlots(ctx, venue, input.date, input.party_size)
-      const slot = slots.find(s => s.local === input.time)
-      if (!slot) {
-        const times = slots.map(s => s.local)
-        throw new ToolError(input.time + ' has no free table for ' + input.party_size + '. ' +
-          (times.length ? 'Nearest free times: ' + nearestTimes(times, input.time).join(', ') + '. ' : '') +
-          'To book outside the normal slots, use the timeline.', 409)
-      }
       const audited = { ...input }
       try {
-        const hold = await callApi(ctx, 'POST', '/api/bookings/holds', {
-          body: {
-            venue_id:  venue.id,
-            ...(slot.table_id ? { table_id: slot.table_id } : { combination_id: slot.combination_id }),
-            starts_at: new Date(slot.slot_time).toISOString(),
-            covers:    input.party_size,
-            guest_name:  input.guest_name,
-            guest_email: input.guest_email || 'tbc@placeholder.com',
-            guest_phone: input.guest_phone ?? null,
-          },
-        })
-        const bk = await callApi(ctx, 'POST', '/api/bookings', {
-          body: {
-            hold_id: hold.id,
-            guest_phone: input.guest_phone ?? null,
-            guest_notes: input.notes ?? null,
-            ...(input.status ? { status: input.status } : {}),
-          },
-        })
+        const plan = await newBookingPlan(ctx, venue, rules, input)
+        if (plan.limits.length && !input.override_limits) throw new ToolError(plan.limits.join('. ') + '.' + OVERRIDE_HINT, 409)
+
+        let bk
+        if (plan.slot) {
+          const hold = await callApi(ctx, 'POST', '/api/bookings/holds', {
+            body: {
+              venue_id:  venue.id,
+              ...(plan.slot.table_id ? { table_id: plan.slot.table_id } : { combination_id: plan.slot.combination_id }),
+              starts_at: new Date(plan.slot.slot_time).toISOString(),
+              covers:    input.party_size,
+              guest_name:  input.guest_name,
+              guest_email: input.guest_email || 'tbc@placeholder.com',
+              guest_phone: input.guest_phone ?? null,
+            },
+          })
+          bk = await callApi(ctx, 'POST', '/api/bookings', {
+            body: {
+              hold_id: hold.id,
+              guest_phone: input.guest_phone ?? null,
+              guest_notes: input.notes ?? null,
+              ...(input.status ? { status: input.status } : {}),
+            },
+          })
+        } else {
+          // Past the usual limits: straight in, like the timeline's manual allocation.
+          bk = await callApi(ctx, 'POST', '/api/bookings/admin-override', {
+            body: {
+              venue_id:    venue.id,
+              starts_at:   plan.startsAt.toISOString(),
+              covers:      input.party_size,
+              table_ids:   plan.tableIds,
+              guest_name:  input.guest_name,
+              guest_email: input.guest_email || 'tbc@placeholder.com',
+              guest_phone: input.guest_phone ?? null,
+              guest_notes: input.notes ?? null,
+              ...(input.status ? { status: input.status } : {}),
+            },
+          })
+        }
         await sql`UPDATE bookings SET source = ${ctx.channel} WHERE id = ${bk.id} AND tenant_id = ${ctx.tenantId}`
         const [row] = await bookingRows(ctx, sql`b.id = ${bk.id}`, 1)
         const view = staffView(row)
-        await audit(ctx, { tool: 'create_booking', input: audited, ok: true, result: view, bookingId: bk.id })
-        return { ...view, message: 'Booked. Reference ' + view.reference + '.' }
+        const result = plan.limits.length ? { ...view, overridden_limits: plan.limits } : view
+        await audit(ctx, { tool: 'create_booking', input: audited, ok: true, result, bookingId: bk.id })
+        const message = 'Booked' + (plan.limits.length ? ' past the usual limits' : '') + '. Reference ' + view.reference + '.' +
+          (plan.limits.length && !plan.tableIds.length ? ' It is on the Unallocated row: seat it on the timeline.' : '')
+        return { ...result, message }
       } catch (err) {
         await audit(ctx, { tool: 'create_booking', input: audited, ok: false, result: { error: err.message } })
         throw err
@@ -325,49 +459,69 @@ export const staffTools = [
     name: 'change_booking',
     title: 'Move a booking',
     description:
-      'Moves a booking to another date, time or party size (give only what changes). It must fit a normal slot ' +
-      'with a free table; keeps the table when it can. The guest is emailed the new details.',
+      'Moves a booking to another date, time or party size (give only what changes). It must be one of the venue\'s ' +
+      'booking times with a free table; keeps the table when it can. The guest is emailed the new details. ' +
+      'If the new party size is outside the usual party sizes or the time is over its covers limit, it refuses and ' +
+      'says why: tell the staff member, and only if they still want it set override_limits: true.',
     input: z.object({
       booking:    BookingRef,
       date:       DateStr.optional(),
       time:       TimeStr.optional(),
-      party_size: PartySize.optional(),
+      party_size: StaffPartySize.optional(),
+      override_limits: z.boolean().optional()
+        .describe('Move it past the usual party sizes or the time\'s covers limit. Only when the staff member has asked for it.'),
     }),
     confirm: true,
-    async describe(ctx, { booking, date, time, party_size }) {
+    async describe(ctx, { booking, date, time, party_size, override_limits }) {
       await requireStaffPermission(ctx, 'bookings', 'manage')
       const b = await staffBooking(ctx, booking)
       const cur = localParts(b.starts_at, b.venue_timezone)
+      const plan = await moveCheck(ctx, b, { date, time, party_size })
+      if (plan.limits.length && !override_limits) throw new ToolError(plan.limits.join('. ') + '.' + OVERRIDE_HINT, 409)
+      const over = plan.limits.length > 0
       return {
-        title: 'Move this booking?',
+        title: over ? 'Move it past the usual limits?' : 'Move this booking?',
         lines: [
           b.guest_name + ', ' + b.venue_name + ' (' + reference(b.id) + ')',
-          'Now: ' + whenText(b.starts_at, b.venue_timezone) + ', ' + b.covers + ' people',
-          'New: ' + longDate(date || cur.date) + ' at ' + (time || cur.time) + ', ' + (party_size ?? b.covers) + ' people',
+          'Now: ' + whenText(b.starts_at, b.venue_timezone) + ', ' + people(b.covers),
+          'New: ' + longDate(date || cur.date) + ' at ' + (time || cur.time) + ', ' + people(party_size ?? b.covers),
+          ...(over ? [tableLine(plan)] : []),
         ],
-        confirmLabel: 'Move booking',
+        ...(over ? { warningTitle: 'Past the usual limits', warnings: plan.limits } : {}),
+        confirmLabel: over ? 'Move anyway' : 'Move booking',
       }
     },
-    async run(ctx, { booking, date, time, party_size }) {
+    async run(ctx, { booking, date, time, party_size, override_limits }) {
       await requireStaffPermission(ctx, 'bookings', 'manage')
       const b = await staffBooking(ctx, booking)
-      const input = { booking: reference(b.id), date, time, party_size }
+      const input = { booking: reference(b.id), date, time, party_size, ...(override_limits ? { override_limits } : {}) }
+      let moved
       try {
-        await asTool(() => rescheduleBooking(b, { date, time, covers: party_size }, { staff: true }))
+        moved = await asTool(() => rescheduleBooking(b, { date, time, covers: party_size }, { staff: true, overrideLimits: !!override_limits }))
       } catch (err) {
         await audit(ctx, { tool: 'change_booking', input, ok: false, result: { error: err.message }, bookingId: b.id })
         if (!(err instanceof ToolError)) throw err
+        // Would it go through past the limits? Then say so instead of only listing times.
+        if (!override_limits) {
+          const plan = await moveCheck(ctx, b, { date, time, party_size }).catch(() => null)
+          if (plan?.limits.length) throw new ToolError(plan.limits.join('. ') + '.' + OVERRIDE_HINT, err.status)
+        }
         const venue = { id: b.t_venue_id, tenant_id: b.t_tenant_id, name: b.venue_name, timezone: b.venue_timezone }
         const cur = localParts(b.starts_at, venue.timezone)
-        const times = (await bookableSlots(ctx, venue, date || cur.date, party_size ?? b.covers).catch(() => [])).map(s => s.local)
-        const near = time ? nearestTimes(times, time) : times.slice(0, 8)
-        throw new ToolError(err.message + '. ' + (near.length ? 'Free times that day: ' + near.join(', ') + '. ' : '') +
-          'For anything outside the normal slots, use the timeline.', err.status)
+        throw new ToolError(err.message + '. ' + await freeTimesNote(ctx, venue, date || cur.date, party_size ?? b.covers, time) +
+          'For anything outside the booking times, use the timeline.', err.status)
       }
       const [row] = await bookingRows(ctx, sql`b.id = ${b.id}`, 1)
       const view = staffView(row)
-      await audit(ctx, { tool: 'change_booking', input, ok: true, result: view, bookingId: b.id })
-      return { ...view, message: 'Moved.' }
+      const over = moved?.limits?.length > 0
+      const result = over ? { ...view, overridden_limits: moved.limits } : view
+      await audit(ctx, { tool: 'change_booking', input, ok: true, result, bookingId: b.id })
+      return {
+        ...result,
+        message: over
+          ? 'Moved past the usual limits.' + (moved.unallocated ? ' It is on the Unallocated row: seat it on the timeline.' : '')
+          : 'Moved.',
+      }
     },
   },
 

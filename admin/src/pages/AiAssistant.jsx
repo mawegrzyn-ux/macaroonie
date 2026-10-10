@@ -33,7 +33,7 @@ export default function AiAssistant() {
       <div className="flex items-center justify-between gap-3 px-4 sm:px-6 h-14 border-b shrink-0 bg-background max-lg:notouch:pl-14">
         <div className="min-w-0">
           <h1 className="font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4" /> AI assistant</h1>
-          <p className="text-xs text-muted-foreground truncate">Bookings by chat, here and in AI apps</p>
+          <p className="text-xs text-muted-foreground truncate">Bookings and H&amp;S by chat, here and in AI apps</p>
         </div>
         <div className="flex items-center gap-1 rounded-md border p-0.5 overflow-x-auto">
           {tabs.map(([k, label]) => (
@@ -152,14 +152,14 @@ function ConnectTab({ info }) {
       <Card title="Your own AI app">
         <p className="text-sm text-muted-foreground">
           Connect the AI app you already use (Claude, Cursor and other apps that take an MCP server) to this restaurant
-          group's bookings. It can do what this assistant does, with your own permissions.
+          group's bookings, checklists and food safety logs. It can do what this assistant does, with your own permissions.
         </p>
         <CopyField label="MCP server address" value={info.staff_mcp_url} />
         <ol className="list-decimal pl-5 text-sm space-y-1">
           <li>Make an access token below. Copy it: it is shown once.</li>
           <li>In your AI app, add a custom MCP connector with the address above, and send the token as a header:
             <code className="text-xs bg-muted/60 rounded px-1 ml-1">Authorization: Bearer mcp_...</code></li>
-          <li>Ask it about bookings. Changes are made as you, and listed in Activity.</li>
+          <li>Ask it about bookings, checklists or H&S checks. Changes are made as you, and listed in Activity.</li>
         </ol>
         {!info.settings.staff_enabled && (
           <p className="text-sm text-amber-700 flex items-center gap-2"><CircleAlert className="w-4 h-4" /> The staff assistant is switched off, so this connector is off too.</p>
@@ -354,6 +354,26 @@ const TOOL_LABELS = {
   create_booking: 'Made a booking', confirm_booking: 'Made a booking', change_booking: 'Moved a booking',
   cancel_booking: 'Cancelled a booking', set_booking_status: 'Changed status', update_guest_details: 'Updated guest details',
   add_booking_note: 'Added a note', request_booking_code: 'Emailed a booking code',
+  log_temperature: 'Logged a fridge temperature', log_hold_check: 'Logged a hold temperature',
+  log_cooking_check: 'Logged a cooking check', log_delivery: 'Logged a delivery',
+  add_corrective_action: 'Added a corrective action', tick_checklist: 'Ticked a checklist',
+  add_hs_action: 'Added an H&S action', complete_hs_action: 'Updated an H&S action',
+}
+
+/** What an H&S change was about, from its stored result. */
+function hsDetail(r) {
+  const x = r.result || {}
+  switch (r.tool) {
+    case 'log_temperature':       return [x.fridge, x.temperature].filter(Boolean).join(' ')
+    case 'log_hold_check':        return [x.station, x.temperature].filter(Boolean).join(' ')
+    case 'log_cooking_check':     return [x.dish, x.core_temp].filter(Boolean).join(' ')
+    case 'log_delivery':          return x.supplier
+    case 'add_corrective_action': return x.what
+    case 'tick_checklist':        return x.checklist ? x.checklist + (x.ticked ? ' (' + x.ticked + ' ticked)' : '') : null
+    case 'add_hs_action':
+    case 'complete_hs_action':    return x.task
+    default:                      return null
+  }
 }
 
 function ActivityTab() {
@@ -373,6 +393,8 @@ function ActivityTab() {
                   <span className="font-medium">{TOOL_LABELS[r.tool] || r.tool}</span>
                   {!r.ok && <span className="text-destructive"> (didn't go through)</span>}
                   {r.guest_name && <span> · {r.guest_name}</span>}
+                  {r.ok && hsDetail(r) && <span> · {hsDetail(r)}</span>}
+                  {r.result?.overridden_limits?.length > 0 && <span className="text-amber-700"> · past the usual limits</span>}
                   {r.starts_at && <span className="text-muted-foreground"> · {format(new Date(r.starts_at), 'EEE d MMM, HH:mm')}{r.venue_name ? ', ' + r.venue_name : ''}</span>}
                 </div>
                 <div className="text-xs text-muted-foreground">

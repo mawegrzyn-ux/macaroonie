@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — AI assistant: booking past the usual limits, and health & safety]
+
+- **Booking past the usual limits**: when a party is outside a venue's usual party size, or a time is over its covers limit, the staff assistant says which limit is in the way and asks first. Say yes and the card (**Book past the usual limits?**) lists the limits in an amber box; press **Book anyway** or **Move anyway**. The booking goes on the smallest free table that fits, or the Unallocated row if none does, to seat on the timeline. Guests and the booking widget still can't go past the limits.
+- **Health & safety by chat**: the staff assistant (and your own AI app through the connector) can now show the day's H&S status and the food safety log, log fridge/freezer, hot/cold hold, cooking and delivery checks, add corrective actions, tick or untick checklist tasks, and list, add and complete H&S action log entries. Fridges, check times, dishes and tasks can be named the way you say them. Every change shows a card first; out-of-range readings show an **Out of range** box. What it can do follows your Checklists, Food safety and action log permissions.
+- Activity on the AI assistant page now lists H&S changes too, and marks bookings made past the usual limits.
+- Fixed: a manual (timeline) booking on the Unallocated row failed with "No unallocated table row configured" at a venue that didn't have that row yet; it is now made when needed. The same booking route now checks the venue and tables are your own.
+- Fixed: moving a booking (guest manage page and AI) to a time with no covers limit could be refused as "no longer available".
+- No database change.
+
+---
+
 ## [2026-10-10 — Allergen lookup: tags in a pop-up grid]
 
 - The allergen lookup (H&S dashboard widget, Overview tile and the phone app) no longer lists every allergen and dietary tag above the dishes. Press **Allergens & diet** to pick from a grid: tap once for dishes that have it, twice for dishes free from it.

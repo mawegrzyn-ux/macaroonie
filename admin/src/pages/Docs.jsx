@@ -2736,7 +2736,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               request_booking_code, verify_booking_code, get_booking, change_booking, cancel_booking.{' '}
               <Mono>tools/staff.js</Mono>: list_venues, find_bookings, get_booking, day_overview,
               check_availability, create_booking, change_booking, set_booking_status,
-              update_guest_details, add_booking_note, find_customer. A tool is{' '}
+              update_guest_details, add_booking_note, find_customer.{' '}
+              <Mono>tools/hs.js</Mono> (staff, health &amp; safety): hs_status, food_safety_day,
+              log_temperature, log_hold_check, log_cooking_check, log_delivery, add_corrective_action,
+              checklists_due, get_checklist, tick_checklist, list_hs_actions, add_hs_action,
+              complete_hs_action. A tool is{' '}
               <Mono>{'{ name, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
               (<Mono>tools/index.js</Mono>); the Zod schema goes to the model and MCP clients as JSON
               Schema via zod-to-json-schema.
@@ -2759,6 +2763,71 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               process, <Mono>middleware/auth.js</Mono>). It lets an access token through on the admin
               API (tokens are refused there otherwise) and keeps the calls out of the global rate limit
               (<Mono>allowList</Mono> in app.js).
+            </P>
+            <H3>Staff: booking past the usual limits</H3>
+            <P>
+              <Mono>create_booking</Mono> and <Mono>change_booking</Mono> take{' '}
+              <Mono>override_limits</Mono>, and staff party sizes go up to 300 (<Mono>StaffPartySize</Mono>;
+              guests stay at 50). The limits it covers are the venue's party-size range (
+              <Mono>booking_rules.min_covers</Mono>/<Mono>max_covers</Mono>) and the time slot's covers
+              limit (the sitting or slot cap, <Mono>reason = 'full'</Mono> from{' '}
+              <Mono>get_available_slots()</Mono>). Without the flag the tool refuses with a ToolError
+              that names the limit and says to call again with <Mono>override_limits: true</Mono>, so
+              the model asks first. With it, the card gets <Mono>warningTitle</Mono> +{' '}
+              <Mono>warnings</Mono> (an amber box in <Mono>ActionCard</Mono>) and the audit row's
+              result carries <Mono>overridden_limits</Mono>.
+            </P>
+            <DataTable
+              head={['', 'New booking (newBookingPlan() in tools/staff.js)', 'Move (rescheduleBooking(..., { staff, overrideLimits }))']}
+              rows={[
+                ['Inside the limits', 'Normal hold + confirm on the free table from the slots route', 'Unchanged'],
+                ['Past a limit', 'POST /api/bookings/admin-override with table_ids from allocateBestFit({ ignoreMinCovers: true }) (a combination sends its member tables)', 'Skips the party-size and covers checks, keeps the table if it fits ignoring its minimum, else allocateBestFit({ ignoreMinCovers })'],
+                ['No free table fits', 'table_ids: [] → the Unallocated row', 'ensureUnallocatedTable() → the Unallocated row'],
+                ['Still refused', 'A time that isn\'t a booking time (outside sittings, past the cutoff or booking window), a blocked time (cap 0), or within the limits with no free table', 'Same'],
+              ]}
+            />
+            <P>
+              The card is built from the same code as the run: <Mono>describe()</Mono> calls{' '}
+              <Mono>newBookingPlan()</Mono>, and for a move <Mono>rescheduleBooking()</Mono> with{' '}
+              <Mono>dryRun: true</Mono> (every check, no UPDATE, returns{' '}
+              <Mono>{'{ limits, unallocated, table }'}</Mono>). <Mono>overrideLimits</Mono> only takes
+              effect with <Mono>staff: true</Mono>; the guest manage page and guest tools never pass
+              it. <Mono>ensureUnallocatedTable()</Mono> (<Mono>occupancySvc.js</Mono>) finds or makes
+              the venue's Unallocated row; <Mono>admin-override</Mono> now uses it (it used to 422
+              when the row didn't exist) and checks that <Mono>venue_id</Mono> and{' '}
+              <Mono>table_ids</Mono> belong to the caller's tenant. A slot with no covers limit (
+              <Mono>available_covers</Mono> NULL) no longer fails a move.
+            </P>
+            <H3>Staff: health &amp; safety tools</H3>
+            <P>
+              <Mono>tools/hs.js</Mono>. Same rules as the booking tools: each tool checks the
+              module the admin page uses (<Mono>checklists</Mono>, <Mono>food_safety</Mono>,{' '}
+              <Mono>hs_action_log</Mono>; view to read, manage to change) with{' '}
+              <Mono>requireStaffPermission()</Mono>; reads go through the admin GET routes or SQL
+              with an explicit <Mono>tenant_id</Mono>; every change goes through the admin route with{' '}
+              <Mono>callApi()</Mono>, is a confirm tool with a card, and is audited in{' '}
+              <Mono>ai_actions</Mono> (<Mono>booking_id</Mono> null).{' '}
+              <Mono>hs_status</Mono> calls <Mono>computeHsStatus()</Mono>, moved from{' '}
+              <Mono>routes/dashboardTiles.js</Mono> to <Mono>services/hsStatus.js</Mono> so the
+              Overview tiles and the assistant share it; it needs view on checklists or food safety and
+              shows only the parts the person can see (the overall status only with both).
+            </P>
+            <DataTable
+              head={['Tool', 'Route(s)', 'Notes']}
+              rows={[
+                ['food_safety_day', 'GET equipment, capture-times, temp-logs, hold-stations, hold-capture-times, holds, cooking-sessions, cooking, deliveries; GET /api/hs-settings', 'Missing checks split into missing (time passed) and later_today; out_of_range_without_action lists reading_ids'],
+                ['log_temperature / log_hold_check', 'POST /food-safety/temp-logs | /holds', 'Unit by name (pickByName); check time named, or today the latest started (pickCheckTime); another day with several times must name one. Card shows a reading it replaces and an Out of range box'],
+                ['log_cooking_check', 'POST /food-safety/cooking', 'Dish matched against loadCookingPicker() (GET /cooking/items) → menu_item_id or cooking_item_id, else dish_name; session like the Cooking tab\'s sessionForNow'],
+                ['log_delivery', 'POST /food-safety/deliveries', ''],
+                ['add_corrective_action', 'PATCH /food-safety/temp-logs|holds|cooking|deliveries/:id', 'The reading is loaded with a tenant filter for the card'],
+                ['checklists_due / get_checklist', 'GET /checklists/due, /checklists/instance', ''],
+                ['tick_checklist', 'GET then PUT /checklists/instance', 'Sends every active task with its new tick and existing note, and the instance notes (the PUT replaces them all); completion still comes from the route'],
+                ['list_hs_actions / add_hs_action / complete_hs_action', 'GET, POST /hs-action-log/entries, PATCH .../:id/complete', 'Category by name from GET /hs-action-log/categories'],
+              ]}
+            />
+            <P>
+              Dates default to today in the venue's time zone and are always sent to the routes (the
+              food safety POSTs would otherwise default to the server's UTC date).
             </P>
             <H3>Confirm cards (chats)</H3>
             <P>
@@ -2804,7 +2873,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests and input / output / cache read / cache write tokens. The limit counts all four token kinds of staff_chat + guest_chat; MCP channels count calls only.'],
                 ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks).'],
                 ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
-                ['ai_actions', 'Audit log of booking changes through AI (all channels): tool, input, ok, result, booking_id, actor. Shown on /ai Activity.'],
+                ['ai_actions', 'Audit log of changes through AI (all channels): bookings, and the staff H&S tools (booking_id null): tool, input, ok, result, booking_id, actor. Shown on /ai Activity.'],
                 ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
                 ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
                 ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],

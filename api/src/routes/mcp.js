@@ -193,6 +193,6 @@ export default async function mcpRoutes(app) {
     authorization_servers:    ['https://' + env.AUTH0_DOMAIN + '/'],
     bearer_methods_supported: ['header'],
     scopes_supported:         ['openid', 'profile', 'email'],
-    resource_name:            'Macaroonie staff bookings',
+    resource_name:            'Macaroonie staff assistant',
   }))
 }

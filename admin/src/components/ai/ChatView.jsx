@@ -17,8 +17,8 @@ import { cn } from '@/lib/utils'
 const SUGGESTIONS = [
   'What is booked for tonight?',
   'Is there a table for 4 on Friday at 7pm?',
-  'Find the booking for Smith',
-  'Book a table for 2 tomorrow at 1pm',
+  'Which H&S checks are still to do today?',
+  'Walk-in fridge is 4 degrees for the morning check',
 ]
 
 export function useAiStatus() {
@@ -93,8 +93,8 @@ export default function ChatView({ conversationId, onConversationId, className }
         {empty && !isLoading && (
           <div className="text-center py-6">
             <Sparkles className="w-8 h-8 mx-auto text-primary mb-2" />
-            <p className="font-medium">Ask about bookings</p>
-            <p className="text-sm text-muted-foreground mb-4">Look bookings up, check tables, book, move or cancel. You confirm every change.</p>
+            <p className="font-medium">Ask about bookings and H&S</p>
+            <p className="text-sm text-muted-foreground mb-4">Bookings, checklists, food safety checks and the action log. You confirm every change.</p>
             <div className="flex flex-col gap-2 max-w-sm mx-auto">
               {SUGGESTIONS.map(s => (
                 <button key={s} type="button" onClick={() => submit(s)}
@@ -129,7 +129,7 @@ export default function ChatView({ conversationId, onConversationId, className }
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
           rows={Math.min(5, Math.max(1, draft.split('\n').length))}
           maxLength={2000}
-          placeholder="Ask about bookings..."
+          placeholder="Ask about bookings, checklists, H&S..."
           className="flex-1 resize-none rounded-md border bg-background px-3 py-2.5 text-sm min-h-[48px] focus:outline-none focus:ring-2 focus:ring-ring"
         />
         <button type="submit" disabled={!draft.trim() || send.isPending}
@@ -188,6 +188,15 @@ function ActionCard({ card, decide }) {
       <div className="px-3 py-2 text-sm space-y-0.5">
         {(card.lines || []).map((l, i) => <div key={i} className={i === 0 ? 'font-medium' : ''}>{l}</div>)}
       </div>
+      {card.warnings?.length > 0 && (
+        <div className="mx-3 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 flex items-start gap-2">
+          <CircleAlert className="w-4 h-4 shrink-0 mt-0.5" />
+          <div>
+            <div className="font-medium">{card.warningTitle || 'Check before confirming'}</div>
+            {card.warnings.map((w, i) => <div key={i}>{w}</div>)}
+          </div>
+        </div>
+      )}
       {open ? (
         <div className="flex gap-2 px-3 pb-3">
           <button type="button" disabled={busy}

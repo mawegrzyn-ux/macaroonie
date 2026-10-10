@@ -60,7 +60,7 @@ export const MOBILE_MODULES = [
   {
     key: 'assistant',
     label: 'AI assistant',
-    description: 'Ask about bookings; book, move or cancel by chat',
+    description: 'Bookings, checklists and H&S checks by chat',
     icon: Sparkles,
     path: '/mobile/assistant',
   },

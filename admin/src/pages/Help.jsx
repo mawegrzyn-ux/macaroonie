@@ -3038,12 +3038,14 @@ export default function Help() {
           <section id="ai-assistant" data-help="">
             <H2>AI Assistant</H2>
             <P>
-              The AI assistant looks up, makes and changes bookings by chat. There are four ways in:
+              The AI assistant looks up, makes and changes bookings by chat, and helps staff keep up
+              with health & safety: checklists, food safety checks and the H&S action log. There are
+              four ways in:
             </P>
             <DataTable
               head={['Where', 'Who', 'What it can do']}
               rows={[
-                ['Ask AI (sidebar), the AI assistant page, and AI assistant in the phone app', 'Staff', 'Find bookings, check tables, book, move, change status, update guest details, add staff notes'],
+                ['Ask AI (sidebar), the AI assistant page, and AI assistant in the phone app', 'Staff', 'Find bookings, check tables, book, move, change status, update guest details, add staff notes; see what H&S is done and still due, tick checklists, log fridge, hold, cooking and delivery checks, add corrective actions, keep the action log'],
                 ['Your own AI app (Claude, Cursor and others) through the staff connector', 'Staff', 'The same as Ask AI, with your own permissions'],
                 ['The AI chat block on your website', 'Guests', 'Answer questions, book a table, change or cancel a booking'],
                 ['Guests\' own AI apps through Macaroonie\'s public connector', 'Guests', 'Find your restaurants, book, change or cancel'],
@@ -3063,10 +3065,49 @@ export default function Help() {
               Nothing happens until you press it; press <strong>Cancel</strong> if it's wrong. Each
               card works once and expires after 30 minutes.
             </P>
+            <H3>Booking past the usual limits</H3>
+            <P>
+              Each venue has a usual party size (Rules page) and each booking time can have a covers
+              limit (Schedule page). When a booking is outside these, the assistant says which limit
+              is in the way and asks before going ahead. Say yes and it shows a card headed{' '}
+              <strong>Book past the usual limits?</strong> with the limits listed in an amber box;
+              press <strong>Book anyway</strong> (or <strong>Move anyway</strong>) to go ahead. It
+              puts the booking on the smallest free table that fits. If no table fits (a party bigger
+              than any table, say), it goes on the <strong>Unallocated</strong> row so you can seat it
+              on the timeline. Guests and the booking widget still can't book past the limits.
+            </P>
             <InfoBox type="info">
-              The assistant works with normal slots only. Overbooking, picking a specific table or
-              changing how long a booking lasts is still done on the timeline.
+              The time still has to be one of the venue's booking times. A time outside the
+              sittings or blocked in the schedule, picking a specific table, or changing how long a
+              booking lasts is still done on the timeline.
             </InfoBox>
+            <H3>Health & safety by chat</H3>
+            <P>
+              Ask things like <em>"Which H&S checks are still to do today?"</em>,{' '}
+              <em>"Walk-in fridge is 4 degrees for the morning check"</em>,{' '}
+              <em>"Tick lights and fire exits on the opening checklist"</em> or{' '}
+              <em>"Add to the action log: the kitchen tap is dripping, high priority"</em>. Fridges,
+              hold stations, check times, dishes and tasks can be named the way you'd say them; if a
+              name could mean more than one, the assistant asks which.
+            </P>
+            <DataTable
+              head={['You can', 'Notes']}
+              rows={[
+                ['See the day\'s H&S status', 'Which checklists are done and how many fridge, hold and cooking checks are logged, the same as the Overview H&S tiles. It can also list each reading and the checks still missing.'],
+                ['Log a fridge, freezer or hold temperature', 'For the check due now unless you name one ("evening check"). Logging the same check again replaces the reading.'],
+                ['Log a cooking check', 'Matched to your cooking-check dish list; anything else is logged by its name. Under 75°C fails.'],
+                ['Log a delivery check', 'Supplier, what was OK, product temperature, accepted or rejected.'],
+                ['Add a corrective action', 'For a reading that was out of range or a failed check.'],
+                ['Tick or untick checklist tasks', 'Name the tasks or ask for all of them. The checklist is done when every task is ticked.'],
+                ['Keep the action log', 'List open actions, add one, mark one done.'],
+              ]}
+            />
+            <P>
+              As with bookings, every change shows a card first. A reading out of range shows an{' '}
+              <strong>Out of range</strong> box on the card; the assistant then asks what was done
+              about it so you can add the corrective action. What it can do follows your permissions
+              for Checklists, Food safety and the H&S action log.
+            </P>
             <P>
               What it can do follows your role: if you can only view bookings, it can look things up
               but not change them. Earlier chats are under <strong>Earlier chats</strong> (the clock
@@ -3098,7 +3139,7 @@ export default function Help() {
               assistant page. Settings has three switches (staff assistant, guests' AI apps, website
               chat) with one Save, and this month's usage. The chats share a monthly allowance; when
               it is used up they pause until the next month, and the AI app connectors keep working.
-              Activity lists every booking made or changed through AI, by whom and where.
+              Activity lists every booking and H&S change made through AI, by whom and where; a booking made past the usual limits is marked.
             </P>
             <H3>Turning the chats on (platform admins)</H3>
             <P>

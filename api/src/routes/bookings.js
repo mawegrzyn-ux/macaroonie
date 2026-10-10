@@ -15,7 +15,7 @@ import { httpError } from '../middleware/error.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
 import { upsertCustomer } from './customers.js'
-import { assertAllocationFree } from '../services/occupancySvc.js'
+import { assertAllocationFree, ensureUnallocatedTable } from '../services/occupancySvc.js'
 
 // Schedule a reminder email as a delayed BullMQ job.
 // Fires `reminder_hours_before` hours before `starts_at`.
@@ -300,6 +300,20 @@ export default async function bookingsRoutes(app) {
     }).parse(req.body)
 
     const { bk: booking, displaced: displacedBookings } = await withTenant(req.tenantId, async tx => {
+      // The venue and tables must be this tenant's (RLS alone doesn't stop it).
+      const [venue] = await tx`
+        SELECT id FROM venues WHERE id = ${body.venue_id} AND tenant_id = ${req.tenantId}
+      `
+      if (!venue) throw httpError(404, 'Venue not found')
+      if (body.table_ids.length) {
+        const [{ n }] = await tx`
+          SELECT count(*)::int AS n FROM tables
+           WHERE id = ANY(${body.table_ids}::uuid[])
+             AND venue_id = ${body.venue_id} AND tenant_id = ${req.tenantId}
+        `
+        if (n !== new Set(body.table_ids).size) throw httpError(422, 'Some of those tables are not at this venue')
+      }
+
       const [rules] = await tx`
         SELECT slot_duration_mins, enable_unconfirmed_flow
           FROM booking_rules WHERE venue_id = ${body.venue_id}
@@ -315,14 +329,8 @@ export default async function bookingsRoutes(app) {
       let combinationId = null
 
       if (body.table_ids.length === 0) {
-        // Unallocated — use the venue's designated unallocated table row
-        const [unalloc] = await tx`
-          SELECT id FROM tables
-           WHERE venue_id = ${body.venue_id} AND is_unallocated = true
-           LIMIT 1
-        `
-        if (!unalloc) throw httpError(422, 'No unallocated table row configured for this venue')
-        tableId = unalloc.id
+        // Unallocated — the venue's Unallocated row (made if it has none yet)
+        tableId = await ensureUnallocatedTable(tx, body.venue_id, req.tenantId)
 
       } else if (body.table_ids.length === 1) {
         tableId = body.table_ids[0]
@@ -489,20 +497,7 @@ export default async function bookingsRoutes(app) {
           }
 
           // 3. Fallback: unallocated row
-          const [existingUnalloc] = await tx`
-            SELECT id FROM tables WHERE venue_id = ${body.venue_id} AND tenant_id = ${req.tenantId} AND is_unallocated = true LIMIT 1
-          `
-          let unallocId
-          if (existingUnalloc) {
-            unallocId = existingUnalloc.id
-          } else {
-            const [created] = await tx`
-              INSERT INTO tables (venue_id, tenant_id, label, min_covers, max_covers, is_active, is_unallocated, sort_order)
-              VALUES (${body.venue_id}, ${req.tenantId}, 'Unallocated', 1, 9999, true, true, -999)
-              RETURNING id
-            `
-            unallocId = created.id
-          }
+          const unallocId = await ensureUnallocatedTable(tx, body.venue_id, req.tenantId)
           const [updated] = await tx`
             UPDATE bookings SET table_id = ${unallocId}, combination_id = NULL, updated_at = now()
              WHERE id = ${conflict.id} AND tenant_id = ${req.tenantId} RETURNING *

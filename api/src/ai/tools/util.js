@@ -7,6 +7,9 @@ import { ToolError } from '../context.js'
 export const DateStr  = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD')
 export const TimeStr  = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'time must be HH:MM (24-hour, restaurant local time)')
 export const PartySize = z.number().int().min(1).max(50)
+// Staff can book past the venue's usual party sizes (override_limits), so
+// their tools take bigger parties than the guest tools.
+export const StaffPartySize = z.number().int().min(1).max(300)
 
 const PLACEHOLDER_EMAILS = new Set(['walkin@walkin.com', 'tbc@placeholder.com', 'tbc@example.com'])
 export const realEmail = e => (e && !PLACEHOLDER_EMAILS.has(String(e).toLowerCase())) ? e : null
@@ -46,7 +49,7 @@ export const reference = id => String(id).slice(0, 8).toUpperCase()
 export async function venueRules(venue) {
   const [r] = await withTenant(venue.tenant_id, tx => tx`
     SELECT br.min_covers, br.max_covers, br.book_until_days, br.cutoff_before_mins,
-           br.slot_duration_mins, br.hold_ttl_secs,
+           br.slot_duration_mins, br.buffer_after_mins, br.hold_ttl_secs,
            COALESCE(dr.requires_deposit, false) AS requires_deposit
       FROM venues v
       LEFT JOIN booking_rules br ON br.venue_id = v.id
@@ -60,6 +63,7 @@ export async function venueRules(venue) {
     book_until_days:    r?.book_until_days ?? 30,
     cutoff_before_mins: r?.cutoff_before_mins ?? 60,
     slot_duration_mins: r?.slot_duration_mins ?? 90,
+    buffer_after_mins:  r?.buffer_after_mins ?? 0,
     hold_ttl_secs:      r?.hold_ttl_secs ?? 300,
     requires_deposit:   !!r?.requires_deposit,
   }
