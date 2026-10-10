@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — Cash Dashboard: Tips to pay out widget]
+
+- New Cash Dashboard widget **Tips to pay out**: the week's tips to pay staff in cash and by bank transfer, shown big, then each tip pot (what came in, how it is paid out) and each person's Bank and Cash amounts. Same figures as the Rota page's tips table.
+- Edit layout switches to hide the detail: tip pots, the staff list, each person's total, people with nothing to pay, and notes.
+- Needs access to rota tips.
+- Database: migration 144 (widget type only).
+
+---
+
 ## [2026-10-10 — Tips table lines up]
 
 - Rota tips table: each person's figures now sit on one line next to their name, the totals line up under the Total heading and with the footer, "exact £x" no longer wraps, and long pot names wrap onto two lines instead of widening the column.

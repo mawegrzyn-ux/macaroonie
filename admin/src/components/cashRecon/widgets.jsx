@@ -9,7 +9,9 @@
 //   - SpreadsheetView (hideHeader) for the editable grid
 //   - PettyCashPanel from MobileExpenses.jsx for petty cash
 //   - WeekWagesEditor (WagesTable.jsx) for the wage widgets
-// so the dashboard can never disagree with the Cash Recon pages.
+//   - the rota pay payload (useRotaPay, computeRotaWeek() on the server) for
+//     the tips to pay out widget, the same figures as the Rota page's tips
+// so the dashboard can never disagree with the Cash Recon or Rota pages.
 //
 // Navigation context (ctx) comes from useWeekNav(): the week being shown,
 // plus a selected day that the day tiles widget sets and the day balance
@@ -21,7 +23,7 @@ import { format, addDays, addWeeks, subWeeks, parseISO } from 'date-fns'
 import {
   ChevronLeft, ChevronRight, Loader2,
   Users, Receipt, Table2, Scale, CalendarDays, LayoutGrid, ListChecks, Sigma,
-  AlertTriangle, UserCog,
+  AlertTriangle, UserCog, Coins,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -31,6 +33,7 @@ import {
 } from '@/pages/CashRecon'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 import { WeekWagesEditor } from './WagesTable'
+import { useRotaPay, useRotaPerms, tipRows, TipMoneyCell } from '@/components/staff/rota'
 
 // Display options for the two wage widgets (widget.settings), passed to
 // WeekWagesEditor. Saving still writes the whole week (hidden fields are
@@ -40,6 +43,16 @@ const WAGES_OPTIONS = [
   { key: 'hide_bulk',   label: 'Hide pay-all options', hint: 'No Pay everyone in full or Paid on for all' },
   { key: 'paid_only',   label: 'Name and Paid only', hint: 'Show just each name and what they were paid' },
   { key: 'show_bank',   label: 'Show bank transfer', hint: 'Add the Bank column next to cash in hand' },
+]
+
+// Display options for the tips to pay out widget (widget.settings). The cash
+// and bank transfer totals always show; these only hide the detail.
+const TIPS_PAYOUT_OPTIONS = [
+  { key: 'hide_pots',   label: 'Hide tip pots', hint: 'Leave out where the tips came from and how each pot is paid' },
+  { key: 'hide_people', label: 'Hide staff list', hint: 'Show only the cash and bank transfer totals' },
+  { key: 'hide_share',  label: 'Hide each person\'s total', hint: 'Staff list shows only Bank and Cash' },
+  { key: 'hide_empty',  label: 'Hide people with nothing to pay', hint: 'Leave out staff with no tips this week' },
+  { key: 'hide_notes',  label: 'Hide notes', hint: 'No notes about unallocated tips, handed-on money or pots with nobody picked' },
 ]
 
 export const CASH_WIDGET_TYPES = [
@@ -58,6 +71,8 @@ export const CASH_WIDGET_TYPES = [
   { key: 'cash_week_summary_grid', label: 'Week summary grid', icon: Sigma,        defaultTitle: 'Week summary', flush: true, HeaderValue: WeekSummaryHeader },
   { key: 'cash_week_staff',   label: 'Week staff list',        icon: UserCog,      defaultTitle: 'Staff this week', HeaderValue: WagesPaidHeader,
     options: WAGES_OPTIONS },
+  { key: 'cash_tips_payout',  label: 'Tips to pay out',        icon: Coins,        defaultTitle: 'Tips to pay out', HeaderValue: TipsPayoutHeader,
+    options: TIPS_PAYOUT_OPTIONS },
 ]
 
 function todayStr() {
@@ -176,6 +191,131 @@ function Loading() {
   return (
     <div className="flex items-center justify-center py-8">
       <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
+
+// ── Tips to pay out ────────────────────────────────────────────
+
+// The week's tips as money to hand over: how much goes out in cash and how
+// much by bank transfer, per person and in total. Read-only; every figure is
+// the rota pay payload's (tip_cash / tip_bank per person, totals.tips_cash /
+// tips_bank), the same as the Rota page's tips table, which is where pots,
+// shares, moves and payees are edited. Needs rota_tips view.
+
+function TipsPayoutHeader({ venueId, ctx }) {
+  const { canSeeTips } = useRotaPerms()
+  const { data } = useRotaPay(venueId, ctx.weekStart, canSeeTips)
+  if (data?.totals?.tips_shared == null) return null
+  return <HeaderFigure label="Tips" value={data.totals.tips_shared} />
+}
+
+function PayoutTile({ label, value }) {
+  return (
+    <div className="rounded-xl border bg-muted/40 px-3 py-2.5">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="text-2xl font-semibold tabular-nums leading-tight">{fmt(value)}</p>
+    </div>
+  )
+}
+
+function potPayoutText(p) {
+  const how = p.payout_method === 'bank' ? 'By bank transfer' : 'In cash'
+  if (p.payout_to === 'people' && p.payees?.length) return `${how} to ${p.payees.map(x => x.name).join(', ')}`
+  return `${how}, each person's share`
+}
+
+function TipsPayoutWidget({ venueId, ctx, settings = {} }) {
+  const { canSeeTips } = useRotaPerms()
+  const { data, isLoading, error } = useRotaPay(venueId, ctx.weekStart, canSeeTips)
+  if (!canSeeTips) return <p className="text-sm text-muted-foreground py-4 text-center">You don't have access to rota tips.</p>
+  if (isLoading && !data) return <Loading />
+  if (error) return <p className="text-sm text-destructive py-4 text-center">{error.message || 'Could not load tips.'}</p>
+
+  const pots = (data.pots ?? []).filter(p => p.distribution !== 'house')
+  if (!pots.length) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">No tip pots set up yet. Add one in Rota setup.</p>
+  }
+  const t = data.totals
+  let rows = tipRows(data)
+  if (settings.hide_empty) rows = rows.filter(r => r.tip_cash || r.tip_bank)
+  const nobodyPicked = pots.filter(p => p.no_payees)
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        <PayoutTile label="Cash" value={t.tips_cash} />
+        <PayoutTile label="Bank transfer" value={t.tips_bank} />
+      </div>
+
+      {!settings.hide_notes && (t.tips_handed_on > 0 || t.tips_unallocated > 0 || nobodyPicked.length > 0) && (
+        <div className="space-y-1 text-xs">
+          {t.tips_handed_on > 0 && (
+            <p className="text-red-700">{fmt(t.tips_handed_on)} to be handed on by people paid more than their share.</p>
+          )}
+          {t.tips_unallocated > 0 && (
+            <p className="text-muted-foreground">{fmt(t.tips_unallocated)} unallocated (not paid to anyone).</p>
+          )}
+          {nobodyPicked.map(p => (
+            <p key={p.id} className="text-amber-700">{p.name}: nobody picked to be paid, so it is paid as shares. Pick people on the Rota page.</p>
+          ))}
+        </div>
+      )}
+
+      {!settings.hide_pots && (
+        <div className="divide-y rounded-xl border">
+          {pots.map(p => (
+            <div key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+              <div className="flex-1 min-w-0">
+                <p className="font-medium truncate">{p.name}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{potPayoutText(p)}</p>
+              </div>
+              <span className="tabular-nums shrink-0">{fmt(p.paid_to_people ?? p.total)}</span>
+            </div>
+          ))}
+          {t.kept_by_house > 0 && (
+            <div className="flex items-center gap-3 px-3 py-2 text-sm text-muted-foreground">
+              <span className="flex-1 min-w-0">Kept by the house</span>
+              <span className="tabular-nums shrink-0">{fmt(t.kept_by_house)}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!settings.hide_people && (rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-2 text-center">No tips to pay out this week.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted text-xs text-muted-foreground">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium">Staff</th>
+                {!settings.hide_share && <th className="text-right px-2 py-2 font-medium">Total</th>}
+                <th className="text-right px-2 py-2 font-medium">Bank</th>
+                <th className="text-right px-3 py-2 font-medium">Cash</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {rows.map(r => (
+                <tr key={r.staff_id}>
+                  <td className="px-3 py-2"><div className="font-medium truncate max-w-[160px]">{r.name}</div></td>
+                  {!settings.hide_share && <td className="px-2 py-2 text-right tabular-nums text-muted-foreground">{fmt(r.tip_share)}</td>}
+                  <td className="px-2 py-2 text-right tabular-nums whitespace-nowrap"><TipMoneyCell value={r.tip_bank} /></td>
+                  <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap font-medium"><TipMoneyCell value={r.tip_cash} /></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot className="border-t bg-muted/40 font-semibold">
+              <tr>
+                <td className="px-3 py-2">Total</td>
+                {!settings.hide_share && <td className="px-2 py-2 text-right tabular-nums">{fmt(t.tips_shared)}</td>}
+                <td className="px-2 py-2 text-right tabular-nums">{fmt(t.tips_bank)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmt(t.tips_cash)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      ))}
     </div>
   )
 }
@@ -576,6 +716,7 @@ export function renderCashWidget({ widget, venueId, ctx }) {
     case 'cash_week_expenses': return <WeekExpensesWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_summary_grid': return <WeekSummaryGridWidget venueId={venueId} ctx={ctx} />
     case 'cash_week_staff':   return <WeekWagesWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
+    case 'cash_tips_payout':  return <TipsPayoutWidget venueId={venueId} ctx={ctx} settings={widget.settings} />
     default:                  return null
   }
 }
