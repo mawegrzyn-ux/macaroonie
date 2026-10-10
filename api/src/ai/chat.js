@@ -25,17 +25,37 @@ import { env } from '../config/env.js'
 import { ToolError, makeContext, addUsage } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText } from './tools/index.js'
 import { chatTokensLeft } from './settings.js'
+import { activeKey } from './apiKey.js'
 
 const MAX_STEPS      = 8
 const MAX_TOKENS     = 16000
 const ACTION_MINUTES = 30
 const MAX_MESSAGES   = 300   // stored rows per conversation; then start a new one
 
-let client = null
-function anthropic() {
-  if (!env.ANTHROPIC_API_KEY) throw new ToolError('The AI assistant isn\'t set up on this server.', 503)
-  client ??= new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 2, timeout: 120_000 })
+// The key is the one a platform admin saved, else ANTHROPIC_API_KEY
+// (src/ai/apiKey.js); the client is rebuilt when it changes.
+let client = null, clientKey = null
+async function anthropic() {
+  const { key } = await activeKey()
+  if (!key) throw new ToolError('The AI assistant isn\'t set up on this server.', 503)
+  if (key !== clientKey) {
+    client = new Anthropic({ apiKey: key, maxRetries: 2, timeout: 120_000 })
+    clientKey = key
+  }
   return client
+}
+
+/** A rejected key is the platform's problem, not the person's: say so. */
+async function createMessage(params) {
+  const api = await anthropic()
+  try {
+    return await api.beta.messages.create(params)
+  } catch (err) {
+    if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) {
+      throw new ToolError('The AI assistant\'s key isn\'t working. A platform admin needs to update it.', 503)
+    }
+    throw err
+  }
 }
 
 // One turn at a time per conversation (a second message while the first is
@@ -189,7 +209,7 @@ export async function runTurn(ctx, conv, text) {
     const tools = toolDefs(ctx)
     for (let step = 0; step < MAX_STEPS; step++) {
       const rows = await loadMessages(conv)
-      const response = await anthropic().beta.messages.create({
+      const response = await createMessage({
         model:         env.AI_MODEL,
         max_tokens:    MAX_TOKENS,
         betas:         ['server-side-fallback-2026-07-01'],

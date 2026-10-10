@@ -51,7 +51,7 @@ async function chatTenant(tenantId) {
   `
   if (!t) return null
   const settings = await getAiSettings(t.id)
-  return { ...t, enabled: chatConfigured() && settings.guest_chat_enabled }
+  return { ...t, enabled: settings.guest_chat_enabled && await chatConfigured() }
 }
 
 const sameKey = (a, b) => {

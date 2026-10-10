@@ -1,14 +1,16 @@
 // src/components/platform/AiLimitsPanel.jsx
 //
-// Platform page, "AI usage" tab (migration 148): each tenant's chat tokens
-// this month against its monthly limit, AI app calls, and the limit itself
-// (the platform pays for chats, so only a platform admin sets it).
+// Platform page, "AI usage" tab (migration 148): the Anthropic API key
+// (AiKeyCard, migration 149), then each tenant's chat tokens this month
+// against its monthly limit, AI app calls, and the limit itself (the
+// platform pays for chats, so only a platform admin sets it).
 // GET/PATCH /api/ai/platform/tenants.
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2, CircleAlert } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import AiKeyCard from './AiKeyCard'
 
 export default function AiLimitsPanel() {
   const api = useApi()
@@ -16,17 +18,15 @@ export default function AiLimitsPanel() {
   if (isLoading) return <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto" />
   const tenants = data?.tenants ?? []
   return (
-    <section className="rounded-lg border bg-background overflow-hidden">
-      <div className="px-5 py-3 section-head font-semibold text-sm">AI usage, {data?.month?.slice(0, 7)}</div>
-      {!data?.chat_configured && (
-        <div className="mx-5 mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-center gap-2">
-          <CircleAlert className="w-4 h-4 shrink-0" /> ANTHROPIC_API_KEY isn't set on this server, so the chats are off. The MCP connectors still work.
-        </div>
-      )}
-      <ul className="divide-y">
-        {tenants.map(t => <TenantRow key={t.id} t={t} />)}
-      </ul>
-    </section>
+    <div className="space-y-4">
+      <AiKeyCard />
+      <section className="rounded-lg border bg-background overflow-hidden">
+        <div className="px-5 py-3 section-head font-semibold text-sm">AI usage, {data?.month?.slice(0, 7)}</div>
+        <ul className="divide-y">
+          {tenants.map(t => <TenantRow key={t.id} t={t} />)}
+        </ul>
+      </section>
+    </div>
   )
 }
 

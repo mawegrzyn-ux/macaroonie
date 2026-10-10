@@ -19,6 +19,10 @@
 //
 //   GET    /platform/tenants           every tenant's limit and usage (platform admin)
 //   PATCH  /platform/tenants/:id       { monthly_token_limit } (platform admin)
+//   GET    /platform/key               where the Anthropic key comes from (platform admin)
+//   PUT    /platform/key               { api_key } checked with Anthropic, then saved
+//   POST   /platform/key/test          checks the key the chats use now
+//   DELETE /platform/key               removes the saved key (back to .env)
 //
 // Chats are gated by ai_settings.staff_enabled and the ai_assistant module
 // (view); each booking tool then checks the person's Bookings permission.
@@ -30,6 +34,7 @@ import { httpError } from '../middleware/error.js'
 import { requireAuth, requirePermission, requirePlatformAdmin, permissionLevel, newAccessToken } from '../middleware/auth.js'
 import { ToolError, usageMonth } from '../ai/context.js'
 import { getAiSettings, saveAiSettings, monthUsage, chatConfigured, chatTokensLeft } from '../ai/settings.js'
+import { activeKey, keyInfo, checkKey, saveKey, removeKey } from '../ai/apiKey.js'
 import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext,
 } from '../ai/chat.js'
@@ -61,7 +66,7 @@ function mcpOrigin() {
 }
 
 async function staffChatAllowed(req) {
-  if (!chatConfigured()) throw httpError(503, 'The AI assistant isn\'t set up on this server yet.')
+  if (!(await chatConfigured())) throw httpError(503, 'The AI assistant isn\'t set up on this server yet.')
   const settings = await getAiSettings(req.tenantId)
   if (!settings.staff_enabled) throw httpError(403, 'The AI assistant is switched off for this restaurant group.')
   if (await permissionLevel(req, 'ai_assistant') === 'none') throw httpError(403, 'You don\'t have access to the AI assistant.')
@@ -87,14 +92,15 @@ export default async function aiRoutes(app) {
 
   // ── Chat ────────────────────────────────────────────────
   app.get('/status', async req => {
-    if (!req.tenantId) return { configured: chatConfigured(), enabled: false, permission: 'none', can_chat: false, tokens_left: null }
+    const configured = await chatConfigured()
+    if (!req.tenantId) return { configured, enabled: false, permission: 'none', can_chat: false, tokens_left: null }
     const settings = await getAiSettings(req.tenantId)
     const level = await permissionLevel(req, 'ai_assistant')
     return {
-      configured:   chatConfigured(),
+      configured,
       enabled:      settings.staff_enabled,
       permission:   level,
-      can_chat:     chatConfigured() && settings.staff_enabled && level !== 'none',
+      can_chat:     configured && settings.staff_enabled && level !== 'none',
       tokens_left:  level === 'none' ? null : Math.max(0, await chatTokensLeft(req.tenantId)),
     }
   })
@@ -159,7 +165,7 @@ export default async function aiRoutes(app) {
     return {
       settings,
       usage,
-      chat_configured: chatConfigured(),
+      chat_configured: await chatConfigured(),
       guest_mcp_url:   mcpOrigin() + '/mcp',
       staff_mcp_url:   mcpOrigin() + '/mcp/staff/' + t.slug,
       can_manage:      await permissionLevel(req, 'ai_assistant') === 'manage',
@@ -252,7 +258,7 @@ export default async function aiRoutes(app) {
     `
     return {
       month: usageMonth(),
-      chat_configured: chatConfigured(),
+      chat_configured: await chatConfigured(),
       tenants: rows.map(r => ({ ...r, monthly_token_limit: Number(r.monthly_token_limit), chat_tokens: Number(r.chat_tokens), mcp_calls: Number(r.mcp_calls) })),
     }
   })
@@ -264,5 +270,36 @@ export default async function aiRoutes(app) {
     const [t] = await sql`SELECT id FROM tenants WHERE id = ${req.params.id}`
     if (!t) throw httpError(404, 'Tenant not found')
     return { settings: await saveAiSettings(t.id, { monthly_token_limit }) }
+  })
+
+  // ── Platform admin: the Anthropic API key ───────────────
+  // Saved keys are checked with Anthropic first and never sent back: the
+  // admin sees where the key comes from and its last four characters.
+  app.get('/platform/key', { preHandler: requirePlatformAdmin }, async () => keyInfo())
+
+  app.put('/platform/key', { preHandler: requirePlatformAdmin }, async req => {
+    const parsed = z.object({
+      api_key: z.string().trim().min(20, 'That doesn\'t look like a whole key.').max(300, 'That\'s too long for a key.')
+        .regex(/^\S+$/, 'A key has no spaces in it.'),
+    }).safeParse(req.body)
+    if (!parsed.success) throw httpError(422, parsed.error.issues[0].message)
+    const { api_key } = parsed.data
+    const check = await checkKey(api_key)
+    if (!check.ok) throw httpError(422, check.message)
+    await saveKey(api_key, req.user?.email || null)
+    req.log.info({ by: req.user?.email }, 'Anthropic API key saved')
+    return { ...(await keyInfo()), warning: check.warning || null }
+  })
+
+  app.post('/platform/key/test', { preHandler: requirePlatformAdmin }, async () => {
+    const { key, source } = await activeKey()
+    if (!key) return { ok: false, source: null, message: 'There is no key to check.' }
+    return { source, ...(await checkKey(key)) }
+  })
+
+  app.delete('/platform/key', { preHandler: requirePlatformAdmin }, async req => {
+    await removeKey()
+    req.log.info({ by: req.user?.email }, 'Anthropic API key removed')
+    return keyInfo()
   })
 }

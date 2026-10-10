@@ -3098,6 +3098,17 @@ export default function Help() {
               it is used up they pause until the next month, and the AI app connectors keep working.
               Activity lists every booking made or changed through AI, by whom and where.
             </P>
+            <H3>Turning the chats on (platform admins)</H3>
+            <P>
+              The chats need an Anthropic API key. On the <strong>Platform</strong> page, open the{' '}
+              <strong>AI usage</strong> tab, paste the key into <strong>Anthropic API key</strong>{' '}
+              and press <strong>Check and save</strong>. The key is checked with Anthropic before it
+              is saved, and afterwards only its last four characters are shown. The chats use it
+              straight away (within a few seconds on every server). <strong>Check the key now</strong>{' '}
+              tests the key in use; <strong>Remove saved key</strong> (asks you to confirm) goes back
+              to the key in the server's settings file, if there is one. If a key stops working, staff
+              see "The AI assistant's key isn't working" in the chat until a new one is saved.
+            </P>
           </section>
 
           {/* ── ORDER SHEETS ──────────────────────────────── */}
