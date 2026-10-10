@@ -913,6 +913,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET', '/:id/export', 'admin', 'GDPR data export — returns a JSON file download with customer, newsletter status, all booking records and all web orders (with items and the consent recorded at checkout).'],
               ]}
             />
+            <P>
+              Every query filters <Mono>tenant_id</Mono> itself (customers, and the bookings, orders and
+              order lines it reads or anonymises), not only through RLS: another tenant's customer id
+              returns 404 and is never listed.
+            </P>
 
             <H3>Reviews — <span className="font-mono font-normal text-sm">/api/reviews</span></H3>
             <P>

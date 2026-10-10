@@ -188,12 +188,12 @@ export default async function customersRoutes(app) {
       return withTenant(req.tenantId, async tx => {
         const [countRow] = await tx`
           SELECT COUNT(*)::int AS total FROM customers
-           WHERE is_anonymised = false ${search} ${news}
+           WHERE tenant_id = ${req.tenantId} AND is_anonymised = false ${search} ${news}
         `
         const rows = await tx`
           SELECT id, name, email, phone, visit_count, is_anonymised, marketing_opt_in, created_at, updated_at
             FROM customers
-           WHERE is_anonymised = false ${search} ${news}
+           WHERE tenant_id = ${req.tenantId} AND is_anonymised = false ${search} ${news}
            ORDER BY ${sql.unsafe(orderSQL)}
            LIMIT ${lim} OFFSET ${off}
         `
@@ -206,7 +206,8 @@ export default async function customersRoutes(app) {
       return withTenant(req.tenantId, tx => tx`
         SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
           FROM customers
-         WHERE is_anonymised = false
+         WHERE tenant_id = ${req.tenantId}
+           AND is_anonymised = false
          ORDER BY updated_at DESC
          LIMIT ${lim}
       `)
@@ -215,7 +216,8 @@ export default async function customersRoutes(app) {
     return withTenant(req.tenantId, tx => tx`
       SELECT id, name, email, phone, visit_count, is_anonymised, created_at, updated_at
         FROM customers
-       WHERE is_anonymised = false
+       WHERE tenant_id = ${req.tenantId}
+         AND is_anonymised = false
          AND (lower(name)               LIKE lower(${'%' + q + '%'})
            OR lower(coalesce(email,'')) LIKE lower(${'%' + q + '%'})
            OR       coalesce(phone,'')  LIKE ${'%' + q + '%'})
@@ -231,7 +233,7 @@ export default async function customersRoutes(app) {
       SELECT id, name, email, phone, notes, visit_count, is_anonymised, anonymised_at, created_at, updated_at,
              marketing_opt_in, marketing_opt_in_at, marketing_opt_in_source, marketing_opt_out_at
         FROM customers
-       WHERE id = ${req.params.id}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
     `)
     if (!customer) throw httpError(404, 'Customer not found')
 
@@ -244,7 +246,7 @@ export default async function customersRoutes(app) {
         JOIN venues v ON v.id = b.venue_id
         LEFT JOIN tables t ON t.id = b.table_id
         LEFT JOIN table_combinations tc ON tc.id = b.combination_id
-       WHERE b.customer_id = ${req.params.id}
+       WHERE b.customer_id = ${req.params.id} AND b.tenant_id = ${req.tenantId}
        ORDER BY b.starts_at DESC
     `)
 
@@ -270,6 +272,7 @@ export default async function customersRoutes(app) {
              visit_count = CASE WHEN ${body.visit_count !== undefined} THEN ${body.visit_count ?? 0} ELSE visit_count END,
              updated_at  = now()
        WHERE id        = ${req.params.id}
+         AND tenant_id = ${req.tenantId}
          AND is_anonymised = false
       RETURNING id, name, email, phone, notes, visit_count, updated_at
     `)
@@ -284,7 +287,7 @@ export default async function customersRoutes(app) {
     const [row] = await withTenant(req.tenantId, tx => tx`
       UPDATE customers
          SET marketing_opt_in = false, marketing_opt_out_at = now(), updated_at = now()
-       WHERE id = ${req.params.id} AND is_anonymised = false
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId} AND is_anonymised = false
       RETURNING id, marketing_opt_in, marketing_opt_out_at
     `)
     if (!row) throw httpError(404, 'Customer not found or already anonymised')
@@ -304,6 +307,7 @@ export default async function customersRoutes(app) {
       const [customer] = await tx`
         SELECT id FROM customers
          WHERE id = ${req.params.id}
+           AND tenant_id = ${req.tenantId}
            AND is_anonymised = false
       `
       if (!customer) throw httpError(404, 'Customer not found or already anonymised')
@@ -322,7 +326,7 @@ export default async function customersRoutes(app) {
                is_anonymised = true,
                anonymised_at = now(),
                updated_at    = now()
-         WHERE id = ${req.params.id}
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
       `
 
       // Wipe every booking linked to this customer
@@ -333,7 +337,7 @@ export default async function customersRoutes(app) {
                guest_phone = null,
                guest_notes = null,
                reference   = 'ANON-' || upper(substring(gen_random_uuid()::text, 1, 8))
-         WHERE customer_id = ${req.params.id}
+         WHERE customer_id = ${req.params.id} AND tenant_id = ${req.tenantId}
       `
 
       // And every web order (migration 122). Order lines, totals and
@@ -346,11 +350,13 @@ export default async function customersRoutes(app) {
                notes        = null,
                allergy_note = null,
                consent      = '{}'::jsonb
-         WHERE customer_id = ${req.params.id}
+         WHERE customer_id = ${req.params.id} AND tenant_id = ${req.tenantId}
       `
       await tx`
         UPDATE order_items SET note = null
-         WHERE order_id IN (SELECT id FROM orders WHERE customer_id = ${req.params.id})
+         WHERE tenant_id = ${req.tenantId}
+           AND order_id IN (SELECT id FROM orders
+                             WHERE customer_id = ${req.params.id} AND tenant_id = ${req.tenantId})
       `
     })
 
@@ -364,7 +370,7 @@ export default async function customersRoutes(app) {
       SELECT id, name, email, phone, notes, visit_count, created_at, updated_at, is_anonymised,
              marketing_opt_in, marketing_opt_in_at, marketing_opt_in_source, marketing_opt_out_at
         FROM customers
-       WHERE id = ${req.params.id}
+       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
     `)
     if (!customer) throw httpError(404, 'Customer not found')
 
@@ -377,7 +383,7 @@ export default async function customersRoutes(app) {
         JOIN venues v ON v.id = b.venue_id
         LEFT JOIN tables t ON t.id = b.table_id
         LEFT JOIN table_combinations tc ON tc.id = b.combination_id
-       WHERE b.customer_id = ${req.params.id}
+       WHERE b.customer_id = ${req.params.id} AND b.tenant_id = ${req.tenantId}
        ORDER BY b.starts_at DESC
     `)
 
@@ -391,7 +397,7 @@ export default async function customersRoutes(app) {
                          FROM order_items i WHERE i.order_id = o.id), '[]'::json) AS items
         FROM orders o
         JOIN venues v ON v.id = o.venue_id
-       WHERE o.customer_id = ${req.params.id}
+       WHERE o.customer_id = ${req.params.id} AND o.tenant_id = ${req.tenantId}
        ORDER BY o.created_at DESC
     `)
 
