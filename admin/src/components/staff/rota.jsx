@@ -1192,8 +1192,8 @@ function PayeesModal({ pot, data, base, setPay, onClose }) {
   )
 }
 
-/** A person's tips cash figure; below 0 means they hand that much on to others. */
-function TipCashCell({ value }) {
+/** A person's tips bank or cash figure; below 0 means they hand that much on to others. */
+function TipMoneyCell({ value }) {
   if (value < 0) {
     return <span className="text-red-700 font-medium" title="Paid more than their share through a pot paid to them: hands this much on">hands on {fmt(-value)}</span>
   }
@@ -1691,33 +1691,50 @@ function TipMovesList({ moves, base, setPay, canEdit }) {
 
 const NUDGE_STEP = 0.5
 
-/** A person's tip total with -/+ buttons that move 0.50 to / from the unallocated pot. */
-function NudgeTotal({ row, unallocated, canEdit, busy, onNudge }) {
-  const btn = 'w-11 h-11 shrink-0 rounded-lg border flex items-center justify-center touch-manipulation hover:bg-muted disabled:opacity-30 disabled:pointer-events-none'
-  const total = (
-    <span className="tabular-nums font-semibold">
-      {fmt(row.tip_share)}
-      {row.tip_unallocated !== 0 && (
-        <span className={cn('block text-[10px] font-normal', row.tip_unallocated > 0 ? 'text-green-700' : 'text-red-600')}>
-          {row.tip_unallocated > 0 ? '+' : '−'}{fmt(Math.abs(row.tip_unallocated))}
-        </span>
-      )}
+/**
+ * One figure in the tips table: the number, then a small second line (always
+ * there, blank when there's nothing to say) so every figure in a row sits on
+ * the same line as the person's name, whichever cells have a second line.
+ */
+function TipNum({ children, sub, subClass, className }) {
+  return (
+    <span className={cn('block tabular-nums whitespace-nowrap', className)}>
+      {children}
+      <span className={cn('block text-[10px] leading-4 font-normal', subClass ?? 'text-muted-foreground')}>{sub || ' '}</span>
     </span>
   )
-  if (!canEdit) return total
-  return (
-    <div className="flex items-center justify-end gap-1.5">
+}
+
+/**
+ * A person's tip total as table cells. With edit rights the -/+ buttons
+ * (move 0.50 to / from the unallocated pot) get a column each, so the total
+ * lines up under the Total heading and with the footer total.
+ */
+function NudgeCells({ row, unallocated, canEdit, busy, onNudge }) {
+  const btn = 'w-11 h-11 rounded-lg border flex items-center justify-center touch-manipulation hover:bg-muted disabled:opacity-30 disabled:pointer-events-none'
+  const total = (
+    <TipNum className="font-semibold"
+      sub={row.tip_unallocated !== 0 && `${row.tip_unallocated > 0 ? '+' : '−'}${fmt(Math.abs(row.tip_unallocated))}`}
+      subClass={row.tip_unallocated > 0 ? 'text-green-700' : 'text-red-600'}>
+      {fmt(row.tip_share)}
+    </TipNum>
+  )
+  if (!canEdit) return <td className="px-3 py-1.5 text-right">{total}</td>
+  return <>
+    <td className="pl-2 py-1.5 w-11">
       <button type="button" aria-label={`Take ${fmt(NUDGE_STEP)} from ${row.name} into unallocated`}
         disabled={busy || row.tip_share < NUDGE_STEP} onClick={() => onNudge(row.staff_id, 'minus')} className={btn}>
         <Minus className="w-4 h-4" />
       </button>
-      <div className="min-w-[4.5rem] text-right">{total}</div>
+    </td>
+    <td className="px-2 py-1.5 text-right">{total}</td>
+    <td className="pr-3 py-1.5 w-11">
       <button type="button" aria-label={`Give ${row.name} ${fmt(NUDGE_STEP)} from unallocated`}
         disabled={busy || unallocated < NUDGE_STEP} onClick={() => onNudge(row.staff_id, 'plus')} className={btn}>
         <Plus className="w-4 h-4" />
       </button>
-    </div>
-  )
+    </td>
+  </>
 }
 
 /**
@@ -1841,16 +1858,25 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
         <div className="overflow-x-auto rounded-xl border">
           <table className="w-full text-sm">
             <thead className="bg-muted text-xs text-muted-foreground">
-              <tr>
+              {/* Headings sit on the bottom line, so a pot name that wraps
+                  (kept narrow so long names don't stretch the column) still
+                  lines up with the one-line headings. */}
+              <tr className="align-bottom">
                 <th className="text-left px-3 py-2 font-medium">Staff</th>
                 {hasPoints && <>
                   <th className="text-right px-2 py-2 font-medium" title="Shift points x role multiplier">Earned</th>
                   <th className="text-right px-2 py-2 font-medium">Moved</th>
                   <th className="text-right px-2 py-2 font-medium">Points</th>
                 </>}
-                {sharedPots.map(p => <th key={p.id} className="text-right px-2 py-2 font-medium whitespace-nowrap">{p.name}</th>)}
+                {sharedPots.map(p => (
+                  <th key={p.id} className="text-right px-2 py-2 font-medium leading-tight">
+                    <span className="inline-block w-max max-w-[7rem]">{p.name}</span>
+                  </th>
+                ))}
                 {hasMoneyMoves && <th className="text-right px-2 py-2 font-medium whitespace-nowrap">Adjusted £</th>}
-                {showTotal && <th className="text-right px-3 py-2 font-medium">Total</th>}
+                {showTotal && (canEdit
+                  ? <><th /><th className="text-right px-2 py-2 font-medium">Total</th><th /></>
+                  : <th className="text-right px-3 py-2 font-medium">Total</th>)}
                 {showPayout && <>
                   <th className="text-right px-2 py-2 font-medium whitespace-nowrap">Bank</th>
                   <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Cash</th>
@@ -1862,51 +1888,46 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
                 <tr key={r.staff_id}>
                   <td className="px-3 py-1.5">
                     <div className="font-medium truncate max-w-[160px]">{r.name}</div>
-                    <div className="text-[11px] text-muted-foreground">
+                    <div className="text-[11px] leading-4 text-muted-foreground whitespace-nowrap">
                       {r.role_name ?? 'No role'}{hasPoints ? ` ×${Number(r.role_multiplier).toFixed(2)}` : ''}
                     </div>
                   </td>
                   {hasPoints && <>
-                    <td className="px-2 py-1.5 text-right tabular-nums">{r.base_points}</td>
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums', r.points_adjustment > 0 ? 'text-green-700' : r.points_adjustment < 0 ? 'text-red-600' : 'text-muted-foreground')}>
-                      {r.points_adjustment > 0 ? '+' : ''}{r.points_adjustment || '–'}
+                    <td className="px-2 py-1.5 text-right"><TipNum>{r.base_points}</TipNum></td>
+                    <td className="px-2 py-1.5 text-right">
+                      <TipNum className={r.points_adjustment > 0 ? 'text-green-700' : r.points_adjustment < 0 ? 'text-red-600' : 'text-muted-foreground'}>
+                        {r.points_adjustment > 0 ? '+' : ''}{r.points_adjustment || '–'}
+                      </TipNum>
                     </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums font-medium">
-                      {r.points}
-                      {data.totals.points > 0 && (
-                        <span className="block text-[10px] font-normal text-muted-foreground">{Math.round((r.points / data.totals.points) * 1000) / 10}%</span>
-                      )}
+                    <td className="px-2 py-1.5 text-right">
+                      <TipNum className="font-medium"
+                        sub={data.totals.points > 0 && `${Math.round((r.points / data.totals.points) * 1000) / 10}%`}>
+                        {r.points}
+                      </TipNum>
                     </td>
                   </>}
                   {sharedPots.map(p => {
                     const v = r.pot_shares[p.id] ?? 0
                     const exact = r.pot_shares_exact?.[p.id]
                     return (
-                      <td key={p.id} className="px-2 py-1.5 text-right tabular-nums">
-                        {v ? fmt(v) : '–'}
-                        {exact != null && exact !== v && (
-                          <span className="block text-[10px] text-muted-foreground">exact {fmt(exact)}</span>
-                        )}
+                      <td key={p.id} className="px-2 py-1.5 text-right">
+                        <TipNum sub={exact != null && exact !== v && `exact ${fmt(exact)}`}>{v ? fmt(v) : '–'}</TipNum>
                       </td>
                     )
                   })}
                   {hasMoneyMoves && (
-                    <td className={cn('px-2 py-1.5 text-right tabular-nums', r.tip_adjustment > 0 ? 'text-green-700' : r.tip_adjustment < 0 ? 'text-red-600' : 'text-muted-foreground')}>
-                      {r.tip_adjustment ? `${r.tip_adjustment > 0 ? '+' : '−'}${fmt(Math.abs(r.tip_adjustment))}` : '–'}
+                    <td className="px-2 py-1.5 text-right">
+                      <TipNum className={r.tip_adjustment > 0 ? 'text-green-700' : r.tip_adjustment < 0 ? 'text-red-600' : 'text-muted-foreground'}>
+                        {r.tip_adjustment ? `${r.tip_adjustment > 0 ? '+' : '−'}${fmt(Math.abs(r.tip_adjustment))}` : '–'}
+                      </TipNum>
                     </td>
                   )}
                   {showTotal && (
-                    <td className="px-3 py-1.5 text-right">
-                      <NudgeTotal row={r} unallocated={unallocated} canEdit={canEdit} busy={nudge.isPending} onNudge={onNudge} />
-                    </td>
+                    <NudgeCells row={r} unallocated={unallocated} canEdit={canEdit} busy={nudge.isPending} onNudge={onNudge} />
                   )}
                   {showPayout && <>
-                    <td className="px-2 py-1.5 text-right tabular-nums">
-                      {r.tip_bank < 0
-                        ? <span className="text-red-700 font-medium">hands on {fmt(-r.tip_bank)}</span>
-                        : r.tip_bank ? fmt(r.tip_bank) : '–'}
-                    </td>
-                    <td className="px-3 py-1.5 text-right tabular-nums"><TipCashCell value={r.tip_cash} /></td>
+                    <td className="px-2 py-1.5 text-right"><TipNum><TipMoneyCell value={r.tip_bank} /></TipNum></td>
+                    <td className="px-3 py-1.5 text-right"><TipNum><TipMoneyCell value={r.tip_cash} /></TipNum></td>
                   </>}
                 </tr>
               ))}
@@ -1917,7 +1938,9 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
                 {hasPoints && <><td colSpan={2} /><td className="px-2 py-2 text-right tabular-nums">{data.totals.points}</td></>}
                 {sharedPots.map(p => <td key={p.id} className="px-2 py-2 text-right tabular-nums">{fmt(p.distributed)}</td>)}
                 {hasMoneyMoves && <td />}
-                {showTotal && <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.tips_shared)}</td>}
+                {showTotal && (canEdit
+                  ? <><td /><td className="px-2 py-2 text-right tabular-nums">{fmt(data.totals.tips_shared)}</td><td /></>
+                  : <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.tips_shared)}</td>)}
                 {showPayout && <>
                   <td className="px-2 py-2 text-right tabular-nums">{fmt(data.totals.tips_bank)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.tips_cash)}</td>
