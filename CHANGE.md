@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — Customers: each restaurant group sees only its own]
+
+- Fixed: the Customers page, the customer search in the booking form and a customer's details, edit, newsletter unsubscribe, GDPR export and anonymise now only ever reach your own restaurant group's customers. Before this fix, other groups' customers could appear in the list and search.
+- No database change.
+
+---
+
 ## [2026-10-10 — AI assistant: bookings by chat and from AI apps]
 
 - **Ask AI** in the sidebar (and the new **AI assistant** page, and AI assistant in the phone app): ask about bookings in your own words, check tables, book, move, change status, update guest details and add staff notes. Every change shows a card with the exact details; nothing happens until you press **Confirm**. What it can do follows your role.
