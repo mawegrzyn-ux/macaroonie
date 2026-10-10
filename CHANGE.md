@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — Tips table lines up]
+
+- Rota tips table: each person's figures now sit on one line next to their name, the totals line up under the Total heading and with the footer, "exact £x" no longer wraps, and long pot names wrap onto two lines instead of widening the column.
+- No database change.
+
+---
+
 ## [2026-10-09 — App colour scheme: grey page, white cards, accent card headers]
 
 - Every page now uses the Rota dashboard's look: a light grey page background, white cards, and a coloured header band on each card in your website's accent colour. Settings, Booking rules, Ordering setup, Menus, Website builder, Emails, Team, Modules & roles, Platform, Test data and the Overview tiles all get the band.
