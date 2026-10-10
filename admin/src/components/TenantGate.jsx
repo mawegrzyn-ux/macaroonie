@@ -10,7 +10,7 @@ import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 
 function Screen({ children }) {
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background px-4">
+    <div className="flex items-center justify-center min-h-screen bg-page px-4">
       <div className="w-full max-w-sm">{children}</div>
     </div>
   )

@@ -39,7 +39,7 @@ export function BrandHeaderSection() {
   return (
     <LinkCatalogProvider value={catalogValue}>
       <div className="bg-background border rounded-xl overflow-hidden">
-        <div className="px-5 py-3 border-b bg-muted/40">
+        <div className="px-5 py-3 section-head">
           <h2 className="text-sm font-semibold">Header</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
             The shared header every page uses by default. A specific page can still override

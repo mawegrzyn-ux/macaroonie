@@ -181,13 +181,13 @@ export default function Customers() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full overflow-hidden bg-background">
 
       {/* ── Left: list ─────────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 h-14 border-b shrink-0">
+        <div className="flex items-center gap-2 px-4 h-14 border-b shrink-0 bg-background">
           <h1 className="font-semibold text-sm">Customers</h1>
           {totalCount !== null && (
             <span className="text-xs text-muted-foreground tabular-nums">

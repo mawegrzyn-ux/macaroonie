@@ -209,7 +209,7 @@ export default function AppShell() {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-screen overflow-hidden bg-page">
       {open && (
         <div
           className={cn('fixed inset-0 bg-black/40 z-20', !IS_TOUCH && 'lg:hidden')}

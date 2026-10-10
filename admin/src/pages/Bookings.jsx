@@ -224,8 +224,8 @@ export default function Bookings() {
   }, [bookings])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-4 px-5 max-lg:notouch:pl-14 h-14 border-b shrink-0">
+    <div className="flex flex-col h-full overflow-hidden bg-background">
+      <div className="flex items-center gap-4 px-5 max-lg:notouch:pl-14 h-14 border-b shrink-0 bg-background">
         {venues.length > 1 && (
           <select
             value={venueId ?? ''}

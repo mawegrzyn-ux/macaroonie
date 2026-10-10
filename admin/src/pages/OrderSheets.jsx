@@ -471,7 +471,7 @@ export function OrderDetail({ orderId, isAdmin, onClose, onDeleted }) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-start justify-between p-4 border-b shrink-0 gap-3">
+      <div className="flex items-start justify-between p-4 border-b shrink-0 gap-3 bg-background">
         <div className="min-w-0 flex-1">
           <h2 className="font-semibold text-base truncate">{order.template_name}</h2>
           <p className="text-sm text-muted-foreground truncate">{order.venue_name} · {fmtDate(order.delivery_date)}</p>

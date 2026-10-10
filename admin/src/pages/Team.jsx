@@ -74,7 +74,7 @@ export default function Team() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div>
           <h1 className="font-semibold">Team</h1>
           <p className="text-xs text-muted-foreground">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
@@ -111,7 +111,7 @@ export default function Team() {
           ) : (
             <>
               <div className="border rounded-xl overflow-hidden bg-background">
-                <div className="px-5 py-3 border-b bg-muted/40">
+                <div className="px-5 py-3 section-head">
                   <h2 className="text-sm font-semibold">Active members</h2>
                 </div>
                 <div className="divide-y">
@@ -142,7 +142,7 @@ export default function Team() {
 
               {inactiveMembers.length > 0 && (
                 <div className="border rounded-xl overflow-hidden bg-background">
-                  <div className="px-5 py-3 border-b bg-muted/40">
+                  <div className="px-5 py-3 section-head">
                     <h2 className="text-sm font-semibold text-muted-foreground">Deactivated</h2>
                   </div>
                   <div className="divide-y">
@@ -166,7 +166,7 @@ export default function Team() {
 
               {/* RBAC reference */}
               <div className="border rounded-xl overflow-hidden bg-background">
-                <div className="px-5 py-3 border-b bg-muted/40">
+                <div className="px-5 py-3 section-head">
                   <h2 className="text-sm font-semibold">Role permissions</h2>
                 </div>
                 <div className="p-5">
@@ -336,7 +336,7 @@ function InviteCard({ roles, onClose, onInvited }) {
 
   return (
     <div className="border rounded-xl overflow-hidden bg-background">
-      <div className="px-5 py-3 border-b bg-muted/40 flex items-center justify-between">
+      <div className="px-5 py-3 section-head flex items-center justify-between">
         <h2 className="text-sm font-semibold">Invite team member</h2>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1">
           <X className="w-4 h-4" />

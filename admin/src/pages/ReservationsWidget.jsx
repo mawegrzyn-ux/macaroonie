@@ -387,10 +387,12 @@ const inputClass = 'w-full text-sm border rounded-md px-2 py-1.5 min-h-[36px] bg
 
 function Card({ title, hint, children }) {
   return (
-    <div className="border rounded-lg p-4 bg-background">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      {hint && <p className="text-xs text-muted-foreground mt-0.5 mb-3">{hint}</p>}
-      <div className="space-y-3 mt-3">{children}</div>
+    <div className="border rounded-xl bg-background overflow-hidden">
+      <div className="px-4 py-3 section-head">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
+      </div>
+      <div className="p-4 space-y-3">{children}</div>
     </div>
   )
 }

@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils'
 function SectionCard({ title, children }) {
   return (
     <div className="bg-background border rounded-xl overflow-hidden">
-      <div className="px-5 py-3 border-b bg-muted/40">
+      <div className="px-5 py-3 section-head">
         <h2 className="text-sm font-semibold">{title}</h2>
       </div>
       <div className="p-5 space-y-5">{children}</div>
@@ -329,7 +329,7 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col h-full overflow-auto">
-      <div className="flex items-center h-14 border-b px-5 shrink-0">
+      <div className="flex items-center h-14 border-b px-5 shrink-0 bg-background">
         <h1 className="text-base font-semibold">Settings</h1>
       </div>
 

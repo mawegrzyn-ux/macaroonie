@@ -81,7 +81,7 @@ export default function EmailMonitoring() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div>
           <h1 className="font-semibold flex items-center gap-2">
             <Activity className="w-4 h-4" /> Email monitoring
@@ -164,7 +164,7 @@ export default function EmailMonitoring() {
                 {/* Daily breakdown table */}
                 {sg?.series?.length > 0 && (
                   <div className="mt-4 border rounded-xl overflow-hidden bg-background">
-                    <div className="px-4 py-2 border-b bg-muted/40 text-xs font-semibold">
+                    <div className="px-4 py-2 section-head text-xs font-semibold">
                       Daily breakdown
                     </div>
                     <div className="overflow-x-auto">
@@ -200,7 +200,7 @@ export default function EmailMonitoring() {
 
                 {/* Local email_log */}
                 <div className="mt-4 border rounded-xl overflow-hidden bg-background">
-                  <div className="px-4 py-2 border-b bg-muted/40 text-xs font-semibold flex items-center justify-between">
+                  <div className="px-4 py-2 section-head text-xs font-semibold flex items-center justify-between">
                     <span>Recent sends (local log)</span>
                     <span className="text-muted-foreground font-normal">
                       Last {log.length} entries

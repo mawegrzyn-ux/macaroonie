@@ -1057,11 +1057,11 @@ export default function Timeline() {
     bookingsRes.find(b => b.id === activeId), [bookingsRes, activeId])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden bg-background">
       {/* Toolbar — date navigation only; view controls are in AppShell sidebar.
           max-lg:notouch:pl-14 offsets content past AppShell's floating burger button,
           which only exists on non-touch screens below lg (touch devices get a burger rail). */}
-      <div className="flex items-center px-4 max-lg:notouch:pl-14 h-14 border-b shrink-0 gap-2">
+      <div className="flex items-center px-4 max-lg:notouch:pl-14 h-14 border-b shrink-0 gap-2 bg-background">
         <button onClick={() => setDate(format(subDays(parseISO(date), 1), 'yyyy-MM-dd'))}
           className="p-1.5 rounded hover:bg-accent touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
         <div className="relative">

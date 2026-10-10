@@ -55,7 +55,7 @@ function escapeAttr(str) {
 function SectionCard({ title, description, action, children }) {
   return (
     <div className="bg-background border rounded-xl overflow-hidden">
-      <div className="px-5 py-3 border-b bg-muted/40 flex items-center justify-between gap-3">
+      <div className="px-5 py-3 section-head flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{title}</h2>
           {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
@@ -881,7 +881,7 @@ export default function EmailTemplatesPage() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0">
+      <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <div className="flex items-center gap-3">
           <h1 className="font-semibold">Email templates</h1>
           <div className="flex gap-1 bg-muted rounded-lg p-0.5">

@@ -37,7 +37,7 @@ export default function WidgetTest() {
 
       {/* ── Config panel ─────────────────────────────────── */}
       <aside className="w-72 shrink-0 border-r flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 px-4 h-14 border-b shrink-0">
+        <div className="flex items-center gap-2 px-4 h-14 border-b shrink-0 bg-background">
           <Settings2 className="w-4 h-4 text-muted-foreground" />
           <span className="font-semibold text-sm">Widget config</span>
         </div>

@@ -151,7 +151,7 @@ function NavGroups({ groups, active, onSelect }) {
 function SectionCard({ title, description, action, children }) {
   return (
     <div className="bg-background border rounded-xl overflow-hidden">
-      <div className="px-5 py-3 border-b bg-muted/40 flex items-center justify-between gap-3">
+      <div className="px-5 py-3 section-head flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{title}</h2>
           {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}

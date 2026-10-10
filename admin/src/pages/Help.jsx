@@ -1882,6 +1882,16 @@ export default function Help() {
               Each staff member can have their own colour preference.
             </InfoBox>
 
+            <H3>Page colours and card headers</H3>
+            <P>
+              Every page uses the same look as the Rota dashboard: a light grey background with
+              white cards on it, and each card has a coloured header band. The band colour is
+              your website's brand accent colour (Website builder → Brand &amp; theme →
+              Colours → Accent), so it matches your brand on every page and dashboard. Changing
+              the accent there changes the header bands for everyone in your business. The
+              Theme colour above only changes buttons and highlights.
+            </P>
+
             <H3>Booking status colours</H3>
             <P>
               Each of the nine booking statuses has its own tile colour on the Timeline. You can
