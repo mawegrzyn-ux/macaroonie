@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — AI: set the Anthropic key on the Platform page]
+
+- Platform admins can add, replace, check and remove the Anthropic API key on the Platform page (AI usage tab), instead of editing the server's settings file. A key is checked with Anthropic before it's saved, and only its last four characters are ever shown again.
+- A saved key wins over the one in the server's .env file; removing it goes back to that one.
+- If the key stops working, staff see "The AI assistant's key isn't working" in the chat instead of a general error.
+- Database: migration 149.
+
+---
+
 ## [2026-10-10 — Customers: each restaurant group sees only its own]
 
 - Fixed: the Customers page, the customer search in the booking form and a customer's details, edit, newsletter unsubscribe, GDPR export and anonymise now only ever reach your own restaurant group's customers. Before this fix, other groups' customers could appear in the list and search.

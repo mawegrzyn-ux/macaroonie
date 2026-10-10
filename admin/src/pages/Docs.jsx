@@ -2808,6 +2808,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
                 ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
                 ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
+                ['platform_secrets (migration 149)', 'Global, no RLS: name, value, hint (last 4), updated_by, updated_at. Row anthropic_api_key = the chat key saved on the Platform page. value is never returned by any route.'],
               ]}
             />
             <H3>Routes</H3>
@@ -2821,6 +2822,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET/POST/DELETE /api/ai/tokens[/:id]', 'Own tokens; ai_assistant manage sees and revokes everyone\'s. POST returns the token once.'],
                 ['GET /api/ai/activity', 'ai_actions, last 100 (manage).'],
                 ['GET/PATCH /api/ai/platform/tenants[/:id]', 'Platform admin: usage and monthly_token_limit (Platform page, AI usage tab).'],
+                ['GET/PUT/DELETE /api/ai/platform/key, POST /api/ai/platform/key/test', 'Platform admin: the Anthropic key. GET = source (platform | env | null), saved hint/by/at, env_hint, model. PUT { api_key } checks it with Anthropic (models.retrieve of AI_MODEL, free) and saves it, 422 with the reason if rejected, warning if the key can\'t use the model. DELETE goes back to .env. Never returns the key.'],
                 ['/ai-api/*', 'Website chat: tenants/:id/status, chat, conversations/:id?key=, actions/:id/confirm | cancel. Rate limited per IP.'],
                 ['POST /mcp, POST /mcp/staff/:tenantSlug', 'MCP Streamable HTTP, stateless (a server per request, JSON responses). GET/DELETE 405. Staff: route config allowAccessToken; a JWT gets X-Tenant-Id from the slug; ai_assistant view + staff_enabled.'],
                 ['GET /.well-known/oauth-protected-resource/mcp/staff/:slug', 'RFC 9728 metadata pointing at Auth0, for OAuth MCP clients (not verified end to end yet).'],
@@ -2832,13 +2834,23 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>AssistantDrawer.jsx</Mono> (Ask AI panel from the sidebar, earlier chats,{' '}
               <Mono>maca_ai_conversation</Mono>), <Mono>pages/AiAssistant.jsx</Mono> (/ai: Chat,
               Connect, Settings, Activity), <Mono>pages/mobile/MobileAssistant.jsx</Mono>,{' '}
-              <Mono>components/platform/AiLimitsPanel.jsx</Mono>. Website block{' '}
+              <Mono>components/platform/AiLimitsPanel.jsx</Mono> with <Mono>AiKeyCard.jsx</Mono>. Website block{' '}
               <Mono>ai_chat</Mono>: <Mono>views/site/blocks/ai_chat.eta</Mono> (vanilla JS, hides
               itself unless /ai-api status is enabled, <Mono>maca_ai_chat_[tenantId]</Mono>), editor{' '}
               <Mono>AiChatEditor.jsx</Mono>, canvas <Mono>AiChatCanvas</Mono> (a still mock).
             </P>
             <H3>Setup</H3>
-            <Code>{'# api/.env (optional: without a key the chats are off, MCP still works)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...   (default in src/config/env.js)\nAI_EFFORT=medium'}</Code>
+            <P>
+              The key: a platform admin saves it on the Platform page (AI usage tab, migration 149,{' '}
+              <Mono>AiKeyCard.jsx</Mono>), or it comes from <Mono>ANTHROPIC_API_KEY</Mono> in{' '}
+              <Mono>api/.env</Mono>. A saved key wins. <Mono>src/ai/apiKey.js</Mono> is the one
+              place that decides: <Mono>activeKey()</Mono> (cached 15 seconds per process, since PM2
+              runs several), <Mono>chatConfigured()</Mono> (async), <Mono>checkKey()</Mono>,{' '}
+              <Mono>saveKey()</Mono>, <Mono>removeKey()</Mono>. The chat client is rebuilt when the
+              key changes; an authentication error from Anthropic during a chat becomes a 503 telling
+              staff the key needs updating. Without any key the chats are off and MCP still works.
+            </P>
+            <Code>{'# api/.env (optional fallback; a key saved on the Platform page wins)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...   (default in src/config/env.js)\nAI_EFFORT=medium'}</Code>
             <P>
               The connectors live on the apex (<Mono>https://macaroonie.com/mcp</Mono>), which is
               proxied to the API (<Mono>/mcp</Mono>, <Mono>/ai-api</Mono> and{' '}

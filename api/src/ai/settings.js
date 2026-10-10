@@ -7,19 +7,15 @@
 // staff member's own AI app does the talking).
 
 import { withTenant } from '../config/db.js'
-import { env } from '../config/env.js'
 import { usageMonth } from './context.js'
+
+export { chatConfigured } from './apiKey.js'
 
 export const DEFAULTS = {
   guest_mcp_enabled:   true,
   guest_chat_enabled:  false,
   staff_enabled:       true,
   monthly_token_limit: 2_000_000,
-}
-
-/** Whether the server can run chats at all (an Anthropic key is set). */
-export function chatConfigured() {
-  return !!env.ANTHROPIC_API_KEY
 }
 
 export async function getAiSettings(tenantId) {
