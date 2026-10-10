@@ -3113,6 +3113,38 @@ export default function Help() {
               but not change them. Earlier chats are under <strong>Earlier chats</strong> (the clock
               button in the panel); delete one with the bin button.
             </P>
+            <H3>Attaching photos, screenshots and files</H3>
+            <P>
+              You can give the assistant something to read: a photo of a delivery note or a
+              thermometer, a screenshot of a booking request email, a PDF, or a text or CSV file. Press
+              the paperclip next to the message box and pick the files, paste a screenshot straight
+              into the message box, or drag files onto the chat. On a tablet or phone the camera
+              button takes a photo there and then. Then say what you want, for example{' '}
+              <em>"Log this delivery"</em> or <em>"Book the party in this email"</em>; the message can
+              be left empty.
+            </P>
+            <DataTable
+              head={['You can attach', 'Up to']}
+              rows={[
+                ['Photos and screenshots (JPEG, PNG, GIF, WebP)', '5 MB each. Big photos are made smaller before they are sent, so a phone photo is fine.'],
+                ['PDFs', '10 MB each'],
+                ['Text and CSV files (also .md, .json, .tsv, .log)', '1 MB each'],
+                ['Per message', '5 files'],
+                ['Per chat', '10 files or 20 MB in all; start a new chat for more'],
+              ]}
+            />
+            <P>
+              The assistant tells you what it read before it acts on it, and asks if something is
+              unclear or cut off. Every change still shows a card to confirm, so check the details on
+              the card against the paper. Sent files show in the chat: tap a picture to see it full
+              size, or a PDF or text file to open it. Only you can see the files you send.
+            </P>
+            <InfoBox type="info">
+              Word, Excel and PowerPoint files can't be read: save them as a PDF (or a spreadsheet
+              as CSV) first. iPhone HEIC photos are turned into JPEGs where the browser can do it;
+              if one is refused, take a screenshot of it instead. If a file can't be read, the
+              message and the file go back into the message box so you can try again.
+            </InfoBox>
             <H3>Using your own AI app</H3>
             <P>
               On the AI assistant page, open <strong>Connect</strong>. Type a name and press{' '}

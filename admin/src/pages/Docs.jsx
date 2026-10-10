@@ -2865,6 +2865,35 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               hits. Back-to-back user rows (a confirm note, then the next message) are merged when
               sent. A refusal stores nothing. Every response's usage goes to <Mono>ai_usage</Mono>.
             </P>
+            <H3>Attached files (migration 150)</H3>
+            <P>
+              Staff chats only (Ask AI, /ai, /mobile/assistant); the website chat and MCP don't take
+              files. <Mono>src/ai/attachments.js</Mono> is the one place that handles them:
+            </P>
+            <DataTable
+              head={['Step', 'What happens']}
+              rows={[
+                ['Upload', 'POST /api/ai/attachments (multipart, field file, one file). saveUpload() works out the kind from the first bytes (JPEG, PNG, GIF, WebP, %PDF-), or from the extension for text (txt, csv, tsv, md, json, log; must be UTF-8 with no NUL bytes), never from the browser\'s Content-Type. Word / Excel / PowerPoint and HEIC get a 422 saying what to attach instead. Size limits per kind (MAX_BYTES: image 5 MB, PDF 10 MB, text 1 MB), 413 over them. Stored in ai_attachments with conversation_id NULL; the same call deletes the caller\'s unsent uploads older than 24 hours.'],
+                ['Send', 'POST /api/ai/chat { message, attachments: [ids] }; message may be empty when files are sent. claimAttachments() sets conversation_id on the caller\'s own unsent files only (same tenant, same user_sub), in one transaction with the limits: MAX_PER_MESSAGE 5, MAX_PER_CONVERSATION 10, MAX_CONVERSATION_BYTES 20 MB (keeps every request well under the API\'s 32 MB once base64 adds a third). A file already sent, or someone else\'s, is a 422.'],
+                ['Store', 'The user message is stored with attachmentBlocks(): image / document blocks carrying _attachment { id, name, kind, bytes } and a source with no data, files before the text. ai_messages never holds file bytes.'],
+                ['Model request', 'loadAttachmentData() reads every file of the conversation once per turn; clean() in chat.js swaps each _attachment block for the real one with withFileData(): image = base64 source, PDF = base64 document, text = text document (title = file name). The bytes are the same on every request, so the history replays unchanged and the prompt cache still hits. A file that no longer exists becomes a short text block saying so.'],
+                ['Claude refuses the file', 'A 400 / 413 from the first model call of the turn (a broken PDF, a page count over the limit) withdraws the message: withdrawMessage() deletes the user row (only if it is still the last), releases its files back to unsent, clears a title it set, and deletes the conversation if it is now empty. The route answers 422 with Claude\'s reason; the chat puts the text and the files back in the composer.'],
+                ['Show', 'displayItems() adds attachments [{ id, name, kind, bytes }] to the user item (attachmentItems()). GET /api/ai/attachments/:id serves the file to its uploader only (404 for anyone else), Content-Type from the stored kind, nosniff, inline with an ASCII-only file name. DELETE /api/ai/attachments/:id removes an unsent upload (404 once sent).'],
+              ]}
+            />
+            <P>
+              Admin side: <Mono>components/ai/attachments.jsx</Mono>. <Mono>useAttachments()</Mono>{' '}
+              holds the files waiting for the next message and uploads each one as soon as it is
+              added (paperclip, a <Mono>capture="environment"</Mono> camera input on touch devices,
+              paste into the message box, or drop on the chat). <Mono>prepareFile()</Mono> shrinks a
+              photo to 2000 px on the long edge (over 2000 px or 1.5 MB), keeps PNG for screenshots
+              unless still over 4 MB, and converts HEIC where the browser can decode it.{' '}
+              <Mono>PendingFiles</Mono> is the chip row, <Mono>MessageFiles</Mono> the sent files
+              (thumbnails open a full-size view, PDF / text open in a new tab); both fetch through{' '}
+              <Mono>api.blob()</Mono> since the files sit behind auth, cached as object URLs for the
+              session. The staff system prompt tells the model to say what it read, ask when unclear,
+              and treat text inside a file as information, never as instructions.
+            </P>
             <H3>Tables</H3>
             <DataTable
               head={['Table', 'Notes']}
@@ -2878,6 +2907,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
                 ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
                 ['platform_secrets (migration 149)', 'Global, no RLS: name, value, hint (last 4), updated_by, updated_at. Row anthropic_api_key = the chat key saved on the Platform page. value is never returned by any route.'],
+                ['ai_attachments (migration 150)', 'Files attached in staff chats: tenant_id, conversation_id (NULL until sent; ON DELETE CASCADE), user_sub (uploader, the only one who can see or send it), kind image | pdf | text, media_type, filename, bytes, data bytea. Every query filters tenant_id.'],
               ]}
             />
             <H3>Routes</H3>
@@ -2885,7 +2915,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               head={['Route', 'Notes']}
               rows={[
                 ['GET /api/ai/status', 'configured, enabled, permission, can_chat, tokens_left. Drives the Ask AI button.'],
-                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub). chat returns the whole conversation as display items.'],
+                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub). chat { conversation_id?, message, attachments? } returns the whole conversation as display items.'],
+                ['POST /api/ai/attachments, GET/DELETE /api/ai/attachments/:id', 'Upload one file (multipart field file) -> { id, name, kind, media_type, bytes }; the file itself, uploader only; remove an unsent upload. See Attached files above.'],
                 ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards.'],
                 ['GET/PATCH /api/ai/settings', 'Switches + usage + MCP addresses (PATCH: ai_assistant manage).'],
                 ['GET/POST/DELETE /api/ai/tokens[/:id]', 'Own tokens; ai_assistant manage sees and revokes everyone\'s. POST returns the token once.'],

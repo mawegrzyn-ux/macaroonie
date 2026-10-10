@@ -6,7 +6,10 @@
 //   GET    /conversations              their own recent chats
 //   GET    /conversations/:id          one chat as display items
 //   DELETE /conversations/:id
-//   POST   /chat                       { conversation_id?, message } -> items
+//   POST   /chat                       { conversation_id?, message, attachments? } -> items
+//   POST   /attachments                multipart file -> { id, name, kind } (migration 150)
+//   GET    /attachments/:id            the file itself (its uploader only)
+//   DELETE /attachments/:id            an upload not sent yet
 //   POST   /actions/:id/confirm        Confirm on a card (runs the change)
 //   POST   /actions/:id/cancel
 //
@@ -39,11 +42,17 @@ import {
   createConversation, loadConversation, runTurn, confirmAction, cancelAction, displayItems, chatContext,
 } from '../ai/chat.js'
 import { staffInstructions } from '../ai/prompts.js'
+import { saveUpload, loadOwnAttachment, deleteUnsent, MAX_BYTES, MAX_PER_MESSAGE } from '../ai/attachments.js'
 
 const ChatBody = z.object({
   conversation_id: z.string().uuid().optional(),
-  message:         z.string().trim().min(1).max(2000),
-})
+  message:         z.string().trim().max(2000).default(''),
+  attachments:     z.array(z.string().uuid()).max(MAX_PER_MESSAGE).default([]),
+}).refine(b => b.message || b.attachments.length, { message: 'Type a message or attach a file' })
+
+// Largest single upload (the PDF limit); detectFile() then applies the
+// limit for what the file turns out to be.
+const MAX_UPLOAD = Math.max(...Object.values(MAX_BYTES))
 
 const SettingsBody = z.object({
   guest_mcp_enabled:  z.boolean().optional(),
@@ -141,8 +150,47 @@ export default async function aiRoutes(app) {
         systemPrompt: staffInstructions({ tenant: t?.name, person: u?.full_name || null, chat: true }),
       })
     }
-    const out = await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message))
+    const out = await run(() => runTurn(chatContext(app, conv, { req }), conv, body.message, { attachments: body.attachments }))
     return { conversation_id: conv.id, title: conv.title, stop_reason: out.stopReason, items: await displayItems(conv) }
+  })
+
+  // ── Attached files ──────────────────────────────────────
+  app.post('/attachments', async (req, reply) => {
+    await staffChatAllowed(req)
+    if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
+    let file = null
+    for await (const part of req.parts()) {
+      if (part.type !== 'file' || part.fieldname !== 'file') continue
+      const chunks = []
+      let total = 0
+      for await (const chunk of part.file) {
+        total += chunk.length
+        if (total > MAX_UPLOAD) throw httpError(413, 'Files can be up to ' + Math.round(MAX_UPLOAD / 1024 / 1024) + ' MB.')
+        chunks.push(chunk)
+      }
+      file = { buffer: Buffer.concat(chunks), filename: part.filename }
+    }
+    if (!file) throw httpError(400, 'No file provided')
+    const saved = await run(() => saveUpload({ tenantId: req.tenantId, userSub: req.user.sub, ...file }))
+    return reply.code(201).send(saved)
+  })
+
+  app.get('/attachments/:id', async (req, reply) => {
+    const id = z.string().uuid().safeParse(req.params.id)
+    const file = id.success ? await loadOwnAttachment(req.tenantId, req.user.sub, id.data) : null
+    if (!file) throw httpError(404, 'File not found')
+    return reply
+      .header('Content-Type', file.kind === 'text' ? 'text/plain; charset=utf-8' : file.media_type)
+      .header('Content-Disposition', 'inline; filename="' + file.filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '') + '"')
+      .header('Cache-Control', 'private, max-age=86400')
+      .header('X-Content-Type-Options', 'nosniff')
+      .send(file.data)
+  })
+
+  app.delete('/attachments/:id', async req => {
+    const id = z.string().uuid().safeParse(req.params.id)
+    if (!id.success || !(await deleteUnsent(req.tenantId, req.user.sub, id.data))) throw httpError(404, 'File not found')
+    return { ok: true }
   })
 
   app.post('/actions/:id/confirm', async req => {

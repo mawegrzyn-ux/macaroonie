@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — AI assistant: attach photos, screenshots and files]
+
+- The staff assistant (Ask AI, the AI assistant page and the phone app) can now read files: photos, screenshots, PDFs, and text or CSV files. Attach with the paperclip, paste a screenshot into the message box, drag files onto the chat, or on a tablet or phone take a photo with the camera button. For example, attach a delivery note and say "Log this delivery", or a booking request email and say "Book this".
+- Up to 5 files per message and 10 per chat. Photos up to 5 MB (big phone photos are made smaller first), PDFs up to 10 MB, text files up to 1 MB. Word, Excel and PowerPoint files need saving as PDF or CSV first.
+- Sent files show in the chat: tap a picture to see it full size, or a PDF to open it. Only the person who sent a file can open it.
+- The assistant says what it read before acting on it, and every change still shows a card to confirm. If Claude can't read a file, the message and the file go back into the message box to try again.
+- Migration 150 (`ai_attachments`).
+
+---
+
 ## [2026-10-10 — AI assistant: booking past the usual limits, and health & safety]
 
 - **Booking past the usual limits**: when a party is outside a venue's usual party size, or a time is over its covers limit, the staff assistant says which limit is in the way and asks first. Say yes and the card (**Book past the usual limits?**) lists the limits in an amber box; press **Book anyway** or **Move anyway**. The booking goes on the smallest free table that fits, or the Unallocated row if none does, to seat on the timeline. Guests and the booking widget still can't go past the limits.

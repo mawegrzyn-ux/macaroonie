@@ -18,6 +18,10 @@
 // replays the conversation unchanged (thinking blocks stay valid, the
 // prompt cache keeps hitting). Every response's tokens go to ai_usage; a
 // chat is refused once the tenant's monthly limit is used up.
+//
+// Attached files (staff chat, src/ai/attachments.js) are stored as image /
+// document blocks that reference an ai_attachments row; apiMessages() fills
+// the file's data in on every request, so the bytes sent are always the same.
 
 import Anthropic from '@anthropic-ai/sdk'
 import { sql, withTenant } from '../config/db.js'
@@ -26,6 +30,9 @@ import { ToolError, makeContext, addUsage } from './context.js'
 import { toolsFor, findTool, jsonSchemaOf, parseInput, errorText } from './tools/index.js'
 import { chatTokensLeft } from './settings.js'
 import { activeKey } from './apiKey.js'
+import {
+  claimAttachments, releaseAttachments, attachmentBlocks, loadAttachmentData, withFileData, attachmentItems,
+} from './attachments.js'
 
 const MAX_STEPS      = 8
 const MAX_TOKENS     = 16000
@@ -104,20 +111,22 @@ async function appendMessage(conv, role, content) {
 
 // Our own markers on stored user blocks (never sent to the API):
 //   _note: 'action'   the outcome of a Confirm / Cancel press
-const clean = block => {
+//   _attachment       an attached file: its data is filled in from `files`
+const clean = (block, files) => {
   if (!block || typeof block !== 'object') return block
+  if (block._attachment) return withFileData(block, files)
   const { _note, ...rest } = block
   return rest
 }
 
-/** The stored history as API messages: our markers stripped, back-to-back
- *  user rows (a note after the last reply, then the next message) merged.
- *  Merging only ever joins rows at the end, so earlier requests' messages
- *  are unchanged. */
-function apiMessages(rows) {
+/** The stored history as API messages: our markers stripped, attached files'
+ *  data filled in, back-to-back user rows (a note after the last reply, then
+ *  the next message) merged. Merging only ever joins rows at the end, so
+ *  earlier requests' messages are unchanged. */
+function apiMessages(rows, files = new Map()) {
   const out = []
   for (const r of rows) {
-    const content = (Array.isArray(r.content) ? r.content : [r.content]).map(clean)
+    const content = (Array.isArray(r.content) ? r.content : [r.content]).map(b => clean(b, files))
     const last = out[out.length - 1]
     if (last && last.role === r.role && r.role === 'user') last.content = [...last.content, ...content]
     else out.push({ role: r.role, content })
@@ -184,11 +193,11 @@ async function handleToolUse(ctx, conv, block) {
 }
 
 /**
- * Adds the person's message and runs the model until it answers.
- * `ctx` is the tool context for this conversation (makeContext()).
- * Returns { reply, stopReason }.
+ * Adds the person's message (with any attached files: ids of their unsent
+ * uploads) and runs the model until it answers. `ctx` is the tool context
+ * for this conversation (makeContext()). Returns { reply, stopReason }.
  */
-export async function runTurn(ctx, conv, text) {
+export async function runTurn(ctx, conv, text, { attachments = [] } = {}) {
   if (running.has(conv.id)) throw new ToolError('Still working on your last message.', 409)
   running.add(conv.id)
   try {
@@ -199,27 +208,46 @@ export async function runTurn(ctx, conv, text) {
       SELECT count(*)::int AS n FROM ai_messages WHERE conversation_id = ${conv.id}
     `)
     if (n >= MAX_MESSAGES) throw new ToolError('This conversation is getting long. Start a new one.', 422)
-    await appendMessage(conv, 'user', [{ type: 'text', text }])
-    if (!conv.title) {
-      const title = text.replace(/\s+/g, ' ').trim().slice(0, 80)
+    const files = await claimAttachments(conv, ctx.principal?.sub, attachments)
+    const userContent = [...attachmentBlocks(files), ...(text ? [{ type: 'text', text }] : [])]
+    if (!userContent.length) throw new ToolError('Type a message or attach a file.', 422)
+    const userSeq = await appendMessage(conv, 'user', userContent)
+    const newTitle = !conv.title
+    if (newTitle) {
+      const title = (text || files.map(f => f.filename).join(', ')).replace(/\s+/g, ' ').trim().slice(0, 80)
       await withTenant(conv.tenant_id, tx => tx`UPDATE ai_conversations SET title = ${title} WHERE id = ${conv.id}`)
       conv.title = title
     }
+    const fileData = await loadAttachmentData(conv)
 
     const tools = toolDefs(ctx)
     for (let step = 0; step < MAX_STEPS; step++) {
       const rows = await loadMessages(conv)
-      const response = await createMessage({
-        model:         env.AI_MODEL,
-        max_tokens:    MAX_TOKENS,
-        betas:         ['server-side-fallback-2026-07-01'],
-        fallbacks:     'default',
-        output_config: { effort: env.AI_EFFORT },
-        cache_control: { type: 'ephemeral' },
-        system:        conv.system_prompt,
-        tools,
-        messages:      apiMessages(rows),
-      })
+      let response
+      try {
+        response = await createMessage({
+          model:         env.AI_MODEL,
+          max_tokens:    MAX_TOKENS,
+          betas:         ['server-side-fallback-2026-07-01'],
+          fallbacks:     'default',
+          output_config: { effort: env.AI_EFFORT },
+          cache_control: { type: 'ephemeral' },
+          system:        conv.system_prompt,
+          tools,
+          messages:      apiMessages(rows, fileData),
+        })
+      } catch (err) {
+        // The model never read the new message (a file it can't take, a
+        // request over the size limit): take the message back out, so the
+        // conversation isn't left with something every later request trips on.
+        if (step === 0 && (err instanceof Anthropic.BadRequestError || err?.status === 413)) {
+          await withdrawMessage(conv, userSeq, files.map(f => f.id), newTitle)
+          throw new ToolError((files.length
+            ? 'Claude couldn\'t take the attached file' + (files.length > 1 ? 's' : '') + ' (' + apiErrorText(err) + '). Try a smaller file, or a screenshot of the part you need.'
+            : 'Claude couldn\'t take that message (' + apiErrorText(err) + ').'), 422)
+        }
+        throw err
+      }
       await recordUsage(conv, response.usage)
 
       if (response.stop_reason === 'refusal') {
@@ -250,6 +278,24 @@ export async function runTurn(ctx, conv, text) {
 }
 
 const textOf = content => content.filter(b => b.type === 'text').map(b => b.text).join('\n\n').trim()
+
+const apiErrorText = err => String(err?.error?.error?.message || err?.message || 'request refused').slice(0, 300)
+
+/** Takes back a message the model never read: only when it is still the
+ *  last row, its files go back to unsent, and a chat left empty is removed. */
+async function withdrawMessage(conv, seq, fileIds, clearTitle) {
+  await withTenant(conv.tenant_id, async tx => {
+    const [last] = await tx`SELECT max(seq) AS seq FROM ai_messages WHERE conversation_id = ${conv.id}`
+    if (last?.seq !== seq) return
+    await tx`DELETE FROM ai_messages WHERE conversation_id = ${conv.id} AND seq = ${seq} AND tenant_id = ${conv.tenant_id}`
+    if (clearTitle) await tx`UPDATE ai_conversations SET title = NULL WHERE id = ${conv.id}`
+  })
+  await releaseAttachments(conv, fileIds)
+  const [{ n }] = await withTenant(conv.tenant_id, tx => tx`
+    SELECT count(*)::int AS n FROM ai_messages WHERE conversation_id = ${conv.id}
+  `)
+  if (n === 0) await withTenant(conv.tenant_id, tx => tx`DELETE FROM ai_conversations WHERE id = ${conv.id} AND tenant_id = ${conv.tenant_id}`)
+}
 
 // ── Confirm / Cancel on a card ───────────────────────────
 
@@ -371,10 +417,15 @@ export async function displayItems(conv) {
   for (const r of rows) {
     const blocks = Array.isArray(r.content) ? r.content : []
     if (r.role === 'user') {
+      const files = attachmentItems(blocks)
+      let shownFiles = false
       for (const b of blocks) {
         if (b.type !== 'text') continue
-        items.push(b._note ? { type: 'note', text: b.text.replace(/^\[|\]$/g, '') } : { type: 'user', text: b.text })
+        if (b._note) { items.push({ type: 'note', text: b.text.replace(/^\[|\]$/g, '') }); continue }
+        items.push({ type: 'user', text: b.text, ...(files.length && !shownFiles ? { attachments: files } : {}) })
+        shownFiles = true
       }
+      if (files.length && !shownFiles) items.push({ type: 'user', text: '', attachments: files })
       continue
     }
     for (const b of blocks) {
