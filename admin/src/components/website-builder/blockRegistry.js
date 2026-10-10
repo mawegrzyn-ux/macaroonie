@@ -26,7 +26,7 @@ import {
   Image as ImageIcon, Type, Sparkles, MapPin, Phone,
   Calendar, Clock, BookOpen, AlignLeft, Minus, FileText, AlertTriangle,
   Layout, Columns, PanelTop, PanelBottom, Megaphone, Quote, ChefHat, BookText,
-  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading, Folders,
+  ShoppingBag, BookOpen as MenuIcon, ExternalLink, BadgePercent, Heading, Folders, MessageCircle,
 } from 'lucide-react'
 
 import { HeroEditor }          from './editors/HeroEditor'
@@ -43,6 +43,7 @@ import { SLOT_FIELD }          from './blockTree'
 import { GuestplanWidgetEditor } from './editors/GuestplanWidgetEditor'
 import { OnlineOrderingEditor } from './editors/OnlineOrderingEditor'
 import { PromoCtaEditor } from './editors/PromoCtaEditor'
+import { AiChatEditor } from './editors/AiChatEditor'
 import { HeadingEditor } from './editors/HeadingEditor'
 import { HEADING_DEFAULTS } from '@shared/headingBlock.js'
 import {
@@ -492,6 +493,18 @@ export const BLOCKS = [
       container: 'boxed',
     },
     editor:      PromoCtaEditor,
+  },
+  {
+    key:         'ai_chat',
+    label:       'AI chat',
+    description: 'A chat that answers guests and books, changes or cancels tables. Only shows while Chat on your website is switched on (AI assistant page).',
+    icon:        MessageCircle,
+    category:    'data',
+    defaultData: {
+      mode: 'inline', heading: 'Chat with us', intro: 'Ask a question, book a table or change a booking.',
+      button_text: '', accent: 'primary', container: 'boxed',
+    },
+    editor:      AiChatEditor,
   },
   {
     key:         'guestplan_widget',

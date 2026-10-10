@@ -28,6 +28,7 @@ const SECTIONS = [
   { id: 'overview-tiles', label: 'Overview Tiles' },
   { id: 'order-sheets', label: 'Order Sheets' },
   { id: 'web-ordering', label: 'Web Ordering' },
+  { id: 'ai-assistant', label: 'AI Assistant & MCP' },
   { id: 'menus',        label: 'Menus' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'media-library', label: 'Media Library' },
@@ -2706,6 +2707,142 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               A one-venue promotion links to <Mono>/locations/:slug/order</Mono> when there are several
               ordering venues. The site bundle now carries <Mono>tenant_id</Mono> for this.
             </P>
+          </section>
+
+          <section id="ai-assistant" data-doc="">
+            <H2>AI Assistant &amp; MCP</H2>
+            <P>
+              Booking by chat (migration 148). One tool layer, <Mono>api/src/ai/tools</Mono>, serves
+              four front ends, each a <Mono>channel</Mono>:
+            </P>
+            <DataTable
+              head={['Channel', 'Entry point', 'Who / scope', 'Model']}
+              rows={[
+                ['staff_chat', 'POST /api/ai/chat (Ask AI drawer, /ai page, /mobile/assistant)', 'A logged-in staff member, their tenant', 'Ours (Claude, platform pays)'],
+                ['staff_mcp', 'POST /mcp/staff/:tenantSlug (routes/mcp.js)', 'Bearer access token (mcp_...) or Auth0 JWT, one tenant', 'The client\'s own AI app'],
+                ['guest_chat', 'POST /ai-api/chat (website ai_chat block, routes/aiApi.js)', 'A guest on one tenant\'s site', 'Ours'],
+                ['guest_mcp', 'POST /mcp (routes/mcp.js)', 'Anyone, every tenant with guest_mcp_enabled', 'The guest\'s own AI app'],
+              ]}
+            />
+            <H3>Tools</H3>
+            <P>
+              <Mono>tools/guest.js</Mono>: find_restaurants, get_restaurant (includes today's date at
+              the venue), check_availability, hold_table, confirm_booking, release_hold,
+              request_booking_code, verify_booking_code, get_booking, change_booking, cancel_booking.{' '}
+              <Mono>tools/staff.js</Mono>: list_venues, find_bookings, get_booking, day_overview,
+              check_availability, create_booking, change_booking, set_booking_status,
+              update_guest_details, add_booking_note, find_customer. A tool is{' '}
+              <Mono>{'{ name, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
+              (<Mono>tools/index.js</Mono>); the Zod schema goes to the model and MCP clients as JSON
+              Schema via zod-to-json-schema.
+            </P>
+            <P>
+              Staff tools never write bookings with their own SQL when an admin route does the job:
+              they call the route in-process with <Mono>callApi()</Mono> (<Mono>app.inject</Mono>, the
+              caller's own Authorization header plus <Mono>X-Tenant-Id</Mono>), so role checks, RLS,
+              emails and timeline pushes are the admin portal's. Each tool also checks{' '}
+              <Mono>permissionLevel(req, 'bookings')</Mono> (view to read, manage to change), so custom
+              roles apply. Reads are direct SQL with an explicit <Mono>tenant_id</Mono> filter. Guest
+              tools call the public <Mono>/widget-api</Mono> the same way (slots, hold, confirm), so an
+              AI booking follows the booking widget's rules. Moving a booking (both audiences) is{' '}
+              <Mono>rescheduleBooking()</Mono> in <Mono>services/guestBookingSvc.js</Mono>, shared with
+              the guest manage page: party size, cutoff (guests only), the slot grid, keep the table
+              if it still fits else <Mono>allocateBestFit</Mono> with no displacement.
+            </P>
+            <P>
+              In-process calls carry <Mono>x-maca-internal: INTERNAL_CALL_SECRET</Mono> (random per
+              process, <Mono>middleware/auth.js</Mono>). It lets an access token through on the admin
+              API (tokens are refused there otherwise) and keeps the calls out of the global rate limit
+              (<Mono>allowList</Mono> in app.js).
+            </P>
+            <H3>Confirm cards (chats)</H3>
+            <P>
+              A tool with <Mono>confirm: true</Mono> does not run when the model calls it in a chat:{' '}
+              <Mono>handleToolUse()</Mono> in <Mono>ai/chat.js</Mono> stores an{' '}
+              <Mono>ai_pending_actions</Mono> row (tool, input, the card from{' '}
+              <Mono>describe()</Mono>, the model's tool_use_id, expiry: 30 minutes or the hold's
+              expiry) and tells the model a card is waiting. <Mono>POST .../actions/:id/confirm</Mono>{' '}
+              claims the row (no double run), runs the tool with the stored input, and appends the
+              outcome to the conversation as a user note (<Mono>_note: 'action'</Mono>, stripped
+              before sending) that the model reads next turn. Cancel on a booking card releases its
+              hold. Over MCP, run() is called directly; the client's own app asks the person.
+            </P>
+            <H3>Guest change / cancel: emailed code</H3>
+            <P>
+              <Mono>ai/codes.js</Mono>. <Mono>request_booking_code(reference, email)</Mono> finds the
+              booking by its 8-character reference (<Mono>upper(left(id::text, 8))</Mono>) and email,
+              stores a sha256 of a 6-digit code (15 minutes, 5 tries, at most 3 codes per booking per
+              hour), emails it through the venue's provider (<Mono>email_log.template_type =
+              'ai_access_code'</Mono>) and always gives the same answer, so bookings can't be probed.{' '}
+              <Mono>verify_booking_code</Mono> returns an access key (<Mono>bk_...</Mono>, hashed in{' '}
+              <Mono>ai_booking_grants</Mono>, 30 minutes) for that booking only. The AI never sees
+              the manage token.
+            </P>
+            <H3>The chat loop</H3>
+            <P>
+              <Mono>runTurn()</Mono>: <Mono>client.beta.messages.create</Mono> with{' '}
+              <Mono>AI_MODEL</Mono> (default in <Mono>config/env.js</Mono>), <Mono>output_config.effort</Mono>{' '}
+              (<Mono>AI_EFFORT</Mono>, default medium), adaptive thinking (the default), top-level{' '}
+              <Mono>cache_control</Mono>, and server-side fallbacks (<Mono>fallbacks: 'default'</Mono>,
+              beta <Mono>server-side-fallback-2026-07-01</Mono>). Up to 8 model calls per turn.
+              Messages are stored exactly as returned and only appended, with the system prompt the
+              conversation started with (<Mono>ai_conversations.system_prompt</Mono>), so every
+              request replays the history unchanged: thinking blocks stay valid and the prompt cache
+              hits. Back-to-back user rows (a confirm note, then the next message) are merged when
+              sent. A refusal stores nothing. Every response's usage goes to <Mono>ai_usage</Mono>.
+            </P>
+            <H3>Tables</H3>
+            <DataTable
+              head={['Table', 'Notes']}
+              rows={[
+                ['ai_settings', 'One per tenant (no row = defaults): guest_mcp_enabled (true), guest_chat_enabled (false), staff_enabled (true), monthly_token_limit (2,000,000; platform admin only).'],
+                ['ai_usage', 'Per tenant, month (first day, UTC), channel: requests and input / output / cache read / cache write tokens. The limit counts all four token kinds of staff_chat + guest_chat; MCP channels count calls only.'],
+                ['ai_conversations / ai_messages', 'Chats. channel staff_chat (user_sub) or guest_chat (guest_key, a random secret the browser keeps). Messages: seq, role, content jsonb (API content blocks).'],
+                ['ai_pending_actions', 'Confirm cards: tool_use_id, tool, input, card {title, lines, confirmLabel, destructive}, status pending | done | cancelled | failed, result, expires_at, decided_at (claim).'],
+                ['ai_actions', 'Audit log of booking changes through AI (all channels): tool, input, ok, result, booking_id, actor. Shown on /ai Activity.'],
+                ['ai_booking_codes / ai_booking_grants', 'Emailed codes and access keys (hashes only).'],
+                ['ai_access_tokens', 'Staff MCP tokens: sha256 of mcp_ + 40 hex, prefix, user_id, revoked_at. No RLS (read during auth before any tenant context); every query filters tenant_id.'],
+                ['bookings.source', 'Which AI channel made the booking (NULL = not AI).'],
+              ]}
+            />
+            <H3>Routes</H3>
+            <DataTable
+              head={['Route', 'Notes']}
+              rows={[
+                ['GET /api/ai/status', 'configured, enabled, permission, can_chat, tokens_left. Drives the Ask AI button.'],
+                ['GET/DELETE /api/ai/conversations[/:id], POST /api/ai/chat', 'The caller\'s own chats (user_sub). chat returns the whole conversation as display items.'],
+                ['POST /api/ai/actions/:id/confirm | cancel', 'Confirm cards.'],
+                ['GET/PATCH /api/ai/settings', 'Switches + usage + MCP addresses (PATCH: ai_assistant manage).'],
+                ['GET/POST/DELETE /api/ai/tokens[/:id]', 'Own tokens; ai_assistant manage sees and revokes everyone\'s. POST returns the token once.'],
+                ['GET /api/ai/activity', 'ai_actions, last 100 (manage).'],
+                ['GET/PATCH /api/ai/platform/tenants[/:id]', 'Platform admin: usage and monthly_token_limit (Platform page, AI usage tab).'],
+                ['/ai-api/*', 'Website chat: tenants/:id/status, chat, conversations/:id?key=, actions/:id/confirm | cancel. Rate limited per IP.'],
+                ['POST /mcp, POST /mcp/staff/:tenantSlug', 'MCP Streamable HTTP, stateless (a server per request, JSON responses). GET/DELETE 405. Staff: route config allowAccessToken; a JWT gets X-Tenant-Id from the slug; ai_assistant view + staff_enabled.'],
+                ['GET /.well-known/oauth-protected-resource/mcp/staff/:slug', 'RFC 9728 metadata pointing at Auth0, for OAuth MCP clients (not verified end to end yet).'],
+              ]}
+            />
+            <H3>Admin and site</H3>
+            <P>
+              <Mono>components/ai/ChatView.jsx</Mono> (chat, cards, <Mono>useAiStatus()</Mono>),{' '}
+              <Mono>AssistantDrawer.jsx</Mono> (Ask AI panel from the sidebar, earlier chats,{' '}
+              <Mono>maca_ai_conversation</Mono>), <Mono>pages/AiAssistant.jsx</Mono> (/ai: Chat,
+              Connect, Settings, Activity), <Mono>pages/mobile/MobileAssistant.jsx</Mono>,{' '}
+              <Mono>components/platform/AiLimitsPanel.jsx</Mono>. Website block{' '}
+              <Mono>ai_chat</Mono>: <Mono>views/site/blocks/ai_chat.eta</Mono> (vanilla JS, hides
+              itself unless /ai-api status is enabled, <Mono>maca_ai_chat_[tenantId]</Mono>), editor{' '}
+              <Mono>AiChatEditor.jsx</Mono>, canvas <Mono>AiChatCanvas</Mono> (a still mock).
+            </P>
+            <H3>Setup</H3>
+            <Code>{'# api/.env (optional: without a key the chats are off, MCP still works)\nANTHROPIC_API_KEY=sk-ant-...\n# AI_MODEL=...   (default in src/config/env.js)\nAI_EFFORT=medium'}</Code>
+            <P>
+              The connectors live on the apex (<Mono>https://macaroonie.com/mcp</Mono>), which is
+              proxied to the API (<Mono>/mcp</Mono>, <Mono>/ai-api</Mono> and{' '}
+              <Mono>/.well-known/oauth-protected-resource</Mono> are in platformSite.js's{' '}
+              <Mono>PASS_PREFIXES</Mono>). Tenant sites proxy everything, so the website chat calls{' '}
+              <Mono>/ai-api</Mono> on its own host. A client that sends headers (Claude Code, Cursor)
+              connects with an access token today, for example:
+            </P>
+            <Code>{'claude mcp add --transport http macaroonie https://macaroonie.com/mcp/staff/<slug> \\\n  --header "Authorization: Bearer mcp_..."'}</Code>
           </section>
 
           <section id="menus" data-doc="">

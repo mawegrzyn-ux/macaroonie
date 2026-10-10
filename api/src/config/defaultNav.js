@@ -88,6 +88,7 @@ export const DEFAULT_NAV_TREE = [
       { label: 'Team', icon: 'Users', route: '/team', module: 'team' },
       { label: 'Access', icon: 'Shield', route: '/access', module: 'team' },
       { label: 'Settings', icon: 'SlidersHorizontal', route: '/settings', module: 'settings' },
+      { label: 'AI assistant', icon: 'Sparkles', route: '/ai', module: 'ai_assistant' },
       { label: 'Widget test', icon: 'LayoutTemplate', route: '/widget-test', module: 'widget_test' },
       { label: 'Test data', icon: 'FlaskConical', route: '/test-data', module: 'test_data' },
       { label: 'Legacy import', icon: 'FileSpreadsheet', route: '/legacy-import', module: 'test_data' },

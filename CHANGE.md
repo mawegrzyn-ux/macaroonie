@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — AI assistant: bookings by chat and from AI apps]
+
+- **Ask AI** in the sidebar (and the new **AI assistant** page, and AI assistant in the phone app): ask about bookings in your own words, check tables, book, move, change status, update guest details and add staff notes. Every change shows a card with the exact details; nothing happens until you press **Confirm**. What it can do follows your role.
+- **Your own AI app**: AI assistant > Connect gives your restaurant group's connector address and lets you make access tokens, so Claude Code, Cursor and other MCP apps can do the same with your permissions.
+- **Guests' AI apps**: a public connector (macaroonie.com/mcp) lets guests find your restaurants and book, change or cancel from their own AI app. Changing or cancelling needs a 6-digit code we email to the guest.
+- **Website chat**: the new **AI chat** block (in the page, or a chat button in the corner) answers guests and takes bookings, with the same Confirm card and emailed code. Switch it on under AI assistant > Settings.
+- Owners and admins get Settings (switches for the staff assistant, guests' AI apps and the website chat, and this month's usage) and Activity (every booking change made through AI). The chats share a monthly allowance set by the platform; the connectors keep working when it runs out.
+- Server: set `ANTHROPIC_API_KEY` to turn the chats on (`AI_MODEL`, `AI_EFFORT` optional). Without it the connectors still work.
+- Database: migration 148.
+
+---
+
 ## [2026-10-10 — PDF menus: uploads fixed, and the switch now controls the block]
 
 - Website > PDF menus works per location again: uploads were failing and the list always looked empty.

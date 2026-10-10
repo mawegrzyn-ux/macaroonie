@@ -40,6 +40,11 @@ const schema = z.object({
 
   // Apify (review scraper)
   APIFY_API_KEY:         z.string().optional(),
+  // AI chat (migration 148). Unset = the assistant and the website chat are
+  // off; the MCP connectors work without it (the client's AI does the talking).
+  ANTHROPIC_API_KEY:     z.string().optional(),
+  AI_MODEL:              z.string().default('claude-opus-5-5'),
+  AI_EFFORT:             z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
 
   // Storage driver — 'local' writes to UPLOAD_DIR, 's3' writes to an
   // S3-compatible bucket (AWS S3, DigitalOcean Spaces, Cloudflare R2, …).

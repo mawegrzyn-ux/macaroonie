@@ -7,7 +7,7 @@ import * as LucideIcons from 'lucide-react'
 import {
   LogOut, Menu, X,
   Eye, EyeOff, RefreshCw, Maximize2, Minimize2, Columns, LayoutList, Layers,
-  Shield, ChevronDown, Hand, KanbanSquare, LayoutGrid,
+  Shield, ChevronDown, Hand, KanbanSquare, LayoutGrid, Sparkles,
 } from 'lucide-react'
 
 // nav_items.icon is a plain lucide-react component name (string), set by
@@ -45,6 +45,8 @@ import { useApi, setSelectedTenant } from '@/lib/api'
 import TenantSwitcherModal from '@/components/TenantSwitcherModal'
 import MobileSuggestModal from '@/components/MobileSuggestModal'
 import MobileViewToggle from '@/components/MobileViewToggle'
+import AssistantDrawer from '@/components/ai/AssistantDrawer'
+import { useAiStatus } from '@/components/ai/ChatView'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { useSettings, applySiteTheme } from '@/contexts/SettingsContext'
 
@@ -201,6 +203,16 @@ export default function AppShell() {
   }, [me?.site_theme])
 
   const [switcherOpen, setSwitcherOpen] = useState(false)
+
+  // AI assistant drawer (migration 148): shown when the server has it set
+  // up, the tenant has it on and this person has the ai_assistant module.
+  const { data: aiStatus } = useAiStatus()
+  const canAskAi = !!aiStatus?.can_chat
+  const [aiOpen, setAiOpen] = useState(false)
+  function openAi() {
+    if (IS_TOUCH) setOpen(false)
+    setAiOpen(true)
+  }
 
   function switchTenant(tenantId) {
     if (!tenantId) return
@@ -510,6 +522,22 @@ export default function AppShell() {
             )}
           </div>
         )}
+        {canAskAi && (
+          <div className="shrink-0 px-2 pt-2 border-t">
+            <button
+              type="button"
+              onClick={openAi}
+              title="Ask the AI assistant"
+              className={cn(
+                'w-full flex items-center gap-2 rounded-md text-sm font-medium text-primary hover:bg-primary/10 touch-manipulation min-h-[44px]',
+                open ? 'px-3' : 'justify-center',
+              )}
+            >
+              <Sparkles className="w-4 h-4 shrink-0" />
+              {open && <span>Ask AI</span>}
+            </button>
+          </div>
+        )}
         <div className="shrink-0 p-2 border-t">
           {open ? (
             <div className="flex items-center gap-2 px-1 py-1">
@@ -561,6 +589,16 @@ export default function AppShell() {
               <Menu className="w-5 h-5" />
             </button>
           </div>
+          {canAskAi && (
+            <button
+              type="button"
+              className="mt-2 w-11 h-11 flex items-center justify-center rounded-md text-primary hover:bg-primary/10 touch-manipulation"
+              onClick={openAi}
+              aria-label="Ask the AI assistant"
+            >
+              <Sparkles className="w-5 h-5" />
+            </button>
+          )}
         </div>
       )}
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -577,6 +615,7 @@ export default function AppShell() {
       )}
       <MobileSuggestModal />
       <MobileViewToggle target="mobile" />
+      <AssistantDrawer open={aiOpen} onClose={() => setAiOpen(false)} />
     </div>
   )
 }
