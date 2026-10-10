@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — Rota tips: half-point +/− buttons]
+
+- In the tips table (Rota page and the Rota dashboard's Tips widget), each person's **Points** now has **−** and **+** buttons, like the £ buttons next to their total. Each tap takes off or adds half a point.
+- Points pots are shared again straight away over the new points: taking half a point off one person gives everyone else a little more. To move half a point between two people, tap − on one and + on the other.
+- The **Moved** column is now **Changed** and includes the taps. **Undo point taps** (above the table, with a confirm) puts everyone's points back.
+- Migration 151 (`rota_week_staff.points_nudge`).
+
+---
+
 ## [2026-10-10 — AI assistant: attach photos, screenshots and files]
 
 - The staff assistant (Ask AI, the AI assistant page and the phone app) can now read files: photos, screenshots, PDFs, and text or CSV files. Attach with the paperclip, paste a screenshot into the message box, drag files onto the chat, or on a tablet or phone take a photo with the camera button. For example, attach a delivery note and say "Log this delivery", or a booking request email and say "Book this".

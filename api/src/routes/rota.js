@@ -43,6 +43,8 @@
 //   POST   /venues/:venueId/weeks/:week/reset-moves     { kind: points | money | all }
 //   POST   /venues/:venueId/weeks/:week/tip-nudge       { staff_id, direction: plus | minus }  0.50 to / from the unallocated pot
 //   POST   /venues/:venueId/weeks/:week/reset-unallocated  hand the unallocated pot back (every nudge to 0)
+//   POST   /venues/:venueId/weeks/:week/points-nudge    { staff_id, direction: plus | minus }  half a point on / off (migration 151)
+//   POST   /venues/:venueId/weeks/:week/reset-points-nudges  every point tap back to 0
 //   POST   /venues/:venueId/weeks/:week/fill-wages      writes Cash Recon wages
 
 import { z } from 'zod'
@@ -316,7 +318,8 @@ async function computeWeek(tx, tenantId, venueId, monday) {
   }).filter(p => p.is_active || p.sources_total > 0 || p.lines.some(l => l.amount !== 0) || Object.keys(p.manual).length)
 
   const weekStaff = await tx`
-    SELECT staff_id, pay_override::float8 AS pay_override, tip_unallocated::float8 AS tip_unallocated
+    SELECT staff_id, pay_override::float8 AS pay_override, tip_unallocated::float8 AS tip_unallocated,
+           points_nudge::float8 AS points_nudge
       FROM rota_week_staff
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
   `
@@ -345,7 +348,7 @@ async function computeWeek(tx, tenantId, venueId, monday) {
   const withEntries = [...new Set([
     ...payAdjustments.map(a => a.staff_id), ...owedRows.map(r => r.staff_id),
     ...entries.map(e => e.staff_id), ...manualRows.map(m => m.staff_id),
-    ...weekStaff.filter(w => w.pay_override != null || w.tip_unallocated !== 0).map(w => w.staff_id),
+    ...weekStaff.filter(w => w.pay_override != null || w.tip_unallocated !== 0 || w.points_nudge !== 0).map(w => w.staff_id),
     ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]).filter(Boolean),
     ...potInputs.filter(p => p.payout_to === 'people').flatMap(p => p.payees),
   ])]
@@ -373,7 +376,7 @@ async function computeWeek(tx, tenantId, venueId, monday) {
 const PAY_ROW_FIELDS = ['pay_type', 'pay_basis', 'computed_pay', 'pay_override', 'pay', 'base_pay', 'adjustments',
   'extra_pay', 'deductions', 'advance', 'advance_repay', 'carried_owed', 'pay_shortfall',
   'pay_method', 'bank_pay', 'cash_pay']
-const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'tip_adjustment', 'tip_unallocated', 'points',
+const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'points_nudge', 'tip_adjustment', 'tip_unallocated', 'points',
   'pot_shares', 'pot_shares_exact', 'tip_share', 'tip_share_from_pots', 'tip_balance', 'tip_cash', 'tip_bank']
 const TIP_TOTAL_FIELDS = ['points', 'tips_gross', 'surcharges', 'tips_in', 'tips_shared',
   'kept_by_house', 'tips_added', 'tips_taken_out', 'tips_unallocated', 'tips_bank', 'tips_cash', 'tips_handed_on']
@@ -1225,6 +1228,50 @@ export default async function rotaRoutes(app) {
         UPDATE rota_week_staff SET tip_unallocated = 0, updated_at = now()
          WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
            AND tenant_id = ${req.tenantId} AND tip_unallocated <> 0
+      `
+      return weekFor(req, tx, monday)
+    })
+  })
+
+  // +/- point tap (migration 151): half a point on or off one person's
+  // points. No pot of spare points, so plus needs nothing; minus needs the
+  // person to have half a point left (points are never below 0). Same lock
+  // as the £ taps so rapid taps can't both pass the check.
+  const POINTS_STEP = 0.5
+  app.post('/venues/:venueId/weeks/:week/points-nudge', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    const b = z.object({ staff_id: UUID, direction: z.enum(['plus', 'minus']) }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${'tip-nudge:' + req.params.venueId + ':' + monday}))`
+      const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      const row = before.rows.find(r => r.staff_id === b.staff_id)
+      if (!row) throw httpError(404, 'Staff member not on this week')
+      if (b.direction === 'minus' && row.points < POINTS_STEP - 1e-9) {
+        throw httpError(422, `${row.name} only has ${row.points} points`)
+      }
+      if (b.direction === 'plus' && row.points_nudge >= 100) {
+        throw httpError(422, `${row.name} already has ${row.points_nudge} points added this week`)
+      }
+      const delta = b.direction === 'plus' ? POINTS_STEP : -POINTS_STEP
+      await ensureWeekStaff(tx, req.tenantId, req.params.venueId, monday, b.staff_id)
+      await tx`
+        UPDATE rota_week_staff SET points_nudge = points_nudge + ${delta}, updated_at = now()
+         WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
+           AND staff_id = ${b.staff_id} AND tenant_id = ${req.tenantId}
+      `
+      return weekFor(req, tx, monday)
+    })
+  })
+
+  app.post('/venues/:venueId/weeks/:week/reset-points-nudges', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
+    const monday = mondayOf(req.params.week)
+    return withTenant(req.tenantId, async tx => {
+      await assertVenue(tx, req.tenantId, req.params.venueId)
+      await tx`
+        UPDATE rota_week_staff SET points_nudge = 0, updated_at = now()
+         WHERE venue_id = ${req.params.venueId} AND week_start = ${monday}::date
+           AND tenant_id = ${req.tenantId} AND points_nudge <> 0
       `
       return weekFor(req, tx, monday)
     })

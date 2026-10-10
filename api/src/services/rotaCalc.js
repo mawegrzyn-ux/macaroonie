@@ -23,7 +23,8 @@
 //   hours = worked (on) hours; paid_hours = on + pto (what fill-wages writes).
 //
 //   Points  = sum(shift.points x fraction worked) x role multiplier
-//             + the week's manual adjustment. Never below 0 for sharing.
+//             + the week's point moves + its +/- point taps
+//             (points_nudge, migration 151). Never below 0 for sharing.
 //   Pay:
 //     hourly             minutes in a shift at that shift's hourly rate
 //                        (staff_shift_rates, else default_rate); minutes
@@ -62,6 +63,9 @@
 //   points_adjustment (added to earned points, floored at 0) and
 //   tip_adjustment (£). A person's tip_share is the sum of their shares
 //   across pots plus tip_adjustment plus tip_unallocated, never below 0.
+//   points_nudge (migration 151) is the person's net +/- point tap, half a
+//   point each, added to their points like a move: there is no spare-points
+//   pot, so a points pot is re-shared over the new points.
 //   tip_unallocated (migration 119) is the person's net +/- nudge: a minus
 //   tap moves money from them to the week's unallocated pot, a plus tap
 //   moves it back out to someone. totals.tips_unallocated is what is left
@@ -146,7 +150,7 @@ export function periodsOverlap(periods) {
  * @param {Array}  p.shifts     rota_shifts rows (all, incl. inactive, so old entries still price)
  * @param {Array}  p.staff      cash_staff rows + role_multiplier + shift_rates {shift_id: rate}
  * @param {Array}  p.entries    rota_entries rows for the week
- * @param {Array}  p.weekStaff  rota_week_staff rows (pay_override, tip_unallocated)
+ * @param {Array}  p.weekStaff  rota_week_staff rows (pay_override, tip_unallocated, points_nudge)
  * @param {Array}  p.moves      tip moves [{ kind: 'points'|'money', action: 'move'|'add'|'remove', from_staff_id, lines: [{ to_staff_id, amount }] }]
  * @param {number} p.tipPot     amount to share out
  */
@@ -250,6 +254,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     const adj = adjByStaff.get(st.id)
     const points = round2(basePoints * multiplier)
     const adjustment = round2(moved.points.get(st.id) ?? 0)
+    const nudge = round2(num(adj?.points_nudge))
     const computedPay = round2(pay)
     const payOverride = adj?.pay_override == null ? null : round2(num(adj.pay_override))
     const basePay = payOverride ?? computedPay
@@ -292,9 +297,10 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       cash_pay:        split.cash,
       base_points:     points,
       points_adjustment: adjustment,
+      points_nudge:    nudge,
       tip_adjustment:  round2(moved.money.get(st.id) ?? 0),
       tip_unallocated: round2(num(adj?.tip_unallocated)),
-      points:          round2(Math.max(0, points + adjustment)),
+      points:          round2(Math.max(0, points + adjustment + nudge)),
     }
   })
 

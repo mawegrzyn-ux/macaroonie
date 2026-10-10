@@ -1734,6 +1734,19 @@ export default function Help() {
               the week; it isn't paid to anyone. <strong>Undo all</strong> (with a confirm) puts every
               +/− back as it was. Nudges are separate from the tip moves list.
             </P>
+            <P>
+              <strong>Half-point +/−.</strong> When a pot is shared by points, each person's{' '}
+              <strong>Points</strong> also has a <strong>−</strong> and a <strong>+</strong> button
+              (Rota page and the Rota dashboard's Tips widget). <strong>−</strong> takes half a point
+              off them and <strong>+</strong> adds half a point. There is no pot of spare points: the
+              points pots are shared again straight away over everyone's new points, so taking half a
+              point off one person gives everyone else a little more, and adding half a point to
+              someone gives everyone else a little less. To move half a point from one person to
+              another, tap <strong>−</strong> on one and <strong>+</strong> on the other. The{' '}
+              <strong>Changed</strong> column shows each person's point moves plus their taps.{' '}
+              <strong>Undo point taps</strong> (in the box above the table, with a confirm) puts
+              everyone's points back as they were before the taps; it doesn't touch the tip moves list.
+            </P>
             <H3>Rota dashboard</H3>
             <P>
               The <strong>Rota dashboard</strong> works like the Cash and H&amp;S dashboards: named
