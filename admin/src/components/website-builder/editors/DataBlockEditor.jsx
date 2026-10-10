@@ -10,7 +10,7 @@ const SOURCE_HINT = {
   find_us:        'Address + map embed live in the Find us section.',
   contact:        'Phone, email, social links live in the Contact section.',
   reservations_widget: 'Pick which venue\'s widget to embed in the Reservations widget section.',
-  menu_pdfs:      'Upload PDFs in the Menus section.',
+  menu_pdfs:      'Lists the PDFs uploaded in Website > PDF menus. Shows nothing while PDF menus are switched off there.',
   allergens:      'Manage allergen info in the Allergens section.',
 }
 

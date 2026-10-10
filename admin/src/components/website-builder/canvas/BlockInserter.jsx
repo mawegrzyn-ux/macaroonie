@@ -6,12 +6,20 @@
 //
 // The popover is anchored to the inserter and closes on outside click.
 
-import { useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { Plus, X, Search } from 'lucide-react'
 import { BLOCKS, BLOCK_CATEGORIES } from '../blockRegistry'
 
+// What the page being edited can use, provided by PageBuilder:
+//   hidden    block keys left out of the picker (e.g. menu_pdfs while the
+//             location's PDF menus are switched off)
+//   pdfMenus  { venueId, on } for the PDF menus block's preview
+export const BlockAvailabilityContext = createContext({ hidden: [], pdfMenus: null })
+export const useBlockAvailability = () => useContext(BlockAvailabilityContext)
+
 // nested: inside a column or tab, where Columns / Tabs can't go.
 export function BlockInserter({ onPick, mode = 'between', label, nested = false }) {
+  const { hidden } = useBlockAvailability()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const wrapRef = useRef(null)
@@ -32,7 +40,7 @@ export function BlockInserter({ onPick, mode = 'between', label, nested = false 
     }
   }, [open])
 
-  const pickable = nested ? BLOCKS.filter(b => !b.isContainer) : BLOCKS
+  const pickable = BLOCKS.filter(b => !(nested && b.isContainer) && !hidden.includes(b.key))
   const filtered = query.trim()
     ? pickable.filter(b =>
         b.label.toLowerCase().includes(query.toLowerCase()) ||

@@ -677,7 +677,7 @@ const DATA_BLOCK_LABELS = {
   find_us:        { title: 'Find us',          hint: 'Pulls from address + map fields in Find us.' },
   contact:        { title: 'Contact',          hint: 'Pulls from phone, email, and social links.' },
   reservations_widget: { title: 'Reservations widget', hint: 'Embeds the live reservations widget for this venue.' },
-  menu_pdfs:      { title: 'Menus',            hint: 'Lists your uploaded menu PDFs as download links.' },
+  menu_pdfs:      { title: 'PDF menus',        hint: 'Lists your uploaded menu PDFs as download links.' },
   allergens:      { title: 'Allergens',        hint: 'Allergen info — PDF download or structured table.' },
 }
 

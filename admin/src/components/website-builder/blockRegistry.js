@@ -510,8 +510,8 @@ export const BLOCKS = [
   },
   {
     key:         'menu_pdfs',
-    label:       'Menus',
-    description: 'Lists your uploaded PDF menus with a download link.',
+    label:       'PDF menus',
+    description: 'Lists the location\'s uploaded PDF menus. Only offered while PDF menus are switched on.',
     icon:        BookOpen,
     category:    'data',
     defaultData: { heading: 'Our menu', container: 'boxed' },
@@ -703,13 +703,14 @@ export const PAGE_TEMPLATES = [
   {
     key:         'modern-bistro',
     label:       'Modern Bistro',
-    description: 'Editorial, full-bleed hero, transparent header. Two-column about, CTA strip, booking widget.',
+    description: 'Editorial, full-bleed hero, transparent header. Two-column about, CTA strip, menu PDFs, booking widget.',
     style_pack:  'modern',
     blocks: [
       { type: 'hero',           data: { heading: 'Tonight, well-fed.', subheading: 'Modern bistro in the heart of town.', cta_text: 'Reserve →', cta_link: '#reservations', height: 'medium', align: 'left' } },
       { type: 'story_with_stamp', data: { heading: 'A small kitchen, big ambitions.', body_html: '<p>Family-run since the 90s, serving honest food in a modern setting.</p>', stamp_show: false, image_side: 'right', image_url: null, container: 'boxed' } },
       { type: 'cta_strip',      data: { heading: 'Bring the team.', subheading: 'Group bookings up to 30 — book online or call us.', ctas: [{ text: 'Make a reservation', link: '#reservations', style: 'primary' }], bg_style: 'primary' } },
       { type: 'gallery',        data: { heading: 'In the kitchen' } },
+      { type: 'menu_pdfs',      data: { heading: 'Menus' } },
       { type: 'reservations_widget', data: { heading: 'Book a table' } },
       { type: 'find_us',        data: { heading: 'Find us' } },
     ],
@@ -717,10 +718,11 @@ export const PAGE_TEMPLATES = [
   {
     key:         'minimal-cafe',
     label:       'Minimal Café',
-    description: 'Clean and quick. Classic shell, minimal blocks: hero, hours, find us, single image, contact.',
+    description: 'Clean and quick. Classic shell, minimal blocks: hero, menu PDFs, hours, find us, single image, contact.',
     style_pack:  'classic',
     blocks: [
       { type: 'hero',          data: { heading: 'Coffee. Cake. Quiet.', subheading: '', cta_text: '', cta_link: '', height: 'small' } },
+      { type: 'menu_pdfs',     data: { heading: 'Menus' } },
       { type: 'opening_hours', data: { heading: 'When we\'re open' } },
       { type: 'find_us',       data: { heading: 'Find us' } },
       { type: 'image',         data: { url: null, alt: '', caption: '', max_width: 'wide', align: 'center' } },
@@ -813,6 +815,7 @@ export const PAGE_TEMPLATES = [
         ],
         container: 'boxed',
       }},
+      { type: 'menu_pdfs',        data: { heading: 'Download our menus', container: 'boxed' } },
       { type: 'reviews_band',     data: {
         heading: '', bg_style: 'primary',
         items: [

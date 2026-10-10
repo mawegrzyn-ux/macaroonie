@@ -2128,7 +2128,7 @@ export default function Help() {
                 ['Hero',             'The first screen guests see: image, heading, subheading, call-to-action button.'],
                 ['About',            'Short story / description with an optional image.'],
                 ['Gallery',          'Photo grid. Drag to reorder, add captions, upload new images.'],
-                ['Menus',            'Upload PDF menus with labels (e.g. Lunch, Dinner, Drinks).'],
+                ['PDF menus',        'Upload PDF menus with labels (e.g. Lunch, Dinner, Drinks), only for menus you haven\'t built on the Menus page: those show with the Menu (inline) block and have their own printable PDF. Show PDF menus switches them on or off for the location. On, add the PDF menus block to a page to list them (every page template includes it). Off, the block shows nothing, isn\'t offered when adding blocks, and the location\'s menu page is hidden.'],
                 ['Allergens',        'Either a PDF document OR a structured dish-by-dish table with allergen pills.'],
                 ['Opening hours',    '7-day grid. Multiple sessions per day (Lunch/Dinner) supported.'],
                 ['Find us',          'Address, latitude/longitude, Google Maps embed URL.'],
