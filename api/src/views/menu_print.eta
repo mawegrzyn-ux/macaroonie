@@ -205,6 +205,7 @@ if (!pages.length) pages.push([])
     .item-notes { font-size: calc(9.5px * var(--fs)); color: var(--plum-soft); font-style: italic; margin-top: 1px; }
     .item-tags { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
     .tag-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 3px; color: #fff; font-size: calc(9px * var(--fs)); font-weight: 700; line-height: 1; }
+    .tag-star { align-self: flex-start; font-size: .85em; margin-left: 1px; }
     /* Variants */
     .variants { display: grid; grid-template-columns: repeat(<%= variantCols %>, minmax(0, 1fr)); gap: 0 4mm; margin-top: 1mm; }
     .variant { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; min-width: 0; }
@@ -297,8 +298,9 @@ if (!pages.length) pages.push([])
                     <span class="item-tags">
                       <% item.dietary.forEach(function(code){ %>
                         <% const tag = tagsByCode[code] %>
+                        <% const removable = (item.allergen_levels || {})[code] === 'removable' %>
                         <% if (tag) { %>
-                          <span class="tag-chip" style="background: <%= tag.colour %>;" title="<%= tag.label %>"><%= tag.glyph %></span>
+                          <span class="tag-chip" style="background: <%= tag.colour %>;" title="<%= tag.label %><%= removable ? ' (' + it.removableNote.toLowerCase() + ')' : '' %>"><%= tag.glyph %><% if (removable) { %><span class="tag-star">*</span><% } %></span>
                         <% } %>
                       <% }) %>
                     </span>
@@ -345,15 +347,16 @@ if (!pages.length) pages.push([])
           <div class="callout">
             <strong><%= c.title %></strong>
             <% if (c.body) { %><p><%= c.body %></p><% } %>
-            <% const _allTags = m.dietary_tags || [] %>
-            <% if (c.kind === 'allergens' && _allTags.length) { %>
+            <% const _keyTags = it.key.tags %>
+            <% if (c.kind === 'allergens' && _keyTags.length) { %>
               <div class="key">
-                <% _allTags.forEach(function(tag){ %>
+                <% _keyTags.forEach(function(tag){ %>
                   <span class="pair">
                     <span class="tag-chip" style="background: <%= tag.colour %>;"><%= tag.glyph %></span>
                     <%= tag.label %>
                   </span>
                 <% }) %>
+                <% if (it.key.removable) { %><span class="pair">* <%= it.removableNote %></span><% } %>
               </div>
             <% } %>
           </div>

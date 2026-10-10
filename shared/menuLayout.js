@@ -34,6 +34,7 @@
 // deleted renders nothing (renderBlockInner returns null).
 
 import { FONT_WEIGHTS, fontStack, googleFontsUrl } from './fonts.js'
+import { usedTags, isRemovable, REMOVABLE_NOTE } from './menuTags.js'
 
 export const BLOCK_TYPES = [
   'header', 'intro', 'section', 'item', 'text', 'image',
@@ -280,6 +281,8 @@ export function buildContext(menu, layout) {
   return {
     menu: m,
     tagsByCode: Object.fromEntries((m.dietary_tags || []).map(t => [t.code, t])),
+    // The key lists only tags that printed dishes use.
+    key: usedTags(m.dietary_tags, Object.values(sectionsById)),
     sectionsById, itemsById, sectionIdOfItem, placedItemIds,
     pageCount: l.pages.length,
     variantColumns: l.variant_columns,
@@ -340,7 +343,7 @@ function itemHtml(item, ctx, opts) {
   const hasVar = adhoc.length > 0 || groups.some(g => g.options && g.options.length)
 
   const tags = (item.dietary || []).map(code => ctx.tagsByCode[code]).filter(Boolean)
-    .map(t => '<span class="ml-tag" style="background:' + esc(t.colour) + '" title="' + esc(t.label) + '">' + esc(t.glyph) + '</span>')
+    .map(t => tagChipHtml(t, isRemovable(item, t.code)))
     .join('')
   // Variant options: a block's own column count, else the layout's default.
   // Each option is one label + price pair; pairs fill the columns row by row.
@@ -441,12 +444,12 @@ export function renderBlockInner(block, ctx, pageIndex) {
         callouts.map(c => {
           let h = '<div class="ml-callout"><strong>' + esc(c.title) + '</strong>'
           if (c.body) h += '<p>' + esc(c.body) + '</p>'
-          if (c.kind === 'allergens' && (m.dietary_tags || []).length) h += keyHtml(m)
+          if (c.kind === 'allergens' && ctx.key.tags.length) h += keyHtml(ctx)
           return h + '</div>'
         }).join('') + '</div>'
     }
     case 'key':
-      return (m.dietary_tags || []).length ? keyHtml(m) : ''
+      return ctx.key.tags.length ? keyHtml(ctx) : ''
     case 'footer':
       return '<div class="ml-foot">' + esc(o.text || m.footer_motto || '— honest cooking, made fresh in our kitchen —') + '</div>'
     case 'page_number':
@@ -456,10 +459,19 @@ export function renderBlockInner(block, ctx, pageIndex) {
   }
 }
 
-function keyHtml(m) {
-  return '<div class="ml-key">' + (m.dietary_tags || []).map(t =>
+// A dish's tag badge; an allergen that can be removed gets a small
+// asterisk (shared/menuTags.js).
+function tagChipHtml(t, removable) {
+  return '<span class="ml-tag" style="background:' + esc(t.colour) + '" title="' +
+    esc(t.label + (removable ? ' (' + REMOVABLE_NOTE.toLowerCase() + ')' : '')) + '">' + esc(t.glyph) +
+    (removable ? '<span class="ml-star">*</span>' : '') + '</span>'
+}
+
+function keyHtml(ctx) {
+  return '<div class="ml-key">' + ctx.key.tags.map(t =>
     '<span class="ml-pair"><span class="ml-tag" style="background:' + esc(t.colour) + '">' + esc(t.glyph) + '</span>' + esc(t.label) + '</span>'
-  ).join('') + '</div>'
+  ).join('') +
+    (ctx.key.removable ? '<span class="ml-pair ml-star-note">* ' + esc(REMOVABLE_NOTE) + '</span>' : '') + '</div>'
 }
 
 // Whole printed page, for the Eta print view.
@@ -540,6 +552,7 @@ export const MENU_LAYOUT_CSS = `
 .ml-notes { font-size: ${f(9.5)}; color: var(--plum-soft); font-style: italic; margin-top: 1px; }
 .ml-tags { display: inline-flex; gap: 3px; margin-left: 4px; vertical-align: middle; }
 .ml-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 4px; border-radius: 3px; color: #fff; font-size: ${f(9)}; font-weight: 700; line-height: 1; }
+.ml-star { align-self: flex-start; font-size: .85em; margin-left: 1px; }
 .ml-group { font-size: ${f(9)}; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-top: 1.5mm; }
 .ml-variants { display: grid; gap: 0 4mm; margin-top: 1mm; }
 .ml-v { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; min-width: 0; }

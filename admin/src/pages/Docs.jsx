@@ -2726,7 +2726,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['menus.print_settings', 'Migration 120. jsonb, default {}. Optional keys: font_scale (int 70-150, %), margin_mm (3-25, null = 8mm/12mm), repeat_header (first | compact | full), repeat_footer, page_numbers, keep_sections (bools), variant_columns (1-3: variant label + price pairs per row, .variants grid of .variant pairs). Zod PrintSettings in menus.js strips unknown keys; written with tx.json(). A missing key keeps the original layout.'],
                 ['menu_sections.print_break_before / print_keep_together', 'Migration 120. none | column | page (CHECK), and a boolean. Print only: the website menu_inline block and the canvas ignore them.'],
                 ['menu_sections.vat_rate_takeaway / vat_rate_eat_in', 'Migration 127. Nullable numeric(5,2), 0-100. Section VAT for web ordering, used for dishes without their own rate (see vatRateFor in the Web Ordering section). SectionBody accepts both; upsertMenuTree and /duplicate carry them. Edited in the section side panel (SectionDrawer in Menus.jsx), where section title, subtitle, image, highlight and print options also live now; the section row only shows badges.'],
-                ['menu_dietary_tags (admin page)', 'Page renamed Dietary tags, route /menus/dietary-tags (MenuDietaryTags.jsx, DietaryTagsManager.jsx). Migration 128 points nav_items at the new route and renames the default label. Add and edit use one modal (TagModal) calling POST /menus/dietary and PATCH /menus/dietary/:id; delete is in the modal with an inline confirm.'],
+                ['menu_dietary_tags (admin page)', 'Route /menus/dietary-tags (MenuDietaryTags.jsx, DietaryTagsManager.jsx), titled Allergens & dietary tags since migration 145 (which also renames the default nav label from Dietary tags). Two Cards, Allergens and Dietary tags, each a drag-sortable list (SortableRows, PATCH /menus/dietary/reorder { ids }). Add and edit use one modal (TagModal: type, label, glyph, code, colour) calling POST /menus/dietary and PATCH /menus/dietary/:id; merge (POST /menus/dietary/:id/merge { into_id }) and delete are in the modal with inline confirms. An amber bar offers POST /menus/dietary/standard-allergens when any of the 14 is missing.'],
+                ['menu_dietary_tags.kind / standard_key', 'Migration 145. kind dietary | allergen (default dietary). standard_key = which of the 14 UK allergens the tag is (celery, gluten, crustaceans, eggs, fish, lupin, milk, molluscs, mustard, nuts, peanuts, sesame, soya, sulphites), unique per tenant, only on allergens. The migration turns existing tags that match one by code or exact label (n / Nuts, Dairy, Soy...) into that allergen, then inserts the ones each tenant is missing. A standard allergen cannot become a dietary tag (PATCH 422).'],
+                ['menu_item_dietary.level', 'Migration 145. contains | may_contain | removable (default contains); no row = the dish does not have it. Dietary tags are always contains: tagLevel() in menus.js forces it on every write, and turning an allergen into a dietary tag resets its links to contains.'],
                 ['menu_sections.image_url', 'Migration 095. Nullable text (a Media library URL). A small category icon/image next to the section heading — capped at 1.3em (website block / canvas) or 1.6em (print) so it never renders larger than the heading font next to it, regardless of the uploaded image\'s actual resolution.'],
               ]}
             />
@@ -2799,16 +2801,57 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               template in headless Chromium and counting PDF pages: fitting designed pages give
               exactly one sheet each.
             </P>
+            <H3>Allergens and dietary tags (migration 145)</H3>
+            <P>
+              Every tag is a dietary tag (on a dish or not) or an allergen (on a dish at a level:
+              Contains, May contain, Can be removed). <Mono>shared/menuTags.js</Mono> holds the
+              rules: <Mono>STANDARD_ALLERGENS</Mono> (the 14, also used by{' '}
+              <Mono>ensureStandardAllergens()</Mono> in <Mono>services/menuSeeds.js</Mono>, called for
+              new tenants in <Mono>POST /api/platform/tenants</Mono>, by the menu seed route and by the
+              tags page button), <Mono>ALLERGEN_LEVELS</Mono>, <Mono>LEVEL_LABELS</Mono>,{' '}
+              <Mono>REMOVABLE_NOTE</Mono>, <Mono>levelOf()</Mono>, <Mono>isRemovable()</Mono> and{' '}
+              <Mono>usedTags()</Mono>.
+            </P>
+            <P>
+              In the menu tree a dish keeps <Mono>dietary</Mono> (codes of every tag it shows, both
+              kinds, in tag order) and gains <Mono>allergen_levels</Mono>{' '}
+              (<Mono>{'{ code: level }'}</Mono>, only levels other than contains).{' '}
+              <Mono>loadMenuFull()</Mono>, the website loader (<Mono>loadInlineMenus()</Mono> in
+              siteDataSvc.js) and <Mono>loadOrderingMenu()</Mono> all return it; <Mono>ItemBody</Mono>,{' '}
+              <Mono>upsertMenuTree()</Mono>, <Mono>/duplicate</Mono> and the Menus.jsx save payload
+              carry it. <Mono>upsertMenuTree()</Mono> also resolves a standard key as a code, so the
+              seeds can say <Mono>nuts</Mono> for a tenant whose nuts tag is code <Mono>n</Mono>. Tag
+              order: dietary tags first, then allergens, each by <Mono>sort_order</Mono> (the matrix
+              API lists allergens first).
+            </P>
+            <P>
+              On menus May contain looks the same as Contains and Can be removed adds a small
+              asterisk inside the badge, with <Mono>* Can be removed on request</Mono> in the key.
+              Six places draw the badges and must stay in step: <Mono>menu_print.eta</Mono>,{' '}
+              <Mono>menu_print_dietary.eta</Mono>, <Mono>shared/menuLayout.js</Mono> (designed print
+              and designer canvas), <Mono>blocks/menu_inline.eta</Mono>, <Mono>MenuInlineCanvas</Mono>{' '}
+              in <Mono>dataBlocks.jsx</Mono>, and <Mono>shared/ordering.eta</Mono>. The printed keys
+              (automatic and designed) now list only the tags the printed dishes use, so adding the
+              14 allergens doesn&apos;t fill every key; the website block and its canvas add the
+              asterisk note under the menu when a shown dish needs it.
+            </P>
+            <P>
+              Staff tools show the levels apart with <Mono>LevelChip</Mono> (AllergenMatrix.jsx):
+              filled = Contains, outlined on a pale tint = May contain, filled with an asterisk = Can
+              be removed. The dish panel in Menus.jsx (<Mono>AllergenPicker</Mono>) and the matrix
+              cycle an allergen No, Contains, May contain, Can be removed; dietary tags toggle.
+            </P>
             <H3>Allergen matrix (migration 141)</H3>
             <P>
               No new data tables: the matrix edits <Mono>menu_item_dietary</Mono> (dish to tag links)
               against the tenant&apos;s <Mono>menu_dietary_tags</Mono>. <Mono>GET /api/menus/:id/allergens</Mono>{' '}
               (any signed-in user) returns{' '}
-              <Mono>{'{ menu: { id, name, venue_name }, tags, sections: [{ id, title, visibility, items: [{ id, name, native_name, description, tag_ids }] }] }'}</Mono>{' '}
+              <Mono>{'{ menu: { id, name, venue_name }, tags, sections: [{ id, title, visibility, items: [{ id, name, native_name, description, levels: { tagId: level } }] }] }'}</Mono>{' '}
               from <Mono>loadAllergenMatrix()</Mono> in <Mono>routes/menus.js</Mono>, every section
-              included. <Mono>PUT /api/menus/:id/allergens</Mono>{' '}
+              included, tags with <Mono>kind</Mono> and <Mono>standard_key</Mono>, allergens first.{' '}
+              <Mono>PUT /api/menus/:id/allergens</Mono>{' '}
               (<Mono>requirePermission(&apos;menus&apos;, &apos;manage&apos;)</Mono>) takes{' '}
-              <Mono>{'{ items: [{ item_id, tag_ids }] }'}</Mono> for the changed dishes only: 422 if any
+              <Mono>{'{ items: [{ item_id, levels: { tagId: level } }] }'}</Mono> for the changed dishes only: 422 if any
               dish isn&apos;t on that menu, tag ids not belonging to the tenant are dropped, then each
               sent dish&apos;s links are replaced and <Mono>menus.updated_at</Mono> bumped. It never
               goes through the whole-tree <Mono>PATCH /:id</Mono>, so it can&apos;t disturb sections,
@@ -2817,7 +2860,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <P>
               Every dish row in <Mono>AllergenLookup</Mono> is a button that expands to the description
-              and each tag by name (one open at a time). Admin: <Mono>pages/MenuAllergenMatrix.jsx</Mono> (<Mono>/menus/allergens</Mono>, nav link
+              and each tag by name, grouped Contains / May contain / Can be removed / Dietary (one open
+              at a time). Its free-from filter keeps dishes the allergen can be removed from, flagged
+              &quot;Ask for it without ...&quot;; May contain never counts as free from. Admin: <Mono>pages/MenuAllergenMatrix.jsx</Mono> (<Mono>/menus/allergens</Mono>, nav link
               under Menus, seeded by the migration for existing tenants and by{' '}
               <Mono>defaultNav.js</Mono>) renders <Mono>AllergenMatrixEditor</Mono>;{' '}
               <Mono>AllergenLookup</Mono> is the read-only widget body (search, and a tag filter that
@@ -2846,7 +2891,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>menu_print_dietary.eta</Mono> instead, whatever design is chosen: dish name and its
               dietary tag chips (glyph + colour, icons only) per row, grouped by section, sections with{' '}
               <Mono>visibility = 'hidden'</Mono> dropped, portrait on the menu's paper size, a key of
-              the tags used. Its <strong>Choose dishes</strong> mode is screen-side only: each row
+              the tags used (from <Mono>usedTags()</Mono>, plus the Can be removed note; rows with a
+              removable allergen carry <Mono>data-removable</Mono> so the note hides with them). Its <strong>Choose dishes</strong> mode is screen-side only: each row
               carries <Mono>data-id</Mono> / <Mono>data-tags</Mono>, unticked ids are kept in
               localStorage <Mono>maca_dietary_skip_&lt;menuId&gt;</Mono> (left-out ids, so new dishes
               show), and the <Mono>.off</Mono> class hides rows, empty section rows and unused key

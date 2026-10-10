@@ -191,7 +191,8 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
           id: it.id, section_id: s.id, name: it.name, native_name: it.native_name || null,
           description: it.description || null, notes: it.notes || null,
           image_url: it.image_url || null, calories: it.calories ?? null,
-          dietary: it.dietary || [], price_pence: it.price_pence ?? null,
+          dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
+          price_pence: it.price_pence ?? null,
           featured: !!it.is_featured,   // House favourite (Menus page)
           choices, from_pence: fromPrice(it, choices),
           sold_out: soldOut.has(it.id),
@@ -217,7 +218,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
     menus,
     itemsById,
     itemMenus,
-    dietary_tags: (dietaryTags || []).map(t => ({ code: t.code, label: t.label, glyph: t.glyph, colour: t.colour })),
+    dietary_tags: (dietaryTags || []).map(t => ({ code: t.code, label: t.label, glyph: t.glyph, colour: t.colour, kind: t.kind })),
   }
 }
 

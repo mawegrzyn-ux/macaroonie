@@ -4,10 +4,11 @@
 // demand via POST /api/menus/seed/:slug. Not run as a migration —
 // operators choose when (and which tenant) to seed.
 
+import { STANDARD_ALLERGENS } from '../../../shared/menuTags.js'
+
 export const ONETHAI_DIETARY_TAGS = [
   { code: 'v',     label: 'Vegan-able',  glyph: 'V',  colour: '#6b8e4e', sort_order: 0 },
   { code: 'gf',    label: 'Gluten-free', glyph: 'GF', colour: '#7a1a26', sort_order: 1 },
-  { code: 'n',     label: 'Nuts',        glyph: 'N',  colour: '#9a3412', sort_order: 2 },
   { code: 'spicy', label: 'Spicy',       glyph: '🌶', colour: '#c9302c', sort_order: 3 },
 ]
 
@@ -50,11 +51,11 @@ export const ONETHAI_DINNER = {
       { name: 'Song Sa-Hai Rolls', price_pence: 720, description: 'Prawn & chicken with Thai herbs, wrapped & fried golden.' },
       { name: 'Goong Tempura', price_pence: 770, description: 'King prawns in tempura batter, sweet chilli sauce.' },
       { name: 'Prawn on Toast', price_pence: 770, description: 'Minced prawn with garlic, pepper, coriander on toast.' },
-      { name: 'Tod Man Pla', price_pence: 770, dietary: ['gf', 'n'], description: 'Fish cakes with red curry paste, lime leaves, fine beans.' },
+      { name: 'Tod Man Pla', price_pence: 770, dietary: ['gf', 'nuts'], description: 'Fish cakes with red curry paste, lime leaves, fine beans.' },
       { name: 'Eagle Wings', price_pence: 690, description: 'Chicken wings, garlic, pepper & coriander sauce.' },
       { name: 'Spare Ribs', price_pence: 780, description: 'Pork ribs marinated with honey, cinnamon, anise & herbs.' },
       { name: 'Sweetcorn Cakes', price_pence: 690, dietary: ['v'], description: 'Sweetcorn, Thai herbs, hint of curry paste, sweet chilli sauce.' },
-      { name: 'Crispy Tofu', price_pence: 650, dietary: ['gf', 'n', 'v'], description: 'Crispy outside, soft inside, sweet chilli & peanuts.' },
+      { name: 'Crispy Tofu', price_pence: 650, dietary: ['gf', 'nuts', 'v'], description: 'Crispy outside, soft inside, sweet chilli & peanuts.' },
       { name: 'Thai Prawn Crackers', price_pence: 390, dietary: ['gf'], description: 'Slightly spicy, with sweet chilli sauce.' },
     ]},
     { title: 'Soups', subtitle: 'bright & fragrant', items: [
@@ -66,7 +67,7 @@ export const ONETHAI_DINNER = {
       { name: 'Green Curry',  native_name: 'แกงเขียวหวาน', dietary: ['gf', 'spicy'], description: 'Sharp, sweet, medium-spicy, coconut milk, courgettes, bamboo, peppers.', variants: D.CURRY_5_LOWER },
       { name: 'Red Curry',    native_name: 'แกงเผ็ด',     dietary: ['gf', 'spicy'], description: 'Bolder & smoother, medium-spicy, coconut milk, courgettes, bamboo, peppers.', variants: D.CURRY_5_LOWER },
       { name: 'Panang Curry', native_name: 'พะแนง',        dietary: ['gf', 'spicy'], description: 'Creamy, distinctive lime leaves, red peppers, finished with fresh lime leaves.', variants: D.CURRY_5_PANANG },
-      { name: 'Massaman',     native_name: 'มัสมั่น',      dietary: ['gf', 'n'],     description: 'Mild, creamy, nutty, slow-cooked with star anise, potatoes, cashews. Best with beef.', variants: D.CURRY_5_MASSAMAN },
+      { name: 'Massaman',     native_name: 'มัสมั่น',      dietary: ['gf', 'nuts'],     description: 'Mild, creamy, nutty, slow-cooked with star anise, potatoes, cashews. Best with beef.', variants: D.CURRY_5_MASSAMAN },
       { name: 'Kaeng Pa — Jungle', dietary: ['gf', 'spicy'], description: 'No coconut milk — wild ginger, lime leaves, lemongrass, mixed veg. For spice lovers.', variants: D.CURRY_5_MASSAMAN },
       { name: 'Duck Curry', price_pence: 1550, dietary: ['gf'], description: 'Roasted duck, coconut milk, red curry paste, cherry tomatoes, pineapple, basil.' },
       { name: 'Chu Chi Pla', price_pence: 1550, dietary: ['gf'], description: 'Fried white fish with thick Panang curry dressing & lime leaves.' },
@@ -87,7 +88,7 @@ export const ONETHAI_DINNER = {
       { name: 'Ped Pad Prix', price_pence: 1650, dietary: ['spicy'], is_featured: true, description: 'Spicy, sweet, tangy duck — tamarind, garlic, peppers, chillies, on lettuce.' },
     ]},
     { title: 'Noodles', subtitle: 'share or solo', items: [
-      { name: 'Pad Thai', native_name: 'ผัดไทย', dietary: ['gf', 'n'], description: 'Rice noodles, tamarind, sweet raddish, beansprouts, spring onions, peanuts on side.', variants: D.PADTHAI_5 },
+      { name: 'Pad Thai', native_name: 'ผัดไทย', dietary: ['gf', 'nuts'], description: 'Rice noodles, tamarind, sweet raddish, beansprouts, spring onions, peanuts on side.', variants: D.PADTHAI_5 },
       { name: 'Pad Mee',                                                description: 'Egg noodles, soya, beansprouts, cabbage, carrots, spring onions. Spicy on request.', variants: D.PADMEE_5 },
       { name: 'Just Egg Noodles', price_pence: 550, description: 'Egg noodles, beansprouts, carrots, spring onions. Side to Stir-fries.' },
     ]},
@@ -147,7 +148,7 @@ export const ONETHAI_LUNCH = {
       { name: 'Green Curry',  dietary: ['gf', 'spicy'], description: 'Sharp, sweet, medium-spicy. Coconut milk, courgettes, bamboo, peppers.',                variants: D.LUNCH_CURRY },
       { name: 'Red Curry',    dietary: ['gf', 'spicy'], description: 'Bolder & smoother, medium-spicy. Coconut milk, courgettes, bamboo, peppers.',           variants: D.LUNCH_CURRY },
       { name: 'Panang Curry', dietary: ['gf', 'spicy'], description: 'Creamy, distinctive lime leaves. Coconut milk, red peppers, fresh lime leaves.',        variants: D.LUNCH_CURRY_PANANG },
-      { name: 'Massaman Curry', dietary: ['gf', 'n'],   description: 'Mild, creamy, nutty. Star anise, herbs, potatoes, cashews. Best with beef.',            variants: D.LUNCH_MASSAMAN },
+      { name: 'Massaman Curry', dietary: ['gf', 'nuts'],   description: 'Mild, creamy, nutty. Star anise, herbs, potatoes, cashews. Best with beef.',            variants: D.LUNCH_MASSAMAN },
       { name: 'Duck Curry',   price_pence: 1060, dietary: ['gf'], description: 'Roasted duck, coconut milk, red curry paste, cherry tomatoes, pineapple, basil.' },
     ]},
     { title: 'Stir-Fry & Rice', subtitle: 'with jasmine rice', items: [
@@ -157,12 +158,12 @@ export const ONETHAI_LUNCH = {
       { name: 'Pad Pak',          price_pence: 980, dietary: ['v'], description: 'Stir-fried broccoli, cabbage, carrots, beansprouts, baby corn. Tofu optional.' },
     ]},
     { title: 'Stir-Fried Rice', subtitle: 'a meal in a bowl', items: [
-      { name: 'Kau Pad Supparod',      dietary: ['n'],         description: 'Pineapple fried rice, egg, onions, carrots, cabbage, tomatoes, cashews, turmeric.', variants: D.LUNCH_RICEBOWL },
+      { name: 'Kau Pad Supparod',      dietary: ['nuts'],         description: 'Pineapple fried rice, egg, onions, carrots, cabbage, tomatoes, cashews, turmeric.', variants: D.LUNCH_RICEBOWL },
       { name: 'Kau Pad',                                        description: 'Simple fried rice, egg, onions, carrots, cabbage, tomatoes, spring onions.',         variants: D.LUNCH_RICEBOWL },
       { name: 'Kau Pad Nam Prik Pao', dietary: ['spicy'],     description: "'A bit' spicy fried rice, Thai herbs, chilli oil, onions, carrots, cabbage. Optional egg.", variants: D.LUNCH_RICEBOWL },
     ]},
     { title: 'Stir-Fried Noodles', subtitle: 'comforting & quick', items: [
-      { name: 'Pad Thai',  dietary: ['gf', 'n'],   description: 'Rice noodles, tamarind, sweet raddish, beansprouts, carrots, spring onions, peanuts on side.', variants: D.LUNCH_NOODLES },
+      { name: 'Pad Thai',  dietary: ['gf', 'nuts'],   description: 'Rice noodles, tamarind, sweet raddish, beansprouts, carrots, spring onions, peanuts on side.', variants: D.LUNCH_NOODLES },
       { name: 'Pad Mee',                            description: 'Quick & mild egg noodles, soya, beansprouts, cabbage, carrots, spring onions.',                  variants: D.LUNCH_PADMEE },
       { name: 'Pad Kee Mao', dietary: ['spicy'],   description: 'Spicy rice noodles, fine beans, bamboo, chilli, garlic, peppers, basil.',                          variants: D.LUNCH_PADKEEMAO },
       { name: 'Pad See Eew',                        description: 'Stir-fried rice noodles, dark soya, cabbage, carrots, spring onions.',                            variants: D.LUNCH_PADSEEEW },
@@ -179,4 +180,29 @@ export const ONETHAI_LUNCH = {
 export const SEED_BY_SLUG = {
   'onethai-dinner': ONETHAI_DINNER,
   'onethai-lunch':  ONETHAI_LUNCH,
+}
+
+// The standard allergens (shared/menuTags.js) the tenant is still missing,
+// matched by standard_key. Added after the tenant's other allergens; a
+// code already taken by another tag gets a number on the end.
+export async function ensureStandardAllergens(tx, tenantId) {
+  const tags = await tx`SELECT code, standard_key, kind, sort_order FROM menu_dietary_tags WHERE tenant_id = ${tenantId}`
+  const haveKeys = new Set(tags.map(t => t.standard_key).filter(Boolean))
+  const codes = new Set(tags.map(t => t.code))
+  let order = Math.max(-1, ...tags.filter(t => t.kind === 'allergen').map(t => t.sort_order))
+  const added = []
+  for (const a of STANDARD_ALLERGENS) {
+    if (haveKeys.has(a.key)) continue
+    let code = a.key
+    for (let n = 2; codes.has(code); n++) code = `${a.key.slice(0, 13)}-${n}`
+    codes.add(code)
+    const [row] = await tx`
+      INSERT INTO menu_dietary_tags (tenant_id, code, label, glyph, colour, sort_order, kind, standard_key)
+      VALUES (${tenantId}, ${code}, ${a.label}, ${a.glyph}, ${a.colour}, ${++order}, 'allergen', ${a.key})
+      ON CONFLICT DO NOTHING
+      RETURNING *
+    `
+    if (row) added.push(row)
+  }
+  return added
 }

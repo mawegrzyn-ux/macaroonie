@@ -15,13 +15,9 @@ const sections = (m.sections || []).filter(s => (s.items || []).length)
 const tenantName = m.tenant_name || ''
 const paperSize = m.print_paper_size === 'A3' ? 'A3' : 'A4'
 const sheetWidthMm = paperSize === 'A3' ? 297 : 210
-const usedCodes = new Set()
-sections.forEach(function (s) {
-  (s.items || []).forEach(function (item) {
-    (item.dietary || []).forEach(function (c) { if (tagsByCode[c]) usedCodes.add(c) })
-  })
-})
-const keyTags = tags.filter(t => usedCodes.has(t.code))
+/* it.key = usedTags() from shared/menuTags.js: the tags these dishes use,
+   and whether any allergen on them can be removed (asterisk + note). */
+const keyTags = it.key.tags
 const dishCount = sections.reduce(function (n, s) { return n + s.items.length }, 0)
 %><!DOCTYPE html>
 <html lang="en">
@@ -78,6 +74,7 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
       color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
+    .tag-star { align-self: flex-start; font-size: .85em; margin-left: 1px; }
     .none { color: #c8beb6; }
     .key { margin-top: 6mm; padding-top: 3mm; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 2mm 5mm; font-size: 11px; color: var(--muted); break-inside: avoid; page-break-inside: avoid; }
     .key .pair { display: inline-flex; align-items: center; gap: 5px; }
@@ -132,7 +129,7 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
     <div class="pick-note">Tick the dishes to include. Unticked dishes are left out of the printed list. Your choice is remembered on this device.</div>
     <table class="dl">
       <thead>
-        <tr><th>Dish</th><th class="tags-col">Dietary</th></tr>
+        <tr><th>Dish</th><th class="tags-col">Dietary &amp; allergens</th></tr>
       </thead>
       <tbody>
         <% sections.forEach(function (s) { %>
@@ -140,13 +137,17 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
           <% s.items.forEach(function (item) { %>
             <% const _tags = (item.dietary || []).map(function (c) { return tagsByCode[c] }).filter(Boolean) %>
             <% const _codes = _tags.map(function (t) { return t.code }).join(' ') %>
-            <tr class="dish" data-id="<%= item.id %>" data-tags="<%= _codes %>">
+            <% const _levels = item.allergen_levels || {} %>
+            <% const _removable = _tags.some(function (t) { return _levels[t.code] === 'removable' }) %>
+            <tr class="dish" data-id="<%= item.id %>" data-tags="<%= _codes %>"<% if (_removable) { %> data-removable="1"<% } %>>
               <td><input type="checkbox" class="pick" checked aria-label="Include <%= item.name %>" /><span class="name"><%= item.name %></span><% if (item.native_name) { %><span class="native"><%= item.native_name %></span><% } %></td>
               <td class="tags">
                 <% if (_tags.length) { %>
                   <span class="icons">
                     <% _tags.forEach(function (tag) { %>
-                      <span class="tag-chip" style="background: <%= tag.colour %>;" title="<%= tag.label %>" aria-label="<%= tag.label %>"><%= tag.glyph %></span>
+                      <% const _rm = _levels[tag.code] === 'removable' %>
+                      <% const _name = tag.label + (_rm ? ' (' + it.removableNote.toLowerCase() + ')' : '') %>
+                      <span class="tag-chip" style="background: <%= tag.colour %>;" title="<%= _name %>" aria-label="<%= _name %>"><%= tag.glyph %><% if (_rm) { %><span class="tag-star">*</span><% } %></span>
                     <% }) %>
                   </span>
                 <% } else { %>
@@ -165,6 +166,7 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
         <% keyTags.forEach(function (tag) { %>
           <span class="pair" data-tag="<%= tag.code %>"><span class="tag-chip" style="background: <%= tag.colour %>;"><%= tag.glyph %></span><%= tag.label %></span>
         <% }) %>
+        <% if (it.key.removable) { %><span class="pair" data-removable="1">* <%= it.removableNote %></span><% } %>
       </div>
     <% } %>
   </div>
@@ -183,7 +185,7 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
       try { localStorage.setItem(KEY, JSON.stringify(Object.keys(skip))) } catch (e) {}
     }
     function apply() {
-      var shown = 0, usedTags = {};
+      var shown = 0, usedTags = {}, removable = false;
       rows.forEach(function (r) {
         var off = !!skip[r.dataset.id];
         r.classList.toggle('off', off);
@@ -191,6 +193,7 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
         if (!off) {
           shown++;
           (r.dataset.tags || '').split(' ').forEach(function (c) { if (c) usedTags[c] = true });
+          if (r.dataset.removable) removable = true;
         }
       });
       /* A section heading goes when none of its dishes are left. */
@@ -200,7 +203,7 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
         sec.classList.toggle('off', !any);
       });
       Array.prototype.forEach.call(document.querySelectorAll('.key .pair'), function (p) {
-        p.classList.toggle('off', !usedTags[p.dataset.tag]);
+        p.classList.toggle('off', p.dataset.removable ? !removable : !usedTags[p.dataset.tag]);
       });
       var c = document.getElementById('dl-count');
       if (c) c.textContent = (shown === total ? total : shown + ' of ' + total) + ' dish' + (total === 1 ? '' : 'es');

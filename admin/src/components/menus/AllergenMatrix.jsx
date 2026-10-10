@@ -1,19 +1,22 @@
-// Allergen matrix: every dish of a menu against every dietary / allergen
-// tag. Two views over the same data (GET /menus/:id/allergens):
-//   AllergenMatrixEditor  the Menus > Allergen matrix page: tap a cell to
-//                         toggle a tag, explicit Save (PUT, only the dishes
-//                         changed)
-//   AllergenLookup        read-only lookup for the H&S Dashboard widget and
-//                         the Overview tile: search a dish, or filter by
-//                         "contains" / "free from" a tag
-// Both have a menu picker and a search box. Tags are tenant-wide
-// (Menus > Dietary tags); allergens and dietary badges are the same thing.
+// Allergen matrix: every dish of a menu against every allergen and
+// dietary tag. Two views over the same data (GET /menus/:id/allergens,
+// each dish's tags as { tag id: level }):
+//   AllergenMatrixEditor  the Menus > Allergen matrix page: tap an allergen
+//                         cell to cycle No / Contains / May contain / Can
+//                         be removed, a dietary cell to toggle it; explicit
+//                         Save (PUT, only the dishes changed)
+//   AllergenLookup        read-only lookup for the H&S Dashboard widget, the
+//                         Overview tile and /mobile/allergens: search a
+//                         dish, or filter by "has" / "free from" a tag
+// Both have a menu picker and a search box. Tags are tenant-wide (Menus >
+// Allergens & dietary, migration 145); the API lists allergens first.
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, X, Loader2, Check, EyeOff, AlertTriangle, ChevronDown, SlidersHorizontal } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { LEVEL_LABELS } from '@shared/menuTags.js'
 import { TagChip } from './DietaryTagsManager'
 
 function readStore(key) {
@@ -84,10 +87,49 @@ export function SearchBox({ value, onChange, placeholder = 'Search dishes', clas
   )
 }
 
-function sameSet(a, b) {
-  if (a.size !== b.size) return false
-  for (const x of a) if (!b.has(x)) return false
-  return true
+function sameLevels(a, b) {
+  const ka = Object.keys(a || {})
+  if (ka.length !== Object.keys(b || {}).length) return false
+  return ka.every(k => a[k] === b[k])
+}
+
+// Allergens cycle through the levels; a dietary tag is on or off.
+const NEXT_LEVEL = { none: 'contains', contains: 'may_contain', may_contain: 'removable', removable: null }
+function nextLevel(tag, level) {
+  if (tag.kind !== 'allergen') return level ? null : 'contains'
+  return NEXT_LEVEL[level || 'none']
+}
+
+/** A tag badge drawn for its level: Contains = filled, May contain =
+ *  outlined on a pale tint, Can be removed = filled with an asterisk. Staff tools
+ *  only; menus show May contain the same as Contains. */
+export function LevelChip({ tag, level, className = 'w-8 h-8 text-xs' }) {
+  if (level === 'may_contain') {
+    return (
+      <span className={cn('inline-flex items-center justify-center rounded font-bold border-2 px-1 shrink-0', className)}
+        style={{ borderColor: tag.colour, color: tag.colour, background: `color-mix(in srgb, ${tag.colour} 14%, white)` }}>{tag.glyph}</span>
+    )
+  }
+  return (
+    <span className={cn('inline-flex items-center justify-center rounded font-bold text-white px-1 shrink-0', className)}
+      style={{ background: tag.colour }}>
+      {tag.glyph || <Check className="w-4 h-4" />}
+      {level === 'removable' && <span className="self-start text-[0.85em] ml-px">*</span>}
+    </span>
+  )
+}
+
+function LevelKey() {
+  const sample = { glyph: 'Ab', colour: '#57534e' }
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      {['contains', 'may_contain', 'removable'].map(l => (
+        <span key={l} className="inline-flex items-center gap-1.5">
+          <LevelChip tag={sample} level={l} className="w-7 h-6 text-[10px]" />{LEVEL_LABELS[l]}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 // ── Editor (page) ──────────────────────────────────────────────
@@ -98,7 +140,7 @@ export function AllergenMatrixEditor({ canEdit }) {
   const { menus, menuId, setMenuId, isLoading: menusLoading } = useMenuChoice('maca_allergen_matrix_menu')
   const { data, isLoading, error } = useAllergenMatrix(menuId)
   const [search, setSearch] = useState('')
-  // item id -> Set of tag ids, only for dishes the operator has touched.
+  // item id -> { tag id: level }, only for dishes the operator has touched.
   const [draft, setDraft] = useState({})
   const [saveError, setSaveError] = useState('')
 
@@ -106,16 +148,16 @@ export function AllergenMatrixEditor({ canEdit }) {
 
   const savedTags = useMemo(() => {
     const out = {}
-    for (const s of data?.sections || []) for (const i of s.items) out[i.id] = new Set(i.tag_ids)
+    for (const s of data?.sections || []) for (const i of s.items) out[i.id] = i.levels || {}
     return out
   }, [data])
 
-  const changedIds = Object.keys(draft).filter(id => savedTags[id] && !sameSet(draft[id], savedTags[id]))
+  const changedIds = Object.keys(draft).filter(id => savedTags[id] && !sameLevels(draft[id], savedTags[id]))
   const dirty = changedIds.length > 0
 
   const save = useMutation({
     mutationFn: () => api.put(`/menus/${menuId}/allergens`, {
-      items: changedIds.map(id => ({ item_id: id, tag_ids: [...draft[id]] })),
+      items: changedIds.map(id => ({ item_id: id, levels: draft[id] })),
     }),
     onSuccess: (fresh) => {
       qc.setQueryData(['allergen-matrix', menuId], fresh)
@@ -127,17 +169,19 @@ export function AllergenMatrixEditor({ canEdit }) {
   })
 
   function tagsOf(itemId) {
-    return draft[itemId] || savedTags[itemId] || new Set()
+    return draft[itemId] || savedTags[itemId] || {}
   }
-  function toggle(itemId, tagId) {
+  function toggle(itemId, tag) {
     if (!canEdit) return
-    const next = new Set(tagsOf(itemId))
-    next.has(tagId) ? next.delete(tagId) : next.add(tagId)
+    const next = { ...tagsOf(itemId) }
+    const level = nextLevel(tag, next[tag.id])
+    if (level) next[tag.id] = level; else delete next[tag.id]
     setDraft(d => ({ ...d, [itemId]: next }))
   }
 
   const q = norm(search.trim())
   const tags = data?.tags || []
+  const allergenCount = tags.filter(t => t.kind === 'allergen').length
   const sections = (data?.sections || [])
     .map(s => ({ ...s, items: s.items.filter(i => matchesSearch(i, q)) }))
     .filter(s => s.items.length > 0)
@@ -166,6 +210,9 @@ export function AllergenMatrixEditor({ canEdit }) {
         )}
       </div>
       {dirty && <p className="text-xs text-muted-foreground -mt-1 pb-2">Save or discard your changes to switch menu.</p>}
+      {allergenCount > 0 && (
+        <div className="pb-2"><LevelKey /></div>
+      )}
       {saveError && <p className="text-sm text-destructive pb-2">{saveError}</p>}
 
       {(menusLoading || isLoading) ? (
@@ -175,18 +222,31 @@ export function AllergenMatrixEditor({ canEdit }) {
       ) : error ? (
         <p className="text-sm text-destructive py-12 text-center">{error.message}</p>
       ) : !tags.length ? (
-        <p className="text-sm text-muted-foreground py-12 text-center">No dietary or allergen tags yet. Add them under Menus, Dietary tags.</p>
+        <p className="text-sm text-muted-foreground py-12 text-center">No allergens or dietary tags yet. Add them under Menus, Allergens &amp; dietary.</p>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto border rounded-lg bg-background">
           <table className="border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
-                <th className="sticky top-0 left-0 z-30 bg-muted text-left font-medium px-3 py-2 border-b border-r min-w-[13rem] align-bottom">
+                <th rowSpan={2} className="sticky top-0 left-0 z-30 bg-muted text-left font-medium px-3 py-2 border-b border-r min-w-[13rem] align-bottom">
                   Dish <span className="font-normal text-muted-foreground">({dishCount})</span>
                 </th>
-                {tags.map(t => (
+                {[['allergen', 'Allergens'], ['dietary', 'Dietary tags']].map(([k, label]) => {
+                  const n = tags.filter(t => (t.kind === 'allergen') === (k === 'allergen')).length
+                  return n > 0 && (
+                    <th key={k} colSpan={n} scope="colgroup"
+                      className={cn('sticky top-0 z-20 bg-muted h-7 px-2 border-b text-left text-[11px] font-semibold uppercase tracking-wide',
+                        k === 'dietary' && allergenCount > 0 && 'border-l-2 border-l-foreground/20')}>
+                      <span className="sticky left-[13.5rem] inline-block">{label}</span>
+                    </th>
+                  )
+                })}
+              </tr>
+              <tr>
+                {tags.map((t, ti) => (
                   <th key={t.id} scope="col" title={t.label}
-                    className="sticky top-0 z-20 bg-muted px-1 py-2 border-b font-normal align-bottom w-14 min-w-[3.5rem]">
+                    className={cn('sticky top-7 z-20 bg-muted px-1 py-2 border-b font-normal align-bottom w-14 min-w-[3.5rem]',
+                      ti === allergenCount && ti > 0 && 'border-l-2 border-l-foreground/20')}>
                     <div className="flex flex-col items-center gap-1.5">
                       <span className="text-xs leading-tight whitespace-nowrap [writing-mode:vertical-rl] rotate-180 max-h-[9rem] overflow-hidden text-ellipsis">{t.label}</span>
                       <TagChip tag={t} />
@@ -197,7 +257,7 @@ export function AllergenMatrixEditor({ canEdit }) {
             </thead>
             <tbody>
               {sections.map(s => (
-                <SectionRows key={s.id} section={s} tags={tags} tagsOf={tagsOf}
+                <SectionRows key={s.id} section={s} tags={tags} tagsOf={tagsOf} allergenCount={allergenCount}
                   savedTags={savedTags} draft={draft} onToggle={toggle} canEdit={canEdit} />
               ))}
               {sections.length === 0 && (
@@ -213,7 +273,7 @@ export function AllergenMatrixEditor({ canEdit }) {
   )
 }
 
-function SectionRows({ section, tags, tagsOf, savedTags, draft, onToggle, canEdit }) {
+function SectionRows({ section, tags, tagsOf, allergenCount, savedTags, draft, onToggle, canEdit }) {
   return (
     <>
       <tr>
@@ -232,7 +292,7 @@ function SectionRows({ section, tags, tagsOf, savedTags, draft, onToggle, canEdi
       </tr>
       {section.items.map(item => {
         const has = tagsOf(item.id)
-        const changed = draft[item.id] && !sameSet(draft[item.id], savedTags[item.id] || new Set())
+        const changed = draft[item.id] && !sameLevels(draft[item.id], savedTags[item.id] || {})
         return (
           <tr key={item.id} className="group">
             <th scope="row"
@@ -241,18 +301,19 @@ function SectionRows({ section, tags, tagsOf, savedTags, draft, onToggle, canEdi
               <div className="font-medium leading-snug">{item.name}</div>
               {item.native_name && <div className="text-xs text-muted-foreground leading-snug">{item.native_name}</div>}
             </th>
-            {tags.map(t => {
-              const on = has.has(t.id)
-              const cellChanged = changed && on !== (savedTags[item.id]?.has(t.id) ?? false)
+            {tags.map((t, ti) => {
+              const level = has[t.id]
+              const cellChanged = changed && (level || null) !== (savedTags[item.id]?.[t.id] || null)
+              const state = level ? (t.kind === 'allergen' ? LEVEL_LABELS[level] : 'Yes') : 'No'
               return (
-                <td key={t.id} className="border-b p-0 text-center group-hover:bg-accent/30">
-                  <button type="button" onClick={() => onToggle(item.id, t.id)} disabled={!canEdit}
-                    aria-pressed={on} aria-label={`${t.label}: ${item.name}`}
+                <td key={t.id} className={cn('border-b p-0 text-center group-hover:bg-accent/30',
+                  ti === allergenCount && ti > 0 && 'border-l-2 border-l-foreground/20')}>
+                  <button type="button" onClick={() => onToggle(item.id, t)} disabled={!canEdit}
+                    aria-label={`${t.label}, ${item.name}: ${state}`} title={`${t.label}: ${state}`}
                     className={cn('w-14 h-12 flex items-center justify-center touch-manipulation disabled:cursor-default',
                       cellChanged && 'ring-2 ring-inset ring-amber-400')}>
-                    {on
-                      ? <span className="inline-flex items-center justify-center w-8 h-8 rounded text-xs font-bold text-white"
-                          style={{ background: t.colour }}>{t.glyph || <Check className="w-4 h-4" />}</span>
+                    {level
+                      ? <LevelChip tag={t} level={level} />
                       : <span className="inline-block w-8 h-8 rounded border-2 border-dashed border-muted-foreground/25" />}
                   </button>
                 </td>
@@ -267,8 +328,13 @@ function SectionRows({ section, tags, tagsOf, savedTags, draft, onToggle, canEdi
 
 // ── Lookup (dashboard widget / Overview tile / /mobile/allergens) ──
 
-// Tag filter states: tap cycles off -> contains -> free from -> off.
+// Tag filter states: tap cycles off -> has -> free from -> off. "Has"
+// matches any level; "free from" an allergen also keeps dishes that can be
+// made without it, marked "Ask for it without ..." (May contain never counts
+// as free from).
 const NEXT_MODE = { undefined: 'has', has: 'not', not: undefined }
+
+const LEVEL_ORDER = ['contains', 'may_contain', 'removable']
 
 // `phone` (the /mobile page): menu + search stick to the top while the
 // list scrolls, and the tag filter folds away behind one button.
@@ -297,9 +363,9 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
       items: s.items.filter(i => {
         if (!matchesSearch(i, q)) return false
         for (const [tagId, mode] of active) {
-          const has = i.tag_ids.includes(tagId)
-          if (mode === 'has' && !has) return false
-          if (mode === 'not' && has) return false
+          const level = (i.levels || {})[tagId]
+          if (mode === 'has' && !level) return false
+          if (mode === 'not' && level && level !== 'removable') return false
         }
         return true
       }),
@@ -364,7 +430,7 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
             })}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1">
-            Tap a tag once for dishes that have it, twice for dishes free from it.
+            Tap a tag once for dishes that have it, twice for dishes free from it (including dishes it can be removed from).
             {active.length > 0 && (
               <button type="button" onClick={() => setModes({})} className="ml-2 underline touch-manipulation">Clear tags</button>
             )}
@@ -382,8 +448,17 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
               <div key={s.id}>
                 <div className="px-2.5 py-1 bg-muted/50 text-[11px] font-semibold uppercase tracking-wide">{s.title}</div>
                 {s.items.map(i => {
-                  const itemTags = i.tag_ids.map(id => tagById[id]).filter(Boolean)
-                    .sort((a, b) => (a.sort_order - b.sort_order) || a.label.localeCompare(b.label))
+                  const levels = i.levels || {}
+                  // Dish badges: allergens first (as the API lists tags), then dietary tags.
+                  const itemTags = tags.filter(t => levels[t.id])
+                  // Free-from filters this dish only passes because the allergen can be removed.
+                  const removeFor = active
+                    .filter(([id, m]) => m === 'not' && levels[id] === 'removable')
+                    .map(([id]) => tagById[id]?.label).filter(Boolean)
+                  const groups = [
+                    ...LEVEL_ORDER.map(l => [LEVEL_LABELS[l], itemTags.filter(t => t.kind === 'allergen' && levels[t.id] === l)]),
+                    ['Dietary', itemTags.filter(t => t.kind !== 'allergen')],
+                  ].filter(([, list]) => list.length)
                   const open = openId === i.id
                   return (
                     <div key={i.id} className={cn('border-t first:border-t-0', open && 'bg-muted/30')}>
@@ -392,14 +467,14 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium leading-snug">{i.name}</div>
                           {i.native_name && <div className="text-xs text-muted-foreground">{i.native_name}</div>}
+                          {removeFor.length > 0 && (
+                            <div className="text-xs font-medium text-amber-700 dark:text-amber-300">Ask for it without {removeFor.join(', ')}</div>
+                          )}
                         </div>
                         <div className="flex flex-wrap justify-end gap-1 max-w-[60%]">
                           {itemTags.map(t => (
-                            <span key={t.id} title={t.label}
-                              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-white"
-                              style={{ background: t.colour }}>
-                              <span className="font-bold">{t.glyph}</span>
-                              {!phone && <span className="hidden sm:inline">{t.label}</span>}
+                            <span key={t.id} title={`${t.label}${t.kind === 'allergen' ? ': ' + LEVEL_LABELS[levels[t.id]] : ''}`}>
+                              <LevelChip tag={t} level={t.kind === 'allergen' ? levels[t.id] : 'contains'} className="min-w-[1.6rem] h-6 text-[11px]" />
                             </span>
                           ))}
                           {itemTags.length === 0 && <span className="text-[11px] text-muted-foreground">No tags</span>}
@@ -408,15 +483,22 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
                       {open && (
                         <div className="px-2.5 pb-3 space-y-2 text-sm">
                           {i.description && <p className="text-muted-foreground">{i.description}</p>}
-                          {itemTags.length ? (
-                            <ul className="space-y-1">
-                              {itemTags.map(t => (
-                                <li key={t.id} className="flex items-center gap-2">
-                                  <TagChip tag={t} size="w-6 h-6" />
-                                  <span>{t.label}</span>
-                                </li>
+                          {groups.length ? (
+                            <div className="space-y-2">
+                              {groups.map(([title, list]) => (
+                                <div key={title}>
+                                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+                                  <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                                    {list.map(t => (
+                                      <li key={t.id} className="flex items-center gap-2">
+                                        <LevelChip tag={t} level={t.kind === 'allergen' ? levels[t.id] : 'contains'} className="min-w-[1.5rem] h-6 text-[11px]" />
+                                        <span>{t.label}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
                               ))}
-                            </ul>
+                            </div>
                           ) : (
                             <p className="text-muted-foreground">No allergen or dietary tags recorded for this dish.</p>
                           )}
@@ -434,10 +516,13 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
             )}
           </div>
           {tags.length > 0 && (
-            <p className="text-[11px] text-muted-foreground flex items-start gap-1">
-              <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
-              Only shows the tags recorded on each dish. Check recipes and suppliers before confirming an allergy.
-            </p>
+            <div className="space-y-1.5">
+              <LevelKey />
+              <p className="text-[11px] text-muted-foreground flex items-start gap-1">
+                <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />
+                Only shows the tags recorded on each dish. Check recipes and suppliers before confirming an allergy.
+              </p>
+            </div>
           )}
         </>
       )}

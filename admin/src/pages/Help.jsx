@@ -183,7 +183,7 @@ export default function Help() {
                 ['Venues status', 'One card per venue with an active/inactive dot and table count.'],
                 ['H&S checks today', 'Combined Checklists + Food safety status for today. Below the overall badge, every checklist is listed by name (done/not done), plus one line each for fridge/freezer checks, hot/cold hold checks, and cooking checks (only the categories you actually have configured), and a delivery checks line showing how many deliveries were logged that day — grouped by venue if you have more than one. A delivery that failed a check with no corrective action noted turns the day red.'],
                 ['Week\'s H&S status', 'The same status as a Monday-to-Sunday strip for the current week — one coloured cell per day.'],
-                ['Allergen lookup', 'Pick a menu, search a dish, or tap allergen and dietary tags to list dishes that have them or are free from them (see Menus, Allergen matrix).'],
+                ['Allergen lookup', 'Pick a menu, search a dish, or tap allergen and dietary tags to list dishes that have them or are free from them. Shows Contains, May contain and Can be removed apart (see Menus, Allergen matrix).'],
               ]}
             />
             <H3>H&amp;S status colours</H3>
@@ -2593,9 +2593,37 @@ export default function Help() {
                 ['Calories', 'Optional kcal count shown next to the price on the website and printed menu. Leave blank for dishes you haven\'t calculated yet — nothing is required.'],
                 ['Category icon', 'A small image/icon next to a section\'s title (e.g. a little flame for "Spicy", a leaf for "Vegan Specials"). Upload something roughly square — 64×64 or 96×96 px works well — it always displays small, no bigger than the heading text next to it, regardless of the source size.'],
                 ['House favourite', 'Highlights the dish with the featured styling.'],
-                ['Dietary tags', 'Small coloured badges (vegan, gluten-free, spicy, …) shown next to the dish name. Create and edit them under Menus → Dietary tags: tap a tag to change its label, badge text, code or colour.'],
+                ['Dietary tags', 'Small coloured badges (vegan, gluten-free, spicy, …) shown next to the dish name. Tap one in the dish panel to switch it on or off.'],
+                ['Allergens', 'One tile per allergen. Tap a tile to step through No, Contains, May contain and Can be removed. All three show the allergen\'s badge on the menu; Can be removed adds a small asterisk, explained under the menu as "Can be removed on request".'],
               ]}
             />
+            <H3>Allergens and dietary tags</H3>
+            <P>
+              <strong>Menus &rarr; Allergens &amp; dietary</strong> has two lists.{' '}
+              <strong>Allergens</strong> starts with the 14 allergens UK law says you must declare
+              (celery, gluten, crustaceans, eggs, fish, lupin, milk, molluscs, mustard, nuts, peanuts,
+              sesame, soya and sulphites), marked <strong>Standard</strong>. If any are missing, an
+              amber bar offers to add them back. <strong>Dietary tags</strong> are the rest: vegan,
+              gluten-free, spicy and so on. Tap a tag to change its label, badge text, code, colour
+              or type, and drag the grips to change the order the badges show in (dietary tags come
+              before allergens on the menu).
+            </P>
+            <P>
+              A dish either has a dietary tag or not. An allergen has one of four settings for each
+              dish: <strong>Contains</strong>, <strong>May contain</strong> (for example a risk of
+              cross-contact), <strong>Can be removed</strong> (the dish has it but the kitchen can
+              make it without), or no setting (the dish doesn&apos;t have it). On the website, the
+              printed menu, the dietary list and online ordering the first three look the same, the
+              allergen&apos;s badge, except that Can be removed adds a small asterisk. The printed key
+              then says &ldquo;* Can be removed on request&rdquo;.
+            </P>
+            <P>
+              If you had your own tag for an allergen before, for example &ldquo;N&rdquo; for nuts,
+              it was turned into that allergen, so dishes kept their badge. If you end up with two tags
+              for the same thing, open the one you don&apos;t want and use <strong>Merge into another
+              tag</strong>: every dish moves onto the tag you pick and the old one is deleted. A
+              printed key now lists only the badges the printed dishes use.
+            </P>
             <InfoBox type="tip">
               Every reading here saves as part of the whole menu — click <strong>Save</strong> at
               the top of the page once you're done editing, same as any other admin form.
@@ -2634,18 +2662,21 @@ export default function Help() {
             </P>
             <H3>Allergen matrix</H3>
             <P>
-              <strong>Menus &rarr; Allergen matrix</strong> shows every dish of one menu as a row and
-              every dietary or allergen tag as a column. Pick the menu at the top and use the search
-              box to find a dish by name. Tap a box to give that dish the tag (the box fills with the
-              tag&apos;s badge); tap it again to take it off. Changed boxes get an amber outline, and
+              <strong>Menus &rarr; Allergen matrix</strong> shows every dish of one menu as a row, the
+              allergens as the first columns and the dietary tags after them. Pick the menu at the top
+              and use the search box to find a dish by name. Tap an allergen box to step through{' '}
+              <strong>Contains</strong> (the badge), <strong>May contain</strong> (the badge
+              outlined on a pale background), <strong>Can be removed</strong> (the badge with an
+              asterisk) and back to empty; the key above the table shows the three. Tap a dietary box
+              to switch the tag on or off. Changed boxes get an amber outline, and
               nothing is stored until you tap <strong>Save</strong> (it says how many dishes you
               changed). <strong>Discard</strong> puts everything back. You can&apos;t switch menu while
               there are unsaved changes.
             </P>
             <P>
-              The columns are your dietary tags (Menus &rarr; Dietary tags), so add a tag there for
-              each allergen you want to track, for example the 14 UK allergens. A tag ticked here is
-              the same tag the dish shows on the website, the printed menu and the dietary list.
+              The columns are your tags from Menus &rarr; Allergens &amp; dietary. A setting here is
+              the same one the dish panel in the menu editor shows, and the same badge the dish shows
+              on the website, the printed menu and the dietary list.
               Sections hidden on the website or everywhere still show here, marked as hidden. If the
               same menu is open in the menu editor, save one before changing the other, or the later
               save puts back the tags it loaded.
@@ -2654,8 +2685,11 @@ export default function Help() {
               Add an <strong>Allergen lookup</strong> widget to an H&amp;S dashboard, or the Allergen
               lookup tile to the Overview, so front-of-house staff can answer allergy questions
               without editing anything. Tap a tag once to list dishes that have it, twice to list
-              dishes free from it, and a third time to clear it. Sections hidden everywhere are left
-              out of the lookup. Tap a dish to see its tags written out in full.
+              dishes free from it, and a third time to clear it. Free from also lists dishes the
+              allergen can be removed from, marked &ldquo;Ask for it without&rdquo; that allergen;
+              dishes that may contain it are never listed as free from it. Sections hidden everywhere
+              are left out of the lookup. Tap a dish to see its tags written out in full, grouped
+              Contains, May contain, Can be removed and Dietary.
             </InfoBox>
             <P>
               On a phone, open the Ops app (<strong>/mobile</strong>) and tap{' '}
@@ -2668,9 +2702,10 @@ export default function Help() {
             <H3>Dietary list</H3>
             <P>
               Tap <strong>Dietary list</strong> next to <strong>Print</strong> (on the menus list or at
-              the top of a menu) for a simple sheet listing every dish in one column and its dietary
-              tags, as icons only, in the second, grouped by section. A key under the list says what
-              each icon used on it means. It prints portrait on the menu's paper size and runs onto
+              the top of a menu) for a simple sheet listing every dish in one column and its allergen
+              and dietary badges, as icons only, in the second, grouped by section. A key under the
+              list says what each icon used on it means, and what the asterisk means if a dish has an
+              allergen that can be removed. It prints portrait on the menu's paper size and runs onto
               more pages when the menu is long. Sections set to hide everywhere are left out.
             </P>
             <P>

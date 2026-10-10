@@ -27,7 +27,7 @@ export default function MenuAllergenMatrix() {
         </h1>
         <p className="text-sm text-muted-foreground">
           {canEdit
-            ? 'Tap a box to give a dish that allergen or dietary tag, tap again to remove it, then Save. Tags are managed under Dietary tags.'
+            ? 'Tap an allergen box to step through Contains, May contain, Can be removed and back to No; tap a dietary box to switch it on or off. Then Save. Tags are managed under Allergens & dietary.'
             : 'Which dishes carry each allergen and dietary tag.'}
         </p>
       </div>
