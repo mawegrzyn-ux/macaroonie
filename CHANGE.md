@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — Allergens separate from dietary tags, with four levels]
+
+- Menus > **Allergens & dietary** (was Dietary tags) now has two lists: **Allergens**, which now includes the 14 standard UK allergens, and **Dietary tags** (vegan, gluten-free, spicy...). Existing tags that were clearly one of the 14 (for example N for nuts) became that allergen, so dishes keep their badge. Drag to reorder each list; **Merge into another tag** moves every dish from a duplicate tag onto another.
+- Each allergen is set per dish as **Contains**, **May contain**, **Can be removed** or not at all, in the dish panel (tap a tile to step through) or the Allergen matrix (tap a box to step through). Dietary tags stay on or off.
+- On the website, printed menus, the dietary list and online ordering, all three levels show the allergen's badge as before; Can be removed adds a small asterisk, explained as "Can be removed on request". Printed keys now list only the badges the printed dishes use.
+- Allergen matrix, H&S dashboard Allergen lookup, Overview tile and the phone Allergens page show the three levels apart. "Free from" also lists dishes the allergen can be removed from, marked "Ask for it without ..."; dishes that may contain it are never free from it.
+- New tenants get the 14 allergens automatically.
+- Database: migration 145.
+
+---
+
 ## [2026-10-10 — Cash Dashboard: Tips to pay out widget]
 
 - New Cash Dashboard widget **Tips to pay out**: the week's tips to pay staff in cash and by bank transfer, shown big, then each tip pot (what came in, how it is paid out) and each person's Bank and Cash amounts. Same figures as the Rota page's tips table.

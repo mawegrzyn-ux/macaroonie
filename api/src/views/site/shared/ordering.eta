@@ -117,6 +117,7 @@ const cfgJson = JSON.stringify(cfg).split('<').join('\\u003c')
 :is(.mo, .mo-sheet-back) .mo-item-price { margin-top: 8px; font-weight: 600; }
 :is(.mo, .mo-sheet-back) .mo-item img { width: 84px; height: 84px; object-fit: cover; border-radius: var(--r-md, 8px); flex: none; }
 :is(.mo, .mo-sheet-back) .mo-tag { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 700; margin-right: 4px; }
+:is(.mo, .mo-sheet-back) .mo-star { align-self: flex-start; font-size: .85em; margin-left: 1px; }
 :is(.mo, .mo-sheet-back) .mo-min { display: inline-block; font-size: .72rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; opacity: .75; margin-left: 4px; vertical-align: 1px; }
 :is(.mo, .mo-sheet-back) .mo-soldout { display: inline-block; font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #991b1b; }
 /* The column sticks, not the basket: the column is a grid item as tall as
@@ -515,8 +516,15 @@ async function startOrdering() {
     if (e.key === 'Enter' && 'codeInput' in e.target.dataset) { e.preventDefault(); applyCode(e.target.value, rerender) }
   }
 
-  function tagHtml(codes) {
-    return (codes || []).map(c => tags[c] ? '<span class="mo-tag" title="' + esc(tags[c].label) + '" style="background:' + esc(tags[c].colour) + '">' + esc(tags[c].glyph) + '</span>' : '').join('')
+  // levels = the dish's allergen_levels: an allergen that can be removed
+  // gets a small asterisk (shared/menuTags.js, migration 145).
+  function tagHtml(codes, levels) {
+    return (codes || []).map(c => {
+      if (!tags[c]) return ''
+      const rm = (levels || {})[c] === 'removable'
+      return '<span class="mo-tag" title="' + esc(tags[c].label + (rm ? ' (can be removed on request)' : '')) + '" style="background:' + esc(tags[c].colour) + '">' +
+        esc(tags[c].glyph) + (rm ? '<span class="mo-star">*</span>' : '') + '</span>'
+    }).join('')
   }
 
   // ── Menu ──
@@ -540,7 +548,7 @@ async function startOrdering() {
       (n ? '<span class="mo-in-basket" aria-label="' + n + ' in your basket">' + BAG + n + '</span>' : '') +
       '<div class="mo-item-body">' + (fav(i) ? favBadge() : '') + promoBadges(i) + '<div class="mo-item-name">' + esc(i.name) + '</div>' +
       (i.description ? '<div class="mo-item-desc">' + esc(i.description) + '</div>' : '') +
-      '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price) + minHtml(i)) + ' ' + tagHtml(i.dietary) + '</div></div>' +
+      '<div class="mo-item-price">' + (i.sold_out ? '<span class="mo-soldout">Sold out</span>' : esc(price) + minHtml(i)) + ' ' + tagHtml(i.dietary, i.allergen_levels) + '</div></div>' +
       (i.image_url ? '<img src="' + esc(i.image_url) + '" alt="" loading="lazy">' : '') +
       '</button>'
   }
@@ -623,9 +631,15 @@ async function startOrdering() {
     if (!menus.length) return '<div class="mo-banner">There is nothing to order right now.</div>'
     let h = navHtml() + '<div id="mo-menu-body">' + menuBodyHtml() + '</div>'
     const usedTags = new Set()
-    for (const x of menus) for (const s of x.sections) for (const i of s.items) for (const c of i.dietary || []) usedTags.add(c)
-    if (usedTags.size) {
-      h += '<p class="mo-muted" style="margin-top:24px;font-size:.9rem;">' + [...usedTags].filter(c => tags[c]).map(c => tagHtml([c]) + esc(tags[c].label)).join(' &nbsp; ') + '</p>'
+    let removable = false
+    for (const x of menus) for (const s of x.sections) for (const i of s.items) {
+      for (const c of i.dietary || []) usedTags.add(c)
+      if (Object.values(i.allergen_levels || {}).includes('removable')) removable = true
+    }
+    const keyTags = (data.dietary_tags || []).filter(t => usedTags.has(t.code))
+    if (keyTags.length) {
+      h += '<p class="mo-muted" style="margin-top:24px;font-size:.9rem;">' + keyTags.map(t => tagHtml([t.code]) + esc(t.label)).join(' &nbsp; ') +
+        (removable ? ' &nbsp; * Can be removed on request' : '') + '</p>'
     }
     h += '<p class="mo-muted" style="font-size:.9rem;">Allergies or dietary needs? Tell us in the allergy note at checkout' + (venue.phone ? ', or call us on ' + esc(venue.phone) : '') + ' before you order.</p>'
     return h
@@ -770,7 +784,7 @@ async function startOrdering() {
       if (fav(item)) h += favBadge()
       h += '<h3>' + esc(item.name) + '</h3>'
       if (item.description) h += '<p class="mo-muted" style="margin:0 0 6px;">' + esc(item.description) + '</p>'
-      if (item.dietary && item.dietary.length) h += '<div>' + tagHtml(item.dietary) + '</div>'
+      if (item.dietary && item.dietary.length) h += '<div>' + tagHtml(item.dietary, item.allergen_levels) + '</div>'
       if (item.calories) h += '<p class="mo-muted" style="font-size:.85rem;">' + esc(item.calories) + ' kcal</p>'
       if (minQty(item) > 1) h += '<p class="mo-muted" style="font-size:.9rem;font-weight:600;">Minimum order: ' + minQty(item) + (inBasket(item.id) ? ' (you have ' + inBasket(item.id) + ')' : '') + '</p>'
       for (const c of choices) {

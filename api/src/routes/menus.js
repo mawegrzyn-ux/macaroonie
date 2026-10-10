@@ -15,15 +15,18 @@ import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
 import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS } from '../services/menuSeeds.js'
+import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS, ensureStandardAllergens } from '../services/menuSeeds.js'
 import { randomUUID } from 'node:crypto'
 import {
   BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS,
   normalizeLayout, layoutGeometry, buildContext, renderPageHtml, layoutFontsUrl,
 } from '../../../shared/menuLayout.js'
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
+import { ALLERGEN_LEVELS, REMOVABLE_NOTE, usedTags } from '../../../shared/menuTags.js'
 
 // ── Schemas ──────────────────────────────────────────────────
+
+const AllergenLevel = z.enum(ALLERGEN_LEVELS)
 
 const VariantBody = z.object({
   id:          z.string().uuid().optional(),
@@ -60,8 +63,10 @@ const ItemBody = z.object({
   variants:       z.array(VariantBody).default([]),
   variant_groups: z.array(ItemGroupAttach).default([]),
   // M:N to dietary tags — array of dietary tag CODES (e.g. ['gf', 'spicy'])
-  // resolved to ids server-side.
+  // resolved to ids server-side. allergen_levels gives an allergen's level
+  // when it isn't 'contains' (migration 145, shared/menuTags.js).
   dietary:        z.array(z.string().max(32)).default([]),
+  allergen_levels: z.record(z.string().max(32), AllergenLevel).default({}),
 })
 
 const SectionBody = z.object({
@@ -200,6 +205,7 @@ const DietaryBody = z.object({
   glyph:      z.string().min(1).max(8),
   colour:     z.string().regex(/^#(?:[0-9a-fA-F]{3}){1,2}$/).default('#7a1a26'),
   sort_order: z.number().int().default(0),
+  kind:       z.enum(['dietary', 'allergen']).default('dietary'),   // migration 145
 })
 
 const VariantOptionBody = z.object({
@@ -285,12 +291,14 @@ async function loadVariantGroups(tx, tenantId) {
 const AllergenMatrixBody = z.object({
   items: z.array(z.object({
     item_id: z.string().uuid(),
-    tag_ids: z.array(z.string().uuid()).max(100),
+    // tag id -> level; a tag left out = the dish doesn't have it.
+    levels:  z.record(z.string().uuid(), AllergenLevel),
   })).max(2000),
 })
 
-// Allergen matrix: a menu's sections and dishes (names only) with the ids
-// of the dietary tags each dish has, plus every tag of the tenant.
+// Allergen matrix: a menu's sections and dishes (names only) with each
+// dish's tags as { tag id: level } (dietary tags are always 'contains'),
+// plus every tag of the tenant, allergens first.
 // Hidden sections are included (marked by visibility) so staff can still
 // answer allergen questions about them.
 export async function loadAllergenMatrix(tx, menuId, tenantId) {
@@ -301,26 +309,26 @@ export async function loadAllergenMatrix(tx, menuId, tenantId) {
   `
   if (!menu) return null
   const [tags, sections, items, links] = await Promise.all([
-    tx`SELECT id, code, label, glyph, colour, sort_order FROM menu_dietary_tags
-        WHERE tenant_id = ${tenantId} ORDER BY sort_order, label`,
+    tx`SELECT id, code, label, glyph, colour, sort_order, kind, standard_key FROM menu_dietary_tags
+        WHERE tenant_id = ${tenantId} ORDER BY kind, sort_order, label`,
     tx`SELECT id, title, visibility, sort_order FROM menu_sections
         WHERE menu_id = ${menuId} AND tenant_id = ${tenantId} ORDER BY sort_order, title`,
     tx`SELECT i.id, i.section_id, i.name, i.native_name, i.description, i.sort_order
          FROM menu_items i JOIN menu_sections s ON s.id = i.section_id
         WHERE s.menu_id = ${menuId} AND i.tenant_id = ${tenantId}
         ORDER BY i.sort_order, i.name`,
-    tx`SELECT mid.item_id, mid.tag_id FROM menu_item_dietary mid
+    tx`SELECT mid.item_id, mid.tag_id, mid.level FROM menu_item_dietary mid
          JOIN menu_items i ON i.id = mid.item_id
          JOIN menu_sections s ON s.id = i.section_id
         WHERE s.menu_id = ${menuId} AND mid.tenant_id = ${tenantId}`,
   ])
   const tagsByItem = {}
-  for (const l of links) (tagsByItem[l.item_id] ||= []).push(l.tag_id)
+  for (const l of links) (tagsByItem[l.item_id] ||= {})[l.tag_id] = l.level
   const bySection = {}
   for (const i of items) {
     (bySection[i.section_id] ||= []).push({
       id: i.id, name: i.name, native_name: i.native_name, description: i.description,
-      tag_ids: tagsByItem[i.id] || [],
+      levels: tagsByItem[i.id] || {},
     })
   }
   return {
@@ -360,19 +368,22 @@ export async function loadMenuFull(tx, menuId, tenantId) {
        ORDER BY s.sort_order, s.title
     `,
     tx`SELECT * FROM menu_callouts WHERE menu_id = ${menuId} ORDER BY sort_order`,
-    tx`SELECT * FROM menu_dietary_tags WHERE tenant_id = ${tenantId} ORDER BY sort_order, label`,
+    tx`SELECT * FROM menu_dietary_tags WHERE tenant_id = ${tenantId} ORDER BY kind = 'allergen', sort_order, label`,
     tx`
-      SELECT mid.item_id, t.code
+      SELECT mid.item_id, t.code, mid.level
         FROM menu_item_dietary mid
         JOIN menu_dietary_tags t ON t.id = mid.tag_id
        WHERE mid.tenant_id = ${tenantId}
+       ORDER BY t.kind = 'allergen', t.sort_order, t.label
     `,
   ])
 
-  // Sort items + attach dietary codes
+  // Sort items + attach dietary codes (in tag order) and allergen levels
   const dietaryByItem = {}
+  const levelsByItem = {}
   for (const row of itemDietary) {
     (dietaryByItem[row.item_id] ||= []).push(row.code)
+    if (row.level !== 'contains') (levelsByItem[row.item_id] ||= {})[row.code] = row.level
   }
   for (const s of sections) {
     s.items = (s.items || [])
@@ -380,6 +391,7 @@ export async function loadMenuFull(tx, menuId, tenantId) {
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
     for (const i of s.items) {
       i.dietary = dietaryByItem[i.id] || []
+      i.allergen_levels = levelsByItem[i.id] || {}
     }
   }
 
@@ -467,10 +479,13 @@ async function loadPrintMenu(tx, menuId, tenantId) {
 // ── Bulk upsert: rewrite the menu tree under one menu_id ─────
 
 async function upsertMenuTree(tx, tenantId, menuId, body) {
-  // Resolve dietary codes → ids ONCE. Codes referenced but missing are
+  // Resolve dietary codes → tags ONCE. Codes referenced but missing are
   // silently dropped (operator can add them via the dietary tag editor).
-  const tags = await tx`SELECT id, code FROM menu_dietary_tags WHERE tenant_id = ${tenantId}`
-  const tagIdByCode = Object.fromEntries(tags.map(t => [t.code, t.id]))
+  // A standard allergen's key also resolves (the seeds say 'nuts' for a
+  // tenant whose nuts tag has code 'n').
+  const tags = await tx`SELECT id, code, kind, standard_key FROM menu_dietary_tags WHERE tenant_id = ${tenantId}`
+  const tagByCode = Object.fromEntries(tags.filter(t => t.standard_key).map(t => [t.standard_key, t]))
+  for (const t of tags) tagByCode[t.code] = t
 
   // Wipe + re-insert. Sections cascade to items → variants → dietary,
   // and callouts cascade from menu_id, so a single delete clears the
@@ -531,13 +546,14 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
           `
         }
       }
-      // Dietary tag links
+      // Dietary tag links; an allergen's level from allergen_levels
       for (const code of (item.dietary || [])) {
-        const tagId = tagIdByCode[code]
-        if (!tagId) continue
+        const tag = tagByCode[code]
+        if (!tag) continue
+        const level = tagLevel(tag, (item.allergen_levels || {})[code])
         await tx`
-          INSERT INTO menu_item_dietary (item_id, tag_id, tenant_id)
-          VALUES (${it.id}, ${tagId}, ${tenantId})
+          INSERT INTO menu_item_dietary (item_id, tag_id, tenant_id, level)
+          VALUES (${it.id}, ${tag.id}, ${tenantId}, ${level})
           ON CONFLICT DO NOTHING
         `
       }
@@ -551,6 +567,11 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
               ${c.title}, ${c.body ?? null}, ${c.sort_order ?? ci})
     `
   }
+}
+
+// Only allergens have levels; a dietary tag is on a dish or not.
+function tagLevel(tag, level) {
+  return tag.kind === 'allergen' && ALLERGEN_LEVELS.includes(level) ? level : 'contains'
 }
 
 async function ensureDietaryTags(tx, tenantId, tags) {
@@ -611,10 +632,14 @@ export default async function menusRoutes(app) {
 
     // ?view=dietary: dish names and their dietary tags (icons only) as a
     // two-column list, whatever print design the menu uses.
+    // Sections hidden everywhere don't print (migration 136). The designed
+    // print drops them in buildContext() instead, so the designer can
+    // tell a hidden section from a deleted one. The key lists only the
+    // tags the printed dishes use (shared/menuTags.js).
+    const printed = { ...menu, sections: (menu.sections || []).filter(s => s.visibility !== 'hidden') }
+    const key = usedTags(menu.dietary_tags, printed.sections)
     if (req.query?.view === 'dietary') {
-      return reply.view('menu_print_dietary.eta', {
-        menu: { ...menu, sections: (menu.sections || []).filter(s => s.visibility !== 'hidden') },
-      })
+      return reply.view('menu_print_dietary.eta', { menu: printed, key, removableNote: REMOVABLE_NOTE })
     }
 
     // A print design (menu designer) replaces the automatic layout: the one
@@ -637,12 +662,7 @@ export default async function menusRoutes(app) {
         orientation: layout.orientation,
       })
     }
-    // Sections hidden everywhere don't print (migration 136). The designed
-    // print drops them in buildContext() instead, so the designer can
-    // tell a hidden section from a deleted one.
-    return reply.view('menu_print.eta', {
-      menu: { ...menu, sections: (menu.sections || []).filter(s => s.visibility !== 'hidden') },
-    })
+    return reply.view('menu_print.eta', { menu: printed, key, removableNote: REMOVABLE_NOTE })
   })
 
   // ── Authenticated admin routes — scoped so addHook doesn't ──
@@ -860,6 +880,7 @@ export default async function menusRoutes(app) {
               .map(o => ({ option_id: o.option_id, price_pence: o.price_pence })),
           })),
           dietary: it.dietary || [],
+          allergen_levels: it.allergen_levels || {},
         })),
       }))
       const callouts = (full.callouts || []).map(c => {
@@ -958,8 +979,8 @@ export default async function menusRoutes(app) {
            AND i.id = ANY(${itemIds}::uuid[])
       ` : []
       if (owned.length !== itemIds.length) throw httpError(422, 'Some dishes are not on this menu any more. Reload and try again.')
-      const tagRows = await tx`SELECT id FROM menu_dietary_tags WHERE tenant_id = ${req.tenantId}`
-      const tagIds = new Set(tagRows.map(t => t.id))
+      const tagRows = await tx`SELECT id, kind FROM menu_dietary_tags WHERE tenant_id = ${req.tenantId}`
+      const tagById = Object.fromEntries(tagRows.map(t => [t.id, t]))
       if (itemIds.length) {
         await tx`
           DELETE FROM menu_item_dietary
@@ -967,12 +988,13 @@ export default async function menusRoutes(app) {
         `
         const rows = []
         for (const it of body.items) {
-          for (const tagId of new Set(it.tag_ids)) {
-            if (tagIds.has(tagId)) rows.push({ item_id: it.item_id, tag_id: tagId, tenant_id: req.tenantId })
+          for (const [tagId, level] of Object.entries(it.levels)) {
+            const tag = tagById[tagId]
+            if (tag) rows.push({ item_id: it.item_id, tag_id: tagId, tenant_id: req.tenantId, level: tagLevel(tag, level) })
           }
         }
         if (rows.length) {
-          await tx`INSERT INTO menu_item_dietary ${tx(rows, 'item_id', 'tag_id', 'tenant_id')} ON CONFLICT DO NOTHING`
+          await tx`INSERT INTO menu_item_dietary ${tx(rows, 'item_id', 'tag_id', 'tenant_id', 'level')} ON CONFLICT DO NOTHING`
         }
         await tx`UPDATE menus SET updated_at = now() WHERE id = ${menu.id}`
       }
@@ -987,31 +1009,96 @@ export default async function menusRoutes(app) {
   app.get('/dietary/all', async (req) => {
     return withTenant(req.tenantId, tx => tx`
       SELECT * FROM menu_dietary_tags WHERE tenant_id = ${req.tenantId}
-      ORDER BY sort_order, label
+      ORDER BY kind = 'allergen', sort_order, label
     `)
   })
 
   app.post('/dietary', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = DietaryBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO menu_dietary_tags (tenant_id, code, label, glyph, colour, sort_order)
-      VALUES (${req.tenantId}, ${body.code}, ${body.label}, ${body.glyph}, ${body.colour}, ${body.sort_order})
+      INSERT INTO menu_dietary_tags (tenant_id, code, label, glyph, colour, sort_order, kind)
+      VALUES (${req.tenantId}, ${body.code}, ${body.label}, ${body.glyph}, ${body.colour}, ${body.sort_order}, ${body.kind})
       RETURNING *
     `)
     return reply.code(201).send(row)
+  })
+
+  // Adds whichever of the 14 standard allergens the tenant doesn't have.
+  app.post('/dietary/standard-allergens', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const added = await withTenant(req.tenantId, tx => ensureStandardAllergens(tx, req.tenantId))
+    return { added: added.length }
+  })
+
+  // Drag order of one list (allergens or dietary tags): ids in their new order.
+  app.patch('/dietary/reorder', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1).max(500) }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      for (const [i, id] of ids.entries()) {
+        await tx`UPDATE menu_dietary_tags SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      }
+      return { ok: true }
+    })
   })
 
   app.patch('/dietary/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const body = DietaryBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      UPDATE menu_dietary_tags SET ${tx(body, ...fields)}
-       WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
-       RETURNING *
-    `)
-    if (!row) throw httpError(404, 'Dietary tag not found')
-    return row
+    return withTenant(req.tenantId, async tx => {
+      const [tag] = await tx`
+        SELECT * FROM menu_dietary_tags WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+      `
+      if (!tag) throw httpError(404, 'Dietary tag not found')
+      if (body.kind === 'dietary' && tag.standard_key) {
+        throw httpError(422, `${tag.label} is one of the 14 standard allergens, so it stays an allergen.`)
+      }
+      const [row] = await tx`
+        UPDATE menu_dietary_tags SET ${tx(body, ...fields)}
+         WHERE id = ${tag.id} AND tenant_id = ${req.tenantId}
+         RETURNING *
+      `
+      // A dietary tag has no levels: an allergen turned into one keeps
+      // every dish it was on, as plain "has it".
+      if (body.kind === 'dietary' && tag.kind === 'allergen') {
+        await tx`
+          UPDATE menu_item_dietary SET level = 'contains'
+           WHERE tag_id = ${tag.id} AND tenant_id = ${req.tenantId} AND level <> 'contains'
+        `
+      }
+      return row
+    })
+  })
+
+  // Moves every dish link of a tag onto another tag, then deletes it.
+  // A dish that already has the other tag keeps its own level there.
+  app.post('/dietary/:id/merge', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { into_id } = z.object({ into_id: z.string().uuid() }).parse(req.body)
+    if (into_id === req.params.id) throw httpError(422, 'Pick a different tag to merge into')
+    return withTenant(req.tenantId, async tx => {
+      const pair = await tx`
+        SELECT id, kind FROM menu_dietary_tags
+         WHERE tenant_id = ${req.tenantId} AND id = ANY(${[req.params.id, into_id]}::uuid[])
+      `
+      const from = pair.find(t => t.id === req.params.id)
+      const into = pair.find(t => t.id === into_id)
+      if (!from || !into) throw httpError(404, 'Dietary tag not found')
+      const moved = await tx`
+        INSERT INTO menu_item_dietary (item_id, tag_id, tenant_id, level)
+        SELECT item_id, ${into.id}, tenant_id, CASE WHEN ${into.kind === 'allergen'}::boolean THEN level ELSE 'contains' END
+          FROM menu_item_dietary
+         WHERE tag_id = ${from.id} AND tenant_id = ${req.tenantId}
+        ON CONFLICT (item_id, tag_id) DO NOTHING
+        RETURNING item_id
+      `
+      await tx`DELETE FROM menu_dietary_tags WHERE id = ${from.id} AND tenant_id = ${req.tenantId}`
+      await tx`
+        UPDATE menus SET updated_at = now()
+         WHERE tenant_id = ${req.tenantId} AND id IN (
+           SELECT s.menu_id FROM menu_items i JOIN menu_sections s ON s.id = i.section_id
+            WHERE i.id = ANY(${moved.map(r => r.item_id)}::uuid[]))
+      `
+      return { ok: true, moved: moved.length }
+    })
   })
 
   app.delete('/dietary/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
@@ -1121,8 +1208,10 @@ export default async function menusRoutes(app) {
     const venue_id = req.body?.venue_id || null
 
     const created = await withTenant(req.tenantId, async tx => {
-      // Ensure the four dietary tags exist before items can reference them.
+      // Ensure the seed's dietary tags and the standard allergens exist
+      // before items can reference them.
       await ensureDietaryTags(tx, req.tenantId, ONETHAI_DIETARY_TAGS)
+      await ensureStandardAllergens(tx, req.tenantId)
 
       // Make the slug unique within the chosen scope (tenant or venue).
       let slug = seed.slug

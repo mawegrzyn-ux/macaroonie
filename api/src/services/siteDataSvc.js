@@ -543,7 +543,8 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
     const menus = await tx`
       SELECT m.*,
              COALESCE((
-               SELECT json_agg(jsonb_build_object('id', t.id, 'code', t.code, 'label', t.label, 'glyph', t.glyph, 'colour', t.colour) ORDER BY t.sort_order)
+               SELECT json_agg(jsonb_build_object('id', t.id, 'code', t.code, 'label', t.label, 'glyph', t.glyph, 'colour', t.colour, 'kind', t.kind)
+                               ORDER BY t.kind = 'allergen', t.sort_order, t.label)
                  FROM menu_dietary_tags t WHERE t.tenant_id = m.tenant_id
              ), '[]'::json) AS dietary_tags
         FROM menus m
@@ -566,11 +567,18 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
                      FROM menu_item_variants v WHERE v.item_id = i.id
                  ), '[]'::json),
                  'dietary', COALESCE((
-                   SELECT json_agg(t.code)
+                   SELECT json_agg(t.code ORDER BY t.kind = 'allergen', t.sort_order, t.label)
                      FROM menu_item_dietary mid
                      JOIN menu_dietary_tags t ON t.id = mid.tag_id
                     WHERE mid.item_id = i.id
-                 ), '[]'::json)
+                 ), '[]'::json),
+                 -- Allergen levels other than 'contains' (migration 145)
+                 'allergen_levels', COALESCE((
+                   SELECT json_object_agg(t.code, mid.level)
+                     FROM menu_item_dietary mid
+                     JOIN menu_dietary_tags t ON t.id = mid.tag_id
+                    WHERE mid.item_id = i.id AND mid.level <> 'contains'
+                 ), '{}'::json)
                ) ORDER BY i.sort_order)
                  FROM menu_items i WHERE i.section_id = s.id
              ), '[]'::json) AS items

@@ -36,6 +36,8 @@ import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { Card, Field, Input, TextArea, Btn, formatPrice, PriceInput } from '@/components/menus/shared'
+import { levelOf, LEVEL_LABELS } from '@shared/menuTags.js'
+import { LevelChip } from '@/components/menus/AllergenMatrix'
 
 const SEEDS = [
   { slug: 'onethai-dinner', label: 'One Thai Dinner sample' },
@@ -360,6 +362,7 @@ function MenuEditor({ id, onBack }) {
               overrides: overridesOf(g),
             })),
             dietary: it.dietary || [],
+            allergen_levels: it.allergen_levels || {},
           })),
         })),
         callouts: (draft.callouts || []).map((c, ci) => ({ ...c, sort_order: ci })),
@@ -762,7 +765,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
       id: crypto.randomUUID(), name: 'New dish', native_name: '', description: '',
       price_pence: null, calories: null, notes: '', is_featured: false, image_url: null,
       is_orderable: true, vat_rate_takeaway: null, vat_rate_eat_in: null, min_order_qty: null,
-      variants: [], variant_groups: [], dietary: [],
+      variants: [], variant_groups: [], dietary: [], allergen_levels: {},
     }
     onItemsChange([...items, item])
     onSelectItem(item.id)
@@ -1191,6 +1194,55 @@ function mergeAttachedGroup(attached, library) {
   }
 }
 
+// ── Allergens in the dish panel: one tile per allergen, tap to cycle ──
+
+const NEXT_LEVEL = { none: 'contains', contains: 'may_contain', may_contain: 'removable', removable: null }
+
+function AllergenPicker({ tags, item, onSet }) {
+  if (!tags.length) {
+    return (
+      <div>
+        <p className="text-xs font-medium mb-1.5">Allergens</p>
+        <p className="text-[11px] text-muted-foreground">No allergens yet — add the 14 standard ones on Menus &gt; Allergens &amp; dietary.</p>
+      </div>
+    )
+  }
+  const set = tags.filter(t => levelOf(item, t.code))
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-2 mb-1.5">
+        <p className="text-xs font-medium">Allergens</p>
+        <p className="text-[11px] text-muted-foreground">{set.length ? `${set.length} set` : 'None set'}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {tags.map(t => {
+          const level = levelOf(item, t.code)
+          return (
+            <button key={t.id} type="button" onClick={() => onSet(t.code, NEXT_LEVEL[level || 'none'])}
+              aria-label={`${t.label}: ${level ? LEVEL_LABELS[level] : 'not in this dish'}`}
+              className={cn('flex items-center gap-2 rounded-md border px-1.5 min-h-[44px] text-left touch-manipulation',
+                !level && 'text-muted-foreground hover:bg-accent',
+                level === 'contains' && 'border-foreground/60 bg-foreground/5',
+                level === 'may_contain' && 'border-dashed border-foreground/60',
+                level === 'removable' && 'border-foreground/60 bg-foreground/5')}>
+              {level
+                ? <LevelChip tag={t} level={level} className="min-w-[1.75rem] h-7 text-[11px]" />
+                : <span className="inline-flex items-center justify-center rounded text-[11px] font-bold min-w-[1.75rem] h-7 px-1 shrink-0 border border-muted-foreground/30">{t.glyph}</span>}
+              <span className="min-w-0 leading-tight">
+                <span className={cn('block text-xs truncate', level && 'font-medium text-foreground')}>{t.label}</span>
+                <span className="block text-[10px]">{level ? LEVEL_LABELS[level] : 'No'}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-1">
+        Tap to change: No, Contains, May contain, Can be removed. Menus show the badge for all three; Can be removed adds an asterisk.
+      </p>
+    </div>
+  )
+}
+
 // ── Item drawer — full dish editor, opened from a row in the middle list ──
 
 function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
@@ -1201,6 +1253,17 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
     if (set.has(code)) set.delete(code); else set.add(code)
     onChange({ dietary: Array.from(set) })
   }
+  // An allergen's level (shared/menuTags.js): null = the dish doesn't have
+  // it. Tapping a tile cycles No -> Contains -> May contain -> Can be removed.
+  const setAllergen = (code, level) => {
+    const set = new Set(item.dietary || [])
+    const levels = { ...(item.allergen_levels || {}) }
+    delete levels[code]
+    if (level) { set.add(code); if (level !== 'contains') levels[code] = level } else set.delete(code)
+    onChange({ dietary: Array.from(set), allergen_levels: levels })
+  }
+  const allergenTags = dietaryTags.filter(t => t.kind === 'allergen')
+  const plainTags = dietaryTags.filter(t => t.kind !== 'allergen')
 
   const attached = item.variant_groups || []
   const attachedIds = new Set(attached.map(g => g.group_id))
@@ -1301,10 +1364,10 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
         <div>
           <p className="text-xs font-medium mb-1.5">Dietary tags</p>
           <div className="flex flex-wrap gap-1.5">
-            {dietaryTags.length === 0 && (
-              <p className="text-[11px] text-muted-foreground">No dietary tags yet — add some on Menus &gt; Dietary tags.</p>
+            {plainTags.length === 0 && (
+              <p className="text-[11px] text-muted-foreground">No dietary tags yet — add some on Menus &gt; Allergens &amp; dietary.</p>
             )}
-            {dietaryTags.map(t => {
+            {plainTags.map(t => {
               const active = (item.dietary || []).includes(t.code)
               return (
                 <button key={t.id} type="button" onClick={() => toggleDietary(t.code)}
@@ -1320,6 +1383,8 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
             })}
           </div>
         </div>
+
+        <AllergenPicker tags={allergenTags} item={item} onSet={setAllergen} />
 
         {/* Attached variant groups — the only source of variants. Every
             option is predefined in the group (managed on Menus > Variant

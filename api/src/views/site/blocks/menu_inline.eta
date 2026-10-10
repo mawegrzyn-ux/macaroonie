@@ -50,6 +50,12 @@ function _keepItem(item) {
   if (!_itemFilter.length) return true
   return _itemFilter.indexOf(item.id) !== -1
 }
+/* Any shown dish with an allergen that can be removed: explain the asterisk. */
+const _anyRemovable = !!menu && (menu.sections || []).some(function (s) {
+  return _keepSection(s) && (s.items || []).some(function (i) {
+    return _keepItem(i) && Object.values(i.allergen_levels || {}).indexOf('removable') !== -1
+  })
+})
 %>
 <%/* No menu picked (or it is gone): the site shows nothing, not the editor hint. */%>
 <% if (menu) { %>
@@ -149,11 +155,13 @@ function _keepItem(item) {
                           <span style="font-style:italic; font-weight:300; color:var(--c-muted); font-size:0.85rem; margin-left:6px;"><%= item.native_name %></span>
                         <% } %>
                         <% const _diet = item.dietary || [] %>
+                        <% const _lv = item.allergen_levels || {} %>
                         <% _diet.forEach(function(code){ %>
                           <% const tag = tagsByCode[code] %>
                           <% if (tag) { %>
-                            <span style="display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; padding:0 4px; border-radius:3px; color:#fff; font-size:9px; font-weight:700; margin-left:3px; background:<%= tag.colour %>;" title="<%= tag.label %>">
-                              <%= tag.glyph %>
+                            <% const _rm = _lv[code] === 'removable' /* can be removed: small asterisk (migration 145) */ %>
+                            <span style="display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; padding:0 4px; border-radius:3px; color:#fff; font-size:9px; font-weight:700; margin-left:3px; background:<%= tag.colour %>;" title="<%= tag.label %><%= _rm ? ' (can be removed on request)' : '' %>">
+                              <%= tag.glyph %><% if (_rm) { %><span style="align-self:flex-start; font-size:.85em; margin-left:1px;">*</span><% } %>
                             </span>
                           <% } %>
                         <% }) %>
@@ -213,6 +221,9 @@ function _keepItem(item) {
         <% }) %>
       </div>
 
+      <% if (_anyRemovable) { %>
+        <p style="text-align:center; margin-top:24px; font-size:0.85rem; color:var(--c-muted);">* Can be removed on request</p>
+      <% } %>
       <p style="text-align:center; margin-top:32px;">
         <a href="/api/menus/<%= menu.id %>/print" target="_blank" rel="noopener"
            style="color:var(--c-primary); text-decoration:underline; font-size:0.9rem;">

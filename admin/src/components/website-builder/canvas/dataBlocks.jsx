@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent } from 'lucide-react'
 import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
+import { isRemovable, REMOVABLE_NOTE } from '@shared/menuTags.js'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
 
@@ -856,13 +857,15 @@ export function MenuInlineCanvas({ data, onChange }) {
                           {(item.dietary || []).map(code => {
                             const tag = tagsByCode[code]
                             if (!tag) return null
+                            // Same as menu_inline.eta: a removable allergen gets an asterisk.
+                            const removable = isRemovable(item, code)
                             return (
-                              <span key={code} title={tag.label} style={{
+                              <span key={code} title={removable ? `${tag.label} (${REMOVABLE_NOTE.toLowerCase()})` : tag.label} style={{
                                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                                 minWidth: 14, height: 14, padding: '0 4px', borderRadius: 3,
                                 color: '#fff', fontSize: 9, fontWeight: 700, marginLeft: 3,
                                 background: tag.colour,
-                              }}>{tag.glyph}</span>
+                              }}>{tag.glyph}{removable && <span style={{ alignSelf: 'flex-start', fontSize: '.85em', marginLeft: 1 }}>*</span>}</span>
                             )
                           })}
                         </div>
@@ -935,6 +938,9 @@ export function MenuInlineCanvas({ data, onChange }) {
                 </div>
               ))}
             </div>
+            {filteredSections.some(sec => sec.items.some(it => Object.values(it.allergen_levels || {}).includes('removable'))) && (
+              <p style={{ textAlign: 'center', marginTop: 24, fontSize: '0.85rem', color: 'var(--c-muted)' }}>* {REMOVABLE_NOTE}</p>
+            )}
           </>
         )}
       </div>
