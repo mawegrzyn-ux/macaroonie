@@ -1102,7 +1102,102 @@ export function RotaPayTable({ venueId, weekStart, canEdit, showSplit = 'auto' }
 const DIST_LABEL = { points: 'By points', manual: 'Manual', house: 'Kept by house' }
 
 function tipRows(data) {
-  return data.rows.filter(r => r.entry_count > 0 || r.tip_share > 0 || r.points_adjustment !== 0 || r.tip_adjustment !== 0 || r.tip_unallocated !== 0)
+  return data.rows.filter(r => r.entry_count > 0 || r.tip_share > 0 || r.points_adjustment !== 0 || r.tip_adjustment !== 0
+    || r.tip_unallocated !== 0 || (r.tip_cash ?? 0) !== 0 || (r.tip_bank ?? 0) !== 0)
+}
+
+/** Whether any pot pays by bank or to specific people, so Bank / Cash columns are worth showing. */
+function hasPayoutSplit(pots) {
+  return pots.some(p => p.distribution !== 'house' && (p.payout_method === 'bank' || p.payout_to === 'people'))
+}
+
+/** How a pot is paid out (migration 143), with the people picker for a 'people' pot. */
+function PotPayout({ pot, data, canEdit, onPickPayees }) {
+  const how = pot.payout_method === 'bank' ? 'By bank transfer' : 'In cash'
+  if (pot.payout_to !== 'people') {
+    return <p className="text-muted-foreground">{how}, to each person's share.</p>
+  }
+  const carried = pot.payees_week && pot.payees_week !== data.week_start
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex-1 min-w-0">
+        {pot.no_payees ? (
+          <p className="text-amber-700 font-medium">{how} to specific people: nobody picked, so it is paid as shares.</p>
+        ) : (
+          <>
+            <p>
+              <span className="text-muted-foreground">{how} to </span>
+              {pot.payees.map((x, i) => (
+                <span key={x.staff_id} className="font-medium">
+                  {i > 0 && ', '}{x.name}{pot.payees.length > 1 && <span className="font-normal text-muted-foreground"> {fmt(x.amount)}</span>}
+                </span>
+              ))}
+              {pot.payees.length === 1 && <span className="tabular-nums"> {fmt(pot.payees[0].amount)}</span>}
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Everyone else's tips are adjusted in {data.tip_settled_in === 'bank' ? 'their bank transfer' : 'cash'} so each person still gets their share.
+              {carried && ` Picked in the week of ${format(parseISO(pot.payees_week), 'd MMM')}.`}
+            </p>
+          </>
+        )}
+      </div>
+      {canEdit && (
+        <button type="button" onClick={() => onPickPayees(pot)}
+          className="h-10 px-3 rounded-lg border text-xs font-medium touch-manipulation hover:bg-muted">
+          {pot.no_payees ? 'Pick people' : 'Change'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Pick who a 'people' pot is paid to this week (and on, until changed). */
+function PayeesModal({ pot, data, base, setPay, onClose }) {
+  const api = useApi()
+  const [picked, setPicked] = useState(() => new Set(pot.payees.map(x => x.staff_id)))
+  const save = useMutation({
+    mutationFn: () => api.put(`${base}/pots/${pot.id}/payees`, { staff_ids: [...picked] }),
+    onSuccess: d => { setPay(d); onClose() },
+  })
+  const toggle = id => setPicked(prev => {
+    const next = new Set(prev)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+  return (
+    <Modal title={`Who is ${pot.name} paid to?`} onClose={onClose}
+      footer={<>
+        <button type="button" onClick={() => save.mutate()} disabled={save.isPending}
+          className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
+          {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
+        </button>
+        <button type="button" onClick={onClose} className="h-11 px-4 rounded-lg border text-sm touch-manipulation hover:bg-muted">Cancel</button>
+      </>}>
+      <p className="text-xs text-muted-foreground">
+        The whole pot ({fmt(pot.total)}) is paid {pot.payout_method === 'bank' ? 'by bank transfer' : 'in cash'} to the people
+        you tick, split equally. Everyone's other tips are adjusted so each person still gets their share. This choice is
+        kept for the following weeks until you change it. Untick everyone to pay the pot as shares.
+      </p>
+      <div className="rounded-lg border divide-y">
+        {data.rows.map(r => (
+          <label key={r.staff_id} className="flex items-center gap-3 px-3 min-h-[48px] touch-manipulation cursor-pointer">
+            <input type="checkbox" className="w-5 h-5" checked={picked.has(r.staff_id)} onChange={() => toggle(r.staff_id)} />
+            <span className="flex-1 min-w-0 truncate text-sm">{r.name}</span>
+            <span className="text-xs text-muted-foreground tabular-nums">share {fmt(r.tip_share)}</span>
+          </label>
+        ))}
+      </div>
+      <ErrorNote error={save.error} />
+    </Modal>
+  )
+}
+
+/** A person's tips cash figure; below 0 means they hand that much on to others. */
+function TipCashCell({ value }) {
+  if (value < 0) {
+    return <span className="text-red-700 font-medium" title="Paid more than their share through a pot paid to them: hands this much on">hands on {fmt(-value)}</span>
+  }
+  return value ? fmt(value) : '–'
 }
 
 function moneyInput(v) {
@@ -1127,7 +1222,7 @@ function pctLabel(n) {
 }
 
 /** One pot: where its money comes from (sources, manual lines) and what happened to it. */
-function PotCard({ pot, data, canEdit, base, setPay, onEditManual }) {
+function PotCard({ pot, data, canEdit, base, setPay, onEditManual, onPickPayees }) {
   const api = useApi()
   const saved = useMemo(() => Object.fromEntries(pot.lines.map(l => [l.id, l.amount ? String(l.amount) : ''])), [pot.lines])
   const [draft, setDraft] = useState(saved)
@@ -1256,6 +1351,11 @@ function PotCard({ pot, data, canEdit, base, setPay, onEditManual }) {
             </div>
           )}
         </div>
+        {pot.distribution !== 'house' && (
+          <div className="pt-1 border-t mt-1 text-xs">
+            <PotPayout pot={pot} data={data} canEdit={canEdit} onPickPayees={onPickPayees} />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1633,6 +1733,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
   const [moveOpen, setMoveOpen] = useState(false)
   const [confirmReset, setConfirmReset] = useState(null) // null | 'points' | 'money'
   const [manualPot, setManualPot] = useState(null)
+  const [payeesPot, setPayeesPot] = useState(null)
   const [confirmHandBack, setConfirmHandBack] = useState(false)
   const setPay = d => qc.setQueryData(['rota-pay', venueId, weekStart], d)
   const base = `/rota/venues/${venueId}/weeks/${weekStart}`
@@ -1667,6 +1768,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
   const unallocated = data.totals.tips_unallocated ?? 0
   const hasNudges = data.rows.some(r => r.tip_unallocated !== 0)
   const showTotal = sharedPots.length > 1 || hasMoneyMoves || hasNudges || canEdit
+  const showPayout = hasPayoutSplit(pots)
   const onNudge = (staff_id, direction) => nudge.mutate({ staff_id, direction })
 
   if (!sections.pots && !sections.shares && !sections.moves) {
@@ -1682,7 +1784,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
       <div className="grid gap-3"
         style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(100%, ${canEdit ? 250 : 180}px), 1fr))` }}>
         {pots.map(p => (
-          <PotCard key={p.id} pot={p} data={data} canEdit={canEdit} base={base} setPay={setPay} onEditManual={setManualPot} />
+          <PotCard key={p.id} pot={p} data={data} canEdit={canEdit} base={base} setPay={setPay} onEditManual={setManualPot} onPickPayees={setPayeesPot} />
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
@@ -1694,6 +1796,14 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
         {data.totals.tips_taken_out > 0 && ` · taken out ${fmt(data.totals.tips_taken_out)}`}
         {unallocated > 0 && ` · unallocated ${fmt(unallocated)}`}
       </p>
+      {showPayout && (
+        <p className="text-xs">
+          <span className="font-medium">Pay out:</span> {fmt(data.totals.tips_bank)} by bank transfer, {fmt(data.totals.tips_cash)} in cash
+          {data.totals.tips_handed_on > 0 && (
+            <span className="text-red-700 font-medium"> · {fmt(data.totals.tips_handed_on)} to be handed on by people paid more than their share</span>
+          )}
+        </p>
+      )}
       </>}
 
       {sections.shares && sharedPots.length > 0 && rows.length > 0 && (canEdit || hasNudges) && (
@@ -1741,6 +1851,10 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
                 {sharedPots.map(p => <th key={p.id} className="text-right px-2 py-2 font-medium whitespace-nowrap">{p.name}</th>)}
                 {hasMoneyMoves && <th className="text-right px-2 py-2 font-medium whitespace-nowrap">Adjusted £</th>}
                 {showTotal && <th className="text-right px-3 py-2 font-medium">Total</th>}
+                {showPayout && <>
+                  <th className="text-right px-2 py-2 font-medium whitespace-nowrap">Bank</th>
+                  <th className="text-right px-3 py-2 font-medium whitespace-nowrap">Cash</th>
+                </>}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -1786,6 +1900,14 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
                       <NudgeTotal row={r} unallocated={unallocated} canEdit={canEdit} busy={nudge.isPending} onNudge={onNudge} />
                     </td>
                   )}
+                  {showPayout && <>
+                    <td className="px-2 py-1.5 text-right tabular-nums">
+                      {r.tip_bank < 0
+                        ? <span className="text-red-700 font-medium">hands on {fmt(-r.tip_bank)}</span>
+                        : r.tip_bank ? fmt(r.tip_bank) : '–'}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums"><TipCashCell value={r.tip_cash} /></td>
+                  </>}
                 </tr>
               ))}
             </tbody>
@@ -1796,6 +1918,10 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
                 {sharedPots.map(p => <td key={p.id} className="px-2 py-2 text-right tabular-nums">{fmt(p.distributed)}</td>)}
                 {hasMoneyMoves && <td />}
                 {showTotal && <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.tips_shared)}</td>}
+                {showPayout && <>
+                  <td className="px-2 py-2 text-right tabular-nums">{fmt(data.totals.tips_bank)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmt(data.totals.tips_cash)}</td>
+                </>}
               </tr>
             </tfoot>
           </table>
@@ -1855,6 +1981,9 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
       <ErrorNote error={reset.error} />
       {manualPot && (
         <ManualShareModal pot={manualPot} data={data} base={base} setPay={setPay} onClose={() => setManualPot(null)} />
+      )}
+      {payeesPot && (
+        <PayeesModal pot={payeesPot} data={data} base={base} setPay={setPay} onClose={() => setPayeesPot(null)} />
       )}
     </div>
   )

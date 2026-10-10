@@ -6,7 +6,9 @@
 // allocated to it (each source feeds at most one pot; sources belong to a
 // venue, so the list is grouped by venue), and manual lines whose values
 // are entered each week on the Rota page: £ or % (migration 115), and
-// either may be negative to take money out of the pot.
+// either may be negative to take money out of the pot. How the pot is paid
+// out (migration 143): in cash or by bank transfer, to each person's share
+// or to people picked on the Rota page each week.
 
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -23,6 +25,15 @@ export const POT_DISTRIBUTIONS = [
   { value: 'house',  label: 'Kept by house', hint: 'Recorded as tips in, but not shared with staff.' },
 ]
 export const POT_DIST_LABEL = Object.fromEntries(POT_DISTRIBUTIONS.map(d => [d.value, d.label]))
+
+export const PAYOUT_METHODS = [
+  { value: 'cash', label: 'Cash' },
+  { value: 'bank', label: 'Bank transfer' },
+]
+export const PAYOUT_TO = [
+  { value: 'shares', label: 'Each person\'s share', hint: 'Everyone is paid their own share of this pot.' },
+  { value: 'people', label: 'Specific people', hint: 'The whole pot is paid to the people you pick on the Rota page each week (split equally between them). Everyone else\'s tips are then adjusted (in cash, or by bank if no pot is paid in cash) so each person still gets their share overall.' },
+]
 
 const LINE_KINDS = [
   { value: 'amount',  label: '£ amount' },
@@ -111,6 +122,8 @@ function PotForm({ pot, pots, onClose, onCreated }) {
   const { data: sources = [], isLoading: loadingSources } = useScSources()
   const [name, setName] = useState(pot?.name ?? '')
   const [distribution, setDistribution] = useState(pot?.distribution ?? 'points')
+  const [payoutMethod, setPayoutMethod] = useState(pot?.payout_method ?? 'cash')
+  const [payoutTo, setPayoutTo] = useState(pot?.payout_to ?? 'shares')
   const [active, setActive] = useState(pot?.is_active ?? true)
   const [fees, setFees] = useState(() => (pot?.surcharges ?? []).map(s => ({ id: newFeeId(), name: s.name ?? '', pct: String(s.pct) })))
   const feesValid = fees.every(f => {
@@ -143,6 +156,7 @@ function PotForm({ pot, pots, onClose, onCreated }) {
     mutationFn: async () => {
       const body = {
         name: name.trim(), distribution,
+        payout_method: payoutMethod, payout_to: payoutTo,
         surcharges: fees
           .map(f => ({ name: f.name.trim() || null, pct: f.pct === '' ? 0 : Number(f.pct) }))
           .filter(f => f.pct > 0),
@@ -189,6 +203,14 @@ function PotForm({ pot, pots, onClose, onCreated }) {
       <Field label="How the pot is shared" hint={dist?.hint}>
         <Segmented value={distribution} options={POT_DISTRIBUTIONS} onChange={setDistribution} />
       </Field>
+      {distribution !== 'house' && <>
+        <Field label="Paid in">
+          <Segmented value={payoutMethod} options={PAYOUT_METHODS} onChange={setPayoutMethod} />
+        </Field>
+        <Field label="Paid to" hint={PAYOUT_TO.find(o => o.value === payoutTo)?.hint}>
+          <Segmented value={payoutTo} options={PAYOUT_TO} onChange={setPayoutTo} />
+        </Field>
+      </>}
       <div className="space-y-2">
         <p className="text-xs font-medium text-muted-foreground">Fees and surcharges (optional)</p>
         <p className="text-[11px] text-muted-foreground">
@@ -312,6 +334,11 @@ export function TipPotsSection({ pots }) {
             <Coins className="w-4 h-4 text-muted-foreground shrink-0" />
             <span className="flex-1 basis-24 min-w-0 truncate text-sm font-medium">{p.name}</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{POT_DIST_LABEL[p.distribution]}</span>
+            {p.distribution !== 'house' && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">
+                {p.payout_method === 'bank' ? 'Bank transfer' : 'Cash'}{p.payout_to === 'people' ? ' to specific people' : ''}
+              </span>
+            )}
             {(p.surcharges ?? []).map((s, i) => (
               <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
                 {s.name || 'Fee'} {s.pct}%
