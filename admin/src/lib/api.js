@@ -113,6 +113,15 @@ export function useApi() {
     return data
   }, [getAccessTokenSilently])
 
+  // blob: fetches a file the API serves behind auth (an image to show, a PDF
+  // to open), as a Blob.
+  const blob = useCallback(async (path) => {
+    const token = await getAccessTokenSilently()
+    const res   = await fetch(`${BASE}${path}`, { headers: authHeaders(token) })
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null))
+    return res.blob()
+  }, [getAccessTokenSilently])
+
   return {
     get:      (path)        => call('GET',    path),
     post:     (path, body)  => call('POST',   path, body),
@@ -121,6 +130,7 @@ export function useApi() {
     delete:   (path, body)  => call('DELETE', path, body),
     download,
     upload,
+    blob,
   }
 }
 

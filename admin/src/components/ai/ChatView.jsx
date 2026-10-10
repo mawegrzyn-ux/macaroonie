@@ -7,12 +7,17 @@
 // items; a proposed change comes back as an `action` card, and nothing
 // changes until the person presses its Confirm button
 // (POST /actions/:id/confirm). Outcome notes for the model are not shown:
-// the card itself shows the result.
+// the card itself shows the result. Photos, screenshots, PDFs and text files
+// can go with a message (attach button, camera on touch devices, paste, or
+// drop onto the chat): see ./attachments.jsx.
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert } from 'lucide-react'
+import { Send, Loader2, Check, X, Sparkles, Search, CircleAlert, Paperclip, Camera, Upload } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { useAttachments, PendingFiles, MessageFiles, ACCEPT } from './attachments'
+
+const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
 
 const SUGGESTIONS = [
   'What is booked for tonight?',
@@ -30,9 +35,14 @@ export default function ChatView({ conversationId, onConversationId, className }
   const api = useApi()
   const qc  = useQueryClient()
   const [draft, setDraft]     = useState('')
-  const [pending, setPending] = useState(null)   // the message being sent, shown at once
+  const [pending, setPending] = useState(null)   // { text, files } being sent, shown at once
   const [error, setError]     = useState(null)
-  const listRef = useRef(null)
+  const [dragging, setDragging] = useState(false)
+  const listRef   = useRef(null)
+  const fileInput = useRef(null)
+  const camInput  = useRef(null)
+  const dragDepth = useRef(0)
+  const att = useAttachments()
 
   const { data: conv, isLoading } = useQuery({
     queryKey: ['ai-conversation', conversationId],
@@ -49,13 +59,19 @@ export default function ChatView({ conversationId, onConversationId, className }
   }
 
   const send = useMutation({
-    mutationFn: message => api.post('/ai/chat', { conversation_id: conversationId || undefined, message }),
-    onMutate:   message => { setPending(message); setError(null) },
-    onSuccess:  res => { setPending(null); apply(res) },
-    onError:    (err, message) => {
+    mutationFn: ({ message, files }) => api.post('/ai/chat', {
+      conversation_id: conversationId || undefined, message, attachments: files.map(f => f.id),
+    }),
+    onMutate:   ({ message, files }) => { setPending({ text: message, files }); setError(null) },
+    onSuccess:  (res, { files }) => { setPending(null); att.discard(files); apply(res) },
+    onError:    (err, { message, files }) => {
       setPending(null)
       setError(err.message || 'Something went wrong')
       setDraft(d => d || message)
+      // A refused message leaves its files unsent, so they go back on the
+      // message box; after a server error they may be in the chat already.
+      if (err.status && err.status < 500) att.restore(files)
+      else att.discard(files)
       if (conversationId) qc.invalidateQueries({ queryKey: ['ai-conversation', conversationId] })
     },
   })
@@ -76,16 +92,43 @@ export default function ChatView({ conversationId, onConversationId, className }
 
   function submit(text) {
     const message = (text ?? draft).trim()
-    if (!message || send.isPending) return
+    if ((!message && !att.ready.length) || send.isPending || att.uploading) return
+    const files = att.take().filter(f => f.status === 'ready')
     setDraft('')
-    send.mutate(message)
+    send.mutate({ message, files })
   }
+
+  const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes('Files')
+  const dropProps = {
+    onDragEnter: e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth.current++; setDragging(true) },
+    onDragOver:  e => { if (hasFiles(e)) e.preventDefault() },
+    onDragLeave: e => { if (!hasFiles(e)) return; dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false) },
+    onDrop:      e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth.current = 0; setDragging(false); att.add(e.dataTransfer.files) },
+  }
+
+  // A screenshot pasted into the message box is attached; pasted text is
+  // left to the box as normal.
+  function onPaste(e) {
+    const pasted = Array.from(e.clipboardData?.files || [])
+    if (!pasted.length) return
+    e.preventDefault()
+    att.add(pasted)
+  }
+
+  const canSend = (!!draft.trim() || att.ready.length > 0) && !send.isPending && !att.uploading
 
   const shown = items.filter(i => i.type !== 'note')
   const empty = !shown.length && !pending
 
   return (
-    <div className={cn('flex flex-col min-h-0 h-full', className)}>
+    <div className={cn('relative flex flex-col min-h-0 h-full', className)} {...dropProps}>
+      {dragging && (
+        <div className="absolute inset-2 z-20 rounded-lg border-2 border-dashed border-primary bg-background/90 flex flex-col items-center justify-center gap-2 pointer-events-none">
+          <Upload className="w-8 h-8 text-primary" />
+          <p className="font-medium text-sm">Drop to attach</p>
+          <p className="text-xs text-muted-foreground">Photos, screenshots, PDFs, text or CSV files</p>
+        </div>
+      )}
       <div ref={listRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-3">
         {conversationId && isLoading && (
           <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
@@ -94,7 +137,7 @@ export default function ChatView({ conversationId, onConversationId, className }
           <div className="text-center py-6">
             <Sparkles className="w-8 h-8 mx-auto text-primary mb-2" />
             <p className="font-medium">Ask about bookings and H&S</p>
-            <p className="text-sm text-muted-foreground mb-4">Bookings, checklists, food safety checks and the action log. You confirm every change.</p>
+            <p className="text-sm text-muted-foreground mb-4">Bookings, checklists, food safety checks and the action log. Attach a photo, screenshot or PDF to work from. You confirm every change.</p>
             <div className="flex flex-col gap-2 max-w-sm mx-auto">
               {SUGGESTIONS.map(s => (
                 <button key={s} type="button" onClick={() => submit(s)}
@@ -106,7 +149,7 @@ export default function ChatView({ conversationId, onConversationId, className }
           </div>
         )}
         {shown.map((item, i) => <ChatItem key={item.id || i} item={item} decide={decide} />)}
-        {pending && <UserBubble text={pending} />}
+        {pending && <UserBubble text={pending.text} files={pending.files} local />}
         {send.isPending && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" /> Working on it...
@@ -119,31 +162,52 @@ export default function ChatView({ conversationId, onConversationId, className }
         )}
       </div>
 
-      <form
-        className="border-t p-2 sm:p-3 flex items-end gap-2 bg-background"
-        onSubmit={e => { e.preventDefault(); submit() }}
-      >
-        <textarea
-          value={draft}
-          onChange={e => setDraft(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-          rows={Math.min(5, Math.max(1, draft.split('\n').length))}
-          maxLength={2000}
-          placeholder="Ask about bookings, checklists, H&S..."
-          className="flex-1 resize-none rounded-md border bg-background px-3 py-2.5 text-sm min-h-[48px] focus:outline-none focus:ring-2 focus:ring-ring"
-        />
-        <button type="submit" disabled={!draft.trim() || send.isPending}
-          className="w-12 h-12 shrink-0 rounded-md bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 touch-manipulation"
-          aria-label="Send">
-          {send.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-        </button>
-      </form>
+      <div className="border-t bg-background">
+        <PendingFiles files={att.files} onRemove={att.remove} />
+        {att.notice && <p className="px-3 pt-1 text-xs text-amber-700">{att.notice}</p>}
+        <form
+          className="p-2 sm:p-3 flex items-end gap-1.5 sm:gap-2"
+          onSubmit={e => { e.preventDefault(); submit() }}
+        >
+          <input ref={fileInput} type="file" multiple accept={ACCEPT} className="hidden"
+            onChange={e => { att.add(e.target.files); e.target.value = '' }} />
+          <input ref={camInput} type="file" accept="image/*" capture="environment" className="hidden"
+            onChange={e => { att.add(e.target.files); e.target.value = '' }} />
+          <button type="button" onClick={() => fileInput.current?.click()} disabled={send.isPending}
+            className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"
+            aria-label="Attach a photo, screenshot or file" title="Attach a photo, screenshot or file">
+            <Paperclip className="w-4 h-4" />
+          </button>
+          {IS_TOUCH && (
+            <button type="button" onClick={() => camInput.current?.click()} disabled={send.isPending}
+              className="w-12 h-12 shrink-0 rounded-md border flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40 touch-manipulation"
+              aria-label="Take a photo">
+              <Camera className="w-4 h-4" />
+            </button>
+          )}
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onPaste={onPaste}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
+            rows={Math.min(5, Math.max(1, draft.split('\n').length))}
+            maxLength={2000}
+            placeholder={att.files.length ? 'Add a message...' : 'Ask about bookings, checklists, H&S...'}
+            className="flex-1 min-w-0 resize-none rounded-md border bg-background px-3 py-2.5 text-sm min-h-[48px] focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button type="submit" disabled={!canSend}
+            className="w-12 h-12 shrink-0 rounded-md bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-40 touch-manipulation"
+            aria-label="Send">
+            {send.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          </button>
+        </form>
+      </div>
     </div>
   )
 }
 
 function ChatItem({ item, decide }) {
-  if (item.type === 'user') return <UserBubble text={item.text} />
+  if (item.type === 'user') return <UserBubble text={item.text} files={item.attachments} />
   if (item.type === 'assistant') {
     return (
       <div className="max-w-[92%] text-sm leading-relaxed">
@@ -162,10 +226,11 @@ function ChatItem({ item, decide }) {
   return null
 }
 
-function UserBubble({ text }) {
+function UserBubble({ text, files, local = false }) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[85%] rounded-lg bg-primary text-primary-foreground px-3 py-2 text-sm whitespace-pre-wrap break-words">
+        <MessageFiles files={files} local={local} />
         {text}
       </div>
     </div>
