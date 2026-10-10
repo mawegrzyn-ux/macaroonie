@@ -63,6 +63,7 @@ const ROUTE_CATALOG = [
   { route: '/team', label: 'Team', icon: 'Users', module: 'team' },
   { route: '/access', label: 'Access', icon: 'Shield', module: 'team' },
   { route: '/settings', label: 'Settings', icon: 'SlidersHorizontal', module: 'settings' },
+  { route: '/ai', label: 'AI assistant', icon: 'Sparkles', module: 'ai_assistant' },
   { route: '/widget-test', label: 'Widget test', icon: 'LayoutTemplate', module: 'widget_test' },
   { route: '/test-data', label: 'Test data', icon: 'FlaskConical', module: 'test_data' },
   { route: '/legacy-import', label: 'Legacy import', icon: 'FileSpreadsheet', module: 'test_data' },

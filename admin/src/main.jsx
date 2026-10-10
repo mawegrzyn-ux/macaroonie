@@ -80,6 +80,8 @@ import OrderingSettings from '@/pages/OrderingSettings'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
+import MobileAssistant from '@/pages/mobile/MobileAssistant'
+import AiAssistant     from '@/pages/AiAssistant'
 import NavDesigner     from '@/pages/NavDesigner'
 import Launcher        from '@/pages/Launcher'
 import './index.css'
@@ -204,6 +206,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="docs"               element={<Docs />} />
                 <Route path="help"        element={<Help />} />
                 <Route path="settings"    element={<Settings />} />
+                <Route path="ai"          element={<AiAssistant />} />
                 <Route path="nav-designer" element={<NavDesigner />} />
                 <Route path="launcher"     element={<Launcher />} />
               </Route>
@@ -216,6 +219,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="wages"        element={<MobileWages />} />
                 <Route path="orders"       element={<MobileOrders />} />
                 <Route path="allergens"    element={<MobileAllergens />} />
+                <Route path="assistant"    element={<MobileAssistant />} />
               </Route>
             </Routes>
             </TenantGate>

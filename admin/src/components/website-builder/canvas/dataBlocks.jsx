@@ -985,3 +985,56 @@ export function MenuInlineCanvas({ data, onChange }) {
     </section>
   )
 }
+
+// ── AI chat (migration 148) ──────────────────────────────────
+// A still picture of the website chat (blocks/ai_chat.eta): the builder
+// never talks to the AI. Says when the chat is switched off, since the
+// block is then hidden on the live site.
+export function AiChatCanvas({ data, onChange }) {
+  const api = useApi()
+  const { data: ai } = useQuery({ queryKey: ['ai-settings'], queryFn: () => api.get('/ai/settings'), staleTime: 30_000, retry: false })
+  const set = (k) => (v) => onChange({ ...data, [k]: v })
+  const accent = promoColour(data.accent || 'primary', 'var(--c-primary)')
+  const off = ai && (!ai.settings?.guest_chat_enabled || !ai.chat_configured)
+  const launcher = data.mode === 'launcher'
+  const panel = (
+    <div style={{ border: '1px solid var(--c-border, #e5e7eb)', borderRadius: 'var(--r-lg, 12px)', overflow: 'hidden', background: 'var(--c-bg, #fff)', maxWidth: launcher ? 380 : 'none', marginLeft: launcher ? 'auto' : 0 }}>
+      {launcher && <div style={{ background: accent, color: '#fff', padding: '12px 14px', fontWeight: 600 }}>{(data.heading || '').trim() || (data.button_text || '').trim() || 'Chat with us'}</div>}
+      <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, fontSize: '.95rem' }}>
+        <div style={{ alignSelf: 'flex-end', background: accent, color: '#fff', borderRadius: '14px 14px 4px 14px', padding: '8px 12px' }}>Table for 2 on Friday at 7?</div>
+        <div>Friday at 19:00 is free. Check the details below and press Confirm.</div>
+        <div style={{ border: '1px solid var(--c-border, #e5e7eb)', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '8px 12px', fontWeight: 600, background: 'var(--c-surface, #f9fafb)' }}>Book this table?</div>
+          <div style={{ padding: '8px 12px', fontSize: '.9rem' }}>Friday at 19:00 · 2 people</div>
+          <div style={{ padding: '0 12px 12px' }}>
+            <span style={{ display: 'block', textAlign: 'center', background: accent, color: '#fff', borderRadius: 8, padding: '12px 0', fontWeight: 600 }}>Confirm booking</span>
+          </div>
+        </div>
+      </div>
+      <div style={{ borderTop: '1px solid var(--c-border, #e5e7eb)', padding: 10, color: 'var(--c-muted, #6b7280)', fontSize: '.9rem' }}>Type a message</div>
+    </div>
+  )
+  return (
+    <section className="block" style={{ padding: '40px 0' }}>
+      <div style={innerContainerStyle(data.container, data.boxed_step)}>
+        {off && (
+          <p style={{ fontSize: 13, background: '#fffbeb', border: '1px solid #fcd34d', color: '#92400e', borderRadius: 8, padding: '6px 10px', margin: '0 0 12px' }}>
+            Hidden on the live site: {ai.chat_configured ? 'Chat on your website is switched off (AI assistant page).' : 'the AI chat isn\'t set up on the server yet.'}
+          </p>
+        )}
+        {launcher ? (
+          <>
+            <p style={{ fontSize: 13, color: 'var(--c-muted)', margin: '0 0 12px' }}>Shows as a round "{(data.button_text || '').trim() || 'Chat with us'}" button in the bottom corner of the screen; this is the chat it opens.</p>
+            {panel}
+          </>
+        ) : (
+          <>
+            <InlineText as="h2" value={data.heading ?? ''} onChange={set('heading')} placeholder="Chat with us" style={{ margin: '0 0 6px' }} />
+            <InlineText as="p" value={data.intro ?? ''} onChange={set('intro')} placeholder="Intro" style={{ margin: '0 0 16px', color: 'var(--c-muted)' }} />
+            {panel}
+          </>
+        )}
+      </div>
+    </section>
+  )
+}

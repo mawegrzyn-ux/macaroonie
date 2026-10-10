@@ -33,6 +33,7 @@ import { platformHostKind, officeOrigin, opsOrigin } from '../services/platformH
 const PASS_PREFIXES = [
   '/api/', '/manage', '/reservations', '/widget-api', '/widget/', '/ws',
   '/webhooks/', '/uploads/', '/template-assets/', '/order-api',
+  '/mcp', '/ai-api', '/.well-known/oauth-protected-resource',
 ]
 
 const KILL_SW = `// The admin portal moved to __OFFICE__. This removes the old

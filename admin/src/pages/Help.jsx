@@ -30,6 +30,7 @@ const SECTIONS = [
   { id: 'website',             label: 'Website Builder' },
   { id: 'menus',               label: 'Menus' },
   { id: 'online-orders',       label: 'Online Orders' },
+  { id: 'ai-assistant',        label: 'AI Assistant' },
   { id: 'order-sheets',        label: 'Order Sheets' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
@@ -3028,6 +3029,74 @@ export default function Help() {
               itself when the promotion is switched off, ends or is used up. Putting a code promotion in
               a Promo block publishes its code. You can also share a link yourself:{' '}
               <Mono>/order?promo=YOURCODE</Mono>.
+            </P>
+          </section>
+
+          {/* ── AI ASSISTANT ──────────────────────────────── */}
+          <section id="ai-assistant" data-help="">
+            <H2>AI Assistant</H2>
+            <P>
+              The AI assistant looks up, makes and changes bookings by chat. There are four ways in:
+            </P>
+            <DataTable
+              head={['Where', 'Who', 'What it can do']}
+              rows={[
+                ['Ask AI (sidebar), the AI assistant page, and AI assistant in the phone app', 'Staff', 'Find bookings, check tables, book, move, change status, update guest details, add staff notes'],
+                ['Your own AI app (Claude, Cursor and others) through the staff connector', 'Staff', 'The same as Ask AI, with your own permissions'],
+                ['The AI chat block on your website', 'Guests', 'Answer questions, book a table, change or cancel a booking'],
+                ['Guests\' own AI apps through Macaroonie\'s public connector', 'Guests', 'Find your restaurants, book, change or cancel'],
+              ]}
+            />
+            <H3>Asking the assistant</H3>
+            <P>
+              Press <strong>Ask AI</strong> in the sidebar (on a tablet it is the sparkle button under
+              the menu button) to open the chat on the right of any page, or open the{' '}
+              <strong>AI assistant</strong> page. Ask in your own words, for example
+              {' '}<em>"What's booked tonight?"</em>, <em>"Is there a table for 4 on Friday at 7?"</em> or
+              {' '}<em>"Move the Smith booking to 8pm"</em>.
+            </P>
+            <P>
+              The assistant never changes anything on its own. When it wants to make a booking or a
+              change it shows a card with the exact details and a <strong>Confirm</strong> button.
+              Nothing happens until you press it; press <strong>Cancel</strong> if it's wrong. Each
+              card works once and expires after 30 minutes.
+            </P>
+            <InfoBox type="info">
+              The assistant works with normal slots only. Overbooking, picking a specific table or
+              changing how long a booking lasts is still done on the timeline.
+            </InfoBox>
+            <P>
+              What it can do follows your role: if you can only view bookings, it can look things up
+              but not change them. Earlier chats are under <strong>Earlier chats</strong> (the clock
+              button in the panel); delete one with the bin button.
+            </P>
+            <H3>Using your own AI app</H3>
+            <P>
+              On the AI assistant page, open <strong>Connect</strong>. Type a name and press{' '}
+              <strong>Make token</strong>, then copy the token: it is shown once. In your AI app,
+              add a custom MCP connector with the address shown and send the token as the header
+              {' '}<Mono>Authorization: Bearer mcp_...</Mono>. Revoke a token with its bin button when
+              you no longer need it.
+            </P>
+            <H3>The chat on your website</H3>
+            <P>
+              Switch on <strong>Chat on your website</strong> under AI assistant → Settings, then add
+              the <strong>AI chat</strong> block in the website builder: in the page, or as a chat
+              button in the corner of the screen. Guests can ask questions and book. A booking only
+              goes through when the guest presses Confirm on the card in the chat.
+            </P>
+            <P>
+              To change or cancel a booking, the guest gives their booking reference and email, and
+              we email them a 6-digit code to type into the chat. Without the code nothing can be
+              changed, so nobody else can move or cancel someone's booking.
+            </P>
+            <H3>Settings, usage and activity</H3>
+            <P>
+              Owners and admins see <strong>Settings</strong> and <strong>Activity</strong> on the AI
+              assistant page. Settings has three switches (staff assistant, guests' AI apps, website
+              chat) with one Save, and this month's usage. The chats share a monthly allowance; when
+              it is used up they pause until the next month, and the AI app connectors keep working.
+              Activity lists every booking made or changed through AI, by whom and where.
             </P>
           </section>
 

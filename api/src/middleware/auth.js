@@ -19,6 +19,7 @@
 //
 // The claim namespace matches AUTH0_CLAIM_NAMESPACE below.
 
+import { createHash, randomBytes } from 'node:crypto'
 import jwksClient from 'jwks-rsa'
 import { createVerifier } from 'fast-jwt'   // fast-jwt ships with fastify/jwt, no extra dep
 import { env } from '../config/env.js'
@@ -45,6 +46,61 @@ const verify = createVerifier({
     return key.getPublicKey()
   },
 })
+
+// ── Personal access tokens (staff MCP, migration 148) ──────────
+// `mcp_` + 40 hex chars, stored as a sha256 hash in ai_access_tokens. A
+// token stands for one user in one tenant and goes through the same role
+// and module checks as that user's own login. It is accepted only by
+// routes that opt in (config.allowAccessToken: the staff MCP endpoint)
+// and by the server's own internal calls (app.inject from the AI tools,
+// marked with INTERNAL_CALL_SECRET), never by the admin API directly.
+export const ACCESS_TOKEN_PREFIX = 'mcp_'
+export const INTERNAL_CALL_HEADER = 'x-maca-internal'
+export const INTERNAL_CALL_SECRET = randomBytes(24).toString('hex')
+
+export function newAccessToken() {
+  const token = ACCESS_TOKEN_PREFIX + randomBytes(20).toString('hex')
+  return { token, hash: hashAccessToken(token), prefix: token.slice(0, 10) }
+}
+
+export function hashAccessToken(token) {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+function accessTokenAllowed(req) {
+  if (req.headers[INTERNAL_CALL_HEADER] === INTERNAL_CALL_SECRET) return true
+  return req.routeOptions?.config?.allowAccessToken === true
+}
+
+async function authenticateAccessToken(req, reply, token) {
+  if (!accessTokenAllowed(req)) {
+    return reply.code(401).send({ error: 'Access tokens only work with the MCP connector' })
+  }
+  const [row] = await sql`
+    SELECT id, tenant_id, user_id FROM ai_access_tokens
+     WHERE token_hash = ${hashAccessToken(token)} AND revoked_at IS NULL
+     LIMIT 1
+  `
+  if (!row) return reply.code(401).send({ error: 'Invalid or revoked access token' })
+  const [tenant] = await sql`SELECT id FROM tenants WHERE id = ${row.tenant_id} AND is_active = true LIMIT 1`
+  if (!tenant) return reply.code(401).send({ error: 'Invalid or revoked access token' })
+  const [user] = await withTenant(row.tenant_id, tx => tx`
+    SELECT id, auth0_user_id, email, role, is_active FROM users
+     WHERE id = ${row.user_id} AND tenant_id = ${row.tenant_id}
+     LIMIT 1
+  `)
+  if (!user || !user.is_active || !user.auth0_user_id) {
+    return reply.code(403).send({ error: 'The person this access token belongs to no longer has access' })
+  }
+  req.user = {
+    sub: user.auth0_user_id, email: user.email, role: user.role,
+    isPlatformAdmin: false, accessTokenId: row.id,
+  }
+  req.tenantId        = row.tenant_id
+  req.auth0OrgId      = null
+  req.isPlatformAdmin = false
+  sql`UPDATE ai_access_tokens SET last_used_at = now() WHERE id = ${row.id}`.catch(() => {})
+}
 
 function requestedTenantHeader(req) {
   const raw = req.headers['x-tenant-id'] || req.headers['x-platform-tenant']
@@ -100,6 +156,7 @@ export async function requireAuth(req, reply) {
     }
 
     const token = authHeader.slice(7)
+    if (token.startsWith(ACCESS_TOKEN_PREFIX)) return authenticateAccessToken(req, reply, token)
 
     // Verify signature + expiry via JWKS (RS256)
     const payload = await verify(token)

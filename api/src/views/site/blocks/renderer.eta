@@ -31,6 +31,8 @@ const _aid = _cleanAnchor || _fallbackAnchor
   <%~ include('./online_ordering', it) %>
 <% } else if (t === 'promo_cta') { %>
   <%~ include('./promo_cta', it) %>
+<% } else if (t === 'ai_chat') { %>
+  <%~ include('./ai_chat', it) %>
 <% } else if (t === 'menu_inline') { %>
   <%~ include('./menu_inline', it) %>
 <% } else if (t === 'hero') { %>

@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 import { env }          from './config/env.js'
 import { errorHandler } from './middleware/error.js'
+import { INTERNAL_CALL_HEADER, INTERNAL_CALL_SECRET } from './middleware/auth.js'
 
 import venuesRoutes     from './routes/venues.js'
 import schedulesRoutes  from './routes/schedules.js'
@@ -54,6 +55,9 @@ import hsSettingsRoutes      from './routes/hsSettings.js'
 import dashboardTilesRoutes  from './routes/dashboardTiles.js'
 import legacyImportRoutes    from './routes/legacyImport.js'
 import navRoutes             from './routes/nav.js'
+import mcpRoutes             from './routes/mcp.js'
+import aiRoutes              from './routes/ai.js'
+import aiApiRoutes           from './routes/aiApi.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -82,6 +86,10 @@ export async function buildApp() {
   await app.register(rateLimit, {
     max:      200,
     timeWindow: '1 minute',
+    // The AI tools call the API in-process (app.inject, src/ai/context.js):
+    // those requests all come from 127.0.0.1 and would share one bucket.
+    // The outer request (/mcp, the chat) is already counted.
+    allowList: req => req.headers[INTERNAL_CALL_HEADER] === INTERNAL_CALL_SECRET,
   })
 
   // Guest /manage forms POST as application/x-www-form-urlencoded.
@@ -218,6 +226,10 @@ export async function buildApp() {
   await app.register(legacyImportRoutes,     { prefix: '/api/legacy-import' })
   await app.register(navRoutes,              { prefix: '/api/nav' })
   await app.register(manageBookingRoutes, { prefix: '/manage' })
+  // AI: MCP connectors (guest + staff) and the chats (migration 148)
+  await app.register(mcpRoutes)
+  await app.register(aiRoutes,    { prefix: '/api/ai' })
+  await app.register(aiApiRoutes, { prefix: '/ai-api' })
 
   // ── Health check ─────────────────────────────────────────
   app.get('/api/health', async () => ({ ok: true, env: env.NODE_ENV }))

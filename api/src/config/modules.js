@@ -178,6 +178,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
   },
   {
+    key:    'ai_assistant',
+    label:  'AI assistant',
+    group:  'bookings',
+    description: 'The staff AI assistant and the staff MCP connector: find, make and change bookings by chat. Each booking action also needs the Bookings permission.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
     key:    'team',
     label:  'Team',
     core:   true,
@@ -295,7 +302,7 @@ export const MODULE_GROUPS = [
     key:    'bookings',
     label:  'Bookings',
     description: 'Reservations, table management, schedule, rules — the core product.',
-    moduleKeys: ['bookings', 'venues', 'tables', 'schedule', 'rules', 'customers', 'widget_test', 'test_data'],
+    moduleKeys: ['bookings', 'venues', 'tables', 'schedule', 'rules', 'customers', 'widget_test', 'test_data', 'ai_assistant'],
   },
   {
     key:    'email_templates',

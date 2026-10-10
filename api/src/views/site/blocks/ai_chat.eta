@@ -1,0 +1,247 @@
+<%
+/* ── ai_chat block (migration 148) ─────────────────────────────────────
+ *
+ * The AI booking chat on a tenant's website: guests ask questions, book a
+ * table, or change / cancel a booking (with the code emailed to them).
+ * Talks to /ai-api (routes/aiApi.js). The block hides itself unless the
+ * tenant switched the website chat on (AI assistant > Settings) and the
+ * server has the AI set up: the script asks /ai-api/tenants/:id/status.
+ * A booking only happens when the guest presses Confirm on the card the
+ * chat shows. The conversation id and its key are kept in localStorage
+ * (maca_ai_chat_<tenantId>) so a reload carries on.
+ *
+ * Data: mode ('inline' | 'launcher'), heading, intro, button_text,
+ *       accent (theme role), container, boxed_step.
+ * The admin canvas preview (canvas/dataBlocks.jsx AiChatCanvas) shows a
+ * static mock of this; it never calls the chat.
+ */
+const d = it.block.data || {}
+const _ts = it.tenant_site || {}
+const _tenant = _ts.tenant_id || (it.config && it.config.tenant_id) || ''
+const _uid = 'aic' + String(it.block.id || Math.random()).replace(/[^A-Za-z0-9]/g, '').slice(0, 12)
+const _ROLE = { primary: '--c-primary', accent: '--c-accent', background: '--c-bg', surface: '--c-surface', text: '--c-text', muted: '--c-muted', border: '--c-border' }
+const _accent = (d.accent && /^#[0-9a-fA-F]{6}$/.test(d.accent)) ? d.accent : ('var(' + (_ROLE[d.accent] || '--c-primary') + ')')
+const _mode = d.mode === 'launcher' ? 'launcher' : 'inline'
+const _heading = String(d.heading == null ? 'Chat with us' : d.heading).trim()
+const _intro = String(d.intro == null ? 'Ask a question, book a table or change a booking.' : d.intro).trim()
+const _btn = String(d.button_text || '').trim() || 'Chat with us'
+const _innerMax = d.container === 'full' ? 'none' : d.container === 'wide' ? '1100px' : '720px'
+const _pad = d.boxed_step ? ('var(--boxed-step-' + Number(d.boxed_step) + ')') : 'var(--boxed-pad, 24px)'
+const _wrap = d.container === 'full'
+  ? 'width:100%; padding:0 ' + _pad + ';'
+  : 'max-width:' + _innerMax + '; margin:0 auto; padding:0 ' + _pad + ';'
+%>
+<style>
+  .aic-block { --aic-accent: <%~ _accent %>; }
+  .aic { display:flex; flex-direction:column; background:var(--c-bg, #fff); color:var(--c-text, #1f2937); border:1px solid var(--c-border, #e5e7eb); border-radius:var(--r-lg, 12px); overflow:hidden; font-family:var(--f-body, system-ui, sans-serif); }
+  .aic[hidden] { display:none; }
+  .aic-inline { height:560px; max-height:80vh; }
+  .aic-head { display:flex; align-items:center; gap:8px; padding:12px 14px; background:var(--aic-accent); color:#fff; font-weight:600; }
+  .aic-head span { flex:1; }
+  .aic-x { background:none; border:0; color:inherit; width:44px; height:44px; font-size:22px; cursor:pointer; }
+  .aic-log { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .aic-intro { color:var(--c-muted, #6b7280); font-size:.95rem; }
+  .aic-sugg { display:flex; flex-wrap:wrap; gap:8px; }
+  .aic-sugg button { border:1px solid var(--c-border, #e5e7eb); background:var(--c-surface, #f9fafb); color:inherit; border-radius:999px; padding:10px 14px; min-height:44px; cursor:pointer; font:inherit; font-size:.9rem; }
+  .aic-me { align-self:flex-end; max-width:85%; background:var(--aic-accent); color:#fff; border-radius:14px 14px 4px 14px; padding:8px 12px; white-space:pre-wrap; word-break:break-word; }
+  .aic-ai { align-self:flex-start; max-width:92%; line-height:1.5; }
+  .aic-ai p { margin:0 0 8px; } .aic-ai p:last-child { margin:0; }
+  .aic-ai ul, .aic-ai ol { margin:0 0 8px; padding-left:20px; }
+  .aic-step { font-size:.8rem; color:var(--c-muted, #6b7280); }
+  .aic-busy { font-size:.9rem; color:var(--c-muted, #6b7280); }
+  .aic-err { font-size:.9rem; color:#b91c1c; background:#fef2f2; border-radius:8px; padding:8px 10px; }
+  .aic-card { border:1px solid var(--c-border, #e5e7eb); border-radius:10px; overflow:hidden; }
+  .aic-card.is-open { box-shadow:0 0 0 2px var(--aic-accent); }
+  .aic-card h4 { margin:0; padding:10px 12px; font-size:.95rem; background:var(--c-surface, #f9fafb); color:inherit; }
+  .aic-card .aic-lines { padding:8px 12px; font-size:.95rem; }
+  .aic-card .aic-lines div:first-child { font-weight:600; }
+  .aic-card .aic-btns { display:flex; gap:8px; padding:0 12px 12px; }
+  .aic-card .aic-btns button { min-height:48px; border-radius:8px; font:inherit; font-weight:600; cursor:pointer; padding:0 16px; }
+  .aic-ok { flex:1; background:var(--aic-accent); color:#fff; border:0; }
+  .aic-ok.is-danger { background:#b91c1c; }
+  .aic-no { background:transparent; color:inherit; border:1px solid var(--c-border, #e5e7eb); }
+  .aic-card .aic-out { padding:8px 12px; font-size:.9rem; border-top:1px solid var(--c-border, #e5e7eb); }
+  .aic-card .aic-out.is-done { background:#ecfdf5; color:#047857; }
+  .aic-card .aic-out.is-failed { background:#fef2f2; color:#b91c1c; }
+  .aic-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--c-border, #e5e7eb); }
+  .aic-form textarea { flex:1; resize:none; min-height:48px; max-height:140px; border:1px solid var(--c-border, #e5e7eb); border-radius:8px; padding:12px; font:inherit; background:var(--c-bg, #fff); color:inherit; }
+  .aic-form button { min-width:72px; min-height:48px; border:0; border-radius:8px; background:var(--aic-accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  .aic-form button:disabled { opacity:.5; cursor:default; }
+  .aic-note { font-size:.75rem; color:var(--c-muted, #6b7280); padding:0 12px 10px; }
+  .aic-launch { position:fixed; right:20px; bottom:20px; z-index:60; min-height:52px; padding:0 22px; border:0; border-radius:999px; background:var(--aic-accent); color:#fff; font:inherit; font-weight:600; box-shadow:0 6px 20px rgba(0,0,0,.2); cursor:pointer; }
+  .aic-launch[hidden] { display:none; }
+  .aic-float { position:fixed; right:20px; bottom:84px; z-index:61; width:380px; max-width:calc(100vw - 24px); height:560px; max-height:calc(100vh - 110px); box-shadow:0 10px 40px rgba(0,0,0,.25); }
+  @media (max-width: 600px) {
+    .aic-float { right:0; left:0; bottom:0; top:0; width:auto; max-width:none; height:auto; max-height:none; border-radius:0; }
+    .aic-launch { right:12px; bottom:12px; }
+  }
+</style>
+<% if (_mode === 'inline') { %>
+<section class="block aic-block" style="padding: var(--section-y, 48px) 0;">
+  <div style="<%= _wrap %>">
+    <% if (_heading) { %><h2 style="margin:0 0 6px;"><%= _heading %></h2><% } %>
+    <% if (_intro) { %><p style="margin:0 0 16px; color:var(--c-muted);"><%= _intro %></p><% } %>
+    <div class="aic aic-inline" id="<%= _uid %>" data-tenant="<%= _tenant %>" data-mode="inline" hidden></div>
+  </div>
+</section>
+<% } else { %>
+<div class="aic-block">
+  <button type="button" class="aic-launch" id="<%= _uid %>-btn" hidden><%= _btn %></button>
+  <div class="aic aic-float" id="<%= _uid %>" data-tenant="<%= _tenant %>" data-mode="launcher" data-title="<%= _heading || _btn %>" data-intro="<%= _intro %>" hidden></div>
+</div>
+<% } %>
+<script>
+(function () {
+  var root = document.getElementById('<%= _uid %>')
+  if (!root) return
+  var tenant = root.getAttribute('data-tenant')
+  var mode = root.getAttribute('data-mode')
+  if (!tenant) return
+  var KEY = 'maca_ai_chat_' + tenant
+  var state = {}
+  try { state = JSON.parse(localStorage.getItem(KEY) || '{}') || {} } catch (e) { state = {} }
+  var items = []
+  var busy = false
+  var errorText = ''
+  var launchBtn = document.getElementById('<%= _uid %>-btn')
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  }
+  function inline(s) {
+    return esc(s).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  }
+  function rich(text) {
+    return String(text || '').split(/\n{2,}/).map(function (b) {
+      var lines = b.split('\n')
+      var isList = lines.every(function (l) { return /^\s*([-*]|\d+\.)\s+/.test(l) })
+      if (isList) {
+        var tag = /^\s*\d+\./.test(lines[0]) ? 'ol' : 'ul'
+        return '<' + tag + '>' + lines.map(function (l) { return '<li>' + inline(l.replace(/^\s*([-*]|\d+\.)\s+/, '')) + '</li>' }).join('') + '</' + tag + '>'
+      }
+      return '<p>' + inline(b).replace(/\n/g, '<br>') + '</p>'
+    }).join('')
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)) } catch (e) {}
+  }
+
+  var STATUS = { done: 'Done', cancelled: 'Cancelled, nothing changed', expired: 'Expired, nothing changed', failed: 'Did not go through' }
+  function cardHtml(c) {
+    var html = '<div class="aic-card' + (c.status === 'pending' ? ' is-open' : '') + '"><h4>' + esc(c.title) + '</h4><div class="aic-lines">' +
+      (c.lines || []).map(function (l) { return '<div>' + esc(l) + '</div>' }).join('') + '</div>'
+    if (c.status === 'pending') {
+      html += '<div class="aic-btns"><button type="button" class="aic-ok' + (c.destructive ? ' is-danger' : '') + '" data-act="confirm" data-id="' + esc(c.id) + '"' + (busy ? ' disabled' : '') + '>' + esc(c.confirmLabel || 'Confirm') + '</button>' +
+        '<button type="button" class="aic-no" data-act="cancel" data-id="' + esc(c.id) + '"' + (busy ? ' disabled' : '') + '>Cancel</button></div>'
+    } else {
+      var out = (STATUS[c.status] || c.status) + (c.result ? ': ' + c.result : '') + (c.error ? ': ' + c.error : '')
+      html += '<div class="aic-out is-' + esc(c.status) + '">' + esc(out) + '</div>'
+    }
+    return html + '</div>'
+  }
+
+  function render() {
+    var shown = items.filter(function (i) { return i.type !== 'note' })
+    var html = ''
+    if (!shown.length && !busy) {
+      var intro = root.getAttribute('data-intro')
+      if (mode === 'launcher' && intro) html += '<div class="aic-intro">' + esc(intro) + '</div>'
+      html += '<div class="aic-sugg">' + ['Book a table', 'Change my booking', 'When are you open?'].map(function (s) {
+        return '<button type="button" data-sugg="' + esc(s) + '">' + esc(s) + '</button>'
+      }).join('') + '</div>'
+    }
+    shown.forEach(function (i) {
+      if (i.type === 'user') html += '<div class="aic-me">' + esc(i.text) + '</div>'
+      else if (i.type === 'assistant') html += '<div class="aic-ai">' + rich(i.text) + '</div>'
+      else if (i.type === 'step') html += '<div class="aic-step">' + esc(i.text) + '</div>'
+      else if (i.type === 'action') html += cardHtml(i)
+    })
+    if (busy) html += '<div class="aic-busy">Just a moment...</div>'
+    if (errorText) html += '<div class="aic-err">' + esc(errorText) + '</div>'
+    log.innerHTML = html
+    log.scrollTop = log.scrollHeight
+    sendBtn.disabled = busy
+  }
+
+  function post(url, body) {
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) {
+        return r.json().catch(function () { return {} }).then(function (j) {
+          if (!r.ok) throw new Error(j.error || 'Something went wrong. Please try again.')
+          return j
+        })
+      })
+  }
+
+  function send(text) {
+    text = String(text || '').trim()
+    if (!text || busy) return
+    busy = true; errorText = ''
+    items.push({ type: 'user', text: text })
+    render()
+    post('/ai-api/chat', { tenant_id: tenant, conversation_id: state.conversation_id || undefined, guest_key: state.guest_key || undefined, message: text })
+      .then(function (res) {
+        state.conversation_id = res.conversation_id
+        if (res.guest_key) state.guest_key = res.guest_key
+        save()
+        items = res.items || []
+      })
+      .catch(function (err) {
+        errorText = err.message
+        items.pop()
+        input.value = input.value || text
+        if (/not found/i.test(err.message)) { state = {}; save() }
+      })
+      .then(function () { busy = false; render() })
+  }
+
+  function decide(id, act) {
+    if (busy) return
+    busy = true; errorText = ''
+    render()
+    post('/ai-api/actions/' + id + '/' + act, { conversation_id: state.conversation_id, guest_key: state.guest_key })
+      .then(function (res) { items = res.items || items })
+      .catch(function (err) { errorText = err.message })
+      .then(function () { busy = false; render() })
+  }
+
+  /* Build the chat inside the root */
+  var titleHtml = mode === 'launcher'
+    ? '<div class="aic-head"><span>' + esc(root.getAttribute('data-title') || 'Chat') + '</span><button type="button" class="aic-x" aria-label="Close">&times;</button></div>'
+    : ''
+  root.innerHTML = titleHtml + '<div class="aic-log" aria-live="polite"></div>' +
+    '<form class="aic-form"><textarea rows="1" maxlength="1000" placeholder="Type a message"></textarea><button type="submit">Send</button></form>' +
+    '<div class="aic-note">Answers come from an AI assistant. Nothing is booked or changed until you press Confirm.</div>'
+  var log = root.querySelector('.aic-log')
+  var form = root.querySelector('.aic-form')
+  var input = form.querySelector('textarea')
+  var sendBtn = form.querySelector('button')
+
+  form.addEventListener('submit', function (e) { e.preventDefault(); var t = input.value; input.value = ''; send(t) })
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit')) }
+  })
+  log.addEventListener('click', function (e) {
+    var b = e.target.closest('button')
+    if (!b) return
+    if (b.getAttribute('data-sugg')) send(b.getAttribute('data-sugg'))
+    else if (b.getAttribute('data-act')) decide(b.getAttribute('data-id'), b.getAttribute('data-act'))
+  })
+  var closeBtn = root.querySelector('.aic-x')
+  if (closeBtn) closeBtn.addEventListener('click', function () { root.hidden = true; if (launchBtn) launchBtn.hidden = false })
+  if (launchBtn) launchBtn.addEventListener('click', function () { root.hidden = false; launchBtn.hidden = true; input.focus() })
+
+  fetch('/ai-api/tenants/' + tenant + '/status').then(function (r) { return r.json() }).then(function (s) {
+    if (!s || !s.enabled) return
+    if (mode === 'launcher') { if (launchBtn) launchBtn.hidden = false }
+    else root.hidden = false
+    render()
+    if (state.conversation_id && state.guest_key) {
+      fetch('/ai-api/conversations/' + state.conversation_id + '?key=' + encodeURIComponent(state.guest_key))
+        .then(function (r) { if (!r.ok) throw new Error('gone'); return r.json() })
+        .then(function (res) { items = res.items || []; render() })
+        .catch(function () { state = {}; save() })
+    }
+  }).catch(function () {})
+})()
+</script>
