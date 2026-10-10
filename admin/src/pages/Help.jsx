@@ -184,7 +184,7 @@ export default function Help() {
                 ['Venues status', 'One card per venue with an active/inactive dot and table count.'],
                 ['H&S checks today', 'Combined Checklists + Food safety status for today. Below the overall badge, every checklist is listed by name (done/not done), plus one line each for fridge/freezer checks, hot/cold hold checks, and cooking checks (only the categories you actually have configured), and a delivery checks line showing how many deliveries were logged that day — grouped by venue if you have more than one. A delivery that failed a check with no corrective action noted turns the day red.'],
                 ['Week\'s H&S status', 'The same status as a Monday-to-Sunday strip for the current week — one coloured cell per day.'],
-                ['Allergen lookup', 'Pick a menu, search a dish, or tap allergen and dietary tags to list dishes that have them or are free from them. Shows Contains, May contain and Can be removed apart (see Menus, Allergen matrix).'],
+                ['Allergen lookup', 'Pick a menu, search a dish, or press Allergens & diet and tap tags in the grid to list dishes that have them or are free from them. Shows Contains, May contain and Can be removed apart (see Menus, Allergen matrix).'],
               ]}
             />
             <H3>H&amp;S status colours</H3>
@@ -2721,8 +2721,10 @@ export default function Help() {
             <InfoBox type="tip">
               Add an <strong>Allergen lookup</strong> widget to an H&amp;S dashboard, or the Allergen
               lookup tile to the Overview, so front-of-house staff can answer allergy questions
-              without editing anything. Tap a tag once to list dishes that have it, twice to list
-              dishes free from it, and a third time to clear it. Free from also lists dishes the
+              without editing anything. Press <strong>Allergens &amp; diet</strong> to open every tag
+              as a grid: tap a tag once to list dishes that have it, twice to list dishes free from
+              it, and a third time to clear it, then press <strong>Show dishes</strong>. The filters
+              you picked stay under the search; tap one to remove it. Free from also lists dishes the
               allergen can be removed from, marked &ldquo;Ask for it without&rdquo; that allergen;
               dishes that may contain it are never listed as free from it. Sections hidden everywhere
               are left out of the lookup. Tap a dish to see its tags written out in full, grouped

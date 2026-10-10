@@ -3072,7 +3072,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>defaultNav.js</Mono>) renders <Mono>AllergenMatrixEditor</Mono>;{' '}
               <Mono>AllergenLookup</Mono> is the read-only widget body (search, and a tag filter that
               cycles any / contains / free from; sections with <Mono>visibility = &apos;hidden&apos;</Mono>{' '}
-              left out). Both live in <Mono>components/menus/AllergenMatrix.jsx</Mono> and share{' '}
+              left out). The tags sit in <Mono>TagFilterModal</Mono>, a pop-up grid (allergens, then
+              dietary) opened by the Allergens &amp; diet button; only the filters in use show in the
+              widget, as chips that remove themselves. The pop-up is rendered inline, not in a portal,
+              so it stays visible inside a dashboard in full screen. Both live in <Mono>components/menus/AllergenMatrix.jsx</Mono> and share{' '}
               <Mono>useMenuChoice()</Mono> (menu choice in localStorage) and{' '}
               <Mono>useAllergenMatrix()</Mono> (query key <Mono>['allergen-matrix', menuId]</Mono>).
               Migration 141 adds <Mono>allergen_lookup</Mono> to the{' '}

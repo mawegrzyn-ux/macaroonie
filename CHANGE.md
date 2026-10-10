@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — Allergen lookup: tags in a pop-up grid]
+
+- The allergen lookup (H&S dashboard widget, Overview tile and the phone app) no longer lists every allergen and dietary tag above the dishes. Press **Allergens & diet** to pick from a grid: tap once for dishes that have it, twice for dishes free from it.
+- The filters you picked show under the search; tap one to remove it, or Clear to remove them all.
+
+---
+
 ## [2026-10-10 — AI: set the Anthropic key on the Platform page]
 
 - Platform admins can add, replace, check and remove the Anthropic API key on the Platform page (AI usage tab), instead of editing the server's settings file. A key is checked with Anthropic before it's saved, and only its last four characters are ever shown again.

@@ -2,7 +2,7 @@
 //
 // Allergen lookup on a phone (/mobile/allergens): the same read-only
 // AllergenLookup as the H&S dashboard widget and the Overview tile, in its
-// phone layout (sticky menu + search, fold-away tag filter).
+// phone layout (sticky menu + search, tag filter in a pop-up grid).
 
 import { AllergenLookup } from '@/components/menus/AllergenMatrix'
 
