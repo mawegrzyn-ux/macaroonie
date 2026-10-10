@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — Allergen notice builder]
+
+- New **Allergen notice** card in Menus > Allergens & dietary: set the notice's title and text, tap the allergen and dietary badges its key should list, choose whether a menu lists only the ticked badges its dishes use or all of them, word the note that explains the asterisk, and add a line for online ordering only. Preview, then Save.
+- The notice shows on printed menus (an Allergies & Diet footer note now prints it instead of its own words; in the menu designer the Footer notes block prints it and the Allergen key block prints the key), the dietary list, under the website Menu block (with a "Show allergen notice" switch in the block settings) and on the online ordering page, where it replaces the fixed allergy sentence.
+- Database: migration 147 (each tenant's notice starts from its first Allergies & Diet footer note).
+
+---
+
 ## [2026-10-10 — Keep an allergen or dietary tag off menus]
 
 - Each allergen and dietary tag has an **On menus** setting (Show / Hide) in Menus > Allergens & dietary. Hide leaves its badge off the website, printed menus and their keys, the dietary list and online ordering, for example the Gluten allergen when dishes already show Gluten-free.

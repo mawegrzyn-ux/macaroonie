@@ -5,7 +5,8 @@
 //   may_contain  it may be present (cross-contact)
 //   removable    the dish has it but can be made without it
 // (no row = the dish doesn't have it). On menus all three show the same
-// badge; "removable" gets a small asterisk, explained by REMOVABLE_NOTE.
+// badge; "removable" gets a small asterisk, explained by the allergen
+// notice's removable_note (REMOVABLE_NOTE by default).
 //
 // Dishes carry `dietary` (codes of every tag they show, both kinds) and
 // `allergen_levels` ({ code: level }, only for levels other than contains).
@@ -64,18 +65,48 @@ export function hasRemovable(item, tags) {
   return (tags || []).some(t => levels[t.code] === 'removable')
 }
 
-/** Of these tags, the ones the dishes of these sections use, in the tags'
- *  own order, plus whether any dish shows a removable allergen (for the
- *  key's note). Pass menuTags() for anything guests see. */
-export function usedTags(tags, sections) {
+// The allergen notice (migration 147, one per tenant, built on Menus >
+// Allergens & dietary). Loaders send the stored row; renderers read it
+// through noticeOf() so a tenant without one gets these words.
+export const DEFAULT_NOTICE = {
+  title:          'Allergies & Diet',
+  body:           'Please tell us about any allergies or dietary needs before you order.',
+  removable_note: REMOVABLE_NOTE,
+  ordering_text:  'Use the allergy note at checkout to tell us what we need to know.',
+  used_only:      true,
+}
+
+export function noticeOf(notice) {
+  const n = notice || {}
+  return {
+    title:          typeof n.title === 'string' ? n.title : DEFAULT_NOTICE.title,
+    body:           typeof n.body === 'string' ? n.body : DEFAULT_NOTICE.body,
+    removable_note: (n.removable_note || '').trim() || DEFAULT_NOTICE.removable_note,
+    ordering_text:  typeof n.ordering_text === 'string' ? n.ordering_text : DEFAULT_NOTICE.ordering_text,
+    used_only:      n.used_only !== false,
+  }
+}
+
+/** The notice's key for these sections: its words plus the tags to list,
+ *  in the tags' own order. A tag is listed when it shows on menus, is
+ *  ticked for the key (in_key) and, with used_only, a dish here uses it.
+ *  `removable` = a dish here shows a removable allergen, so the key
+ *  explains the asterisk (whatever the key lists, since the asterisk is
+ *  on the dish). */
+export function allergenKey(tags, sections, notice) {
+  const n = noticeOf(notice)
+  const shown = menuTags(tags)
   const used = new Set()
-  const list = tags || []
   let removable = false
   for (const s of sections || []) {
     for (const it of s.items || []) {
       for (const c of it.dietary || []) used.add(c)
-      if (hasRemovable(it, list)) removable = true
+      if (hasRemovable(it, shown)) removable = true
     }
   }
-  return { tags: list.filter(t => used.has(t.code)), removable }
+  return {
+    ...n,
+    tags: shown.filter(t => t.in_key !== false && (!n.used_only || used.has(t.code))),
+    removable,
+  }
 }

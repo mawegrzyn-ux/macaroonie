@@ -50,12 +50,20 @@ function _keepItem(item) {
   if (!_itemFilter.length) return true
   return _itemFilter.indexOf(item.id) !== -1
 }
-/* Any shown dish with an allergen that can be removed: explain the asterisk. */
-const _anyRemovable = !!menu && (menu.sections || []).some(function (s) {
-  return _keepSection(s) && (s.items || []).some(function (i) {
-    return _keepItem(i) && Object.values(i.allergen_levels || {}).indexOf('removable') !== -1
-  })
+/* The allergen notice under the menu (migration 147): its words and key
+   for the dishes this block shows, from shared/menuTags.js allergenKey()
+   (it.siteBlocks). show_allergen_notice off leaves only the asterisk note. */
+const _keptSections = menu ? (menu.sections || []).filter(_keepSection).map(function (s) {
+  return { items: (s.items || []).filter(_keepItem) }
+}) : []
+const _sb = it.siteBlocks
+const _key = menu && _sb && _sb.allergenKey ? _sb.allergenKey(menu.dietary_tags, _keptSections, menu.allergen_notice) : null
+const _removableNote = _key ? _key.removable_note : 'Can be removed on request'
+const _anyRemovable = _key ? _key.removable : _keptSections.some(function (s) {
+  return s.items.some(function (i) { return Object.values(i.allergen_levels || {}).indexOf('removable') !== -1 })
 })
+const _showNotice = d.show_allergen_notice !== false && !!_key &&
+  !!(_key.title || _key.body || _key.tags.length || _key.removable)
 %>
 <%/* No menu picked (or it is gone): the site shows nothing, not the editor hint. */%>
 <% if (menu) { %>
@@ -160,7 +168,7 @@ const _anyRemovable = !!menu && (menu.sections || []).some(function (s) {
                           <% const tag = tagsByCode[code] %>
                           <% if (tag) { %>
                             <% const _rm = _lv[code] === 'removable' /* can be removed: small asterisk (migration 145) */ %>
-                            <span style="display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; padding:0 4px; border-radius:3px; color:#fff; font-size:9px; font-weight:700; margin-left:3px; background:<%= tag.colour %>;" title="<%= tag.label %><%= _rm ? ' (can be removed on request)' : '' %>">
+                            <span style="display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; padding:0 4px; border-radius:3px; color:#fff; font-size:9px; font-weight:700; margin-left:3px; background:<%= tag.colour %>;" title="<%= tag.label %><%= _rm ? ' (' + _removableNote.toLowerCase() + ')' : '' %>">
                               <%= tag.glyph %><% if (_rm) { %><span style="align-self:flex-start; font-size:.85em; margin-left:1px;">*</span><% } %>
                             </span>
                           <% } %>
@@ -221,8 +229,26 @@ const _anyRemovable = !!menu && (menu.sections || []).some(function (s) {
         <% }) %>
       </div>
 
-      <% if (_anyRemovable) { %>
-        <p style="text-align:center; margin-top:24px; font-size:0.85rem; color:var(--c-muted);">* Can be removed on request</p>
+      <% if (_showNotice) { %>
+        <div style="max-width:720px; margin:32px auto 0; text-align:center; font-size:0.85rem; color:var(--c-muted); line-height:1.5;">
+          <% if (_key.title) { %>
+            <div style="font-family:var(--f-heading); font-size:1rem; font-weight:500; color:var(--c-text); margin-bottom:4px;"><%= _key.title %></div>
+          <% } %>
+          <% if (_key.body) { %><p style="margin:0 0 8px;"><%= _key.body %></p><% } %>
+          <% if (_key.tags.length || _key.removable) { %>
+            <div style="display:flex; flex-wrap:wrap; justify-content:center; gap:6px 14px;">
+              <% _key.tags.forEach(function(tag){ %>
+                <span style="display:inline-flex; align-items:center; gap:5px;">
+                  <span style="display:inline-flex; align-items:center; justify-content:center; min-width:14px; height:14px; padding:0 4px; border-radius:3px; color:#fff; font-size:9px; font-weight:700; background:<%= tag.colour %>;"><%= tag.glyph %></span>
+                  <%= tag.label %>
+                </span>
+              <% }) %>
+              <% if (_key.removable) { %><span>* <%= _key.removable_note %></span><% } %>
+            </div>
+          <% } %>
+        </div>
+      <% } else if (_anyRemovable) { %>
+        <p style="text-align:center; margin-top:24px; font-size:0.85rem; color:var(--c-muted);">* <%= _removableNote %></p>
       <% } %>
       <p style="text-align:center; margin-top:32px;">
         <a href="/api/menus/<%= menu.id %>/print" target="_blank" rel="noopener"

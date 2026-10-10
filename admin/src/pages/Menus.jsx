@@ -16,7 +16,7 @@
 // Single Save button PATCHes the whole tree (server delete-and-reinserts).
 
 import { useState, useEffect, useMemo } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   BookOpen, Plus, Trash2, Loader2, X, ChevronDown, ChevronRight,
@@ -1482,19 +1482,30 @@ function CalloutsPanel({ callouts, onChange }) {
             {callouts.map((c, i) => (
               <div key={i} className="border rounded-md p-3 space-y-2">
                 <div className="flex items-center gap-2">
-                  <select value={c.kind || 'custom'} onChange={e => set(i, { kind: e.target.value })}
+                  <select value={c.kind || 'custom'}
+                    onChange={e => set(i, { kind: e.target.value, ...(e.target.value === 'allergens' && !(c.title || '').trim() ? { title: 'Allergies & Diet' } : {}) })}
                     className="text-sm border rounded-md px-2 py-1.5 bg-background min-h-[36px] w-44">
                     {KINDS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}
                   </select>
-                  <Input value={c.title} onChange={e => set(i, { title: e.target.value })}
-                    placeholder="Title" className="flex-1 font-medium" />
+                  {c.kind === 'allergens'
+                    ? <span className="flex-1 text-sm font-medium">Allergen notice</span>
+                    : <Input value={c.title} onChange={e => set(i, { title: e.target.value })}
+                        placeholder="Title" className="flex-1 font-medium" />}
                   <button onClick={() => remove(i)}
                     className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <TextArea value={c.body || ''} onChange={e => set(i, { body: e.target.value })}
-                  rows={2} placeholder="Body" />
+                {c.kind === 'allergens' ? (
+                  // Prints the tenant's allergen notice (migration 147), not its own words.
+                  <p className="text-xs text-muted-foreground">
+                    Prints the allergen notice and its key. Its words and which allergens and dietary tags it lists are set in{' '}
+                    <Link to="/menus/dietary-tags" className="text-primary underline">Allergens &amp; dietary</Link>.
+                  </p>
+                ) : (
+                  <TextArea value={c.body || ''} onChange={e => set(i, { body: e.target.value })}
+                    rows={2} placeholder="Body" />
+                )}
               </div>
             ))}
           </div>

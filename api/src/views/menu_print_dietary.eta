@@ -15,8 +15,9 @@ const sections = (m.sections || []).filter(s => (s.items || []).length)
 const tenantName = m.tenant_name || ''
 const paperSize = m.print_paper_size === 'A3' ? 'A3' : 'A4'
 const sheetWidthMm = paperSize === 'A3' ? 297 : 210
-/* it.key = usedTags() from shared/menuTags.js: the tags these dishes use,
-   and whether any allergen on them can be removed (asterisk + note). */
+/* it.key = allergenKey() from shared/menuTags.js: the allergen notice
+   (title, body, removable_note, used_only), the tags its key lists and
+   whether any allergen on these dishes can be removed (asterisk + note). */
 const keyTags = it.key.tags
 const dishCount = sections.reduce(function (n, s) { return n + s.items.length }, 0)
 %><!DOCTYPE html>
@@ -78,6 +79,9 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
     .none { color: #c8beb6; }
     .key { margin-top: 6mm; padding-top: 3mm; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 2mm 5mm; font-size: 11px; color: var(--muted); break-inside: avoid; page-break-inside: avoid; }
     .key .pair { display: inline-flex; align-items: center; gap: 5px; }
+    .notice { margin-top: 6mm; padding-top: 3mm; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); break-inside: avoid; page-break-inside: avoid; }
+    .notice strong { display: block; color: var(--ink); font-size: 12px; margin-bottom: 1mm; }
+    .notice + .key { margin-top: 2mm; padding-top: 0; border-top: 0; }
     .empty { padding: 10mm 0; text-align: center; color: var(--muted); font-size: 13px; }
     .print-bar .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .print-bar button.ghost { background: transparent; color: #f5efe6; border: 1px solid rgba(245,239,230,0.6); }
@@ -146,7 +150,7 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
                   <span class="icons">
                     <% _tags.forEach(function (tag) { %>
                       <% const _rm = _levels[tag.code] === 'removable' %>
-                      <% const _name = tag.label + (_rm ? ' (' + it.removableNote.toLowerCase() + ')' : '') %>
+                      <% const _name = tag.label + (_rm ? ' (' + it.key.removable_note.toLowerCase() + ')' : '') %>
                       <span class="tag-chip" style="background: <%= tag.colour %>;" title="<%= _name %>" aria-label="<%= _name %>"><%= tag.glyph %><% if (_rm) { %><span class="tag-star">*</span><% } %></span>
                     <% }) %>
                   </span>
@@ -161,12 +165,19 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
     </table>
     <% } %>
 
-    <% if (keyTags.length) { %>
-      <div class="key">
+    <% if (it.key.title || it.key.body) { %>
+      <div class="notice">
+        <% if (it.key.title) { %><strong><%= it.key.title %></strong><% } %>
+        <% if (it.key.body) { %><p><%= it.key.body %></p><% } %>
+      </div>
+    <% } %>
+    <% if (keyTags.length || it.key.removable) { %>
+      <% /* With used_only, the script below hides key pairs no ticked dish uses. */ %>
+      <div class="key"<% if (it.key.used_only) { %> data-used-only="1"<% } %>>
         <% keyTags.forEach(function (tag) { %>
           <span class="pair" data-tag="<%= tag.code %>"><span class="tag-chip" style="background: <%= tag.colour %>;"><%= tag.glyph %></span><%= tag.label %></span>
         <% }) %>
-        <% if (it.key.removable) { %><span class="pair" data-removable="1">* <%= it.removableNote %></span><% } %>
+        <% if (it.key.removable) { %><span class="pair" data-removable="1">* <%= it.key.removable_note %></span><% } %>
       </div>
     <% } %>
   </div>
@@ -202,8 +213,10 @@ const dishCount = sections.reduce(function (n, s) { return n + s.items.length },
         while (n && n.classList.contains('dish')) { if (!n.classList.contains('off')) any = true; n = n.nextElementSibling }
         sec.classList.toggle('off', !any);
       });
+      var keyEl = document.querySelector('.key');
+      var usedOnly = !!(keyEl && keyEl.dataset.usedOnly);
       Array.prototype.forEach.call(document.querySelectorAll('.key .pair'), function (p) {
-        p.classList.toggle('off', p.dataset.removable ? !removable : !usedTags[p.dataset.tag]);
+        p.classList.toggle('off', p.dataset.removable ? !removable : (usedOnly && !usedTags[p.dataset.tag]));
       });
       var c = document.getElementById('dl-count');
       if (c) c.textContent = (shown === total ? total : shown + ' of ' + total) + ' dish' + (total === 1 ? '' : 'es');
