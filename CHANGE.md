@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — PDF menus: uploads fixed, and the switch now controls the block]
+
+- Website > PDF menus works per location again: uploads were failing and the list always looked empty.
+- The page now says it's only for menus you haven't built on the Menus page (those show with the Menu (inline) block and have their own printable PDF), and lists the menus built in the app for that location.
+- **Show PDF menus** no longer talks about a header link. Off: the PDF menus block shows nothing on the site, isn't offered when adding blocks, and the location's menu page is hidden. On: add the PDF menus block anywhere; every page template now includes it.
+- Removing a PDF asks you to confirm; Upload appears once you've typed a label.
+
+---
+
 ## [2026-10-10 — Allergen notice builder]
 
 - New **Allergen notice** card in Menus > Allergens & dietary: set the notice's title and text, tap the allergen and dietary badges its key should list, choose whether a menu lists only the ticked badges its dishes use or all of them, word the note that explains the asterisk, and add a line for online ordering only. Preview, then Save.

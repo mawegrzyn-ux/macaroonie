@@ -3001,7 +3001,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['website_opening_hours',  '7-day grid with multiple sessions per day (day_of_week, opens_at, closes_at, is_closed, label, sort_order).'],
                 ['website_gallery_images', 'Ordered gallery images (image_url, caption, sort_order).'],
                 ['website_pages',          'Custom CMS pages — UNIQUE (website_config_id, slug). Content is free HTML.'],
-                ['website_menu_documents', 'PDF menu uploads with labels.'],
+                ['website_menu_documents', 'PDF menu uploads with labels, per location (website_config_id). website_config.show_menu (default true) gates them: off, the venue bundle loads none, so the menu_pdfs block renders nothing, /locations/:slug/menu is 404 and JSON-LD hasMenu is left out. The page builder hides the block from its picker (BlockAvailabilityContext in canvas/BlockInserter.jsx, computed in PageBuilder.jsx from the page\'s venue or the only venue) and its canvas shows a Hidden placeholder. Every PAGE_TEMPLATES starter except From scratch includes the block.'],
                 ['website_allergen_info',  'Singleton per config; info_type = document | structured. Structured data is a JSONB array of {dish, allergens[], notes}.'],
               ]}
             />
@@ -3178,7 +3178,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /api/website/verify-domain',     'admin', 'DNS-resolves custom_domain, matches A records to APP_PUBLIC_IPS and/or CNAME suffix to PUBLIC_ROOT_DOMAIN. Updates the verified flag.'],
                 ['GET/POST/PATCH/DELETE /api/website/gallery',    'auth/admin', 'Gallery CRUD + /gallery/reorder.'],
                 ['GET/POST/PATCH/DELETE /api/website/pages',      'auth/admin', 'Custom pages CRUD.'],
-                ['GET/POST/DELETE /api/website/menus',            'auth/admin', 'PDF menu docs CRUD.'],
+                ['GET/POST/DELETE /api/website/menus',            'auth/admin', 'PDF menu docs CRUD. GET and POST need ?venue_id= (without it GET returns [] and POST 404s, which is why the admin page could never upload before it sent one).'],
                 ['GET/POST /api/website/opening-hours',           'auth/admin', 'Bulk upsert (POST replaces the whole set).'],
                 ['GET/POST /api/website/allergens',                'auth/admin', 'Upsert allergen info (document or structured).'],
                 ['POST /api/website/upload',            'admin', 'multipart/form-data. Fields: file, kind (images | menus | docs). Delegates to storageSvc.'],

@@ -10,7 +10,7 @@
 // for a subdomain slug then POSTs to create the row.
 
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Globe, Palette, LayoutTemplate, Image as ImageIcon, FileText, BookOpen,
@@ -2554,41 +2554,84 @@ function GallerySection({ config }) {
 }
 
 // ── Menus section (PDF uploads) ─────────────────────────────
+//
+// Uploaded PDF menus for one location (website_menu_documents). They are
+// for menus that aren't built in the app: a menu built on the Menus page
+// shows on the site through the Menu (inline) block and has its own
+// printable PDF. show_menu switches the PDFs on the site on or off: off,
+// the PDF menus block shows nothing and isn't offered in the page
+// builder, and /locations/:slug/menu is not found.
 
 function MenuSection({ config }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const venueId = config.venue_id
   const { data: menus = [], isLoading } = useQuery({
-    queryKey: ['website-menus'],
-    queryFn:  () => api.get('/website/menus'),
+    queryKey: ['website-menus', venueId],
+    queryFn:  () => api.get(`/website/menus?venue_id=${venueId}`),
+    enabled:  !!venueId,
   })
+  // Menus built in the app that this location can show: its own and the
+  // tenant-wide ones.
+  const { data: appMenus = [] } = useQuery({
+    queryKey: ['menus'],
+    queryFn:  () => api.get('/menus'),
+  })
+  const builtHere = appMenus.filter(m => m.is_published && (!m.venue_id || m.venue_id === venueId))
   const [label, setLabel] = useState('')
+  const [confirmId, setConfirmId] = useState(null)
+  const on = config.show_menu !== false
 
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['website-menus', venueId] })
+    qc.invalidateQueries({ queryKey: ['menu-pdfs-preview', venueId] })
+  }
+  const toggle = useMutation({
+    mutationFn: (v) => api.patch('/website/config', { venue_id: venueId, show_menu: v }),
+    onSuccess:  (cfg) => qc.setQueryData(['website-config', cfg.venue_id], cfg),
+  })
   const add = useMutation({
-    mutationFn: (body) => api.post('/website/menus', body),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['website-menus'] })
-      setLabel('')
-    },
+    mutationFn: (body) => api.post(`/website/menus?venue_id=${venueId}`, body),
+    onSuccess: () => { refresh(); setLabel('') },
   })
   const del = useMutation({
     mutationFn: (id) => api.delete(`/website/menus/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['website-menus'] }),
+    onSuccess: () => { refresh(); setConfirmId(null) },
   })
 
   return (
     <div className="space-y-5">
-      <SectionCard title="Show menus"
-        description="Enable or hide the menus link in the site header.">
+      <div className="rounded-xl border border-sky-200 bg-sky-50 text-sky-900 px-4 py-3 text-sm space-y-1.5 dark:bg-sky-950/30 dark:text-sky-100 dark:border-sky-900">
+        <p className="font-medium inline-flex items-center gap-1.5">
+          <HelpCircle className="w-4 h-4" /> Only for menus you haven&apos;t built in the app
+        </p>
+        <p className="text-xs">
+          Menus built on the <Link to="/menus" className="underline">Menus</Link> page show on your website with
+          the <strong>Menu (inline)</strong> block, which also links their printable PDF, so they don&apos;t need
+          uploading here. Use PDF menus for anything you only have as a file, for example a wine list or a
+          designer&apos;s PDF.
+        </p>
+        {builtHere.length > 0 && (
+          <p className="text-xs">
+            Built in the app for this location: {builtHere.map(m => m.name).join(', ')}.
+          </p>
+        )}
+      </div>
+
+      <SectionCard title="PDF menus on the website"
+        description="Off hides them everywhere: the PDF menus block shows nothing and isn't offered in the page builder, and the menu page is hidden.">
         <div className="flex items-start gap-4">
           <div className="flex-1">
-            <p className="text-sm font-medium">Show "Menus"</p>
+            <p className="text-sm font-medium">Show PDF menus</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {on
+                ? 'Add the PDF menus block to a page to list them. The page templates include it.'
+                : 'Switch on to list these PDFs on your website.'}
+            </p>
           </div>
-          <Toggle value={!!config.show_menu}
-            onChange={v => api.patch('/website/config', { venue_id: config.venue_id, show_menu: v })
-              .then(cfg => qc.setQueryData(['website-config', cfg.venue_id], cfg))}
-            label="Show menus" />
+          <Toggle value={on} onChange={v => toggle.mutate(v)} label="Show PDF menus" />
         </div>
+        {toggle.error && <p className="text-xs text-destructive">{toggle.error.body?.error || toggle.error.message}</p>}
       </SectionCard>
 
       <SectionCard title="Add menu" description="PDF only, up to 25 MB.">
@@ -2596,15 +2639,14 @@ function MenuSection({ config }) {
           <TextInput value={label} onChange={e => setLabel(e.target.value)}
             placeholder="Lunch Menu" />
         </FormRow>
-        <FileUpload kind="menus" accept="application/pdf"
-          onUploaded={(r) => {
-            if (!label.trim()) {
-              alert('Please set a label first.')
-              return
-            }
-            add.mutate({ label: label.trim(), file_url: r.url, sort_order: menus.length })
-          }}
-          label="Upload PDF" />
+        {label.trim() ? (
+          <FileUpload kind="menus" accept="application/pdf"
+            onUploaded={(r) => add.mutate({ label: label.trim(), file_url: r.url, sort_order: menus.length })}
+            label="Upload PDF" />
+        ) : (
+          <p className="text-xs text-muted-foreground">Type a label, then upload the PDF.</p>
+        )}
+        {add.error && <p className="text-xs text-destructive">{add.error.body?.error || add.error.message}</p>}
       </SectionCard>
 
       <SectionCard title="Menus on your site">
@@ -2630,10 +2672,21 @@ function MenuSection({ config }) {
                     </a>
                   </div>
                 </div>
-                <button type="button" onClick={() => del.mutate(m.id)}
-                  className="text-destructive hover:bg-destructive/10 p-2 rounded touch-manipulation">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {confirmId === m.id ? (
+                  <span className="inline-flex gap-2 shrink-0">
+                    <button type="button" onClick={() => del.mutate(m.id)} disabled={del.isPending}
+                      className="text-sm font-medium rounded-md px-3 min-h-[44px] bg-destructive text-destructive-foreground touch-manipulation">
+                      {del.isPending ? 'Removing…' : 'Yes, remove'}
+                    </button>
+                    <button type="button" onClick={() => setConfirmId(null)}
+                      className="text-sm rounded-md px-3 min-h-[44px] border touch-manipulation">Cancel</button>
+                  </span>
+                ) : (
+                  <button type="button" onClick={() => setConfirmId(m.id)} aria-label={`Remove ${m.label}`}
+                    className="text-destructive hover:bg-destructive/10 p-3 rounded touch-manipulation shrink-0">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             ))}
           </div>

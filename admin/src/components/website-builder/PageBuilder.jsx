@@ -21,7 +21,7 @@ import { useApi } from '@/lib/api'
 import { newBlock, PAGE_TEMPLATES, BLOCK_BY_KEY } from './blockRegistry'
 import { ThemeFrame }     from './canvas/ThemeFrame'
 import { resolveTheme }   from './canvas/themeResolver'
-import { BlockInserter }  from './canvas/BlockInserter'
+import { BlockInserter, BlockAvailabilityContext } from './canvas/BlockInserter'
 import { BlockInspector } from './canvas/BlockInspector'
 import { BlockNode }      from './canvas/BlockNode'
 import { LinkCatalogProvider } from './LinkPicker'
@@ -125,6 +125,26 @@ export function PageBuilder({
       venue_id:       soleVenue.id,
     }
   }, [config, soleVenue, soleVenueConfig])
+
+  // PDF menus (website_config.show_menu): the PDF menus block lists the
+  // PDFs of this page's location, or of the only venue on tenant pages. A
+  // multi-venue tenant page has none, and with the switch off the block
+  // shows nothing, so it isn't offered then. Shares the website-config
+  // query keys above, so no extra request.
+  const menuVenueId = config?.venue_id || (venues.length === 1 ? venues[0].id : null)
+  const menuVenueIsConfig = !!config?.venue_id && 'show_menu' in (config || {})
+  const { data: menuVenueFetched } = useQuery({
+    queryKey: ['website-config', menuVenueId],
+    queryFn:  () => api.get(`/website/config?venue_id=${menuVenueId}`),
+    enabled:  !!menuVenueId && !menuVenueIsConfig,
+    staleTime: 30_000,
+  })
+  const pdfMenusOn = !!menuVenueId &&
+    (menuVenueIsConfig ? config : menuVenueFetched)?.show_menu !== false
+  const availability = useMemo(() => ({
+    hidden:   pdfMenusOn ? [] : ['menu_pdfs'],
+    pdfMenus: { venueId: menuVenueId, on: pdfMenusOn },
+  }), [pdfMenusOn, menuVenueId])
 
   const initial = useMemo(() => Array.isArray(config?.[blocksField]) ? config[blocksField] : [], [config, blocksField])
   const [blocks, setBlocks] = useState(initial)
@@ -446,6 +466,7 @@ export function PageBuilder({
   }), [blocks, currentLabel, effectiveTenantSite, config, venues])
 
   return (
+    <BlockAvailabilityContext.Provider value={availability}>
     <LinkCatalogProvider value={catalogValue}>
     {/* Full screen edit mode covers the app sidebar and the website menu
         (z-[45]: over the AppShell burger at z-40, under modals at z-50):
@@ -599,6 +620,7 @@ export function PageBuilder({
       )}
     </div>
     </LinkCatalogProvider>
+    </BlockAvailabilityContext.Provider>
   )
 }
 

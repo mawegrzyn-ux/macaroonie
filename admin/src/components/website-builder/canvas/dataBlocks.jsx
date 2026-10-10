@@ -16,6 +16,7 @@ import { useApi } from '@/lib/api'
 import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent } from 'lucide-react'
 import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
 import { isRemovable, menuTags, allergenKey } from '@shared/menuTags.js'
+import { useBlockAvailability } from './BlockInserter'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
 
@@ -340,11 +341,16 @@ export function OpeningHoursCanvas({ data, onChange, config }) {
 
 export function MenuPdfsCanvas({ data, onChange, config }) {
   const api = useApi()
-  const venueId = config?.venue_id
+  // The page builder works out which location's PDFs the block lists and
+  // whether they're switched on (website_config.show_menu); off, the live
+  // site renders nothing for this block.
+  const { pdfMenus } = useBlockAvailability()
+  const venueId = pdfMenus ? pdfMenus.venueId : config?.venue_id
+  const on = pdfMenus ? pdfMenus.on : true
   const { data: menus = [], isLoading } = useQuery({
     queryKey: ['menu-pdfs-preview', venueId],
-    queryFn:  () => api.get(venueId ? `/website/menus?venue_id=${venueId}` : '/website/menus'),
-    enabled:  !!venueId,
+    queryFn:  () => api.get(`/website/menus?venue_id=${venueId}`),
+    enabled:  !!venueId && on,
     staleTime: 30_000,
   })
   return (
@@ -353,16 +359,20 @@ export function MenuPdfsCanvas({ data, onChange, config }) {
         <BlockHeading data={data} onChange={onChange} />
         {!venueId ? (
           <EmptyPanel Icon={BookOpen} title="Menus (PDFs)"
-            hint="PDF menus live per-location."
-            where="Upload via Menus (PDF) on this venue" />
+            hint="PDF menus live per-location, so this block shows nothing on a page shared by several locations."
+            where="Put it on a location page" />
+        ) : !on ? (
+          <EmptyPanel Icon={BookOpen} title="Hidden on the website"
+            hint="PDF menus are switched off for this location, so this block shows nothing."
+            where="Switch them on in Website > PDF menus" />
         ) : isLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 24, color: 'var(--c-muted)' }}>
             <Loader2 className="animate-spin" size={20} />
           </div>
         ) : menus.length === 0 ? (
           <EmptyPanel Icon={BookOpen} title="Menus (PDFs)"
-            hint="No PDF menus uploaded yet."
-            where="Upload via Menus (PDF) section" />
+            hint="No PDF menus uploaded yet, so this block shows nothing."
+            where="Upload them in Website > PDF menus" />
         ) : (
           <div style={{
             display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap',

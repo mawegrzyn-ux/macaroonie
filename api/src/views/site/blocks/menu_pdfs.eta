@@ -6,6 +6,9 @@ const containerStyle = d.container === 'full'
   ? 'width:100%; padding:0 ' + pad + ';'
   : 'max-width:' + innerMax + '; margin:0 auto; padding:0 ' + pad + ';'
 %>
+<%/* The location's uploaded PDF menus (website_menu_documents). The bundle
+     loads none while website_config.show_menu is off, so the block is
+     hidden then, and on a page shared by several locations. */%>
 <% if (it.menus && it.menus.length) { %>
 <section class="block" style="padding:48px 0;">
   <div style="<%= containerStyle %>">
@@ -16,7 +19,7 @@ const containerStyle = d.container === 'full'
            style="display:flex; align-items:center; gap:14px; padding:14px 18px;
                   border:1px solid var(--c-border); border-radius:var(--r-md, 8px);
                   text-decoration:none; color:inherit;">
-          <span style="font-size:24px;">📄</span>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0; color:var(--c-primary);"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg>
           <span style="flex:1;">
             <strong style="display:block;"><%= m.label || 'Menu' %></strong>
             <span style="font-size:13px; color:var(--c-muted);">PDF — view in browser</span>
