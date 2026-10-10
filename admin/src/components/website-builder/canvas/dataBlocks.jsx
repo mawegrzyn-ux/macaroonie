@@ -15,7 +15,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import { ImageIcon, Clock, MapPin, Phone, BookOpen, AlertTriangle, Loader2, Calendar, ShoppingBag, BadgePercent } from 'lucide-react'
 import { promoSummary, promoTerms, promoLink, promoRunning } from '@shared/promotions.js'
-import { isRemovable, REMOVABLE_NOTE } from '@shared/menuTags.js'
+import { isRemovable, hasRemovable, menuTags, REMOVABLE_NOTE } from '@shared/menuTags.js'
 import { InlineText } from './InlineText'
 import { innerContainerStyle } from '../boxedLayout'
 
@@ -744,7 +744,9 @@ export function MenuInlineCanvas({ data, onChange }) {
     enabled:  !!data.menu_id,
     staleTime: 30_000,
   })
-  const tagsByCode = menu ? Object.fromEntries((menu.dietary_tags || []).map(t => [t.code, t])) : {}
+  // Only tags shown on menus, as on the site (migration 146).
+  const shownTags = menu ? menuTags(menu.dietary_tags) : []
+  const tagsByCode = Object.fromEntries(shownTags.map(t => [t.code, t]))
 
   // Layout — block override beats menu default. Capped at 4 to match SSR.
   const colOverride = typeof data.columns === 'number' ? data.columns : null
@@ -938,7 +940,7 @@ export function MenuInlineCanvas({ data, onChange }) {
                 </div>
               ))}
             </div>
-            {filteredSections.some(sec => sec.items.some(it => Object.values(it.allergen_levels || {}).includes('removable'))) && (
+            {filteredSections.some(sec => sec.items.some(it => hasRemovable(it, shownTags))) && (
               <p style={{ textAlign: 'center', marginTop: 24, fontSize: '0.85rem', color: 'var(--c-muted)' }}>* {REMOVABLE_NOTE}</p>
             )}
           </>

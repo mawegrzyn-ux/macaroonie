@@ -2624,6 +2624,15 @@ export default function Help() {
               tag</strong>: every dish moves onto the tag you pick and the old one is deleted. A
               printed key now lists only the badges the printed dishes use.
             </P>
+            <P>
+              <strong>Keeping a tag off menus.</strong> Open a tag and set <strong>On menus</strong> to{' '}
+              <strong>Hide</strong> when guests don&apos;t need its badge, for example the Gluten allergen
+              when your dishes already show a Gluten-free tag. A hidden tag is left off the website, printed
+              menus and their keys, the dietary list and online ordering. You still set it on dishes as
+              usual, and it still shows in the Allergen matrix, the allergen lookup and the menu editor,
+              so staff can answer allergy questions. The list marks it <strong>Not on menus</strong>, and
+              the matrix and dish panel show a crossed-out eye next to it.
+            </P>
             <InfoBox type="tip">
               Every reading here saves as part of the whole menu — click <strong>Save</strong> at
               the top of the page once you're done editing, same as any other admin form.

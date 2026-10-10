@@ -51,16 +51,31 @@ export function isRemovable(item, code) {
   return (item?.allergen_levels || {})[code] === 'removable'
 }
 
-/** Tags used by the dishes of these sections, in the tags' own order, plus
- *  whether any dish has a removable allergen (for the key's note). */
+/** Tags guests see: a tag with show_on_menu off (migration 146) stays in
+ *  the Allergen matrix and lookup only. Renderers look dishes' codes up in
+ *  this list and skip codes that aren't in it. */
+export function menuTags(tags) {
+  return (tags || []).filter(t => t.show_on_menu !== false)
+}
+
+/** Whether a dish shows a removable allergen among these (shown) tags. */
+export function hasRemovable(item, tags) {
+  const levels = item?.allergen_levels || {}
+  return (tags || []).some(t => levels[t.code] === 'removable')
+}
+
+/** Of these tags, the ones the dishes of these sections use, in the tags'
+ *  own order, plus whether any dish shows a removable allergen (for the
+ *  key's note). Pass menuTags() for anything guests see. */
 export function usedTags(tags, sections) {
   const used = new Set()
+  const list = tags || []
   let removable = false
   for (const s of sections || []) {
     for (const it of s.items || []) {
       for (const c of it.dietary || []) used.add(c)
-      if (Object.values(it.allergen_levels || {}).includes('removable')) removable = true
+      if (hasRemovable(it, list)) removable = true
     }
   }
-  return { tags: (tags || []).filter(t => used.has(t.code)), removable }
+  return { tags: list.filter(t => used.has(t.code)), removable }
 }

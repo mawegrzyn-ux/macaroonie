@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-10 — Keep an allergen or dietary tag off menus]
+
+- Each allergen and dietary tag has an **On menus** setting (Show / Hide) in Menus > Allergens & dietary. Hide leaves its badge off the website, printed menus and their keys, the dietary list and online ordering, for example the Gluten allergen when dishes already show Gluten-free.
+- Hidden tags are still set on dishes as usual and still show in the Allergen matrix, the allergen lookup and the menu editor. The tags list marks them "Not on menus"; the matrix and dish panel show a crossed-out eye.
+- Database: migration 146.
+
+---
+
 ## [2026-10-10 — Allergens separate from dietary tags, with four levels]
 
 - Menus > **Allergens & dietary** (was Dietary tags) now has two lists: **Allergens**, which now includes the 14 standard UK allergens, and **Dietary tags** (vegan, gluten-free, spicy...). Existing tags that were clearly one of the 14 (for example N for nuts) became that allergen, so dishes keep their badge. Drag to reorder each list; **Merge into another tag** moves every dish from a duplicate tag onto another.

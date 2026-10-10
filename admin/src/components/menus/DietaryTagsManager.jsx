@@ -11,14 +11,14 @@
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Loader2, Pencil, ShieldCheck, Merge } from 'lucide-react'
+import { Plus, Trash2, Loader2, Pencil, ShieldCheck, Merge, EyeOff } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { Modal, SortableRows } from '@/components/staff/shared'
 import { STANDARD_ALLERGENS } from '@shared/menuTags.js'
 import { Card, Field, Input, Btn } from './shared'
 
-const EMPTY = { code: '', label: '', glyph: '', colour: '#7a1a26' }
+const EMPTY = { code: '', label: '', glyph: '', colour: '#7a1a26', show_on_menu: true }
 const SWATCHES = ['#7a1a26', '#b91c1c', '#c2410c', '#a16207', '#4d7c0f', '#15803d', '#0f766e', '#1d4ed8', '#6d28d9', '#374151']
 const slug = (v) => v.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 16)
 
@@ -72,6 +72,12 @@ export function DietaryTagsManager() {
       className="w-full flex items-center gap-3 px-1 py-1 text-sm text-left min-h-[44px] rounded-md hover:bg-accent touch-manipulation">
       <TagChip tag={t} />
       <span className="font-medium flex-1 min-w-0 truncate">{t.label}</span>
+      {t.show_on_menu === false && (
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-300 shrink-0"
+          title="Not shown on the website, printed menus or online ordering; still in the Allergen matrix and lookup">
+          <EyeOff className="w-3.5 h-3.5" /> Not on menus
+        </span>
+      )}
       {t.standard_key && (
         <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-muted-foreground" title="One of the 14 allergens UK law says you must declare">
           <ShieldCheck className="w-3.5 h-3.5" /> Standard
@@ -140,7 +146,8 @@ function TagModal({ tag, kind: newKind, tags, onClose }) {
   const isNew = !tag
   const [form, setForm] = useState(isNew
     ? { ...EMPTY, kind: newKind }
-    : { code: tag.code, label: tag.label, glyph: tag.glyph, colour: tag.colour, kind: tag.kind || 'dietary' })
+    : { code: tag.code, label: tag.label, glyph: tag.glyph, colour: tag.colour, kind: tag.kind || 'dietary',
+        show_on_menu: tag.show_on_menu !== false })
   // New tags get a code from the label until the code is typed by hand.
   const [codeTouched, setCodeTouched] = useState(!isNew)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -164,7 +171,8 @@ function TagModal({ tag, kind: newKind, tags, onClose }) {
     onSuccess: () => { refreshTags(qc); onClose() },
   })
 
-  const dirty = isNew || ['code', 'label', 'glyph', 'colour', 'kind'].some(k => form[k] !== (k === 'kind' ? (tag.kind || 'dietary') : tag[k]))
+  const saved = isNew ? null : { ...tag, kind: tag.kind || 'dietary', show_on_menu: tag.show_on_menu !== false }
+  const dirty = isNew || ['code', 'label', 'glyph', 'colour', 'kind', 'show_on_menu'].some(k => form[k] !== saved[k])
   const valid = form.code && form.label && form.glyph
   const error = save.error || del.error || merge.error
   const mergeTarget = tags.find(t => t.id === mergeInto)
@@ -232,6 +240,21 @@ function TagModal({ tag, kind: newKind, tags, onClose }) {
           <input type="color" value={form.colour} onChange={e => set('colour', e.target.value)}
             className="w-11 h-9 border rounded cursor-pointer" title="Pick any colour" />
         </div>
+      </Field>
+      <Field label="On menus">
+        <div className="inline-flex rounded-md border overflow-hidden">
+          {[[true, 'Show'], [false, 'Hide']].map(([v, label]) => (
+            <button key={label} type="button" onClick={() => set('show_on_menu', v)}
+              className={cn('px-4 min-h-[44px] text-sm touch-manipulation',
+                form.show_on_menu === v ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent')}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-1">
+          Hide leaves the badge off the website, printed menus, the dietary list and online ordering. It stays in the
+          Allergen matrix, the allergen lookup and the menu editor, for example Gluten when dishes already show Gluten-free.
+        </p>
       </Field>
 
       {!isNew && others.length > 0 && (

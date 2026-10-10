@@ -20,6 +20,7 @@ import { getGateway, checkoutGateways, COUNTER_METHODS } from './paymentGateways
 import { itemChoices, variantRules, fromPrice, isPriced, priceBasket } from '../../../shared/orderPricing.js'
 import { menuOnAt, menuOnDate, scheduleLabel, isScheduled } from '../../../shared/menuSchedule.js'
 import { venuePromotions, findByCode, lockUses } from './promoSvc.js'
+import { menuTags } from '../../../shared/menuTags.js'
 
 // An unpaid online order holds its slot this long, then expires.
 export const PENDING_TTL_MINS = 30
@@ -175,7 +176,9 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
     if (dates && !dates.some(d => menuOnDate(sched, d, new Date(d + 'T00:00:00Z').getUTCDay()))) continue
     const full = await loadMenuFull(tx, id, venue.tenant_id)
     if (!full) continue
-    dietaryTags = full.dietary_tags || dietaryTags
+    // Guests only see tags shown on menus (migration 146).
+    dietaryTags = menuTags(full.dietary_tags || dietaryTags)
+    const shownCodes = new Set(dietaryTags.map(t => t.code))
     const rules = variantRules(full)
     const sections = []
     for (const s of full.sections || []) {
@@ -191,7 +194,8 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
           id: it.id, section_id: s.id, name: it.name, native_name: it.native_name || null,
           description: it.description || null, notes: it.notes || null,
           image_url: it.image_url || null, calories: it.calories ?? null,
-          dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
+          dietary: (it.dietary || []).filter(c => shownCodes.has(c)),
+          allergen_levels: Object.fromEntries(Object.entries(it.allergen_levels || {}).filter(([c]) => shownCodes.has(c))),
           price_pence: it.price_pence ?? null,
           featured: !!it.is_featured,   // House favourite (Menus page)
           choices, from_pence: fromPrice(it, choices),

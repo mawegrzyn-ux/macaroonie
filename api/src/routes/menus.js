@@ -22,7 +22,7 @@ import {
   normalizeLayout, layoutGeometry, buildContext, renderPageHtml, layoutFontsUrl,
 } from '../../../shared/menuLayout.js'
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
-import { ALLERGEN_LEVELS, REMOVABLE_NOTE, usedTags } from '../../../shared/menuTags.js'
+import { ALLERGEN_LEVELS, REMOVABLE_NOTE, usedTags, menuTags } from '../../../shared/menuTags.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -206,6 +206,7 @@ const DietaryBody = z.object({
   colour:     z.string().regex(/^#(?:[0-9a-fA-F]{3}){1,2}$/).default('#7a1a26'),
   sort_order: z.number().int().default(0),
   kind:       z.enum(['dietary', 'allergen']).default('dietary'),   // migration 145
+  show_on_menu: z.boolean().default(true),                          // migration 146
 })
 
 const VariantOptionBody = z.object({
@@ -309,7 +310,7 @@ export async function loadAllergenMatrix(tx, menuId, tenantId) {
   `
   if (!menu) return null
   const [tags, sections, items, links] = await Promise.all([
-    tx`SELECT id, code, label, glyph, colour, sort_order, kind, standard_key FROM menu_dietary_tags
+    tx`SELECT id, code, label, glyph, colour, sort_order, kind, standard_key, show_on_menu FROM menu_dietary_tags
         WHERE tenant_id = ${tenantId} ORDER BY kind, sort_order, label`,
     tx`SELECT id, title, visibility, sort_order FROM menu_sections
         WHERE menu_id = ${menuId} AND tenant_id = ${tenantId} ORDER BY sort_order, title`,
@@ -466,6 +467,9 @@ async function loadPrintMenu(tx, menuId, tenantId) {
   const designs = await loadDesigns(tx, menuId, tenantId)
   return {
     ...menu,
+    // Printed menus (and the designer, which draws what prints) only know
+    // the tags shown on menus (migration 146).
+    dietary_tags: menuTags(menu.dietary_tags),
     designs,
     tenant_name:    meta?.tenant_name ?? null,
     logo_url:       meta?.logo_url ?? null,
@@ -608,8 +612,10 @@ export default async function menusRoutes(app) {
     }
     const data = await withTenant(meta.tenant_id, tx => loadMenuFull(tx, req.params.menuId, meta.tenant_id))
     if (!data) throw httpError(404, 'Menu not found')
-    // Website only shows sections set to show everywhere (migration 136).
+    // Website only shows sections set to show everywhere (migration 136)
+    // and tags shown on menus (migration 146).
     data.sections = (data.sections || []).filter(s => (s.visibility || 'show') === 'show')
+    data.dietary_tags = menuTags(data.dietary_tags)
     reply.header('Cache-Control', 'public, max-age=30, stale-while-revalidate=120')
     return data
   })
@@ -1016,8 +1022,8 @@ export default async function menusRoutes(app) {
   app.post('/dietary', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
     const body = DietaryBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO menu_dietary_tags (tenant_id, code, label, glyph, colour, sort_order, kind)
-      VALUES (${req.tenantId}, ${body.code}, ${body.label}, ${body.glyph}, ${body.colour}, ${body.sort_order}, ${body.kind})
+      INSERT INTO menu_dietary_tags (tenant_id, code, label, glyph, colour, sort_order, kind, show_on_menu)
+      VALUES (${req.tenantId}, ${body.code}, ${body.label}, ${body.glyph}, ${body.colour}, ${body.sort_order}, ${body.kind}, ${body.show_on_menu})
       RETURNING *
     `)
     return reply.code(201).send(row)

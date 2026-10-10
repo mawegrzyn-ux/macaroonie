@@ -244,11 +244,14 @@ export function AllergenMatrixEditor({ canEdit }) {
               </tr>
               <tr>
                 {tags.map((t, ti) => (
-                  <th key={t.id} scope="col" title={t.label}
+                  <th key={t.id} scope="col" title={t.show_on_menu === false ? `${t.label} (not shown on menus)` : t.label}
                     className={cn('sticky top-7 z-20 bg-muted px-1 py-2 border-b font-normal align-bottom w-14 min-w-[3.5rem]',
                       ti === allergenCount && ti > 0 && 'border-l-2 border-l-foreground/20')}>
                     <div className="flex flex-col items-center gap-1.5">
                       <span className="text-xs leading-tight whitespace-nowrap [writing-mode:vertical-rl] rotate-180 max-h-[9rem] overflow-hidden text-ellipsis">{t.label}</span>
+                      {t.show_on_menu === false && (
+                        <EyeOff className="w-3.5 h-3.5 text-muted-foreground" aria-label="Not shown on menus" />
+                      )}
                       <TagChip tag={t} />
                     </div>
                   </th>
