@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, X, Loader2, Check, EyeOff, AlertTriangle, ChevronDown, SlidersHorizontal } from 'lucide-react'
+import { Search, X, Loader2, Check, EyeOff, AlertTriangle, SlidersHorizontal } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { LEVEL_LABELS } from '@shared/menuTags.js'
@@ -339,15 +339,17 @@ const NEXT_MODE = { undefined: 'has', has: 'not', not: undefined }
 
 const LEVEL_ORDER = ['contains', 'may_contain', 'removable']
 
-// `phone` (the /mobile page): menu + search stick to the top while the
-// list scrolls, and the tag filter folds away behind one button.
+// The tag filter is one "Allergens & diet" button that opens a grid of every
+// tag (TagFilterModal); only the filters in use show under the search, as
+// chips that remove themselves when tapped. `phone` (the /mobile page): menu,
+// search and that button stick to the top while the list scrolls.
 export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone = false }) {
   const { menus, menuId, setMenuId, isLoading: menusLoading } = useMenuChoice(storeKey)
   const { data, isLoading } = useAllergenMatrix(menuId)
   const [search, setSearch] = useState('')
   const [modes, setModes] = useState({})   // tag id -> 'has' | 'not'
   const [openId, setOpenId] = useState(null)   // dish shown with full tag names
-  const [showTags, setShowTags] = useState(!phone)
+  const [picking, setPicking] = useState(false)   // tag filter pop-up open
 
   useEffect(() => { setModes({}); setOpenId(null) }, [menuId])
 
@@ -388,21 +390,43 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
   }
 
   const controls = (
-    <div className="flex flex-wrap gap-2">
-      <MenuSelect menus={menus} value={menuId} onChange={setMenuId} className="flex-1 min-w-[9rem]" />
-      <SearchBox value={search} onChange={setSearch} className="flex-[2] min-w-[10rem]" />
-      {phone && tags.length > 0 && (
-        <button type="button" onClick={() => setShowTags(v => !v)} aria-expanded={showTags}
-          className={cn('w-full inline-flex items-center gap-2 px-3 min-h-[44px] rounded-md border text-sm touch-manipulation',
-            active.length > 0 && 'border-foreground font-medium')}>
-          <SlidersHorizontal className="w-4 h-4" />
-          <span className="flex-1 min-w-0 text-left truncate">
-            {active.length
-              ? active.map(([id, m]) => `${m === 'has' ? 'Has' : 'Free from'} ${tagById[id]?.label ?? ''}`).join(' · ')
-              : 'Filter by allergen or diet'}
-          </span>
-          <ChevronDown className={cn('w-4 h-4 transition-transform', showTags && 'rotate-180')} />
-        </button>
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <MenuSelect menus={menus} value={menuId} onChange={setMenuId} className="flex-1 min-w-[9rem]" />
+        <SearchBox value={search} onChange={setSearch} className="flex-[2] min-w-[10rem]" />
+        {tags.length > 0 && (
+          <button type="button" onClick={() => setPicking(true)} aria-haspopup="dialog"
+            className={cn('inline-flex items-center gap-2 px-3 min-h-[44px] rounded-md border text-sm touch-manipulation',
+              phone && 'flex-1',
+              active.length > 0 && 'border-foreground font-medium')}>
+            <SlidersHorizontal className="w-4 h-4" />
+            Allergens & diet
+            {active.length > 0 && (
+              <span className="ml-auto inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-foreground text-background text-[11px]">
+                {active.length}
+              </span>
+            )}
+          </button>
+        )}
+      </div>
+      {active.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {active.map(([id, m]) => {
+            const t = tagById[id]
+            if (!t) return null
+            return (
+              <button key={id} type="button" onClick={() => setModes(x => ({ ...x, [id]: undefined }))}
+                aria-label={`Remove filter ${m === 'has' ? 'has' : 'free from'} ${t.label}`}
+                className={cn('inline-flex items-center gap-1 rounded-full border pl-1 pr-2 min-h-[36px] text-xs touch-manipulation',
+                  m === 'has' ? 'border-foreground bg-foreground/5' : 'border-emerald-600 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300')}>
+                <TagChip tag={t} size="w-5 h-5" />
+                <span>{m === 'has' ? 'Has' : 'Free from'} {t.label}</span>
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )
+          })}
+          <button type="button" onClick={() => setModes({})} className="text-xs underline min-h-[36px] px-1 touch-manipulation">Clear</button>
+        </div>
       )}
     </div>
   )
@@ -413,32 +437,9 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
         ? <div className="sticky top-0 z-10 bg-background -mx-3 px-3 pt-3 pb-2 border-b">{controls}</div>
         : controls}
 
-      {tags.length > 0 && showTags && (
-        <div>
-          <div className="flex flex-wrap gap-1.5">
-            {tags.map(t => {
-              const mode = modes[t.id]
-              return (
-                <button key={t.id} type="button" onClick={() => cycle(t.id)}
-                  aria-label={`${t.label}: ${mode === 'has' ? 'contains' : mode === 'not' ? 'free from' : 'any'}`}
-                  className={cn('inline-flex items-center gap-1.5 rounded-full border pl-1 pr-2.5 min-h-[40px] text-xs touch-manipulation',
-                    mode === 'has' && 'border-foreground bg-foreground/5 font-medium',
-                    mode === 'not' && 'border-emerald-600 bg-emerald-50 text-emerald-800 font-medium dark:bg-emerald-950/40 dark:text-emerald-300')}>
-                  <TagChip tag={t} size="w-6 h-6" />
-                  <span className={cn(mode === 'not' && 'line-through decoration-2')}>{t.label}</span>
-                  {mode === 'has' && <span className="text-[10px] uppercase tracking-wide">has</span>}
-                  {mode === 'not' && <span className="text-[10px] uppercase tracking-wide">free</span>}
-                </button>
-              )
-            })}
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1">
-            Tap a tag once for dishes that have it, twice for dishes free from it (including dishes it can be removed from).
-            {active.length > 0 && (
-              <button type="button" onClick={() => setModes({})} className="ml-2 underline touch-manipulation">Clear tags</button>
-            )}
-          </p>
-        </div>
+      {picking && (
+        <TagFilterModal tags={tags} modes={modes} onCycle={cycle} onClear={() => setModes({})}
+          count={isLoading ? null : count} onClose={() => setPicking(false)} />
       )}
 
       {isLoading ? (
@@ -529,6 +530,89 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
           )}
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * The lookup's tag filter: every allergen and dietary tag as a grid of
+ * tiles in a pop-up, so the widget itself only shows the filters in use.
+ * Rendered inline (not in a portal) so it stays inside a dashboard that is
+ * in full screen. Tap once = has it, twice = free from it, three times = off.
+ */
+function TagFilterModal({ tags, modes, onCycle, onClear, count, onClose }) {
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const groups = [
+    ['Allergens', tags.filter(t => t.kind === 'allergen')],
+    ['Dietary', tags.filter(t => t.kind !== 'allergen')],
+  ].filter(([, list]) => list.length)
+  const anyActive = Object.values(modes).some(Boolean)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 sm:p-4"
+      onClick={onClose} role="dialog" aria-modal="true" aria-label="Filter by allergen or diet">
+      <div className="w-full sm:max-w-2xl max-h-[85vh] flex flex-col bg-background rounded-t-xl sm:rounded-xl shadow-xl overflow-hidden"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-start gap-3 px-4 py-3 section-head">
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sm">Filter by allergen or diet</p>
+            <p className="text-xs text-muted-foreground">
+              Tap once for dishes that have it, twice for dishes free from it (including dishes it can be removed from), again to clear.
+            </p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close"
+            className="w-11 h-11 -mr-2 -mt-1 inline-flex items-center justify-center rounded-md hover:bg-accent touch-manipulation">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {groups.map(([title, list]) => (
+            <div key={title}>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">{title}</p>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                {list.map(t => {
+                  const mode = modes[t.id]
+                  return (
+                    <button key={t.id} type="button" onClick={() => onCycle(t.id)}
+                      aria-label={`${t.label}: ${mode === 'has' ? 'has it' : mode === 'not' ? 'free from it' : 'any'}`}
+                      className={cn('relative flex flex-col items-center justify-center gap-1 rounded-lg border px-1.5 py-2 min-h-[84px] text-center touch-manipulation',
+                        mode === 'has' && 'border-foreground border-2 bg-foreground/5',
+                        mode === 'not' && 'border-emerald-600 border-2 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300')}>
+                      <TagChip tag={t} size="w-8 h-8" />
+                      <span className={cn('text-xs leading-tight line-clamp-2', mode && 'font-medium', mode === 'not' && 'line-through decoration-2')}>
+                        {t.label}
+                      </span>
+                      {mode && (
+                        <span className={cn('text-[10px] font-semibold uppercase tracking-wide',
+                          mode === 'has' ? 'text-foreground' : 'text-emerald-700 dark:text-emerald-300')}>
+                          {mode === 'has' ? 'Has' : 'Free from'}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 px-4 py-3 border-t">
+          {anyActive && (
+            <button type="button" onClick={onClear}
+              className="min-h-[48px] px-4 rounded-md border text-sm touch-manipulation">
+              Clear all
+            </button>
+          )}
+          <button type="button" onClick={onClose}
+            className="ml-auto min-h-[48px] px-5 rounded-md bg-primary text-primary-foreground text-sm font-medium touch-manipulation">
+            {count == null ? 'Done' : `Show ${count} ${count === 1 ? 'dish' : 'dishes'}`}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
