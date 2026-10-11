@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — New logo]
+
+- New Macaroonie logo (a macaron side on: two grey shells, two blue lines of filling) everywhere the old pink macaron was: browser tab icon, installed app icons (computer, iPhone, Android), the sidebar, the platform page and the BIMI logo shown next to emails in inboxes that support it.
+- The phone app (Ops) uses the same logo in white on a dark tile, so it still installs as a separate, recognisable app.
+- The browser tab icon switches to a light frame when the browser is in dark mode.
+- No migration. Installed apps pick up the new icon when the device next refreshes them (reinstall to see it straight away).
+
+---
+
 ## [2026-10-11 — Rota: take someone off a week]
 
 - **Rota**: each name has a button (person with a minus) that takes that person off the week you are looking at, after you confirm. Their row goes, any shifts or time off they had that week are cleared, and they are listed under the grid in **Off this week's rota**, where **Put back** brings them back. Saved with **Save rota** like the rest of the grid; **Discard changes** undoes it.

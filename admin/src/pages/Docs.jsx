@@ -2030,6 +2030,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>mobile-apple-touch-icon.png</Mono>).
             </InfoBox>
             <P>
+              <strong>Logo files.</strong> Every copy of the Macaroonie logo is drawn from the same
+              four shapes (two shells as filled paths, two filling bars as rects; no arcs, so the
+              BIMI file stays valid SVG Tiny PS): <Mono>favicon.svg</Mono> (transparent, light
+              frame in dark mode), <Mono>bimi.svg</Mono> and <Mono>.well-known/bimi.svg</Mono>{' '}
+              (white square, mark inside the circle mail apps crop to),{' '}
+              <Mono>pwa-192x192.png</Mono> / <Mono>pwa-512x512.png</Mono> /{' '}
+              <Mono>apple-touch-icon.png</Mono> (white tile), the Ops set{' '}
+              (<Mono>mobile-icon.svg</Mono>, <Mono>mobile-pwa-*.png</Mono>,{' '}
+              <Mono>mobile-apple-touch-icon.png</Mono>: white frame on a dark tile so the phone app
+              installs as a visibly different icon), <Mono>MacaroonIcon</Mono> in{' '}
+              <Mono>AppShell.jsx</Mono> and the header of <Mono>views/platform/landing.eta</Mono>.
+              Change them together; the PNGs are renders of the SVG tiles.
+            </P>
+            <P>
               <Mono>MobileShell</Mono> also fetches <Mono>GET /me</Mono> and calls{' '}
               <Mono>applySiteTheme(me.site_theme)</Mono> itself, duplicating the effect{' '}
               <Mono>AppShell.jsx</Mono> runs for the desktop app. <Mono>/mobile</Mono> never

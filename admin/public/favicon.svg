@@ -1,22 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <!-- Bottom shell -->
-  <ellipse cx="32" cy="42" rx="22" ry="10" fill="#f4a7b9"/>
-  <!-- Bottom shell texture dots -->
-  <circle cx="22" cy="41" r="1.8" fill="#e8829a" opacity="0.7"/>
-  <circle cx="32" cy="43" r="1.8" fill="#e8829a" opacity="0.7"/>
-  <circle cx="42" cy="41" r="1.8" fill="#e8829a" opacity="0.7"/>
-  <circle cx="27" cy="39" r="1.4" fill="#e8829a" opacity="0.5"/>
-  <circle cx="37" cy="39" r="1.4" fill="#e8829a" opacity="0.5"/>
-  <!-- Filling (cream layer) -->
-  <ellipse cx="32" cy="34" rx="22" ry="5" fill="#fdf3c8"/>
-  <!-- Top shell -->
-  <ellipse cx="32" cy="26" rx="22" ry="10" fill="#f4a7b9"/>
-  <!-- Top shell texture dots -->
-  <circle cx="22" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
-  <circle cx="32" cy="27" r="1.8" fill="#e8829a" opacity="0.7"/>
-  <circle cx="42" cy="25" r="1.8" fill="#e8829a" opacity="0.7"/>
-  <circle cx="27" cy="23" r="1.4" fill="#e8829a" opacity="0.5"/>
-  <circle cx="37" cy="23" r="1.4" fill="#e8829a" opacity="0.5"/>
-  <!-- Top dome highlight -->
-  <ellipse cx="28" cy="20" rx="8" ry="4" fill="white" opacity="0.25"/>
+  <style>@media (prefers-color-scheme: dark) { .frame { fill: #e4e4e7; } }</style>
+  <path class="frame" fill="#46454A" d="M2.55 17.87 L2.55 9.21 C2.55 4.67 6.22 1 10.76 1 L53.24 1 C57.78 1 61.45 4.67 61.45 9.21 L61.45 17.87 L56.25 17.87 L56.25 9.21 C56.25 7.54 54.91 6.2 53.24 6.2 L10.76 6.2 C9.09 6.2 7.75 7.54 7.75 9.21 L7.75 17.87 Z"/>
+  <path class="frame" fill="#46454A" d="M2.55 46.13 L2.55 54.79 C2.55 59.33 6.22 63 10.76 63 L53.24 63 C57.78 63 61.45 59.33 61.45 54.79 L61.45 46.13 L56.25 46.13 L56.25 54.79 C56.25 56.46 54.91 57.8 53.24 57.8 L10.76 57.8 C9.09 57.8 7.75 56.46 7.75 54.79 L7.75 46.13 Z"/>
+  <rect x="2.55" y="24.98" width="58.9" height="3.46" fill="#0567E4"/>
+  <rect x="2.55" y="35.56" width="58.9" height="3.46" fill="#0567E4"/>
 </svg>
