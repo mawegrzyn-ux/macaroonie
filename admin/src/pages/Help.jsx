@@ -1730,22 +1730,25 @@ export default function Help() {
               week's <strong>Unallocated</strong> pot, shown just above the table.{' '}
               <strong>+</strong> takes £0.50 out of the Unallocated pot and gives it to that person, so
               you can only add what you have taken off someone first. The small red or green figure under
-              a total is that person's net change. Money can be left in the Unallocated pot at the end of
-              the week; it isn't paid to anyone. <strong>Undo all</strong> (with a confirm) puts every
-              +/− back as it was. Nudges are separate from the tip moves list.
+              a total is that person's net change. Whatever is left in the Unallocated pot at the end of
+              the week is <strong>carried over to the next week</strong>: next week's box shows it as
+              carried over, and you can hand it out there with <strong>+</strong> (anything still left
+              carries on again). <strong>Undo all</strong> (with a confirm) puts this week's +/− back as
+              they were. Nudges are separate from the tip moves list.
             </P>
             <P>
               <strong>Half-point +/−.</strong> When a pot is shared by points, each person's{' '}
               <strong>Points</strong> also has a <strong>−</strong> and a <strong>+</strong> button
-              (Rota page and the Rota dashboard's Tips widget). <strong>−</strong> takes half a point
-              off them and <strong>+</strong> adds half a point. There is no pot of spare points: the
-              points pots are shared again straight away over everyone's new points, so taking half a
-              point off one person gives everyone else a little more, and adding half a point to
-              someone gives everyone else a little less. To move half a point from one person to
-              another, tap <strong>−</strong> on one and <strong>+</strong> on the other. The{' '}
+              (Rota page and the Rota dashboard's Tips widget). They work like the £ buttons:{' '}
+              <strong>−</strong> takes half a point off someone and puts it in the week's{' '}
+              <strong>spare points</strong>, shown in the Unallocated box; <strong>+</strong> gives half
+              a spare point to someone, so you take off someone first. Spare points keep their share of
+              the pots, so taking half a point off one person doesn't change anyone else's tips; the
+              box shows what the spare points are worth. Anything they are still worth at the end of the
+              week is carried over to next week with the rest of the unallocated tips. The{' '}
               <strong>Changed</strong> column shows each person's point moves plus their taps.{' '}
-              <strong>Undo point taps</strong> (in the box above the table, with a confirm) puts
-              everyone's points back as they were before the taps; it doesn't touch the tip moves list.
+              <strong>Undo point taps</strong> (in the box, with a confirm) puts everyone's points back
+              as they were before the taps; it doesn't touch the tip moves list.
             </P>
             <H3>Rota dashboard</H3>
             <P>

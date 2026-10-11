@@ -248,13 +248,13 @@ function TipsPayoutWidget({ venueId, ctx, settings = {} }) {
         <PayoutTile label="Bank transfer" value={t.tips_bank} />
       </div>
 
-      {!settings.hide_notes && (t.tips_handed_on > 0 || t.tips_unallocated > 0 || nobodyPicked.length > 0) && (
+      {!settings.hide_notes && (t.tips_handed_on > 0 || t.tips_carry_out > 0 || nobodyPicked.length > 0) && (
         <div className="space-y-1 text-xs">
           {t.tips_handed_on > 0 && (
             <p className="text-red-700">{fmt(t.tips_handed_on)} to be handed on by people paid more than their share.</p>
           )}
-          {t.tips_unallocated > 0 && (
-            <p className="text-muted-foreground">{fmt(t.tips_unallocated)} unallocated (not paid to anyone).</p>
+          {t.tips_carry_out > 0 && (
+            <p className="text-muted-foreground">{fmt(t.tips_carry_out)} unallocated: not paid this week, carried over to next week.</p>
           )}
           {nobodyPicked.map(p => (
             <p key={p.id} className="text-amber-700">{p.name}: nobody picked to be paid, so it is paid as shares. Pick people on the Rota page.</p>

@@ -5,11 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
-## [2026-10-10 — Rota tips: half-point +/− buttons]
+## [2026-10-11 — Rota tips: half-point +/− buttons, spare points, carry-over]
 
-- In the tips table (Rota page and the Rota dashboard's Tips widget), each person's **Points** now has **−** and **+** buttons, like the £ buttons next to their total. Each tap takes off or adds half a point.
-- Points pots are shared again straight away over the new points: taking half a point off one person gives everyone else a little more. To move half a point between two people, tap − on one and + on the other.
-- The **Moved** column is now **Changed** and includes the taps. **Undo point taps** (above the table, with a confirm) puts everyone's points back.
+- In the tips table (Rota page and the Rota dashboard's Tips widget), each person's **Points** now has **−** and **+** buttons, like the £ buttons next to their total. **−** takes half a point off someone and puts it in the week's **spare points**; **+** gives half a spare point to someone, so you take off someone first.
+- Spare points keep their share of the pots, so taking half a point off one person doesn't change anyone else's tips. The Unallocated box shows how many spare points there are and what they are worth.
+- **Unallocated tips now carry over to the next week**: the £ left unallocated plus what any spare points are worth. Next week's Unallocated box shows the amount carried over, and you can hand it out there with +.
+- The **Moved** column is now **Changed** and includes the taps. **Undo point taps** (in the box, with a confirm) puts everyone's points back.
 - Migration 151 (`rota_week_staff.points_nudge`).
 
 ---

@@ -1333,6 +1333,7 @@ function PotCard({ pot, data, canEdit, base, setPay, onEditManual, onPickPayees 
               {data.tip_rounding && (data.tip_rounding.mode === 'nearest'
                 ? `Rounded to the nearest ${fmt(data.tip_rounding.to)}. `
                 : `Rounded ${data.tip_rounding.mode} to a multiple of ${fmt(data.tip_rounding.to)}. `)}
+              {pot.unallocated > 0 && <span>{fmt(pot.unallocated)} held by spare points (carried over). </span>}
               {pot.difference > 0 && <span className="text-amber-700 font-medium">Pays out {fmt(pot.difference)} more than the pot.</span>}
               {pot.difference < 0 && <span className="text-amber-700 font-medium">{fmt(-pot.difference)} left over.</span>}
             </p>
@@ -1740,11 +1741,13 @@ function NudgeCells({ row, unallocated, canEdit, busy, onNudge }) {
 }
 
 /**
- * A person's points as table cells. With edit rights the -/+ buttons take
- * off or add half a point (no pot of spare points: the points pots are
- * re-shared over the new points), each in its own column like NudgeCells.
+ * A person's points as table cells. With edit rights the -/+ buttons move
+ * half a point between them and the week's spare points (- needs half a
+ * point, + needs half a spare point), each in its own column like NudgeCells.
+ * totalPoints is everyone's points plus the spare ones, so the % is the
+ * person's part of each points pot.
  */
-function PointsCells({ row, totalPoints, canEdit, busy, onNudge }) {
+function PointsCells({ row, totalPoints, spare, canEdit, busy, onNudge }) {
   const points = (
     <TipNum className="font-medium"
       sub={totalPoints > 0 && `${Math.round((row.points / totalPoints) * 1000) / 10}%`}>
@@ -1754,15 +1757,15 @@ function PointsCells({ row, totalPoints, canEdit, busy, onNudge }) {
   if (!canEdit) return <td className="px-2 py-1.5 text-right">{points}</td>
   return <>
     <td className="pl-2 py-1.5 w-11">
-      <button type="button" aria-label={`Take half a point off ${row.name}`}
+      <button type="button" aria-label={`Take half a point off ${row.name} into spare points`}
         disabled={busy || row.points < POINTS_STEP} onClick={() => onNudge(row.staff_id, 'minus')} className={STEP_BTN}>
         <Minus className="w-4 h-4" />
       </button>
     </td>
     <td className="px-2 py-1.5 text-right">{points}</td>
     <td className="pr-2 py-1.5 w-11">
-      <button type="button" aria-label={`Give ${row.name} half a point`}
-        disabled={busy} onClick={() => onNudge(row.staff_id, 'plus')} className={STEP_BTN}>
+      <button type="button" aria-label={`Give ${row.name} half a point from spare points`}
+        disabled={busy || spare < POINTS_STEP} onClick={() => onNudge(row.staff_id, 'plus')} className={STEP_BTN}>
         <Plus className="w-4 h-4" />
       </button>
     </td>
@@ -1821,6 +1824,10 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
   const unallocated = data.totals.tips_unallocated ?? 0
   const hasNudges = data.rows.some(r => r.tip_unallocated !== 0)
   const hasPointNudges = data.rows.some(r => (r.points_nudge ?? 0) !== 0)
+  const sparePoints = data.totals.points_unallocated ?? 0
+  const sparePointsMoney = data.totals.tips_unallocated_points ?? 0
+  const carriedIn = data.totals.tips_carried_in ?? 0
+  const carryOut = data.totals.tips_carry_out ?? 0
   const pointsChange = r => Math.round((r.points_adjustment + (r.points_nudge ?? 0)) * 100) / 100
   const showTotal = sharedPots.length > 1 || hasMoneyMoves || hasNudges || canEdit
   const showPayout = hasPayoutSplit(pots)
@@ -1850,7 +1857,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
         {data.totals.kept_by_house > 0 && ` · kept by the house ${fmt(data.totals.kept_by_house)}`}
         {data.totals.tips_added > 0 && ` · added ${fmt(data.totals.tips_added)}`}
         {data.totals.tips_taken_out > 0 && ` · taken out ${fmt(data.totals.tips_taken_out)}`}
-        {unallocated > 0 && ` · unallocated ${fmt(unallocated)}`}
+        {carryOut !== 0 && ` · unallocated ${fmt(carryOut)} (carried over to next week)`}
       </p>
       {showPayout && (
         <p className="text-xs">
@@ -1862,15 +1869,27 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
       )}
       </>}
 
-      {sections.shares && sharedPots.length > 0 && rows.length > 0 && (canEdit || hasNudges) && (
+      {sections.shares && sharedPots.length > 0 && rows.length > 0 && (canEdit || hasNudges || hasPointNudges || carryOut !== 0 || carriedIn !== 0) && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold">Unallocated <span className="tabular-nums">{fmt(unallocated)}</span></p>
+            <p className="text-sm font-semibold">
+              Unallocated <span className={cn('tabular-nums', unallocated < 0 && 'text-red-600')}>{fmt(unallocated)}</span>
+              {hasPoints && (sparePoints > 0 || canEdit) && (
+                <span className="font-normal text-muted-foreground"> · {sparePoints} spare point{sparePoints === 1 ? '' : 's'}
+                  {sparePoints > 0 && <> (worth <span className="tabular-nums">{fmt(sparePointsMoney)}</span>)</>}
+                </span>
+              )}
+            </p>
+            {carriedIn !== 0 && (
+              <p className="text-[11px] font-medium">Includes <span className="tabular-nums">{fmt(carriedIn)}</span> carried over from earlier weeks.</p>
+            )}
             <p className="text-[11px] text-muted-foreground">
               {canEdit
-                ? `Tap − next to someone's total to put ${fmt(NUDGE_STEP)} of their tips here, + to give ${fmt(NUDGE_STEP)} from here to them. Anything left stays unallocated.`
-                : 'Tips taken off people and not given to anyone else.'}
-              {canEdit && hasPoints && ' − and + next to someone\'s points take off or add half a point; the points pots are shared again over the new points.'}
+                ? `− / + next to someone's total moves ${fmt(NUDGE_STEP)} between them and here${hasPoints ? '; next to their points, half a point to or from the spare points' : ''}. `
+                : 'Tips taken off people and not given to anyone else. '}
+              {hasPoints && 'Spare points keep their share of the pots, so nobody else\'s share changes. '}
+              Anything left at the end of the week is carried over to next week
+              {carryOut !== 0 && <> (<span className="tabular-nums font-medium">{fmt(carryOut)}</span> so far)</>}.
             </p>
           </div>
           {canEdit && hasNudges && !confirmHandBack && (
@@ -1888,7 +1907,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
           {confirmHandBack && (
             <>
               <span className="text-xs text-muted-foreground">
-                {confirmHandBack === 'points' ? 'Put everyone\'s points back as they were before the +/− taps?' : 'Put every £ +/− back as it was?'}
+                {confirmHandBack === 'points' ? 'Put everyone\'s points back as they were before the +/− taps?' : 'Put this week\'s £ +/− back as they were?'}
               </span>
               <button type="button" onClick={() => handBack.mutate(confirmHandBack)} disabled={handBack.isPending}
                 className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Yes, undo</button>
@@ -1951,7 +1970,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
                         {pointsChange(r) > 0 ? '+' : ''}{pointsChange(r) || '–'}
                       </TipNum>
                     </td>
-                    <PointsCells row={r} totalPoints={data.totals.points} canEdit={canEdit}
+                    <PointsCells row={r} totalPoints={data.totals.points + sparePoints} spare={sparePoints} canEdit={canEdit}
                       busy={pointsNudge.isPending} onNudge={onPointsNudge} />
                   </>}
                   {sharedPots.map(p => {

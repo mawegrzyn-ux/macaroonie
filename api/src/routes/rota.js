@@ -43,8 +43,9 @@
 //   POST   /venues/:venueId/weeks/:week/reset-moves     { kind: points | money | all }
 //   POST   /venues/:venueId/weeks/:week/tip-nudge       { staff_id, direction: plus | minus }  0.50 to / from the unallocated pot
 //   POST   /venues/:venueId/weeks/:week/reset-unallocated  hand the unallocated pot back (every nudge to 0)
-//   POST   /venues/:venueId/weeks/:week/points-nudge    { staff_id, direction: plus | minus }  half a point on / off (migration 151)
+//   POST   /venues/:venueId/weeks/:week/points-nudge    { staff_id, direction: plus | minus }  half a point to / from the spare points (migration 151)
 //   POST   /venues/:venueId/weeks/:week/reset-points-nudges  every point tap back to 0
+//   Whatever is left unallocated (£ and what spare points are worth) carries into the next week (carriedIn()).
 //   POST   /venues/:venueId/weeks/:week/fill-wages      writes Cash Recon wages
 
 import { z } from 'zod'
@@ -261,8 +262,38 @@ function loadEntries(tx, tenantId, venueId, monday) {
   `
 }
 
-/** Everything the pay calculation needs for one venue week. */
-async function computeWeek(tx, tenantId, venueId, monday) {
+/**
+ * What earlier weeks left unallocated, carried into this week: every earlier
+ * £ tap (minus the sum of tip_unallocated) plus what each earlier week's
+ * spare points were worth. Only weeks with spare points left need their pots
+ * worked out, so this is usually one query.
+ */
+async function carriedIn(tx, tenantId, venueId, monday) {
+  const [money] = await tx`
+    SELECT COALESCE(-SUM(tip_unallocated), 0)::float8 AS amount
+      FROM rota_week_staff
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start < ${monday}::date
+  `
+  const spare = await tx`
+    SELECT week_start::text AS week
+      FROM rota_week_staff
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start < ${monday}::date
+     GROUP BY week_start
+    HAVING SUM(points_nudge) < 0
+     ORDER BY week_start
+  `
+  let total = money.amount
+  for (const w of spare) {
+    const week = await computeWeek(tx, tenantId, venueId, w.week, { carry: false })
+    total += week.totals.tips_unallocated_points
+  }
+  return Math.round(total * 100) / 100
+}
+
+/** Everything the pay calculation needs for one venue week. `carry: false`
+ *  skips what earlier weeks left unallocated (not needed for pay or checks
+ *  on people's own balances). */
+async function computeWeek(tx, tenantId, venueId, monday, { carry = true } = {}) {
   const sunday = addDays(monday, 6)
   const [shifts, entries, settings, pots] = await Promise.all([
     loadShifts(tx, tenantId), loadEntries(tx, tenantId, venueId, monday), loadSettings(tx, tenantId),
@@ -354,7 +385,8 @@ async function computeWeek(tx, tenantId, venueId, monday) {
   ])]
   const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
   const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
-  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, moves, pots: potInputs, tipRounding, payAdjustments, carriedOwed })
+  const carryIn = carry ? await carriedIn(tx, tenantId, venueId, monday) : 0
+  const result = computeRotaWeek({ shifts, staff, entries, weekStaff, moves, pots: potInputs, tipRounding, payAdjustments, carriedOwed, carriedIn: carryIn })
   const nameOf = new Map(staff.map(s => [s.id, s.name]))
   // Which week each pot's payees were picked in (null = never picked).
   result.pots.forEach((p, i) => { p.payees_week = potInputs[i].payees_week })
@@ -379,7 +411,8 @@ const PAY_ROW_FIELDS = ['pay_type', 'pay_basis', 'computed_pay', 'pay_override',
 const TIP_ROW_FIELDS = ['base_points', 'points_adjustment', 'points_nudge', 'tip_adjustment', 'tip_unallocated', 'points',
   'pot_shares', 'pot_shares_exact', 'tip_share', 'tip_share_from_pots', 'tip_balance', 'tip_cash', 'tip_bank']
 const TIP_TOTAL_FIELDS = ['points', 'tips_gross', 'surcharges', 'tips_in', 'tips_shared',
-  'kept_by_house', 'tips_added', 'tips_taken_out', 'tips_unallocated', 'tips_bank', 'tips_cash', 'tips_handed_on']
+  'kept_by_house', 'tips_added', 'tips_taken_out', 'tips_unallocated', 'tips_bank', 'tips_cash', 'tips_handed_on',
+  'tips_carried_in', 'points_unallocated', 'tips_unallocated_points', 'tips_carry_out']
 
 export function redactWeek(week, { pay, tips }) {
   const out = { ...week, access: { pay, tips } }
@@ -1126,7 +1159,7 @@ export default async function rotaRoutes(app) {
 
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
-      const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday, { carry: false })
       const rowOf = id => before.rows.find(r => r.staff_id === id)
       const balance = r => (b.kind === 'money' ? r.tip_share : r.points)
       const from = isMove ? rowOf(b.from_staff_id) : null
@@ -1233,10 +1266,10 @@ export default async function rotaRoutes(app) {
     })
   })
 
-  // +/- point tap (migration 151): half a point on or off one person's
-  // points. No pot of spare points, so plus needs nothing; minus needs the
-  // person to have half a point left (points are never below 0). Same lock
-  // as the £ taps so rapid taps can't both pass the check.
+  // +/- point tap (migration 151): moves half a point between one person's
+  // points and the week's spare points, like the £ taps. Minus needs the
+  // person to have half a point; plus needs half a spare point. Same lock as
+  // the £ taps so rapid taps can't both pass the check.
   const POINTS_STEP = 0.5
   app.post('/venues/:venueId/weeks/:week/points-nudge', { preHandler: requirePermission('rota_tips', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
@@ -1244,14 +1277,14 @@ export default async function rotaRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
       await tx`SELECT pg_advisory_xact_lock(hashtext(${'tip-nudge:' + req.params.venueId + ':' + monday}))`
-      const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      const before = await computeWeek(tx, req.tenantId, req.params.venueId, monday, { carry: false })
       const row = before.rows.find(r => r.staff_id === b.staff_id)
       if (!row) throw httpError(404, 'Staff member not on this week')
       if (b.direction === 'minus' && row.points < POINTS_STEP - 1e-9) {
         throw httpError(422, `${row.name} only has ${row.points} points`)
       }
-      if (b.direction === 'plus' && row.points_nudge >= 100) {
-        throw httpError(422, `${row.name} already has ${row.points_nudge} points added this week`)
+      if (b.direction === 'plus' && before.totals.points_unallocated < POINTS_STEP - 1e-9) {
+        throw httpError(422, `Only ${before.totals.points_unallocated} spare points. Take half a point off someone first.`)
       }
       const delta = b.direction === 'plus' ? POINTS_STEP : -POINTS_STEP
       await ensureWeekStaff(tx, req.tenantId, req.params.venueId, monday, b.staff_id)
@@ -1285,7 +1318,7 @@ export default async function rotaRoutes(app) {
     const monday = mondayOf(req.params.week)
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
-      const week = await computeWeek(tx, req.tenantId, req.params.venueId, monday)
+      const week = await computeWeek(tx, req.tenantId, req.params.venueId, monday, { carry: false })
       const rostered = week.rows.filter(r => r.entry_count > 0 || r.pay_override != null || r.adjustments.length > 0 || r.carried_owed > 0)
       if (!rostered.length) throw httpError(422, 'Nobody is on the rota this week')
 
