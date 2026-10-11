@@ -1205,6 +1205,90 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the kind of thing that looks fine until one of the two silently stops applying —
               pick one mechanism per layout and keep spacing there, not split across both.
             </InfoBox>
+            <H3>Loyverse (migration 154)</H3>
+            <P>
+              Fills a day's income, SC and takings rows from the venue's Loyverse POS sales. Two
+              tables: <Mono>loyverse_connections</Mono> (a tenant's Loyverse account: an access token
+              stored as typed and never returned by any route, <Mono>token_hint</Mono> = last 4,
+              business name / currency from <Mono>GET /merchant</Mono>, <Mono>last_error</Mono> when
+              Loyverse rejects it) and <Mono>loyverse_venue_links</Mono> (one per venue: connection,
+              <Mono>store_id</Mono>, <Mono>day_starts_at</Mono> HH:MM, <Mono>mappings</Mono> jsonb).
+              <Mono>cash_daily_reports.loyverse_filled_at</Mono> / <Mono>loyverse_filled_by</Mono>{' '}
+              record the last fill.
+            </P>
+            <P>
+              Mapping: <Mono>{'{ income: { sourceId: [term] }, takings: { channelId: [term] }, sc: { sourceId: [term] } }'}</Mono>,
+              term <Mono>{'{ sign: 1 | -1, kind, ref?, label? }'}</Mono>. A field's value is the signed
+              sum of its terms; a field with no terms is never written. All figure maths is in{' '}
+              <Mono>shared/loyverse.js</Mono> (<Mono>summariseReceipts()</Mono>, <Mono>sumTerms()</Mono>,{' '}
+              <Mono>termLabel()</Mono>, <Mono>TOTAL_KINDS</Mono>, <Mono>REF_KINDS</Mono>), in pence.
+            </P>
+            <DataTable
+              head={['kind', 'Value for a trading day']}
+              rows={[
+                ['gross_sales', 'Sum of line gross_total_money on SALE receipts.'],
+                ['refunds', 'Sum of line gross_total_money on REFUND receipts (positive).'],
+                ['discounts / taxes / tips / surcharges', 'Receipt total_discount / total_tax / tip / surcharge: sales minus refunds.'],
+                ['net_sales', 'gross_sales - refunds - discounts (the Loyverse sales summary definition).'],
+                ['total_collected', 'Receipt total_money: sales minus refunds.'],
+                ['item (ref = item_id)', 'Line total_money (after discounts) for that item: sales minus refunds.'],
+                ['category (ref = category_id)', 'Same, for every item whose category is ref (item to category from GET /items, only read when a mapping uses a category).'],
+                ['payment_type (ref = payment_type_id)', 'payments[].money_amount for that type: sales minus refunds.'],
+              ]}
+            />
+            <P>
+              Receipts: <Mono>services/loyverseSvc.js</Mono> <Mono>venueDays()</Mono> reads{' '}
+              <Mono>GET /receipts?store_id=&amp;created_at_min=&amp;created_at_max=</Mono> once for the
+              whole run of days (cursor paging, 250 a page), with <Mono>created_at_max</Mono> two days past
+              the last day so receipts a till synced late are found, then places each receipt by{' '}
+              <Mono>receipt_date</Mono> in a trading day: <Mono>[day_starts_at on the date,
+              day_starts_at the next day)</Mono> in the venue time zone (<Mono>tradingDay()</Mono>, via{' '}
+              <Mono>zonedToUtc()</Mono>). Cancelled receipts (<Mono>cancelled_at</Mono>) are left out;
+              refunds count on the day they were refunded; refund amounts are taken as positive
+              whichever way they are signed. Base URL <Mono>LOYVERSE_API_URL</Mono> (default{' '}
+              <Mono>https://api.loyverse.com/v1.0</Mono>, changed only for tests). Loyverse failures become
+              a 422 with a plain message (<Mono>LoyverseError</Mono>); a rejected token also sets the
+              connection's <Mono>last_error</Mono>.
+            </P>
+            <DataTable
+              head={['Route (/api/loyverse)', 'Access', 'What it does']}
+              rows={[
+                ['GET /connections', 'cash_recon view', 'Accounts without tokens, with venue_count.'],
+                ['POST /connections, PATCH /connections/:id', 'owner/admin + cash_recon manage', 'Add / rename / replace token. A new token is checked with GET /merchant first and refused if Loyverse rejects it.'],
+                ['POST /connections/:id/test, DELETE /connections/:id', 'owner/admin + manage', 'Check the saved token (sets last_error); remove the account and its venue links.'],
+                ['GET /connections/:id/catalog', 'owner/admin + manage', 'Stores, payment types, categories, items (deleted ones left out) for the mapping editor.'],
+                ['GET /venues/:venueId/link', 'cash_recon view', 'The link and mapping, or null (also decides whether Fill buttons show).'],
+                ['PUT /venues/:venueId/link', 'owner/admin + manage', 'Store must be on the account (checked with Loyverse); mapping keeps only this venue\'s active fields and valid terms.'],
+                ['DELETE /venues/:venueId/link', 'owner/admin + manage', 'Unlink.'],
+                ['POST /venues/:venueId/preview', 'cash_recon view', 'from/to (31 days max): per day the Loyverse value and current Cash Recon value of each mapped field, totals, payments with a mapped flag, status.'],
+                ['POST /venues/:venueId/apply', 'cash_recon manage', 'dates[]: reads Loyverse again (never takes figures from the browser), then per day creates the report if needed, skips submitted days, replaces only each mapped field\'s entry (keeping its notes; income VAT split by the source\'s rate as the day view does) and sets loyverse_filled_*.'],
+              ]}
+            />
+            <P>
+              Income, takings and SC entry amounts may be negative (a day where refunds beat sales);
+              the day PUT's Zod schemas no longer have <Mono>min(0)</Mono>, and the day view's amount
+              input has no <Mono>min</Mono>. Expenses and wages stay at 0 or more. Admin:{' '}
+              <Mono>components/cashRecon/Loyverse.jsx</Mono> (<Mono>LoyverseSettings</Mono> as the
+              Loyverse tab of Cash Recon settings, <Mono>LoyverseFillButton</Mono> /{' '}
+              <Mono>LoyverseFillModal</Mono> on the day view (body row in <Mono>hideHeader</Mono> mode for{' '}
+              <Mono>/mobile/cash-up</Mono>), the week grid and the week cards). After a fill the modal
+              invalidates <Mono>cash-recon-daily</Mono>, <Mono>cash-recon-week-detail</Mono> and{' '}
+              <Mono>cash-recon-week</Mono>; the grid clears its local overrides.
+            </P>
+            <InfoBox type="warn">
+              The Loyverse API was built from its documented v1.0 shape and tested against a stand-in
+              server, not a live Loyverse account. Check the first real fill against the Loyverse
+              Back Office sales summary for the same day and store.
+            </InfoBox>
+            <H3>Day PUT and the week grid</H3>
+            <P>
+              <Mono>PUT /:venueId/cash-recon/daily/:date</Mono> only changes the day note when the body
+              has a <Mono>notes</Mono> key: the week grid saves a day without loading its note and used to
+              wipe it. The grid now also sends each expense's <Mono>vat_amount</Mono> and{' '}
+              <Mono>paid_by_card</Mono> (they were reset to 0 / false on every grid save).{' '}
+              <Mono>GET .../week-detail/:week_start</Mono> uses <Mono>openDatesOrNull()</Mono>, so a venue
+              with no booking schedule shows every day (it showed none).
+            </P>
           </section>
 
           {/* ── FOOD SAFETY ───────────────────────────────── */}
