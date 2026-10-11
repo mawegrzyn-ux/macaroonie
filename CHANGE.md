@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — Blank dashboards, and every dashboard can use every widget]
+
+- New **Dashboards** page (sidebar, under Overview): create a blank dashboard and add any widgets you like, mixed on one page, for example today's checklists, fridge temperatures, the days of the week from Cash Recon and who's on from the rota. Also on the phone app as the **Dashboards** tile.
+- The **H&S, Cash and Rota dashboards now share all widgets**: Add widget lists every widget, grouped under Health & safety, Menus, Cash and Rota, with the page's own group first.
+- Widgets follow access: Add widget only lists widgets from areas you can open (and says how many it left out), and someone without access sees a short note in that widget instead of its figures.
+- One date bar for every dashboard: a day for checks, a week for cash and rota, or both (inner arrows a day, outer arrows a week) when a dashboard has both. Tap the date to pick any date.
+- **New dashboard** button in the dashboard header, no need to go into Edit layout first. New dashboards go after your existing ones.
+- Migration 152 (dashboard kind `custom`, `custom_dashboard` module permissions, Dashboards nav link).
+
+---
+
 ## [2026-10-11 — Rota tips: half-point +/− buttons, spare points, carry-over]
 
 - In the tips table (Rota page and the Rota dashboard's Tips widget), each person's **Points** now has **−** and **+** buttons, like the £ buttons next to their total. **−** takes half a point off someone and puts it in the week's **spare points**; **+** gives half a spare point to someone, so you take off someone first.

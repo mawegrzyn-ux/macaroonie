@@ -27,6 +27,7 @@ import { seedDefaultNav } from '../config/defaultNav.js'
 // its page's own default guard).
 const ROUTE_CATALOG = [
   { route: '/', label: 'Overview', icon: 'LayoutDashboard', module: 'dashboard' },
+  { route: '/dashboards', label: 'Dashboards', icon: 'LayoutTemplate', module: 'custom_dashboard' },
   { route: '/timeline', label: 'Timeline', icon: 'CalendarDays', module: 'bookings' },
   { route: '/bookings', label: 'Bookings', icon: 'BookOpen', module: 'bookings' },
   { route: '/customers', label: 'Customers', icon: 'UserRound', module: 'customers' },

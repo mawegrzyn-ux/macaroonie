@@ -213,6 +213,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'view' },
   },
   {
+    key:    'custom_dashboard',
+    label:  'Dashboards',
+    core:   true,
+    description: 'Blank dashboards per venue, built from any widget (H&S, cash, rota, menus). Each widget still needs its own module to be seen.',
+    default: { owner: 'manage', admin: 'manage', operator: 'manage', viewer: 'view' },
+  },
+  {
     key:    'documentation',
     label:  'Help + Docs',
     core:   true,

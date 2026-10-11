@@ -12,6 +12,7 @@ export const DEFAULT_NAV_TREE = [
   {
     label: 'Service', children: [
       { label: 'Overview', icon: 'LayoutDashboard', route: '/', module: 'dashboard' },
+      { label: 'Dashboards', icon: 'LayoutTemplate', route: '/dashboards', module: 'custom_dashboard' },
       { label: 'Timeline', icon: 'CalendarDays', route: '/timeline', module: 'bookings' },
       { label: 'Bookings', icon: 'BookOpen', route: '/bookings', module: 'bookings' },
       { label: 'Customers', icon: 'UserRound', route: '/customers', module: 'customers' },

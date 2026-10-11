@@ -1,30 +1,35 @@
 // src/routes/hsDashboards.js
 //
-// Customisable dashboards, per venue. The same plugin is mounted twice in
-// app.js (migration 101):
-//   /api/hs-dashboards   { kind: 'hs',   moduleKey: 'hs_dashboard' }
-//   /api/cash-dashboards { kind: 'cash', moduleKey: 'cash_dashboard' }
-// Each mount only sees dashboards of its own `kind`, only accepts that
-// kind's widget types, and is gated by its own module, so a user with
-// Cash dashboard access never touches H&S dashboards and vice versa.
+// Customisable dashboards, per venue. The same plugin is mounted four times
+// in app.js:
+//   /api/hs-dashboards     { kind: 'hs',     moduleKey: 'hs_dashboard' }
+//   /api/cash-dashboards   { kind: 'cash',   moduleKey: 'cash_dashboard' }
+//   /api/rota-dashboards   { kind: 'rota',   moduleKey: 'rota_dashboard' }
+//   /api/custom-dashboards { kind: 'custom', moduleKey: 'custom_dashboard' }
+// Each mount only sees dashboards of its own `kind` and is gated by its own
+// module, so a user with Cash dashboard access never touches H&S dashboards
+// and vice versa. 'custom' dashboards are the blank ones on the Dashboards
+// page (migration 152).
 //
-// H&S widget types:
-// A dashboard is a named tab holding an ordered set of widgets. Each
-// widget is one of:
-//   'checklist'        — embeds one existing checklist_templates row
-//                         (the tick-list rendered by ChecklistRunPanel)
-//   'temp_checks'      — embeds the venue's whole equipment x capture-time
-//                         grid (rendered by TempChecksTable)
-//   'delivery_checks'  — embeds the delivery-check log (DeliveryChecksPanel)
-//   'hold_checks'      — embeds the hot/cold hold-check log (HoldChecksPanel)
-//   'cooking_checks'   — embeds the cooking/reheat-check log (CookingChecksPanel)
-//   'action_log'       — embeds the H&S Action Log (HSActionLogPanel)
-// Cash widget types (rendered by components/cashRecon/widgets.jsx):
-//   'cash_wages_paid', 'cash_petty_cash', 'cash_recon_grid',
-//   'cash_week_balance', 'cash_day_balance', 'cash_day_tiles'
-// Only 'checklist' carries a checklist_template_id — every other type is
-// venue-wide, so there's always at most one meaningful instance of it per
-// venue and it carries no template reference.
+// Widgets are shared (migration 152): every dashboard, whatever its kind,
+// can hold any type in WIDGET_TYPES. Adding a widget needs at least view on
+// that widget's own module (WIDGET_MODULE), since the widget only shows data
+// from that module's routes, which check it again on every read. The admin
+// (components/dashboards/widgetTypes.jsx) keeps the same list and module map.
+//
+// Widget types:
+//   H&S:   'checklist' (one checklist_templates row, ChecklistRunPanel),
+//          'temp_checks', 'delivery_checks', 'hold_checks', 'cooking_checks'
+//          (food safety logs), 'action_log' (H&S Action Log)
+//   Menus: 'allergen_lookup'
+//   Cash:  'cash_wages_paid', 'cash_petty_cash', 'cash_recon_grid',
+//          'cash_week_balance', 'cash_day_balance', 'cash_day_tiles',
+//          'cash_week_expenses', 'cash_week_summary_grid', 'cash_week_staff',
+//          'cash_tips_payout' (components/cashRecon/widgets.jsx)
+//   Rota:  'rota_grid', 'rota_today', 'rota_week_pay', 'rota_tips'
+//          (components/staff/rotaWidgets.jsx)
+// Only 'checklist' carries a checklist_template_id: every other type is
+// venue-wide and carries no reference.
 //
 // Layout: `hs_dashboards.column_count` (1-6, default 4) sets the grid
 // column count for the whole dashboard. Each widget's `col_span` (1-6,
@@ -52,13 +57,41 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 
-export const WIDGET_TYPES_BY_KIND = {
-  hs:   ['checklist', 'temp_checks', 'delivery_checks', 'hold_checks', 'cooking_checks', 'action_log', 'allergen_lookup'],
-  cash: ['cash_wages_paid', 'cash_petty_cash', 'cash_recon_grid', 'cash_week_balance', 'cash_day_balance', 'cash_day_tiles', 'cash_week_expenses', 'cash_week_summary_grid', 'cash_week_staff', 'cash_tips_payout'],
-  rota: ['rota_grid', 'rota_today', 'rota_week_pay', 'rota_tips'],
+// Every widget type, and the module whose data it shows. Keep in step with
+// WIDGET_TYPES in admin/src/components/dashboards/widgetTypes.jsx and the
+// hs_dashboard_widgets.widget_type CHECK.
+export const WIDGET_MODULE = {
+  checklist:              'checklists',
+  temp_checks:            'food_safety',
+  delivery_checks:        'food_safety',
+  hold_checks:            'food_safety',
+  cooking_checks:         'food_safety',
+  action_log:             'hs_action_log',
+  allergen_lookup:        'menus',
+  cash_wages_paid:        'cash_recon',
+  cash_petty_cash:        'cash_recon',
+  cash_recon_grid:        'cash_recon',
+  cash_week_balance:      'cash_recon',
+  cash_day_balance:       'cash_recon',
+  cash_day_tiles:         'cash_recon',
+  cash_week_expenses:     'cash_recon',
+  cash_week_summary_grid: 'cash_recon',
+  cash_week_staff:        'cash_recon',
+  cash_tips_payout:       'rota_tips',
+  rota_grid:              'rota',
+  rota_today:             'rota',
+  rota_week_pay:          'rota_pay',
+  rota_tips:              'rota_tips',
+}
+export const WIDGET_TYPES = Object.keys(WIDGET_MODULE)
+
+const MODULE_LABEL = {
+  checklists: 'Checklists', food_safety: 'Food safety', hs_action_log: 'the H&S Action Log',
+  menus: 'Menus', cash_recon: 'Cash reconciliation', rota: 'the Rota',
+  rota_pay: 'Rota pay', rota_tips: 'Rota tips',
 }
 
 const DashboardBody = z.object({
@@ -77,20 +110,18 @@ const DashboardPatch = DashboardBody.partial().omit({ venue_id: true }).extend({
 const WidgetSettings = z.record(z.union([z.boolean(), z.number(), z.string().max(200)]))
   .refine(o => Object.keys(o).length <= 20, { message: 'Too many widget settings' })
 
-function widgetBodyFor(kind) {
-  return z.object({
-    widget_type:            z.enum(WIDGET_TYPES_BY_KIND[kind]),
-    checklist_template_id:  z.string().uuid().nullable().optional(),
-    title_override:         z.string().max(200).nullable().optional(),
-    sort_order:             z.number().int().optional(),
-    col_span:               z.number().int().min(1).max(6).optional(),
-    height_px:              z.number().int().min(240).max(1200).optional(),
-    settings:               WidgetSettings.optional(),
-  }).refine(
-    b => (b.widget_type === 'checklist') === !!b.checklist_template_id,
-    { message: 'checklist_template_id is required for a checklist widget, and must be omitted for every other widget type' },
-  )
-}
+const WidgetBody = z.object({
+  widget_type:            z.enum(WIDGET_TYPES),
+  checklist_template_id:  z.string().uuid().nullable().optional(),
+  title_override:         z.string().max(200).nullable().optional(),
+  sort_order:             z.number().int().optional(),
+  col_span:               z.number().int().min(1).max(6).optional(),
+  height_px:              z.number().int().min(240).max(1200).optional(),
+  settings:               WidgetSettings.optional(),
+}).refine(
+  b => (b.widget_type === 'checklist') === !!b.checklist_template_id,
+  { message: 'checklist_template_id is required for a checklist widget, and must be omitted for every other widget type' },
+)
 
 const WidgetPatch = z.object({
   title_override: z.string().max(200).nullable().optional(),
@@ -114,7 +145,6 @@ async function loadDashboard(tx, tenantId, dashboardId, kind) {
 export default async function hsDashboardsRoutes(app, opts) {
   const kind      = opts?.kind ?? 'hs'
   const moduleKey = opts?.moduleKey ?? 'hs_dashboard'
-  const WidgetBody = widgetBodyFor(kind)
 
   app.addHook('preHandler', requireAuth)
 
@@ -143,12 +173,21 @@ export default async function hsDashboardsRoutes(app, opts) {
     preHandler: requirePermission(moduleKey, 'manage'),
   }, async (req) => {
     const body = DashboardBody.parse(req.body)
-    const [row] = await withTenant(req.tenantId, tx => tx`
-      INSERT INTO hs_dashboards (tenant_id, venue_id, kind, name, sort_order, column_count)
-      VALUES (${req.tenantId}, ${body.venue_id}, ${kind}, ${body.name}, ${body.sort_order ?? 0}, ${body.column_count ?? 4})
-      RETURNING *
-    `)
-    return row
+    return withTenant(req.tenantId, async tx => {
+      const [venue] = await tx`SELECT id FROM venues WHERE id = ${body.venue_id} AND tenant_id = ${req.tenantId}`
+      if (!venue) throw httpError(404, 'Venue not found')
+      // New dashboards go after the venue's existing ones of this kind.
+      const [{ next }] = await tx`
+        SELECT COALESCE(MAX(sort_order) + 1, 0)::int AS next FROM hs_dashboards
+         WHERE tenant_id = ${req.tenantId} AND venue_id = ${body.venue_id} AND kind = ${kind} AND is_active = true
+      `
+      const [row] = await tx`
+        INSERT INTO hs_dashboards (tenant_id, venue_id, kind, name, sort_order, column_count)
+        VALUES (${req.tenantId}, ${body.venue_id}, ${kind}, ${body.name}, ${body.sort_order ?? next}, ${body.column_count ?? 4})
+        RETURNING *
+      `
+      return row
+    })
   })
 
   app.patch('/dashboards/:id', {
@@ -234,6 +273,10 @@ export default async function hsDashboardsRoutes(app, opts) {
     preHandler: requirePermission(moduleKey, 'manage'),
   }, async (req) => {
     const body = WidgetBody.parse(req.body)
+    const widgetModule = WIDGET_MODULE[body.widget_type]
+    if (await permissionLevel(req, widgetModule) === 'none') {
+      throw httpError(403, `You don't have access to ${MODULE_LABEL[widgetModule] ?? widgetModule}, so you can't add that widget.`)
+    }
     return withTenant(req.tenantId, async tx => {
       const dashboard = await loadDashboard(tx, req.tenantId, req.params.id, kind)
 

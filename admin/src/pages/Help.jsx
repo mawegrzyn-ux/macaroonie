@@ -19,6 +19,7 @@ const SECTIONS = [
   { id: 'cash-recon',          label: 'Cash Reconciliation' },
   { id: 'food-safety',         label: 'Food Safety Logs' },
   { id: 'checklists',          label: 'Checklists' },
+  { id: 'dashboards',          label: 'Dashboards' },
   { id: 'hs-dashboard',        label: 'H&S Dashboard' },
   { id: 'cash-dashboard',      label: 'Cash Dashboard' },
   { id: 'staff-rota',          label: 'Staff & Rota' },
@@ -1387,6 +1388,58 @@ export default function Help() {
             </P>
           </section>
 
+          {/* ── DASHBOARDS ─────────────────────────────── */}
+          <section id="dashboards" data-help="">
+            <H2>Dashboards</H2>
+            <P>
+              The <strong>Dashboards</strong> page (sidebar nav, under Overview) is for your own
+              screens. Tap <strong>Create dashboard</strong> (or <strong>New dashboard</strong> once
+              you have one), give it a name and it starts blank. Then tap <strong>Add widget</strong>{' '}
+              and pick from every widget in the app, mixed on one page: for example a manager's
+              screen with today's checklists, the fridge temperatures, the days of the week from Cash
+              Recon and who's on from the rota. Dashboards are per venue, shown as tabs, and are
+              arranged the same way as the H&amp;S Dashboard (Edit layout to rename, reorder, resize
+              or remove).
+            </P>
+            <H3>Every dashboard can use every widget</H3>
+            <P>
+              The H&amp;S, Cash and Rota dashboards work the same way now: <strong>Add widget</strong>{' '}
+              lists all widgets, grouped under Health &amp; safety, Menus, Cash and Rota, with the
+              page's own group first. So you can, for example, put the rota's Who's on next to the
+              fridge checks on the H&amp;S Dashboard, or a checklist on the Cash dashboard. The widget
+              tables under H&amp;S Dashboard, Cash Dashboard and Staff &amp; Rota say what each one shows.
+            </P>
+            <InfoBox type="info">
+              A widget only shows to people who can open its area. Add widget only lists widgets from
+              areas you have access to (for example cash widgets need Cash reconciliation, Tips to
+              pay out needs Rota tips), and says how many it left out. If someone without access opens
+              a dashboard that has one, they see "You don't have access to ..." in that widget instead
+              of its figures. Access is set per module in Access, as before.
+            </InfoBox>
+            <H3>The date bar</H3>
+            <P>
+              One date bar drives every widget on the dashboard, and it changes with what's on it:
+            </P>
+            <DataTable
+              head={['Widgets on the dashboard', 'Date bar']}
+              rows={[
+                ['Only checks and checklists', 'One day. The arrows move a day; Today jumps back.'],
+                ['Only cash and rota widgets', 'One week. The arrows move a week; This week jumps back. The selected day is today (or the Monday in another week); tap a day in Days of the week or the rota grid to pick another.'],
+                ['Both', 'The day and its week. The inner arrows move a day, the outer double arrows move a week. Cash and rota widgets follow the week the day is in.'],
+              ]}
+            />
+            <P>
+              In every case, tap the date in the middle to pick any date from your device's calendar.
+              On a closed day, a dashboard with H&amp;S checks on it shows the closed-day note (when
+              H&amp;S follows opening days is on). The Action log and Allergen lookup don't depend on a date.
+            </P>
+            <P>
+              On the phone (ops.macaroonie.com), the <strong>Dashboards</strong> tile shows the same
+              dashboards in one column, for logging and looking only; build and arrange them on the
+              desktop page.
+            </P>
+          </section>
+
           {/* ── H&S DASHBOARD ─────────────────────────────── */}
           <section id="hs-dashboard" data-help="">
             <H2>H&amp;S Dashboard</H2>
@@ -1394,7 +1447,8 @@ export default function Help() {
               The <strong>H&amp;S Dashboard</strong> page (sidebar nav) lets you build your own
               screen combining any mix of checklists and food-safety check widgets behind a single
               date navigator — useful for a kitchen-pass tablet showing "everything due right
-              now" without switching between the Food safety and Checklists pages. Each widget's
+              now" without switching between the Food safety and Checklists pages. It can also hold
+              any cash, rota or menu widget (see Dashboards). Each widget's
               header uses your website's brand accent colour, same as Cash Reconciliation's
               section cards.
             </P>
@@ -1405,7 +1459,8 @@ export default function Help() {
               grid columns) and height (in rows), or remove them. To rename a widget, type in its{' '}
               <strong>Name</strong> box and tap Save; <strong>Use default</strong> puts the built-in
               name back. The same works on the Cash dashboard. A tall widget spans several
-              rows, and shorter widgets stack beside it instead of leaving a gap. Each widget is one of:
+              rows, and shorter widgets stack beside it instead of leaving a gap. The health &amp;
+              safety widgets are:
             </P>
             <DataTable
               head={['Widget', 'Shows']}
@@ -1447,10 +1502,12 @@ export default function Help() {
               lay out your cash reconciliation on one screen, the same way the H&amp;S Dashboard
               works for checks. Create named dashboards (tabs), then tap <strong>Edit layout</strong>{' '}
               to add, reorder, resize or remove widgets. Every figure is the same one the Cash
-              Recon pages show, so the dashboard never disagrees with them.
+              Recon pages show, so the dashboard never disagrees with them. Like every dashboard, it
+              can also hold H&amp;S, menu and rota widgets (see Dashboards).
             </P>
             <P>
-              The navigator at the top picks the <strong>week</strong>. Tap a day in the{' '}
+              With only cash (and rota) widgets on it, the navigator at the top picks the{' '}
+              <strong>week</strong>. Tap a day in the{' '}
               <strong>Days of the week</strong> widget to open that day's full declaration (the same
               screen as on the Cash Recon page); the back arrow returns to the dashboard. The tapped
               day is also selected, so the Day balance and Petty cash widgets show it. The selected
@@ -1753,7 +1810,8 @@ export default function Help() {
             <H3>Rota dashboard</H3>
             <P>
               The <strong>Rota dashboard</strong> works like the Cash and H&amp;S dashboards: named
-              tabs, Edit layout to add, resize and reorder widgets.
+              tabs, Edit layout to add, resize and reorder widgets, and any other widget can go on it
+              too (see Dashboards).
             </P>
             <DataTable
               head={['Widget', 'Shows']}
@@ -1821,7 +1879,10 @@ export default function Help() {
               On the phone the <strong>H&amp;S Dashboard</strong> is for logging checks only: switch
               between your dashboards with the tabs (the small arrows scroll them when there are
               more), tick checklists and enter temperatures. Adding, removing and arranging widgets
-              and dashboards is done on the H&amp;S Dashboard in the office admin.
+              and dashboards is done on the H&amp;S Dashboard in the office admin. The{' '}
+              <strong>Dashboards</strong> tile does the same for the dashboards you made on the
+              Dashboards page. Both show any widget the dashboard holds, cash and rota ones included,
+              with the same date bar as the desktop.
             </P>
             <P>
               If you open the regular desktop admin portal on a phone held upright, you'll see a
