@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — Order sheets: other tenants' sheets no longer reachable]
+
+- Order sheet categories, templates, items and orders are now limited to your own company in every request. Before, the order sheet pages could list other companies' templates and orders, and open, edit, empty or delete them by id.
+- Reading order sheets now needs Order sheets (or Order sheet setup) access, and filling in quantities or changing an order's status needs Order sheets manage. Before, any signed-in user could do both.
+- An order can only hold items from its own template, and templates and items only take your own venues and categories.
+
+---
+
 ## [2026-10-11 — Blank dashboards, and every dashboard can use every widget]
 
 - New **Dashboards** page (sidebar, under Overview): create a blank dashboard and add any widgets you like, mixed on one page, for example today's checklists, fridge temperatures, the days of the week from Cash Recon and who's on from the rota. Also on the phone app as the **Dashboards** tile.

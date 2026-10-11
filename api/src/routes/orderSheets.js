@@ -5,7 +5,7 @@
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 
 // ── Schemas ───────────────────────────────────────────────────
@@ -116,10 +116,42 @@ const ADMIN_TRANSITIONS = new Set([
 async function resolveCategoryName(tenantId, categoryId) {
   if (!categoryId) return null
   const [cat] = await withTenant(tenantId, tx => tx`
-    SELECT name FROM order_sheet_categories WHERE id = ${categoryId}
+    SELECT name FROM order_sheet_categories WHERE id = ${categoryId} AND tenant_id = ${tenantId}
   `)
   return cat?.name ?? null
 }
+
+// Every query filters tenant_id itself: the app's database role is not held
+// to RLS, so withTenant() alone does not keep tenants apart. Child tables
+// without a tenant_id (template venues, items, suggested qty, order items)
+// are only touched after their parent template / order is checked here.
+
+async function ownTemplate(tx, tenantId, id) {
+  const [t] = await tx`SELECT id FROM order_sheet_templates WHERE id = ${id} AND tenant_id = ${tenantId}`
+  if (!t) throw httpError(404, 'Template not found')
+  return t
+}
+
+async function ownOrder(tx, tenantId, id) {
+  const [o] = await tx`SELECT id, status, template_id, venue_id FROM order_sheets WHERE id = ${id} AND tenant_id = ${tenantId}`
+  if (!o) throw httpError(404, 'Order not found')
+  return o
+}
+
+async function checkVenues(tx, tenantId, venueIds) {
+  if (!venueIds?.length) return
+  const rows = await tx`SELECT id FROM venues WHERE id = ANY(${venueIds}::uuid[]) AND tenant_id = ${tenantId}`
+  if (rows.length !== new Set(venueIds).size) throw httpError(404, 'Venue not found')
+}
+
+async function checkCategory(tx, tenantId, categoryId) {
+  if (!categoryId) return
+  const [c] = await tx`SELECT id FROM order_sheet_categories WHERE id = ${categoryId} AND tenant_id = ${tenantId}`
+  if (!c) throw httpError(404, 'Category not found')
+}
+
+const canRead   = requireAnyPermission(['order_sheets', 'order_sheet_setup'], 'view')
+const canOrder  = requirePermission('order_sheets', 'manage')
 
 // order_sheet_order_items.item_id and order_sheets.template_id are both
 // ON DELETE RESTRICT — deleting an item/template with real order history
@@ -143,7 +175,10 @@ async function deleteOrArchiveItems(tx, templateId, ids) {
   return { deleted: toDelete.length, archived: toArchive.length }
 }
 
-async function deleteOrArchiveTemplates(tx, ids) {
+async function deleteOrArchiveTemplates(tx, tenantId, ids) {
+  const owned = await tx`SELECT id FROM order_sheet_templates WHERE id = ANY(${ids}::uuid[]) AND tenant_id = ${tenantId}`
+  ids = owned.map(r => r.id)
+  if (!ids.length) return { deleted: 0, archived: 0 }
   const referenced = await tx`
     SELECT DISTINCT template_id FROM order_sheets WHERE template_id = ANY(${ids}::uuid[])
   `
@@ -166,10 +201,11 @@ export default async function orderSheetsRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
   // ── GET /categories ─────────────────────────────────────────
-  app.get('/categories', async (req) => {
+  app.get('/categories', { preHandler: canRead }, async (req) => {
     return withTenant(req.tenantId, tx => tx`
       SELECT id, name, sort_order, created_at
       FROM order_sheet_categories
+      WHERE tenant_id = ${req.tenantId}
       ORDER BY sort_order, name
     `)
   })
@@ -178,7 +214,7 @@ export default async function orderSheetsRoutes(app) {
   app.post('/categories', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { name } = CategoryBody.parse(req.body)
     const [maxRow] = await withTenant(req.tenantId, tx => tx`
-      SELECT COALESCE(MAX(sort_order), -1) AS m FROM order_sheet_categories
+      SELECT COALESCE(MAX(sort_order), -1) AS m FROM order_sheet_categories WHERE tenant_id = ${req.tenantId}
     `)
     const [cat] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO order_sheet_categories (tenant_id, name, sort_order)
@@ -194,7 +230,7 @@ export default async function orderSheetsRoutes(app) {
     const { ids } = CategoryOrderBody.parse(req.body)
     await withTenant(req.tenantId, async tx => {
       for (let i = 0; i < ids.length; i++) {
-        await tx`UPDATE order_sheet_categories SET sort_order = ${i} WHERE id = ${ids[i]}`
+        await tx`UPDATE order_sheet_categories SET sort_order = ${i} WHERE id = ${ids[i]} AND tenant_id = ${req.tenantId}`
       }
     })
     return { ok: true }
@@ -205,7 +241,7 @@ export default async function orderSheetsRoutes(app) {
     const { id } = req.params
     const { name } = CategoryBody.parse(req.body)
     const [cat] = await withTenant(req.tenantId, tx => tx`
-      UPDATE order_sheet_categories SET name = ${name} WHERE id = ${id} RETURNING *
+      UPDATE order_sheet_categories SET name = ${name} WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *
     `)
     if (!cat) throw httpError(404, 'Category not found')
     return cat
@@ -215,13 +251,13 @@ export default async function orderSheetsRoutes(app) {
   app.delete('/categories/:id', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheet_categories WHERE id = ${id}
+      DELETE FROM order_sheet_categories WHERE id = ${id} AND tenant_id = ${req.tenantId}
     `)
     return { ok: true }
   })
 
   // ── GET /templates ──────────────────────────────────────────
-  app.get('/templates', async (req) => {
+  app.get('/templates', { preHandler: canRead }, async (req) => {
     return withTenant(req.tenantId, tx => tx`
       SELECT
         t.id,
@@ -240,13 +276,14 @@ export default async function orderSheetsRoutes(app) {
       FROM order_sheet_templates t
       LEFT JOIN order_sheet_template_venues tv ON tv.template_id = t.id
       LEFT JOIN order_sheet_items i ON i.template_id = t.id
+      WHERE t.tenant_id = ${req.tenantId}
       GROUP BY t.id
       ORDER BY t.sort_order, t.name
     `)
   })
 
   // ── GET /templates/:id ──────────────────────────────────────
-  app.get('/templates/:id', async (req) => {
+  app.get('/templates/:id', { preHandler: canRead }, async (req) => {
     const { id } = req.params
     const [tmpl] = await withTenant(req.tenantId, tx => tx`
       SELECT
@@ -264,7 +301,7 @@ export default async function orderSheetsRoutes(app) {
         ) AS venue_ids
       FROM order_sheet_templates t
       LEFT JOIN order_sheet_template_venues tv ON tv.template_id = t.id
-      WHERE t.id = ${id}
+      WHERE t.id = ${id} AND t.tenant_id = ${req.tenantId}
       GROUP BY t.id
     `)
     if (!tmpl) throw httpError(404, 'Template not found')
@@ -273,6 +310,7 @@ export default async function orderSheetsRoutes(app) {
     const categories = await withTenant(req.tenantId, tx => tx`
       SELECT id, name, sort_order
       FROM order_sheet_categories
+      WHERE tenant_id = ${req.tenantId}
       ORDER BY sort_order, name
     `)
 
@@ -304,6 +342,7 @@ export default async function orderSheetsRoutes(app) {
   // ── POST /templates ─────────────────────────────────────────
   app.post('/templates', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const body = TemplateBody.parse(req.body)
+    await withTenant(req.tenantId, tx => checkVenues(tx, req.tenantId, body.venue_ids))
 
     const [tmpl] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO order_sheet_templates (tenant_id, name, show_prices)
@@ -321,7 +360,7 @@ export default async function orderSheetsRoutes(app) {
 
     // Return all tenant categories so the editor can populate the category dropdown
     const categories = await withTenant(req.tenantId, tx => tx`
-      SELECT id, name, sort_order FROM order_sheet_categories ORDER BY sort_order, name
+      SELECT id, name, sort_order FROM order_sheet_categories WHERE tenant_id = ${req.tenantId} ORDER BY sort_order, name
     `)
     return { ...tmpl, venue_ids: body.venue_ids, item_count: 0, categories, items: [] }
   })
@@ -342,11 +381,12 @@ export default async function orderSheetsRoutes(app) {
     }).parse(req.body)
 
     const [primary] = await withTenant(req.tenantId, tx => tx`
-      SELECT id FROM order_sheet_templates WHERE id = ${primary_id}
+      SELECT id FROM order_sheet_templates WHERE id = ${primary_id} AND tenant_id = ${req.tenantId}
     `)
     if (!primary) throw httpError(404, 'Primary template not found')
 
     await withTenant(req.tenantId, async tx => {
+      for (const secId of secondary_ids) await ownTemplate(tx, req.tenantId, secId)
       if (name) {
         await tx`UPDATE order_sheet_templates SET name = ${name}, updated_at = now() WHERE id = ${primary_id}`
       }
@@ -401,7 +441,7 @@ export default async function orderSheetsRoutes(app) {
     const [tmpl] = await withTenant(req.tenantId, tx => tx`
       UPDATE order_sheet_templates
       SET ${tx(updates, ...fields)}, updated_at = now()
-      WHERE id = ${id}
+      WHERE id = ${id} AND tenant_id = ${req.tenantId}
       RETURNING *
     `)
     if (!tmpl) throw httpError(404, 'Template not found')
@@ -413,14 +453,14 @@ export default async function orderSheetsRoutes(app) {
   // instead of deleted — order_sheets.template_id is ON DELETE RESTRICT.
   app.delete('/templates/bulk', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
-    const result = await withTenant(req.tenantId, tx => deleteOrArchiveTemplates(tx, ids))
+    const result = await withTenant(req.tenantId, tx => deleteOrArchiveTemplates(tx, req.tenantId, ids))
     return { ok: true, ...result }
   })
 
   // ── DELETE /templates/:id ───────────────────────────────────
   app.delete('/templates/:id', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
-    const result = await withTenant(req.tenantId, tx => deleteOrArchiveTemplates(tx, [id]))
+    const result = await withTenant(req.tenantId, tx => deleteOrArchiveTemplates(tx, req.tenantId, [id]))
     return { ok: true, archived: result.archived > 0 }
   })
 
@@ -429,12 +469,9 @@ export default async function orderSheetsRoutes(app) {
     const { id } = req.params
     const { venue_ids } = VenueIdsBody.parse(req.body)
 
-    const [tmpl] = await withTenant(req.tenantId, tx => tx`
-      SELECT id FROM order_sheet_templates WHERE id = ${id}
-    `)
-    if (!tmpl) throw httpError(404, 'Template not found')
-
     await withTenant(req.tenantId, async tx => {
+      await ownTemplate(tx, req.tenantId, id)
+      await checkVenues(tx, req.tenantId, venue_ids)
       await tx`DELETE FROM order_sheet_template_venues WHERE template_id = ${id}`
       if (venue_ids.length > 0) {
         const rows = venue_ids.map(vid => ({ template_id: id, venue_id: vid }))
@@ -452,7 +489,10 @@ export default async function orderSheetsRoutes(app) {
   app.delete('/templates/:id/items/bulk', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { ids } = BulkItemIdsBody.parse(req.body)
-    const result = await withTenant(req.tenantId, tx => deleteOrArchiveItems(tx, id, ids))
+    const result = await withTenant(req.tenantId, async tx => {
+      await ownTemplate(tx, req.tenantId, id)
+      return deleteOrArchiveItems(tx, id, ids)
+    })
     return { ok: true, ...result }
   })
 
@@ -461,11 +501,15 @@ export default async function orderSheetsRoutes(app) {
   app.patch('/templates/:id/items/bulk-category', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id } = req.params
     const { ids, category_id } = BulkItemCategoryBody.parse(req.body)
-    await withTenant(req.tenantId, tx => tx`
-      UPDATE order_sheet_items
-      SET category_id = ${category_id ?? null}
-      WHERE id = ANY(${ids}::uuid[]) AND template_id = ${id}
-    `)
+    await withTenant(req.tenantId, async tx => {
+      await ownTemplate(tx, req.tenantId, id)
+      await checkCategory(tx, req.tenantId, category_id)
+      await tx`
+        UPDATE order_sheet_items
+        SET category_id = ${category_id ?? null}
+        WHERE id = ANY(${ids}::uuid[]) AND template_id = ${id}
+      `
+    })
     return { ok: true }
   })
 
@@ -474,10 +518,10 @@ export default async function orderSheetsRoutes(app) {
     const { id } = req.params
     const body = ItemBody.parse(req.body)
 
-    const [tmpl] = await withTenant(req.tenantId, tx => tx`
-      SELECT id FROM order_sheet_templates WHERE id = ${id}
-    `)
-    if (!tmpl) throw httpError(404, 'Template not found')
+    await withTenant(req.tenantId, async tx => {
+      await ownTemplate(tx, req.tenantId, id)
+      await checkCategory(tx, req.tenantId, body.category_id)
+    })
 
     const [maxRow] = await withTenant(req.tenantId, tx => tx`
       SELECT COALESCE(MAX(sort_order), -1) AS max_order
@@ -503,12 +547,16 @@ export default async function orderSheetsRoutes(app) {
     if (fields.length === 0) throw httpError(400, 'No fields to update')
 
     const updates = Object.fromEntries(fields.map(k => [k, body[k]]))
-    const [item] = await withTenant(req.tenantId, tx => tx`
-      UPDATE order_sheet_items
-      SET ${tx(updates, ...fields)}
-      WHERE id = ${itemId} AND template_id = ${id}
-      RETURNING *
-    `)
+    const [item] = await withTenant(req.tenantId, async tx => {
+      await ownTemplate(tx, req.tenantId, id)
+      await checkCategory(tx, req.tenantId, body.category_id)
+      return tx`
+        UPDATE order_sheet_items
+        SET ${tx(updates, ...fields)}
+        WHERE id = ${itemId} AND template_id = ${id}
+        RETURNING *
+      `
+    })
     if (!item) throw httpError(404, 'Item not found')
     const categoryName = await resolveCategoryName(req.tenantId, item.category_id)
     return { ...item, category_name: categoryName }
@@ -517,7 +565,10 @@ export default async function orderSheetsRoutes(app) {
   // ── DELETE /templates/:id/items/:itemId ─────────────────────
   app.delete('/templates/:id/items/:itemId', { preHandler: [requireAuth, requirePermission('order_sheet_setup', 'manage')] }, async (req) => {
     const { id, itemId } = req.params
-    const result = await withTenant(req.tenantId, tx => deleteOrArchiveItems(tx, id, [itemId]))
+    const result = await withTenant(req.tenantId, async tx => {
+      await ownTemplate(tx, req.tenantId, id)
+      return deleteOrArchiveItems(tx, id, [itemId])
+    })
     return { ok: true, archived: result.archived > 0 }
   })
 
@@ -527,6 +578,7 @@ export default async function orderSheetsRoutes(app) {
     const { ids } = ItemOrderBody.parse(req.body)
 
     await withTenant(req.tenantId, async tx => {
+      await ownTemplate(tx, req.tenantId, id)
       for (let i = 0; i < ids.length; i++) {
         await tx`
           UPDATE order_sheet_items
@@ -543,9 +595,11 @@ export default async function orderSheetsRoutes(app) {
     const { id, itemId } = req.params
     const { venue_qtys } = SuggestedBody.parse(req.body)
 
-    const [item] = await withTenant(req.tenantId, tx => tx`
-      SELECT id FROM order_sheet_items WHERE id = ${itemId} AND template_id = ${id}
-    `)
+    const [item] = await withTenant(req.tenantId, async tx => {
+      await ownTemplate(tx, req.tenantId, id)
+      await checkVenues(tx, req.tenantId, venue_qtys.map(v => v.venue_id))
+      return tx`SELECT id FROM order_sheet_items WHERE id = ${itemId} AND template_id = ${id}`
+    })
     if (!item) throw httpError(404, 'Item not found')
 
     await withTenant(req.tenantId, async tx => {
@@ -560,7 +614,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── GET /orders ──────────────────────────────────────────────
-  app.get('/orders', async (req) => {
+  app.get('/orders', { preHandler: requirePermission('order_sheets', 'view') }, async (req) => {
     const { status, venue_id, template_id } = req.query
 
     const statuses = status
@@ -596,7 +650,7 @@ export default async function orderSheetsRoutes(app) {
         LEFT JOIN order_sheet_items i ON i.template_id = o.template_id
         LEFT JOIN order_sheet_order_items oi
           ON oi.order_id = o.id AND oi.item_id = i.id AND oi.qty IS NOT NULL
-        WHERE 1=1
+        WHERE o.tenant_id = ${req.tenantId}
           ${statusFilter}
           ${venueFilter}
           ${templateFilter}
@@ -607,7 +661,7 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── GET /orders/:id ──────────────────────────────────────────
-  app.get('/orders/:id', async (req) => {
+  app.get('/orders/:id', { preHandler: requirePermission('order_sheets', 'view') }, async (req) => {
     const { id } = req.params
 
     const [order] = await withTenant(req.tenantId, tx => tx`
@@ -619,7 +673,7 @@ export default async function orderSheetsRoutes(app) {
       FROM order_sheets o
       JOIN order_sheet_templates t ON t.id = o.template_id
       JOIN venues v ON v.id = o.venue_id
-      WHERE o.id = ${id}
+      WHERE o.id = ${id} AND o.tenant_id = ${req.tenantId}
     `)
     if (!order) throw httpError(404, 'Order not found')
 
@@ -656,6 +710,7 @@ export default async function orderSheetsRoutes(app) {
       FROM order_sheets o2
       LEFT JOIN order_sheet_order_items oi2 ON oi2.order_id = o2.id
       WHERE o2.template_id = ${order.template_id}
+        AND o2.tenant_id   = ${req.tenantId}
         AND o2.venue_id    = ${order.venue_id}
         AND o2.status     != 'ordering'
         AND o2.id         != ${id}
@@ -675,7 +730,9 @@ export default async function orderSheetsRoutes(app) {
       SELECT tv.venue_id
       FROM order_sheet_template_venues tv
       JOIN order_sheet_templates t ON t.id = tv.template_id
+      JOIN venues v ON v.id = tv.venue_id AND v.tenant_id = ${req.tenantId}
       WHERE t.id = ${body.template_id}
+        AND t.tenant_id = ${req.tenantId}
         AND tv.venue_id = ${body.venue_id}
     `)
     if (!assignment) throw httpError(422, 'Template is not assigned to this venue')
@@ -696,14 +753,11 @@ export default async function orderSheetsRoutes(app) {
   })
 
   // ── PATCH /orders/:id ────────────────────────────────────────
-  app.patch('/orders/:id', async (req) => {
+  app.patch('/orders/:id', { preHandler: canOrder }, async (req) => {
     const { id } = req.params
     const body = OrderPatch.parse(req.body)
 
-    const [current] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, status FROM order_sheets WHERE id = ${id}
-    `)
-    if (!current) throw httpError(404, 'Order not found')
+    const current = await withTenant(req.tenantId, tx => ownOrder(tx, req.tenantId, id))
     if (current.status !== 'ordering') throw httpError(403, 'Order is locked — only ordering orders can be edited')
 
     const fields = Object.keys(body).filter(k => body[k] !== undefined)
@@ -713,24 +767,27 @@ export default async function orderSheetsRoutes(app) {
     const [order] = await withTenant(req.tenantId, tx => tx`
       UPDATE order_sheets
       SET ${tx(updates, ...fields)}, updated_at = now()
-      WHERE id = ${id}
+      WHERE id = ${id} AND tenant_id = ${req.tenantId}
       RETURNING *
     `)
     return order
   })
 
   // ── PUT /orders/:id/items ────────────────────────────────────
-  app.put('/orders/:id/items', async (req) => {
+  app.put('/orders/:id/items', { preHandler: canOrder }, async (req) => {
     const { id } = req.params
     const { items } = OrderItemsBody.parse(req.body)
 
-    const [current] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, status FROM order_sheets WHERE id = ${id}
-    `)
-    if (!current) throw httpError(404, 'Order not found')
+    const current = await withTenant(req.tenantId, tx => ownOrder(tx, req.tenantId, id))
     if (current.status !== 'ordering') throw httpError(403, 'Order is locked — only ordering orders can be edited')
 
     await withTenant(req.tenantId, async tx => {
+      // Only the order's own template items may be filled in.
+      const itemIds = items.map(it => it.item_id)
+      if (itemIds.length) {
+        const ok = await tx`SELECT id FROM order_sheet_items WHERE id = ANY(${itemIds}::uuid[]) AND template_id = ${current.template_id}`
+        if (ok.length !== new Set(itemIds).size) throw httpError(422, 'Item is not on this order sheet')
+      }
       await tx`DELETE FROM order_sheet_order_items WHERE order_id = ${id}`
       if (items.length > 0) {
         const rows = items.map(it => ({
@@ -744,20 +801,17 @@ export default async function orderSheetsRoutes(app) {
     })
 
     const [updated] = await withTenant(req.tenantId, tx => tx`
-      UPDATE order_sheets SET updated_at = now() WHERE id = ${id} RETURNING *
+      UPDATE order_sheets SET updated_at = now() WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *
     `)
     return updated
   })
 
   // ── PATCH /orders/:id/status ─────────────────────────────────
-  app.patch('/orders/:id/status', async (req) => {
+  app.patch('/orders/:id/status', { preHandler: canOrder }, async (req) => {
     const { id } = req.params
     const { status: newStatus } = OrderStatusBody.parse(req.body)
 
-    const [current] = await withTenant(req.tenantId, tx => tx`
-      SELECT id, status FROM order_sheets WHERE id = ${id}
-    `)
-    if (!current) throw httpError(404, 'Order not found')
+    const current = await withTenant(req.tenantId, tx => ownOrder(tx, req.tenantId, id))
 
     const allowed = TRANSITIONS[current.status] ?? []
     if (!allowed.includes(newStatus)) {
@@ -783,7 +837,7 @@ export default async function orderSheetsRoutes(app) {
     const [order] = await withTenant(req.tenantId, tx => tx`
       UPDATE order_sheets
       SET ${tx(updates, ...fields)}, updated_at = now()
-      WHERE id = ${id}
+      WHERE id = ${id} AND tenant_id = ${req.tenantId}
       RETURNING *
     `)
     return order
@@ -793,7 +847,7 @@ export default async function orderSheetsRoutes(app) {
   app.delete('/orders/:id', { preHandler: [requireAuth, requirePermission('order_sheets', 'manage')] }, async (req) => {
     const { id } = req.params
     await withTenant(req.tenantId, tx => tx`
-      DELETE FROM order_sheets WHERE id = ${id}
+      DELETE FROM order_sheets WHERE id = ${id} AND tenant_id = ${req.tenantId}
     `)
     return { ok: true }
   })
