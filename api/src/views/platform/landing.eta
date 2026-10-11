@@ -217,7 +217,7 @@
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
           <h3>A phone app for managers</h3>
-          <p>Cash-up, wages, expenses, order sheets and safety checks from a phone, installed like an app.</p>
+          <p>Cash-up, wages, expenses, supplier orders and safety checks from a phone, installed like an app.</p>
         </div>
       </div>
     </div>

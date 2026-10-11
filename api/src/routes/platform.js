@@ -25,6 +25,7 @@ import { listMemberships } from '../services/membershipSvc.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
 import { seedDefaultDashboardTiles } from '../config/defaultDashboardTiles.js'
 import { ensureStandardAllergens } from '../services/menuSeeds.js'
+import { seedInventoryCategories } from '../services/purchasingSvc.js'
 
 const TenantBody = z.object({
   name:              z.string().min(1).max(200),
@@ -352,6 +353,8 @@ export default async function platformRoutes(app) {
       .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to seed default dashboard tiles for new tenant'))
     await withTenant(tenant.id, tx => ensureStandardAllergens(tx, tenant.id))
       .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to add standard allergens for new tenant'))
+    await withTenant(tenant.id, tx => seedInventoryCategories(tx, tenant.id))
+      .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to add inventory categories for new tenant'))
 
     return reply.code(201).send({
       ...tenant,

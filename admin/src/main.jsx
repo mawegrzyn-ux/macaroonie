@@ -25,7 +25,7 @@ import MobileHub   from '@/pages/mobile/MobileHub'
 import MobileHSDashboard from '@/pages/mobile/MobileHSDashboard'
 import MobileDashboards from '@/pages/mobile/MobileDashboard'
 import MobileExpenses from '@/pages/mobile/MobileExpenses'
-import MobileOrderSheets from '@/pages/mobile/MobileOrderSheets'
+import MobilePurchasing from '@/pages/mobile/MobilePurchasing'
 import MobileCashUp from '@/pages/mobile/MobileCashUp'
 import MobileWages from '@/pages/mobile/MobileWages'
 import TenantGate  from '@/components/TenantGate'
@@ -61,9 +61,10 @@ import Backlog         from '@/pages/Backlog'
 import IssueLog        from '@/pages/IssueLog'
 import FeatureRequests from '@/pages/FeatureRequests'
 import Changelog       from '@/pages/Changelog'
-import OrderSheets           from '@/pages/OrderSheets'
-import OrderSheetTemplates  from '@/pages/OrderSheetTemplates'
-import OrderSheetCategories from '@/pages/OrderSheetCategories'
+import Purchasing           from '@/pages/Purchasing'
+import OrderLists           from '@/pages/OrderLists'
+import Inventory            from '@/pages/Inventory'
+import Suppliers            from '@/pages/Suppliers'
 import TestData        from '@/pages/TestData'
 import LegacyImport     from '@/pages/LegacyImport'
 import FoodSafety      from '@/pages/FoodSafety'
@@ -203,9 +204,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="issues"             element={<IssueLog />} />
                 <Route path="feature-requests"   element={<FeatureRequests />} />
                 <Route path="changelog"          element={<Changelog />} />
-                <Route path="order-sheets"            element={<OrderSheets />} />
-                <Route path="order-sheets/templates"  element={<OrderSheetTemplates />} />
-                <Route path="order-sheets/categories" element={<OrderSheetCategories />} />
+                <Route path="purchasing"              element={<Purchasing />} />
+                <Route path="purchasing/lists"        element={<OrderLists />} />
+                <Route path="inventory"               element={<Inventory />} />
+                <Route path="suppliers"               element={<Suppliers />} />
                 <Route path="docs"               element={<Docs />} />
                 <Route path="help"        element={<Help />} />
                 <Route path="settings"    element={<Settings />} />
@@ -218,7 +220,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="hs-dashboard" element={<MobileHSDashboard />} />
                 <Route path="dashboards"   element={<MobileDashboards />} />
                 <Route path="expenses"     element={<MobileExpenses />} />
-                <Route path="order-sheets" element={<MobileOrderSheets />} />
+                <Route path="purchasing" element={<MobilePurchasing />} />
                 <Route path="cash-up"      element={<MobileCashUp />} />
                 <Route path="wages"        element={<MobileWages />} />
                 <Route path="orders"       element={<MobileOrders />} />

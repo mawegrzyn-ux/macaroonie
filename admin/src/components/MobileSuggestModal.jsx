@@ -69,7 +69,7 @@ export default function MobileSuggestModal() {
         <p className="text-sm text-muted-foreground mb-6">
           This admin portal is built for tablets. On a phone, the Ops mobile
           view is a lot easier to use one-handed — H&amp;S Dashboard,
-          Expenses, and Order Sheets, laid out for a phone screen.
+          Expenses and Purchasing, laid out for a phone screen.
         </p>
         <div className="flex flex-col gap-2">
           <button

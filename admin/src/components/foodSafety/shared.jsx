@@ -34,7 +34,7 @@ const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 
 // clipped by the temp-check table's own scroll container regardless of
 // which row/column it's opened from. Supports one optional decimal place
 // and a leading minus sign (freezer readings run negative).
-function TempKeypadModal({ label, initialValue, onConfirm, onClose }) {
+export function TempKeypadModal({ label, initialValue, onConfirm, onClose }) {
   const [draft, setDraft] = useState(initialValue != null && initialValue !== '' ? String(initialValue) : '')
 
   function press(key) {

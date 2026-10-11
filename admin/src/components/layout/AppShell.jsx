@@ -66,7 +66,7 @@ function toNavItem(node) {
     // An item with children needs exact-match active state, or its own
     // NavLink stays "active" while browsing any child's route too (NavLink
     // defaults to prefix matching) — same reasoning the old hardcoded nav
-    // applied to Order sheets/Menus/Emails.
+    // applied to Purchasing/Menus/Emails.
     end: children.length > 0,
     children,
   }

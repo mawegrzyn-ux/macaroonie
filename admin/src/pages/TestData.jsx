@@ -268,14 +268,14 @@ const HS_KINDS = [
   { key: 'temps',      label: 'Fridge & freezer temperatures', hint: 'One reading per unit per check time' },
   { key: 'holds',      label: 'Hot & cold hold checks',        hint: 'One reading per station per hold check time' },
   { key: 'cooking',    label: 'Cooking checks',                hint: 'Each session\'s required checks, random dishes from published menus' },
-  { key: 'orders',     label: 'Past order sheets',             hint: 'Placed orders on each template\'s delivery days, random quantities' },
-  { key: 'deliveries', label: 'Delivery checks',               hint: 'One per placed order sheet: supplier, its items, temperature by category' },
+  { key: 'orders',     label: 'Past purchase orders',          hint: 'From the venue\'s order lists, on each supplier\'s delivery days, around the pars' },
+  { key: 'deliveries', label: 'Delivery checks',               hint: 'Books the purchase orders in: supplier, its items, temperature by storage' },
   { key: 'checklists', label: 'Checklists & audits',           hint: 'Marked complete with every task ticked' },
 ]
 
 const COUNT_LABELS = {
   temps: 'fridge/freezer readings', holds: 'hold checks', cooking: 'cooking checks',
-  orders: 'order sheets', deliveries: 'delivery checks', checklists: 'checklists',
+  orders: 'purchase orders', deliveries: 'delivery checks', checklists: 'checklists',
 }
 
 function yesterdayStr() { return addDays(todayStr(), -1) }
@@ -352,7 +352,7 @@ function HsSection({ api, venueId }) {
   return (
     <SectionCard
       title="Generate past health & safety logs"
-      description="Fills past dates with believable records: readings inside each unit's limits, random dishes for cooking checks, delivery checks matched to order sheets, and checklists ticked off. Days that already have a reading are left alone. Everything made here is marked as generated, so it can be cleared below."
+      description="Fills past dates with believable records: readings inside each unit's limits, random dishes for cooking checks, delivery checks for received purchase orders, and checklists ticked off. Days that already have a reading are left alone. Everything made here is marked as generated, so it can be cleared below."
     >
       <div className="grid grid-cols-2 gap-3">
         <FormRow label="From">
