@@ -219,6 +219,7 @@ export async function buildApp() {
   await app.register(hsDashboardsRoutes,     { prefix: '/api/hs-dashboards',   kind: 'hs',   moduleKey: 'hs_dashboard' })
   await app.register(hsDashboardsRoutes,     { prefix: '/api/cash-dashboards', kind: 'cash', moduleKey: 'cash_dashboard' })
   await app.register(hsDashboardsRoutes,     { prefix: '/api/rota-dashboards', kind: 'rota', moduleKey: 'rota_dashboard' })
+  await app.register(hsDashboardsRoutes,     { prefix: '/api/custom-dashboards', kind: 'custom', moduleKey: 'custom_dashboard' })
   await app.register(rotaRoutes,             { prefix: '/api/rota' })
   await app.register(hsActionLogRoutes,      { prefix: '/api/hs-action-log' })
   await app.register(hsSettingsRoutes,       { prefix: '/api/hs-settings' })

@@ -1,7 +1,8 @@
 // src/components/cashRecon/widgets.jsx
 //
-// Widgets for the Cash Recon Dashboard (pages/CashDashboard.jsx), which
-// runs on the shared DashboardPage engine from HSDashboard.jsx.
+// Cash widgets. Since migration 152 every dashboard (H&S, Cash, Rota, the
+// blank Dashboards page) can hold them; they're listed in the shared catalog
+// components/dashboards/widgetTypes.jsx and drawn by renderCashWidget().
 //
 // Every figure comes from the same place as Cash Recon itself:
 //   - reconCalc()/useReconWeek() in CashRecon.jsx for the week grid maths
@@ -13,9 +14,10 @@
 //     the tips to pay out widget, the same figures as the Rota page's tips
 // so the dashboard can never disagree with the Cash Recon or Rota pages.
 //
-// Navigation context (ctx) comes from useWeekNav(): the week being shown,
-// plus a selected day that the day tiles widget sets and the day balance
-// and petty cash widgets read.
+// Navigation context (ctx) comes from the shared dashboard navigator
+// (components/dashboards/nav.jsx): the week being shown, plus a selected day
+// that the day tiles widget sets and the day balance and petty cash widgets
+// read. useWeekNav() below is the plain week navigator the Rota page uses.
 
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'

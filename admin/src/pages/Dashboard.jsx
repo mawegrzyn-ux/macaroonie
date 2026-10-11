@@ -53,6 +53,7 @@ const TILE_META = {
 // Quick access tile for their role.
 
 const SHORTCUT_OPTIONS = [
+  { to: '/dashboards',           label: 'Dashboards',           icon: LucideIcons.LayoutTemplate, colour: 'bg-slate-100 text-slate-700' },
   { to: '/timeline',             label: 'Timeline',             icon: CalendarDays,    colour: 'bg-sky-100 text-sky-600' },
   { to: '/bookings',             label: 'Bookings',             icon: BookOpen,        colour: 'bg-blue-100 text-blue-600' },
   { to: '/customers',            label: 'Customers',            icon: UserRound,       colour: 'bg-indigo-100 text-indigo-600' },

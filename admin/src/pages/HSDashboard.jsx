@@ -1,59 +1,42 @@
 // src/pages/HSDashboard.jsx
 //
-// Customisable Health & Safety dashboard. Any number of named
-// dashboards (shown as tabs), each holding any number of widgets —
-// a checklist tick-list, the equipment temperature grid, or any of
-// the other food-safety check logs (deliveries, hot/cold hold,
-// cooking/reheat) — all driven by a single date navigator at the
-// top. Widgets are directly interactive in place (enter temps, tick
-// tasks, log a check) with no drill-down.
+// Customisable Health & Safety dashboard, and DashboardPage, the engine
+// every dashboard runs on. Any number of named dashboards (shown as tabs)
+// per venue, each holding any number of widgets behind one date navigator.
+// Widgets are directly interactive in place (enter temps, tick tasks, log a
+// check, edit the reconciliation grid) with no drill-down.
 //
-// Reuses the exact same data/tick/save logic as the Checklists and
-// Food safety pages via their shared components, so there is only
-// one implementation of each check type anywhere in the app.
+// Every dashboard can hold every widget (migration 152): the catalog,
+// renderers and per-widget module checks live in
+// components/dashboards/widgetTypes.jsx, the navigator in
+// components/dashboards/nav.jsx. Each widget reuses the same component as
+// its own page (Checklists, Food safety, Cash Recon, Rota), so there is
+// only one implementation of each anywhere in the app.
 //
 // The page shell (tabs, edit mode, widget CRUD, row-spanning grid, full
-// screen) is DashboardPage, a generic engine driven by a config object.
-// The H&S Dashboard is one config (below); the Cash Recon Dashboard
-// (pages/CashDashboard.jsx) is another, pointed at /api/cash-dashboards.
+// screen) is DashboardPage, driven by a config object. The H&S Dashboard is
+// one config (below); Cash (CashDashboard.jsx), Rota (RotaDashboard.jsx)
+// and the blank Dashboards page (Dashboards.jsx) are the others. A config
+// only picks the API mount, title, which widget group Add widget lists
+// first, and the navigator to show while a dashboard is empty.
 
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { format, addDays, subDays, parseISO } from 'date-fns'
 import {
   Plus, Minus, X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown,
-  Pencil, Trash2, Check, ListChecks, Thermometer, Truck, Flame, ChefHat, LayoutGrid,
-  Maximize2, Minimize2, ClipboardCheck, Grid3x3,
+  Pencil, Trash2, Check, LayoutGrid, Maximize2, Minimize2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MIN_ROWS, MAX_ROWS, rowSpanFor, heightForRows, gridStyle } from '@/lib/dashboardGrid'
-import { ChecklistRunPanel, ChecklistHeaderAction, FREQUENCY_LABELS } from '@/components/checklists/shared'
+import { ChecklistHeaderAction, FREQUENCY_LABELS } from '@/components/checklists/shared'
 import { TitleRename } from '@/components/dashboards/TitleRename'
-import {
-  TempChecksTable, DeliveryChecksPanel, HoldChecksTable, CookingChecksPanel,
-} from '@/components/foodSafety/shared'
-import { HSActionLogPanel } from '@/components/hsActionLog/shared'
 import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
-import { AllergenLookup } from '@/components/menus/AllergenMatrix'
-
-// Single source of truth for widget-type metadata — drives both the
-// "Add widget" type picker and the WidgetCard header/icon/default title.
-const WIDGET_TYPES = [
-  { key: 'checklist',       label: 'Checklist',              icon: ListChecks,  defaultTitle: 'Checklist', needsChecklist: true },
-  { key: 'temp_checks',     label: 'Temperature checks',     icon: Thermometer, defaultTitle: 'Temperature checks' },
-  { key: 'delivery_checks', label: 'Delivery checks',        icon: Truck,       defaultTitle: 'Delivery checks' },
-  { key: 'hold_checks',     label: 'Hot / cold hold checks', icon: Flame,       defaultTitle: 'Hot / cold hold checks' },
-  { key: 'cooking_checks',  label: 'Cooking / reheat checks',icon: ChefHat,     defaultTitle: 'Cooking / reheat checks' },
-  { key: 'action_log',      label: 'Action log',             icon: ClipboardCheck, defaultTitle: 'Action log' },
-  { key: 'allergen_lookup', label: 'Allergen lookup',        icon: Grid3x3,     defaultTitle: 'Allergen lookup' },
-]
-export const WIDGET_TYPE_BY_KEY = Object.fromEntries(WIDGET_TYPES.map(w => [w.key, w]))
-export const HS_WIDGET_TYPES = WIDGET_TYPES
-
-function todayStr() {
-  return new Date().toISOString().slice(0, 10)
-}
+import {
+  WIDGET_TYPES, WIDGET_TYPE_BY_KEY, WIDGET_GROUPS, canUseWidget, hasHsDayWidget, renderWidget, NoAccess,
+} from '@/components/dashboards/widgetTypes'
+import { useDashboardNav, navModeFor, DashboardNav } from '@/components/dashboards/nav'
+import { useMe } from '@/components/staff/rota'
 
 // ── Add / rename dashboard modal ───────────────────────────────
 
@@ -95,18 +78,31 @@ export function DashboardModal({ initial, onClose, onSave, isSaving }) {
 
 // ── Add widget modal ────────────────────────────────────────────
 
-export function AddWidgetModal({ venueId, api, onClose, onSave, isSaving, widgetTypes = WIDGET_TYPES }) {
-  const typeByKey = Object.fromEntries(widgetTypes.map(w => [w.key, w]))
-  const [widgetType, setWidgetType] = useState(widgetTypes[0].key)
+export function AddWidgetModal({ venueId, api, me, primaryGroup, onClose, onSave, isSaving }) {
+  // Every widget type, grouped, with the page's own group first. Types the
+  // person can't see (no view on the widget's module) aren't offered.
+  const groups = [...WIDGET_GROUPS]
+    .sort((a, b) => (b.key === primaryGroup) - (a.key === primaryGroup))
+    .map(g => ({ ...g, types: WIDGET_TYPES.filter(t => t.group === g.key && canUseWidget(t, me)) }))
+    .filter(g => g.types.length)
+  const available = groups.flatMap(g => g.types)
+  const hiddenCount = WIDGET_TYPES.length - available.length
+
+  const [widgetType, setWidgetType] = useState(available[0]?.key ?? '')
   const [templateId, setTemplateId] = useState('')
   const [titleOverride, setTitleOverride] = useState('')
-  const needsChecklist = !!typeByKey[widgetType]?.needsChecklist
+  const meta = WIDGET_TYPE_BY_KEY[widgetType]
+  const needsChecklist = !!meta?.needsChecklist
 
   const { data: templates = [] } = useQuery({
     queryKey: ['checklist-templates', venueId],
     queryFn: () => api.get(`/checklists/templates?venue_id=${venueId}`),
-    enabled: !!venueId && widgetTypes.some(w => w.needsChecklist),
+    enabled: !!venueId && available.some(w => w.needsChecklist),
   })
+
+  useEffect(() => {
+    if (!widgetType && available.length) setWidgetType(available[0].key)
+  }, [available, widgetType])
 
   useEffect(() => {
     if (needsChecklist && !templateId && templates.length) setTemplateId(templates[0].id)
@@ -114,7 +110,7 @@ export function AddWidgetModal({ venueId, api, onClose, onSave, isSaving, widget
 
   function submit(e) {
     e.preventDefault()
-    if (needsChecklist && !templateId) return
+    if (!widgetType || (needsChecklist && !templateId)) return
     onSave({
       widget_type: widgetType,
       checklist_template_id: needsChecklist ? templateId : null,
@@ -124,29 +120,45 @@ export function AddWidgetModal({ venueId, api, onClose, onSave, isSaving, widget
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-background rounded-xl shadow-xl w-full max-w-md max-h-[85vh] overflow-y-auto p-6">
+      <div className="bg-background rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Add widget</h2>
           <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
         </div>
         <form onSubmit={submit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Widget type</label>
-            <div className="space-y-1.5">
-              {widgetTypes.map(wt => {
-                const Icon = wt.icon
-                return (
-                  <button key={wt.key} type="button" onClick={() => setWidgetType(wt.key)}
-                    className={cn(
-                      'w-full flex items-center gap-2.5 border rounded-xl px-3 py-2.5 text-sm font-medium touch-manipulation min-h-[48px]',
-                      widgetType === wt.key ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-accent',
-                    )}>
-                    <Icon className="w-4 h-4 shrink-0" /> {wt.label}
-                  </button>
-                )
-              })}
+          {available.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              You don't have access to any of the areas widgets show (H&amp;S, menus, cash, rota).
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {groups.map(g => (
+                <div key={g.key}>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">{g.label}</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    {g.types.map(wt => {
+                      const Icon = wt.icon
+                      return (
+                        <button key={wt.key} type="button" onClick={() => setWidgetType(wt.key)}
+                          aria-pressed={widgetType === wt.key}
+                          className={cn(
+                            'w-full flex items-center gap-2.5 border rounded-xl px-3 py-2.5 text-sm font-medium text-left touch-manipulation min-h-[48px]',
+                            widgetType === wt.key ? 'border-primary bg-primary/5 text-primary' : 'hover:bg-accent',
+                          )}>
+                          <Icon className="w-4 h-4 shrink-0" /> <span className="min-w-0">{wt.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+              {hiddenCount > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {hiddenCount === 1 ? 'One widget isn\'t' : `${hiddenCount} widgets aren't`} listed because you don't have access to the area {hiddenCount === 1 ? 'it shows' : 'they show'}.
+                </p>
+              )}
             </div>
-          </div>
+          )}
 
           {needsChecklist && (
             <div>
@@ -164,17 +176,19 @@ export function AddWidgetModal({ venueId, api, onClose, onSave, isSaving, widget
             </div>
           )}
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Card title (optional)</label>
-            <input value={titleOverride} onChange={e => setTitleOverride(e.target.value)}
-              placeholder={needsChecklist
-                ? (templates.find(t => t.id === templateId)?.name ?? '')
-                : typeByKey[widgetType].defaultTitle}
-              className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
-          </div>
+          {meta && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Card title (optional)</label>
+              <input value={titleOverride} onChange={e => setTitleOverride(e.target.value)}
+                placeholder={needsChecklist
+                  ? (templates.find(t => t.id === templateId)?.name ?? '')
+                  : meta.defaultTitle}
+                className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
+            </div>
+          )}
 
           <div className="flex gap-2 pt-2">
-            <button type="submit" disabled={isSaving || (needsChecklist && !templateId)}
+            <button type="submit" disabled={isSaving || !meta || (needsChecklist && !templateId)}
               className="flex-1 bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50">
               {isSaving ? 'Adding…' : 'Add widget'}
             </button>
@@ -191,12 +205,15 @@ export function AddWidgetModal({ venueId, api, onClose, onSave, isSaving, widget
 const MIN_COL_SPAN = 1
 
 function WidgetCard({
-  widget, venueId, ctx, editing, columnCount, typeByKey, renderWidget,
+  widget, venueId, ctx, editing, columnCount, me,
   onRemove, onMoveUp, onMoveDown, isFirst, isLast,
   onResizeWidth, onResizeRows, onSetting, onRename, isRenaming,
 }) {
   const isChecklist = widget.widget_type === 'checklist'
-  const meta  = typeByKey[widget.widget_type] ?? { label: widget.widget_type, icon: LayoutGrid, defaultTitle: widget.widget_type }
+  const meta  = WIDGET_TYPE_BY_KEY[widget.widget_type] ?? { label: widget.widget_type, icon: LayoutGrid, defaultTitle: widget.widget_type }
+  // A dashboard can hold any widget, so someone may see a dashboard with a
+  // widget from an area they can't open: show a note instead of its body.
+  const allowed = !!me && canUseWidget(meta, me)
   const defaultTitle = isChecklist ? widget.checklist_name : meta.defaultTitle
   const title = widget.title_override || defaultTitle
   const Icon  = meta.icon
@@ -229,10 +246,10 @@ function WidgetCard({
             <span className="block text-xs text-muted-foreground">{FREQUENCY_LABELS[widget.checklist_frequency]}</span>
           )}
         </span>
-        {meta.HeaderValue && !editing && (
+        {meta.HeaderValue && !editing && allowed && (
           <meta.HeaderValue widget={widget} venueId={venueId} ctx={ctx} />
         )}
-        {isChecklist && !editing && <ChecklistHeaderAction state={checklistState} />}
+        {isChecklist && !editing && allowed && <ChecklistHeaderAction state={checklistState} />}
         {editing && (
           <div className="flex items-center gap-0.5 shrink-0">
             <button type="button" onClick={onMoveUp} disabled={isFirst}
@@ -322,7 +339,9 @@ function WidgetCard({
 
       {/* Fills whatever height the card's row span gives it; scrolls inside. */}
       <div className={cn('flex-1 min-h-0 overflow-auto', !meta.flush && 'p-4')}>
-        {renderWidget({ widget, venueId, ctx, template, onChecklistState: setChecklistState })}
+        {!me ? null
+          : allowed ? renderWidget({ widget, venueId, ctx, template, onChecklistState: setChecklistState })
+          : <NoAccess meta={meta} />}
       </div>
     </div>
   )
@@ -330,70 +349,19 @@ function WidgetCard({
 
 // ── H&S config ───────────────────────────────────────────────
 
-// Single date navigator; every H&S widget reads ctx.date.
-function useDayNav() {
-  const [date, setDate] = useState(todayStr())
-  const isToday = date === todayStr()
-  function goDay(delta) {
-    setDate(format(delta > 0 ? addDays(parseISO(date), 1) : subDays(parseISO(date), 1), 'yyyy-MM-dd'))
-  }
-  const element = (
-    <div className="flex items-center gap-1.5 shrink-0">
-      <button type="button" onClick={() => goDay(-1)}
-        className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg border hover:bg-accent touch-manipulation">
-        <ChevronLeft className="w-5 h-5" />
-      </button>
-      <div className="relative">
-        <button type="button" className="w-44 shrink-0 px-3 py-1.5 text-sm font-medium rounded-lg hover:bg-accent touch-manipulation text-center whitespace-nowrap overflow-hidden text-ellipsis">
-          {isToday ? 'Today' : format(parseISO(date), 'EEE d MMM yyyy')}
-        </button>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)}
-          className="absolute inset-0 opacity-0 cursor-pointer w-full" />
-      </div>
-      <button type="button" onClick={() => goDay(1)}
-        className="w-11 h-11 shrink-0 flex items-center justify-center rounded-lg border hover:bg-accent touch-manipulation">
-        <ChevronRight className="w-5 h-5" />
-      </button>
-      {!isToday && (
-        <button type="button" onClick={() => setDate(todayStr())}
-          className="text-xs px-2.5 py-1.5 rounded-lg border hover:bg-accent touch-manipulation ml-1">
-          Today
-        </button>
-      )}
-    </div>
-  )
-  return { ctx: { date }, element }
-}
-
-function renderHsWidget({ widget, venueId, ctx, template, onChecklistState }) {
-  const { date } = ctx
-  switch (widget.widget_type) {
-    case 'checklist':       return <ChecklistRunPanel template={template} date={date} hideHeader onStateChange={onChecklistState} />
-    case 'temp_checks':     return <TempChecksTable venueId={venueId} date={date} />
-    case 'delivery_checks': return <DeliveryChecksPanel venueId={venueId} date={date} />
-    case 'hold_checks':     return <HoldChecksTable venueId={venueId} date={date} />
-    case 'cooking_checks':  return <CookingChecksPanel venueId={venueId} date={date} />
-    case 'action_log':      return <HSActionLogPanel venueId={venueId} />
-    case 'allergen_lookup': return <AllergenLookup storeKey={`maca_allergen_lookup_${widget.id}`} />
-    default:                return null
-  }
-}
-
 export const HS_DASHBOARD_CONFIG = {
-  apiBase:     '/hs-dashboards',
-  keyPrefix:   'hs',
-  title:       'H&S Dashboard',
-  icon:        LayoutGrid,
-  widgetTypes: WIDGET_TYPES,
-  useNav:      useDayNav,
-  renderWidget: renderHsWidget,
-  // Optional per-config extras (Cash / Rota dashboards leave them out).
+  apiBase:      '/hs-dashboards',
+  keyPrefix:    'hs',
+  title:        'H&S Dashboard',
+  icon:         LayoutGrid,
+  primaryGroup: 'hs',
+  defaultNav:   'day',
+  // Optional per-config extra in the page header.
   HeaderExtra: HsSettingsButton,
-  Notice:      ({ venueId, ctx }) => <ClosedDayNotice venueId={venueId} date={ctx.date} className="mb-4" />,
   // Venue picker only when there's a choice to make (matches Food safety / Checklists).
   alwaysShowVenuePicker: false,
   emptyText:   'No dashboards yet. Create one to start adding checklist and temperature-check widgets.',
-  emptyWidgetsText: 'No widgets on this dashboard yet. Add a checklist or the temperature-check grid.',
+  emptyWidgetsText: 'No widgets on this dashboard yet. Add a checklist, the temperature-check grid, or any other widget.',
 }
 
 export default function HSDashboard() {
@@ -406,10 +374,10 @@ export function DashboardPage({ config }) {
   const api = useApi()
   const qc = useQueryClient()
   const containerRef = useRef(null)
-  const { apiBase, keyPrefix, widgetTypes, renderWidget } = config
-  const typeByKey = Object.fromEntries(widgetTypes.map(w => [w.key, w]))
+  const { apiBase, keyPrefix } = config
   const TitleIcon = config.icon
-  const nav = config.useNav()
+  const nav = useDashboardNav()
+  const { data: me } = useMe()
 
   const [venueId, setVenueId] = useState('')
   const [activeDashboardId, setActiveDashboardId] = useState('')
@@ -583,6 +551,12 @@ export function DashboardPage({ config }) {
               {editing ? 'Done editing' : 'Edit layout'}
             </button>
           )}
+          {venueId && dashboards.length > 0 && (
+            <button type="button" onClick={() => setDashModal('new')}
+              className="inline-flex items-center gap-1.5 rounded-lg border hover:bg-accent px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
+              <Plus className="w-4 h-4" /> New dashboard
+            </button>
+          )}
           {config.HeaderExtra && <config.HeaderExtra venueId={venueId || null} />}
           <button type="button" onClick={toggleFullscreen} title={isFullscreen ? 'Exit full screen' : 'Full screen'}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg border hover:bg-accent px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
@@ -595,7 +569,7 @@ export function DashboardPage({ config }) {
       {/* Date navigator and dashboard tabs share one row (from sm up). The tabs
           scroll sideways if they run out of room rather than wrapping below. */}
       <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 mb-5">
-        {nav.element}
+        <DashboardNav nav={nav} mode={navModeFor(widgets, WIDGET_TYPE_BY_KEY, config.defaultNav)} />
 
         {dashboards.length > 0 && (
           <div className="flex-1 flex items-center gap-1 overflow-x-auto min-w-0">
@@ -619,7 +593,9 @@ export function DashboardPage({ config }) {
         )}
       </div>
 
-      {venueId && config.Notice && <config.Notice venueId={venueId} ctx={nav.ctx} />}
+      {/* Any dashboard with an H&S check on it: say when the venue is closed
+          that day and H&S follows opening days (hs_settings). */}
+      {venueId && hasHsDayWidget(widgets) && <ClosedDayNotice venueId={venueId} date={nav.date} className="mb-4" />}
 
       {!venueId ? (
         <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
@@ -719,8 +695,7 @@ export function DashboardPage({ config }) {
                     ctx={nav.ctx}
                     editing={editing}
                     columnCount={columnCount}
-                    typeByKey={typeByKey}
-                    renderWidget={renderWidget}
+                    me={me}
                     isFirst={idx === 0}
                     isLast={idx === widgets.length - 1}
                     onMoveUp={() => moveWidget(idx, -1)}
@@ -754,7 +729,8 @@ export function DashboardPage({ config }) {
         <AddWidgetModal
           venueId={venueId}
           api={api}
-          widgetTypes={widgetTypes}
+          me={me}
+          primaryGroup={config.primaryGroup}
           isSaving={createWidget.isPending}
           onClose={() => setAddWidgetOpen(false)}
           onSave={body => createWidget.mutate(body)}

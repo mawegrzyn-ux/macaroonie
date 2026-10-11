@@ -19,6 +19,7 @@ const SECTIONS = [
   { id: 'cash-recon',   label: 'Cash Reconciliation' },
   { id: 'food-safety',  label: 'Food Safety Logs' },
   { id: 'checklists',   label: 'Checklists' },
+  { id: 'dashboards', label: 'Dashboards (shared widgets)' },
   { id: 'hs-dashboard', label: 'H&S Dashboard' },
   { id: 'cash-dashboard', label: 'Cash Dashboard' },
   { id: 'staff-rota', label: 'Staff & Rota' },
@@ -1406,6 +1407,117 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             />
           </section>
 
+          {/* ── DASHBOARDS (SHARED WIDGETS) ─────────────────── */}
+          <section id="dashboards" data-doc="">
+            <H2>Dashboards (shared widgets)</H2>
+            <P>
+              Migration 152. Every dashboard, whatever its kind, can hold every widget type, and a
+              fourth kind, <Mono>'custom'</Mono>, gives blank dashboards on the Dashboards page
+              (<Mono>/dashboards</Mono>, <Mono>pages/Dashboards.jsx</Mono>). The kinds still keep
+              dashboards apart (each page lists only its own) and each is gated by its own module;
+              only the widget lists were merged.
+            </P>
+            <DataTable
+              head={['Kind', 'Page', 'API mount', 'Module']}
+              rows={[
+                ['hs', '/hs-dashboard (HSDashboard.jsx)', '/api/hs-dashboards', 'hs_dashboard'],
+                ['cash', '/cash-dashboard (CashDashboard.jsx)', '/api/cash-dashboards', 'cash_dashboard'],
+                ['rota', '/rota-dashboard (RotaDashboard.jsx)', '/api/rota-dashboards', 'rota_dashboard'],
+                ['custom', '/dashboards (Dashboards.jsx), /mobile/dashboards', '/api/custom-dashboards', 'custom_dashboard (core, no tenant switch)'],
+              ]}
+            />
+            <H3>API (routes/hsDashboards.js)</H3>
+            <P>
+              <Mono>WIDGET_MODULE</Mono> maps every widget type to the module whose data it shows,
+              and <Mono>WIDGET_TYPES</Mono> (its keys) replaced <Mono>WIDGET_TYPES_BY_KIND</Mono>:
+              every mount accepts every type. <Mono>POST /dashboards/:id/widgets</Mono> also needs
+              at least view on that module (<Mono>permissionLevel()</Mono> from{' '}
+              <Mono>middleware/auth.js</Mono>), else 403 "You don't have access to ..., so you can't
+              add that widget.". This is a convenience check only: the widget's data comes from
+              that module's own routes, which check it on every read. <Mono>POST /dashboards</Mono>{' '}
+              now checks the venue belongs to the tenant (404) and puts a new dashboard after the
+              venue's others of that kind. The <Mono>widget_type</Mono> CHECK already listed every
+              type, so the migration only widens the <Mono>kind</Mono> CHECK.
+            </P>
+            <DataTable
+              head={['Module', 'Widget types']}
+              rows={[
+                ['checklists', 'checklist'],
+                ['food_safety', 'temp_checks, delivery_checks, hold_checks, cooking_checks'],
+                ['hs_action_log', 'action_log'],
+                ['menus', 'allergen_lookup'],
+                ['cash_recon', 'every cash_* type except cash_tips_payout'],
+                ['rota_tips', 'cash_tips_payout, rota_tips'],
+                ['rota', 'rota_grid, rota_today'],
+                ['rota_pay', 'rota_week_pay'],
+              ]}
+            />
+            <P>
+              Migration 152 also adds <Mono>custom_dashboard</Mono> to every role's{' '}
+              <Mono>permissions</Mono> (built-in: viewer view, others manage; custom roles copy their{' '}
+              <Mono>hs_dashboard</Mono> level, else view) and a Dashboards nav link straight after
+              the Overview link (<Mono>route = '/'</Mono>), or at the end of the top level when a
+              tenant has no Overview link. <Mono>ROUTE_CATALOG</Mono>, <Mono>defaultNav.js</Mono>,
+              the Overview <Mono>SHORTCUT_OPTIONS</Mono> and the mobile registry include it.
+            </P>
+            <H3>Admin: one catalog, one navigator</H3>
+            <P>
+              <Mono>components/dashboards/widgetTypes.jsx</Mono> is the only widget catalog:{' '}
+              <Mono>WIDGET_TYPES</Mono> (H&amp;S and Menus types defined there, plus{' '}
+              <Mono>CASH_WIDGET_TYPES</Mono> from <Mono>cashRecon/widgets.jsx</Mono> and{' '}
+              <Mono>ROTA_WIDGET_TYPES</Mono> from <Mono>staff/rotaWidgets.jsx</Mono>), each with{' '}
+              <Mono>group</Mono> (Add widget heading, <Mono>WIDGET_GROUPS</Mono>),{' '}
+              <Mono>module</Mono> (same map as the API) and <Mono>nav</Mono> (<Mono>'day'</Mono> |{' '}
+              <Mono>'week'</Mono> | <Mono>null</Mono>). <Mono>renderWidget()</Mono> draws any type;{' '}
+              <Mono>canUseWidget(meta, me)</Mono> decides whether a viewer sees it (from{' '}
+              <Mono>/me</Mono>'s <Mono>permissions</Mono>); <Mono>NoAccess</Mono> is shown in its
+              place otherwise, and the header figure and checklist action are left out.
+            </P>
+            <P>
+              <Mono>DashboardPage</Mono> no longer takes <Mono>widgetTypes</Mono>,{' '}
+              <Mono>renderWidget</Mono> or <Mono>useNav</Mono>. A config now gives{' '}
+              <Mono>apiBase</Mono>, <Mono>keyPrefix</Mono>, <Mono>title</Mono>, <Mono>icon</Mono>,{' '}
+              <Mono>primaryGroup</Mono> (listed first in <Mono>AddWidgetModal</Mono>),{' '}
+              <Mono>defaultNav</Mono> (navigator mode while no widget needs a date), the optional{' '}
+              <Mono>HeaderExtra</Mono> and the empty-state texts. <Mono>AddWidgetModal</Mono> lists
+              every type the person can use, grouped, and says how many it left out. The header has
+              a <Mono>New dashboard</Mono> button (no need to enter Edit layout).{' '}
+              <Mono>ClosedDayNotice</Mono> shows on any dashboard with an H&amp;S day widget (
+              <Mono>hasHsDayWidget()</Mono>), not only the H&amp;S one.
+            </P>
+            <P>
+              <Mono>components/dashboards/nav.jsx</Mono>: <Mono>useDashboardNav()</Mono> keeps one
+              selected day; <Mono>ctx = {'{ date, weekStart, selectedDay, setSelectedDay }'}</Mono>{' '}
+              (<Mono>selectedDay</Mono> is <Mono>date</Mono>, <Mono>weekStart</Mono> its Monday),
+              so H&amp;S widgets (<Mono>ctx.date</Mono>) and cash/rota widgets (
+              <Mono>ctx.weekStart</Mono> + <Mono>ctx.selectedDay</Mono>) share it.{' '}
+              <Mono>navModeFor(widgets, WIDGET_TYPE_BY_KEY, fallback)</Mono> picks{' '}
+              <Mono>'day'</Mono>, <Mono>'week'</Mono> (week step keeps today if it's in that week,
+              else the Monday, as <Mono>useWeekNav()</Mono> did) or <Mono>'both'</Mono> (day arrows
+              inside week arrows, two-line label). <Mono>DashboardNav</Mono> draws it, with the
+              invisible <Mono>input[type=date]</Mono> over the label in every mode;{' '}
+              <Mono>mobile</Mono> makes it full width. Today is the browser's local date (the old
+              H&amp;S navigator used UTC). <Mono>useWeekNav()</Mono> stays in{' '}
+              <Mono>cashRecon/widgets.jsx</Mono> for the Rota page only.
+            </P>
+            <P>
+              Phone: <Mono>pages/mobile/MobileDashboard.jsx</Mono> exports{' '}
+              <Mono>MobileDashboardPage({'{ apiBase, keyPrefix, defaultNav, emptyText, emptyWidgetsText }'})</Mono>{' '}
+              (read-only layout, any widget, same navigator); <Mono>MobileHSDashboard.jsx</Mono> is
+              that page for the H&amp;S kind, and the default export is <Mono>/mobile/dashboards</Mono>{' '}
+              (custom kind). <Mono>PayHeader</Mono>/<Mono>TipsHeader</Mono> moved from{' '}
+              <Mono>RotaDashboard.jsx</Mono> to <Mono>staff/rotaWidgets.jsx</Mono> (the Rota page
+              imports them from there).
+            </P>
+            <InfoBox type="warn">
+              Adding a widget type now means: the <Mono>widget_type</Mono> CHECK (migration),{' '}
+              <Mono>WIDGET_MODULE</Mono> in <Mono>hsDashboards.js</Mono>, and the type in its group's
+              list plus its renderer (reached through <Mono>renderWidget()</Mono> in{' '}
+              <Mono>widgetTypes.jsx</Mono>) with a <Mono>module</Mono> and <Mono>nav</Mono>. It is
+              then offered on every dashboard, desktop and phone.
+            </InfoBox>
+          </section>
+
           {/* ── H&S DASHBOARD ─────────────────────────────── */}
           <section id="hs-dashboard" data-doc="">
             <H2>H&amp;S Dashboard</H2>
@@ -1420,7 +1532,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'Purpose']}
               rows={[
-                ['hs_dashboards', 'One row per named dashboard (shown as a tab). venue_id, name, column_count, sort_order.'],
+                ['hs_dashboards', 'One row per named dashboard (shown as a tab). venue_id, kind (hs | cash | rota | custom), name, column_count, sort_order.'],
                 ['hs_dashboard_widgets', 'One row per widget on a dashboard. widget_type enum (checklist / temp_checks / delivery_checks / hold_checks / cooking_checks / action_log), checklist_template_id (nullable, only for widget_type=checklist), title_override, col_span, height_px, sort_order.'],
               ]}
             />
@@ -1506,14 +1618,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>/cash-dashboard</Mono> (<Mono>pages/CashDashboard.jsx</Mono>) runs on the same
               engine as the H&amp;S Dashboard. <Mono>HSDashboard.jsx</Mono> exports{' '}
               <Mono>DashboardPage({'{ config }'})</Mono>, which owns tabs, edit mode, widget CRUD,
-              the grid and full screen. A config supplies <Mono>apiBase</Mono>,{' '}
-              <Mono>keyPrefix</Mono> (query keys), <Mono>widgetTypes</Mono>, a{' '}
-              <Mono>useNav()</Mono> hook returning <Mono>{'{ ctx, element }'}</Mono>, and{' '}
-              <Mono>renderWidget({'{ widget, venueId, ctx, ... }'})</Mono>.{' '}
-              <Mono>HS_DASHBOARD_CONFIG</Mono> uses a day navigator (<Mono>ctx.date</Mono>);{' '}
-              <Mono>CASH_DASHBOARD_CONFIG</Mono> uses <Mono>useWeekNav()</Mono> from{' '}
-              <Mono>components/cashRecon/widgets.jsx</Mono> (<Mono>ctx.weekStart</Mono>,{' '}
-              <Mono>ctx.selectedDay</Mono>, <Mono>ctx.setSelectedDay</Mono>). A widget type with{' '}
+              the grid and full screen. Since migration 152 the widget catalog, renderers and
+              navigator are shared by every dashboard (see Dashboards (shared widgets)); a config
+              only gives the API mount, title, <Mono>primaryGroup</Mono> and{' '}
+              <Mono>defaultNav</Mono>. Cash widgets read <Mono>ctx.weekStart</Mono>,{' '}
+              <Mono>ctx.selectedDay</Mono> and <Mono>ctx.setSelectedDay</Mono>. A widget type with{' '}
               <Mono>flush: true</Mono> renders without body padding (the grid widget).
             </P>
             <H3>Storage and API (migration 101)</H3>
@@ -1525,9 +1634,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>/api/cash-dashboards</Mono> with{' '}
               <Mono>{"{ kind: 'cash', moduleKey: 'cash_dashboard' }"}</Mono>. Each mount filters
               every query by its kind (including widget PATCH/DELETE, which load the parent
-              dashboard first), only accepts its own <Mono>WIDGET_TYPES_BY_KIND[kind]</Mono>, and is
-              gated by its own module. The <Mono>widget_type</Mono> CHECK constraint now lists
-              both kinds' types.
+              dashboard first) and is gated by its own module. Until migration 152 each mount also
+              accepted only its own <Mono>WIDGET_TYPES_BY_KIND[kind]</Mono>; now every mount accepts
+              every type. The <Mono>widget_type</Mono> CHECK constraint lists every type.
             </P>
             <P>
               New module <Mono>cash_dashboard</Mono> in the <Mono>cash_recon</Mono> group (one tenant
@@ -1765,8 +1874,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               third <Mono>DashboardPage</Mono> config: <Mono>hs_dashboards.kind = 'rota'</Mono>,
               mounted at <Mono>/api/rota-dashboards</Mono>, widget types <Mono>rota_grid</Mono>,{' '}
               <Mono>rota_today</Mono>, <Mono>rota_week_pay</Mono>, <Mono>rota_tips</Mono>{' '}
-              (CHECK constraint, <Mono>WIDGET_TYPES_BY_KIND.rota</Mono> and{' '}
-              <Mono>ROTA_WIDGET_TYPES</Mono>). Navigation reuses <Mono>useWeekNav()</Mono>. The
+              (CHECK constraint and <Mono>ROTA_WIDGET_TYPES</Mono>, now in{' '}
+              <Mono>components/staff/rotaWidgets.jsx</Mono>; since migration 152 any dashboard
+              can hold them, see Dashboards (shared widgets)). Navigation is the shared dashboard
+              navigator. The
               tips widget has three widget options (<Mono>hs_dashboard_widgets.settings</Mono>):{' '}
               <Mono>hide_pots</Mono>, <Mono>hide_shares</Mono>, <Mono>hide_moves</Mono>, passed to{' '}
               <Mono>RotaTipsTable</Mono> as <Mono>sections</Mono> (the Rota page shows all three).
@@ -3181,8 +3292,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>useMenuChoice()</Mono> (menu choice in localStorage) and{' '}
               <Mono>useAllergenMatrix()</Mono> (query key <Mono>['allergen-matrix', menuId]</Mono>).
               Migration 141 adds <Mono>allergen_lookup</Mono> to the{' '}
-              <Mono>hs_dashboard_widgets.widget_type</Mono> CHECK (H&amp;S kind only,{' '}
-              <Mono>WIDGET_TYPES_BY_KIND.hs</Mono>; the widget remembers its menu as{' '}
+              <Mono>hs_dashboard_widgets.widget_type</Mono> CHECK (any dashboard since migration
+              152; the widget remembers its menu as{' '}
               <Mono>maca_allergen_lookup_&lt;widgetId&gt;</Mono>) and to the{' '}
               <Mono>dashboard_tiles.tile_type</Mono> CHECK (<Mono>TILE_CATALOG</Mono>).
             </P>

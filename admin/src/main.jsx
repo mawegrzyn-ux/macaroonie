@@ -23,6 +23,7 @@ import AppShell    from '@/components/layout/AppShell'
 import MobileShell from '@/components/mobile/MobileShell'
 import MobileHub   from '@/pages/mobile/MobileHub'
 import MobileHSDashboard from '@/pages/mobile/MobileHSDashboard'
+import MobileDashboards from '@/pages/mobile/MobileDashboard'
 import MobileExpenses from '@/pages/mobile/MobileExpenses'
 import MobileOrderSheets from '@/pages/mobile/MobileOrderSheets'
 import MobileCashUp from '@/pages/mobile/MobileCashUp'
@@ -74,6 +75,7 @@ import StaffRoles      from '@/pages/StaffRoles'
 import Rota            from '@/pages/Rota'
 import RotaSetup       from '@/pages/RotaSetup'
 import RotaDashboard   from '@/pages/RotaDashboard'
+import Dashboards      from '@/pages/Dashboards'
 import HSActionLog     from '@/pages/HSActionLog'
 import Orders          from '@/pages/Orders'
 import OrderingSettings from '@/pages/OrderingSettings'
@@ -158,6 +160,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               {/* ops.<domain> is the phone app only (lib/hosts.js) */}
               <Route element={IS_OPS_HOST ? <Navigate to="/mobile" replace /> : <AppShell />}>
                 <Route index          element={<Dashboard />} />
+                <Route path="dashboards" element={<Dashboards />} />
                 <Route path="timeline" element={<Timeline />} />
                 <Route path="bookings"   element={<Bookings />} />
                 <Route path="customers" element={<Customers />} />
@@ -213,6 +216,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
               <Route path="mobile" element={<MobileShell />}>
                 <Route index          element={<MobileHub />} />
                 <Route path="hs-dashboard" element={<MobileHSDashboard />} />
+                <Route path="dashboards"   element={<MobileDashboards />} />
                 <Route path="expenses"     element={<MobileExpenses />} />
                 <Route path="order-sheets" element={<MobileOrderSheets />} />
                 <Route path="cash-up"      element={<MobileCashUp />} />

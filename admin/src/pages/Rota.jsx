@@ -11,7 +11,7 @@ import { CalendarRange, Wallet, Coins } from 'lucide-react'
 import { useWeekNav } from '@/components/cashRecon/widgets'
 import { useVenues, useVenueChoice, PageHeader, VenuePicker } from '@/components/staff/shared'
 import { RotaGrid, RotaPayTable, RotaTipsTable, useRotaPerms } from '@/components/staff/rota'
-import { PayHeader, TipsHeader } from '@/pages/RotaDashboard'
+import { PayHeader, TipsHeader } from '@/components/staff/rotaWidgets'
 
 // Same card as the Rota dashboard's widgets: accent header bar with an
 // icon, title and the week's total, white body.
