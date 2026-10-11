@@ -2896,7 +2896,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>tools/hs.js</Mono> (staff, health &amp; safety): hs_status, food_safety_day,
               log_temperature, log_hold_check, log_cooking_check, log_delivery, add_corrective_action,
               checklists_due, get_checklist, tick_checklist, list_hs_actions, add_hs_action,
-              complete_hs_action. A tool is{' '}
+              complete_hs_action. <Mono>tools/purchasing.js</Mono> (staff, purchasing): 5 reads and 17
+              change tools, below. <Mono>pickByName()</Mono> (id, exact, starts with, contains, every
+              word; ambiguous asks, at most 20 choices listed) is in <Mono>tools/util.js</Mono>, shared by
+              the H&amp;S and purchasing tools. A tool is{' '}
               <Mono>{'{ name, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
               (<Mono>tools/index.js</Mono>); the Zod schema goes to the model and MCP clients as JSON
               Schema via zod-to-json-schema.
@@ -2984,6 +2987,51 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Dates default to today in the venue's time zone and are always sent to the routes (the
               food safety POSTs would otherwise default to the server's UTC date).
+            </P>
+            <H3>Staff: purchasing tools</H3>
+            <P>
+              <Mono>tools/purchasing.js</Mono>. Every read and change goes through the purchasing
+              routes with <Mono>callApi()</Mono> (<Mono>/api/inventory</Mono>, <Mono>/api/suppliers</Mono>,{' '}
+              <Mono>/api/purchasing</Mono>), so the routes' permission gates and price hiding apply
+              unchanged: without <Mono>purchasing_setup</Mono> view the routes strip prices, and the
+              tools only print prices the route returned. Direct SQL (each with an explicit{' '}
+              <Mono>tenant_id</Mono>) is used only for venues, a PO number to id, suppliers' delivery
+              settings for the place-order card (<Mono>supplierInfo()</Mono>: the same{' '}
+              <Mono>supplierForVenue()</Mono> + <Mono>nextDeliveryDate()</Mono> as the route) and the
+              chat's attachments. Change tools are confirm tools; <Mono>describe()</Mono> and{' '}
+              <Mono>run()</Mono> share one plan function each (<Mono>newItemPlan</Mono>,{' '}
+              <Mono>priceChangePlan</Mono>, <Mono>planOrder</Mono>, <Mono>receivePlan</Mono>, ...), so the
+              card shows what the run does. Every change is audited in <Mono>ai_actions</Mono>.
+            </P>
+            <DataTable
+              head={['Tool', 'Permission', 'Route(s)', 'Notes']}
+              rows={[
+                ['find_inventory_items', 'setup view', 'GET /inventory/items, /quotes/:id/history', 'Search name/code words, category, supplier; venue_id adds ordered_at_venue (chooseQuote); history when 5 or fewer match. 40 shown'],
+                ['list_suppliers', 'setup view', 'GET /suppliers, /suppliers/:id', 'One supplier: venue settings and up to 150 products'],
+                ['order_lists', 'either view (a list\'s items: setup view)', 'GET /purchasing/lists, /lists/:id', 'Pars shown in packs of the company-choice quote'],
+                ['order_form', 'either view', 'GET /orders?status=draft, GET /orders/:id, POST /orders', 'Opens the venue\'s draft for the list (named, the venue\'s only list, or without_list); makes an empty draft only with purchasing manage, like opening the list on the page. Not a confirm tool'],
+                ['purchase_orders', 'either view', 'GET /pos, /pos/:id', 'po = PO-00012, 12 or an id (resolved with a tenant filter); status open = to_send,sent'],
+                ['add_inventory_item', 'setup manage', 'POST /categories, /items, /items/:id/quotes', 'Up to 5 prices; base unit from counted_in or the first pack unit; unknown category is made, unknown supplier refused'],
+                ['update_inventory_item', 'setup manage', 'PATCH /items/:id', 'Only changed fields are sent; counted_in refused while it has quotes'],
+                ['add_supplier_price / update_supplier_price', 'setup manage', 'POST /items/:id/quotes, PATCH /quotes/:id, PUT /quotes/:id/venue-prices', 'A price is item + supplier (+ which: supplier code or pack words); a same-pack duplicate is refused; 20% or bigger price changes warn on the card'],
+                ['set_preferred_supplier', 'setup manage', 'PUT /items/:id/preferred', 'venue_id or company; clear: true'],
+                ['add_supplier / update_supplier', 'setup manage', 'POST, PATCH /suppliers, PUT /suppliers/:id/venues', 'Days as names; a venue setting is merged into the full PUT list (the route replaces all)'],
+                ['create_order_list / update_order_list / set_pars', 'setup manage', 'POST, PATCH /lists, PUT /lists/:id/venues|items|pars', 'Items by name or code, every unknown name in one error; pars in packs (company-choice quote) or g/kg/ml/cl/l/each, stored in base units'],
+                ['import_price_list', 'setup manage', 'POST /inventory/import (dry_run on the card)', 'rows (up to 250, read by the model from a PDF, photo or email) become a CSV with the template headings; attached_file is a text/CSV ai_attachments row of this conversation and this user (chat only). All rows bad = refused'],
+                ['update_order', 'purchasing manage', 'PUT /orders/:id/lines', 'planOrder(): lines (on the order by code/name, else GET /venues/:id/catalog), supplier/pack switch (quote_id sent only then), fill_to_par (packsToPar), clear_all; only changed lines are sent'],
+                ['place_order', 'purchasing manage', 'PUT /orders/:id/lines, POST /orders/:id/submit', 'Card per supplier: delivery date (next delivery or deliveries[].date), how it is sent, lines at fitQty(); warns on rounding, minimum order, a missed cutoff, a date off the delivery days, no email address. Only overrides and notes are sent, so the route still picks the date at run time'],
+                ['send_purchase_order', 'purchasing manage', 'POST /pos/:id/send | /mark-sent', 'email needs an address (resend allowed, warned); other ways need To send'],
+                ['change_purchase_order', 'purchasing manage', 'PATCH /pos/:id, PUT /pos/:id/lines', 'Lines and add only while To send; add only from the PO\'s supplier (catalog quotes); an empty order is refused'],
+                ['cancel_purchase_order', 'purchasing manage', 'POST /pos/:id/cancel', 'Warns to tell the supplier when already sent'],
+                ['receive_delivery', 'purchasing manage', 'POST /pos/:id/receive', 'Lines not named arrived as ordered (or keep what an earlier booking-in recorded); chilled/frozen temperature asked for when such goods arrived; writes fs_delivery_checks'],
+              ]}
+            />
+            <P>
+              Quantities on orders are packs of the chosen quote, as on the Purchasing page. Both
+              chat (<Mono>TOOL_LABELS</Mono> in <Mono>chat.js</Mono>) and Activity (
+              <Mono>AiAssistant.jsx</Mono>, <Mono>changeDetail()</Mono>) label the new tools. The
+              staff prompt (<Mono>prompts.js</Mono>) says to prefer <Mono>receive_delivery</Mono>{' '}
+              over <Mono>log_delivery</Mono> when a delivery has a purchase order.
             </P>
             <H3>Confirm cards (chats)</H3>
             <P>

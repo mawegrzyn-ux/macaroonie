@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — AI assistant: purchasing by chat]
+
+- **Ask AI** (and your own AI app through the staff connector) can now work with Purchasing, alongside bookings and H&S. Every change shows a card with the details and a **Confirm** button; nothing changes until it is pressed.
+- **Look things up**: search the inventory with supplier prices (price per kg, litre or each, venue prices, which supplier is chosen, recent price changes), suppliers, order lists and their pars, a venue's order, and purchase orders.
+- **Change the catalogue**: add or change items, supplier prices (price, pack, VAT, code, minimum and steps, a venue's own price), which supplier an item is ordered from, suppliers (including a venue's own account number, delivery days and cutoff), order lists and pars.
+- **Import a price list**: attach a CSV, or a PDF, photo or email of a supplier's list and the assistant reads the products out of it. The card shows what would be added and changed, and the rows it would skip, before anything is saved.
+- **Order**: fill in a venue's order (quantities in packs, fill to par, switch supplier, add items not on the list), place it (one purchase order per supplier, emailed to suppliers that take email), send or mark sent, change or cancel a purchase order, and **book a delivery in** with shortages and temperatures, which also saves the Food safety delivery check.
+- Same permissions as the pages: Purchasing setup for the catalogue, Purchasing for ordering. Staff without Purchasing setup see no prices in the chat or on the cards.
+- No migration.
+
+---
+
 ## [2026-10-11 — Purchasing: inventory, suppliers, order lists and purchase orders (replaces Order sheets)]
 
 - **Order sheets are replaced by Purchasing.** Existing order sheet templates, categories and orders are removed (not converted).

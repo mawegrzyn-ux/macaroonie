@@ -67,7 +67,7 @@ export const MOBILE_MODULES = [
   {
     key: 'assistant',
     label: 'AI assistant',
-    description: 'Bookings, checklists and H&S checks by chat',
+    description: 'Bookings, H&S checks and supplier orders by chat',
     icon: Sparkles,
     path: '/mobile/assistant',
   },
