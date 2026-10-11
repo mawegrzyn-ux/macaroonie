@@ -1,0 +1,11 @@
+{
+  "name": "macaroonie-hub",
+  "private": true,
+  "type": "module",
+  "description": "Macaroonie POS venue hub: printing, terminal sync, offline trading",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test-print": "node bin/test-print.js"
+  }
+}
