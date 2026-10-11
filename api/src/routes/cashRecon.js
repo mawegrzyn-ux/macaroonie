@@ -132,23 +132,25 @@ const CategoryPatch = z.object({
 })
 
 // Daily report schemas
+// Income, takings and SC amounts may be negative: a day where refunds are
+// bigger than sales (e.g. filled from Loyverse) is a real figure.
 const IncomeEntrySchema = z.object({
   source_id:    UUID,
-  gross_amount: z.coerce.number().min(0).default(0),
-  vat_amount:   z.coerce.number().min(0).default(0),
-  net_amount:   z.coerce.number().min(0).default(0),
+  gross_amount: z.coerce.number().default(0),
+  vat_amount:   z.coerce.number().default(0),
+  net_amount:   z.coerce.number().default(0),
   notes:        z.string().max(500).nullable().optional(),
 })
 
 const TakingsEntrySchema = z.object({
   channel_id: UUID,
-  amount:     z.coerce.number().min(0).default(0),
+  amount:     z.coerce.number().default(0),
   notes:      z.string().max(500).nullable().optional(),
 })
 
 const ScEntrySchema = z.object({
   source_id: UUID,
-  amount:    z.coerce.number().min(0).default(0),
+  amount:    z.coerce.number().default(0),
   notes:     z.string().max(500).nullable().optional(),
 })
 
