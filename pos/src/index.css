@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: theme('colors.page');
+  color: theme('colors.ink');
+  font-family: theme('fontFamily.sans');
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+input, textarea { user-select: text; -webkit-user-select: text; }
+button { touch-action: manipulation; }
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 min-h-[48px] font-semibold text-[15px]
+           border border-line bg-white text-ink active:scale-[0.98] transition-transform touch-manipulation
+           disabled:opacity-40 disabled:active:scale-100;
+  }
+  .btn-primary { @apply bg-brand text-white border-brand; }
+  .btn-ok { @apply bg-ok text-white border-ok; }
+  .btn-bad { @apply bg-bad text-white border-bad; }
+  .btn-warn { @apply bg-warn text-white border-warn; }
+  .btn-ghost { @apply bg-transparent border-transparent; }
+  .chip {
+    @apply inline-flex items-center justify-center rounded-full px-4 min-h-[44px] text-sm font-semibold border border-line bg-white touch-manipulation;
+  }
+  .chip-on { @apply bg-ink text-white border-ink; }
+  .card { @apply bg-white rounded-2xl border border-line; }
+  .label { @apply text-xs font-semibold uppercase tracking-wide text-muted; }
+  .input {
+    @apply w-full rounded-xl border border-line bg-white px-3 min-h-[48px] text-base outline-none focus:border-brand;
+  }
+}
+
+.scroll-x { overflow-x: auto; scrollbar-width: none; }
+.scroll-x::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

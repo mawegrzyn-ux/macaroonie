@@ -23,6 +23,8 @@ yarn-error.log*
 
 # ── Build output ──────────────────────────────────────────────
 admin/dist/
+pos/dist/
+pos/dev-dist/
 admin/.vite/
 *.tsbuildinfo
 

@@ -179,3 +179,60 @@ export function toText(ops, cols = DEFAULT_COLS) {
   }
   return out.join('\n')
 }
+
+/**
+ * X or Z report (shared/pos/reports.js dayFigures) as a ticket.
+ * meta: { venue, kind: 'X' | 'Z', number, date, printedAt, declaredCash, names: { staff, revenue_centres } }
+ */
+export function dayReportTicket(f, meta = {}) {
+  const ops = []
+  const names = meta.names || {}
+  ops.push({ t: 'text', text: meta.venue || '', align: 'center', bold: true })
+  ops.push({ t: 'text', text: (meta.kind === 'Z' ? 'Z REPORT' : 'X REPORT') + (meta.number ? ' #' + meta.number : ''), align: 'center', bold: true, tall: true, wide: true })
+  if (meta.date) ops.push({ t: 'text', text: 'Trading day ' + meta.date, align: 'center' })
+  ops.push({ t: 'text', text: 'Printed ' + dateLabel(meta.printedAt || new Date()) + ' ' + hhmm(meta.printedAt || new Date()), align: 'center' })
+  ops.push({ t: 'rule', char: '=' })
+  const pair = (l, r, bold) => ops.push({ t: 'pair', left: l, right: r, bold })
+  pair('Checks', String(f.counts?.closed || 0))
+  pair('Covers', String(f.covers || 0))
+  pair('Sales before discounts', money(f.sales?.gross))
+  pair('Discounts', money(-(f.sales?.discounts || 0)))
+  pair('Service charge', money(f.sales?.service_charge))
+  pair('TOTAL SALES', money(f.sales?.total), true)
+  pair('Average check', money(f.sales?.average_check))
+  ops.push({ t: 'rule' })
+  ops.push({ t: 'text', text: 'VAT', bold: true })
+  for (const v of f.vat || []) pair(v.rate + '% on ' + money(v.net), money(v.vat))
+  if ((f.revenue_centres || []).length) {
+    ops.push({ t: 'rule' })
+    ops.push({ t: 'text', text: 'REVENUE CENTRES', bold: true })
+    for (const r of f.revenue_centres) pair(names.revenue_centres?.[r.id] || 'Other', money(r.net))
+  }
+  ops.push({ t: 'rule' })
+  ops.push({ t: 'text', text: 'TAKINGS', bold: true })
+  for (const t of f.tenders || []) {
+    pair(t.label + ' (' + t.count + ')', money(t.amount + t.tips - t.refunds))
+    if (t.tips) pair('  of which tips', money(t.tips))
+    if (t.refunds) pair('  less refunds', money(-t.refunds))
+  }
+  pair('TOTAL TAKEN', money(f.takings), true)
+  ops.push({ t: 'rule' })
+  pair('Cash expected', money(f.cash_expected), true)
+  if (meta.declaredCash != null) {
+    pair('Cash counted', money(meta.declaredCash))
+    pair('Over / short', money(meta.declaredCash - (f.cash_expected || 0)), true)
+  }
+  ops.push({ t: 'rule' })
+  pair('Voids (' + (f.voids?.count || 0) + ')', money(f.voids?.value))
+  pair('Refunds (' + (f.refunds?.count || 0) + ')', money(f.refunds?.amount))
+  for (const d of f.discounts || []) pair('  ' + d.name + ' x' + d.count, money(-d.amount))
+  if ((f.open_checks || []).length) pair('Checks still open', String(f.open_checks.length), true)
+  if ((f.staff || []).length) {
+    ops.push({ t: 'rule' })
+    ops.push({ t: 'text', text: 'STAFF', bold: true })
+    for (const s of f.staff) if (s.checks || s.tips) pair((names.staff?.[s.id] || 'Unknown') + (s.checks ? ' (' + s.checks + ')' : ''), money(s.total) + (s.tips ? ' +' + money(s.tips) : ''))
+  }
+  ops.push({ t: 'feed', lines: 1 })
+  ops.push({ t: 'cut' })
+  return ops
+}
