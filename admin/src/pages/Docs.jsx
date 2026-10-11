@@ -27,7 +27,7 @@ const SECTIONS = [
   { id: 'hs-action-log', label: 'H&S Action Log' },
   { id: 'navigation',   label: 'Navigation & Launcher' },
   { id: 'overview-tiles', label: 'Overview Tiles' },
-  { id: 'order-sheets', label: 'Order Sheets' },
+  { id: 'purchasing', label: 'Purchasing' },
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'AI Assistant & MCP' },
   { id: 'menus',        label: 'Menus' },
@@ -2028,26 +2028,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               entries wholesale from the request body, so a caller that only wants to add one
               expense would need to round-trip the entire day's state first to avoid wiping it.
             </InfoBox>
-            <H3>Mobile Order Sheets</H3>
+            <H3>Mobile Purchasing</H3>
             <P>
-              <Mono>admin/src/pages/mobile/MobileOrderSheets.jsx</Mono> — the third mobile module.
-              Unlike the previous two, the desktop <Mono>OrderSheets.jsx</Mono> page's body
-              components needed no rework at all: its list/detail pattern already collapses to a
-              single full-page-detail-on-select layout at phone width (the list column is{' '}
-              <Mono>{'hidden md:flex'}</Mono> once an order is selected — the same responsive
-              approach <Mono>Bookings.jsx</Mono>'s <Mono>inlineMode</Mono> uses), and the item
-              table's horizontal scroll-on-overflow is an accepted mobile pattern, not something to
-              redesign. <Mono>OrderCard</Mono>, <Mono>OrderDetail</Mono>, <Mono>NewOrderModal</Mono>,{' '}
-              <Mono>FilterModal</Mono>, <Mono>ALL_STATUSES</Mono> and <Mono>DEFAULT_STATUSES</Mono>{' '}
-              are exported from <Mono>OrderSheets.jsx</Mono> and reused verbatim — same{' '}
-              <Mono>/api/order-sheets/*</Mono> endpoints, same mutations (autosave on quantity
-              change, status transitions, delete). What differs is only the shell: the desktop
-              page's own header (title text, <Mono>pl-14</Mono> space reserved for{' '}
-              <Mono>AppShell</Mono>'s mobile hamburger button) and its resizable desktop list-panel
-              width are both irrelevant under <Mono>MobileShell</Mono>, which already supplies a
-              back-arrow header with the module title — the mobile page replaces that chrome with a
-              plain Filter/New-order action row and drops the list/detail split down to strict
-              either/or (never side-by-side, since there's no room for it on a phone).
+              <Mono>admin/src/pages/mobile/MobilePurchasing.jsx</Mono> (replaced Mobile Order Sheets): a venue
+              picker over the same <Mono>PurchasingApp</Mono> as the desktop page with <Mono>phone</Mono> set
+              (single column, smaller padding). The order form's header and totals bar are sticky inside
+              <Mono> MobileShell</Mono>'s scrolling main. See the Purchasing section.
             </P>
             <H3>Suggesting the mobile view from desktop</H3>
             <P>
@@ -2085,8 +2071,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               fetched from the same <Mono>GET /venues/:id/cash-recon/week/:week_start</Mono>{' '}
               endpoint the desktop <Mono>WeekView</Mono>'s day cards already use. Tapping a day
               opens the module-local <Mono>MobileDayDeclaration</Mono> for the complete daily
-              declaration — the same "list, then a reused full-page detail component" shape{' '}
-              <Mono>MobileOrderSheets.jsx</Mono> uses with <Mono>OrderDetail</Mono>. A "Week variance"
+              declaration — the same "list, then a full-page detail" shape the other mobile modules use. A "Week variance"
               tile below the list sums the days' variances plus the week's cash wages.
             </P>
             <H3>Single header on the day-detail view</H3>
@@ -2115,9 +2100,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               submit button to read the state off instead). The
               underlying visibility toggle is a plain boolean context (mount sets it, unmount
               clears it) — no page content passed through context, so there's no render-loop risk
-              from passing JSX/objects through it. <Mono>MobileOrderSheets.jsx</Mono>'s{' '}
-              <Mono>OrderDetail</Mono> drill-in has the same reused-header shape and was not
-              audited as part of this fix.
+              from passing JSX/objects through it.
             </P>
             <H3>Mobile Wages</H3>
             <P>
@@ -2474,56 +2457,116 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
           </section>
 
-          {/* ── ORDER SHEETS ──────────────────────────────── */}
-          <section id="order-sheets" data-doc="">
-            <H2>Order Sheets</H2>
+          {/* ── PURCHASING ──────────────────────────────── */}
+          <section id="purchasing" data-doc="">
+            <H2>Purchasing</H2>
             <P>
-              Supplier order management. <Mono>api/src/routes/orderSheets.js</Mono>, mounted at{' '}
-              <Mono>/api/order-sheets</Mono>. Two layers: reusable <strong>templates</strong> (a
-              named supplier order form — a list of items with units/prices, assigned to one or
-              more venues, with an optional weekly <Mono>delivery_days</Mono> pattern) and{' '}
-              <strong>orders</strong> (one instance of a template for a specific venue + delivery
-              date, with per-item quantities). Items belong to tenant-wide, reorderable{' '}
-              <Mono>order_sheet_categories</Mono> (same "operator-managed list, not a fixed enum"
-              pattern as food-safety's hold stations) — the order/item UI groups by category when
-              more than one is in play.
+              Ordering from suppliers (migration 153), replacing order sheets (their tables and data were
+              dropped: pre-prod, start fresh). Modelled on the COGS tool's inventory: an item never stores a
+              cost; what it costs comes from its supplier quotes. Three API files, every query filtering{' '}
+              <Mono>tenant_id</Mono> itself: <Mono>routes/inventory.js</Mono> (<Mono>/api/inventory</Mono>:
+              categories, items, quotes, venue prices, preferred quotes, price history, import),{' '}
+              <Mono>routes/suppliers.js</Mono> (<Mono>/api/suppliers</Mono>) and{' '}
+              <Mono>routes/purchasing.js</Mono> (<Mono>/api/purchasing</Mono>: lists, orders, purchase
+              orders, receiving). Shared logic in <Mono>services/purchasingSvc.js</Mono>; the pack maths,
+              quote choice, totals and delivery dates in <Mono>shared/procurement.js</Mono>, used by the API
+              and the admin alike.
             </P>
-            <H3>Order lifecycle</H3>
+            <DataTable
+              head={['Table', 'What it holds']}
+              rows={[
+                ['inv_categories', 'Tenant-wide, reorderable. 12 defaults (migration 153 for existing tenants, seedInventoryCategories() for new ones).'],
+                ['inv_items', 'name, category, base_unit (g | ml | each), storage (ambient | chilled | frozen), code, notes, is_active. No price.'],
+                ['suppliers', 'Contact, email + cc_emails, account_ref, send_method (email | print | excel | pdf), email_attachment (none | pdf | excel), cutoff_time, lead_days, delivery_days int[] (0 = Sunday), min_order, delivery_charge.'],
+                ['supplier_venues', 'Per-venue account_ref, delivery_days, cutoff_time; null = the supplier\'s own.'],
+                ['inv_quotes', 'An item as one supplier sells it: supplier_code, pack_name, pack_count x pack_qty pack_unit, pack_base_qty (base units per pack, computed by packBaseQty()), price per pack ex VAT, vat_rate, min_qty, order_multiple, is_active. Several per supplier allowed.'],
+                ['inv_quote_venue_prices', 'A venue\'s own price for a quote.'],
+                ['inv_price_history', 'Every price a quote had (venue_id null = company price), source manual | import.'],
+                ['inv_preferred', 'Chosen quote per item: venue_id null = company default, else per venue. Partial unique indexes.'],
+                ['order_lists / order_list_venues / order_list_items / order_list_pars', 'Mixed-supplier lists, the venues on each, items in order, par per venue in BASE units (so a pack change keeps it).'],
+                ['supply_orders / supply_order_lines', 'A venue filling in a list: draft then submitted. Lines keep qty in packs of quote_id (null = the resolved choice).'],
+                ['purchase_orders', 'One per supplier per submitted order. number (per tenant, PO-00012), status to_send | sent | received | cancelled, delivery_date, totals, sent_at/by/via/to, send_error, received_at/by, is_generated.'],
+                ['purchase_order_lines', 'Copies of name, category, storage, pack label, pack_base_qty, price, VAT at ordering time; qty; received_qty, receive_status, receive_note.'],
+                ['fs_delivery_checks.purchase_order_id', 'The H&S delivery check written by receiving (unique per PO).'],
+              ]}
+            />
+            <H3>Which quote is ordered</H3>
             <P>
-              An order moves through three statuses: <Mono>ordering</Mono> (quantities editable,
-              autosaved 700ms after the last change) → <Mono>ready</Mono> (quantities locked,
-              awaiting placement) → <Mono>placed</Mono> (sent to the supplier). Reverting backwards
-              (<Mono>ready → ordering</Mono>, <Mono>placed → ready/ordering</Mono>) is manage-only.
-              Each order's detail view also shows up to 3 columns of the venue's most recent prior
-              orders on the same template (<Mono>history</Mono>) alongside a per-item{' '}
-              <Mono>suggested_qty</Mono>, so an operator filling in quantities can see what was
-              ordered last time without leaving the page.
+              <Mono>chooseQuote(quotes, venueId, preferred)</Mono>: the venue's preferred quote, else the
+              company default, else the cheapest per base unit at that venue (<Mono>quotePrice()</Mono>: a
+              venue price wins over the company price). Only active quotes of active suppliers count
+              (<Mono>loadItemQuotes()</Mono>). A draft line can pin another quote (<Mono>quote_id</Mono>);
+              <Mono> resolveQuotes()</Mono> does the rest.
             </P>
+            <H3>Placing an order</H3>
             <P>
-              <Mono>OrderDetail</Mono>'s <strong>Hide zero</strong> toggle (any status, so the desktop
-              page and <Mono>MobileOrderSheets.jsx</Mono> both get it) filters the item table to lines with
-              a quantity &gt; 0 plus <Mono>keepIds</Mono>: the lines that had a quantity when the toggle
-              was turned on or the order loaded, so a line stepped down to 0 doesn't disappear mid-edit.
-              A search query bypasses the filter, so hidden items can still be found and ordered. Display
-              only, no API change; remembered in localStorage <Mono>maca_order_sheet_hide_zero</Mono>.
+              <Mono>POST /orders</Mono> reuses an open draft for the same venue and list. Lines save through{' '}
+              <Mono>PUT /orders/:id/lines</Mono> (autosave, changed lines only; leaving <Mono>quote_id</Mono>{' '}
+              out keeps the stored one). <Mono>POST /orders/:id/submit</Mono> groups the lines with a quantity
+              by their supplier, rounds each up with <Mono>fitQty()</Mono> (minimum and step), and creates one
+              purchase order per supplier via <Mono>createPurchaseOrder()</Mono> (number from{' '}
+              <Mono>nextPoNumber()</Mono> under an advisory lock) for the delivery date sent, else{' '}
+              <Mono>nextDeliveryDate()</Mono>: past the cutoff counts as ordering tomorrow, then lead days,
+              then the next delivery day (venue override first). After the transaction commits, suppliers
+              with <Mono>send_method = email</Mono> are emailed (<Mono>emailPo()</Mono>); a failure is kept
+              in <Mono>send_error</Mono> and the PO stays <Mono>to_send</Mono>.
             </P>
-            <H3>Two-module permission split</H3>
+            <H3>Sending and documents</H3>
             <P>
-              <Mono>order_sheets</Mono> gates the day-to-day page (view orders, and — at{' '}
-              <Mono>manage</Mono> — create/delete orders and edit quantities/status).{' '}
-              <Mono>order_sheet_setup</Mono> gates the separate admin surfaces: templates (
-              <Mono>OrderSheetTemplates.jsx</Mono>, <Mono>/order-sheets/templates</Mono>) and
-              categories (<Mono>OrderSheetCategories.jsx</Mono>,{' '}
-              <Mono>/order-sheets/categories</Mono>). Both belong to the <Mono>order_sheets</Mono>{' '}
-              module group in <Mono>modules.js</Mono>, so a tenant toggles the whole feature on/off
-              in one switch, but a role can be given day-to-day access without template-editing
-              rights (e.g. a chef fills in quantities but doesn't restructure the order form).
+              <Mono>poFile(tenantId, poId, format)</Mono> renders the same document as HTML (print, through a
+              hidden iframe in the admin), Excel (<Mono>xlsx</Mono> package) or PDF (<Mono>services/pdfDoc.js</Mono>,
+              a small dependency-free writer with the standard Helvetica fonts). <Mono>GET /pos/:id/file?format=</Mono>.
+              Emails go through the venue's provider (<Mono>venue_email_settings</Mono>,{' '}
+              <Mono>emailCredentials()</Mono>); <Mono>sendEmail()</Mono> now takes <Mono>cc</Mono> and{' '}
+              <Mono>attachments</Mono> for every provider (SES switches to a raw MIME message when there are
+              attachments). <Mono>POST /pos/:id/mark-sent</Mono> records print / PDF / Excel / phone sends.{' '}
+              <Mono>PUT /pos/:id/lines</Mono> changes quantities or adds lines from the same supplier while{' '}
+              <Mono>to_send</Mono>; totals are recalculated.
             </P>
-            <InfoBox type="info">
-              Also available at <Mono>/mobile/order-sheets</Mono> — see the Mobile App section's
-              "Mobile Order Sheets" entry for why this module needed no body-component rework, only
-              a different shell around the same reused components.
-            </InfoBox>
+            <H3>Receiving</H3>
+            <P>
+              <Mono>POST /pos/:id/receive</Mono> (also on a received PO, to correct it): received quantity and
+              status per line (<Mono>receiveStatusFor()</Mono> when not given), packaging / damage / quality,
+              a chilled and a frozen probe reading (required when such goods arrived;{' '}
+              <Mono>DELIVERY_TEMP_MAX</Mono> 8 / -15°C), accepted, corrective action. It upserts the
+              venue's <Mono>fs_delivery_checks</Mono> row by <Mono>purchase_order_id</Mono>: vendor, items
+              (name, qty received, pack, category, ordered, status, temp_c by storage),{' '}
+              <Mono>product_temp_c</Mono> = chilled else frozen, <Mono>temp_ok</Mono>, and a notes summary, so
+              the Food safety page, the H&S status tiles and the AI tools see it like any other delivery.
+            </P>
+            <H3>Permissions and prices</H3>
+            <P>
+              Module group <Mono>purchasing</Mono>: <Mono>purchasing</Mono> (place orders, send, receive;
+              operators manage by default) and <Mono>purchasing_setup</Mono> (inventory, suppliers, order
+              lists; owner/admin). Restaurant staff see prices only with <Mono>purchasing_setup</Mono> view:
+              the order form, PO list and detail strip <Mono>price</Mono> and totals otherwise (
+              <Mono>showPrices()</Mono>, <Mono>hideMoney()</Mono>). The PO files always carry prices: they
+              are the supplier's document. <Mono>GET /purchasing/meta</Mono> tells the admin what the
+              person can do.
+            </P>
+            <H3>Import</H3>
+            <P>
+              <Mono>POST /inventory/import</Mono> takes a base64 CSV or Excel file (route body limit 6 MB, up
+              to 5000 rows) with the template's headings (<Mono>GET /inventory/import-template</Mono>; aliases
+              in <Mono>HEADERS</Mono>). Items match by item code, else name; suppliers by name; quotes by
+              supplier code, else pack name and size. Each row is checked in full before anything is written,
+              so a bad row adds nothing. <Mono>dry_run</Mono> runs everything and rolls back.
+            </P>
+            <H3>Admin</H3>
+            <DataTable
+              head={['Page', 'File']}
+              rows={[
+                ['/inventory', 'pages/Inventory.jsx: list, item drawer (item form, supplier prices with star, venue prices, which price each venue orders, history), import, categories.'],
+                ['/suppliers', 'pages/Suppliers.jsx: cards, drawer with Supplier, Ordering, Per venue, Products.'],
+                ['/purchasing/lists', 'pages/OrderLists.jsx: lists (drag), venues, items grouped by category (drag within a category), pars per venue in packs.'],
+                ['/purchasing, /mobile/purchasing', 'pages/Purchasing.jsx, pages/mobile/MobilePurchasing.jsx around PurchasingApp in components/purchasing/ordering.jsx (Order and Deliveries tabs, OrderForm, PoDetail, ReceiveForm). View in the URL: ?order=, ?po=, ?tab=deliveries.'],
+              ]}
+            />
+            <P>
+              Shared UI in <Mono>components/purchasing/shared.jsx</Mono> (<Mono>NumInput</Mono>,{' '}
+              <Mono>QtyStepper</Mono>, <Mono>DayPicker</Mono>, <Mono>DateButton</Mono>, <Mono>Drawer</Mono>,{' '}
+              <Mono>printHtml()</Mono>). The test data tool's past orders are now purchase orders (see Test Data Tools).
+            </P>
           </section>
 
           {/* ── MENUS ─────────────────────────────────────── */}
@@ -4000,8 +4043,8 @@ allTables sorted by sort_order → target at index i
                 ['temps', 'fs_temp_logs', 'Per active equipment x active fs_capture_times (one 09:00 reading a day when there are none). Cold units: up to 1.5°C below max; hot: 1.5-13.5°C above min; defaults by type when a limit is missing. is_within_range from the row limits, as POST /temp-logs does.'],
                 ['holds', 'fs_hold_checks', 'Per active station x fs_hold_capture_times, same value rule.'],
                 ['cooking', 'fs_cooking_checks', 'Per session: required_items_count minus checks already logged (a fresh session sometimes gets one extra). Dishes from loadCookingPicker() (services/cookingItems.js), the same list the cooking picker shows: menus, the venue\'s own list or both. Core 76-92°C.'],
-                ['orders', 'order_sheets + order_sheet_order_items', 'Templates assigned to the venue with delivery_days; status placed, placed_at the day before, 60-85% of active items, qty = suggested qty x 0.7-1.3 (else 1-6).'],
-                ['deliveries', 'fs_delivery_checks', 'One per placed order_sheet in range with no check yet (order_sheet_id, unique). vendor_name = template name; items jsonb = order lines with category and temp_c; product_temp_c by category: chilled (meat, poultry, fish, seafood, dairy, egg) 1-5°C, frozen -22 to -18°C, ambient none. Skipped when a check for that supplier and day already exists.'],
+                ['orders', 'purchase_orders + purchase_order_lines', 'Items on the venue\'s active order lists, each on its chooseQuote() pick, grouped by supplier; one PO per supplier per delivery day (venue override first; suppliers without delivery days are skipped), 60-85% of that supplier\'s items, qty = par packs x 0.7-1.3 (else 1-4), fitQty(). Status received (sent when deliveries are not generated), numbers continue the tenant\'s sequence.'],
+                ['deliveries', 'fs_delivery_checks', 'One per received purchase order in range with no check yet (purchase_order_id, unique). vendor_name = supplier; items jsonb = the lines that arrived with temp_c by storage; chilled 1-5°C, frozen -22 to -18°C, product_temp_c = chilled else frozen.'],
                 ['checklists', 'checklist_instances + checklist_instance_items', 'Every period the range touches (daily skips closed days), status completed, all active items ticked, completed_at on the last day of the period in range. An in_progress instance is completed and ticked but keeps is_generated = false.'],
               ]}
             />

@@ -5,6 +5,21 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — Purchasing: inventory, suppliers, order lists and purchase orders (replaces Order sheets)]
+
+- **Order sheets are replaced by Purchasing.** Existing order sheet templates, categories and orders are removed (not converted).
+- **Inventory** (Purchasing → Inventory): every product you buy, counted in weight, volume or count, with its storage (ambient, chilled, frozen). Prices live on **supplier prices**: the supplier, their code, the pack (e.g. Case of 6 × 2 kg), the price per pack before VAT, VAT, and an optional minimum and step. One supplier can have several prices for an item. Each shows its price per kg, litre or item. Set a **company choice** (star), a different choice per venue, and **venue prices** where a venue pays a different price. Every price change is kept in **History**. **Import** loads a whole price list from CSV or Excel, with a check before anything is changed.
+- **Suppliers** (Purchasing → Suppliers): contact details and how orders reach them: **email** (sent straight away, with a PDF or Excel copy attached), **print**, **Excel** or **PDF**. Delivery days, order cutoff, days from order to delivery, minimum order and delivery charge, and per-venue account numbers, delivery days and cutoffs.
+- **Order lists** (Purchasing → Order lists): what a venue orders from, mixing any suppliers, with a **par** (usual quantity) per venue.
+- **Placing an order** (Purchasing): pick a list, tap quantities (saved as you go), **Fill to par**, switch an item to another supplier, add anything from the inventory, then **Review & place**: one purchase order per supplier, each for its next delivery date (changeable) with an optional note. Quantities below a supplier's minimum or step are rounded up; orders below a supplier's minimum order are flagged.
+- **Deliveries**: To send (email, print, PDF, Excel, mark as sent, change quantities, cancel), due today, coming up, received. **Book in delivery** records what arrived (short, damaged, substituted, not delivered), the packaging / damage / quality checks and the chilled and frozen temperatures, and writes the venue's **Food safety delivery check** automatically.
+- Staff placing orders see prices only if their role can view purchasing setup.
+- On the phone: **/mobile → Purchasing**. Overview shortcuts: Purchasing, Inventory, Suppliers.
+- Test data: "Past purchase orders" and their delivery checks replace past order sheets.
+- Migration 153 (purchasing tables, Order sheets modules renamed to Purchasing and Purchasing setup, nav: Purchasing with Order lists, Inventory and Suppliers).
+
+---
+
 ## [2026-10-11 — Order sheets: other tenants' sheets no longer reachable]
 
 - Order sheet categories, templates, items and orders are now limited to your own company in every request. Before, the order sheet pages could list other companies' templates and orders, and open, edit, empty or delete them by id.

@@ -44,7 +44,9 @@ import backlogRoutes         from './routes/backlog.js'
 import issueLogRoutes        from './routes/issueLog.js'
 import featureRequestsRoutes from './routes/featureRequests.js'
 import changelogRoutes       from './routes/changelog.js'
-import orderSheetsRoutes     from './routes/orderSheets.js'
+import inventoryRoutes       from './routes/inventory.js'
+import supplierRoutes        from './routes/suppliers.js'
+import purchasingRoutes      from './routes/purchasing.js'
 import testDataRoutes        from './routes/testData.js'
 import foodSafetyRoutes      from './routes/foodSafety.js'
 import checklistsRoutes      from './routes/checklists.js'
@@ -212,7 +214,9 @@ export async function buildApp() {
   await app.register(issueLogRoutes,         { prefix: '/api/issues' })
   await app.register(featureRequestsRoutes,  { prefix: '/api/feature-requests' })
   await app.register(changelogRoutes,        { prefix: '/api/changelog' })
-  await app.register(orderSheetsRoutes,      { prefix: '/api/order-sheets' })
+  await app.register(inventoryRoutes,        { prefix: '/api/inventory' })
+  await app.register(supplierRoutes,         { prefix: '/api/suppliers' })
+  await app.register(purchasingRoutes,       { prefix: '/api/purchasing' })
   await app.register(testDataRoutes,         { prefix: '/api/venues' })
   await app.register(foodSafetyRoutes,       { prefix: '/api/food-safety' })
   await app.register(checklistsRoutes,       { prefix: '/api/checklists' })

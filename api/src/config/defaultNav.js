@@ -24,10 +24,11 @@ export const DEFAULT_NAV_TREE = [
         ],
       },
       {
-        label: 'Order sheets', icon: 'ClipboardList', route: '/order-sheets', module: 'order_sheets',
+        label: 'Purchasing', icon: 'ShoppingCart', route: '/purchasing', module: 'purchasing',
         children: [
-          { label: 'Templates', icon: 'ClipboardList', route: '/order-sheets/templates', module: 'order_sheet_setup' },
-          { label: 'Categories', icon: 'Tag', route: '/order-sheets/categories', module: 'order_sheet_setup' },
+          { label: 'Order lists', icon: 'ClipboardList', route: '/purchasing/lists', module: 'purchasing_setup' },
+          { label: 'Inventory', icon: 'Package', route: '/inventory', module: 'purchasing_setup' },
+          { label: 'Suppliers', icon: 'Truck', route: '/suppliers', module: 'purchasing_setup' },
         ],
       },
       { label: 'Cash recon', icon: 'Wallet', route: '/cash-recon', module: 'cash_recon' },

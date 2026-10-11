@@ -19,6 +19,8 @@
 //     replyTo: 'hello@wingstop.com',
 //     subject: 'Your booking is confirmed',
 //     html:    '<html>...</html>',
+//     attachments: [{ filename: 'PO-00012.pdf', contentType: 'application/pdf', content: buffer }],  // optional
+//     cc:      ['a@b.com'],                                                                      // optional
 //   })
 //   → { provider: 'sendgrid', providerId: 'sg_abc123', status: 'sent' }
 
@@ -26,12 +28,12 @@ import { env } from '../config/env.js'
 
 // ── SendGrid ────────────────────────────────────────────────
 
-async function sendViaSendGrid({ credentials, from, to, replyTo, subject, html }) {
+async function sendViaSendGrid({ credentials, from, to, cc, replyTo, subject, html, attachments }) {
   const apiKey = credentials?.apiKey || env.SENDGRID_API_KEY
   if (!apiKey) throw new Error('SendGrid API key not configured')
 
   const body = {
-    personalizations: [{ to: [{ email: to }] }],
+    personalizations: [{ to: [{ email: to }], ...(cc?.length ? { cc: cc.map(email => ({ email })) } : {}) }],
     from: { email: from.email, name: from.name },
     subject,
     content: [{ type: 'text/html', value: html }],
@@ -43,6 +45,12 @@ async function sendViaSendGrid({ credentials, from, to, replyTo, subject, html }
     },
   }
   if (replyTo) body.reply_to = { email: replyTo }
+
+  if (attachments?.length) {
+    body.attachments = attachments.map(a => ({
+      content: Buffer.from(a.content).toString('base64'), filename: a.filename, type: a.contentType, disposition: 'attachment',
+    }))
+  }
 
   const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
     method: 'POST',
@@ -82,7 +90,7 @@ async function sendViaSendGrid({ credentials, from, to, replyTo, subject, html }
 // your DNS, Postmark provisions the cert. Unlike SendGrid this Just
 // Works — no manual cert dance.
 
-async function sendViaPostmark({ credentials, from, to, replyTo, subject, html }) {
+async function sendViaPostmark({ credentials, from, to, cc, replyTo, subject, html, attachments }) {
   // Trim — Postmark's "Request does not contain a valid Server token" error
   // is also produced when the token has leading/trailing whitespace from paste.
   const serverToken  = credentials?.apiKey?.trim()
@@ -97,6 +105,12 @@ async function sendViaPostmark({ credentials, from, to, replyTo, subject, html }
     MessageStream: messageStream,
   }
   if (replyTo) body.ReplyTo = replyTo
+  if (cc?.length) body.Cc = cc.join(', ')
+  if (attachments?.length) {
+    body.Attachments = attachments.map(a => ({
+      Name: a.filename, Content: Buffer.from(a.content).toString('base64'), ContentType: a.contentType,
+    }))
+  }
 
   const res = await fetch('https://api.postmarkapp.com/email', {
     method: 'POST',
@@ -123,7 +137,7 @@ async function sendViaPostmark({ credentials, from, to, replyTo, subject, html }
 
 // ── Mailgun ─────────────────────────────────────────────────
 
-async function sendViaMailgun({ credentials, from, to, replyTo, subject, html }) {
+async function sendViaMailgun({ credentials, from, to, cc, replyTo, subject, html, attachments }) {
   const apiKey = credentials?.apiKey
   const domain = credentials?.domain
   const region = (credentials?.region || 'us').toLowerCase()
@@ -132,12 +146,17 @@ async function sendViaMailgun({ credentials, from, to, replyTo, subject, html })
   const apiBase = region === 'eu' ? 'https://api.eu.mailgun.net/v3' : 'https://api.mailgun.net/v3'
   if (!apiKey || !domain) throw new Error('Mailgun API key and domain required')
 
-  const form = new URLSearchParams()
+  // Multipart only when there are files (URL-encoded otherwise, as before).
+  const form = attachments?.length ? new FormData() : new URLSearchParams()
   form.append('from', `${from.name} <${from.email}>`)
   form.append('to', to)
+  if (cc?.length) form.append('cc', cc.join(', '))
   form.append('subject', subject)
   form.append('html', html)
   if (replyTo) form.append('h:Reply-To', replyTo)
+  for (const a of attachments || []) {
+    form.append('attachment', new Blob([a.content], { type: a.contentType }), a.filename)
+  }
 
   const res = await fetch(`${apiBase}/${domain}/messages`, {
     method: 'POST',
@@ -162,8 +181,8 @@ async function sendViaMailgun({ credentials, from, to, replyTo, subject, html })
 
 // ── AWS SES ─────────────────────────────────────────────────
 
-async function sendViaSES({ credentials, from, to, replyTo, subject, html }) {
-  const { SESClient, SendEmailCommand } = await import('@aws-sdk/client-ses')
+async function sendViaSES({ credentials, from, to, cc, replyTo, subject, html, attachments }) {
+  const { SESClient, SendEmailCommand, SendRawEmailCommand } = await import('@aws-sdk/client-ses')
   const client = new SESClient({
     region:      credentials?.region || env.S3_REGION || 'eu-west-1',
     credentials: (credentials?.accessKeyId && credentials?.secretAccessKey) ? {
@@ -172,9 +191,16 @@ async function sendViaSES({ credentials, from, to, replyTo, subject, html }) {
     } : undefined,
   })
 
+  // Files need a raw MIME message; plain emails keep the simple call.
+  if (attachments?.length) {
+    const raw = buildMime({ from, to, cc, replyTo, subject, html, attachments })
+    const result = await client.send(new SendRawEmailCommand({ RawMessage: { Data: raw } }))
+    return { provider: 'ses', providerId: result.MessageId || null, status: 'sent' }
+  }
+
   const params = {
     Source:      `${from.name} <${from.email}>`,
-    Destination: { ToAddresses: [to] },
+    Destination: { ToAddresses: [to], ...(cc?.length ? { CcAddresses: cc } : {}) },
     Message: {
       Subject: { Data: subject, Charset: 'UTF-8' },
       Body:    { Html: { Data: html, Charset: 'UTF-8' } },
@@ -192,7 +218,7 @@ async function sendViaSES({ credentials, from, to, replyTo, subject, html }) {
 
 // ── SMTP (nodemailer) ───────────────────────────────────────
 
-async function sendViaSMTP({ credentials, from, to, replyTo, subject, html }) {
+async function sendViaSMTP({ credentials, from, to, cc, replyTo, subject, html, attachments }) {
   const nodemailer = await import('nodemailer')
   const transport  = nodemailer.default.createTransport({
     host:   credentials?.host,
@@ -207,9 +233,11 @@ async function sendViaSMTP({ credentials, from, to, replyTo, subject, html }) {
   const info = await transport.sendMail({
     from:    `"${from.name}" <${from.email}>`,
     to,
+    cc:      cc?.length ? cc : undefined,
     replyTo: replyTo || undefined,
     subject,
     html,
+    attachments: (attachments || []).map(a => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
   })
 
   return {
@@ -217,6 +245,34 @@ async function sendViaSMTP({ credentials, from, to, replyTo, subject, html }) {
     providerId: info.messageId || null,
     status:     'sent',
   }
+}
+
+// Raw MIME (SES with attachments): HTML body + base64 files.
+function buildMime({ from, to, cc, replyTo, subject, html, attachments }) {
+  const boundary = 'mac' + Math.random().toString(36).slice(2)
+  const b64 = buf => Buffer.from(buf).toString('base64').replace(/(.{76})/g, '$1\r\n')
+  const enc = s => `=?UTF-8?B?${Buffer.from(s).toString('base64')}?=`
+  const lines = [
+    `From: ${enc(from.name || from.email)} <${from.email}>`,
+    `To: ${to}`,
+    ...(cc?.length ? [`Cc: ${cc.join(', ')}`] : []),
+    ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
+    `Subject: ${enc(subject)}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    '',
+    `--${boundary}`,
+    'Content-Type: text/html; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    b64(Buffer.from(html, 'utf8')),
+  ]
+  for (const a of attachments) {
+    lines.push(`--${boundary}`, `Content-Type: ${a.contentType}; name="${a.filename}"`,
+      'Content-Transfer-Encoding: base64', `Content-Disposition: attachment; filename="${a.filename}"`, '', b64(a.content))
+  }
+  lines.push(`--${boundary}--`, '')
+  return Buffer.from(lines.join('\r\n'))
 }
 
 // ── Public API ──────────────────────────────────────────────
@@ -229,10 +285,10 @@ const PROVIDERS = {
   smtp:     sendViaSMTP,
 }
 
-export async function sendEmail({ provider = 'sendgrid', credentials, from, to, replyTo, subject, html }) {
+export async function sendEmail({ provider = 'sendgrid', credentials, from, to, cc, replyTo, subject, html, attachments }) {
   const fn = PROVIDERS[provider]
   if (!fn) throw new Error(`Unknown email provider: ${provider}`)
-  return fn({ credentials, from, to, replyTo, subject, html })
+  return fn({ credentials, from, to, cc, replyTo, subject, html, attachments })
 }
 
 // Provider credentials from a venue_email_settings row, falling back to

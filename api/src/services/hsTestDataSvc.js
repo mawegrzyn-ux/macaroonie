@@ -11,11 +11,12 @@
 //   cooking    — each cooking session's required number of checks, dishes
 //                picked at random from the venue's cooking picker (published
 //                menus, its own cooking list, or both; services/cookingItems.js)
-//   orders     — past order sheets from templates with delivery days set
-//                (status placed, random quantities around the suggested ones)
-//   deliveries — one delivery check per placed order sheet delivered that
-//                day: supplier = template name, items = the order's lines,
-//                product temperature by item category (chilled / frozen)
+//   orders     — past purchase orders from the venue's order lists: one per
+//                supplier per delivery day, quantities around the pars
+//                (received when deliveries are generated too, else sent)
+//   deliveries — one delivery check per received purchase order without
+//                one: supplier, items = the order's lines, temperatures by
+//                each item's storage (chilled / frozen)
 //   checklists — past daily / weekly / monthly checklists (audits included)
 //                marked complete with every task ticked
 //
@@ -31,6 +32,8 @@ import { periodStartFor } from '../utils/checklistPeriod.js'
 import { openDatesOrNull } from './openDays.js'
 import { zonedToUtc } from './orderSvc.js'
 import { loadCookingPicker } from './cookingItems.js'
+import { loadItemQuotes, loadPreferred } from './purchasingSvc.js'
+import { chooseQuote, packLabel, quotePrice, packsToPar, fitQty, orderTotals } from '../../../shared/procurement.js'
 
 export const HS_KINDS = ['temps', 'holds', 'cooking', 'orders', 'deliveries', 'checklists']
 
@@ -46,8 +49,6 @@ const DEFAULT_TEMPS = {
 // Delivery acceptance (SFBB): chilled at or below 8°C, frozen at or below -15°C.
 const CHILLED_MAX = 8
 const FROZEN_MAX  = -15
-const CHILLED_RE  = /meat|poultry|fish|seafood|dairy|egg|chill|fresh/i
-const FROZEN_RE   = /frozen|freezer|ice cream/i
 
 const COOK_MIN = 75
 
@@ -330,139 +331,156 @@ export async function generateHsData(tx, tenantId, venueId, opts) {
     out.cooking = rows.cooking.length
   }
 
-  // ── Past order sheets (from templates with delivery days) ──
-  // Deliveries below are matched to these as well as to real orders.
-  const newOrders = []
+  // ── Past purchase orders (from the venue's order lists) ──
+  // One per supplier per delivery day: the list items that supplier is
+  // chosen for, 60-85% of them, around their pars. Received when delivery
+  // checks are generated too, else sent.
+  const newPos = []
   if (kinds.has('orders')) {
-    const templates = await tx`
-      SELECT t.id, t.name, t.delivery_days
-        FROM order_sheet_templates t
-        JOIN order_sheet_template_venues tv ON tv.template_id = t.id AND tv.venue_id = ${venueId}
-       WHERE t.tenant_id = ${tenantId} AND t.is_active = true
-         AND cardinality(t.delivery_days) > 0
+    const items = await tx`
+      SELECT DISTINCT ON (li.item_id) li.item_id, i.name, i.storage, i.base_unit, c.name AS category_name,
+             p.par_base::float8 AS par_base
+        FROM order_list_items li
+        JOIN order_lists l ON l.id = li.list_id AND l.tenant_id = ${tenantId} AND l.is_active
+        JOIN order_list_venues lv ON lv.list_id = l.id AND lv.venue_id = ${venueId} AND lv.tenant_id = ${tenantId}
+        JOIN inv_items i ON i.id = li.item_id AND i.tenant_id = ${tenantId} AND i.is_active
+        LEFT JOIN inv_categories c ON c.id = i.category_id AND c.tenant_id = ${tenantId}
+        LEFT JOIN order_list_pars p ON p.list_item_id = li.id AND p.venue_id = ${venueId} AND p.tenant_id = ${tenantId}
+       WHERE li.tenant_id = ${tenantId}
+       ORDER BY li.item_id, p.par_base DESC NULLS LAST
     `
-    const tplIds = templates.map(t => t.id)
-    const items = tplIds.length ? await tx`
-      SELECT i.id, i.template_id, i.name, i.unit, i.price, c.name AS category, q.qty AS suggested
-        FROM order_sheet_items i
-        JOIN order_sheet_templates t ON t.id = i.template_id AND t.tenant_id = ${tenantId}
-        LEFT JOIN order_sheet_categories c ON c.id = i.category_id
-        LEFT JOIN order_sheet_suggested_qty q ON q.item_id = i.id AND q.venue_id = ${venueId}
-       WHERE i.template_id = ANY(${tplIds}::uuid[]) AND i.is_active = true
-       ORDER BY i.sort_order
+    const ids = items.map(i => i.item_id)
+    const [quotes, preferred] = await Promise.all([loadItemQuotes(tx, tenantId, ids), loadPreferred(tx, tenantId, ids)])
+    const bySupplier = new Map()
+    for (const it of items) {
+      const q = chooseQuote(quotes.get(it.item_id) || [], venueId, preferred.get(it.item_id) || {})?.quote
+      if (!q) continue
+      if (!bySupplier.has(q.supplier_id)) bySupplier.set(q.supplier_id, [])
+      bySupplier.get(q.supplier_id).push({ item: it, quote: q })
+    }
+    const suppliers = bySupplier.size ? await tx`
+      SELECT s.id, s.name, s.send_method, s.delivery_days, s.delivery_charge::float8 AS delivery_charge,
+             sv.delivery_days AS venue_delivery_days
+        FROM suppliers s
+        LEFT JOIN supplier_venues sv ON sv.supplier_id = s.id AND sv.venue_id = ${venueId} AND sv.tenant_id = ${tenantId}
+       WHERE s.tenant_id = ${tenantId} AND s.is_active AND s.id = ANY(${[...bySupplier.keys()]}::uuid[])
     ` : []
-    const haveOrder = new Set((await tx`
-      SELECT template_id, delivery_date::text AS d FROM order_sheets
-       WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}
+    const havePo = new Set((await tx`
+      SELECT supplier_id, delivery_date::text AS d FROM purchase_orders
+       WHERE venue_id = ${venueId} AND tenant_id = ${tenantId} AND status <> 'cancelled'
          AND delivery_date BETWEEN ${opts.dateFrom}::date AND ${opts.dateTo}::date
-    `).map(r => `${r.template_id}|${r.d}`))
-    if (!templates.length) out.notes.push('No order sheet templates with delivery days for this venue')
+    `).map(r => `${r.supplier_id}|${r.d}`))
+    if (!items.length) out.notes.push('No order lists with items for this venue')
+    else if (!suppliers.some(s => (s.venue_delivery_days ?? s.delivery_days).length)) {
+      out.notes.push('No supplier of this venue\'s order lists has delivery days set')
+    }
 
+    const received = kinds.has('deliveries')
+    let number = null
     for (const d of open) {
       const dow = new Date(d + 'T12:00:00Z').getUTCDay()
-      for (const t of templates) {
-        if (!t.delivery_days.includes(dow) || haveOrder.has(`${t.id}|${d}`)) continue
-        const tItems = items.filter(i => i.template_id === t.id)
-        if (!tItems.length) continue
-        // Most of the sheet, not all of it: 60-85% of the lines.
-        const chosen = shuffled(tItems).slice(0, Math.max(1, Math.round(tItems.length * rand(0.6, 0.85))))
+      for (const s of suppliers) {
+        const days = s.venue_delivery_days ?? s.delivery_days ?? []
+        if (!days.includes(dow) || havePo.has(`${s.id}|${d}`)) continue
+        const group = bySupplier.get(s.id)
+        const chosen = shuffled(group).slice(0, Math.max(1, Math.round(group.length * rand(0.6, 0.85))))
+        if (number == null && !opts.dryRun) {
+          await tx`SELECT pg_advisory_xact_lock(hashtext(${'po-number:' + tenantId}))`
+          const [m] = await tx`SELECT COALESCE(MAX(number), 0) AS n FROM purchase_orders WHERE tenant_id = ${tenantId}`
+          number = Number(m.n)
+        }
         const id = randomUUID()
-        const placedAt = at(addDays(d, -1), '14:00', tz, rand(0, 120))
-        const lines = chosen.map(i => {
-          const sug = num(i.suggested)
-          const qty = sug && sug > 0
-            ? Math.max(sug < 2 ? 0.5 : 1, Math.round(sug * rand(0.7, 1.3) * 2) / 2)
-            : randInt(1, 6)
-          return { order_id: id, item_id: i.id, qty, unit_price: i.price, _item: i }
+        const sentAt = at(addDays(d, -1), '14:00', tz, rand(0, 120))
+        const lines = chosen.map(({ item, quote }, i) => {
+          const par = packsToPar(item.par_base, quote)
+          const qty = fitQty(par > 0 ? Math.max(1, Math.round(par * rand(0.7, 1.3))) : randInt(1, 4), quote)
+          return {
+            id: randomUUID(), tenant_id: tenantId, po_id: id, item_id: item.item_id, quote_id: quote.id,
+            item_name: item.name, category_name: item.category_name ?? null, storage: item.storage,
+            base_unit: item.base_unit, supplier_code: quote.supplier_code ?? null, pack_label: packLabel(quote),
+            pack_base_qty: quote.pack_base_qty, price: quotePrice(quote, venueId), vat_rate: quote.vat_rate ?? 0,
+            qty, sort_order: i,
+            ...(received ? { received_qty: qty, receive_status: 'ok' } : {}),
+          }
         })
-        newOrders.push({
+        const t = orderTotals(lines, s.delivery_charge)
+        newPos.push({
           row: {
-            id, tenant_id: tenantId, template_id: t.id, venue_id: venueId, delivery_date: d,
-            status: 'placed', ready_at: new Date(placedAt.getTime() - randInt(10, 60) * 60_000),
-            placed_at: placedAt, is_generated: true,
+            id, tenant_id: tenantId, number: number == null ? 0 : ++number, venue_id: venueId, supplier_id: s.id,
+            status: received ? 'received' : 'sent', delivery_date: d,
+            subtotal: t.subtotal, vat: t.vat, delivery_charge: t.delivery_charge, total: t.total,
+            created_by: who(), created_at: new Date(sentAt.getTime() - randInt(5, 90) * 60_000),
+            sent_at: sentAt, sent_by: who(), sent_via: s.send_method,
+            ...(received ? { received_at: at(d, '07:00', tz, rand(0, 240)), received_by: who() } : {}),
+            is_generated: true,
           },
-          vendor: t.name, lines,
+          vendor: s.name, lines,
         })
       }
     }
-    for (const o of newOrders) {
-      rows.orders.push(o.row)
-      for (const l of o.lines) rows.orderItems.push({ order_id: l.order_id, item_id: l.item_id, qty: l.qty, unit_price: l.unit_price })
+    for (const p of newPos) {
+      rows.orders.push(p.row)
+      rows.orderItems.push(...p.lines)
     }
     out.orders = rows.orders.length
   }
 
-  // ── Delivery checks, one per placed order delivered in the range ──
+  // ── Delivery checks, one per received purchase order in the range ──
   if (kinds.has('deliveries')) {
-    const orders = await tx`
-      SELECT o.id, o.delivery_date::text AS d, t.name AS vendor
-        FROM order_sheets o
-        JOIN order_sheet_templates t ON t.id = o.template_id
-       WHERE o.venue_id = ${venueId} AND o.tenant_id = ${tenantId}
-         AND o.status = 'placed'
-         AND o.delivery_date BETWEEN ${opts.dateFrom}::date AND ${opts.dateTo}::date
-         AND NOT EXISTS (SELECT 1 FROM fs_delivery_checks c WHERE c.order_sheet_id = o.id)
+    const pos = await tx`
+      SELECT po.id, po.delivery_date::text AS d, s.name AS vendor
+        FROM purchase_orders po
+        JOIN suppliers s ON s.id = po.supplier_id AND s.tenant_id = ${tenantId}
+       WHERE po.venue_id = ${venueId} AND po.tenant_id = ${tenantId}
+         AND po.status = 'received'
+         AND po.delivery_date BETWEEN ${opts.dateFrom}::date AND ${opts.dateTo}::date
+         AND NOT EXISTS (SELECT 1 FROM fs_delivery_checks c WHERE c.purchase_order_id = po.id AND c.tenant_id = ${tenantId})
     `
-    const orderIds = orders.map(o => o.id)
-    const lines = orderIds.length ? await tx`
-      SELECT oi.order_id, oi.qty, i.name, i.unit, c.name AS category
-        FROM order_sheet_order_items oi
-        JOIN order_sheet_items i ON i.id = oi.item_id
-        LEFT JOIN order_sheet_categories c ON c.id = i.category_id
-       WHERE oi.order_id = ANY(${orderIds}::uuid[]) AND oi.qty > 0
-       ORDER BY i.sort_order
+    const poIds = pos.map(p => p.id)
+    const lines = poIds.length ? await tx`
+      SELECT po_id, item_name, pack_label, category_name, storage, qty::float8 AS qty,
+             COALESCE(received_qty, qty)::float8 AS received_qty
+        FROM purchase_order_lines
+       WHERE po_id = ANY(${poIds}::uuid[]) AND tenant_id = ${tenantId}
+       ORDER BY sort_order
     ` : []
-    // A check typed in by hand for the same supplier and day counts as done.
-    const haveVendorDay = new Set((await tx`
-      SELECT lower(vendor_name) AS v, delivery_date::text AS d FROM fs_delivery_checks
-       WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}
-         AND delivery_date BETWEEN ${opts.dateFrom}::date AND ${opts.dateTo}::date
-    `).map(r => `${r.v}|${r.d}`))
-
     const all = [
-      ...orders.map(o => ({
-        id: o.id, d: o.d, vendor: o.vendor,
-        lines: lines.filter(l => l.order_id === o.id).map(l => ({ name: l.name, unit: l.unit, qty: num(l.qty), category: l.category })),
-      })),
-      ...newOrders.map(o => ({
-        id: o.row.id, d: o.row.delivery_date, vendor: o.vendor,
-        lines: o.lines.map(l => ({ name: l._item.name, unit: l._item.unit, qty: l.qty, category: l._item.category })),
-      })),
+      ...pos.map(p => ({ id: p.id, d: p.d, vendor: p.vendor, lines: lines.filter(l => l.po_id === p.id) })),
+      ...newPos.map(p => ({ id: p.row.id, d: p.row.delivery_date, vendor: p.vendor, lines: p.lines })),
     ]
-    if (!all.length) out.notes.push('No placed order sheets left without a delivery check in this range')
+    if (!all.length) out.notes.push('No received purchase orders left without a delivery check in this range')
 
     for (const o of all) {
-      if (!o.lines.length || haveVendorDay.has(`${o.vendor.toLowerCase()}|${o.d}`)) continue
+      const arrived = o.lines.filter(l => Number(l.received_qty ?? l.qty) > 0)
+      if (!arrived.length) continue
       const bad = issue()
-      let anyChilled = false, anyFrozen = false
-      const items = o.lines.map(l => {
-        const text = `${l.category ?? ''} ${l.name}`
-        const frozen  = FROZEN_RE.test(text)
-        const chilled = !frozen && CHILLED_RE.test(text)
-        anyFrozen  ||= frozen
-        anyChilled ||= chilled
-        const temp_c = frozen ? round1(rand(-22, FROZEN_MAX - 3)) : chilled ? round1(rand(1, 5)) : null
-        return { name: l.name, qty: l.qty, unit: l.unit, category: l.category ?? null, ...(temp_c != null ? { temp_c } : {}) }
-      })
-      // The probe reading on the form: the chilled goods if any, else frozen.
-      let productTemp = anyChilled ? round1(rand(1, 5)) : anyFrozen ? round1(rand(-22, FROZEN_MAX - 3)) : null
-      const tempIssue = bad && productTemp != null
+      const anyChilled = arrived.some(l => l.storage === 'chilled')
+      const anyFrozen = arrived.some(l => l.storage === 'frozen')
+      let chilled = anyChilled ? round1(rand(1, 5)) : null
+      let frozen = anyFrozen ? round1(rand(-22, FROZEN_MAX - 3)) : null
+      const tempIssue = bad && (anyChilled || anyFrozen)
       if (tempIssue) {
-        productTemp = anyChilled ? round1(rand(CHILLED_MAX + 0.5, CHILLED_MAX + 4)) : round1(rand(FROZEN_MAX + 1, FROZEN_MAX + 6))
+        if (anyChilled) chilled = round1(rand(CHILLED_MAX + 0.5, CHILLED_MAX + 4))
+        else frozen = round1(rand(FROZEN_MAX + 1, FROZEN_MAX + 6))
         out.out_of_range++
       }
+      const items = arrived.map(l => ({
+        name: l.item_name, qty: Number(l.received_qty ?? l.qty), unit: l.pack_label, category: l.category_name ?? null,
+        ordered: Number(l.qty), status: 'ok',
+        ...(l.storage === 'chilled' ? { temp_c: chilled } : l.storage === 'frozen' ? { temp_c: frozen } : {}),
+      }))
       rows.deliveries.push({
         tenant_id: tenantId, venue_id: venueId, delivery_date: o.d,
         recorded_at: at(o.d, '07:00', tz, rand(0, 240)),
         vendor_name: o.vendor,
         packaging_ok: true, damage_ok: true, quality_ok: true,
         temp_ok: !tempIssue,
-        product_temp_c: productTemp,
+        product_temp_c: chilled ?? frozen,
         items: tx.json(items),
         accepted: !tempIssue,
         corrective_action: tempIssue ? (anyChilled ? FIXES.delivery[0] : FIXES.delivery[1]) : null,
-        notes: `${items.length} line${items.length === 1 ? '' : 's'} checked against the order sheet`,
-        recorded_by: who(), order_sheet_id: o.id, is_generated: true,
+        notes: `${items.length} line${items.length === 1 ? '' : 's'} checked against the purchase order`,
+        recorded_by: who(), purchase_order_id: o.id, is_generated: true,
       })
     }
     out.deliveries = rows.deliveries.length
@@ -542,8 +560,8 @@ export async function generateHsData(tx, tenantId, venueId, opts) {
     await insertAll(tx, 'fs_temp_logs', rows.temps)
     await insertAll(tx, 'fs_hold_checks', rows.holds)
     await insertAll(tx, 'fs_cooking_checks', rows.cooking)
-    await insertAll(tx, 'order_sheets', rows.orders)
-    await insertAll(tx, 'order_sheet_order_items', rows.orderItems)
+    await insertAll(tx, 'purchase_orders', rows.orders)
+    await insertAll(tx, 'purchase_order_lines', rows.orderItems)
     await insertAll(tx, 'fs_delivery_checks', rows.deliveries)
     await insertAll(tx, 'checklist_instances', rows.checklists)
     await insertAll(tx, 'checklist_instance_items', rows.checklistItems)
@@ -573,7 +591,7 @@ export async function clearGenerated(tx, tenantId, venueId, { dateFrom, dateTo, 
     ['holds',      'fs_hold_checks',      'check_date'],
     ['cooking',    'fs_cooking_checks',   'check_date'],
     ['deliveries', 'fs_delivery_checks',  'delivery_date'],
-    ['orders',     'order_sheets',        'delivery_date'],
+    ['orders',     'purchase_orders',     'delivery_date'],
     ['checklists', 'checklist_instances', 'period_start'],
   ]
   const out = {}

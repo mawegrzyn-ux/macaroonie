@@ -32,7 +32,7 @@ const SECTIONS = [
   { id: 'menus',               label: 'Menus' },
   { id: 'online-orders',       label: 'Online Orders' },
   { id: 'ai-assistant',        label: 'AI Assistant' },
-  { id: 'order-sheets',        label: 'Order Sheets' },
+  { id: 'purchasing',          label: 'Purchasing' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -1861,10 +1861,9 @@ export default function Help() {
               Use the arrows to move a week back or forward, tap the week to jump to any date, or
               <strong> Back to this week</strong>. Each day has its own <strong>Add</strong> button,
               and tapping an expense opens it to edit (snap a receipt photo with your phone's
-              camera). Submitted days are marked and locked. <strong>Order Sheets</strong> is the third: browse orders,
-              filter by status or venue, tap into one to fill in quantities and mark it Ready or
-              Placed — the same order screen as the desktop page, just full-screen on your phone
-              instead of a side panel. <strong>Cash Up</strong> is the fourth: a plain list of the
+              camera). Submitted days are marked and locked. <strong>Purchasing</strong> is the third: pick a
+              list, fill in quantities and place the order, then send, print and book in deliveries, the
+              same screens as the desktop Purchasing page. <strong>Cash Up</strong> is the fourth: a plain list of the
               week's days with status, income and variance at a glance — tap a day to open the
               full declaration, which also lists the <strong>wages paid today</strong> (they count in
               that day's variance; wages with no Paid on day only count in the week).{' '}
@@ -3263,56 +3262,115 @@ export default function Help() {
             </P>
           </section>
 
-          {/* ── ORDER SHEETS ──────────────────────────────── */}
-          <section id="order-sheets" data-help="">
-            <H2>Order Sheets</H2>
+          {/* ── PURCHASING ──────────────────────────────── */}
+          <section id="purchasing" data-help="">
+            <H2>Purchasing</H2>
             <P>
-              The <strong>Order Sheets</strong> page (sidebar nav) is for filling in and tracking
-              supplier orders — think a reusable order form per supplier, filled in fresh each
-              delivery. Also available full-screen on your phone at{' '}
-              <strong>/mobile → Order Sheets</strong>.
+              Purchasing is how restaurants order from suppliers. Managers set up what can be ordered
+              once: the <strong>inventory</strong> (every product you buy), the <strong>suppliers</strong>{' '}
+              and their prices, and <strong>order lists</strong>. Staff then pick a list, type the quantities
+              and place the order: Macaroonie splits it into one purchase order per supplier, sends the
+              ones that go by email, and books the deliveries in when they arrive. Also on your phone at{' '}
+              <strong>/mobile → Purchasing</strong>.
             </P>
-            <H3>Templates first, then orders</H3>
+
+            <H3>1. Suppliers (Purchasing → Suppliers)</H3>
             <P>
-              Before anyone can place an order, a manager sets up a <strong>template</strong>{' '}
-              (Order Sheets → Templates) — a named order form for one supplier, listing every item
-              they stock with its unit and (optionally) price, assigned to whichever restaurants
-              use that supplier. Templates can also have a weekly delivery pattern (e.g. every
-              Tuesday and Friday), used to suggest the next delivery date automatically.
-            </P>
-            <P>
-              To place an order, click <strong>New order</strong> on the main Order Sheets page,
-              pick a template and a venue, and confirm the delivery date. That creates a fresh copy
-              of the template's item list ready to fill in.
-            </P>
-            <H3>Filling in an order</H3>
-            <P>
-              Tap into an order to see every item with a quantity stepper, plus a{' '}
-              <strong>Suggested</strong> column and up to 3 columns of what was ordered on previous
-              deliveries — handy for spotting "we usually order more of this" at a glance. Every
-              change to a quantity autosaves a moment after you stop typing — there's no separate
-              Save button while an order is still open.
-            </P>
-            <P>
-              Tap <strong>Hide zero</strong> next to the search box to show only the lines that have a
-              quantity, so you can check what you're ordering at a glance. A line you take down to 0
-              stays on screen until you turn Hide zero off, so it doesn't vanish while you're tapping.
-              To add something that's hidden, type its name in the search box: searching always looks
-              through every item. The page remembers whether Hide zero is on.
+              Add each company you buy from with its contact details and how it takes orders:
             </P>
             <DataTable
-              head={['Status', 'What it means']}
+              head={['Send orders by', 'What happens when an order is placed']}
               rows={[
-                ['Ordering', 'Still being filled in — quantities are editable.'],
-                ['Ready', 'Quantities locked in, waiting to be placed with the supplier.'],
-                ['Placed', 'Sent — the order is done. Kept for the order history other orders reference.'],
+                ['Email', 'Emailed straight to the supplier\'s order address from the venue\'s email account, with a PDF or Excel copy attached (your choice). Copy-to addresses get it too.'],
+                ['Print', 'Waits under To send: staff print it and hand or fax it over, then tap Mark as sent.'],
+                ['Excel file', 'Waits under To send: staff download the Excel file (for suppliers with an upload portal), then mark it sent.'],
+                ['PDF file', 'Waits under To send: staff download the PDF and send it themselves, then mark it sent.'],
               ]}
             />
+            <P>
+              Also set the <strong>delivery days</strong>, the <strong>order cutoff</strong> (orders placed after
+              it count as the next day's), the <strong>days from order to delivery</strong>, and optionally a
+              minimum order and delivery charge. Under <strong>Per venue</strong>, a venue can have its own
+              account number, delivery days or cutoff. These work out the delivery date each order is
+              placed for.
+            </P>
+
+            <H3>2. Inventory (Purchasing → Inventory)</H3>
+            <P>
+              Every product you buy, once, however many suppliers sell it. An item is <strong>counted in</strong>{' '}
+              weight, volume or count, and has a storage type: <strong>chilled</strong> and{' '}
+              <strong>frozen</strong> items ask for a probe temperature when a delivery is booked in.
+            </P>
+            <P>
+              An item has no price of its own. Its prices are its <strong>supplier prices</strong>: which
+              supplier, their product code, the pack (e.g. Case of 6 × 2 kg), the price per pack before VAT,
+              the VAT rate, and optionally a minimum order and a step (e.g. half cases). One supplier can
+              have several prices for the same item (different pack sizes). Each price shows what it comes
+              to per kg, litre or item, so prices can be compared.
+            </P>
+            <DataTable
+              head={['Which price a venue orders', '']}
+              rows={[
+                ['The venue\'s own choice', 'Set under "Which price each venue orders" on the item.'],
+                ['Else the company choice', 'The star on a supplier price.'],
+                ['Else the cheapest', 'Per kg, litre or item, at that venue\'s price.'],
+              ]}
+            />
+            <P>
+              <strong>Venue prices</strong> on a supplier price set what one venue pays when it differs from
+              the company price. Every price change (by hand or by import) is kept: tap{' '}
+              <strong>History</strong> to see them.
+            </P>
             <InfoBox type="tip">
-              Use the <strong>Filter</strong> button to narrow the order list by status or venue —
-              by default it hides Placed orders so the list stays focused on what still needs
-              attention.
+              <strong>Import</strong> loads a whole price list from a CSV or Excel file (download the template
+              for the headings): new items, suppliers and categories are added, existing prices updated.
+              Check file shows what would change first; rows with a problem are listed and skipped.
             </InfoBox>
+            <P>
+              Deleting an item that has been ordered switches it off instead, so past orders keep it.
+              <strong> Categories</strong> group items on lists and orders; drag them into the order you want.
+            </P>
+
+            <H3>3. Order lists (Purchasing → Order lists)</H3>
+            <P>
+              A list is what a venue orders from, e.g. "Daily fresh" or "Weekly dry goods". It can mix any
+              suppliers. Pick the venues that use it, add items, and drag them into order (within each
+              category). Each venue can have a <strong>par</strong> per item: the usual quantity, in packs.
+              Staff can fill an order to its pars in one tap.
+            </P>
+
+            <H3>4. Placing an order (Purchasing → Order)</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Pick the venue at the top, then tap a list (or <strong>Something else</strong> to search the whole inventory).</li>
+              <li>Use <strong>−</strong> / <strong>+</strong> or type a quantity. <strong>Par</strong> sets the usual quantity; <strong>Fill to par</strong> does it for every empty line. Each line shows what was ordered last time.</li>
+              <li>Tap <strong>(change)</strong> under an item to order it from another supplier this time. <strong>Add item</strong> adds anything from the inventory.</li>
+              <li>Group by <strong>Supplier</strong> to see each supplier's next delivery date and cutoff.</li>
+              <li>Tap <strong>Review &amp; place</strong>: one order per supplier, each with its delivery date (change it if needed) and an optional note. Then <strong>Place</strong>.</li>
+            </ol>
+            <P>
+              Quantities save as you type, so a half-filled order is waiting as a <strong>Draft</strong> on the
+              list's tile. Quantities below a supplier's minimum or step are rounded up when the order is placed.
+              Staff see prices only if their role can view purchasing setup.
+            </P>
+
+            <H3>5. Deliveries (Purchasing → Deliveries)</H3>
+            <DataTable
+              head={['Status', 'What to do']}
+              rows={[
+                ['To send', 'Not with the supplier yet: Email it, or Print / PDF / Excel and tap Mark as sent. Quantities can still be changed. An email that failed shows why.'],
+                ['Sent', 'Waiting for the delivery. "Due today or overdue" lists the ones to expect.'],
+                ['Received', 'Booked in. The delivery check is under Food safety → Deliveries.'],
+                ['Cancelled', 'Cancelled before it arrived.'],
+              ]}
+            />
+            <P>
+              When a delivery arrives, open it and tap <strong>Book in delivery</strong>: for each line, how
+              many arrived (a lower number marks it Short; you can also pick Damaged, Substituted or Not
+              delivered, with a note), the packaging, damage and quality checks, the temperature of the chilled
+              and frozen goods (chilled at or below 8°C, frozen at or below -15°C), and whether you accepted it.
+              If anything failed, say what was done about it. Saving writes the venue's delivery check for
+              Food safety, so it doesn't need typing in twice. <strong>Correct the delivery</strong> updates it.
+            </P>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}
@@ -3949,8 +4007,8 @@ export default function Help() {
                 ['Fridge & freezer temperatures', 'One reading per fridge or freezer per check time, inside its limits.'],
                 ['Hot & cold hold checks', 'One reading per hold station per hold check time, inside its limits.'],
                 ['Cooking checks', 'Each cooking session gets its required number of checks, with dishes picked at random from your published menus, all at 75°C or above.'],
-                ['Past order sheets', 'Placed orders on each order sheet template delivery day, with most of the items at quantities around the suggested ones.'],
-                ['Delivery checks', 'One check for every placed order sheet delivered in the range: the supplier name, the items on the order, and a product temperature by category (chilled 1-5°C, frozen -22 to -18°C).'],
+                ['Past purchase orders', 'One per supplier per delivery day (the venue\'s own delivery days if set) for the items on the venue\'s order lists, most of them, at quantities around the pars.'],
+                ['Delivery checks', 'Books in every received purchase order in the range without a check: the supplier, the items that arrived, and the chilled / frozen temperatures by each item\'s storage (chilled 1-5°C, frozen -22 to -18°C).'],
                 ['Checklists & audits', 'Daily, weekly and monthly checklists (the monthly audit included) marked complete with every task ticked. Pick which checklists to include. One that someone had already started is completed and ticked off too.'],
               ]}
             />
