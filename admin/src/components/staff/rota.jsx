@@ -1103,7 +1103,7 @@ const DIST_LABEL = { points: 'By points', manual: 'Manual', house: 'Kept by hous
 
 export function tipRows(data) {
   return data.rows.filter(r => r.entry_count > 0 || r.tip_share > 0 || r.points_adjustment !== 0 || r.tip_adjustment !== 0
-    || r.tip_unallocated !== 0 || (r.tip_cash ?? 0) !== 0 || (r.tip_bank ?? 0) !== 0)
+    || r.tip_unallocated !== 0 || (r.points_nudge ?? 0) !== 0 || (r.tip_cash ?? 0) !== 0 || (r.tip_bank ?? 0) !== 0)
 }
 
 /** Whether any pot pays by bank or to specific people, so Bank / Cash columns are worth showing. */
@@ -1333,6 +1333,7 @@ function PotCard({ pot, data, canEdit, base, setPay, onEditManual, onPickPayees 
               {data.tip_rounding && (data.tip_rounding.mode === 'nearest'
                 ? `Rounded to the nearest ${fmt(data.tip_rounding.to)}. `
                 : `Rounded ${data.tip_rounding.mode} to a multiple of ${fmt(data.tip_rounding.to)}. `)}
+              {pot.unallocated > 0 && <span>{fmt(pot.unallocated)} held by spare points (carried over). </span>}
               {pot.difference > 0 && <span className="text-amber-700 font-medium">Pays out {fmt(pot.difference)} more than the pot.</span>}
               {pot.difference < 0 && <span className="text-amber-700 font-medium">{fmt(-pot.difference)} left over.</span>}
             </p>
@@ -1689,7 +1690,9 @@ function TipMovesList({ moves, base, setPay, canEdit }) {
   )
 }
 
-const NUDGE_STEP = 0.5
+const NUDGE_STEP = 0.5     // £ per tap on a tip total
+const POINTS_STEP = 0.5    // points per tap on a person's points
+const STEP_BTN = 'w-11 h-11 rounded-lg border flex items-center justify-center touch-manipulation hover:bg-muted disabled:opacity-30 disabled:pointer-events-none'
 
 /**
  * One figure in the tips table: the number, then a small second line (always
@@ -1711,7 +1714,7 @@ function TipNum({ children, sub, subClass, className }) {
  * lines up under the Total heading and with the footer total.
  */
 function NudgeCells({ row, unallocated, canEdit, busy, onNudge }) {
-  const btn = 'w-11 h-11 rounded-lg border flex items-center justify-center touch-manipulation hover:bg-muted disabled:opacity-30 disabled:pointer-events-none'
+  const btn = STEP_BTN
   const total = (
     <TipNum className="font-semibold"
       sub={row.tip_unallocated !== 0 && `${row.tip_unallocated > 0 ? '+' : '−'}${fmt(Math.abs(row.tip_unallocated))}`}
@@ -1738,6 +1741,38 @@ function NudgeCells({ row, unallocated, canEdit, busy, onNudge }) {
 }
 
 /**
+ * A person's points as table cells. With edit rights the -/+ buttons move
+ * half a point between them and the week's spare points (- needs half a
+ * point, + needs half a spare point), each in its own column like NudgeCells.
+ * totalPoints is everyone's points plus the spare ones, so the % is the
+ * person's part of each points pot.
+ */
+function PointsCells({ row, totalPoints, spare, canEdit, busy, onNudge }) {
+  const points = (
+    <TipNum className="font-medium"
+      sub={totalPoints > 0 && `${Math.round((row.points / totalPoints) * 1000) / 10}%`}>
+      {row.points}
+    </TipNum>
+  )
+  if (!canEdit) return <td className="px-2 py-1.5 text-right">{points}</td>
+  return <>
+    <td className="pl-2 py-1.5 w-11">
+      <button type="button" aria-label={`Take half a point off ${row.name} into spare points`}
+        disabled={busy || row.points < POINTS_STEP} onClick={() => onNudge(row.staff_id, 'minus')} className={STEP_BTN}>
+        <Minus className="w-4 h-4" />
+      </button>
+    </td>
+    <td className="px-2 py-1.5 text-right">{points}</td>
+    <td className="pr-2 py-1.5 w-11">
+      <button type="button" aria-label={`Give ${row.name} half a point from spare points`}
+        disabled={busy || spare < POINTS_STEP} onClick={() => onNudge(row.staff_id, 'plus')} className={STEP_BTN}>
+        <Plus className="w-4 h-4" />
+      </button>
+    </td>
+  </>
+}
+
+/**
  * Tip pots for the week, each person's share of every pot, and tip moves.
  * `sections` picks which parts render (the Rota dashboard widget's options);
  * the Rota page shows all three.
@@ -1751,7 +1786,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
   const [confirmReset, setConfirmReset] = useState(null) // null | 'points' | 'money'
   const [manualPot, setManualPot] = useState(null)
   const [payeesPot, setPayeesPot] = useState(null)
-  const [confirmHandBack, setConfirmHandBack] = useState(false)
+  const [confirmHandBack, setConfirmHandBack] = useState(null) // null | 'money' | 'points'
   const setPay = d => qc.setQueryData(['rota-pay', venueId, weekStart], d)
   const base = `/rota/venues/${venueId}/weeks/${weekStart}`
 
@@ -1760,8 +1795,12 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
     onSuccess: setPay,
   })
   const handBack = useMutation({
-    mutationFn: () => api.post(`${base}/reset-unallocated`, {}),
-    onSuccess: d => { setPay(d); setConfirmHandBack(false) },
+    mutationFn: kind => api.post(`${base}/${kind === 'points' ? 'reset-points-nudges' : 'reset-unallocated'}`, {}),
+    onSuccess: d => { setPay(d); setConfirmHandBack(null) },
+  })
+  const pointsNudge = useMutation({
+    mutationFn: b => api.post(`${base}/points-nudge`, b),
+    onSuccess: setPay,
   })
 
   const reset = useMutation({
@@ -1784,9 +1823,16 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
   const hasMoneyMoves = data.rows.some(r => r.tip_adjustment !== 0)
   const unallocated = data.totals.tips_unallocated ?? 0
   const hasNudges = data.rows.some(r => r.tip_unallocated !== 0)
+  const hasPointNudges = data.rows.some(r => (r.points_nudge ?? 0) !== 0)
+  const sparePoints = data.totals.points_unallocated ?? 0
+  const sparePointsMoney = data.totals.tips_unallocated_points ?? 0
+  const carriedIn = data.totals.tips_carried_in ?? 0
+  const carryOut = data.totals.tips_carry_out ?? 0
+  const pointsChange = r => Math.round((r.points_adjustment + (r.points_nudge ?? 0)) * 100) / 100
   const showTotal = sharedPots.length > 1 || hasMoneyMoves || hasNudges || canEdit
   const showPayout = hasPayoutSplit(pots)
   const onNudge = (staff_id, direction) => nudge.mutate({ staff_id, direction })
+  const onPointsNudge = (staff_id, direction) => pointsNudge.mutate({ staff_id, direction })
 
   if (!sections.pots && !sections.shares && !sections.moves) {
     return <p className="text-sm text-muted-foreground py-4 text-center">Every part of this widget is hidden. Turn one back on in Edit layout.</p>
@@ -1811,7 +1857,7 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
         {data.totals.kept_by_house > 0 && ` · kept by the house ${fmt(data.totals.kept_by_house)}`}
         {data.totals.tips_added > 0 && ` · added ${fmt(data.totals.tips_added)}`}
         {data.totals.tips_taken_out > 0 && ` · taken out ${fmt(data.totals.tips_taken_out)}`}
-        {unallocated > 0 && ` · unallocated ${fmt(unallocated)}`}
+        {carryOut !== 0 && ` · unallocated ${fmt(carryOut)} (carried over to next week)`}
       </p>
       {showPayout && (
         <p className="text-xs">
@@ -1823,32 +1869,55 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
       )}
       </>}
 
-      {sections.shares && sharedPots.length > 0 && rows.length > 0 && (canEdit || hasNudges) && (
+      {sections.shares && sharedPots.length > 0 && rows.length > 0 && (canEdit || hasNudges || hasPointNudges || carryOut !== 0 || carriedIn !== 0) && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold">Unallocated <span className="tabular-nums">{fmt(unallocated)}</span></p>
+            <p className="text-sm font-semibold">
+              Unallocated <span className={cn('tabular-nums', unallocated < 0 && 'text-red-600')}>{fmt(unallocated)}</span>
+              {hasPoints && (sparePoints > 0 || canEdit) && (
+                <span className="font-normal text-muted-foreground"> · {sparePoints} spare point{sparePoints === 1 ? '' : 's'}
+                  {sparePoints > 0 && <> (worth <span className="tabular-nums">{fmt(sparePointsMoney)}</span>)</>}
+                </span>
+              )}
+            </p>
+            {carriedIn !== 0 && (
+              <p className="text-[11px] font-medium">Includes <span className="tabular-nums">{fmt(carriedIn)}</span> carried over from earlier weeks.</p>
+            )}
             <p className="text-[11px] text-muted-foreground">
               {canEdit
-                ? `Tap − next to someone's total to put ${fmt(NUDGE_STEP)} of their tips here, + to give ${fmt(NUDGE_STEP)} from here to them. Anything left stays unallocated.`
-                : 'Tips taken off people and not given to anyone else.'}
+                ? `− / + next to someone's total moves ${fmt(NUDGE_STEP)} between them and here${hasPoints ? '; next to their points, half a point to or from the spare points' : ''}. `
+                : 'Tips taken off people and not given to anyone else. '}
+              {hasPoints && 'Spare points keep their share of the pots, so nobody else\'s share changes. '}
+              Anything left at the end of the week is carried over to next week
+              {carryOut !== 0 && <> (<span className="tabular-nums font-medium">{fmt(carryOut)}</span> so far)</>}.
             </p>
           </div>
           {canEdit && hasNudges && !confirmHandBack && (
-            <button type="button" onClick={() => setConfirmHandBack(true)}
+            <button type="button" onClick={() => setConfirmHandBack('money')}
               className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
-              <RotateCcw className="w-4 h-4" /> Undo all
+              <RotateCcw className="w-4 h-4" /> {hasPointNudges ? 'Undo £ taps' : 'Undo all'}
+            </button>
+          )}
+          {canEdit && hasPointNudges && !confirmHandBack && (
+            <button type="button" onClick={() => setConfirmHandBack('points')}
+              className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+              <RotateCcw className="w-4 h-4" /> Undo point taps
             </button>
           )}
           {confirmHandBack && (
             <>
-              <span className="text-xs text-muted-foreground">Put every +/− back as it was?</span>
-              <button type="button" onClick={() => handBack.mutate()} disabled={handBack.isPending}
+              <span className="text-xs text-muted-foreground">
+                {confirmHandBack === 'points' ? 'Put everyone\'s points back as they were before the +/− taps?' : 'Put this week\'s £ +/− back as they were?'}
+              </span>
+              <button type="button" onClick={() => handBack.mutate(confirmHandBack)} disabled={handBack.isPending}
                 className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Yes, undo</button>
-              <button type="button" onClick={() => setConfirmHandBack(false)}
+              <button type="button" onClick={() => setConfirmHandBack(null)}
                 className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Cancel</button>
             </>
           )}
-          {(nudge.error || handBack.error) && <div className="basis-full"><ErrorNote error={nudge.error || handBack.error} /></div>}
+          {(nudge.error || pointsNudge.error || handBack.error) && (
+            <div className="basis-full"><ErrorNote error={nudge.error || pointsNudge.error || handBack.error} /></div>
+          )}
         </div>
       )}
 
@@ -1865,8 +1934,10 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
                 <th className="text-left px-3 py-2 font-medium">Staff</th>
                 {hasPoints && <>
                   <th className="text-right px-2 py-2 font-medium" title="Shift points x role multiplier">Earned</th>
-                  <th className="text-right px-2 py-2 font-medium">Moved</th>
-                  <th className="text-right px-2 py-2 font-medium">Points</th>
+                  <th className="text-right px-2 py-2 font-medium" title="Point moves and adjustments, plus the − / + taps">Changed</th>
+                  {canEdit
+                    ? <><th /><th className="text-right px-2 py-2 font-medium">Points</th><th /></>
+                    : <th className="text-right px-2 py-2 font-medium">Points</th>}
                 </>}
                 {sharedPots.map(p => (
                   <th key={p.id} className="text-right px-2 py-2 font-medium leading-tight">
@@ -1895,16 +1966,12 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
                   {hasPoints && <>
                     <td className="px-2 py-1.5 text-right"><TipNum>{r.base_points}</TipNum></td>
                     <td className="px-2 py-1.5 text-right">
-                      <TipNum className={r.points_adjustment > 0 ? 'text-green-700' : r.points_adjustment < 0 ? 'text-red-600' : 'text-muted-foreground'}>
-                        {r.points_adjustment > 0 ? '+' : ''}{r.points_adjustment || '–'}
+                      <TipNum className={pointsChange(r) > 0 ? 'text-green-700' : pointsChange(r) < 0 ? 'text-red-600' : 'text-muted-foreground'}>
+                        {pointsChange(r) > 0 ? '+' : ''}{pointsChange(r) || '–'}
                       </TipNum>
                     </td>
-                    <td className="px-2 py-1.5 text-right">
-                      <TipNum className="font-medium"
-                        sub={data.totals.points > 0 && `${Math.round((r.points / data.totals.points) * 1000) / 10}%`}>
-                        {r.points}
-                      </TipNum>
-                    </td>
+                    <PointsCells row={r} totalPoints={data.totals.points + sparePoints} spare={sparePoints} canEdit={canEdit}
+                      busy={pointsNudge.isPending} onNudge={onPointsNudge} />
                   </>}
                   {sharedPots.map(p => {
                     const v = r.pot_shares[p.id] ?? 0
@@ -1935,7 +2002,11 @@ export function RotaTipsTable({ venueId, weekStart, canEdit, sections = ALL_TIP_
             <tfoot className="border-t bg-muted/40 font-semibold">
               <tr>
                 <td className="px-3 py-2">Total</td>
-                {hasPoints && <><td colSpan={2} /><td className="px-2 py-2 text-right tabular-nums">{data.totals.points}</td></>}
+                {hasPoints && <>
+                  <td colSpan={canEdit ? 3 : 2} />
+                  <td className="px-2 py-2 text-right tabular-nums">{data.totals.points}</td>
+                  {canEdit && <td />}
+                </>}
                 {sharedPots.map(p => <td key={p.id} className="px-2 py-2 text-right tabular-nums">{fmt(p.distributed)}</td>)}
                 {hasMoneyMoves && <td />}
                 {showTotal && (canEdit

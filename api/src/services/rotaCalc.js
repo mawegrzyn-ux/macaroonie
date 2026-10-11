@@ -23,7 +23,8 @@
 //   hours = worked (on) hours; paid_hours = on + pto (what fill-wages writes).
 //
 //   Points  = sum(shift.points x fraction worked) x role multiplier
-//             + the week's manual adjustment. Never below 0 for sharing.
+//             + the week's point moves + its +/- point taps
+//             (points_nudge, migration 151). Never below 0 for sharing.
 //   Pay:
 //     hourly             minutes in a shift at that shift's hourly rate
 //                        (staff_shift_rates, else default_rate); minutes
@@ -62,6 +63,15 @@
 //   points_adjustment (added to earned points, floored at 0) and
 //   tip_adjustment (£). A person's tip_share is the sum of their shares
 //   across pots plus tip_adjustment plus tip_unallocated, never below 0.
+//   points_nudge (migration 151) is the person's net +/- point tap, half a
+//   point each. A minus tap puts half a point in the week's spare points, a
+//   plus tap gives one out of them, like the £ taps. Spare points still count
+//   when a points pot is shared, so taking points off someone changes nobody
+//   else's share: what the spare points are worth stays unallocated
+//   (each pot's `unallocated`, totals.tips_unallocated_points).
+//   carriedIn is what was left unallocated in earlier weeks (£ plus what
+//   spare points were worth), passed in by the route: it adds to this week's
+//   £ unallocated pot, and totals.tips_carry_out is what goes on to next week.
 //   tip_unallocated (migration 119) is the person's net +/- nudge: a minus
 //   tap moves money from them to the week's unallocated pot, a plus tap
 //   moves it back out to someone. totals.tips_unallocated is what is left
@@ -146,11 +156,11 @@ export function periodsOverlap(periods) {
  * @param {Array}  p.shifts     rota_shifts rows (all, incl. inactive, so old entries still price)
  * @param {Array}  p.staff      cash_staff rows + role_multiplier + shift_rates {shift_id: rate}
  * @param {Array}  p.entries    rota_entries rows for the week
- * @param {Array}  p.weekStaff  rota_week_staff rows (pay_override, tip_unallocated)
+ * @param {Array}  p.weekStaff  rota_week_staff rows (pay_override, tip_unallocated, points_nudge)
  * @param {Array}  p.moves      tip moves [{ kind: 'points'|'money', action: 'move'|'add'|'remove', from_staff_id, lines: [{ to_staff_id, amount }] }]
  * @param {number} p.tipPot     amount to share out
  */
-export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves = [], pots = [], tipRounding = null, payAdjustments = [], carriedOwed = {} }) {
+export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves = [], pots = [], tipRounding = null, payAdjustments = [], carriedOwed = {}, carriedIn = 0 }) {
   const shiftById = new Map(shifts.map(s => [s.id, { ...s, span: span(s.start_time, s.end_time) }]))
   const adjByStaff = new Map(weekStaff.map(w => [w.staff_id, w]))
   const moved = { points: new Map(), money: new Map() }
@@ -250,6 +260,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     const adj = adjByStaff.get(st.id)
     const points = round2(basePoints * multiplier)
     const adjustment = round2(moved.points.get(st.id) ?? 0)
+    const nudge = round2(num(adj?.points_nudge))
     const computedPay = round2(pay)
     const payOverride = adj?.pay_override == null ? null : round2(num(adj.pay_override))
     const basePay = payOverride ?? computedPay
@@ -292,13 +303,18 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       cash_pay:        split.cash,
       base_points:     points,
       points_adjustment: adjustment,
+      points_nudge:    nudge,
       tip_adjustment:  round2(moved.money.get(st.id) ?? 0),
       tip_unallocated: round2(num(adj?.tip_unallocated)),
-      points:          round2(Math.max(0, points + adjustment)),
+      points:          round2(Math.max(0, points + adjustment + nudge)),
     }
   })
 
   const totalPoints = round2(rows.reduce((s, r) => s + r.points, 0))
+  // Spare points (minus taps not given out again) still take their part of
+  // each points pot; that part stays unallocated.
+  const sparePoints = round2(Math.max(0, -weekStaff.reduce((s, w) => s + num(w.points_nudge), 0)))
+  const shareBase = round2(totalPoints + sparePoints)
   const roundTo = tipRounding?.to ? num(tipRounding.to) : null
   const roundMode = tipRounding?.mode ?? 'nearest'
   for (const r of rows) { r.pot_shares = {}; r.pot_shares_exact = {}; r.tip_share = 0 }
@@ -320,14 +336,20 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     const surcharge = round2(gross - remaining)
     const total = remaining   // available to share
     let distributed = 0
+    let unallocated = 0
     if (pot.distribution === 'points') {
+      let exactSum = 0
       for (const r of rows) {
-        const exact = totalPoints > 0 ? round2(total * r.points / totalPoints) : 0
+        const exact = shareBase > 0 ? round2(total * r.points / shareBase) : 0
         const share = roundTo ? roundTip(exact, roundTo, roundMode) : exact
         r.pot_shares_exact[pot.id] = exact
         r.pot_shares[pot.id] = share
         distributed += share
+        exactSum += exact
       }
+      // The spare points' part is what people's exact shares leave, so the
+      // odd penny goes with it rather than showing as left over.
+      if (sparePoints > 0 && shareBase > 0) unallocated = round2(Math.max(0, total - exactSum))
     } else if (pot.distribution === 'manual') {
       const manual = pot.manual ?? {}
       for (const r of rows) {
@@ -349,8 +371,9 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       surcharge,
       total,
       distributed,
+      unallocated,
       kept_by_house: pot.distribution === 'house' ? total : 0,
-      difference: pot.distribution === 'house' ? 0 : round2(distributed - total),
+      difference: pot.distribution === 'house' ? 0 : round2(distributed + unallocated - total),
     }
   })
   for (const r of rows) {
@@ -372,7 +395,7 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     if (pot.distribution === 'house') return
     const payees = wantsPeople ? [...new Set(pot.payees ?? [])].filter(id => rowById.has(id)) : []
     if (payees.length) {
-      const amount = pot.distribution === 'manual' ? summary.distributed : summary.total
+      const amount = pot.distribution === 'manual' ? summary.distributed : round2(summary.total - summary.unallocated)
       summary.paid_to_people = amount
       splitPence(amount, payees.length).forEach((amount, k) => {
         paid.get(payees[k])[method] += amount
@@ -392,6 +415,9 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
     r.tip_bank = round2(got.bank + (settleIn === 'bank' ? balance : 0))
   }
 
+  const unallocatedMoney = round2(num(carriedIn) - rows.reduce((s, r) => s + r.tip_unallocated, 0))
+  const unallocatedPoints = round2(potSummaries.reduce((s, p) => s + p.unallocated, 0))
+
   return {
     rows,
     pots: potSummaries,
@@ -409,7 +435,11 @@ export function computeRotaWeek({ shifts, staff, entries, weekStaff = [], moves 
       kept_by_house: round2(potSummaries.reduce((s, p) => s + p.kept_by_house, 0)),
       tips_added:    round2(adjusted.added),
       tips_taken_out: round2(adjusted.removed),
-      tips_unallocated: round2(-rows.reduce((s, r) => s + r.tip_unallocated, 0)),
+      tips_carried_in: round2(num(carriedIn)),
+      tips_unallocated: unallocatedMoney,
+      points_unallocated: sparePoints,
+      tips_unallocated_points: unallocatedPoints,
+      tips_carry_out: round2(unallocatedMoney + unallocatedPoints),
       tips_bank:      round2(rows.reduce((s, r) => s + r.tip_bank, 0)),
       tips_cash:      round2(rows.reduce((s, r) => s + Math.max(0, r.tip_cash), 0)),
       tips_handed_on: round2(rows.reduce((s, r) => s + Math.max(0, -r.tip_cash) + Math.max(0, -r.tip_bank), 0)),
