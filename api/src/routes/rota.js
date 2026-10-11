@@ -24,9 +24,10 @@
 //   PUT    /venues/:venueId/staff/reorder       { ids }
 //
 // Rota (per venue + ISO week; `rota` module):
-//   GET    /venues/:venueId/weeks/:week         settings, shifts, staff, entries, open_dates
-//   PUT    /venues/:venueId/weeks/:week/entries  whole-week replace
-//   POST   /venues/:venueId/weeks/:week/copy     { from_week }
+//   GET    /venues/:venueId/weeks/:week         settings, shifts, staff, entries, open_dates, removed_staff
+//   PUT    /venues/:venueId/weeks/:week/entries  { entries, removed_staff_ids? } whole-week replace
+//          removed_staff_ids (migration 155): people taken off this week only; sent = the full list
+//   POST   /venues/:venueId/weeks/:week/copy     { from_week }  skips people removed from this week
 //
 // Pay (`rota_pay` module) and tips (`rota_tips` module, migration 118); GET .../pay
 // needs either and strips the half the caller can't view (redactWeek):
@@ -249,6 +250,15 @@ async function loadStaff(tx, tenantId, venueId, { activeOnly = false, alsoIds = 
   return rows.map(r => ({ ...r, shift_rates: byStaff[r.id] ?? {} }))
 }
 
+/** Staff ids taken off this venue week (migration 155). */
+async function loadRemoved(tx, tenantId, venueId, monday) {
+  const rows = await tx`
+    SELECT staff_id FROM rota_week_staff
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date AND removed
+  `
+  return rows.map(r => r.staff_id)
+}
+
 function loadEntries(tx, tenantId, venueId, monday) {
   return tx`
     SELECT id, staff_id, work_date::text AS work_date, shift_id,
@@ -350,7 +360,7 @@ async function computeWeek(tx, tenantId, venueId, monday, { carry = true } = {})
 
   const weekStaff = await tx`
     SELECT staff_id, pay_override::float8 AS pay_override, tip_unallocated::float8 AS tip_unallocated,
-           points_nudge::float8 AS points_nudge
+           points_nudge::float8 AS points_nudge, removed
       FROM rota_week_staff
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND week_start = ${monday}::date
   `
@@ -383,7 +393,12 @@ async function computeWeek(tx, tenantId, venueId, monday, { carry = true } = {})
     ...moves.flatMap(m => [m.from_staff_id, ...m.lines.map(l => l.to_staff_id)]).filter(Boolean),
     ...potInputs.filter(p => p.payout_to === 'people').flatMap(p => p.payees),
   ])]
-  const staff = await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries })
+  // People taken off this week are left out, unless they have something
+  // this week (entries, money) that has to show.
+  const kept = new Set(withEntries)
+  const removed = new Set(weekStaff.filter(w => w.removed).map(w => w.staff_id))
+  const staff = (await loadStaff(tx, tenantId, venueId, { activeOnly: true, alsoIds: withEntries }))
+    .filter(s => !removed.has(s.id) || kept.has(s.id))
   const tipRounding = settings.tip_round_to ? { to: settings.tip_round_to, mode: settings.tip_round_mode } : null
   const carryIn = carry ? await carriedIn(tx, tenantId, venueId, monday) : 0
   const result = computeRotaWeek({ shifts, staff, entries, weekStaff, moves, pots: potInputs, tipRounding, payAdjustments, carriedOwed, carriedIn: carryIn })
@@ -816,25 +831,36 @@ export default async function rotaRoutes(app) {
     const monday = mondayOf(req.params.week)
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
-      const [settings, shifts, entries] = await Promise.all([
+      const [settings, shifts, entries, removedIds] = await Promise.all([
         loadSettings(tx, req.tenantId), loadShifts(tx, req.tenantId),
         loadEntries(tx, req.tenantId, req.params.venueId, monday),
+        loadRemoved(tx, req.tenantId, req.params.venueId, monday),
       ])
-      const withEntries = [...new Set(entries.map(e => e.staff_id))]
-      const staff = (await loadStaff(tx, req.tenantId, req.params.venueId, { activeOnly: true, alsoIds: withEntries }))
-        .map(({ id, name, role_name, is_active }) => ({ id, name, role_name, is_active }))
+      const withEntries = new Set(entries.map(e => e.staff_id))
+      const removed = new Set(removedIds)
+      const all = (await loadStaff(tx, req.tenantId, req.params.venueId, { activeOnly: true, alsoIds: [...withEntries] }))
+        .map(({ id, name, role_name, is_active, sort_order }) => ({ id, name, role_name, is_active, sort_order }))
+      // A person with entries this week always shows, removed or not.
+      const staff = all.filter(s => !removed.has(s.id) || withEntries.has(s.id))
+      // Active people taken off this week (inactive ones aren't on the rota anyway).
+      const removedStaff = all.filter(s => removed.has(s.id) && !withEntries.has(s.id) && s.is_active)
       const dates = weekDates(monday)
       // open_dates is null when the venue has no weekly schedule at all, so
       // "hide closed days" never hides a whole week of an unscheduled venue.
       const openDates = await openDatesOrNull(tx, req.tenantId, req.params.venueId, dates)
-      return { week_start: monday, dates, open_dates: openDates, settings, shifts, staff, entries }
+      return { week_start: monday, dates, open_dates: openDates, settings, shifts, staff, entries, removed_staff: removedStaff }
     })
   })
 
   app.put('/venues/:venueId/weeks/:week/entries', { preHandler: requirePermission('rota', 'manage') }, async (req) => {
     const monday = mondayOf(req.params.week)
     const dates = new Set(weekDates(monday))
-    const { entries } = z.object({ entries: z.array(EntryBody).max(5000) }).parse(req.body)
+    const { entries, removed_staff_ids: removedIds } = z.object({
+      entries: z.array(EntryBody).max(5000),
+      // Who is off this week's rota (migration 155). Absent = leave as it is;
+      // sent = the whole list, so anyone not in it is back on.
+      removed_staff_ids: z.array(UUID).max(1000).optional(),
+    }).parse(req.body)
 
     for (const e of entries) {
       if (!dates.has(e.work_date)) throw httpError(400, `${e.work_date} is not in the week of ${monday}`)
@@ -853,13 +879,17 @@ export default async function rotaRoutes(app) {
 
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
-      const staffIds = [...new Set(entries.map(e => e.staff_id))]
+      const staffIds = [...new Set([...entries.map(e => e.staff_id), ...(removedIds ?? [])])]
       if (staffIds.length) {
         const ok = await tx`
-          SELECT id FROM cash_staff
+          SELECT id, name FROM cash_staff
            WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId} AND id = ANY(${staffIds}::uuid[])
         `
         if (ok.length !== staffIds.length) throw httpError(400, 'Unknown staff member for this venue')
+        // Someone off this week's rota can't have shifts or time off in it.
+        const onRota = new Set(entries.map(e => e.staff_id))
+        const clash = ok.find(s => removedIds?.includes(s.id) && onRota.has(s.id))
+        if (clash) throw httpError(422, `${clash.name} is off this week's rota but has entries in it. Put them back on the rota or clear their entries.`)
       }
       const shiftIds = [...new Set(entries.map(e => e.shift_id).filter(Boolean))]
       if (shiftIds.length) {
@@ -887,7 +917,23 @@ export default async function rotaRoutes(app) {
         })
       }
       if (rows.length) await tx`INSERT INTO rota_entries ${tx(rows)}`
-      return { saved: rows.length }
+
+      if (removedIds) {
+        await tx`
+          UPDATE rota_week_staff SET removed = false, updated_at = now()
+           WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
+             AND week_start = ${monday}::date AND removed
+             AND NOT (staff_id = ANY(${removedIds}::uuid[]))
+        `
+        for (const staffId of new Set(removedIds)) {
+          await tx`
+            INSERT INTO rota_week_staff (tenant_id, venue_id, week_start, staff_id, removed)
+            VALUES (${req.tenantId}, ${req.params.venueId}, ${monday}::date, ${staffId}, true)
+            ON CONFLICT (venue_id, week_start, staff_id) DO UPDATE SET removed = true, updated_at = now()
+          `
+        }
+      }
+      return { saved: rows.length, removed: removedIds?.length ?? null }
     })
   })
 
@@ -901,8 +947,12 @@ export default async function rotaRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenue(tx, req.tenantId, req.params.venueId)
       // Only worked shifts are copied: sickness and time off are one-offs.
-      const src = (await loadEntries(tx, req.tenantId, req.params.venueId, source)).filter(e => e.status === 'on')
-      if (!src.length) throw httpError(422, `Nobody working on the rota for the week of ${source}`)
+      // People taken off this week stay off.
+      const removed = new Set(await loadRemoved(tx, req.tenantId, req.params.venueId, monday))
+      const worked = (await loadEntries(tx, req.tenantId, req.params.venueId, source)).filter(e => e.status === 'on')
+      if (!worked.length) throw httpError(422, `Nobody working on the rota for the week of ${source}`)
+      const src = worked.filter(e => !removed.has(e.staff_id))
+      if (!src.length) throw httpError(422, 'Everyone working that week is off this week\'s rota')
       await tx`
         DELETE FROM rota_entries
          WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId}
@@ -914,7 +964,7 @@ export default async function rotaRoutes(app) {
         start_time: e.start_time, end_time: e.end_time,
       }))
       await tx`INSERT INTO rota_entries ${tx(rows)}`
-      return { copied: rows.length }
+      return { copied: rows.length, skipped: worked.length - src.length }
     })
   })
 

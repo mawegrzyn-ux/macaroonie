@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — Rota: take someone off a week]
+
+- **Rota**: each name has a button (person with a minus) that takes that person off the week you are looking at, after you confirm. Their row goes, any shifts or time off they had that week are cleared, and they are listed under the grid in **Off this week's rota**, where **Put back** brings them back. Saved with **Save rota** like the rest of the grid; **Discard changes** undoes it.
+- This week only: next week they are on the rota as usual. Someone taken off isn't on the printout or image, or in hours and pay and tips (unless they have money that week, such as a pay adjustment or wages owed). **Copy from week** leaves them off.
+- Migration **155** (`rota_week_staff.removed`).
+
+---
+
 ## [2026-10-11 — Purchasing: pick another delivery date; date buttons open the calendar]
 
 - **Place order**: under each supplier's delivery date, **Their delivery days** shows the supplier's next four delivery days to tap. Tapping the date itself now opens the calendar for any other day.

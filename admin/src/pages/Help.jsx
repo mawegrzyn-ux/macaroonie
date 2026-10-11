@@ -1702,6 +1702,19 @@ export default function Help() {
               in the old mode still count for pay and are listed in a notice until you save that week.
             </P>
             <P>
+              <strong>Taking someone off a week.</strong> Everyone active on the Staff page has a row.
+              If someone isn't working a week at all (on holiday, not needed, about to leave), tap the
+              person-with-a-minus button next to their name and then <strong>Take off</strong>. Their
+              row goes, any shifts or time off they had that week are cleared, and they are listed
+              under the grid in <strong>Off this week's rota</strong>. Tap their name there
+              (<strong>Put back</strong>) to bring them back. Like everything else on the grid, it is
+              only kept when you tap Save rota (Discard undoes it). It is for that week only: next week
+              they are on the rota again. Someone taken off doesn't show on the printout or image, or
+              in hours and pay and tips, unless they have money that week (a pay adjustment, wages
+              owed from last week, a tip move or a tip pot paid to them). Copy from week leaves them
+              off. For paid holiday, keep them on and mark their days PTO instead, so they are paid.
+            </P>
+            <P>
               <strong>Print / PDF</strong> opens your device's print dialog with the week laid out on
               one A4 landscape page (names down the side, days across, each person's shifts or times in
               the day's box, hours per person and how many are working each day). Pick a printer, or

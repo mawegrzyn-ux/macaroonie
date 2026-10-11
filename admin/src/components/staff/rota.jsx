@@ -13,6 +13,9 @@
 // The grid edits a local draft of the week in the tenant's current mode
 // (rota_settings.mode) and saves it with one whole-week PUT. Entries made
 // in the other mode are shown as a notice and are replaced on save.
+// The draft also holds who is off this week's rota (migration 155): the
+// button by a name takes them off (clearing their cells), the strip under
+// the grid puts them back, and Save rota sends both.
 //
 // All pay / points / tip maths is server-side (services/rotaCalc.js);
 // the tables here only display GET .../pay and send overrides.
@@ -21,7 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO, subWeeks } from 'date-fns'
-import { Loader2, Plus, Minus, Trash2, Copy, Check, AlertTriangle, ArrowRight, RotateCcw, Wallet, Printer, ImageDown, ChevronDown, Eraser } from 'lucide-react'
+import { Loader2, Plus, Minus, Trash2, Copy, Check, AlertTriangle, ArrowRight, RotateCcw, Wallet, Printer, ImageDown, ChevronDown, Eraser, UserMinus, UserPlus } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { fmt, getMonday } from '@/pages/CashRecon'
@@ -181,6 +184,8 @@ function signature(list) {
   return JSON.stringify(list.map(clean).map(e => JSON.stringify(e)).sort())
 }
 
+function idsSig(ids) { return [...ids].sort().join(',') }
+
 function spanOf(p) {
   const s = toMin(p.start_time)
   let e = toMin(p.end_time)
@@ -255,20 +260,60 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
     })
   }
 
+  // Who is off this week's rota, as a draft saved with the entries.
+  const serverRemoved = useMemo(() => (week?.removed_staff ?? []).map(s => s.id), [week])
+  const [removedDraft, setRemovedRaw] = useState(null)
+  const removedLoadedFor = useRef(null)
+  useEffect(() => {
+    if (!week) return
+    const sig = `${cacheKey}|${idsSig(serverRemoved)}`
+    if (removedLoadedFor.current === sig) return
+    removedLoadedFor.current = sig
+    setRemovedRaw(draftCache.get(`${cacheKey}|removed`) ?? serverRemoved)
+  }, [week, cacheKey, serverRemoved])
+
+  function setRemoved(next) {
+    setRemovedRaw(prev => {
+      const value = next(prev ?? serverRemoved)
+      draftCache.set(`${cacheKey}|removed`, value)
+      return value
+    })
+  }
+
   const entries = draft ?? serverEntries
-  const dirty = draft != null && signature(draft) !== signature(serverEntries)
+  const removedIds = removedDraft ?? serverRemoved
+  const removedSet = useMemo(() => new Set(removedIds), [removedIds])
+  const dirty = (draft != null && signature(draft) !== signature(serverEntries))
+    || idsSig(removedIds) !== idsSig(serverRemoved)
 
   const save = useMutation({
-    mutationFn: () => api.put(`/rota/venues/${venueId}/weeks/${weekStart}/entries`, { entries: entries.map(clean) }),
+    mutationFn: () => api.put(`/rota/venues/${venueId}/weeks/${weekStart}/entries`, {
+      entries: entries.map(clean), removed_staff_ids: removedIds,
+    }),
     onSuccess: () => {
       draftCache.delete(`${cacheKey}|${mode}`)
+      draftCache.delete(`${cacheKey}|removed`)
       qc.invalidateQueries({ queryKey: ['rota-week', venueId, weekStart] })
       qc.invalidateQueries({ queryKey: ['rota-pay', venueId, weekStart] })
     },
   })
   function discard() {
     draftCache.delete(`${cacheKey}|${mode}`)
+    draftCache.delete(`${cacheKey}|removed`)
     setDraftRaw(serverEntries)
+    setRemovedRaw(serverRemoved)
+    setConfirmRemove(null)
+  }
+
+  // Take a person off this week: their cells are cleared in the draft.
+  const [confirmRemove, setConfirmRemove] = useState(null) // staff id
+  function removeFromWeek(staffId) {
+    setDraft(prev => prev.filter(e => e.staff_id !== staffId))
+    setRemoved(prev => [...new Set([...prev, staffId])])
+    setConfirmRemove(null)
+  }
+  function putBack(staffId) {
+    setRemoved(prev => prev.filter(id => id !== staffId))
   }
 
   const [editingCell, setEditingCell] = useState(null) // { staff, date }
@@ -323,7 +368,12 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
 
   const dates = visibleRotaDates({ week, entries, hideClosed: !!week.settings?.hide_closed_on_rota })
   const hiddenDays = week.dates.length - dates.length
-  const staff = week.staff
+  // Everyone the week knows about, in Staff page order; rows are those on
+  // this week's rota, offStaff those taken off it (draft included).
+  const allStaff = [...week.staff, ...(week.removed_staff ?? []).filter(r => !week.staff.some(s => s.id === r.id))]
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.name.localeCompare(b.name))
+  const staff = allStaff.filter(s => !removedSet.has(s.id))
+  const offStaff = allStaff.filter(s => removedSet.has(s.id))
   const today = format(new Date(), 'yyyy-MM-dd')
   const minutesFor = staffId => entries.filter(e => e.staff_id === staffId).reduce((s, e) => s + workedMinutes(e, shiftById), 0)
 
@@ -332,7 +382,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
 
   function sheet() {
     const venueName = venues.find(v => v.id === venueId)?.name ?? ''
-    return buildRotaSheet({ week, entries, mode, venueName, unsaved: dirty,
+    return buildRotaSheet({ week: { ...week, staff }, entries, mode, venueName, unsaved: dirty,
       hideClosed: !!week.settings?.hide_closed_on_print, hideTotals: !!week.settings?.hide_totals_on_print })
   }
   async function exportImage() {
@@ -381,8 +431,10 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           {hiddenDays} closed day{hiddenDays === 1 ? '' : 's'} hidden (Rota setup). A closed day with someone on it still shows.
         </p>
       )}
-      {staff.length === 0 ? (
+      {allStaff.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center">No active staff for this venue. Add people on the Staff page.</p>
+      ) : staff.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-6 text-center">Everyone is off this week's rota.</p>
       ) : mode === 'day_parts' && shifts.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center">No shifts set up yet. Add day parts on the Rota setup page.</p>
       ) : (
@@ -390,7 +442,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           <table className="border-collapse text-sm">
             <thead>
               <tr className="bg-muted">
-                <th rowSpan={mode === 'day_parts' ? 2 : 1} className={cn(nameCol, 'bg-muted text-left px-3 py-2 font-medium', canEdit ? 'min-w-[190px]' : 'min-w-[140px]')}>Staff</th>
+                <th rowSpan={mode === 'day_parts' ? 2 : 1} className={cn(nameCol, 'bg-muted text-left px-3 py-2 font-medium', canEdit ? 'min-w-[236px] w-[236px]' : 'min-w-[140px]')}>Staff</th>
                 {dates.map(d => (
                   <th key={d} colSpan={mode === 'day_parts' ? shifts.length : 1}
                     className={cn('border-l px-1 py-1.5 font-medium text-center whitespace-nowrap',
@@ -419,13 +471,25 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
               {staff.map(st => (
                 <tr key={st.id}>
                   <td className={cn(nameCol, 'px-3 py-1')}>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className={cn('text-sm font-medium truncate max-w-[160px]', !st.is_active && 'text-muted-foreground')}>{st.name}</div>
-                        {st.role_name && <div className="text-[11px] text-muted-foreground truncate max-w-[160px]">{st.role_name}</div>}
+                    {confirmRemove === st.id ? (
+                      <RemoveConfirm name={st.name} count={entries.filter(e => e.staff_id === st.id).length}
+                        onRemove={() => removeFromWeek(st.id)} onCancel={() => setConfirmRemove(null)} />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className={cn('text-sm font-medium truncate max-w-[160px]', !st.is_active && 'text-muted-foreground')}>{st.name}</div>
+                          {st.role_name && <div className="text-[11px] text-muted-foreground truncate max-w-[160px]">{st.role_name}</div>}
+                        </div>
+                        {canEdit && (
+                          <button type="button" onClick={() => setConfirmRemove(st.id)}
+                            aria-label={`Take ${st.name} off this week's rota`} title="Take off this week's rota"
+                            className="w-11 h-11 shrink-0 rounded-lg border flex items-center justify-center text-muted-foreground touch-manipulation hover:text-destructive hover:bg-destructive/10">
+                            <UserMinus className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canEdit && <ModeButton value={modeFor(st.id)} onChange={v => setMode(st.id, v)} name={st.name} />}
                       </div>
-                      {canEdit && <ModeButton value={modeFor(st.id)} onChange={v => setMode(st.id, v)} name={st.name} />}
-                    </div>
+                    )}
                   </td>
                   {mode === 'day_parts'
                     ? dates.map(d => shifts.map((s, i) => {
@@ -491,6 +555,24 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           </table>
         </div>
       )}
+      {offStaff.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground mr-1">Off this week's rota</span>
+          {offStaff.map(s => canEdit ? (
+            <button key={s.id} type="button" onClick={() => putBack(s.id)}
+              aria-label={`Put ${s.name} back on this week's rota`}
+              className="h-11 px-3 rounded-lg border text-sm touch-manipulation hover:bg-muted flex items-center gap-1.5">
+              <UserPlus className="w-4 h-4 text-muted-foreground" /> {s.name}
+              <span className="text-xs text-muted-foreground">Put back</span>
+            </button>
+          ) : (
+            <span key={s.id} className="text-sm rounded-lg bg-muted px-2.5 py-1">{s.name}</span>
+          ))}
+          {canEdit && removedIds.some(id => !serverRemoved.includes(id)) && (
+            <span className="w-full text-[11px] text-muted-foreground">Save rota to take them off. This week only; other weeks keep them.</span>
+          )}
+        </div>
+      )}
       {editingCell && (
         <PeriodEditor
           staff={editingCell.staff} date={editingCell.date} step={step}
@@ -500,6 +582,24 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           onApply={periods => { setPeriods(editingCell.staff.id, editingCell.date, periods); setEditingCell(null) }}
           onClose={() => setEditingCell(null)} />
       )}
+    </div>
+  )
+}
+
+/** Inline "are you sure" in the name cell before taking someone off the week. */
+function RemoveConfirm({ name, count, onRemove, onCancel }) {
+  return (
+    <div className="py-1 space-y-1.5 whitespace-normal">
+      <p className="text-xs leading-snug">
+        <span className="font-medium">Take {name} off this week?</span>
+        {count > 0 && <span className="text-muted-foreground"> Their {count} entr{count === 1 ? 'y' : 'ies'} this week {count === 1 ? 'is' : 'are'} cleared.</span>}
+      </p>
+      <div className="flex gap-1.5">
+        <button type="button" onClick={onRemove}
+          className="h-11 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium touch-manipulation">Take off</button>
+        <button type="button" onClick={onCancel}
+          className="h-11 px-3 rounded-lg border text-xs touch-manipulation hover:bg-muted">Cancel</button>
+      </div>
     </div>
   )
 }
@@ -576,6 +676,11 @@ function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, onC
         </span>
       )}
       {dirty && <span className="w-full text-[11px] text-muted-foreground text-right">Save or discard before copying another week.</span>}
+      {copy.data?.skipped > 0 && !copyFrom && (
+        <span className="w-full text-[11px] text-muted-foreground text-right">
+          {copy.data.skipped} shift{copy.data.skipped === 1 ? '' : 's'} for people off this week's rota {copy.data.skipped === 1 ? 'was' : 'were'} not copied.
+        </span>
+      )}
       <div className="w-full"><ErrorNote error={copy.error} /></div>
     </div>
   )
