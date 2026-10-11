@@ -52,7 +52,7 @@ const EMPTY = {
   item_ids: [], section_ids: [], buy_qty: 1, get_qty: 1, get_percent: 100,
   min_subtotal_pence: 0, required_item_ids: [], max_discount_pence: null,
   apply_mode: 'auto', code: '', max_uses: null,
-  schedule: { from: null, until: null, times: [] }, venue_ids: [], exclusive: false,
+  schedule: { from: null, until: null, times: [] }, venue_ids: [], exclusive: false, channels: ['online'],
   bundle: [], bundle_price_pence: null, tiers: [],
   show_in_box: false, box_bg: '', box_text: '', box_image_url: null,
 }
@@ -460,6 +460,7 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
       if (d.bundle_price_pence == null) return setError('Enter the meal deal price')
     }
     if (d.kind === 'tiered' && !d.tiers.length) return setError('Add at least one spend level')
+    if (!d.channels.length) return setError('Choose online ordering, the till or both')
     save.mutate({
       ...d,
       name: d.name.trim(),
@@ -637,6 +638,20 @@ function PromoEditor({ promo, copyOf, catalog, onClose, onSaved }) {
             <ScheduleEditor value={d.schedule} onChange={sc => set({ schedule: sc || { from: null, until: null, times: [] } })}
               alwaysLabel="Any time the venue takes orders" resetLabel="Make it available any time" datesLabel="Dates" />
             <p className="text-xs text-muted-foreground">Times are checked when the guest places the order, in the venue's time zone.</p>
+            <Row label="Where" hint="On the till, staff apply tap-to-apply and code offers from the check's Offers button; automatic ones apply by themselves.">
+              <div className="flex flex-wrap gap-2">
+                {[['online', 'Online ordering'], ['pos', 'Till']].map(([k, label]) => {
+                  const on = d.channels.includes(k)
+                  return (
+                    <button key={k} type="button" aria-pressed={on}
+                      onClick={() => set({ channels: on ? d.channels.filter(x => x !== k) : [...d.channels, k] })}
+                      className={cn('min-h-[44px] px-3 rounded-full border text-sm touch-manipulation', on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background')}>
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </Row>
             {venues.length > 1 && (
               <Row label="Venues">
                 <div className="flex flex-wrap gap-2">
@@ -712,6 +727,9 @@ export default function Promotions() {
             <span className="font-medium">{p.name}</span>
             <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-full', st.cls)}>{st.label}</span>
             {p.exclusive && <span className="text-[11px] px-2 py-0.5 rounded-full border">Not combined</span>}
+            {(p.channels || ['online']).includes('pos') && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full border">{(p.channels || []).includes('online') ? 'Online and till' : 'Till only'}</span>
+            )}
           </div>
           <div className="text-xs text-muted-foreground">
             {promoSummary(p)}

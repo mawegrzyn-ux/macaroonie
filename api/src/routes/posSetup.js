@@ -39,6 +39,7 @@ import {
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
+import { posOrigin } from '../services/platformHost.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
 import { TENDER_KEYS } from '../../../shared/pos/checks.js'
@@ -242,6 +243,15 @@ export default async function posSetupRoutes(app) {
         tx`SELECT id, name, venue_id, is_published FROM menus WHERE tenant_id = ${tenantId} AND (venue_id IS NULL OR venue_id = ${venueId})
             ORDER BY sort_order, name`,
       ])
+      // Sections and dishes, for printer routing.
+      const menuIds = menus.map(m => m.id)
+      const [sections, items] = await Promise.all([
+        tx`SELECT id, menu_id, title FROM menu_sections
+            WHERE tenant_id = ${tenantId} AND menu_id = ANY(${menuIds}::uuid[]) ORDER BY sort_order, title`,
+        tx`SELECT i.id, i.section_id, i.name FROM menu_items i
+             JOIN menu_sections s ON s.id = i.section_id AND s.tenant_id = i.tenant_id
+            WHERE i.tenant_id = ${tenantId} AND s.menu_id = ANY(${menuIds}::uuid[]) ORDER BY i.sort_order, i.name`,
+      ])
       return {
         venue: { id: venue.id, name: venue.name },
         settings: settingsView(settings),
@@ -250,8 +260,9 @@ export default async function posSetupRoutes(app) {
         floor_areas: areas.map(a => ({ ...a, decor: a.decor || [] })),
         tables, staff,
         roles: roles.map(r => ({ ...r, permissions: normalisePermissions(r.permissions || {}) })),
-        courses, menus,
+        courses, menus, sections, items,
         recon_fields: await reconFields(tx, tenantId, venueId),
+        till_url: posOrigin(),
       }
     })
   })

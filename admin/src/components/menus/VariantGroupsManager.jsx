@@ -1,6 +1,9 @@
 // Tenant-wide reusable variant option sets (Protein, Size…), attachable
 // to any dish across any menu. Standalone manager — lives at
 // /menus/variant-groups, not nested inside a specific menu's editor.
+// Till fields (migration 156): pos_prefixes (the till offers No / Light /
+// Extra / On the side for each option) and an option's child_group_id
+// (pick it, then the till asks that group too, e.g. Steak -> Cooking).
 
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
@@ -10,7 +13,7 @@ import { useApi } from '@/lib/api'
 import { Field, Input, Btn, PriceInput } from './shared'
 
 function emptyGroup() {
-  return { name: '', price_mode: 'base', min_select: 1, max_select: 1, options: [{ label: '', price_pence: 0 }] }
+  return { name: '', price_mode: 'base', min_select: 1, max_select: 1, pos_prefixes: false, options: [{ label: '', price_pence: 0, child_group_id: null }] }
 }
 
 export function VariantGroupsManager() {
@@ -21,6 +24,7 @@ export function VariantGroupsManager() {
     queryFn:  () => api.get('/menus/variant-groups'),
   })
   const [draft, setDraft] = useState(null) // null | { id?: uuid, name, options }
+  const [confirmDel, setConfirmDel] = useState(null) // group id asking "are you sure"
 
   const save = useMutation({
     mutationFn: () => {
@@ -30,6 +34,7 @@ export function VariantGroupsManager() {
         price_mode: draft.price_mode || 'base',
         min_select: Math.max(0, Number(draft.min_select ?? 1)),
         max_select: Math.max(1, Number(draft.max_select ?? 1)),
+        pos_prefixes: !!draft.pos_prefixes,
         sort_order: draft.id ? (groups.find(g => g.id === draft.id)?.sort_order ?? 0) : groups.length,
         options: (draft.options || [])
           .filter(o => o.label.trim())
@@ -37,6 +42,7 @@ export function VariantGroupsManager() {
             id: o.id,
             label: o.label.trim(),
             price_pence: o.price_pence ?? 0,
+            child_group_id: o.child_group_id || null,
             sort_order: i,
           })),
       }
@@ -66,6 +72,7 @@ export function VariantGroupsManager() {
       price_mode: g.price_mode || 'base',
       min_select: g.min_select ?? 1,
       max_select: g.max_select ?? 1,
+      pos_prefixes: !!g.pos_prefixes,
       options: (g.options || []).map(o => ({ ...o })),
     })
   }
@@ -88,11 +95,19 @@ export function VariantGroupsManager() {
             <span className="text-xs text-muted-foreground truncate max-w-[40%]">
               {(g.options || []).map(o => o.label).join(', ') || 'No options'}
             </span>
-            <button onClick={() => editGroup(g)} className="text-xs text-primary hover:underline shrink-0">Edit</button>
-            <button onClick={() => { if (window.confirm(`Delete group "${g.name}"? Dishes will lose this group.`)) del.mutate(g.id) }}
-              className="text-destructive hover:bg-destructive/10 p-1.5 rounded shrink-0">
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <button onClick={() => editGroup(g)} className="text-xs text-primary hover:underline shrink-0 min-h-[44px] px-2">Edit</button>
+            {confirmDel === g.id ? (
+              <span className="inline-flex items-center gap-1 shrink-0">
+                <button onClick={() => { setConfirmDel(null); del.mutate(g.id) }}
+                  className="text-xs rounded-md px-2 min-h-[40px] bg-destructive text-destructive-foreground touch-manipulation">Delete: dishes lose it</button>
+                <button onClick={() => setConfirmDel(null)} className="text-xs rounded-md px-2 min-h-[40px] border touch-manipulation">Cancel</button>
+              </span>
+            ) : (
+              <button onClick={() => setConfirmDel(g.id)} aria-label={'Delete ' + g.name}
+                className="text-destructive hover:bg-destructive/10 p-1.5 rounded shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         ))}
         {groups.length === 0 && (
@@ -135,6 +150,17 @@ export function VariantGroupsManager() {
               A protein or size choice: dish price, pick 1. Extras: added on top, at least 0, at most as many as allowed.
             </p>
           </div>
+          <div className="rounded-md border bg-background p-3 space-y-2">
+            <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Till</p>
+            <label className="flex items-start gap-2 text-sm min-h-[40px] touch-manipulation">
+              <input type="checkbox" className="mt-1" checked={!!draft.pos_prefixes}
+                onChange={e => setDraft(d => ({ ...d, pos_prefixes: e.target.checked }))} />
+              <span>Offer No, Light, Extra and On the side
+                <span className="block text-[11px] text-muted-foreground">For toppings and sauces. No and Light are free; Extra and On the side charge the option's price.</span>
+              </span>
+            </label>
+            <p className="text-[11px] text-muted-foreground">An option can also ask another group when it's picked on the till (e.g. Steak, then Cooking): choose it under "Then ask" next to the option.</p>
+          </div>
           <div className="space-y-1.5">
             <p className="text-[10px] uppercase font-semibold text-muted-foreground tracking-wide">Options + default price</p>
             {(draft.options || []).map((o, i) => (
@@ -153,13 +179,25 @@ export function VariantGroupsManager() {
                     return { ...d, options }
                   })}
                   placeholder="£0.00" className="w-28 font-mono" />
+                {groups.some(g => g.id !== draft.id) && (
+                  <select value={o.child_group_id || ''} aria-label={'Then ask, for ' + (o.label || 'this option')}
+                    onChange={e => setDraft(d => {
+                      const options = d.options.slice()
+                      options[i] = { ...options[i], child_group_id: e.target.value || null }
+                      return { ...d, options }
+                    })}
+                    className="text-xs border rounded-md px-1 min-h-[36px] bg-background max-w-[130px]">
+                    <option value="">Then ask: nothing</option>
+                    {groups.filter(g => g.id !== draft.id).map(g => <option key={g.id} value={g.id}>Then ask: {g.name}</option>)}
+                  </select>
+                )}
                 <button onClick={() => setDraft(d => ({ ...d, options: d.options.filter((_, j) => j !== i) }))}
                   className="text-destructive hover:bg-destructive/10 p-1 rounded">
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
             ))}
-            <button onClick={() => setDraft(d => ({ ...d, options: [...d.options, { label: '', price_pence: 0 }] }))}
+            <button onClick={() => setDraft(d => ({ ...d, options: [...d.options, { label: '', price_pence: 0, child_group_id: null }] }))}
               className="text-xs text-primary hover:underline inline-flex items-center gap-1">
               <Plus className="w-3 h-3" /> Add option
             </button>

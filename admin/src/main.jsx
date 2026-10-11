@@ -80,6 +80,9 @@ import Dashboards      from '@/pages/Dashboards'
 import HSActionLog     from '@/pages/HSActionLog'
 import Orders          from '@/pages/Orders'
 import OrderingSettings from '@/pages/OrderingSettings'
+import PosSetup from '@/pages/PosSetup'
+import PosFloor from '@/pages/PosFloor'
+import PosReports from '@/pages/PosReports'
 import Promotions from '@/pages/Promotions'
 import MobileOrders    from '@/pages/mobile/MobileOrders'
 import MobileAllergens from '@/pages/mobile/MobileAllergens'
@@ -167,6 +170,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
                 <Route path="customers" element={<Customers />} />
                 <Route path="orders" element={<Orders />} />
                 <Route path="orders/settings" element={<OrderingSettings />} />
+                <Route path="pos" element={<PosSetup />} />
+                <Route path="pos/floor" element={<PosFloor />} />
+                <Route path="pos/reports" element={<PosReports />} />
                 <Route path="promotions" element={<Promotions />} />
                 <Route path="venues"    element={<Venues />} />
                 <Route path="tables"   element={<Tables />} />
