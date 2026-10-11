@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — Cash Recon: fill from Loyverse]
+
+- **Loyverse link** (Cash Recon settings → **Loyverse**, owners and admins): add a Loyverse access token (checked with Loyverse before it is saved, never shown again), pick the venue's Loyverse **store** and when its **trading day starts** (e.g. 04:00 for venues open past midnight).
+- **Field mapping**: each income source, service charge source and payment channel is filled with a sum of Loyverse figures, each added or subtracted: gross sales, net sales, refunds, discounts, taxes, tips, surcharges, total collected, one **item** (e.g. a Gratuity item), a **category**, or a **payment type** (tender). For example income "Loyverse sales" = Gross sales − item Gratuity; service charge "Gratuity" = item Gratuity + Tips; each takings channel = its payment type. **Match payment types by name** maps channels in one go.
+- **Fill from Loyverse** on a day (also on the phone Cash Up page), the week grid and the week cards: a window shows each mapped line with the Loyverse figure next to what Cash Recon has, the day's receipts, and payment types not mapped to a channel. Tick the days and fill. Only mapped lines are written, their notes stay, and submitted days are never changed.
+- Income, takings and service charge amounts can now be negative (a day where refunds were bigger than sales), shown as −£x.
+- **Fixed**: saving a cell in the week grid wiped that day's note and reset each expense's VAT and "paid by card". A venue with no booking schedule showed no days in the week grid; it now shows every day.
+- Migration **154** (`loyverse_connections`, `loyverse_venue_links`, `cash_daily_reports.loyverse_filled_at` / `_by`).
+
+---
+
 ## [2026-10-11 — AI assistant: purchasing by chat]
 
 - **Ask AI** (and your own AI app through the staff connector) can now work with Purchasing, alongside bookings and H&S. Every change shows a card with the details and a **Confirm** button; nothing changes until it is pressed.

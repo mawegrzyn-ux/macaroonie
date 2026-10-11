@@ -54,7 +54,7 @@ import { httpError }                    from '../middleware/error.js'
 import { getStorage }                   from '../services/storageSvc.js'
 import path                             from 'node:path'
 import { randomUUID }                   from 'node:crypto'
-import { resolveOpenDaysForWeek }       from '../services/openDays.js'
+import { openDatesOrNull }              from '../services/openDays.js'
 
 // ── Schemas ───────────────────────────────────────────────────
 
@@ -132,23 +132,25 @@ const CategoryPatch = z.object({
 })
 
 // Daily report schemas
+// Income, takings and SC amounts may be negative: a day where refunds are
+// bigger than sales (e.g. filled from Loyverse) is a real figure.
 const IncomeEntrySchema = z.object({
   source_id:    UUID,
-  gross_amount: z.coerce.number().min(0).default(0),
-  vat_amount:   z.coerce.number().min(0).default(0),
-  net_amount:   z.coerce.number().min(0).default(0),
+  gross_amount: z.coerce.number().default(0),
+  vat_amount:   z.coerce.number().default(0),
+  net_amount:   z.coerce.number().default(0),
   notes:        z.string().max(500).nullable().optional(),
 })
 
 const TakingsEntrySchema = z.object({
   channel_id: UUID,
-  amount:     z.coerce.number().min(0).default(0),
+  amount:     z.coerce.number().default(0),
   notes:      z.string().max(500).nullable().optional(),
 })
 
 const ScEntrySchema = z.object({
   source_id: UUID,
-  amount:    z.coerce.number().min(0).default(0),
+  amount:    z.coerce.number().default(0),
   notes:     z.string().max(500).nullable().optional(),
 })
 
@@ -1096,7 +1098,8 @@ export default async function cashReconRoutes(app) {
       }
 
       // Resolve which days the venue is actually open (schedule-aware)
-      const openDates = await resolveOpenDaysForWeek(tx, req.tenantId, venueId, dates)
+      // A venue with no booking schedule is open every day (null = show all).
+      const openDates = await openDatesOrNull(tx, req.tenantId, venueId, dates)
 
       return {
         dates,
@@ -1148,12 +1151,14 @@ export default async function cashReconRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await assertVenueOwnership(tx, req.tenantId, venueId)
 
-      // Upsert the report header
+      // Upsert the report header. A body without `notes` (the week grid
+      // saves a day without loading its note) keeps the note it has.
+      const sendsNotes = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'notes')
       const [report] = await tx`
         INSERT INTO cash_daily_reports (tenant_id, venue_id, report_date, notes)
         VALUES (${req.tenantId}, ${venueId}, ${date}::date, ${body.notes ?? null})
         ON CONFLICT (tenant_id, venue_id, report_date) DO UPDATE
-          SET notes      = EXCLUDED.notes,
+          SET notes      = CASE WHEN ${sendsNotes} THEN EXCLUDED.notes ELSE cash_daily_reports.notes END,
               updated_at = now()
         RETURNING *
       `

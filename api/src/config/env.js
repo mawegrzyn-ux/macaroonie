@@ -46,6 +46,10 @@ const schema = z.object({
   AI_MODEL:              z.string().default('claude-opus-5-5'),
   AI_EFFORT:             z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
 
+  // Loyverse POS API (migration 154). Only changed for testing against a
+  // stand-in server; tokens are per tenant, saved in Cash Recon settings.
+  LOYVERSE_API_URL:      z.string().url().default('https://api.loyverse.com/v1.0'),
+
   // Storage driver — 'local' writes to UPLOAD_DIR, 's3' writes to an
   // S3-compatible bucket (AWS S3, DigitalOcean Spaces, Cloudflare R2, …).
   STORAGE_DRIVER:        z.enum(['local', 's3']).default('local'),

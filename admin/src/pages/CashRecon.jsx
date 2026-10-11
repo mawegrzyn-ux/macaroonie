@@ -23,6 +23,7 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
+import { LoyverseSettings, LoyverseFillButton } from '@/components/cashRecon/Loyverse'
 import { splitPay } from '@shared/payMethod.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -86,7 +87,8 @@ export function CardBadge() {
 
 export function fmt(amount) {
   if (amount == null || amount === '' || isNaN(Number(amount))) return '—'
-  return `£${Number(amount).toFixed(2)}`
+  const n = Number(amount)
+  return (Math.round(n * 100) < 0 ? '-' : '') + `£${Math.abs(n).toFixed(2)}`
 }
 
 export function parseNum(v) {
@@ -260,7 +262,6 @@ function AmountInput({ value, onChange, onBlur, placeholder = '0.00', className 
       type="number"
       inputMode="decimal"
       step="0.01"
-      min="0"
       placeholder={placeholder}
       value={value}
       onChange={e => onChange(e.target.value)}
@@ -613,7 +614,8 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
 
       const expenses = (day?.expenses ?? []).map(e => ({
         id: e.id, description: e.description, category: e.category ?? null,
-        category_id: e.category_id ?? null, amount: parseFloat(e.amount ?? 0), notes: e.notes ?? null,
+        category_id: e.category_id ?? null, amount: parseFloat(e.amount ?? 0),
+        vat_amount: parseFloat(e.vat_amount ?? 0), paid_by_card: !!e.paid_by_card, notes: e.notes ?? null,
       }))
 
       await api.put(`/venues/${venueId}/cash-recon/daily/${date}`, { income, sc, takings, expenses })
@@ -656,7 +658,8 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
         }))
         const expenses = (day?.expenses ?? []).map(e => ({
           id: e.id, description: e.description, category: e.category ?? null,
-          category_id: e.category_id ?? null, amount: parseFloat(e.amount ?? 0), notes: e.notes ?? null,
+          category_id: e.category_id ?? null, amount: parseFloat(e.amount ?? 0),
+          vat_amount: parseFloat(e.vat_amount ?? 0), paid_by_card: !!e.paid_by_card, notes: e.notes ?? null,
         }))
 
         // PUT creates the report if it doesn't exist yet; also flushes any overrides
@@ -774,6 +777,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
               className="flex items-center justify-center w-8 h-8 rounded-lg touch-manipulation hover:bg-muted"><ChevronRight className="w-4 h-4" /></button>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
+            <LoyverseFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
             {pendingCount > 0 && (
               <button
                 type="button"
@@ -1043,6 +1047,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
             This week
           </button>
         )}
+        <LoyverseFillButton venueId={venueId} dates={days} />
         <button type="button" onClick={onToggleMode} title="Spreadsheet view"
           className="flex items-center justify-center w-10 h-10 rounded-xl touch-manipulation hover:bg-muted transition-colors">
           <Table2 className="w-5 h-5" />
@@ -1394,7 +1399,8 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
               <SaveIndicator saving={saving} saved={saved} error={saveErr} />
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap justify-end items-center gap-2">
+            {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
             {!isSubmitted && (
               <button
                 type="button"
@@ -1420,6 +1426,12 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
       )}
 
       <div className="p-4 space-y-4 pb-32">
+
+        {hideHeader && !isSubmitted && (
+          <div className="flex justify-end empty:hidden">
+            <LoyverseFillButton venueId={venueId} dates={[date]} />
+          </div>
+        )}
 
         {/* Section 1: Income */}
         <SectionCard
@@ -2024,6 +2036,7 @@ function SettingsView({ venueId, onBack }) {
     { key: 'channels', label: 'Payment Channels' },
     { key: 'sc',       label: 'Service Charges' },
     { key: 'expenses', label: 'Categories' },
+    { key: 'loyverse', label: 'Loyverse' },
   ]
 
   return (
@@ -2059,6 +2072,7 @@ function SettingsView({ venueId, onBack }) {
         {tab === 'channels' && <PaymentChannelsTab   venueId={venueId} items={config?.payment_channels  ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'sc'       && <ScSourcesTab         venueId={venueId} items={config?.sc_sources        ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'expenses' && <ExpenseCategoriesTab venueId={venueId} items={config?.expense_categories ?? []} onRefetch={refetchConfig} api={api} />}
+        {tab === 'loyverse' && <LoyverseSettings venueId={venueId} config={config} />}
       </div>
     </div>
   )

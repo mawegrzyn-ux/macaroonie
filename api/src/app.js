@@ -47,6 +47,7 @@ import changelogRoutes       from './routes/changelog.js'
 import inventoryRoutes       from './routes/inventory.js'
 import supplierRoutes        from './routes/suppliers.js'
 import purchasingRoutes      from './routes/purchasing.js'
+import loyverseRoutes        from './routes/loyverse.js'
 import testDataRoutes        from './routes/testData.js'
 import foodSafetyRoutes      from './routes/foodSafety.js'
 import checklistsRoutes      from './routes/checklists.js'
@@ -217,6 +218,7 @@ export async function buildApp() {
   await app.register(inventoryRoutes,        { prefix: '/api/inventory' })
   await app.register(supplierRoutes,         { prefix: '/api/suppliers' })
   await app.register(purchasingRoutes,       { prefix: '/api/purchasing' })
+  await app.register(loyverseRoutes,         { prefix: '/api/loyverse' })
   await app.register(testDataRoutes,         { prefix: '/api/venues' })
   await app.register(foodSafetyRoutes,       { prefix: '/api/food-safety' })
   await app.register(checklistsRoutes,       { prefix: '/api/checklists' })

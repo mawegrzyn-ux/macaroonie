@@ -1224,7 +1224,8 @@ export default function Help() {
             <H3>Settings</H3>
             <P>
               The gear icon manages your income sources, payment channels, service charge
-              sources and expense categories, all drag-reorderable. The staff list has moved to its
+              sources and expense categories, all drag-reorderable, and the venue's Loyverse link
+              (see Fill from Loyverse below). The staff list has moved to its
               own <strong>Staff</strong> page in the sidebar (see Staff &amp; Rota).
             </P>
             <H3>Staff list — Fixed or Hourly</H3>
@@ -1264,6 +1265,56 @@ export default function Help() {
               up in the Service Charges &amp; Tips section and its own total, it just won't be
               factored into the Variance line. You can always come back and set the effects once
               you've worked out how that particular charge flows through your till.
+            </InfoBox>
+            <H3>Fill from Loyverse</H3>
+            <P>
+              If the venue sells through a <strong>Loyverse</strong> till, Cash Recon can fill a day's
+              income, service charges and takings from Loyverse instead of you typing them in. Set it up
+              once per venue in Cash Recon settings (gear icon) &gt; <strong>Loyverse</strong> (owners
+              and admins):
+            </P>
+            <DataTable
+              head={['Step', 'What to do']}
+              rows={[
+                ['1. Add the account', 'In the Loyverse Back Office open Integrations > Access tokens, add a token, then paste it under Loyverse accounts > Add account. It is checked with Loyverse before it is saved and is never shown again. One account can serve several venues; add more accounts if your venues use different Loyverse logins.'],
+                ['2. Pick the store', 'Under This venue, choose the account and the Loyverse store that is this venue.'],
+                ['3. Trading day start', 'Sales before this time count on the day before. Leave 00:00 if you close before midnight; set e.g. 04:00 if you trade past midnight.'],
+                ['4. Map the lines', 'Each income source, service charge source and payment channel gets a list of Loyverse figures. Tap Add, choose Add (+) or Subtract (-), then a figure. The line is filled with the sum. Tap + or - on a figure to flip it, or x to remove it. Lines with nothing mapped are never changed.'],
+                ['5. Save', 'Nothing is kept until you tap Save. Match payment types by name maps each payment channel to the Loyverse payment type with the same name in one go.'],
+              ]}
+            />
+            <DataTable
+              head={['Figure', 'What it is']}
+              rows={[
+                ['Gross sales', 'Every item sold, before discounts and refunds (as in the Loyverse sales summary).'],
+                ['Net sales', 'Gross sales less refunds and discounts.'],
+                ['Refunds / Discounts / Taxes', 'What was refunded, discounted or charged in tax that day (refunded discounts and tax are taken off).'],
+                ['Tips / Surcharges', 'Tips and surcharges added at payment, less any refunded.'],
+                ['Total collected', 'Money taken by every payment type, less money refunded.'],
+                ['Item', 'One item, e.g. a Gratuity item rung up on the bill: its sales after discounts, less refunds of it.'],
+                ['Category', 'Every item in a Loyverse category, after discounts, less refunds.'],
+                ['Payment type', 'Money taken by one payment type (Cash, Card, Deliveroo...), less money refunded to it.'],
+              ]}
+            />
+            <P>
+              A typical setup: income <em>Loyverse sales</em> = Gross sales minus the Gratuity item;
+              service charge <em>Gratuity</em> = the Gratuity item plus Tips; each takings channel = its
+              payment type.
+            </P>
+            <P>
+              Then tap <strong>Fill from Loyverse</strong> on a day (top of the day) or a week (top of
+              the week grid or week cards). A window shows each mapped line with the Loyverse figure and
+              what Cash Recon has now ("same now", "empty now" or the current amount), plus the
+              day's receipts, gross sales and any payment types Loyverse took money on that are not
+              mapped to a channel. Tick the days to fill and tap <strong>Fill</strong>. Only mapped lines
+              are written, their notes stay, and <strong>submitted days are never changed</strong>
+              (unsubmit first). You can fill the same day again after late sales; it just rewrites the
+              mapped lines. A day where refunds were bigger than sales can show a minus figure.
+            </P>
+            <InfoBox type="tip">
+              If Loyverse stops accepting the token (it was deleted or the account changed), the fill
+              window says so and the account shows the error under Loyverse accounts. Make a new token
+              in Loyverse and use <strong>Replace token</strong>.
             </InfoBox>
           </section>
 
