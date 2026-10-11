@@ -5,7 +5,7 @@
 
 import { useState } from 'react'
 import { Plus, Trash2, Clock, X, CalendarDays } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, openPicker } from '@/lib/utils'
 import { DAY_SHORT, isScheduled, scheduleLabel } from '@shared/menuSchedule.js'
 
 // Date as a styled button over an invisible native date input (design rule 10).
@@ -17,7 +17,7 @@ export function DateButton({ label, value, onChange }) {
         <CalendarDays className="w-4 h-4 text-muted-foreground" />
         <span className="text-muted-foreground">{label}</span>
         <span className="font-medium">{text}</span>
-        <input type="date" value={value || ''} onChange={e => onChange(e.target.value || null)} aria-label={label}
+        <input type="date" value={value || ''} onChange={e => onChange(e.target.value || null)} onClick={openPicker} aria-label={label}
           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
       </label>
       {value && (

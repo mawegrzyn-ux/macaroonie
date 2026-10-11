@@ -12,7 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO } from 'date-fns'
 import { ChevronLeft, ChevronRight, Download, Search, ChevronDown, Eye, EyeOff, TriangleAlert, UserSearch, Lock, Plus } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
+import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS, openPicker } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
@@ -248,6 +248,7 @@ export default function Bookings() {
               type="date"
               value={date}
               onChange={e => { setDate(e.target.value); setSelected(null) }}
+              onClick={openPicker}
               className="absolute inset-0 opacity-0 cursor-pointer w-full"
             />
           </div>

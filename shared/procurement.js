@@ -244,7 +244,7 @@ export function supplierForVenue(supplier, venueRow) {
 export function nextDeliveryDate({ delivery_days, cutoff_time, lead_days = 1 }, now) {
   let orderDay = now.date
   const cut = cutoff_time ? String(cutoff_time).slice(0, 5) : null
-  if (cut && now.time > cut) orderDay = addDays(orderDay, 1)
+  if (cut && now.time >= cut) orderDay = addDays(orderDay, 1)   // at the cutoff it has passed (minutesToCutoff() <= 0)
   let d = addDays(orderDay, num(lead_days))
   const days = (delivery_days || []).map(Number)
   if (!days.length) return d
@@ -253,6 +253,24 @@ export function nextDeliveryDate({ delivery_days, cutoff_time, lead_days = 1 }, 
     d = addDays(d, 1)
   }
   return d
+}
+
+/**
+ * The supplier's next few delivery dates, starting from its next possible
+ * one (`next_delivery`, already past today's cutoff when that has gone):
+ * the quick choices when placing an order. Every day counts when the
+ * supplier has no delivery days set.
+ */
+export function deliveryDateChoices({ delivery_days, next_delivery }, count = 4) {
+  if (!next_delivery) return []
+  const days = (delivery_days || []).map(Number)
+  const out = []
+  let d = next_delivery
+  for (let i = 0; i < 28 && out.length < count; i++) {
+    if (!days.length || days.includes(weekdayOf(d))) out.push(d)
+    d = addDays(d, 1)
+  }
+  return out
 }
 
 /** Is it still before today's cutoff? (null when the supplier has no cutoff.) */

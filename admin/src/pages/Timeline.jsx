@@ -18,7 +18,7 @@ import { restrictToWindowEdges } from '@dnd-kit/modifiers'
 import { ChevronLeft, ChevronRight, Plus, TriangleAlert, Phone, Info, Lock } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
-import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS } from '@/lib/utils'
+import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS, openPicker } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
@@ -1072,6 +1072,7 @@ export default function Timeline() {
             type="date"
             value={date}
             onChange={e => setDate(e.target.value)}
+            onClick={openPicker}
             className="absolute inset-0 opacity-0 cursor-pointer w-full"
           />
         </div>
