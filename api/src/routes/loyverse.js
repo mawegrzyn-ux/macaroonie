@@ -27,6 +27,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { checkToken, tokenHint, loadCatalog, loadStores, venueDays, datesBetween, LoyverseError } from '../services/loyverseSvc.js'
+import { fillReconDay, reconFields } from '../services/reconFill.js'
 import { isValidTerm, sumTerms, MAPPING_GROUPS } from '../../../shared/loyverse.js'
 
 const UUID = z.string().uuid()
@@ -66,7 +67,6 @@ const PreviewBody = z.object({ from: DATE, to: DATE })
 const ApplyBody   = z.object({ dates: z.array(DATE).min(1).max(MAX_DAYS) })
 
 const pounds = p => Math.round(p) / 100
-const round2 = v => Math.round(v * 100) / 100
 
 function connectionView(c) {
   return {
@@ -97,17 +97,6 @@ async function ownConnection(tx, tenantId, id) {
 }
 
 /** The venue's active Cash Recon fields, in day-view order. */
-async function reconFields(tx, tenantId, venueId) {
-  const [income, sc, takings] = await Promise.all([
-    tx`SELECT id, name, vat_rate::float8 AS vat_rate, vat_inclusive FROM cash_income_sources
-        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active = true ORDER BY sort_order, name`,
-    tx`SELECT id, name FROM cash_sc_sources
-        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active = true ORDER BY sort_order, name`,
-    tx`SELECT id, name FROM cash_payment_channels
-        WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active = true ORDER BY sort_order, name`,
-  ])
-  return { income, sc, takings }
-}
 
 /** Mapped fields that still exist: [{ key, group, id, name, terms, source }]. */
 function mappedFields(fields, mappings) {
@@ -413,59 +402,13 @@ export default async function loyverseRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       const filled = [], skipped = []
       for (const date of wanted) {
-        await tx`
-          INSERT INTO cash_daily_reports (tenant_id, venue_id, report_date)
-          VALUES (${req.tenantId}, ${venueId}, ${date}::date)
-          ON CONFLICT (tenant_id, venue_id, report_date) DO NOTHING
-        `
-        const [report] = await tx`
-          SELECT id, status FROM cash_daily_reports
-           WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND report_date = ${date}::date
-           FOR UPDATE
-        `
-        if (report.status === 'submitted') { skipped.push({ date, reason: 'submitted' }); continue }
-
         const day = figures[date]
-        for (const f of fields) {
-          const amount = pounds(sumTerms(day, f.terms))
-          if (f.group === 'income') {
-            const rate = Number(f.source.vat_rate || 0) / 100
-            let vat = 0, net = amount
-            if (rate > 0) {
-              if (f.source.vat_inclusive) { net = amount / (1 + rate); vat = amount - net }
-              else vat = amount * rate
-            }
-            const [old] = await tx`
-              DELETE FROM cash_income_entries
-               WHERE tenant_id = ${req.tenantId} AND report_id = ${report.id} AND source_id = ${f.id}
-              RETURNING notes`
-            await tx`
-              INSERT INTO cash_income_entries (tenant_id, report_id, source_id, gross_amount, vat_amount, net_amount, notes)
-              VALUES (${req.tenantId}, ${report.id}, ${f.id}, ${amount}, ${round2(vat)}, ${round2(net)}, ${old?.notes ?? null})`
-          } else if (f.group === 'takings') {
-            const [old] = await tx`
-              DELETE FROM cash_takings_entries
-               WHERE tenant_id = ${req.tenantId} AND report_id = ${report.id} AND channel_id = ${f.id}
-              RETURNING notes`
-            await tx`
-              INSERT INTO cash_takings_entries (tenant_id, report_id, channel_id, amount, notes)
-              VALUES (${req.tenantId}, ${report.id}, ${f.id}, ${amount}, ${old?.notes ?? null})`
-          } else {
-            const [old] = await tx`
-              DELETE FROM cash_sc_entries
-               WHERE tenant_id = ${req.tenantId} AND report_id = ${report.id} AND source_id = ${f.id}
-              RETURNING notes`
-            await tx`
-              INSERT INTO cash_sc_entries (tenant_id, report_id, source_id, amount, notes)
-              VALUES (${req.tenantId}, ${report.id}, ${f.id}, ${amount}, ${old?.notes ?? null})`
-          }
-        }
-        await tx`
-          UPDATE cash_daily_reports
-             SET loyverse_filled_at = now(), loyverse_filled_by = ${by(req)}, updated_at = now()
-           WHERE id = ${report.id} AND tenant_id = ${req.tenantId}
-        `
-        filled.push(date)
+        const r = await fillReconDay(tx, {
+          tenantId: req.tenantId, venueId, date, source: 'loyverse', by: by(req),
+          fields: fields.map(f => ({ group: f.group, id: f.id, source: f.source, amount: pounds(sumTerms(day, f.terms)) })),
+        })
+        if (r.skipped) skipped.push({ date, reason: r.skipped })
+        else filled.push(date)
       }
       return { filled, skipped }
     })

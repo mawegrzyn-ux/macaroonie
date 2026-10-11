@@ -1,0 +1,462 @@
+// POS core tests: pricing, the check rules, print routing, the sequencer
+// (with an in-memory store, as the hub's SQLite store will be) and reports.
+// Run: node --test shared/pos/test/
+
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { ulid, isId } from '../ids.js'
+import { priceItem, checkTotals, spread, lineGross, promoLines } from '../pricing.js'
+import { applyEvent, replay, checkLabel } from '../checks.js'
+import { routeFor, jobsForEvent } from '../printing.js'
+import { createSequencer } from '../sequencer.js'
+import { dayFigures, businessDate } from '../reports.js'
+import { toText } from '../tickets.js'
+
+const uuid = () => globalThis.crypto.randomUUID()
+
+// ── Fixture ─────────────────────────────────────────────────────
+const VENUE = uuid()
+const SERVER = uuid(), SUPER = uuid(), MANAGER = uuid()
+const staffById = {
+  [SERVER]:  { id: SERVER,  name: 'Anna', permissions: { discount_max_pct: 0, transfer: true } },
+  [SUPER]:   { id: SUPER,   name: 'Ben',  permissions: { void: true, comp: true, discount_max_pct: 25, manager: true, transfer: true, reopen: true, take_over: true } },
+  [MANAGER]: { id: MANAGER, name: 'Cara', permissions: { void: true, refund: true, comp: true, discount_max_pct: 100, manager: true, close_day: true, reopen: true, open_drawer: true, transfer: true } },
+}
+const STARTERS = uuid(), MAINS = uuid(), DRINKS_SECTION = uuid(), FOOD_SECTION = uuid()
+const KITCHEN = uuid(), BAR = uuid(), RECEIPT = uuid()
+const RC_REST = uuid(), RC_TAKEAWAY = uuid()
+const TABLE5 = uuid()
+const PROTEIN = uuid(), TOPPINGS = uuid(), COOKING = uuid()
+const CHICKEN = uuid(), PRAWN = uuid(), EGG = uuid(), ONION = uuid(), RARE = uuid(), WELL = uuid()
+const groupsById = {
+  [PROTEIN]:  { id: PROTEIN, name: 'Protein', price_mode: 'base', min_select: 1, max_select: 1, options: [{ id: CHICKEN, label: 'Chicken', price_pence: 1250 }, { id: PRAWN, label: 'Prawns', price_pence: 1395, child_group_id: null }] },
+  [TOPPINGS]: { id: TOPPINGS, name: 'Toppings', price_mode: 'extra', min_select: 0, max_select: 2, pos_prefixes: true, options: [{ id: EGG, label: 'Egg', price_pence: 100 }, { id: ONION, label: 'Onion', price_pence: 50 }] },
+  [COOKING]:  { id: COOKING, name: 'Cooking', price_mode: 'base', min_select: 1, max_select: 1, options: [{ id: RARE, label: 'Rare', price_pence: 0 }, { id: WELL, label: 'Well done', price_pence: 0 }] },
+}
+const PAD_THAI = { id: uuid(), name: 'Pad Thai', section_id: FOOD_SECTION, price_pence: null,
+  variant_groups: [
+    { group_id: PROTEIN, name: 'Protein', price_mode: 'base', min_select: 1, max_select: 1, options: [{ option_id: CHICKEN, label: 'Chicken', price_pence: 1250 }, { option_id: PRAWN, label: 'Prawns', price_pence: 1395 }] },
+    { group_id: TOPPINGS, name: 'Toppings', price_mode: 'extra', min_select: 0, max_select: 2, options: [{ option_id: EGG, label: 'Egg', price_pence: 100 }, { option_id: ONION, label: 'Onion', price_pence: 50 }] },
+  ] }
+// Steak: choosing it opens the Cooking group (nested).
+const STEAK_GROUP = uuid(), STEAK_OPT = uuid()
+groupsById[STEAK_GROUP] = { id: STEAK_GROUP, name: 'Add', price_mode: 'extra', min_select: 0, max_select: 1, options: [{ id: STEAK_OPT, label: 'Steak', price_pence: 500, child_group_id: COOKING }] }
+const SALAD = { id: uuid(), name: 'Salad', section_id: FOOD_SECTION, price_pence: 800, variant_groups: [
+  { group_id: STEAK_GROUP, name: 'Add', price_mode: 'extra', min_select: 0, max_select: 1, options: [{ option_id: STEAK_OPT, label: 'Steak', price_pence: 500 }] },
+] }
+const COLA = { id: uuid(), name: 'Cola', section_id: DRINKS_SECTION, price_pence: 300, variant_groups: [] }
+const BURGER = { id: uuid(), name: 'Burger', section_id: FOOD_SECTION, price_pence: 1000, variant_groups: [] }
+const DEAL = { id: uuid(), name: 'Burger meal', kind: 'combo', section_id: FOOD_SECTION, price_pence: 1200, variant_groups: [],
+  combo_slots: [
+    { id: uuid(), name: 'Main', min: 1, max: 1, options: [{ item_id: BURGER.id, upcharge_pence: 0 }] },
+    { id: uuid(), name: 'Drink', min: 1, max: 1, options: [{ item_id: COLA.id, upcharge_pence: 50 }] },
+  ] }
+const itemsById = Object.fromEntries([PAD_THAI, SALAD, COLA, BURGER, DEAL].map(i => [i.id, i]))
+
+const print = {
+  printers: { [KITCHEN]: { id: KITCHEN, name: 'Kitchen' }, [BAR]: { id: BAR, name: 'Bar' }, [RECEIPT]: { id: RECEIPT, name: 'Till' } },
+  routes: [
+    { printer_id: KITCHEN, target_kind: 'default', target_id: null },
+    { printer_id: BAR, target_kind: 'section', target_id: DRINKS_SECTION },
+  ],
+  tables: { [TABLE5]: { label: '5' } },
+  staff: Object.fromEntries(Object.values(staffById).map(s => [s.id, { name: s.name }])),
+  courses: { [STARTERS]: { name: 'Starters', sort_order: 1 }, [MAINS]: { name: 'Mains', sort_order: 2 } },
+  settings: { vat_number: 'GB 123', receipt_footer: 'Thanks' },
+  venue: { name: 'One Thai' },
+  devices: {},
+}
+
+let clock = Date.parse('2026-10-11T18:00:00Z')
+function ev(type, payload, { check_id = null, staff_id = SERVER, approved_by = null, device_id = 'T1' } = {}) {
+  clock += 1000
+  return { id: ulid(clock), venue_id: VENUE, device_id, staff_id, approved_by, check_id, type, payload, client_at: new Date(clock).toISOString() }
+}
+function line(item, selection = {}, extra = {}) {
+  const priced = priceItem(item, selection, { itemsById, groupsById })
+  assert.ok(priced.ok, priced.error)
+  return {
+    id: ulid(), item_id: item.id, section_id: item.section_id, name: item.name, qty: 1,
+    unit_price: priced.unit_price, modifiers: priced.modifiers, combo: priced.combo, vat_rate: 20, ...extra,
+  }
+}
+
+// ── Pricing ─────────────────────────────────────────────────────
+
+test('ids: ULIDs, ordered', () => {
+  const a = ulid(1000), b = ulid(1000), c = ulid(2000)
+  assert.ok(isId(a) && isId(b) && isId(c))
+  assert.ok(a < b && b < c)
+})
+
+test('spread: whole pence that add up', () => {
+  assert.deepEqual(spread(100, [1, 1, 1]), [34, 33, 33])
+  assert.equal(spread(1000, [300, 700, 0]).reduce((s, x) => s + x, 0), 1000)
+  assert.deepEqual(spread(50, [0, 0]), [0, 0])
+})
+
+test('priceItem: base option sets the price, extras add, No is free, nested groups', () => {
+  const r = priceItem(PAD_THAI, { choices: { [PROTEIN]: [PRAWN], [TOPPINGS]: [{ id: EGG, prefix: 'extra' }, { id: ONION, prefix: 'no' }] } }, { itemsById, groupsById })
+  assert.ok(r.ok)
+  assert.equal(r.unit_price, 1395)
+  assert.equal(lineGross({ ...r, qty: 2 }), (1395 + 100) * 2)
+  assert.equal(r.modifiers.find(m => m.option_id === ONION).price, 0)
+  assert.equal(priceItem(PAD_THAI, { choices: {} }, { itemsById, groupsById }).error, 'Choose protein')
+  // "No" doesn't count toward the limit of 2.
+  assert.ok(priceItem(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN], [TOPPINGS]: [{ id: EGG }, { id: ONION }] } }, { itemsById, groupsById }).ok)
+
+  const steak = priceItem(SALAD, { choices: { [STEAK_GROUP]: [{ id: STEAK_OPT, children: { [COOKING]: [RARE] } }] } }, { itemsById, groupsById })
+  assert.ok(steak.ok, steak.error)
+  assert.equal(lineGross({ ...steak, qty: 1 }), 1300)
+  assert.deepEqual(steak.modifiers.map(m => [m.label, m.depth]), [['Steak', 0], ['Rare', 1]])
+  assert.match(priceItem(SALAD, { choices: { [STEAK_GROUP]: [STEAK_OPT] } }, { itemsById, groupsById }).error, /cooking/)
+})
+
+test('priceItem: meal deal with upcharge', () => {
+  const [main, drink] = DEAL.combo_slots
+  const r = priceItem(DEAL, { combo: { [main.id]: [{ item_id: BURGER.id }], [drink.id]: [{ item_id: COLA.id }] } }, { itemsById, groupsById })
+  assert.ok(r.ok, r.error)
+  assert.equal(lineGross({ ...r, qty: 1 }), 1250)
+  assert.match(priceItem(DEAL, { combo: { [main.id]: [{ item_id: BURGER.id }] } }, { itemsById, groupsById }).error, /drink/)
+})
+
+// ── Check rules ─────────────────────────────────────────────────
+
+function open(extra = {}) {
+  const id = ulid()
+  const r = applyEvent({}, ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_centre_id: RC_REST, service_charge: { percent: 12.5 }, ...extra }, { check_id: id }), { staffById })
+  assert.ok(r.ok, r.error)
+  return r.checks[id]
+}
+function apply(check, type, payload, opts = {}) {
+  const r = applyEvent({ [check.id]: check, ...(opts.others || {}) }, ev(type, payload, { check_id: check.id, ...opts }), { staffById })
+  return r
+}
+const ok = r => { assert.ok(r.ok, r.error); return r }
+
+test('totals: discounts, comps, service charge, VAT', () => {
+  let c = open()
+  const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } })           // 1250
+  const b = line(COLA, {}, { qty: 2, vat_rate: 20 })                          // 600
+  c = ok(apply(c, 'line.added', { line: a })).checks[c.id]
+  c = ok(apply(c, 'line.added', { line: b })).checks[c.id]
+  let t = checkTotals(c)
+  assert.equal(t.subtotal, 1850)
+  assert.equal(t.service_charge, Math.round(1850 * 0.125))
+  // Comp the colas (supervisor), then 10% off the check.
+  assert.equal(apply(c, 'discount.applied', { discount: { id: ulid(), scope: 'line', line_ids: [b.id], comp: true, reason: 'Spilt' } }).code, 'permission')
+  c = ok(apply(c, 'discount.applied', { discount: { id: ulid(), scope: 'line', line_ids: [b.id], comp: true, reason: 'Spilt' } }, { approved_by: SUPER })).checks[c.id]
+  c = ok(apply(c, 'discount.applied', { discount: { id: ulid(), scope: 'check', type: 'percent', value: 10, name: 'Regular' } }, { staff_id: SUPER })).checks[c.id]
+  t = checkTotals(c)
+  assert.equal(t.discount, 600 + 125)
+  assert.equal(t.net, 1125)
+  assert.equal(t.service_charge, Math.round(1125 * 0.125))
+  assert.equal(t.total, 1125 + 141)
+  assert.equal(t.vat_total, Math.round(1125 * 20 / 120))
+  // A supervisor may give up to 25%; 30% needs the manager.
+  assert.equal(apply(c, 'discount.applied', { discount: { id: ulid(), scope: 'check', type: 'percent', value: 30 } }, { staff_id: SUPER }).code, 'permission')
+  // An amount discount counts as the % of what is left: £5 of £11.25 = 45%.
+  assert.equal(apply(c, 'discount.applied', { discount: { id: ulid(), scope: 'check', type: 'amount', value: 500 } }, { staff_id: SUPER }).code, 'permission')
+  ok(apply(c, 'discount.applied', { discount: { id: ulid(), scope: 'check', type: 'amount', value: 200 } }, { staff_id: SUPER }))
+})
+
+test('send, hold and fire courses; delete before send, void after', () => {
+  let c = open()
+  const s = line(SALAD, {}, { course_id: STARTERS })
+  const m = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } }, { course_id: MAINS })
+  const d = line(COLA, {}, { course_id: null })
+  for (const l of [s, m, d]) c = ok(apply(c, 'line.added', { line: l })).checks[c.id]
+  const x = line(COLA)
+  c = ok(apply(c, 'line.added', { line: x })).checks[c.id]
+  c = ok(apply(c, 'line.deleted', { line_id: x.id })).checks[c.id]
+  assert.equal(c.lines.length, 3)
+
+  c = ok(apply(c, 'lines.sent', { send_id: ulid(), line_ids: [s.id, m.id, d.id], held_course_ids: [MAINS] })).checks[c.id]
+  assert.deepEqual(c.lines.map(l => [l.status, l.held]), [['sent', false], ['sent', true], ['sent', false]])
+  assert.equal(apply(c, 'line.deleted', { line_id: s.id }).code, 'sent')
+  assert.equal(apply(c, 'line.changed', { line_id: s.id, qty: 2 }).code, 'sent')
+  ok(apply(c, 'line.changed', { line_id: s.id, seat: 2 }))
+  c = ok(apply(c, 'course.fired', { course_id: MAINS })).checks[c.id]
+  assert.equal(c.lines[1].held, false)
+  assert.equal(apply(c, 'course.fired', { course_id: MAINS }).code, 'nothing')
+
+  // Void: the server needs a manager; partial void splits the line.
+  c = ok(apply(c, 'line.changed', { line_id: d.id, seat: 1 })).checks[c.id]
+  assert.equal(apply(c, 'line.voided', { line_id: m.id, reason: 'Wrong' }).error, 'Needs a manager')
+  assert.equal(apply(c, 'line.voided', { line_id: m.id, reason: 'Wrong' }, { approved_by: SERVER }).code, 'permission')
+  c = ok(apply(c, 'line.voided', { line_id: m.id, reason: 'Wrong dish', waste: true }, { approved_by: SUPER })).checks[c.id]
+  assert.equal(c.lines[1].status, 'voided')
+  assert.equal(c.lines[1].voided.approved_by, SUPER)
+  assert.equal(checkTotals(c).subtotal, 800 + 300)
+})
+
+test('payments: no overpaying, cash change, close only when paid, reopen and refund need rights', () => {
+  let c = open({ service_charge: null })
+  const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } })
+  c = ok(apply(c, 'line.added', { line: a })).checks[c.id]
+  assert.equal(apply(c, 'payment.added', { payment: { id: ulid(), tender: 'card_external', amount: 2000 } }).code, 'overpaid')
+  c = ok(apply(c, 'payment.added', { payment: { id: ulid(), tender: 'card_external', amount: 500, tip: 100 } })).checks[c.id]
+  assert.equal(apply(c, 'check.closed', {}).code, 'balance')
+  c = ok(apply(c, 'payment.added', { payment: { id: ulid(), tender: 'cash', amount: 750, tendered: 1000 } })).checks[c.id]
+  assert.equal(c.payments[1].change, 250)
+  c = ok(apply(c, 'check.closed', {})).checks[c.id]
+  assert.equal(c.status, 'closed')
+  assert.deepEqual([c.final.total, c.final.paid, c.final.tips], [1250, 1250, 100])
+  assert.equal(apply(c, 'line.added', { line: line(COLA) }).code, 'closed')
+  assert.equal(apply(c, 'check.reopened', { reason: 'Forgot drink' }).code, 'permission')
+  assert.equal(apply(c, 'refund.added', { refund: { id: ulid(), tender: 'cash', amount: 300, reason: 'Cold' } }, { approved_by: SUPER }).code, 'permission')
+  c = ok(apply(c, 'refund.added', { refund: { id: ulid(), tender: 'cash', amount: 300, reason: 'Cold' } }, { approved_by: MANAGER })).checks[c.id]
+  assert.equal(c.final.refunded, 300)
+  assert.equal(apply(c, 'refund.added', { refund: { id: ulid(), tender: 'cash', amount: 1000, reason: 'x' } }, { staff_id: MANAGER }).code, 'invalid')
+  c = ok(apply(c, 'check.reopened', { reason: 'Forgot drink' }, { staff_id: SUPER })).checks[c.id]
+  assert.equal(c.status, 'open')
+})
+
+test('move items, merge checks, empty check closes as void', () => {
+  let a = open(), b = open({ table_id: null, mode: 'tab', tab_name: 'Smith' })
+  const x = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } }), y = line(COLA)
+  a = ok(apply(a, 'line.added', { line: x })).checks[a.id]
+  a = ok(apply(a, 'line.added', { line: y })).checks[a.id]
+  a = ok(apply(a, 'discount.applied', { discount: { id: ulid(), scope: 'line', line_ids: [x.id, y.id], comp: true, reason: 'Birthday' } }, { staff_id: SUPER })).checks[a.id]
+  const moved = ok(apply(a, 'lines.moved', { to_check_id: b.id, line_ids: [y.id] }, { others: { [b.id]: b } })).checks
+  a = moved[a.id]; b = moved[b.id]
+  assert.deepEqual(a.lines.map(l => l.id), [x.id])
+  assert.deepEqual(b.lines.map(l => l.id), [y.id])
+  // The comp went with the drink and stayed on the dish.
+  assert.equal(checkTotals(a).net, 0)
+  assert.equal(checkTotals(b).net, 0)
+  assert.notEqual(a.discounts[0].id, b.discounts[0].id)
+
+  const merged = ok(apply(b, 'check.merged', { into_check_id: a.id }, { others: { [a.id]: a } })).checks
+  assert.equal(merged[b.id].status, 'merged')
+  assert.equal(merged[a.id].lines.length, 2)
+  assert.equal(merged[a.id].covers, 4)
+
+  let e = open()
+  e = ok(apply(e, 'check.closed', {})).checks[e.id]
+  assert.equal(e.status, 'void')
+})
+
+test('promotions set by the till come off before check discounts', () => {
+  let c = open({ service_charge: null })
+  const a = line(BURGER), b = line(COLA)
+  c = ok(apply(c, 'line.added', { line: a })).checks[c.id]
+  c = ok(apply(c, 'line.added', { line: b })).checks[c.id]
+  assert.deepEqual(promoLines(c).map(l => l.line_total_pence), [1000, 300])
+  c = ok(apply(c, 'promotions.set', { promotions: [{ promotion_id: uuid(), name: 'Free drink', lines: { [b.id]: 300 } }] })).checks[c.id]
+  c = ok(apply(c, 'discount.applied', { discount: { id: ulid(), scope: 'check', type: 'percent', value: 10 } }, { staff_id: SUPER })).checks[c.id]
+  const t = checkTotals(c)
+  assert.equal(t.promotions, 300)
+  assert.equal(t.net, 900)
+})
+
+// ── Printing ────────────────────────────────────────────────────
+
+test('routing: dish, then section, then revenue centre, then default', () => {
+  const routes = [
+    { printer_id: 'K', target_kind: 'default' },
+    { printer_id: 'B', target_kind: 'section', target_id: 'drinks' },
+    { printer_id: 'P', target_kind: 'item', target_id: 'dessert' },
+    { printer_id: 'T', target_kind: 'revenue_centre', target_id: 'takeaway' },
+  ]
+  assert.deepEqual(routeFor({ item_id: 'x', section_id: 'mains' }, routes), ['K'])
+  assert.deepEqual(routeFor({ item_id: 'x', section_id: 'drinks' }, routes), ['B'])
+  assert.deepEqual(routeFor({ item_id: 'dessert', section_id: 'drinks' }, routes), ['P'])
+  assert.deepEqual(routeFor({ item_id: 'x', section_id: 'mains', revenue_centre_id: 'takeaway' }, routes), ['T'])
+  assert.deepEqual(routeFor({ item_id: 'x' }, []), [])
+})
+
+test('jobs: kitchen and bar tickets, held course, meal deal parts split, void ticket', () => {
+  let c = open()
+  const [main, drink] = DEAL.combo_slots
+  const s = line(SALAD, {}, { course_id: STARTERS, allergies: ['Peanuts'], note: 'No dressing' })
+  const m = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN], [TOPPINGS]: [{ id: ONION, prefix: 'no' }] } }, { course_id: MAINS })
+  const meal = line(DEAL, { combo: { [main.id]: [{ item_id: BURGER.id }], [drink.id]: [{ item_id: COLA.id }] } }, { course_id: MAINS })
+  const cola = line(COLA)
+  for (const l of [s, m, meal, cola]) c = ok(apply(c, 'line.added', { line: l })).checks[c.id]
+  const send = ev('lines.sent', { send_id: ulid(), line_ids: [s.id, m.id, meal.id, cola.id], held_course_ids: [MAINS] }, { check_id: c.id })
+  const r = ok(applyEvent({ [c.id]: c }, send, { staffById }))
+  const jobs = jobsForEvent(send, { [c.id]: c }, r.checks, print)
+  assert.deepEqual(jobs.map(j => j.printer_id).sort(), [KITCHEN, BAR].sort())
+  const kitchen = toText(jobs.find(j => j.printer_id === KITCHEN).ops)
+  assert.match(kitchen, /T A B L E {3}5/)
+  assert.match(kitchen, /STARTERS/)
+  assert.match(kitchen, /MAINS {2}- HOLD/)
+  assert.match(kitchen, /- No Onion/)
+  assert.match(kitchen, /ALLERGY: PEANUTS/)
+  assert.match(kitchen, /> Burger/)
+  assert.doesNotMatch(kitchen, /Cola/)
+  const bar = toText(jobs.find(j => j.printer_id === BAR).ops)
+  assert.match(bar, /1 x Cola/)
+  assert.match(bar, /> Cola/)   // the meal deal's drink goes to the bar
+
+  c = r.checks[c.id]
+  const fire = ev('course.fired', { course_id: MAINS }, { check_id: c.id })
+  const f = ok(applyEvent({ [c.id]: c }, fire, { staffById }))
+  const fireJobs = jobsForEvent(fire, { [c.id]: c }, f.checks, print)
+  assert.match(toText(fireJobs.find(j => j.printer_id === KITCHEN).ops), /FIRE MAINS/)
+
+  c = f.checks[c.id]
+  const v = ev('line.voided', { line_id: s.id, reason: 'Changed mind' }, { check_id: c.id, staff_id: SUPER })
+  const vr = ok(applyEvent({ [c.id]: c }, v, { staffById }))
+  const voidJobs = jobsForEvent(v, { [c.id]: c }, vr.checks, print)
+  assert.equal(voidJobs.length, 1)
+  assert.match(toText(voidJobs[0].ops), /V O I D/)
+})
+
+// ── Sequencer ───────────────────────────────────────────────────
+
+function memoryStore({ timezone = 'Europe/London', settings = {} } = {}) {
+  const s = {
+    events: new Map(), rejections: new Map(), checks: new Map(), jobs: [], days: [],
+    state: { last_seq: 0, next_check_no: 1, next_order_no: 1, day: null },
+  }
+  let queue = Promise.resolve()
+  return {
+    data: s,
+    run: (_venue, fn) => (queue = queue.then(fn, fn)),
+    findEvent: id => s.events.get(id) || null,
+    findRejection: id => s.rejections.get(id) || null,
+    context: () => ({ staffById, print: { ...print, devices: { T1: { receipt_printer_id: RECEIPT } } }, timezone, settings }),
+    venueState: () => ({ ...s.state }),
+    openDay: ({ business_date }) => {
+      const day = { id: uuid(), business_date, number: s.days.length + 1 }
+      s.days.push(day)
+      s.state.day = day
+      return day
+    },
+    loadChecks: ids => Object.fromEntries(ids.filter(id => s.checks.has(id)).map(id => [id, s.checks.get(id)])),
+    openCheckCount: dayId => [...s.checks.values()].filter(c => c.status === 'open' && c.day_id === dayId).length,
+    saveEvent: e => { s.events.set(e.id, e) },
+    saveChecks: changed => { for (const [id, c] of Object.entries(changed)) s.checks.set(id, c) },
+    saveJobs: jobs => { s.jobs.push(...jobs) },
+    saveRejection: (e, error, code) => { s.rejections.set(e.id, { error, code, event: e }) },
+    saveVenueState: v => { Object.assign(s.state, v) },
+    closeDay: day => { day.closed = true; s.state.day = null },
+  }
+}
+
+test('sequencer: numbers events and checks, duplicates get the same answer, offline conflict is refused and kept', async () => {
+  const store = memoryStore({ settings: { day_starts_at: '04:00' } })
+  const seq = createSequencer(store)
+  const checkId = ulid()
+  const opened = ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_centre_id: RC_REST }, { check_id: checkId })
+  const r1 = await seq.submit(opened, { now: new Date('2026-10-11T18:00:00Z') })
+  assert.equal(r1.seq, 1)
+  assert.equal(r1.checks[checkId].number, 1)
+  assert.equal(checkLabel(r1.checks[checkId]), '1')
+  const again = await seq.submit(opened)
+  assert.equal(again.duplicate, true)
+  assert.equal(again.seq, 1)
+  assert.equal(store.data.days[0].business_date, '2026-10-11')
+
+  const l = line(COLA)
+  await seq.submit(ev('line.added', { line: l }, { check_id: checkId }))
+  const sent = await seq.submit(ev('lines.sent', { send_id: ulid(), line_ids: [l.id] }, { check_id: checkId }))
+  assert.equal(sent.jobs.length, 1)
+  assert.equal(sent.jobs[0].printer_id, BAR)
+
+  // Terminal 1 takes the payment and closes; terminal 2, offline, took
+  // another payment for the same check.
+  const p1 = ev('payment.added', { payment: { id: ulid(), tender: 'cash', amount: 300, tendered: 500 } }, { check_id: checkId, device_id: 'T1' })
+  const offline = ev('payment.added', { payment: { id: ulid(), tender: 'card_external', amount: 300 } }, { check_id: checkId, device_id: 'T2' })
+  const pr = await seq.submit(p1)
+  assert.ok(pr.jobs.some(j => j.kind === 'drawer'))
+  await seq.submit(ev('check.closed', {}, { check_id: checkId }))
+  const late = await seq.submit(offline)
+  assert.equal(late.ok, false)
+  assert.equal(late.code, 'closed')
+  assert.equal(store.data.rejections.get(offline.id).code, 'closed')
+  const lateAgain = await seq.submit(offline)
+  assert.equal(lateAgain.duplicate, true)
+  assert.equal(store.data.state.last_seq, 5)
+})
+
+test('sequencer: counter order numbers, day close needs closed checks, new day starts numbering again', async () => {
+  const store = memoryStore({ settings: { order_no_start: 100 } })
+  const seq = createSequencer(store)
+  const a = ulid(), b = ulid()
+  const ra = await seq.submit(ev('check.opened', { mode: 'counter', revenue_centre_id: RC_TAKEAWAY }, { check_id: a }))
+  const rb = await seq.submit(ev('check.opened', { mode: 'counter', revenue_centre_id: RC_TAKEAWAY }, { check_id: b }))
+  assert.deepEqual([ra.checks[a].order_no, rb.checks[b].order_no], [100, 101])
+  assert.equal(checkLabel(rb.checks[b]), '#101')
+
+  const z = await seq.submit(ev('day.closed', { declared_cash: 0 }, { staff_id: MANAGER }))
+  assert.equal(z.code, 'open_checks')
+  assert.equal(z.error, '2 checks are still open: close them first')
+  assert.equal((await seq.submit(ev('day.closed', {}, { staff_id: SERVER }))).code, 'permission')
+  await seq.submit(ev('check.closed', {}, { check_id: a }))
+  await seq.submit(ev('check.closed', {}, { check_id: b }))
+  const z2 = await seq.submit(ev('day.closed', { declared_cash: 0 }, { staff_id: MANAGER }))
+  assert.ok(z2.ok, z2.error)
+  const c = ulid()
+  const rc = await seq.submit(ev('check.opened', { mode: 'counter' }, { check_id: c }))
+  assert.equal(rc.checks[c].order_no, 100)
+  assert.equal(rc.checks[c].number, 3)
+  assert.equal(store.data.days.length, 2)
+  assert.notEqual(rc.checks[c].day_id, ra.checks[a].day_id)
+})
+
+// ── Reports ─────────────────────────────────────────────────────
+
+test('dayFigures: sales, tenders, VAT, voids, refunds on the day they happen', async () => {
+  const store = memoryStore()
+  const seq = createSequencer(store)
+  const id = ulid()
+  await seq.submit(ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_centre_id: RC_REST, service_charge: { percent: 10 } }, { check_id: id }))
+  const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } }, { revenue_centre_id: RC_REST })
+  const b = line(COLA, {}, { qty: 2, revenue_centre_id: RC_REST })
+  await seq.submit(ev('line.added', { line: a }, { check_id: id }))
+  await seq.submit(ev('line.added', { line: b }, { check_id: id }))
+  await seq.submit(ev('lines.sent', { send_id: ulid(), line_ids: [a.id, b.id] }, { check_id: id }))
+  await seq.submit(ev('line.voided', { line_id: b.id, qty: 1, new_line_id: ulid(), reason: 'Spilt' }, { check_id: id, staff_id: SUPER }))
+  // 1250 + 300 = 1550, +10% = 155 -> 1705
+  await seq.submit(ev('payment.added', { payment: { id: ulid(), tender: 'card_external', amount: 1000, tip: 150 } }, { check_id: id }))
+  await seq.submit(ev('payment.added', { payment: { id: ulid(), tender: 'cash', amount: 705, tendered: 1000 } }, { check_id: id }))
+  const closed = await seq.submit(ev('check.closed', {}, { check_id: id }))
+  assert.ok(closed.ok, closed.error)
+  const day1 = store.data.days[0].id
+  const f = dayFigures([...store.data.checks.values()], day1)
+  assert.equal(f.counts.closed, 1)
+  assert.equal(f.covers, 2)
+  assert.equal(f.sales.gross, 1550)
+  assert.equal(f.sales.service_charge, 155)
+  assert.equal(f.sales.total, 1705)
+  assert.equal(f.voids.count, 1)
+  assert.equal(f.voids.value, 300)
+  assert.equal(f.tips, 150)
+  assert.equal(f.cash_expected, 705)
+  assert.equal(f.takings, 1705 + 150)
+  assert.equal(f.revenue_centres[0].net, 1550)
+  assert.equal(f.vat[0].rate, 20)
+
+  await seq.submit(ev('day.closed', {}, { staff_id: MANAGER }))
+  // Refund the next day: counts on day 2, not day 1.
+  await seq.submit(ev('refund.added', { refund: { id: ulid(), tender: 'cash', amount: 200, reason: 'Cold' } }, { check_id: id, staff_id: MANAGER }))
+  const day2 = store.data.days[1].id
+  const all = [...store.data.checks.values()]
+  assert.equal(dayFigures(all, day1).refunds.amount, 0)
+  const f2 = dayFigures(all, day2)
+  assert.equal(f2.refunds.amount, 200)
+  assert.equal(f2.cash_expected, -200)
+  assert.equal(f2.sales.total, 0)
+})
+
+test('businessDate: before the day starts counts as yesterday', () => {
+  assert.equal(businessDate('2026-10-12T02:30:00Z', 'Europe/London', '04:00'), '2026-10-11')
+  assert.equal(businessDate('2026-10-12T04:30:00Z', 'Europe/London', '04:00'), '2026-10-12')
+  assert.equal(businessDate('2026-06-30T23:30:00Z', 'Europe/London', '00:00'), '2026-07-01')
+})
+
+test('replay: refused events are listed, the rest applied', () => {
+  const id = ulid()
+  const events = [
+    ev('check.opened', { mode: 'tab', tab_name: 'Bar 1' }, { check_id: id }),
+    ev('line.added', { line: line(COLA) }, { check_id: id }),
+    ev('check.closed', {}, { check_id: id }),
+  ]
+  const r = replay({}, events, { staffById })
+  assert.equal(r.refused.length, 1)
+  assert.equal(r.refused[0].code, 'balance')
+  assert.equal(r.checks[id].lines.length, 1)
+})

@@ -47,14 +47,15 @@ export function kitchenTicket(send) {
 
   for (const course of send.courses || []) {
     ops.push({ t: 'rule', char: '=' })
-    const head = (course.name || '').toUpperCase() + (course.hold ? '  - HOLD' : '')
-    ops.push({ t: 'text', text: head, align: 'center', bold: true, invert: !!course.hold })
+    const name = (course.name || '').toUpperCase()
+    const head = course.fire ? ' FIRE ' + name + ' ' : name + (course.hold ? '  - HOLD' : '')
+    ops.push({ t: 'text', text: head, align: 'center', bold: true, invert: !!(course.hold || course.fire), tall: !!course.fire })
     for (const line of course.lines || []) {
       const seat = line.seat ? '  S' + line.seat : ''
       ops.push({ t: 'text', text: line.qty + ' x ' + line.name + seat, bold: true, tall: true })
       for (const m of line.modifiers || []) {
-        const mark = m.kind === 'remove' ? '- ' : m.kind === 'note' ? '* ' : '+ '
-        ops.push({ t: 'text', text: mark + m.text, indent: 4, tall: true })
+        const mark = m.kind === 'remove' ? '- ' : m.kind === 'note' ? '* ' : m.kind === 'part' ? '> ' : '+ '
+        ops.push({ t: 'text', text: mark + m.text, indent: m.kind === 'part' ? 2 : 4 + (m.depth || 0) * 2, tall: true, bold: m.kind === 'part' })
       }
       if (line.note) ops.push({ t: 'text', text: '* ' + line.note, indent: 4, tall: true })
       if (line.allergies?.length) {

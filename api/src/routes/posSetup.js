@@ -1,0 +1,888 @@
+// src/routes/posSetup.js
+//
+// Till (POS) setup and reports for the admin portal, /api/pos. docs/POS.md.
+//
+//   GET    /venues/:venueId/setup                 everything the setup page shows
+//   PATCH  /venues/:venueId/settings              till settings (receipt, VAT, tenders, Cash Recon map, ...)
+//   POST   /venues/:venueId/revenue-centres       + PATCH/DELETE /revenue-centres/:id, PUT /venues/:venueId/revenue-centres/order
+//   POST   /venues/:venueId/printers              + PATCH/DELETE /printers/:id
+//   PUT    /venues/:venueId/routes                the whole printer routing list
+//   POST   /venues/:venueId/devices               add a till: returns a one-time pairing code
+//   POST   /devices/:id/pairing-code              a new code (pairs again, the old secret stops working)
+//   PATCH  /devices/:id                           name, settings (mode, revenue centre, receipt printer, floor area)
+//   DELETE /devices/:id                           revoke
+//   POST   /venues/:venueId/floor-areas           + PATCH/DELETE /floor-areas/:id
+//   PUT    /floor-areas/:id/layout                tables' positions + decor in one save
+//   PUT    /venues/:venueId/staff/:staffId/pos    PIN (or null to remove) and POS role
+//   GET    /roles  POST /roles  PATCH/DELETE /roles/:id       POS roles (tenant-wide)
+//   GET    /courses  POST /courses  PATCH/DELETE /courses/:id  PUT /courses/order
+//   Reports (pos_reports):
+//   GET    /venues/:venueId/days                  trading days (Z reports), newest first
+//   GET    /venues/:venueId/days/:dayId           figures (live for the open day)
+//   POST   /venues/:venueId/days/:dayId/fill-recon  write the day into Cash Recon
+//   GET    /venues/:venueId/checks?day_id=&status=
+//   GET    /checks/:id                            the check with its events
+//   GET    /venues/:venueId/conflicts             refused till events
+//   PATCH  /conflicts/:id                         mark resolved with a note
+//   GET    /venues/:venueId/print-jobs            the print queue
+//
+// Setup needs pos_setup (view to read, manage to change); reports need
+// pos_reports. Every query filters tenant_id itself.
+
+import { z } from 'zod'
+import { withTenant } from '../config/db.js'
+import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
+import { httpError } from '../middleware/error.js'
+import { broadcast } from '../config/ws.js'
+import {
+  ensureSettings, settingsView, ownVenue, newPairingCode, normaliseCode, sha256, PAIRING_MINUTES,
+  dayReport, fillReconFromDay, DEFAULT_COURSES,
+} from '../services/posSvc.js'
+import { reconFields } from '../services/reconFill.js'
+import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
+import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
+import { TENDER_KEYS } from '../../../shared/pos/checks.js'
+
+const UUID = z.string().uuid()
+const TIME = z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)
+const COLOUR = z.string().max(20).nullable().optional()
+const by = req => req.user?.email ?? null
+
+const canSetupView = requirePermission('pos_setup', 'view')
+const canSetup = requirePermission('pos_setup', 'manage')
+const canReports = requirePermission('pos_reports', 'view')
+const canReportsManage = requirePermission('pos_reports', 'manage')
+
+/** Tell the venue's tills their config changed (they download it again). */
+function configChanged(venueId) {
+  broadcast('pos:' + venueId, { type: 'pos.config' })
+}
+
+const SettingsBody = z.object({
+  day_starts_at:             TIME.optional(),
+  default_vat_rate_eat_in:   z.number().min(0).max(100).optional(),
+  default_vat_rate_takeaway: z.number().min(0).max(100).optional(),
+  vat_number:                z.string().max(40).nullable().optional(),
+  receipt_name:              z.string().max(80).nullable().optional(),
+  receipt_address:           z.array(z.string().max(80)).max(6).optional(),
+  receipt_footer:            z.string().max(300).nullable().optional(),
+  bill_footer:               z.string().max(300).nullable().optional(),
+  service_charge_label:      z.string().max(60).nullable().optional(),
+  tenders:                   z.array(z.object({ key: z.enum(TENDER_KEYS), label: z.string().min(1).max(30), enabled: z.boolean() })).optional(),
+  tips_enabled:              z.boolean().optional(),
+  require_covers:            z.boolean().optional(),
+  order_no_start:            z.number().int().min(1).max(900).optional(),
+  auto_logout_secs:          z.number().int().min(0).max(3600).optional(),
+  counter_revenue_centre_id: UUID.nullable().optional(),
+  recon_map:                 z.object({
+    income:  z.record(UUID, z.array(z.string().max(40)).max(20)).default({}),
+    takings: z.record(UUID, z.array(z.enum(TENDER_KEYS)).max(10)).default({}),
+    sc:      z.record(UUID, z.array(z.enum(['service_charge', 'tips'])).max(2)).default({}),
+  }).optional(),
+  recon_auto_fill:           z.boolean().optional(),
+})
+
+const RcBody = z.object({
+  name:                      z.string().trim().min(1).max(60),
+  vat_mode:                  z.enum(['eat_in', 'takeaway']).default('eat_in'),
+  menu_ids:                  z.array(UUID).max(20).default([]),
+  service_charge_percent:    z.number().min(0).max(50).default(0),
+  service_charge_min_covers: z.number().int().min(0).max(100).default(0),
+  colour:                    COLOUR,
+  is_active:                 z.boolean().default(true),
+})
+
+const PrinterBody = z.object({
+  name:              z.string().trim().min(1).max(60),
+  kind:              z.enum(['station', 'receipt']).default('station'),
+  host:              z.string().trim().max(120).nullable().optional(),
+  port:              z.number().int().min(1).max(65535).default(9100),
+  columns:           z.number().int().min(24).max(64).default(42),
+  backup_printer_id: UUID.nullable().optional(),
+  is_active:         z.boolean().default(true),
+})
+
+const RoutesBody = z.object({
+  routes: z.array(z.object({
+    printer_id:  UUID,
+    target_kind: z.enum(['item', 'section', 'revenue_centre', 'default']),
+    target_id:   UUID.nullable().optional(),
+  })).max(2000),
+})
+
+const DeviceSettings = z.object({
+  mode:               z.enum(['table', 'counter']).default('table'),
+  revenue_centre_id:  UUID.nullable().optional(),
+  receipt_printer_id: UUID.nullable().optional(),
+  floor_area_id:      UUID.nullable().optional(),
+}).default({})
+
+const DeviceBody = z.object({
+  name:     z.string().trim().min(1).max(60),
+  kind:     z.enum(['terminal', 'hub']).default('terminal'),
+  settings: DeviceSettings,
+})
+
+const AreaBody = z.object({
+  name:              z.string().trim().min(1).max(60),
+  width:             z.number().int().min(6).max(80).default(24),
+  height:            z.number().int().min(4).max(60).default(16),
+  revenue_centre_id: UUID.nullable().optional(),
+  sort_order:        z.number().int().optional(),
+})
+
+const Decor = z.object({
+  id:   z.string().max(40),
+  kind: z.enum(['label', 'wall', 'bar', 'plant']),
+  x: z.number().min(0).max(80), y: z.number().min(0).max(60),
+  w: z.number().min(0.2).max(80), h: z.number().min(0.2).max(60),
+  text: z.string().max(40).nullable().optional(),
+})
+
+const LayoutBody = z.object({
+  tables: z.array(z.object({
+    id: UUID,
+    x: z.number().min(0).max(80), y: z.number().min(0).max(60),
+    w: z.number().min(0.5).max(20), h: z.number().min(0.5).max(20),
+    shape: z.enum(['rect', 'round']).default('rect'),
+    rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).default(0),
+  })).max(300),
+  decor: z.array(Decor).max(200).default([]),
+})
+
+const StaffPosBody = z.object({
+  pin:         z.string().regex(PIN_PATTERN, 'A PIN is 4 to 6 digits').nullable().optional(),
+  pos_role_id: UUID.nullable().optional(),
+})
+
+const RoleBody = z.object({
+  name:        z.string().trim().min(1).max(60),
+  permissions: z.record(z.string(), z.union([z.boolean(), z.number()])).default({}),
+})
+
+const CourseBody = z.object({
+  name:            z.string().trim().min(1).max(40),
+  short_name:      z.string().trim().max(6).nullable().optional(),
+  hold_by_default: z.boolean().default(false),
+  colour:          COLOUR,
+  is_active:       z.boolean().default(true),
+})
+
+const OrderBody = z.object({ ids: z.array(UUID).max(200) })
+
+async function ownRow(tx, table, tenantId, id, what) {
+  const [row] = await tx`SELECT * FROM ${tx(table)} WHERE id = ${id} AND tenant_id = ${tenantId}`
+  if (!row) throw httpError(404, what + ' not found')
+  return row
+}
+
+function deviceView(d) {
+  return {
+    id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {},
+    paired: !!d.secret_hash, paired_at: d.paired_at, last_seen_at: d.last_seen_at,
+    app_version: d.app_version, user_agent: d.user_agent, revoked_at: d.revoked_at,
+    pairing_open: !!d.pairing_code_hash && d.pairing_expires_at && new Date(d.pairing_expires_at) > new Date(),
+    pairing_expires_at: d.pairing_expires_at, created_at: d.created_at,
+  }
+}
+
+async function nextShortCode(tx, tenantId, venueId, kind) {
+  const rows = await tx`SELECT short_code FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
+  const used = new Set(rows.map(r => r.short_code))
+  const prefix = kind === 'hub' ? 'H' : 'T'
+  for (let n = 1; n < 1000; n++) if (!used.has(prefix + n)) return prefix + n
+  return prefix + rows.length + 1
+}
+
+/** A fresh pairing code for a device, valid PAIRING_MINUTES. Returns the code (shown once). */
+async function openPairing(tx, tenantId, deviceId) {
+  for (let i = 0; i < 5; i++) {
+    const code = newPairingCode()
+    const hash = sha256(normaliseCode(code))
+    const [clash] = await tx`SELECT 1 FROM pos_devices WHERE pairing_code_hash = ${hash}`
+    if (clash) continue
+    await tx`
+      UPDATE pos_devices
+         SET pairing_code_hash = ${hash}, pairing_expires_at = now() + make_interval(mins => ${PAIRING_MINUTES})
+       WHERE id = ${deviceId} AND tenant_id = ${tenantId}`
+    return code
+  }
+  throw httpError(500, 'Could not make a pairing code: try again')
+}
+
+export default async function posSetupRoutes(app) {
+  app.addHook('preHandler', requireAuth)
+
+  // ── Setup snapshot ──────────────────────────────────────────────
+  app.get('/venues/:venueId/setup', { preHandler: canSetupView }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const tenantId = req.tenantId
+    return withTenant(tenantId, async tx => {
+      const venue = await ownVenue(tx, tenantId, venueId)
+      const settings = await ensureSettings(tx, tenantId, venueId)
+      const [rcs, printers, routes, devices, areas, tables, staff, roles, courses, menus] = await Promise.all([
+        tx`SELECT id, name, vat_mode, menu_ids, service_charge_percent::float8 AS service_charge_percent,
+                  service_charge_min_covers, colour, sort_order, is_active
+             FROM pos_revenue_centres WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
+        tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order, is_active
+             FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
+        tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+        tx`SELECT * FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY revoked_at NULLS FIRST, created_at`,
+        tx`SELECT id, name, width, height, revenue_centre_id, decor, sort_order FROM floor_areas
+            WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
+        tx`SELECT id, label, min_covers, max_covers, section_id, floor_area_id, pos_x::float8 AS x, pos_y::float8 AS y,
+                  pos_w::float8 AS w, pos_h::float8 AS h, shape, rotation, sort_order
+             FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND NOT COALESCE(is_unallocated, false)
+            ORDER BY sort_order, label`,
+        tx`SELECT id, name, pos_role_id, (pos_pin_hash IS NOT NULL) AS has_pin, is_active
+             FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active ORDER BY sort_order, name`,
+        tx`SELECT id, name, permissions, sort_order FROM pos_roles WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
+        tx`SELECT id, name, short_name, hold_by_default, colour, sort_order, is_active FROM pos_courses
+            WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
+        tx`SELECT id, name, venue_id, is_published FROM menus WHERE tenant_id = ${tenantId} AND (venue_id IS NULL OR venue_id = ${venueId})
+            ORDER BY sort_order, name`,
+      ])
+      return {
+        venue: { id: venue.id, name: venue.name },
+        settings: settingsView(settings),
+        revenue_centres: rcs, printers, routes,
+        devices: devices.map(deviceView),
+        floor_areas: areas.map(a => ({ ...a, decor: a.decor || [] })),
+        tables, staff,
+        roles: roles.map(r => ({ ...r, permissions: normalisePermissions(r.permissions || {}) })),
+        courses, menus,
+        recon_fields: await reconFields(tx, tenantId, venueId),
+      }
+    })
+  })
+
+  // ── Settings ────────────────────────────────────────────────────
+  app.patch('/venues/:venueId/settings', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = SettingsBody.parse(req.body)
+    const out = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      await ensureSettings(tx, req.tenantId, venueId)
+      if (body.counter_revenue_centre_id) await ownRow(tx, 'pos_revenue_centres', req.tenantId, body.counter_revenue_centre_id, 'Revenue centre')
+      const set = { ...body, updated_at: new Date() }
+      if (body.tenders) set.tenders = tx.json(body.tenders)
+      if (body.recon_map) set.recon_map = tx.json(body.recon_map)
+      const keys = Object.keys(set)
+      const [row] = await tx`
+        UPDATE pos_settings SET ${tx(set, ...keys)}
+         WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}
+         RETURNING *`
+      return settingsView(row)
+    })
+    configChanged(venueId)
+    return out
+  })
+
+  // ── Revenue centres ─────────────────────────────────────────────
+  async function checkMenus(tx, tenantId, venueId, ids) {
+    if (!ids.length) return
+    const rows = await tx`SELECT id FROM menus WHERE tenant_id = ${tenantId} AND id = ANY(${ids}::uuid[]) AND (venue_id IS NULL OR venue_id = ${venueId})`
+    if (rows.length !== new Set(ids).size) throw httpError(422, 'A chosen menu isn\'t available at this venue')
+  }
+
+  app.post('/venues/:venueId/revenue-centres', { preHandler: canSetup }, async (req, reply) => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = RcBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      await checkMenus(tx, req.tenantId, venueId, body.menu_ids)
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      const [rc] = await tx`
+        INSERT INTO pos_revenue_centres (tenant_id, venue_id, name, vat_mode, menu_ids, service_charge_percent, service_charge_min_covers, colour, sort_order, is_active)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.vat_mode}, ${body.menu_ids}, ${body.service_charge_percent},
+                ${body.service_charge_min_covers}, ${body.colour ?? null}, ${n}, ${body.is_active})
+        RETURNING *`
+      return rc
+    })
+    configChanged(venueId)
+    return reply.code(201).send(row)
+  })
+
+  app.patch('/revenue-centres/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = RcBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const rc = await ownRow(tx, 'pos_revenue_centres', req.tenantId, id, 'Revenue centre')
+      await checkMenus(tx, req.tenantId, rc.venue_id, body.menu_ids)
+      const [out] = await tx`
+        UPDATE pos_revenue_centres
+           SET name = ${body.name}, vat_mode = ${body.vat_mode}, menu_ids = ${body.menu_ids},
+               service_charge_percent = ${body.service_charge_percent}, service_charge_min_covers = ${body.service_charge_min_covers},
+               colour = ${body.colour ?? null}, is_active = ${body.is_active}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}
+         RETURNING *`
+      return out
+    })
+    configChanged(row.venue_id)
+    return row
+  })
+
+  app.delete('/revenue-centres/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const rc = await withTenant(req.tenantId, async tx => {
+      const row = await ownRow(tx, 'pos_revenue_centres', req.tenantId, id, 'Revenue centre')
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM pos_check_lines WHERE tenant_id = ${req.tenantId} AND revenue_centre_id = ${id}`
+      // Sales already posted to it keep pointing at it: switch it off instead.
+      if (n) await tx`UPDATE pos_revenue_centres SET is_active = false WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      else await tx`DELETE FROM pos_revenue_centres WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      await tx`DELETE FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND target_kind = 'revenue_centre' AND target_id = ${id}`
+      return { ...row, switched_off: n > 0 }
+    })
+    configChanged(rc.venue_id)
+    return { ok: true, switched_off: rc.switched_off }
+  })
+
+  app.put('/venues/:venueId/revenue-centres/order', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const { ids } = OrderBody.parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      for (const [i, id] of ids.entries()) {
+        await tx`UPDATE pos_revenue_centres SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      }
+    })
+    configChanged(venueId)
+    return { ok: true }
+  })
+
+  // ── Printers and routing ────────────────────────────────────────
+  async function checkBackup(tx, tenantId, venueId, backupId, selfId = null) {
+    if (!backupId) return null
+    if (backupId === selfId) throw httpError(422, 'A printer can\'t be its own backup')
+    const [p] = await tx`SELECT id FROM pos_printers WHERE id = ${backupId} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
+    if (!p) throw httpError(422, 'Backup printer not found')
+    return p.id
+  }
+
+  app.post('/venues/:venueId/printers', { preHandler: canSetup }, async (req, reply) => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = PrinterBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      const backup = await checkBackup(tx, req.tenantId, venueId, body.backup_printer_id)
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_printers WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      const [p] = await tx`
+        INSERT INTO pos_printers (tenant_id, venue_id, name, kind, host, port, columns, backup_printer_id, sort_order, is_active)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.kind}, ${body.host || null}, ${body.port}, ${body.columns},
+                ${backup}, ${n}, ${body.is_active})
+        RETURNING *`
+      return p
+    })
+    configChanged(venueId)
+    return reply.code(201).send(row)
+  })
+
+  app.patch('/printers/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = PrinterBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const p = await ownRow(tx, 'pos_printers', req.tenantId, id, 'Printer')
+      const backup = await checkBackup(tx, req.tenantId, p.venue_id, body.backup_printer_id, id)
+      const [out] = await tx`
+        UPDATE pos_printers
+           SET name = ${body.name}, kind = ${body.kind}, host = ${body.host || null}, port = ${body.port},
+               columns = ${body.columns}, backup_printer_id = ${backup}, is_active = ${body.is_active}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}
+         RETURNING *`
+      return out
+    })
+    configChanged(row.venue_id)
+    return row
+  })
+
+  app.delete('/printers/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const p = await withTenant(req.tenantId, async tx => {
+      const row = await ownRow(tx, 'pos_printers', req.tenantId, id, 'Printer')
+      await tx`DELETE FROM pos_printers WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return row
+    })
+    configChanged(p.venue_id)
+    return { ok: true }
+  })
+
+  app.put('/venues/:venueId/routes', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const { routes } = RoutesBody.parse(req.body)
+    const out = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      const printers = new Set((await tx`SELECT id FROM pos_printers WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
+      const rcs = new Set((await tx`SELECT id FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
+      const clean = []
+      const seen = new Set()
+      for (const r of routes) {
+        if (!printers.has(r.printer_id)) throw httpError(422, 'Printer not found')
+        const target = r.target_kind === 'default' ? null : (r.target_id || null)
+        if (r.target_kind !== 'default' && !target) throw httpError(422, 'A route needs a dish, section or revenue centre')
+        if (r.target_kind === 'revenue_centre' && !rcs.has(target)) throw httpError(422, 'Revenue centre not found')
+        const key = r.printer_id + r.target_kind + target
+        if (seen.has(key)) continue
+        seen.add(key)
+        clean.push({ ...r, target_id: target })
+      }
+      // Dish and section targets must be the tenant's.
+      const menuIds = clean.filter(r => r.target_kind === 'item' || r.target_kind === 'section').map(r => r.target_id)
+      if (menuIds.length) {
+        const found = await tx`
+          SELECT id FROM menu_items WHERE tenant_id = ${req.tenantId} AND id = ANY(${menuIds}::uuid[])
+          UNION SELECT id FROM menu_sections WHERE tenant_id = ${req.tenantId} AND id = ANY(${menuIds}::uuid[])`
+        if (found.length !== new Set(menuIds).size) throw httpError(422, 'A dish or section wasn\'t found')
+      }
+      await tx`DELETE FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      for (const r of clean) {
+        await tx`
+          INSERT INTO pos_print_routes (tenant_id, venue_id, printer_id, target_kind, target_id)
+          VALUES (${req.tenantId}, ${venueId}, ${r.printer_id}, ${r.target_kind}, ${r.target_id})`
+      }
+      return tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+    })
+    configChanged(venueId)
+    return { routes: out }
+  })
+
+  // ── Devices ─────────────────────────────────────────────────────
+  async function checkDeviceSettings(tx, tenantId, venueId, s) {
+    if (s.revenue_centre_id) {
+      const [r] = await tx`SELECT id FROM pos_revenue_centres WHERE id = ${s.revenue_centre_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      if (!r) throw httpError(422, 'Revenue centre not found')
+    }
+    if (s.receipt_printer_id) {
+      const [p] = await tx`SELECT id FROM pos_printers WHERE id = ${s.receipt_printer_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      if (!p) throw httpError(422, 'Printer not found')
+    }
+    if (s.floor_area_id) {
+      const [a] = await tx`SELECT id FROM floor_areas WHERE id = ${s.floor_area_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      if (!a) throw httpError(422, 'Floor area not found')
+    }
+  }
+
+  app.post('/venues/:venueId/devices', { preHandler: canSetup }, async (req, reply) => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = DeviceBody.parse(req.body)
+    const out = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      await checkDeviceSettings(tx, req.tenantId, venueId, body.settings)
+      const short = await nextShortCode(tx, req.tenantId, venueId, body.kind)
+      const [d] = await tx`
+        INSERT INTO pos_devices (tenant_id, venue_id, kind, name, short_code, settings, created_by)
+        VALUES (${req.tenantId}, ${venueId}, ${body.kind}, ${body.name}, ${short}, ${tx.json(body.settings)}, ${by(req)})
+        RETURNING *`
+      const code = await openPairing(tx, req.tenantId, d.id)
+      const [fresh] = await tx`SELECT * FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`
+      return { device: deviceView(fresh), pairing_code: code }
+    })
+    return reply.code(201).send(out)
+  })
+
+  app.post('/devices/:id/pairing-code', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    return withTenant(req.tenantId, async tx => {
+      const d = await ownRow(tx, 'pos_devices', req.tenantId, id, 'Till')
+      if (d.revoked_at) throw httpError(422, 'This till was removed')
+      const code = await openPairing(tx, req.tenantId, id)
+      const [fresh] = await tx`SELECT * FROM pos_devices WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return { device: deviceView(fresh), pairing_code: code }
+    })
+  })
+
+  app.patch('/devices/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = z.object({ name: z.string().trim().min(1).max(60).optional(), settings: DeviceSettings.optional() }).parse(req.body)
+    const out = await withTenant(req.tenantId, async tx => {
+      const d = await ownRow(tx, 'pos_devices', req.tenantId, id, 'Till')
+      if (body.settings) await checkDeviceSettings(tx, req.tenantId, d.venue_id, body.settings)
+      const [row] = await tx`
+        UPDATE pos_devices
+           SET name = ${body.name ?? d.name}, settings = ${tx.json(body.settings ?? d.settings ?? {})}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}
+         RETURNING *`
+      return row
+    })
+    configChanged(out.venue_id)
+    return deviceView(out)
+  })
+
+  app.delete('/devices/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const d = await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_devices', req.tenantId, id, 'Till')
+      const [row] = await tx`
+        UPDATE pos_devices SET revoked_at = now(), secret_hash = NULL, pairing_code_hash = NULL
+         WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`
+      return row
+    })
+    broadcast('pos:' + d.venue_id, { type: 'pos.revoked', device_id: id })
+    return { ok: true }
+  })
+
+  // ── Floor plan ──────────────────────────────────────────────────
+  app.post('/venues/:venueId/floor-areas', { preHandler: canSetup }, async (req, reply) => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = AreaBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      if (body.revenue_centre_id) await ownRow(tx, 'pos_revenue_centres', req.tenantId, body.revenue_centre_id, 'Revenue centre')
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM floor_areas WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      const [a] = await tx`
+        INSERT INTO floor_areas (tenant_id, venue_id, name, width, height, revenue_centre_id, sort_order)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.width}, ${body.height}, ${body.revenue_centre_id ?? null}, ${body.sort_order ?? n})
+        RETURNING *`
+      return a
+    })
+    configChanged(venueId)
+    return reply.code(201).send(row)
+  })
+
+  app.patch('/floor-areas/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = AreaBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const a = await ownRow(tx, 'floor_areas', req.tenantId, id, 'Floor area')
+      if (body.revenue_centre_id) await ownRow(tx, 'pos_revenue_centres', req.tenantId, body.revenue_centre_id, 'Revenue centre')
+      const [out] = await tx`
+        UPDATE floor_areas
+           SET name = ${body.name}, width = ${body.width}, height = ${body.height},
+               revenue_centre_id = ${body.revenue_centre_id ?? null}, sort_order = ${body.sort_order ?? a.sort_order}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}
+         RETURNING *`
+      return out
+    })
+    configChanged(row.venue_id)
+    return row
+  })
+
+  app.delete('/floor-areas/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const a = await withTenant(req.tenantId, async tx => {
+      const row = await ownRow(tx, 'floor_areas', req.tenantId, id, 'Floor area')
+      await tx`DELETE FROM floor_areas WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return row
+    })
+    configChanged(a.venue_id)
+    return { ok: true }
+  })
+
+  app.put('/floor-areas/:id/layout', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = LayoutBody.parse(req.body)
+    const area = await withTenant(req.tenantId, async tx => {
+      const a = await ownRow(tx, 'floor_areas', req.tenantId, id, 'Floor area')
+      const ids = body.tables.map(t => t.id)
+      if (ids.length) {
+        const own = await tx`SELECT id FROM tables WHERE tenant_id = ${req.tenantId} AND venue_id = ${a.venue_id} AND id = ANY(${ids}::uuid[])`
+        if (own.length !== new Set(ids).size) throw httpError(422, 'A table wasn\'t found at this venue')
+      }
+      // Tables no longer on this plan come off it.
+      await tx`
+        UPDATE tables SET floor_area_id = NULL, pos_x = NULL, pos_y = NULL, pos_w = NULL, pos_h = NULL
+         WHERE tenant_id = ${req.tenantId} AND floor_area_id = ${id} AND NOT (id = ANY(${ids}::uuid[]))`
+      for (const t of body.tables) {
+        await tx`
+          UPDATE tables
+             SET floor_area_id = ${id}, pos_x = ${t.x}, pos_y = ${t.y}, pos_w = ${t.w}, pos_h = ${t.h},
+                 shape = ${t.shape}, rotation = ${t.rotation}
+           WHERE id = ${t.id} AND tenant_id = ${req.tenantId}`
+      }
+      await tx`UPDATE floor_areas SET decor = ${tx.json(body.decor)} WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      return a
+    })
+    configChanged(area.venue_id)
+    return { ok: true }
+  })
+
+  // ── Staff PINs and roles ────────────────────────────────────────
+  app.put('/venues/:venueId/staff/:staffId/pos', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const staffId = UUID.parse(req.params.staffId)
+    const body = StaffPosBody.parse(req.body)
+    const out = await withTenant(req.tenantId, async tx => {
+      const [s] = await tx`SELECT id FROM cash_staff WHERE id = ${staffId} AND tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      if (!s) throw httpError(404, 'Staff member not found')
+      if (body.pos_role_id) await ownRow(tx, 'pos_roles', req.tenantId, body.pos_role_id, 'Till role')
+      const settings = await ensureSettings(tx, req.tenantId, venueId)
+      let hash
+      if (body.pin) {
+        const weak = weakPin(body.pin)
+        if (weak) throw httpError(422, 'That PIN is too easy to guess (' + weak.toLowerCase() + ')')
+        hash = await hashPin(body.pin, settings.pin_salt)
+        const [taken] = await tx`
+          SELECT id FROM cash_staff WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND pos_pin_hash = ${hash} AND id <> ${staffId}`
+        if (taken) throw httpError(422, 'Someone else at this venue has that PIN: choose another')
+      }
+      const [row] = await tx`
+        UPDATE cash_staff
+           SET pos_pin_hash = ${body.pin === undefined ? tx`pos_pin_hash` : (hash ?? null)},
+               pos_role_id = ${body.pos_role_id === undefined ? tx`pos_role_id` : body.pos_role_id}
+         WHERE id = ${staffId} AND tenant_id = ${req.tenantId}
+         RETURNING id, name, pos_role_id, (pos_pin_hash IS NOT NULL) AS has_pin`
+      return row
+    })
+    configChanged(venueId)
+    return out
+  })
+
+  app.get('/roles', { preHandler: canSetupView }, async req => {
+    return withTenant(req.tenantId, async tx => {
+      const rows = await tx`SELECT id, name, permissions, sort_order FROM pos_roles WHERE tenant_id = ${req.tenantId} ORDER BY sort_order, name`
+      return rows.map(r => ({ ...r, permissions: normalisePermissions(r.permissions || {}) }))
+    })
+  })
+
+  const cleanPerms = p => {
+    const out = {}
+    for (const k of PERMISSION_KEYS) out[k] = !!p[k]
+    out.discount_max_pct = Math.max(0, Math.min(100, Math.round(Number(p.discount_max_pct) || 0)))
+    return out
+  }
+
+  app.post('/roles', { preHandler: canSetup }, async (req, reply) => {
+    const body = RoleBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_roles WHERE tenant_id = ${req.tenantId}`
+      const [r] = await tx`
+        INSERT INTO pos_roles (tenant_id, name, permissions, sort_order)
+        VALUES (${req.tenantId}, ${body.name}, ${tx.json(cleanPerms(body.permissions))}, ${n})
+        RETURNING *`
+      return r
+    })
+    return reply.code(201).send({ ...row, permissions: normalisePermissions(row.permissions) })
+  })
+
+  app.post('/roles/defaults', { preHandler: canSetup }, async req => {
+    return withTenant(req.tenantId, async tx => {
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM pos_roles WHERE tenant_id = ${req.tenantId}`
+      if (n) return { added: 0 }
+      for (const [i, r] of DEFAULT_POS_ROLES.entries()) {
+        await tx`INSERT INTO pos_roles (tenant_id, name, permissions, sort_order) VALUES (${req.tenantId}, ${r.name}, ${tx.json(cleanPerms(r.permissions))}, ${i})`
+      }
+      return { added: DEFAULT_POS_ROLES.length }
+    })
+  })
+
+  app.patch('/roles/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = RoleBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_roles', req.tenantId, id, 'Till role')
+      const [r] = await tx`
+        UPDATE pos_roles SET name = ${body.name}, permissions = ${tx.json(cleanPerms(body.permissions))}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`
+      const venues = await tx`SELECT DISTINCT venue_id FROM cash_staff WHERE tenant_id = ${req.tenantId} AND pos_role_id = ${id}`
+      return { r, venues: venues.map(v => v.venue_id) }
+    })
+    for (const v of row.venues) configChanged(v)
+    return { ...row.r, permissions: normalisePermissions(row.r.permissions) }
+  })
+
+  app.delete('/roles/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_roles', req.tenantId, id, 'Till role')
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM cash_staff WHERE tenant_id = ${req.tenantId} AND pos_role_id = ${id} AND is_active`
+      if (n) throw httpError(422, n === 1 ? 'One person has this role: give them another first' : n + ' people have this role: give them another first')
+      await tx`DELETE FROM pos_roles WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+    })
+    return { ok: true }
+  })
+
+  // ── Courses ─────────────────────────────────────────────────────
+  app.get('/courses', { preHandler: canSetupView }, async req => {
+    return withTenant(req.tenantId, tx => tx`
+      SELECT id, name, short_name, hold_by_default, colour, sort_order, is_active FROM pos_courses
+       WHERE tenant_id = ${req.tenantId} ORDER BY sort_order, name`)
+  })
+
+  app.post('/courses', { preHandler: canSetup }, async (req, reply) => {
+    const body = CourseBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_courses WHERE tenant_id = ${req.tenantId}`
+      const [c] = await tx`
+        INSERT INTO pos_courses (tenant_id, name, short_name, hold_by_default, colour, sort_order, is_active)
+        VALUES (${req.tenantId}, ${body.name}, ${body.short_name || null}, ${body.hold_by_default}, ${body.colour ?? null}, ${n}, ${body.is_active})
+        RETURNING *`
+      return c
+    })
+    return reply.code(201).send(row)
+  })
+
+  app.post('/courses/defaults', { preHandler: canSetup }, async req => {
+    return withTenant(req.tenantId, async tx => {
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM pos_courses WHERE tenant_id = ${req.tenantId}`
+      if (n) return { added: 0 }
+      for (const [i, c] of DEFAULT_COURSES.entries()) {
+        await tx`INSERT INTO pos_courses (tenant_id, name, short_name, hold_by_default, sort_order) VALUES (${req.tenantId}, ${c.name}, ${c.short_name}, ${c.hold_by_default}, ${i})`
+      }
+      return { added: DEFAULT_COURSES.length }
+    })
+  })
+
+  app.patch('/courses/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = CourseBody.parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_courses', req.tenantId, id, 'Course')
+      const [c] = await tx`
+        UPDATE pos_courses SET name = ${body.name}, short_name = ${body.short_name || null}, hold_by_default = ${body.hold_by_default},
+               colour = ${body.colour ?? null}, is_active = ${body.is_active}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING *`
+      return c
+    })
+  })
+
+  app.delete('/courses/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'pos_courses', req.tenantId, id, 'Course')
+      // Dishes and sections that used it go back to no course.
+      await tx`UPDATE menu_items SET pos_course_id = NULL WHERE tenant_id = ${req.tenantId} AND pos_course_id = ${id}`
+      await tx`UPDATE menu_sections SET pos_course_id = NULL WHERE tenant_id = ${req.tenantId} AND pos_course_id = ${id}`
+      await tx`DELETE FROM pos_courses WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+    })
+    return { ok: true }
+  })
+
+  app.put('/courses/order', { preHandler: canSetup }, async req => {
+    const { ids } = OrderBody.parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      for (const [i, id] of ids.entries()) await tx`UPDATE pos_courses SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+    })
+    return { ok: true }
+  })
+
+  // ── Reports ─────────────────────────────────────────────────────
+  app.get('/venues/:venueId/days', { preHandler: canReports }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 60))
+    return withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      return tx`
+        SELECT d.id, d.business_date::text AS business_date, d.z_number, d.opened_at, d.closed_at, d.declared_cash,
+               d.recon_filled_at, d.recon_error,
+               (d.figures->'sales'->>'total')::int AS total,
+               (d.figures->>'takings')::int AS takings,
+               (d.figures->>'cash_expected')::int AS cash_expected,
+               (SELECT count(*)::int FROM pos_checks c WHERE c.day_id = d.id AND c.tenant_id = ${req.tenantId}) AS checks
+          FROM pos_days d
+         WHERE d.tenant_id = ${req.tenantId} AND d.venue_id = ${venueId}
+         ORDER BY d.opened_at DESC
+         LIMIT ${limit}`
+    })
+  })
+
+  app.get('/venues/:venueId/days/:dayId', { preHandler: canReports }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const dayId = UUID.parse(req.params.dayId)
+    return withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      const day = await dayReport(tx, req.tenantId, venueId, dayId)
+      const [staff, rcs] = await Promise.all([
+        tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`,
+        tx`SELECT id, name FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`,
+      ])
+      return {
+        ...day,
+        names: { staff: Object.fromEntries(staff.map(s => [s.id, s.name])), revenue_centres: Object.fromEntries(rcs.map(r => [r.id, r.name])) },
+      }
+    })
+  })
+
+  app.post('/venues/:venueId/days/:dayId/fill-recon', { preHandler: canReportsManage }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const dayId = UUID.parse(req.params.dayId)
+    if ((await permissionLevel(req, 'cash_recon')) !== 'manage') throw httpError(403, 'Filling Cash Recon needs Cash reconciliation manage')
+    await withTenant(req.tenantId, tx => ownVenue(tx, req.tenantId, venueId))
+    return fillReconFromDay(req.tenantId, venueId, dayId, by(req))
+  })
+
+  app.get('/venues/:venueId/checks', { preHandler: canReports }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const q = z.object({
+      day_id: UUID.optional(),
+      status: z.enum(['open', 'closed', 'void', 'merged']).optional(),
+      limit:  z.coerce.number().int().min(1).max(500).default(200),
+    }).parse(req.query)
+    return withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      return tx`
+        SELECT c.id, c.number, c.order_no, c.mode, c.table_id, t.label AS table_label, c.tab_name, c.covers,
+               c.server_id, s.name AS server_name, c.revenue_centre_id, c.status, c.opened_at, c.closed_at,
+               c.subtotal, c.discount, c.service_charge, c.total, c.paid, c.tips, c.refunded, c.day_id
+          FROM pos_checks c
+          LEFT JOIN tables t ON t.id = c.table_id AND t.tenant_id = c.tenant_id
+          LEFT JOIN cash_staff s ON s.id = c.server_id AND s.tenant_id = c.tenant_id
+         WHERE c.tenant_id = ${req.tenantId} AND c.venue_id = ${venueId}
+           ${q.day_id ? tx`AND c.day_id = ${q.day_id}` : tx``}
+           ${q.status ? tx`AND c.status = ${q.status}` : tx``}
+         ORDER BY c.opened_at DESC NULLS LAST
+         LIMIT ${q.limit}`
+    })
+  })
+
+  app.get('/checks/:id', { preHandler: canReports }, async req => {
+    const id = z.string().regex(/^[0-9A-Z]{26}$/).parse(req.params.id)
+    return withTenant(req.tenantId, async tx => {
+      const [c] = await tx`SELECT id, venue_id, state, total, status FROM pos_checks WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      if (!c) throw httpError(404, 'Check not found')
+      const events = await tx`
+        SELECT e.id, e.seq, e.type, e.payload, e.assigned, e.client_at, e.created_at, e.device_id, e.staff_id, e.approved_by,
+               s.name AS staff_name, a.name AS approver_name
+          FROM pos_events e
+          LEFT JOIN cash_staff s ON s.id = e.staff_id AND s.tenant_id = e.tenant_id
+          LEFT JOIN cash_staff a ON a.id = e.approved_by AND a.tenant_id = e.tenant_id
+         WHERE e.tenant_id = ${req.tenantId}
+           AND (e.check_id = ${id} OR e.payload->>'to_check_id' = ${id} OR e.payload->>'into_check_id' = ${id})
+         ORDER BY e.seq`
+      return { check: c.state, events: events.map(e => ({ ...e, seq: Number(e.seq) })) }
+    })
+  })
+
+  app.get('/venues/:venueId/conflicts', { preHandler: canReports }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const open = req.query.all !== '1'
+    return withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      return tx`
+        SELECT r.id, r.check_id, r.device_id, r.staff_id, s.name AS staff_name, r.type, r.payload, r.client_at,
+               r.error, r.code, r.created_at, r.resolved_at, r.resolved_by, r.resolution,
+               c.number AS check_number, c.status AS check_status
+          FROM pos_event_rejections r
+          LEFT JOIN cash_staff s ON s.id = r.staff_id AND s.tenant_id = r.tenant_id
+          LEFT JOIN pos_checks c ON c.id = r.check_id AND c.tenant_id = r.tenant_id
+         WHERE r.tenant_id = ${req.tenantId} AND r.venue_id = ${venueId}
+           ${open ? tx`AND r.resolved_at IS NULL` : tx``}
+         ORDER BY r.created_at DESC
+         LIMIT 300`
+    })
+  })
+
+  app.patch('/conflicts/:id', { preHandler: canReportsManage }, async req => {
+    const id = z.string().max(40).parse(req.params.id)
+    const body = z.object({ resolution: z.string().trim().min(1).max(300) }).parse(req.body)
+    return withTenant(req.tenantId, async tx => {
+      const [row] = await tx`
+        UPDATE pos_event_rejections SET resolved_at = now(), resolved_by = ${by(req)}, resolution = ${body.resolution}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING id, resolved_at, resolution`
+      if (!row) throw httpError(404, 'Not found')
+      return row
+    })
+  })
+
+  app.get('/venues/:venueId/print-jobs', { preHandler: canReports }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    return withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      return tx`
+        SELECT j.id, j.printer_id, p.name AS printer_name, j.kind, j.title, j.status, j.attempts, j.error, j.created_at, j.printed_at, j.check_id, j.ops
+          FROM pos_print_jobs j
+          LEFT JOIN pos_printers p ON p.id = j.printer_id AND p.tenant_id = j.tenant_id
+         WHERE j.tenant_id = ${req.tenantId} AND j.venue_id = ${venueId}
+         ORDER BY j.created_at DESC
+         LIMIT 200`
+    })
+  })
+}

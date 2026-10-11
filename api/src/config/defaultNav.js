@@ -40,6 +40,17 @@ export const DEFAULT_NAV_TREE = [
     ],
   },
   {
+    label: 'Till', children: [
+      {
+        label: 'Till setup', icon: 'MonitorSmartphone', route: '/pos', module: 'pos_setup',
+        children: [
+          { label: 'Floor plan', icon: 'LayoutPanelTop', route: '/pos/floor', module: 'pos_setup' },
+        ],
+      },
+      { label: 'Till reports', icon: 'BarChart3', route: '/pos/reports', module: 'pos_reports' },
+    ],
+  },
+  {
     label: 'Staff', children: [
       {
         label: 'Staff', icon: 'UsersRound', route: '/staff', module: 'staff',
