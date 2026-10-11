@@ -17,6 +17,7 @@ import { requireAuth, requireRole, requirePermission } from '../middleware/auth.
 import { httpError } from '../middleware/error.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS, ensureStandardAllergens } from '../services/menuSeeds.js'
 import { randomUUID } from 'node:crypto'
+import { notifyTillsOnWrite } from '../services/posNotify.js'
 import {
   BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS,
   normalizeLayout, layoutGeometry, buildContext, renderPageHtml, layoutFontsUrl,
@@ -737,6 +738,8 @@ export default async function menusRoutes(app) {
   // registration order, so the public routes must live outside.
   await app.register(async function adminMenuRoutes(app) {
     app.addHook('preHandler', requireAuth)
+    // Open tills show these menus: tell them to reload (services/posNotify.js).
+    app.addHook('onResponse', notifyTillsOnWrite)
 
   // ════════════════════════════════════════════════════════════
   //   MENUS — list / get / create / patch / delete

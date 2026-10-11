@@ -15,6 +15,7 @@
 // Module 'promotions' (web_ordering group): view to list, manage to change.
 
 import { z } from 'zod'
+import { notifyTillsOnWrite } from '../services/posNotify.js'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
@@ -134,6 +135,8 @@ function rowOf(tx, p) {
 
 export default async function promotionsRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // Promotions with the till channel are in the till's config.
+  app.addHook('onResponse', notifyTillsOnWrite)
   const view = requirePermission('promotions', 'view')
   const manage = requirePermission('promotions', 'manage')
 

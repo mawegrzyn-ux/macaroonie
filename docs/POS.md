@@ -1,6 +1,8 @@
 # Macaroonie POS — design
 
-Status: **Phase 0 (trials)**. Decisions agreed 11 Oct 2026.
+Status: **Phases 1-5 built cloud-first; the hub and printer trials are parked** (11 Oct 2026).
+Decisions agreed 11 Oct 2026. What runs today, and what's provisioned for the hub, is in
+section 8.
 
 A restaurant till with table service and counter service, built into Macaroonie:
 table service first, counter mode later. This file is the design; CLAUDE.md links here.
@@ -227,3 +229,41 @@ internet down; this document is confirmed.
 - iPad later: Safari's PWA storage limits and local network rules need their own check.
 - Hub failure: terminals fall back to the cloud; a spare hub can be paired in its place.
 - Device clocks: the hub gives the time; events also carry the hub's `seq`.
+
+---
+
+## 8. Built so far (cloud-first, hub parked)
+
+On 11 Oct 2026 the hub and the printer / LAN trials were parked ("build everything else,
+provision in code for the hub"). What exists:
+
+| Part | Where | Notes |
+|---|---|---|
+| Rules, pricing, printing, reports | `shared/pos/` | `checks.js` (events + `applyEvent()`), `pricing.js`, `printing.js` (`jobsForEvent()`, `routeFor()`), `reports.js` (`dayFigures()`), `sequencer.js` (`createSequencer(store)`), `permissions.js`, `pin.js`, `ids.js` (ULID), `tickets.js`. Tests: `node --test shared/pos/test/*.test.mjs`. |
+| Schema | migration 156 | Section 3's tables as built; see Docs.jsx → Till (POS) for the columns. |
+| Sequencer | the cloud | `services/posSvc.js` runs `createSequencer()` with a Postgres store under a per-venue advisory lock. The hub will run the same sequencer with SQLite. |
+| Till API | `/pos-api` (`routes/posApi.js`) | Pairing, device auth, config snapshot, events in, sync out, presence, reports, print queue (claim / status routes are for the hub). |
+| Admin | `/api/pos` (`routes/posSetup.js`) | Till setup, Floor plan, Till reports pages; Menus / Variant groups / Promotions till fields. |
+| Till app | `pos/` | React PWA served by the API on `pos.<domain>` (`routes/posSite.js`, no nginx change). Local-first: IndexedDB outbox, optimistic apply, socket + polling sync. Table service, tabs, counter mode, courses (hold / fire), modifiers, meal deals, discounts / comps / offers, service charge, split / move / merge, pay (external card, cash, voucher, ...), refunds, reopen, X / Z. |
+| Cash Recon | `services/reconFill.js` | Z figures fill the Cash Recon day through `recon_map` (shared with Loyverse). |
+
+Changes from sections 2-3, while there is no hub:
+
+- **Tills talk to the cloud only.** With the internet down a till keeps trading on its own
+  (outbox), but two tills don't see each other until it's back; clashes are refused and listed
+  (Till reports → Refused changes). The hub removes that gap.
+- **Pairing is by one-time code**, not an Auth0 login: Till setup → Add a till shows a code
+  that `POST /pos-api/pair` swaps for a device secret.
+- **Printing**: bills and receipts print from the till's browser (hidden iframe + print dialog,
+  `pos/src/lib/print.js`); kitchen tickets are queued in `pos_print_jobs` and can optionally
+  print from the till's browser too (Till → settings). The hub will claim the queue and print
+  ESC/POS to the Epsons (`hub/src/printer.js`, Trial 1 code).
+
+Provisioned for the hub (no other change needed when it comes):
+
+- `pos_devices.kind = 'hub'`, and `POST /pos-api/print-jobs/claim` / `/:id/status` accept only hubs.
+- `pos/src/lib/transport.js` tries `device.hub_url` before the cloud.
+- The sequencer takes a store object; the hub supplies a SQLite one.
+
+Still to do: Trials 1-3 on real hardware, the hub service, card terminal adapters, KDS, the
+till layout designer (Phase 7), online orders into the till, bookings on the floor plan.
