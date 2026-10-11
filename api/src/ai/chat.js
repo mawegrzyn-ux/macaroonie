@@ -400,6 +400,8 @@ const TOOL_LABELS = {
   hs_status: 'Looked at H&S for the day', food_safety_day: 'Looked at the food safety log',
   checklists_due: 'Looked at the checklists', get_checklist: 'Opened the checklist',
   list_hs_actions: 'Looked at the action log',
+  find_inventory_items: 'Searched the inventory', list_suppliers: 'Looked up suppliers',
+  order_lists: 'Looked at the order lists', order_form: 'Opened the order', purchase_orders: 'Looked up supplier orders',
 }
 
 /** The conversation as display items: user / assistant text, a short line

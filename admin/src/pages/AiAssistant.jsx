@@ -152,14 +152,14 @@ function ConnectTab({ info }) {
       <Card title="Your own AI app">
         <p className="text-sm text-muted-foreground">
           Connect the AI app you already use (Claude, Cursor and other apps that take an MCP server) to this restaurant
-          group's bookings, checklists and food safety logs. It can do what this assistant does, with your own permissions.
+          group's bookings, checklists, food safety logs and purchasing. It can do what this assistant does, with your own permissions.
         </p>
         <CopyField label="MCP server address" value={info.staff_mcp_url} />
         <ol className="list-decimal pl-5 text-sm space-y-1">
           <li>Make an access token below. Copy it: it is shown once.</li>
           <li>In your AI app, add a custom MCP connector with the address above, and send the token as a header:
             <code className="text-xs bg-muted/60 rounded px-1 ml-1">Authorization: Bearer mcp_...</code></li>
-          <li>Ask it about bookings, checklists or H&S checks. Changes are made as you, and listed in Activity.</li>
+          <li>Ask it about bookings, H&S checks, supplier orders or prices. Changes are made as you, and listed in Activity.</li>
         </ol>
         {!info.settings.staff_enabled && (
           <p className="text-sm text-amber-700 flex items-center gap-2"><CircleAlert className="w-4 h-4" /> The staff assistant is switched off, so this connector is off too.</p>
@@ -358,10 +358,17 @@ const TOOL_LABELS = {
   log_cooking_check: 'Logged a cooking check', log_delivery: 'Logged a delivery',
   add_corrective_action: 'Added a corrective action', tick_checklist: 'Ticked a checklist',
   add_hs_action: 'Added an H&S action', complete_hs_action: 'Updated an H&S action',
+  add_inventory_item: 'Added an inventory item', update_inventory_item: 'Changed an inventory item',
+  add_supplier_price: 'Added a supplier price', update_supplier_price: 'Changed a supplier price',
+  set_preferred_supplier: 'Chose a supplier', add_supplier: 'Added a supplier', update_supplier: 'Changed a supplier',
+  create_order_list: 'Made an order list', update_order_list: 'Changed an order list', set_pars: 'Set pars',
+  import_price_list: 'Imported a price list', update_order: 'Changed a draft order', place_order: 'Placed an order',
+  send_purchase_order: 'Sent a purchase order', change_purchase_order: 'Changed a purchase order',
+  cancel_purchase_order: 'Cancelled a purchase order', receive_delivery: 'Booked in a delivery',
 }
 
-/** What an H&S change was about, from its stored result. */
-function hsDetail(r) {
+/** What an H&S or purchasing change was about, from its stored result. */
+function changeDetail(r) {
   const x = r.result || {}
   switch (r.tool) {
     case 'log_temperature':       return [x.fridge, x.temperature].filter(Boolean).join(' ')
@@ -372,6 +379,23 @@ function hsDetail(r) {
     case 'tick_checklist':        return x.checklist ? x.checklist + (x.ticked ? ' (' + x.ticked + ' ticked)' : '') : null
     case 'add_hs_action':
     case 'complete_hs_action':    return x.task
+    case 'add_inventory_item':
+    case 'update_inventory_item':
+    case 'add_supplier':
+    case 'update_supplier':
+    case 'create_order_list':
+    case 'update_order_list':     return x.name
+    case 'add_supplier_price':
+    case 'update_supplier_price': return [x.item, x.supplier].filter(Boolean).join(', ')
+    case 'set_preferred_supplier': return [x.item, x.supplier].filter(Boolean).join(' from ')
+    case 'set_pars':              return [x.list, x.venue].filter(Boolean).join(', ')
+    case 'import_price_list':     return x.rows != null ? x.rows + ' rows' : null
+    case 'update_order':          return [x.venue, x.list].filter(Boolean).join(', ')
+    case 'place_order':           return (x.purchase_orders || []).map(p => p.po + ' ' + p.supplier).join(', ') || null
+    case 'send_purchase_order':
+    case 'change_purchase_order':
+    case 'cancel_purchase_order':
+    case 'receive_delivery':      return x.po
     default:                      return null
   }
 }
@@ -393,7 +417,7 @@ function ActivityTab() {
                   <span className="font-medium">{TOOL_LABELS[r.tool] || r.tool}</span>
                   {!r.ok && <span className="text-destructive"> (didn't go through)</span>}
                   {r.guest_name && <span> · {r.guest_name}</span>}
-                  {r.ok && hsDetail(r) && <span> · {hsDetail(r)}</span>}
+                  {r.ok && changeDetail(r) && <span> · {changeDetail(r)}</span>}
                   {r.result?.overridden_limits?.length > 0 && <span className="text-amber-700"> · past the usual limits</span>}
                   {r.starts_at && <span className="text-muted-foreground"> · {format(new Date(r.starts_at), 'EEE d MMM, HH:mm')}{r.venue_name ? ', ' + r.venue_name : ''}</span>}
                 </div>

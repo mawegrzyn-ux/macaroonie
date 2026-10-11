@@ -88,6 +88,38 @@ export function nearestTimes(times, time, n = 4) {
   return [...times].sort((a, b) => Math.abs(mins(a) - mins(time)) - Math.abs(mins(b) - mins(time))).slice(0, n).sort()
 }
 
+/**
+ * The one row whose name matches `text`: its id, then exact, then starts
+ * with, then contains, then every word in it (case-insensitive). Throws
+ * listing the choices (at most 20) when nothing or more than one matches.
+ * `none` is what to say when there is nothing to choose from.
+ */
+export function pickByName(rows, text, nameOf, what, none = 'None are set up yet.') {
+  const raw = String(text ?? '').trim()
+  const byId = rows.find(r => r.id === raw)
+  if (byId) return byId
+  const t = raw.toLowerCase()
+  const words = t.split(/[^a-z0-9]+/).filter(Boolean)
+  const tests = [
+    n => n === t, n => n.startsWith(t), n => n.includes(t),
+    n => words.length > 1 && words.every(w => n.includes(w)),
+  ]
+  for (const test of tests) {
+    const hits = rows.filter(r => test(String(nameOf(r)).toLowerCase()))
+    if (hits.length === 1) return hits[0]
+    if (hits.length > 1) {
+      throw new ToolError('More than one ' + what + ' matches "' + raw + '": ' + someNames(hits, nameOf) + '. Which one?', 409)
+    }
+  }
+  throw new ToolError('No ' + what + ' called "' + raw + '". ' +
+    (rows.length ? 'There is: ' + someNames(rows, nameOf) + '.' : none), 404)
+}
+
+function someNames(rows, nameOf, max = 20) {
+  const names = rows.slice(0, max).map(nameOf).join(', ')
+  return rows.length > max ? names + ' and ' + (rows.length - max) + ' more' : names
+}
+
 /** Run fn, turning a route/service 4xx (httpError, statusCode) into a ToolError. */
 export async function asTool(fn) {
   try {

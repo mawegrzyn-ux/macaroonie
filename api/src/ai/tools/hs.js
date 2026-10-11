@@ -39,7 +39,7 @@ import {
   ToolError, callApi, audit, requireStaffPermission, staffPermissionLevel, levelAtLeast,
 } from '../context.js'
 import { computeHsStatus } from '../../services/hsStatus.js'
-import { DateStr, localParts, longDate } from './util.js'
+import { DateStr, localParts, longDate, pickByName as pickName } from './util.js'
 import { staffVenue } from './staff.js'
 
 const Id = z.string().uuid()
@@ -57,26 +57,9 @@ function rangeText(min, max) {
 }
 const inRange = (t, min, max) => (min == null || t >= min) && (max == null || t <= max)
 
-/**
- * The one row whose name matches `text`: its id, then exact, then starts
- * with, then contains (case-insensitive). Throws listing the choices when
- * nothing or more than one matches.
- */
-function pickByName(rows, text, nameOf, what) {
-  const raw = String(text ?? '').trim()
-  const byId = rows.find(r => r.id === raw)
-  if (byId) return byId
-  const t = raw.toLowerCase()
-  for (const test of [n => n === t, n => n.startsWith(t), n => n.includes(t)]) {
-    const hits = rows.filter(r => test(String(nameOf(r)).toLowerCase()))
-    if (hits.length === 1) return hits[0]
-    if (hits.length > 1) {
-      throw new ToolError('More than one ' + what + ' matches "' + raw + '": ' + hits.map(nameOf).join(', ') + '. Which one?', 409)
-    }
-  }
-  throw new ToolError('No ' + what + ' called "' + raw + '". ' +
-    (rows.length ? 'There is: ' + rows.map(nameOf).join(', ') + '.' : 'None are set up for this venue yet (H&S settings).'), 404)
-}
+/** A fridge, station, check time or dish by the name staff use (util.js). */
+const pickByName = (rows, text, nameOf, what) =>
+  pickName(rows, text, nameOf, what, 'None are set up for this venue yet (H&S settings).')
 
 /**
  * Which check time a reading is for. Named ("Morning", "09:00") when the

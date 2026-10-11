@@ -3114,14 +3114,15 @@ export default function Help() {
           <section id="ai-assistant" data-help="">
             <H2>AI Assistant</H2>
             <P>
-              The AI assistant looks up, makes and changes bookings by chat, and helps staff keep up
-              with health & safety: checklists, food safety checks and the H&S action log. There are
-              four ways in:
+              The AI assistant looks up, makes and changes bookings by chat, helps staff keep up
+              with health & safety (checklists, food safety checks and the H&S action log), and
+              handles purchasing: the inventory, supplier prices, order lists and supplier orders.
+              There are four ways in:
             </P>
             <DataTable
               head={['Where', 'Who', 'What it can do']}
               rows={[
-                ['Ask AI (sidebar), the AI assistant page, and AI assistant in the phone app', 'Staff', 'Find bookings, check tables, book, move, change status, update guest details, add staff notes; see what H&S is done and still due, tick checklists, log fridge, hold, cooking and delivery checks, add corrective actions, keep the action log'],
+                ['Ask AI (sidebar), the AI assistant page, and AI assistant in the phone app', 'Staff', 'Find bookings, check tables, book, move, change status, update guest details, add staff notes; see what H&S is done and still due, tick checklists, log fridge, hold, cooking and delivery checks, add corrective actions, keep the action log; look up and change the inventory, supplier prices, suppliers and order lists, import price lists, fill and place orders, send, change and cancel purchase orders, book deliveries in'],
                 ['Your own AI app (Claude, Cursor and others) through the staff connector', 'Staff', 'The same as Ask AI, with your own permissions'],
                 ['The AI chat block on your website', 'Guests', 'Answer questions, book a table, change or cancel a booking'],
                 ['Guests\' own AI apps through Macaroonie\'s public connector', 'Guests', 'Find your restaurants, book, change or cancel'],
@@ -3189,10 +3190,46 @@ export default function Help() {
               but not change them. Earlier chats are under <strong>Earlier chats</strong> (the clock
               button in the panel); delete one with the bin button.
             </P>
+            <H3>Purchasing by chat</H3>
+            <P>
+              Ask things like <em>"What's on the Daily order for Ware?"</em>,{' '}
+              <em>"Order 3 boxes of tomatoes and fill the rest to par"</em>,{' '}
+              <em>"Brakes now charges £13.20 for the oil"</em>,{' '}
+              <em>"Which deliveries are due today?"</em> or{' '}
+              <em>"The Fresh Co delivery came, one box of tomatoes short, chilled at 4 degrees"</em>.
+              Items, suppliers and order lists can be named the way you'd say them; if a name could
+              mean more than one, the assistant asks which.
+            </P>
+            <DataTable
+              head={['You can', 'Who', 'Notes']}
+              rows={[
+                ['Search the inventory', 'Purchasing setup', 'Each item with its supplier prices (pack, price ex VAT, price per kg, litre or each), venue prices, which supplier is chosen, and recent price changes.'],
+                ['Add or change items', 'Purchasing setup', 'Name, category, storage, code, notes, switch off. A new item can come with its first supplier prices.'],
+                ['Add or change supplier prices', 'Purchasing setup', 'Price per pack, pack, VAT, supplier code, minimum and steps, a venue\'s own price, and which supplier an item is ordered from (for every venue or one).'],
+                ['Add or change suppliers', 'Purchasing setup', 'Contact details, how orders reach them, cutoff, delivery days, minimum order, delivery charge, and one venue\'s own account number, days or cutoff.'],
+                ['Make and change order lists, set pars', 'Purchasing setup', 'Pars are in packs unless you give kg, litres or each.'],
+                ['Import a price list', 'Purchasing setup', 'Attach a CSV with the import headings, or a PDF, photo or email of the supplier\'s list: the assistant reads the products out of it. The card shows what would be added and changed, and any rows it would skip, before anything is saved.'],
+                ['See and fill in an order', 'Purchasing', 'The venue\'s draft for a list: quantities, pars, last ordered, other suppliers. Quantities are packs (cases, bags), as on the Purchasing page. Nothing is sent until you place it.'],
+                ['Place an order', 'Purchasing', 'The card lists each supplier with its delivery date, how the order gets to them and the lines, and warns about rounded-up quantities, a missed cutoff or a small order.'],
+                ['Send, change or cancel a purchase order', 'Purchasing', 'Email it, or mark it sent by printout, PDF, Excel or phone. Quantities can change while it is waiting to be sent; the date and notes until it is received.'],
+                ['Book a delivery in', 'Purchasing', 'Say what was short or missing and the probe temperatures; everything else counts as arrived. This also saves the delivery check in Food safety.'],
+              ]}
+            />
+            <P>
+              Every change shows a card first, as with bookings. Prices only show to people who can
+              see Purchasing setup; restaurant staff ordering without it see packs and quantities
+              but no prices, in the chat and on the cards.
+            </P>
+            <InfoBox type="info">
+              The assistant doesn't delete items, prices, suppliers or lists: it switches them off,
+              the same as the pages do. Check a price list import card carefully before pressing
+              Import: it can change many prices at once.
+            </InfoBox>
             <H3>Attaching photos, screenshots and files</H3>
             <P>
               You can give the assistant something to read: a photo of a delivery note or a
-              thermometer, a screenshot of a booking request email, a PDF, or a text or CSV file. Press
+              thermometer, a screenshot of a booking request email, a supplier's price list, a PDF,
+              or a text or CSV file. Press
               the paperclip next to the message box and pick the files, paste a screenshot straight
               into the message box, or drag files onto the chat. On a tablet or phone the camera
               button takes a photo there and then. Then say what you want, for example{' '}
@@ -3371,6 +3408,11 @@ export default function Help() {
               If anything failed, say what was done about it. Saving writes the venue's delivery check for
               Food safety, so it doesn't need typing in twice. <strong>Correct the delivery</strong> updates it.
             </P>
+            <InfoBox type="info">
+              All of this can also be done by chat with the AI assistant (Ask AI): ordering, booking deliveries
+              in, changing prices and importing a supplier's price list from a PDF or photo. See AI Assistant →
+              Purchasing by chat.
+            </InfoBox>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

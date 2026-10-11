@@ -79,6 +79,8 @@ const DENIED = {
   checklists:    { view: 'see checklists',            manage: 'tick checklists' },
   food_safety:   { view: 'see food safety logs',      manage: 'log food safety checks' },
   hs_action_log: { view: 'see the H&S action log',    manage: 'change the H&S action log' },
+  purchasing:    { view: 'see supplier orders',       manage: 'place, send or receive supplier orders' },
+  purchasing_setup: { view: 'see the inventory, suppliers and prices', manage: 'change the inventory, suppliers, prices or order lists' },
 }
 
 /** This staff member's level for a module ('none' | 'view' | 'manage'),
