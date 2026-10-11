@@ -2590,8 +2590,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               by their supplier, rounds each up with <Mono>fitQty()</Mono> (minimum and step), and creates one
               purchase order per supplier via <Mono>createPurchaseOrder()</Mono> (number from{' '}
               <Mono>nextPoNumber()</Mono> under an advisory lock) for the delivery date sent, else{' '}
-              <Mono>nextDeliveryDate()</Mono>: past the cutoff counts as ordering tomorrow, then lead days,
-              then the next delivery day (venue override first). After the transaction commits, suppliers
+              <Mono>nextDeliveryDate()</Mono>: at or past the cutoff counts as ordering tomorrow, then lead days,
+              then the next delivery day (venue override first). The Place order window offers the next four
+              delivery days as one-tap choices (<Mono>deliveryDateChoices()</Mono> in{' '}
+              <Mono>shared/procurement.js</Mono>, starting from <Mono>next_delivery</Mono>) next to the date
+              button for any other date from today on. After the transaction commits, suppliers
               with <Mono>send_method = email</Mono> are emailed (<Mono>emailPo()</Mono>); a failure is kept
               in <Mono>send_error</Mono> and the PO stays <Mono>to_send</Mono>.
             </P>

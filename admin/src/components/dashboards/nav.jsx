@@ -20,7 +20,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { format, addDays, addWeeks, parseISO } from 'date-fns'
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, openPicker } from '@/lib/utils'
 import { getMonday, isoWeekDates } from '@/pages/CashRecon'
 
 function todayStr() {
@@ -115,7 +115,7 @@ export function DashboardNav({ nav, mode, mobile = false }) {
         )}
       </div>
       <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)}
-        aria-label="Pick a date"
+        onClick={openPicker} aria-label="Pick a date"
         className="absolute inset-0 opacity-0 cursor-pointer w-full" />
     </div>
   )

@@ -7,6 +7,16 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * onClick for a transparent <input type="date"> laid over a styled button.
+ * A desktop browser only opens the calendar from the input's own (hidden)
+ * icon, so a click anywhere else did nothing; showPicker() opens it from
+ * anywhere. Phones and tablets open it on tap either way.
+ */
+export function openPicker(e) {
+  try { e.currentTarget.showPicker?.() } catch { /* already open, or not allowed */ }
+}
+
 export function formatTime(iso) {
   return format(typeof iso === 'string' ? parseISO(iso) : iso, 'HH:mm')
 }

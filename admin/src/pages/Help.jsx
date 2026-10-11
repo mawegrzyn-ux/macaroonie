@@ -3433,7 +3433,7 @@ export default function Help() {
               <li>Use <strong>−</strong> / <strong>+</strong> or type a quantity. <strong>Par</strong> sets the usual quantity; <strong>Fill to par</strong> does it for every empty line. Each line shows what was ordered last time.</li>
               <li>Tap <strong>(change)</strong> under an item to order it from another supplier this time. <strong>Add item</strong> adds anything from the inventory.</li>
               <li>Group by <strong>Supplier</strong> to see each supplier's next delivery date and cutoff.</li>
-              <li>Tap <strong>Review &amp; place</strong>: one order per supplier, each with its delivery date (change it if needed) and an optional note. Then <strong>Place</strong>.</li>
+              <li>Tap <strong>Review &amp; place</strong>: one order per supplier, each with its delivery date and an optional note. To deliver on another day, tap one of <strong>Their delivery days</strong> (the supplier's next four) or tap the date to pick any day from the calendar. Once today's cutoff has passed, the first date offered is already the next delivery after it. Then <strong>Place</strong>.</li>
             </ol>
             <P>
               Quantities save as you type, so a half-filled order is waiting as a <strong>Draft</strong> on the

@@ -33,7 +33,7 @@ import {
 } from '@/components/purchasing/shared'
 import {
   fitQty, qtyProblem, packsToPar, orderTotals, lineAmounts, fmtNum, poNumberLabel, receiveStatusFor,
-  deliveryTempOk, RECEIVE_STATUSES, DELIVERY_TEMP_MAX,
+  deliveryTempOk, RECEIVE_STATUSES, DELIVERY_TEMP_MAX, deliveryDateChoices,
 } from '@shared/procurement.js'
 
 const SENT_VIA = [
@@ -485,6 +485,7 @@ function ReviewModal({ order, groups, prices, onClose, onPlaced }) {
         const s = g.supplier
         const below = prices && s.min_order && g.totals.subtotal < s.min_order
         const late = s.cutoff_time && s.minutes_to_cutoff != null && s.minutes_to_cutoff <= 0
+        const choices = deliveryDateChoices(s)
         return (
           <div key={s.id} className="rounded-xl border p-3 space-y-2">
             <div className="flex items-center gap-2">
@@ -496,12 +497,27 @@ function ReviewModal({ order, groups, prices, onClose, onPlaced }) {
               {g.lines.map(l => <li key={l.it.item_id}>{fmtNum(l.qty)} × {l.it.name} <span className="opacity-75">({l.q.pack_label})</span></li>)}
             </ul>
             {below && <p className="text-xs text-amber-800 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" />Below their minimum order of {money(s.min_order)}</p>}
-            {late && <p className="text-xs text-amber-800 flex items-center gap-1"><Clock className="w-3.5 h-3.5" />Past today's {hhmm(s.cutoff_time)} cutoff</p>}
+            {late && <p className="text-xs text-amber-800 flex items-center gap-1"><Clock className="w-3.5 h-3.5" />Past today's {hhmm(s.cutoff_time)} cutoff, so the first delivery offered is {fmtDate(s.next_delivery)}</p>}
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm">Delivery</span>
               <DateButton value={opts[s.id].delivery_date} min={order.today} onChange={d => set(s.id, 'delivery_date', d)} label={`Delivery date for ${s.name}`} />
               <span className="text-xs text-muted-foreground">{sendHint(s)}</span>
             </div>
+            {choices.length > 1 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground">Their delivery days:</span>
+                {choices.map(d => {
+                  const on = opts[s.id].delivery_date === d
+                  return (
+                    <button key={d} type="button" aria-pressed={on} onClick={() => set(s.id, 'delivery_date', d)}
+                      className={cn('h-11 px-3 rounded-lg border text-sm touch-manipulation',
+                        on ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}>
+                      {fmtDate(d)}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             <input className={inputCls} value={opts[s.id].notes} onChange={e => set(s.id, 'notes', e.target.value)} placeholder="Note for the supplier (optional)" />
           </div>
         )

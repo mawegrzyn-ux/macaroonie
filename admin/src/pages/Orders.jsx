@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ShoppingBag, ChevronLeft, ChevronRight, Settings2, Ban, Loader2, BadgePercent } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, openPicker } from '@/lib/utils'
 import { OrderBoard, AvailabilityModal, PauseButton, useOrders, money, todayIn } from '@/components/orders/shared'
 
 function addDays(date, n) {
@@ -85,7 +85,7 @@ export default function Orders() {
                 <button onClick={() => setDate(d => addDays(d, -1))} className="w-11 h-11 border rounded-md flex items-center justify-center touch-manipulation"><ChevronLeft className="w-4 h-4" /></button>
                 <div className="relative">
                   <span className="inline-flex items-center justify-center min-h-[44px] w-48 border rounded-md text-sm font-medium">{dayLabel(date, today)}</span>
-                  <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)}
+                  <input type="date" value={date} onChange={e => e.target.value && setDate(e.target.value)} onClick={openPicker}
                     className="absolute inset-0 opacity-0 cursor-pointer" aria-label="Choose a day" />
                 </div>
                 <button onClick={() => setDate(d => addDays(d, 1))} className="w-11 h-11 border rounded-md flex items-center justify-center touch-manipulation"><ChevronRight className="w-4 h-4" /></button>

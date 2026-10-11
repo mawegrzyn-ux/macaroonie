@@ -13,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, parseISO } from 'date-fns'
 import { Plus, X, Camera, Trash2, Receipt, ChevronLeft, ChevronRight, Lock } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, openPicker } from '@/lib/utils'
 import { PaidByCardToggle, CardBadge, useReconWeek, getMonday } from '@/pages/CashRecon'
 
 function todayStr() {
@@ -453,7 +453,7 @@ export default function MobileExpenses() {
           <button type="button" className="w-full h-11 px-3 text-sm font-medium rounded-lg border touch-manipulation text-center truncate">
             {weekStart === thisWeek ? `This week · ${label}` : label}
           </button>
-          <input type="date" value={weekStart} aria-label="Jump to a week"
+          <input type="date" value={weekStart} aria-label="Jump to a week" onClick={openPicker}
             onChange={e => e.target.value && setWeekStart(getMonday(parseISO(e.target.value)))}
             className="absolute inset-0 opacity-0 cursor-pointer w-full" />
         </div>

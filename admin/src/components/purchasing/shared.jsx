@@ -9,7 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { CalendarDays, Minus, Plus, Snowflake, Thermometer, X } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, openPicker } from '@/lib/utils'
 import { DAY_LABELS, PO_STATUSES, perUnitLabel, unitPrice } from '@shared/procurement.js'
 
 export const IS_TOUCH = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
@@ -128,7 +128,7 @@ export function DateButton({ value, onChange, min, className, label = 'Date' }) 
     <span className={cn('relative inline-flex items-center gap-2 h-11 px-3 rounded-lg border bg-background text-sm touch-manipulation', className)}>
       <CalendarDays className="w-4 h-4 text-muted-foreground" />
       <span className="tabular-nums">{value ? fmtDate(value) : 'Pick a date'}</span>
-      <input type="date" value={value || ''} min={min} aria-label={label}
+      <input type="date" value={value || ''} min={min} aria-label={label} onClick={openPicker}
         onChange={e => e.target.value && onChange(e.target.value)}
         className="absolute inset-0 opacity-0 cursor-pointer" />
     </span>

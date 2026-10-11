@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — Purchasing: pick another delivery date; date buttons open the calendar]
+
+- **Place order**: under each supplier's delivery date, **Their delivery days** shows the supplier's next four delivery days to tap. Tapping the date itself now opens the calendar for any other day.
+- Past today's cutoff, the warning says which delivery is offered first. At exactly the cutoff time the order now counts as late, matching the warning.
+- **Date buttons open the calendar on a computer**: on a desktop browser, clicking a date button (Purchasing, dashboards, Online orders, menu schedules, Timeline, Bookings, phone Expenses) only did something if you hit a hidden icon. Clicking anywhere on it now opens the calendar.
+- No migration.
+
+---
+
 ## [2026-10-11 — Cash Recon: fill from Loyverse]
 
 - **Loyverse link** (Cash Recon settings → **Loyverse**, owners and admins): add a Loyverse access token (checked with Loyverse before it is saved, never shown again), pick the venue's Loyverse **store** and when its **trading day starts** (e.g. 04:00 for venues open past midnight).
