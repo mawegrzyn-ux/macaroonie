@@ -2038,8 +2038,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>pwa-192x192.png</Mono> / <Mono>pwa-512x512.png</Mono> /{' '}
               <Mono>apple-touch-icon.png</Mono> (white tile), the Ops set{' '}
               (<Mono>mobile-icon.svg</Mono>, <Mono>mobile-pwa-*.png</Mono>,{' '}
-              <Mono>mobile-apple-touch-icon.png</Mono>: white frame on a dark tile so the phone app
-              installs as a visibly different icon), <Mono>MacaroonIcon</Mono> in{' '}
+              <Mono>mobile-apple-touch-icon.png</Mono>: white frame and pink filling on the Ops teal so the
+              phone app installs as a visibly different icon). Colours: maroon{' '}
+              <Mono>#630812</Mono> shells, raspberry <Mono>#D6336C</Mono> filling), <Mono>MacaroonIcon</Mono> in{' '}
               <Mono>AppShell.jsx</Mono> and the header of <Mono>views/platform/landing.eta</Mono>.
               Change them together; the PNGs are renders of the SVG tiles.
             </P>

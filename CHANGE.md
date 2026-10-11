@@ -7,9 +7,9 @@ Migrations are listed where a database change is required.
 
 ## [2026-10-11 — New logo]
 
-- New Macaroonie logo (a macaron side on: two grey shells, two blue lines of filling) everywhere the old pink macaron was: browser tab icon, installed app icons (computer, iPhone, Android), the sidebar, the platform page and the BIMI logo shown next to emails in inboxes that support it.
-- The phone app (Ops) uses the same logo in white on a dark tile, so it still installs as a separate, recognisable app.
-- The browser tab icon switches to a light frame when the browser is in dark mode.
+- New Macaroonie logo (a macaron side on: two maroon shells, two raspberry lines of filling, in the existing brand colours) everywhere the old pink macaron was: browser tab icon, installed app icons (computer, iPhone, Android), the sidebar, the platform page and the BIMI logo shown next to emails in inboxes that support it.
+- The phone app (Ops) uses the same logo in white and pink on its teal tile, so it still installs as a separate, recognisable app.
+- The browser tab icon switches to a light pink frame when the browser is in dark mode.
 - No migration. Installed apps pick up the new icon when the device next refreshes them (reinstall to see it straight away).
 
 ---
