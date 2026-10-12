@@ -3,7 +3,14 @@
 # that sends the domain to the API (which renders the tenant's site) and an
 # HTTPS certificate for it.
 #
-# Run on the server, as root, after the tenant has saved the domain in
+# Normally run for you: scripts/custom-domains-sync.sh (installed by every
+# deploy as a systemd timer) calls the installed copy of this script,
+# /usr/local/sbin/macaroonie-domain, within a minute of the tenant pressing
+# Verify DNS, and removes domains nobody has saved any more. Run it by hand to
+# add a name the sync doesn't (e.g. a www twin whose DNS appeared later), or
+# with the sync switched off.
+#
+# By hand, on the server, as root, after the tenant has saved the domain in
 # Website > Domain, pointed its DNS at us and pressed Verify DNS:
 #   sudo bash scripts/nginx-custom-domain.sh onethai.com
 #   sudo bash scripts/nginx-custom-domain.sh www.onethai.com onethai.com
@@ -27,8 +34,9 @@
 # server for the port (on this server, certbot's `return 404` block for the
 # apex), so the guest gets a bare 404 whatever the app knows about the domain.
 #
-# REMOVE=1 takes the domain off. DRY_RUN=1 prints the config instead. Safe to
-# run again: it rewrites the same file.
+# REMOVE=1 takes the domain off (DELETE_CERT=1 also deletes its certificate).
+# DRY_RUN=1 prints the config instead. Safe to run again: it rewrites the same
+# file. One run at a time (a lock), so a hand run and the sync don't interleave.
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -55,10 +63,22 @@ LIVE="${LIVE:-/etc/letsencrypt/live}"
 CONF="/etc/nginx/sites-available/macaroonie-domain-${MAIN}"
 LINK="/etc/nginx/sites-enabled/macaroonie-domain-${MAIN}"
 
+# Children get `9>&-` so nothing they leave running (nginx, when started
+# directly) keeps holding the lock.
+if [[ -z "${DRY_RUN:-}" ]]; then
+  exec 9>"${LOCK_DIR:-/run/lock}/macaroonie-domain.lock"
+  flock -w 600 9 || { echo "Another run of this script is still going; try again in a minute." >&2; exit 1; }
+fi
+
 if [[ -n "${REMOVE:-}" ]]; then
   rm -f "$LINK" "$CONF"
-  nginx -t && systemctl restart nginx
-  echo "nginx: ${MAIN} removed. The certificate is left in ${LIVE}; delete it with: certbot delete --cert-name ${MAIN}"
+  nginx -t && systemctl restart nginx 9>&-
+  if [[ -n "${DELETE_CERT:-}" && -d "${LIVE}/${MAIN}" ]]; then
+    certbot delete --cert-name "$MAIN" --non-interactive 9>&- || echo "certbot couldn't delete the certificate ${MAIN}" >&2
+    echo "nginx: ${MAIN} removed, with its certificate."
+  else
+    echo "nginx: ${MAIN} removed. The certificate is left in ${LIVE}; delete it with: certbot delete --cert-name ${MAIN}"
+  fi
   exit 0
 fi
 
@@ -106,6 +126,18 @@ find_cert() {
     ok=1
     for n in "${NAMES[@]}"; do cert_covers "$f" "$n" || { ok=""; break; }; done
     if [[ -n "$ok" ]]; then dirname "$f"; return 0; fi
+  done
+  return 1
+}
+
+# A certificate for the main name alone (an earlier run's). It keeps
+# https://MAIN on while a certificate for added names is requested, and after
+# that fails.
+find_main_cert() {
+  local f
+  for f in "${LIVE}"/*/fullchain.pem; do
+    [[ -f "$f" ]] || continue
+    if cert_covers "$f" "$MAIN"; then dirname "$f"; return 0; fi
   done
   return 1
 }
@@ -174,7 +206,7 @@ apply() {
     rm -f "$LINK"
     exit 1
   fi
-  systemctl restart nginx
+  systemctl restart nginx 9>&-
 }
 
 if [[ -n "${CERT_NAME:-}" && -z "${DRY_RUN:-}" && ! -f "${LIVE}/${CERT_NAME}/fullchain.pem" ]]; then
@@ -192,8 +224,15 @@ check_app
 
 CERT_DIR=$(find_cert || true)
 if [[ -z "$CERT_DIR" ]]; then
-  echo "No certificate covers ${NAMES[*]}; asking certbot for one (webroot)."
-  apply ""
+  PREV_DIR=$(find_main_cert || true)
+  if [[ -n "$PREV_DIR" ]]; then
+    # Port 80 answers the challenge for every name; https://MAIN stays on.
+    echo "No certificate covers ${NAMES[*]}; asking certbot for one (webroot), keeping https://${MAIN} on meanwhile."
+    apply "$PREV_DIR"
+  else
+    echo "No certificate covers ${NAMES[*]}; asking certbot for one (webroot)."
+    apply ""
+  fi
   mkdir -p /var/www/html
   CERT_ARGS=()
   for n in "${NAMES[@]}"; do CERT_ARGS+=(-d "$n"); done
@@ -201,8 +240,19 @@ if [[ -z "$CERT_DIR" ]]; then
   [[ -n "${CERTBOT_EMAIL:-}" ]] && EMAIL_ARGS=(--email "$CERTBOT_EMAIL")
   if ! certbot certonly --webroot -w /var/www/html "${CERT_ARGS[@]}" \
        --cert-name "$MAIN" --agree-tos --non-interactive "${EMAIL_ARGS[@]}" \
-       --deploy-hook "systemctl reload nginx"; then
+       --deploy-hook "systemctl reload nginx" 9>&-; then
     echo >&2
+    if [[ -n "$PREV_DIR" ]]; then
+      KEEP=() NEW=()
+      for a in "${ALIASES[@]}"; do
+        if cert_covers "${PREV_DIR}/fullchain.pem" "$a"; then KEEP+=("$a"); else NEW+=("$a"); fi
+      done
+      ALIASES=("${KEEP[@]}"); NAMES=("$MAIN" "${ALIASES[@]}")
+      apply "$PREV_DIR"
+      echo "https://${MAIN} stays on as before; ${NEW[*]} couldn't get a certificate yet." >&2
+      echo "Usual causes: its DNS record doesn't point at this server yet, or Cloudflare's proxy is on. Run this again once fixed." >&2
+      exit 1
+    fi
     echo "No certificate yet, so ${MAIN} works on http:// only for now." >&2
     echo "Usual causes: the DNS record doesn't point at this server yet (check with: dig +short ${MAIN}),"   >&2
     echo "or Cloudflare's proxy is on (orange cloud; it must be DNS only). Run this script again once fixed." >&2

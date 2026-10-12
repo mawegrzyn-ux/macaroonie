@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-12 — Custom domains switch on by themselves]
+
+- After **Verify DNS**, the server now switches the domain on by itself, usually within a minute or two (web server block and HTTPS certificate). Nobody has to run the server script any more.
+- **Website > Domain** shows how it is going and updates by itself: switching on; waiting for DNS (with where the domain points now, or a leftover IPv6 record that points elsewhere); or works on http:// only, with certbot's reason and when it tries again. Pressing Verify DNS tries again sooner.
+- The www / bare twin is switched on with the domain when its DNS points at the server, also when that record is added later. If the twin's certificate fails, the main address keeps working over HTTPS.
+- A failed certificate is retried after 5 minutes, 15 minutes, 1 hour, 6 hours, then daily, to stay inside Let's Encrypt's limits.
+- A domain no tenant has saved any more (changed or removed) is taken off the server with its certificate.
+- Server: every deploy installs it (`scripts/install-domain-sync.sh`: a systemd timer every minute, plus a run straight after Verify DNS). Logs: `journalctl -u macaroonie-domains`. Switch off with `sudo touch /var/lib/macaroonie-domains/disabled`; the Domain section then shows platform admins the manual command again.
+- No migration.
+
+---
+
 ## [2026-10-12 — Custom domains reach the site]
 
 - A custom domain (e.g. `onethai.com`) showed a plain 404 even with DNS right: the server had nothing set up for it, so its web server answered with its default 404. New server script `scripts/nginx-custom-domain.sh <domain> [other names]` switches a domain on: web server block and HTTPS certificate, with the www / bare version redirected to it.
