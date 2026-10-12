@@ -2945,6 +2945,76 @@ export default function Help() {
               panel on the right; if it was the one used for printing, printing goes back to the
               automatic layout. The Print layout settings above only apply to the automatic layout.
             </InfoBox>
+            <H3>Deliveroo menu file</H3>
+            <P>
+              <strong>Menus &rarr; Deliveroo menu</strong> updates the menu file Deliveroo gives you
+              (the bulk-management CSV) from your menus here, so prices, VAT, descriptions,
+              allergens and calories on Deliveroo match what you sell, without typing them into the
+              spreadsheet by hand. Pick the venue at the top; each venue has its own settings and
+              matches, because each Deliveroo site has its own file.
+            </P>
+            <DataTable
+              head={['Step', 'What to do']}
+              rows={[
+                ['1. Get the file', 'In the Deliveroo Hub go to Menu, Menu Manager, Bulk management and download the menu file (a CSV). Keep that file: Deliveroo can\'t undo an upload.'],
+                ['2. Open it here', 'Tap the box under Deliveroo file and choose the CSV, or drop it on the box. A copy you saved from Excel (.xlsx) works too. The file stays in this browser tab only.'],
+                ['3. Check the settings', 'Under How the file is filled: which menus to match against, the price rule (menu price plus a %, rounded up or to the nearest 1p, 5p, 10p, 50p or £1), which columns to fill, and whether May contain and Can be removed allergens are listed. Tap Save settings.'],
+                ['4. Review the items', 'Each Deliveroo item shows the dish it is filled from, its price now and after, and the other columns that change. Fix what needs it (see below).'],
+                ['5. Save matches', 'Stores each item\'s dish, skips and your own values, so next time the same file (or a newer one) opens matched.'],
+                ['6. Download', 'CSV for Deliveroo is the file to upload, in the Hub under Menu, Menu Manager, Bulk management. Excel, to edit gives the same rows as a spreadsheet you can change and open here again.'],
+              ]}
+            />
+            <P>
+              Each item is matched to a dish by name. The badge says how: <strong>Auto match</strong>{' '}
+              (the names are the same, apart from things like &ldquo;Can&rdquo; or &ldquo;330ml&rdquo;
+              or a name in brackets), <strong>Matched</strong> (you chose it, or it was saved),{' '}
+              <strong>Check</strong> (close names; tap <strong>Use</strong> under it to take the closest,
+              or <strong>Choose dish</strong> to pick another), <strong>Not matched</strong>,{' '}
+              <strong>Left as is</strong> (you chose to leave it alone) and <strong>Dish gone</strong>{' '}
+              (the saved dish was deleted from the menu). An item with no dish is left exactly as
+              Deliveroo has it. Filter the list with <strong>Changes</strong>, <strong>To check</strong>{' '}
+              and <strong>Problems</strong>, or search by name.
+            </P>
+            <DataTable
+              head={['Column', 'Filled with']}
+              rows={[
+                ['Delivery price', 'The dish\'s menu price plus your %, rounded as set. A dish priced only by its options (e.g. Chicken, Prawn, Tofu) uses its cheapest option, and the review says which.'],
+                ['VAT rate', 'The dish\'s takeaway VAT, else its section\'s, else the venue\'s takeaway VAT in Ordering setup. Deliveroo takes 0, 5, 12.5 or 20.'],
+                ['Description', 'The dish description.'],
+                ['Allergens', 'The dish\'s allergens, sent as Deliveroo\'s codes (see Allergen and dietary codes).'],
+                ['Calories', 'The dish\'s calories (kcal).'],
+                ['Name, In-store price, Dietary, Energy (kcal)', 'Off to start with; switch them on under Columns filled from the menu.'],
+              ]}
+            />
+            <P>
+              An empty value on your menu never clears what Deliveroo has: a dish with no description
+              leaves Deliveroo&apos;s description in place. Columns this page doesn&apos;t fill (PLU,
+              barcodes, nutrition, max quantity and so on) are written back exactly as they were, and
+              the item ids, order and columns stay the same.
+            </P>
+            <P>
+              Tap an item&apos;s name or its changes to open it. For each column you can use{' '}
+              <strong>Our menu</strong>, keep <strong>Deliveroo&apos;s</strong> value, or{' '}
+              <strong>Type it</strong>. <strong>Change prices shown</strong> raises or lowers the
+              delivery price of every item in the list by a % (rounded) or sets one price for them
+              all, for example search &ldquo;can&rdquo; and set the cans to £2.50. Typed values stay
+              until you undo them, even if the menu changes.
+            </P>
+            <InfoBox type="warn">
+              Deliveroo has its own allergen codes, and lists nuts one by one (nuts_cashew,
+              nuts_almond and so on). Open <strong>Allergen and dietary codes</strong> to see what each
+              of your tags is sent as. A dish with an allergen that has no code is a problem, and the
+              CSV can&apos;t be downloaded until you give the allergen a code or keep Deliveroo&apos;s
+              value for that dish: otherwise Deliveroo would show the dish without that allergen.
+              Check a few dishes on Deliveroo after uploading, and keep your own allergen
+              information up to date.
+            </InfoBox>
+            <P>
+              Other problems are shown in red on the item (Deliveroo would refuse the file) or amber
+              (worth a look, for example a price that changes by more than 30%). If Excel has turned
+              an item id into a number like 1.23E+15, use the file Deliveroo gave you instead: the id
+              can&apos;t be recovered.
+            </P>
           </section>
 
           {/* ── ONLINE ORDERS ─────────────────────────────── */}
@@ -3093,7 +3163,7 @@ export default function Help() {
                 ['Stop orders for a while', "Pause orders, with an optional message. Guests can still see the menu. Resume orders when you are ready."],
               ]}
             />
-            <InfoBox type="warning">
+            <InfoBox type="warn">
               Allergy notes show in red on the card, in the order and on the printed ticket. Always
               read them before cooking.
             </InfoBox>

@@ -76,6 +76,7 @@ export const DEFAULT_NAV_TREE = [
           { label: 'Variant groups', icon: 'Layers', route: '/menus/variant-groups', module: 'menus' },
           { label: 'Allergens & dietary', icon: 'Tag', route: '/menus/dietary-tags', module: 'menus' },
           { label: 'Allergen matrix', icon: 'Grid3x3', route: '/menus/allergens', module: 'menus' },
+          { label: 'Deliveroo menu', icon: 'Bike', route: '/menus/deliveroo', module: 'menus' },
         ],
       },
       { label: 'Media', icon: 'FolderOpen', route: '/media', module: 'website' },
