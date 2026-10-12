@@ -24,7 +24,8 @@ const containerStyle = d.container === 'full'
 const accessKey = String(d.access_key || '').trim()
 const accessKeyJs = JSON.stringify(accessKey)
 const launcherMode = !!d.launcher_mode
-const launcherId = 'gstpln-launcher-' + Math.random().toString(36).slice(2, 9)
+/* Not 'gstpln…': the launcher script looks for Guestplan's own elements by that name. */
+const launcherId = 'mcrn-gp-launch-' + Math.random().toString(36).slice(2, 9)
 %>
 <section class="block" style="padding:48px 0;">
   <div style="<%= containerStyle %> text-align:center;">
@@ -48,11 +49,76 @@ const launcherId = 'gstpln-launcher-' + Math.random().toString(36).slice(2, 9)
           <%= d.heading || 'Book a table' %>
         </button>
         <script>
+        /* One tap opens the booking form. Guestplan's script mounts its own
+           launcher button (closed, at least on phones), which used to need a
+           second tap. After loading it we wait for Guestplan's elements
+           (named gstpln / guestplan), hide our button so the two never
+           stack, and tap Guestplan's launcher for the visitor, unless its
+           panel is already open. Guestplan documents no "open" call, so this
+           goes by its markup; if the launcher sits inside an iframe it can't
+           be tapped from here and the visitor taps it once. */
         (function () {
           var btn = document.getElementById(<%~ JSON.stringify(launcherId) %>);
           if (!btn) return;
-          btn.addEventListener('click', function onClick() {
+          var label = btn.textContent;
+          var SEL = '[id*="gstpln" i],[class*="gstpln" i],[id*="guestplan" i],[class*="guestplan" i]';
+          function visible(el) {
+            if (!el || el === btn || btn.contains(el)) return false;
+            var r = el.getBoundingClientRect();
+            return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+          }
+          function found() {
+            var out = [];
+            document.querySelectorAll(SEL).forEach(function (el) {
+              if (visible(el)) out.push(el);
+              if (el.shadowRoot) el.shadowRoot.querySelectorAll('button,a,[role="button"]').forEach(function (x) { if (visible(x)) out.push(x); });
+            });
+            return out;
+          }
+          function opened(els) {
+            return els.some(function (el) { return el.getBoundingClientRect().height > 260; });
+          }
+          function launcherOf(els) {
+            for (var i = 0; i < els.length; i++) {
+              var el = els[i];
+              if (el.tagName === 'IFRAME') continue;
+              if (el.matches('button,a,[role="button"]')) return el;
+              var inner = el.querySelector('button,a,[role="button"]');
+              if (inner && visible(inner)) return inner;
+            }
+            for (var j = 0; j < els.length; j++) if (els[j].tagName !== 'IFRAME') return els[j];
+            return null;
+          }
+          function waitAndOpen() {
+            var started = Date.now(), seenAt = 0, done = false;
+            var obs = new MutationObserver(check);
+            function finish() { done = true; obs.disconnect(); clearInterval(timer); }
+            function check() {
+              if (done) return;
+              var els = found();
+              if (!els.length) {
+                if (Date.now() - started > 10000) {
+                  /* Guestplan didn't appear (blocked or offline): our button again. */
+                  finish(); btn.disabled = false; btn.textContent = label; btn.style.opacity = '';
+                  btn.addEventListener('click', onClick);
+                }
+                return;
+              }
+              btn.style.display = 'none';
+              if (!seenAt) seenAt = Date.now();
+              if (opened(els)) return finish();
+              /* Give Guestplan a moment to open itself before tapping. */
+              if (Date.now() - seenAt < 700) return;
+              finish();
+              var target = launcherOf(els);
+              if (target) target.click();
+            }
+            obs.observe(document.documentElement, { childList: true, subtree: true });
+            var timer = setInterval(check, 200);
+          }
+          function onClick() {
             btn.removeEventListener('click', onClick);
+            btn.disabled = true; btn.style.opacity = '0.7'; btn.textContent = 'Opening…';
             if (!window._gstpln) {
               (function(g,s,t,p,l,n){
                 g["_gstpln"]={};
@@ -61,7 +127,9 @@ const launcherId = 'gstpln-launcher-' + Math.random().toString(36).slice(2, 9)
               })(window,document,"script","https://cdn.guestplan.com/widget.js");
             }
             window._gstpln.accessKey = <%~ accessKeyJs %>;
-          });
+            waitAndOpen();
+          }
+          btn.addEventListener('click', onClick);
         })();
         </script>
       <% } else { %>

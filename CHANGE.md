@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-12 — Guestplan button opens the booking form in one tap]
+
+- The Guestplan block's floating **Book a table** button (Start closed) loaded Guestplan, which then showed its own button on top, and guests had to tap that too. One tap now loads Guestplan and opens its booking form, and our button makes way for Guestplan's so the two never stack. If Guestplan opens itself (on some screens), it is left open.
+- No migration.
+
+---
+
 ## [2026-10-12 — Till PINs work as soon as they are set]
 
 - A PIN set or changed in **Till setup** didn't work on a till that was already open: the till only knew the PINs from its last config download. It now fetches the latest config when a typed PIN matches nobody and checks again, so a new PIN signs in straight away.
