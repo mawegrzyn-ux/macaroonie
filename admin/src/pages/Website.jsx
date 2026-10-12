@@ -664,18 +664,65 @@ function publishedLabel(at) {
   return new Date(at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+/** "today", "yesterday", "5 days ago", or the date once it's over a month. */
+function agoLabel(at) {
+  const day = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime() }
+  const days = Math.round((day(Date.now()) - day(at)) / 86_400_000)
+  if (days <= 0) return 'today'
+  if (days === 1) return 'yesterday'
+  if (days <= 31) return days + ' days ago'
+  return 'on ' + new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+/**
+ * Whether the live site matches staging (GET /website/tenant-site/publish-status).
+ * Refreshes shortly after any save in the app, every 30 s, and on focus.
+ */
+export function usePublishStatus() {
+  const api = useApi()
+  const qc = useQueryClient()
+  const q = useQuery({
+    queryKey: ['publish-status'],
+    queryFn: () => api.get('/website/tenant-site/publish-status'),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+  })
+  useEffect(() => {
+    let t
+    const unsub = qc.getMutationCache().subscribe(e => {
+      if (e?.type === 'updated' && e.action?.type === 'success') {
+        clearTimeout(t)
+        t = setTimeout(() => qc.invalidateQueries({ queryKey: ['publish-status'] }), 600)
+      }
+    })
+    return () => { clearTimeout(t); unsub() }
+  }, [qc])
+  return q.data
+}
+
 export function PublishButton({ tenantSite, onClick }) {
   const ts = tenantSite || {}
-  const status = ts.scheduled_publish_at
-    ? 'Scheduled ' + publishedLabel(ts.scheduled_publish_at)
-    : ts.published_at ? 'Last published ' + publishedLabel(ts.published_at) : 'Not published yet'
+  const st = usePublishStatus()
+  const count = st && !st.never_published && !st.in_sync ? st.changes.length : 0
+  const when = ts.published_at ? agoLabel(ts.published_at) : null
   const stagingUrl = ts.subdomain_slug ? `https://staging-${ts.subdomain_slug}.macaroonie.com` : null
+  let line, tone
+  if (!ts.published_at) { line = 'Not published yet'; tone = 'text-amber-600' }
+  else if (!st) { line = 'Last published ' + when; tone = 'text-muted-foreground' }
+  else if (st.in_sync) { line = <><Check className="w-3 h-3 inline -mt-0.5" /> Live matches staging · published {when}</>; tone = 'text-emerald-700' }
+  else { line = `${count} change${count === 1 ? '' : 's'} not live yet · last published ${when}`; tone = 'text-amber-700' }
   return (
     <div className="px-2 mb-3">
       <div className="flex gap-2">
         <button type="button" onClick={onClick}
-          className="flex-1 min-w-0 min-h-[48px] inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold shadow-sm hover:opacity-90 touch-manipulation">
+          aria-label={count ? `Publish (${count} change${count === 1 ? '' : 's'} not live yet)` : 'Publish'}
+          className="relative flex-1 min-w-0 min-h-[48px] inline-flex items-center justify-center gap-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold shadow-sm hover:opacity-90 touch-manipulation">
           <Rocket className="w-4 h-4" /> Publish
+          {count > 0 && (
+            <span className="absolute -top-2 -right-2 min-w-[22px] h-[22px] px-1.5 rounded-full bg-amber-500 text-white text-[11px] font-bold leading-[22px] text-center shadow ring-2 ring-background">
+              {count > 99 ? '99+' : count}
+            </span>
+          )}
         </button>
         {stagingUrl && (
           <a href={stagingUrl} target="_blank" rel="noopener"
@@ -686,9 +733,50 @@ export function PublishButton({ tenantSite, onClick }) {
           </a>
         )}
       </div>
-      <p className={cn('mt-1 px-1 text-[11px] leading-tight text-center', ts.published_at || ts.scheduled_publish_at ? 'text-muted-foreground' : 'text-amber-600')}>
-        {status}
+      <button type="button" onClick={onClick}
+        className={cn('mt-1 w-full px-1 text-[11px] leading-tight text-center hover:underline touch-manipulation', tone)}>
+        {line}
+      </button>
+      {ts.scheduled_publish_at && (
+        <p className="px-1 text-[11px] leading-tight text-center text-muted-foreground">
+          Scheduled {publishedLabel(ts.scheduled_publish_at)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** What publishing would change, for the Publish window. */
+function PendingChanges({ status }) {
+  const [all, setAll] = useState(false)
+  if (!status || status.never_published) return null
+  if (status.in_sync) {
+    return (
+      <p className="text-xs text-emerald-700 inline-flex items-center gap-1.5">
+        <Check className="w-3.5 h-3.5" /> Your live site already matches staging. Nothing to publish.
       </p>
+    )
+  }
+  const list = all ? status.changes : status.changes.slice(0, 8)
+  return (
+    <div className="text-xs rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
+      <p className="font-semibold mb-1">
+        {status.changes.length} change{status.changes.length === 1 ? '' : 's'} on staging that aren&apos;t live yet:
+      </p>
+      <ul className="space-y-0.5">
+        {list.map((c, i) => (
+          <li key={i} className="flex items-start gap-1.5">
+            <span className={cn('mt-1 w-1.5 h-1.5 rounded-full shrink-0',
+              c.kind === 'added' ? 'bg-emerald-600' : c.kind === 'removed' ? 'bg-red-600' : 'bg-amber-600')} />
+            <span>{c.label}</span>
+          </li>
+        ))}
+      </ul>
+      {status.changes.length > 8 && (
+        <button type="button" onClick={() => setAll(v => !v)} className="mt-1 underline min-h-[32px] touch-manipulation">
+          {all ? 'Show fewer' : `Show all ${status.changes.length}`}
+        </button>
+      )}
     </div>
   )
 }
@@ -699,9 +787,13 @@ export function PublishModal({ tenantSite, onClose }) {
   const [scheduleAt, setScheduleAt] = useState(defaultScheduleValue())
   const [confirmOverride, setConfirmOverride] = useState(false)
 
+  const status = usePublishStatus()
   const publishNow = useMutation({
     mutationFn: () => api.post('/website/tenant-site/publish', {}),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+    onSuccess:  () => {
+      qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      qc.invalidateQueries({ queryKey: ['publish-status'] })
+    },
   })
 
   const schedulePublish = useMutation({
@@ -725,6 +817,7 @@ export function PublishModal({ tenantSite, onClose }) {
       qc.invalidateQueries({ queryKey: ['website-config'] })
       qc.invalidateQueries({ queryKey: ['website-configs'] })
       qc.invalidateQueries({ queryKey: ['website-pages'] })
+      qc.invalidateQueries({ queryKey: ['publish-status'] })
     },
   })
 
@@ -799,6 +892,7 @@ export function PublishModal({ tenantSite, onClose }) {
                   ? <>Last published {new Date(tenantSite.published_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</>
                   : <span className="text-amber-600 inline-flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> Never published — production will 404 until you publish.</span>}
               </div>
+              <PendingChanges status={status} />
 
               {hasPendingSchedule && (
                 <div className="flex items-center justify-between gap-3 text-xs bg-primary/5 border border-primary/20 rounded-md px-3 py-2">

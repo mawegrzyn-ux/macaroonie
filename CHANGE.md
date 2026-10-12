@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-12 — Publish button shows whether the live site matches staging]
+
+- Under **Publish** (top of the website menu): *Live matches staging · published 3 days ago*, or *4 changes not live yet · last published yesterday*, with the number on the button too. It updates by itself a moment after each save.
+- The publish window lists what publishing would change: Home page, Header, Footer, Brand & theme, SEO and the other sections, each page or pop-up (new, changed, removed or hidden), and each location's page and details.
+- Fixed: a location's own **Brand & theme** (Brand & theme > site override) only ever showed on staging; the live site kept the default. It goes live with your next publish.
+- Fixed: **Override staging with production** re-created pages under new ids and lost the Order online page's link to ordering.
+- No migration.
+
+---
+
 ## [2026-10-12 — Guestplan button opens the booking form in one tap]
 
 - The Guestplan block's floating **Book a table** button (Start closed) loaded Guestplan, which then showed its own button on top, and guests had to tap that too. One tap now loads Guestplan and opens its booking form, and our button makes way for Guestplan's so the two never stack. If Guestplan opens itself (on some screens), it is left open.

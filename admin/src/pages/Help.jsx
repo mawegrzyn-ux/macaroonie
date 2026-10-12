@@ -2321,7 +2321,13 @@ export default function Help() {
             <P>
               Every change you make in the website builder shows on your <strong>staging</strong> address straight
               away. Guests only see it once you publish. The <strong>Publish</strong> button sits at the top of the
-              website menu, above Home, with the last publish time underneath (or <em>Not published yet</em>).
+              website menu, above Home. Underneath it says whether your live site matches staging:{' '}
+              <em>Live matches staging · published 3 days ago</em>, or <em>4 changes not live yet · last published
+              yesterday</em> with the number on the Publish button too (or <em>Not published yet</em>). It updates
+              by itself after each save. The publish window lists what would change: Home page, Brand &amp; theme,
+              each page or pop-up (new, changed, removed or hidden), each location&apos;s page and details. Gallery
+              photos, PDF menus, allergens, opening hours from your schedule and menus built on the Menus page
+              aren&apos;t part of publishing: they show on the live site as soon as you save them.
               The <strong>Staging</strong> button next to it opens your staging site in a new tab, so you can check
               your edits before publishing (it appears once your site has an address under Domain).
               Tap Publish to open the publish window: copy or open your staging link, <strong>Publish now</strong>,

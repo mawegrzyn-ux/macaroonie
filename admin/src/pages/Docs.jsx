@@ -4104,6 +4104,23 @@ GET /robots.txt`}</Code>
               The <Mono>tenant-domain</Mono> section (<Mono>TenantDomainSection</Mono>, now labelled Domain) keeps the
               subdomain, custom domain, DNS verify and the <Mono>is_published</Mono> switch with their own Save.
             </P>
+            <P>
+              Publish status: <Mono>GET /website/tenant-site/publish-status</Mono> → <Mono>publishStatus()</Mono> in{' '}
+              <Mono>services/publishSvc.js</Mono> builds the snapshot Publish would save (<Mono>buildPublishSnapshot()</Mono>)
+              and compares it with <Mono>published_snapshot</Mono> through <Mono>canonical()</Mono> (keys sorted, null and
+              missing keys dropped, so jsonb key order and fields added to the lists since don&apos;t count). It returns{' '}
+              <Mono>{'{ published_at, never_published, in_sync, changes: [{ label, kind }] }'}</Mono>: tenant fields
+              grouped by <Mono>TENANT_AREAS</Mono> (Home page, Header, Footer, Brand &amp; theme, SEO, …, anything else
+              Site settings), pages by id (added / changed / removed or hidden), per location its page
+              (<Mono>page_blocks</Mono>, header/footer switches), its own brand (only while <Mono>use_brand_override</Mono>{' '}
+              is on, since a tenant theme save strips colours from every location) and other details.{' '}
+              <Mono>usePublishStatus()</Mono> in <Mono>Website.jsx</Mono> refetches 600 ms after any successful mutation
+              (mutation cache subscription), every 30 s and on focus; <Mono>PublishButton</Mono> shows the line and a count
+              badge, <Mono>PendingChanges</Mono> the list in the publish window. Fixed alongside:{' '}
+              <Mono>use_brand_override</Mono> was missing from <Mono>WEBSITE_CONFIG_CONTENT_FIELDS</Mono>, so a
+              location&apos;s own Brand &amp; theme never showed on production (it does after the next publish), and
+              Override staging re-created pages without their ids or <Mono>system_key</Mono>.
+            </P>
 
             <H3>Admin page</H3>
             <P>
