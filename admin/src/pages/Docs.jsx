@@ -159,7 +159,7 @@ export default function Docs() {
                 ['Admin UI', 'React 18, Vite', 'SPA with hot module replacement in dev'],
                 ['Data / cache', 'TanStack Query v5', 'Server state, cache invalidation, background refetch'],
                 ['Drag & drop', '@dnd-kit/core', 'Timeline drag-to-reschedule (mouse + touch sensors)'],
-                ['Realtime', 'ws (WebSocket)', 'Timeline live updates; rooms keyed by venue_id'],
+                ['Realtime', 'ws (WebSocket) + Redis pub/sub', 'Timeline, orders and till live updates; rooms keyed by venue_id, relayed between API processes through Redis'],
                 ['Deployment', 'Ubuntu 24.04, Nginx, PM2', 'Single Lightsail instance'],
               ]}
             />
@@ -2727,6 +2727,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               staff id; anything their role lacks needs <Mono>approved_by</Mono> (someone with{' '}
               <Mono>manager</Mono> typed their PIN), checked by <Mono>permissionProblem()</Mono> on both sides.
             </P>
+            <P>
+              A till learns of a new or changed PIN from its config. Setup changes push <Mono>pos.config</Mono>{' '}
+              (cross-process through the Redis relay in <Mono>config/ws.js</Mono>); on top of that,{' '}
+              <Mono>staffForPin()</Mono> in <Mono>pos/src/lib/store.js</Mono> fetches the config when a typed PIN
+              matches nobody (online, at most every 5 s) and looks again, so a PIN set a moment ago works even if the
+              push was missed. WebCrypto only exists on https:// (and localhost): <Mono>hashPin()</Mono> throws a
+              clear message without it, <Mono>PinPad</Mono> shows any error instead of hanging on "Checking", and{' '}
+              <Mono>routes/posSite.js</Mono> sends the pos host from http:// (X-Forwarded-Proto) to https://.
+            </P>
             <H3>Prices, VAT and offers</H3>
             <P>
               <Mono>shared/pos/pricing.js</Mono>: <Mono>priceItem()</Mono> (unit price + modifiers: prefixes No /
@@ -4224,7 +4233,7 @@ GET /robots.txt`}</Code>
                 {
                   name: 'WebSocket server',
                   path: 'src/config/ws.js',
-                  desc: 'Runs on the same HTTP server. Auth via ?token= query param (Auth0 JWT). Rooms keyed by venue_id.',
+                  desc: 'Runs on the same HTTP server. Auth via ?token= query param (Auth0 JWT), or ?pos_device=&secret= for a till (room pos:<venueId>). Rooms keyed by venue_id. The API runs as several PM2 processes and a socket belongs to one of them, so broadcast() delivers locally and publishes on Redis (channel macaroonie:ws); the other processes relay it to their sockets (each message carries its origin, so none is delivered twice). With Redis down only the sending process\'s clients hear it; the pages also poll.',
                   code: "// Client subscribes:\n{ type: 'subscribe', venue_id: '<uuid>' }\n\n// Server pushes after mutations:\n{ type: 'booking.created' | 'booking.updated', booking: { ... } }",
                 },
                 {

@@ -201,11 +201,24 @@ export function signOut() {
   setState({ staff: null })
   setPresence(null)
 }
+let lastPinRefresh = 0
+/**
+ * The person with this PIN. A PIN this till doesn't know may have been set
+ * since it last loaded its config, so on a miss it asks for the latest
+ * config (when online, at most every 5 s) and looks again.
+ */
 export async function staffForPin(pin) {
-  const cfg = state.config
-  if (!cfg || !/^[0-9]{4,6}$/.test(pin)) return null
-  const hash = await hashPin(pin, cfg.pin_salt)
-  return cfg.staff.find(s => s.pin_hash && s.pin_hash === hash) || null
+  if (!state.config || !/^[0-9]{4,6}$/.test(pin)) return null
+  const find = async cfg => {
+    const hash = await hashPin(pin, cfg.pin_salt)
+    return cfg.staff.find(s => s.pin_hash && s.pin_hash === hash) || null
+  }
+  const found = await find(state.config)
+  if (found || state.online === false || Date.now() - lastPinRefresh < 5000) return found
+  lastPinRefresh = Date.now()
+  const before = state.config.version
+  await loadConfig()
+  return state.config.version !== before ? find(state.config) : null
 }
 /** Reset the auto sign-out timer (settings.auto_logout_secs, 0 = never). */
 export function touch() {

@@ -3667,7 +3667,7 @@ export default function Help() {
 
             <H3>Taking an order</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments.</li>
+              <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Till setup works straight away; if the till is offline it needs to have been online once since.</li>
               <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab. Colours show which tables are free, open, waiting for a held course, or billed.</li>
               <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> at the bottom of the menu first if you want them. Dishes with choices or meal deals open a window to pick them, add a note or allergies.</li>
               <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>

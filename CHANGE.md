@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-12 — Till PINs work as soon as they are set]
+
+- A PIN set or changed in **Till setup** didn't work on a till that was already open: the till only knew the PINs from its last config download. It now fetches the latest config when a typed PIN matches nobody and checks again, so a new PIN signs in straight away.
+- Live updates (the timeline, online orders, tills) now reach every screen. The server runs several copies of the API, and an update used to reach only the screens connected to the copy that made the change; they now pass through Redis to all of them.
+- A till opened at `http://` is sent to `https://` (signing in needs it), and if the PIN can't be checked the till says why instead of staying on "Checking…".
+- No migration.
+
+---
+
 ## [2026-10-12 — Custom domains switch on by themselves]
 
 - After **Verify DNS**, the server now switches the domain on by itself, usually within a minute or two (web server block and HTTPS certificate). Nobody has to run the server script any more.
