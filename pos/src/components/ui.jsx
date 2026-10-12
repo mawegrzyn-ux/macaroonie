@@ -69,7 +69,8 @@ export function PinPad({ onSubmit }) {
   const tried = useRef('')
   const attempt = async (value, loud) => {
     setBusy(true)
-    const r = await onSubmit(value)
+    let r
+    try { r = await onSubmit(value) } catch (err) { r = { ok: false, error: err?.message || 'Couldn\'t check the PIN' }; loud = true }
     setBusy(false)
     if (r?.ok) { setPin(''); return }
     if (loud || value.length >= 6) { setError(r?.error || 'PIN not recognised'); setPin('') }

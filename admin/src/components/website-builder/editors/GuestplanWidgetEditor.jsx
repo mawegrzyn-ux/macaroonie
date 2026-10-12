@@ -30,11 +30,9 @@ export function GuestplanWidgetEditor({ data, onChange }) {
         <span>
           Start closed — show only a floating "Book a table" button
           <span className="block text-xs text-muted-foreground mt-0.5">
-            Guestplan doesn't publish a documented option to force their widget closed on
-            load (it decides its own default, which can be expanded on desktop). This
-            works around that by not loading Guestplan's script at all until the visitor
-            clicks the floating button — so nothing of theirs mounts on the page until
-            then, regardless of what their script would otherwise default to.
+            Nothing of Guestplan's loads until a visitor taps the button. One tap loads it
+            and opens the booking form; the button then makes way for Guestplan&apos;s own.
+            If Guestplan ever draws its button inside a frame, visitors tap that once more.
           </span>
         </span>
       </label>

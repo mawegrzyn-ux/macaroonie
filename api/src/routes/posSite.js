@@ -6,6 +6,7 @@
 //
 // A global onRequest hook (fastify-plugin), pos host only:
 //   /pos-api, /ws, /uploads   pass through to their routes
+//   http:// (X-Forwarded-Proto) redirected to https:// (the PIN check needs it)
 //   a file in pos/dist        that file (hashed assets cached for a year;
 //                             index.html, sw.js and the manifest never cached)
 //   anything else (GET)       index.html (the app has its own screens)
@@ -46,6 +47,12 @@ async function posSite(app) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return
     const urlPath = req.url.split('?')[0]
     if (PASS_PREFIXES.some(p => urlPath === p.replace(/\/$/, '') || urlPath.startsWith(p))) return
+    // The till signs people in with WebCrypto, which browsers only offer on
+    // https://, so a page opened over http:// (behind nginx) goes to https://.
+    if (req.headers['x-forwarded-proto'] === 'http') {
+      reply.code(301).header('location', 'https://' + (req.hostname || req.headers.host) + req.url).send()
+      return reply
+    }
 
     const file = (urlPath !== '/' && fileFor(urlPath)) || fileFor('/index.html')
     if (!file) {

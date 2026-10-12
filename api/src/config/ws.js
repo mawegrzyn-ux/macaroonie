@@ -8,8 +8,16 @@
 //   import { broadcast } from '../config/ws.js'
 //   broadcast(venueId, { type: 'booking.created', data: booking })
 
+//
+// The API runs as several processes (PM2 cluster), and a client's socket is
+// held by one of them. broadcast() delivers to this process's sockets and
+// publishes on Redis; every other process relays it to its own sockets. If
+// Redis is down, only this process's clients hear it (polling covers the rest).
+
 import { WebSocketServer } from 'ws'
+import IORedis from 'ioredis'
 import { sql } from './db.js'
+import { env } from './env.js'
 import { isMember } from '../services/membershipSvc.js'
 import { verifyDevice } from '../routes/posApi.js'
 
@@ -20,11 +28,39 @@ const rooms = new Map()
 
 let wss = null
 
+// ── Cross-process relay ──────────────────────────────────────
+const CHANNEL = 'macaroonie:ws'
+const ORIGIN  = `${process.pid}-${Math.random().toString(36).slice(2, 10)}`
+let pub = null
+
+function startRelay() {
+  if (pub || !env.REDIS_URL) return
+  let warned = false
+  const quiet = err => {
+    if (!warned) console.warn('[ws] Redis relay unavailable, live updates reach this process only:', err.message)
+    warned = true
+  }
+  // Publishes fail fast while Redis is down rather than queue stale messages.
+  pub = new IORedis(env.REDIS_URL, { enableOfflineQueue: false, maxRetriesPerRequest: 1 })
+  const sub = new IORedis(env.REDIS_URL)
+  pub.on('error', quiet)
+  sub.on('error', quiet)
+  pub.on('ready', () => { warned = false })
+  sub.subscribe(CHANNEL).catch(quiet)
+  sub.on('message', (_channel, raw) => {
+    let m
+    try { m = JSON.parse(raw) } catch { return }
+    if (!m || m.origin === ORIGIN || typeof m.room !== 'string') return
+    deliver(m.room, m.payload)
+  })
+}
+
 /**
  * Attach WS server to an existing Fastify server instance.
  * Call once from server.js after app.listen().
  */
 export function attachWss(httpServer, jwtVerify) {
+  startRelay()
   wss = new WebSocketServer({ server: httpServer, path: '/ws' })
 
   wss.on('connection', async (ws, req) => {
@@ -99,15 +135,22 @@ function joinRoom(ws, room) {
   ws.on('close', () => clearInterval(ping))
 }
 
-/**
- * Broadcast a message to all clients subscribed to a venue.
- * Safe to call even when no clients are connected.
- */
-export function broadcast(venueId, message) {
-  const clients = rooms.get(venueId)
+function deliver(room, payload) {
+  const clients = rooms.get(room)
   if (!clients) return
-  const payload = JSON.stringify(message)
   for (const ws of clients) {
     if (ws.readyState === ws.OPEN) ws.send(payload)
+  }
+}
+
+/**
+ * Broadcast a message to all clients subscribed to a venue (or room), on
+ * every API process. Safe to call even when no clients are connected.
+ */
+export function broadcast(venueId, message) {
+  const payload = JSON.stringify(message)
+  deliver(venueId, payload)
+  if (pub?.status === 'ready') {
+    pub.publish(CHANNEL, JSON.stringify({ origin: ORIGIN, room: venueId, payload })).catch(() => {})
   }
 }

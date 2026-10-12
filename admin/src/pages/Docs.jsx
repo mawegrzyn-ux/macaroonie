@@ -159,7 +159,7 @@ export default function Docs() {
                 ['Admin UI', 'React 18, Vite', 'SPA with hot module replacement in dev'],
                 ['Data / cache', 'TanStack Query v5', 'Server state, cache invalidation, background refetch'],
                 ['Drag & drop', '@dnd-kit/core', 'Timeline drag-to-reschedule (mouse + touch sensors)'],
-                ['Realtime', 'ws (WebSocket)', 'Timeline live updates; rooms keyed by venue_id'],
+                ['Realtime', 'ws (WebSocket) + Redis pub/sub', 'Timeline, orders and till live updates; rooms keyed by venue_id, relayed between API processes through Redis'],
                 ['Deployment', 'Ubuntu 24.04, Nginx, PM2', 'Single Lightsail instance'],
               ]}
             />
@@ -2727,6 +2727,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               staff id; anything their role lacks needs <Mono>approved_by</Mono> (someone with{' '}
               <Mono>manager</Mono> typed their PIN), checked by <Mono>permissionProblem()</Mono> on both sides.
             </P>
+            <P>
+              A till learns of a new or changed PIN from its config. Setup changes push <Mono>pos.config</Mono>{' '}
+              (cross-process through the Redis relay in <Mono>config/ws.js</Mono>); on top of that,{' '}
+              <Mono>staffForPin()</Mono> in <Mono>pos/src/lib/store.js</Mono> fetches the config when a typed PIN
+              matches nobody (online, at most every 5 s) and looks again, so a PIN set a moment ago works even if the
+              push was missed. WebCrypto only exists on https:// (and localhost): <Mono>hashPin()</Mono> throws a
+              clear message without it, <Mono>PinPad</Mono> shows any error instead of hanging on "Checking", and{' '}
+              <Mono>routes/posSite.js</Mono> sends the pos host from http:// (X-Forwarded-Proto) to https://.
+            </P>
             <H3>Prices, VAT and offers</H3>
             <P>
               <Mono>shared/pos/pricing.js</Mono>: <Mono>priceItem()</Mono> (unit price + modifiers: prefixes No /
@@ -4071,6 +4080,19 @@ GET /robots.txt`}</Code>
               z-50), the canvas and <Mono>BlockInspector</Mono> (<Mono>fullHeight</Mono>) each scroll on their own.
             </P>
 
+            <H3>Guestplan block (guestplan_widget)</H3>
+            <P>
+              Embeds Guestplan&apos;s own loader (<Mono>cdn.guestplan.com/widget.js</Mono>, <Mono>window._gstpln.accessKey</Mono>).
+              With <Mono>launcher_mode</Mono> our floating button loads it on the first tap, then waits (MutationObserver plus a
+              200 ms poll, up to 10 s) for Guestplan&apos;s elements (<Mono>id</Mono> / <Mono>class</Mono> containing{' '}
+              <Mono>gstpln</Mono> or <Mono>guestplan</Mono>, open shadow roots included), hides itself and clicks Guestplan&apos;s
+              launcher, so one tap opens the form. If a Guestplan element is already taller than 260 px after 700 ms (it opened
+              itself) it doesn&apos;t click, since that would close it. A launcher inside an iframe can&apos;t be clicked, so
+              visitors tap it once more. If Guestplan never appears (blocked), our button comes back. Guestplan documents no
+              open call, so this follows its markup; our own button id starts <Mono>mcrn-gp-launch-</Mono> so the search
+              never finds it. Tested against stand-in scripts only.
+            </P>
+
             <H3>Publishing (admin)</H3>
             <P>
               <Mono>Website.jsx</Mono>: <Mono>PublishButton</Mono> sits at the top of the builder's left menu
@@ -4081,6 +4103,23 @@ GET /robots.txt`}</Code>
               <Mono>POST /website/tenant-site/override-staging</Mono>, all invalidating <Mono>['tenant-site']</Mono>).
               The <Mono>tenant-domain</Mono> section (<Mono>TenantDomainSection</Mono>, now labelled Domain) keeps the
               subdomain, custom domain, DNS verify and the <Mono>is_published</Mono> switch with their own Save.
+            </P>
+            <P>
+              Publish status: <Mono>GET /website/tenant-site/publish-status</Mono> → <Mono>publishStatus()</Mono> in{' '}
+              <Mono>services/publishSvc.js</Mono> builds the snapshot Publish would save (<Mono>buildPublishSnapshot()</Mono>)
+              and compares it with <Mono>published_snapshot</Mono> through <Mono>canonical()</Mono> (keys sorted, null and
+              missing keys dropped, so jsonb key order and fields added to the lists since don&apos;t count). It returns{' '}
+              <Mono>{'{ published_at, never_published, in_sync, changes: [{ label, kind }] }'}</Mono>: tenant fields
+              grouped by <Mono>TENANT_AREAS</Mono> (Home page, Header, Footer, Brand &amp; theme, SEO, …, anything else
+              Site settings), pages by id (added / changed / removed or hidden), per location its page
+              (<Mono>page_blocks</Mono>, header/footer switches), its own brand (only while <Mono>use_brand_override</Mono>{' '}
+              is on, since a tenant theme save strips colours from every location) and other details.{' '}
+              <Mono>usePublishStatus()</Mono> in <Mono>Website.jsx</Mono> refetches 600 ms after any successful mutation
+              (mutation cache subscription), every 30 s and on focus; <Mono>PublishButton</Mono> shows the line and a count
+              badge, <Mono>PendingChanges</Mono> the list in the publish window. Fixed alongside:{' '}
+              <Mono>use_brand_override</Mono> was missing from <Mono>WEBSITE_CONFIG_CONTENT_FIELDS</Mono>, so a
+              location&apos;s own Brand &amp; theme never showed on production (it does after the next publish), and
+              Override staging re-created pages without their ids or <Mono>system_key</Mono>.
             </P>
 
             <H3>Admin page</H3>
@@ -4224,7 +4263,7 @@ GET /robots.txt`}</Code>
                 {
                   name: 'WebSocket server',
                   path: 'src/config/ws.js',
-                  desc: 'Runs on the same HTTP server. Auth via ?token= query param (Auth0 JWT). Rooms keyed by venue_id.',
+                  desc: 'Runs on the same HTTP server. Auth via ?token= query param (Auth0 JWT), or ?pos_device=&secret= for a till (room pos:<venueId>). Rooms keyed by venue_id. The API runs as several PM2 processes and a socket belongs to one of them, so broadcast() delivers locally and publishes on Redis (channel macaroonie:ws); the other processes relay it to their sockets (each message carries its origin, so none is delivered twice). With Redis down only the sending process\'s clients hear it; the pages also poll.',
                   code: "// Client subscribes:\n{ type: 'subscribe', venue_id: '<uuid>' }\n\n// Server pushes after mutations:\n{ type: 'booking.created' | 'booking.updated', booking: { ... } }",
                 },
                 {

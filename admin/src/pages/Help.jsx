@@ -2278,6 +2278,7 @@ export default function Help() {
                 ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
                 ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
                 ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours. Every block also has an Anchor ID in its settings for in-page links.'],
+                ['Guestplan widget', 'If you take bookings with Guestplan: paste your access key in the block. With Start closed, the page shows one floating Book a table button; a tap loads Guestplan and opens its booking form.'],
                 ['Pages',            'Standalone pages or modal overlays. Link picker lists them plus block anchors.'],
                 ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
                 ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
@@ -2320,7 +2321,13 @@ export default function Help() {
             <P>
               Every change you make in the website builder shows on your <strong>staging</strong> address straight
               away. Guests only see it once you publish. The <strong>Publish</strong> button sits at the top of the
-              website menu, above Home, with the last publish time underneath (or <em>Not published yet</em>).
+              website menu, above Home. Underneath it says whether your live site matches staging:{' '}
+              <em>Live matches staging · published 3 days ago</em>, or <em>4 changes not live yet · last published
+              yesterday</em> with the number on the Publish button too (or <em>Not published yet</em>). It updates
+              by itself after each save. The publish window lists what would change: Home page, Brand &amp; theme,
+              each page or pop-up (new, changed, removed or hidden), each location&apos;s page and details. Gallery
+              photos, PDF menus, allergens, opening hours from your schedule and menus built on the Menus page
+              aren&apos;t part of publishing: they show on the live site as soon as you save them.
               The <strong>Staging</strong> button next to it opens your staging site in a new tab, so you can check
               your edits before publishing (it appears once your site has an address under Domain).
               Tap Publish to open the publish window: copy or open your staging link, <strong>Publish now</strong>,
@@ -3667,7 +3674,7 @@ export default function Help() {
 
             <H3>Taking an order</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments.</li>
+              <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments. A PIN set or changed in Till setup works straight away; if the till is offline it needs to have been online once since.</li>
               <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab. Colours show which tables are free, open, waiting for a held course, or billed.</li>
               <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> at the bottom of the menu first if you want them. Dishes with choices or meal deals open a window to pick them, add a note or allergies.</li>
               <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>

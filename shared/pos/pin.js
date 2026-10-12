@@ -19,7 +19,9 @@ const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, 
 
 export async function hashPin(pin, salt) {
   if (!PIN_PATTERN.test(String(pin))) throw new Error('A PIN is 4 to 6 digits')
-  const subtle = globalThis.crypto.subtle
+  // Browsers only offer WebCrypto on https:// (and localhost).
+  const subtle = globalThis.crypto?.subtle
+  if (!subtle) throw new Error('Open the till at https:// to sign in')
   const key = await subtle.importKey('raw', enc.encode(String(pin)), 'PBKDF2', false, ['deriveBits'])
   const bits = await subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(String(salt)), iterations: PIN_ITERATIONS }, key, 256)
   return 'p1$' + hex(bits)

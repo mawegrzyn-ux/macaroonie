@@ -5,6 +5,32 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-12 — Publish button shows whether the live site matches staging]
+
+- Under **Publish** (top of the website menu): *Live matches staging · published 3 days ago*, or *4 changes not live yet · last published yesterday*, with the number on the button too. It updates by itself a moment after each save.
+- The publish window lists what publishing would change: Home page, Header, Footer, Brand & theme, SEO and the other sections, each page or pop-up (new, changed, removed or hidden), and each location's page and details.
+- Fixed: a location's own **Brand & theme** (Brand & theme > site override) only ever showed on staging; the live site kept the default. It goes live with your next publish.
+- Fixed: **Override staging with production** re-created pages under new ids and lost the Order online page's link to ordering.
+- No migration.
+
+---
+
+## [2026-10-12 — Guestplan button opens the booking form in one tap]
+
+- The Guestplan block's floating **Book a table** button (Start closed) loaded Guestplan, which then showed its own button on top, and guests had to tap that too. One tap now loads Guestplan and opens its booking form, and our button makes way for Guestplan's so the two never stack. If Guestplan opens itself (on some screens), it is left open.
+- No migration.
+
+---
+
+## [2026-10-12 — Till PINs work as soon as they are set]
+
+- A PIN set or changed in **Till setup** didn't work on a till that was already open: the till only knew the PINs from its last config download. It now fetches the latest config when a typed PIN matches nobody and checks again, so a new PIN signs in straight away.
+- Live updates (the timeline, online orders, tills) now reach every screen. The server runs several copies of the API, and an update used to reach only the screens connected to the copy that made the change; they now pass through Redis to all of them.
+- A till opened at `http://` is sent to `https://` (signing in needs it), and if the PIN can't be checked the till says why instead of staying on "Checking…".
+- No migration.
+
+---
+
 ## [2026-10-12 — Custom domains switch on by themselves]
 
 - After **Verify DNS**, the server now switches the domain on by itself, usually within a minute or two (web server block and HTTPS certificate). Nobody has to run the server script any more.

@@ -22,7 +22,7 @@ import { httpError } from '../middleware/error.js'
 import { normalizeBimiSvg } from '../services/bimiSvg.js'
 import { loadOpeningHours } from '../services/siteDataSvc.js'
 import { RESERVED_SUBDOMAINS, STAGING_PREFIX } from './siteRenderer.js'
-import { publishTenantSite, overrideStagingWithProduction } from '../services/publishSvc.js'
+import { publishTenantSite, overrideStagingWithProduction, publishStatus } from '../services/publishSvc.js'
 import { ensureOrderPage } from '../services/orderPage.js'
 import { publishQueue } from '../jobs/queues.js'
 
@@ -756,6 +756,11 @@ export default async function websiteRoutes(app) {
   // ── POST /website/tenant-site/publish ───────────────────
   // Publish immediately — freezes current staging content as the new
   // published_snapshot and cancels any pending scheduled publish.
+  // ── GET /website/tenant-site/publish-status ─────────────
+  // Whether the live site matches staging; if not, what publishing would
+  // change (Website menu areas, pages, locations). Shown by the Publish button.
+  app.get('/tenant-site/publish-status', async (req) => publishStatus(req.tenantId))
+
   app.post('/tenant-site/publish', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     await cancelScheduledPublish(req.tenantId)
     return publishTenantSite(req.tenantId)
