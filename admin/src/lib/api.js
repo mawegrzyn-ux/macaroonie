@@ -122,6 +122,19 @@ export function useApi() {
     return res.blob()
   }, [getAccessTokenSilently])
 
+  // postBlob: POSTs JSON and returns the file the API sends back (an export
+  // built from what's on screen), as a Blob.
+  const postBlob = useCallback(async (path, body) => {
+    const token = await getAccessTokenSilently()
+    const res   = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: authHeaders(token, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null))
+    return res.blob()
+  }, [getAccessTokenSilently])
+
   return {
     get:      (path)        => call('GET',    path),
     post:     (path, body)  => call('POST',   path, body),
@@ -131,6 +144,7 @@ export function useApi() {
     download,
     upload,
     blob,
+    postBlob,
   }
 }
 

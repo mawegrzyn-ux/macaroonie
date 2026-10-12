@@ -3659,6 +3659,37 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               mocked API (tap-add, tray drag with snap preview, move, resize, repeat on every page,
               add page, save payload).
             </P>
+
+            <H3>Deliveroo menu file (migration 157)</H3>
+            <P>
+              <Mono>/menus/deliveroo</Mono> (<Mono>pages/MenuDeliveroo.jsx</Mono>, pieces in{' '}
+              <Mono>components/menus/DeliverooParts.jsx</Mono>) reads the Deliveroo Hub bulk-management
+              file, fills it from our menus, lets staff review and edit it, and writes it back with the
+              same columns, order, item ids and line endings. The file is never stored on the server:
+              the page keeps it in sessionStorage (<Mono>maca_deliveroo_file_&lt;venueId&gt;</Mono>).
+              What is stored, per venue, is how to fill it.
+            </P>
+            <DataTable
+              head={['Piece', 'Detail']}
+              rows={[
+                ['shared/deliveroo.js', 'All the rules, used by the page and the API: parseCsv() (text kept exactly, quotes, CRLF, BOM; returns eol + trailing), readSheet() (header check: item_id, item_name, delivery_price; duplicate ids), tidyRows(), toCsv(columns, rows, { eol, trailing }), priceRule(), dishPrice(), dishValues(), nameScore() / rankDishes() / matchRow(), buildRow(), rowProblems(), defaultMaps(), FILL_FIELDS, DELIVEROO_ALLERGENS, DELIVEROO_DIETARY. Tests: node --test shared/test/deliveroo.test.mjs.'],
+                ['deliveroo_settings', 'One per venue: menu_ids (empty = every published menu of the venue or the company), price_uplift_pct, price_round_pence (1|5|10|50|100), price_round_mode (up|nearest), fill { column: bool } over defaultFill(), allergen_map / dietary_map { tag code: [Deliveroo codes] } over defaultMaps() (standard_key: gluten -> gluten_wheat, sesame -> sesame_seeds, soya -> soybeans, sulphites -> sulphur_dioxide_sulphites, nuts -> none), include_may_contain, include_removable.'],
+                ['deliveroo_item_links', 'One per venue per Deliveroo item_id: menu_item_id (no FK, upsertMenuTree() re-inserts dishes) or skip, keep text[] (columns where Deliveroo\'s value stays), overrides { column: text } (typed values). Only FILL_FIELDS columns can be kept or overridden.'],
+                ['Matching', 'A saved link wins (linked / skipped / missing when the dish is gone). Else rankDishes() over name, native_name, kitchen_name: 1 = same normalised name, 0.95 = same without brackets, without pack words (can, bottle, 330ml) or without spaces, else word overlap capped at 0.89 (0.75 when one name contains the other). auto when the best is >= 0.9 and not tied; else suggested (top 3) or none.'],
+                ['Filling', 'dishValues(): delivery_price = priceRule(dishPrice(dish), pct, round, mode); dishPrice() = price_pence, else the cheapest base-mode option or ad-hoc variant. tax_rate = dish vat_rate_takeaway, else section, else ordering_settings.default_vat_rate_takeaway (20 when none). allergens = the mapped codes of the dish\'s allergen tags (May contain / Can be removed per settings); an allergen tag with no code is an error, so the CSV can\'t silently drop it. buildRow(): override, then keep, then the menu value; an empty menu value never blanks Deliveroo\'s; columns outside FILL_FIELDS are never touched.'],
+                ['Checks', 'rowProblems(): errors = what Deliveroo would refuse (no item_id or one Excel turned into 1.23E+15, delivery price not a positive amount with up to 2 decimals, VAT not 0/5/12.5/20, calories not a whole number, no_allergens with others, booleans not true/false); warnings = price change over 30%, unknown allergen or dietary code. The CSV download is disabled while any error is left.'],
+                ['Routes (/api/deliveroo)', 'POST /read { file_name, data base64 } (menus view; CSV decoded as UTF-8, else Windows-1252; .xlsx/.xls via xlsx with formatted text; 8 MB file limit, bodyLimit 12 MB; 5000 rows). GET /venues/:venueId (view; settings with defaults, links, menus, menu_ids_used, dishes with dietary, allergen_levels, variant_groups, variants and vat_takeaway = dish ?? section, tags). PUT /venues/:venueId/settings and PUT /venues/:venueId/links (menus manage; links upsert the items sent, delete the ones sent with nothing to remember, leave others alone; menu ids and dish ids are checked to be the tenant\'s). POST /xlsx { columns, rows, file_name } (view; every cell a text cell so Excel keeps ids and prices as typed). Every query filters tenant_id.'],
+                ['Page', 'Settings draft applies to the review live and is saved with Save settings (menus picked only change the dish list after saving). Save matches sends only rows whose effective link (auto matches included, so they become stable) differs from the saved one. CSV is built in the browser with toCsv() using the file\'s own eol / trailing newline; the API test checks a file read and written back unchanged is byte for byte the same. api.postBlob() (lib/api.js) downloads the .xlsx.'],
+              ]}
+            />
+            <P>
+              Deliveroo's allergen codes were taken from Deliveroo's bulk-management and Menu API
+              guides and are only offered as suggestions (the map is editable, and unknown codes are a
+              warning, not an error). Tested: shared tests, the API against Postgres with two tenants
+              and the real One Thai Ware export (round trip, Windows-1252, xlsx in and out, permissions),
+              and the page in Chromium at 1280, 1015 and 390 px (match, skip, keep, typed prices, code
+              map, save, download and reload).
+            </P>
           </section>
 
           {/* ── WEBSITE CMS ───────────────────────────────── */}

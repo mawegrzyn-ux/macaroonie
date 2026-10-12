@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-12 — Deliveroo menu file]
+
+- **Menus > Deliveroo menu**: open the menu file you download from the Deliveroo Hub (Menu, Menu Manager, Bulk management), or the same file saved from Excel, and update it from your menus here.
+- Each Deliveroo item is matched to a dish by name (exact names, names with "Can" or "330ml" or a name in brackets, close names to check with one tap). Matched items get the **delivery price** (menu price plus a % per venue, rounded up or to the nearest 1p, 5p, 10p, 50p or £1), **VAT rate**, **description**, **allergens** (as Deliveroo's codes) and **calories**; name, in-store price, dietary and energy can be switched on too. An empty value on your menu never clears what Deliveroo has.
+- **Review**: old and new price and every change per item, filters (changes, to check, problems), choose another dish or leave an item as it is, keep Deliveroo's value or type your own for any column, and change the prices of the items shown by a % or to one price.
+- **Download** the CSV for Deliveroo (same columns, order, item ids and line endings; other columns untouched) or an Excel copy to edit. The CSV can't be downloaded while a dish has an allergen with no Deliveroo code, so no allergen goes missing.
+- **Save settings** and **Save matches** keep the price rule, codes, matches and your own values per venue for the next file.
+- Migration **157**.
+
+---
+
 ## [2026-10-11 — Till (POS): table service, counter, offline]
 
 - **The till** runs in Chrome or Edge on an Android or Windows tablet or PC at the till address (`pos.` + your domain), installable as an app. Staff sign in with their own PIN. It keeps taking orders and payments without the internet and catches up when the connection is back.

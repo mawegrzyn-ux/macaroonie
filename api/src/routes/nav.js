@@ -57,6 +57,7 @@ const ROUTE_CATALOG = [
   { route: '/menus/variant-groups', label: 'Menu variant groups', icon: 'Layers', module: 'menus' },
   { route: '/menus/dietary-tags', label: 'Menu allergens & dietary tags', icon: 'Tag', module: 'menus' },
   { route: '/menus/allergens', label: 'Allergen matrix', icon: 'Grid3x3', module: 'menus' },
+  { route: '/menus/deliveroo', label: 'Deliveroo menu', icon: 'Bike', module: 'menus' },
   { route: '/media', label: 'Media', icon: 'FolderOpen', module: 'website' },
   { route: '/reviews', label: 'Reviews', icon: 'MessageSquare', module: 'website' },
   { route: '/venues', label: 'Venues', icon: 'Building2', module: 'venues' },
