@@ -152,14 +152,14 @@ function ConnectTab({ info }) {
       <Card title="Your own AI app">
         <p className="text-sm text-muted-foreground">
           Connect the AI app you already use (Claude, Cursor and other apps that take an MCP server) to this restaurant
-          group's bookings, checklists, food safety logs and purchasing. It can do what this assistant does, with your own permissions.
+          group's bookings, checklists, food safety logs, purchasing and menus. It can do what this assistant does, with your own permissions.
         </p>
         <CopyField label="MCP server address" value={info.staff_mcp_url} />
         <ol className="list-decimal pl-5 text-sm space-y-1">
           <li>Make an access token below. Copy it: it is shown once.</li>
           <li>In your AI app, add a custom MCP connector with the address above, and send the token as a header:
             <code className="text-xs bg-muted/60 rounded px-1 ml-1">Authorization: Bearer mcp_...</code></li>
-          <li>Ask it about bookings, H&S checks, supplier orders or prices. Changes are made as you, and listed in Activity.</li>
+          <li>Ask it about bookings, H&S checks, supplier orders, prices or menus. Changes are made as you, and listed in Activity.</li>
         </ol>
         {!info.settings.staff_enabled && (
           <p className="text-sm text-amber-700 flex items-center gap-2"><CircleAlert className="w-4 h-4" /> The staff assistant is switched off, so this connector is off too.</p>
@@ -365,9 +365,12 @@ const TOOL_LABELS = {
   import_price_list: 'Imported a price list', update_order: 'Changed a draft order', place_order: 'Placed an order',
   send_purchase_order: 'Sent a purchase order', change_purchase_order: 'Changed a purchase order',
   cancel_purchase_order: 'Cancelled a purchase order', receive_delivery: 'Booked in a delivery',
+  create_menu: 'Made a menu', update_menu: 'Changed a menu', duplicate_menu: 'Copied a menu',
+  add_dishes: 'Added dishes', update_dish: 'Changed a dish', remove_dishes: 'Removed dishes',
+  update_section: 'Changed a menu section', remove_section: 'Removed a menu section', change_prices: 'Changed menu prices',
 }
 
-/** What an H&S or purchasing change was about, from its stored result. */
+/** What an H&S, purchasing or menu change was about, from its stored result. */
 function changeDetail(r) {
   const x = r.result || {}
   switch (r.tool) {
@@ -396,6 +399,15 @@ function changeDetail(r) {
     case 'change_purchase_order':
     case 'cancel_purchase_order':
     case 'receive_delivery':      return x.po
+    case 'create_menu':
+    case 'update_menu':
+    case 'duplicate_menu':        return x.name
+    case 'add_dishes':            return [x.menu, x.added != null ? x.added + ' added' : null].filter(Boolean).join(', ')
+    case 'update_dish':           return [x.dish, x.menu].filter(Boolean).join(', ')
+    case 'remove_dishes':         return [(x.removed || []).join(', '), x.menu].filter(Boolean).join(' from ')
+    case 'update_section':        return [x.section, x.menu].filter(Boolean).join(', ')
+    case 'remove_section':        return [x.removed_section, x.menu].filter(Boolean).join(' from ')
+    case 'change_prices':         return [x.menu, x.prices_changed != null ? x.prices_changed + ' dishes' : null].filter(Boolean).join(', ')
     default:                      return null
   }
 }

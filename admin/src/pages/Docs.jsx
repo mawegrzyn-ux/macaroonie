@@ -3114,7 +3114,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               log_temperature, log_hold_check, log_cooking_check, log_delivery, add_corrective_action,
               checklists_due, get_checklist, tick_checklist, list_hs_actions, add_hs_action,
               complete_hs_action. <Mono>tools/purchasing.js</Mono> (staff, purchasing): 5 reads and 17
-              change tools, below. <Mono>pickByName()</Mono> (id, exact, starts with, contains, every
+              change tools, below. <Mono>tools/menus.js</Mono> (staff, menus): 3 reads and 9 change
+              tools, below. <Mono>pickByName()</Mono> (id, exact, starts with, contains, every
               word; ambiguous asks, at most 20 choices listed) is in <Mono>tools/util.js</Mono>, shared by
               the H&amp;S and purchasing tools. A tool is{' '}
               <Mono>{'{ name, description, input (Zod), run(ctx, input), readOnly, confirm, destructive, describe() }'}</Mono>{' '}
@@ -3249,6 +3250,61 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>AiAssistant.jsx</Mono>, <Mono>changeDetail()</Mono>) label the new tools. The
               staff prompt (<Mono>prompts.js</Mono>) says to prefer <Mono>receive_delivery</Mono>{' '}
               over <Mono>log_delivery</Mono> when a delivery has a purchase order.
+            </P>
+            <H3>Staff: menu tools</H3>
+            <P>
+              <Mono>tools/menus.js</Mono>. Reads need <Mono>menus</Mono> view; changes need{' '}
+              <Mono>menus</Mono> manage and an owner or admin login (<Mono>requireEdit()</Mono> looks
+              the role up in <Mono>users</Mono>; platform admins pass), because the menu write routes
+              are <Mono>requireRole('admin', 'owner')</Mono> and a card the route then refuses would be
+              misleading. Every menu read goes through <Mono>GET /api/menus</Mono> /{' '}
+              <Mono>GET /api/menus/:id</Mono> (<Mono>loadMenuFull()</Mono>), tags through{' '}
+              <Mono>GET /menus/dietary/all</Mono>, option groups through{' '}
+              <Mono>GET /menus/variant-groups</Mono>; <Mono>list_menus</Mono> counts dishes with SQL
+              filtered by <Mono>tenant_id</Mono>.
+            </P>
+            <P>
+              Every change is the menu&apos;s own whole-tree save (<Mono>PATCH /api/menus/:id</Mono>,{' '}
+              <Mono>upsertMenuTree()</Mono>). The body comes from <Mono>menuSaveBody(full)</Mono>,
+              exported from <Mono>routes/menus.js</Mono>: it turns <Mono>loadMenuFull()</Mono> output
+              back into the PATCH body with every menu, section, dish and footer-note field and their
+              ids, so an untouched save changes nothing (tested by a round trip) and print designs,
+              meal deals and till fields keep pointing at the same rows. <Mono>/duplicate</Mono> uses
+              it too (with fresh ids). A tool edits that body and <Mono>saveBody()</Mono> renumbers{' '}
+              <Mono>sort_order</Mono> by position and PATCHes. <Mono>describe()</Mono> and{' '}
+              <Mono>run()</Mono> share one plan function each (<Mono>planCreate</Mono>,{' '}
+              <Mono>planAdd</Mono>, <Mono>planUpdateDish</Mono>, <Mono>planPrices</Mono>, ...); the run
+              reloads the menu and re-applies the plan, so an edit made on the Menus page between the
+              card and Confirm is kept.
+            </P>
+            <DataTable
+              head={['Tool', 'Route(s)', 'Notes']}
+              rows={[
+                ['list_menus', 'GET /menus + SQL counts', 'Venue, published, sections, dishes'],
+                ['get_menu', 'GET /menus/:id, /menus/variant-groups', 'Dishes with price or option prices (the dish\'s own, from loadMenuFull options[]), allergens with level, dietary, calories, online off, meal deal; descriptions with details or one section; lists tags and option groups'],
+                ['find_dishes', 'GET /menus, /menus/:id, /menus/dietary/all', 'search words, has (all tags), free_from (allergens; removable listed as ask_for_it_without, may_contain blocks); published menus unless include_unpublished; 60 shown'],
+                ['create_menu', 'POST /menus, PATCH /menus/:id (DELETE on failure)', 'Sections and up to 400 dishes in one call; unpublished unless published: true'],
+                ['update_menu', 'PATCH /menus/:id', 'Name, venue / all venues, published, tagline, service times, intro'],
+                ['duplicate_menu', 'POST /menus/:id/duplicate (+ PATCH to rename)', 'Copy is unpublished; designs remapped by the route'],
+                ['add_dishes', 'PATCH /menus/:id', 'Existing or new sections; same-name dish in that section skipped unless update_existing'],
+                ['update_dish', 'PATCH /menus/:id', 'Fields, allergens / add / remove (with level), dietary the same, options / remove_options, move_to_section, position, after_dish. Name the section when the dish is in several (409 otherwise). Warns on allergen changes and on a price change over 50%'],
+                ['remove_dishes', 'PATCH /menus/:id', 'Destructive; warns when a meal deal offers a removed dish'],
+                ['update_section', 'PATCH /menus/:id', 'Title, subtitle, visibility, VAT takeaway / eat in, position or after_section'],
+                ['remove_section', 'PATCH /menus/:id', 'Destructive; its dishes go too'],
+                ['change_prices', 'PATCH /menus/:id', 'Whole menu, sections or dishes; percent / amount / set; round_to 1/5/10/50/100p up, nearest or down; include_options (default on) writes per-dish option overrides'],
+              ]}
+            />
+            <P>
+              Options: dishes only use the tenant&apos;s variant groups (<Mono>menu_item_variant_groups</Mono>{' '}
+              with per-dish <Mono>overrides</Mono>); the tools never write ad-hoc{' '}
+              <Mono>variants</Mono> and never change a group or its options. A choice the group
+              doesn&apos;t have is refused with the group&apos;s choices; an unknown group name makes a new
+              group (<Mono>POST /menus/variant-groups</Mono>, prices from the first dish that gives
+              them) at run time, named in the card&apos;s warnings. Allergens and dietary tags are
+              matched to the tenant&apos;s tags by label, code or common names (soy, shellfish, dairy,
+              wheat ...); an unknown tag is left off and listed on the card, never created. Prices
+              in and out are pounds. Not covered: dish photos, meal deal contents, print designs and
+              print options, till fields, deleting a menu, the tag list.
             </P>
             <H3>Confirm cards (chats)</H3>
             <P>
@@ -3434,8 +3490,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>ItemBody</Mono>/<Mono>SectionBody</Mono> schema, the{' '}
               <Mono>loadMenuFull()</Mono> SELECT's <Mono>jsonb_build_object</Mono> (items only —
               sections use <Mono>SELECT s.*</Mono> so a new section column needs no query change),
-              the <Mono>upsertMenuTree()</Mono> INSERT, and the <Mono>/:id/duplicate</Mono> route's
-              section/item re-mapping. On the frontend (<Mono>admin/src/pages/Menus.jsx</Mono>):
+              the <Mono>upsertMenuTree()</Mono> INSERT, and <Mono>menuSaveBody()</Mono> (the
+              loaded-menu-to-PATCH-body copy used by <Mono>/:id/duplicate</Mono> and every AI menu
+              tool: a field missing there is wiped whenever the assistant changes that menu). On the
+              frontend (<Mono>admin/src/pages/Menus.jsx</Mono>):
               the new-item/new-section default object, the editor form field, and the explicit
               field whitelist in the save-payload builder (it does not spread <Mono>...item</Mono>
               — omitting a field there silently drops it on save even though the editor state has

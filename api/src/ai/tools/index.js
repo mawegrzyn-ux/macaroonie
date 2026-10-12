@@ -17,8 +17,9 @@
 //   destructive                cancels (MCP destructiveHint)
 //
 // Guest tools: tools/guest.js. Staff tools: tools/staff.js (bookings),
-// tools/hs.js (health & safety, checklists, action log) and
-// tools/purchasing.js (inventory, suppliers, order lists, supplier orders).
+// tools/hs.js (health & safety, checklists, action log),
+// tools/purchasing.js (inventory, suppliers, order lists, supplier orders)
+// and tools/menus.js (menus, sections, dishes, prices, allergens).
 
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ZodError } from 'zod'
@@ -27,9 +28,10 @@ import { guestTools } from './guest.js'
 import { staffTools as bookingTools } from './staff.js'
 import { hsTools } from './hs.js'
 import { purchasingTools } from './purchasing.js'
+import { menuTools } from './menus.js'
 
-// Staff get the booking, H&S / checklist and purchasing tools.
-const staffTools = [...bookingTools, ...hsTools, ...purchasingTools]
+// Staff get the booking, H&S / checklist, purchasing and menu tools.
+const staffTools = [...bookingTools, ...hsTools, ...purchasingTools, ...menuTools]
 const BY_AUDIENCE = { guest: guestTools, staff: staffTools }
 
 export function toolsFor(ctx) {

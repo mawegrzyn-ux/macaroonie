@@ -2701,6 +2701,12 @@ export default function Help() {
               description and photo. Menus display on your website via the Booking widget's
               menu block and can be opened as a printable PDF at any time.
             </P>
+            <P>
+              Owners and admins can also build and change menus by chat: attach a photo or PDF of a
+              menu to <strong>Ask AI</strong> and ask it to make the menu, or ask it to change a
+              price, add an allergen or put a section up 5%. See <strong>AI Assistant → Menus by
+              chat</strong>.
+            </P>
             <H3>Sections and dishes</H3>
             <P>
               Click <strong>Add section</strong> to create a category, then <strong>Add
@@ -3251,13 +3257,13 @@ export default function Help() {
             <P>
               The AI assistant looks up, makes and changes bookings by chat, helps staff keep up
               with health & safety (checklists, food safety checks and the H&S action log), and
-              handles purchasing: the inventory, supplier prices, order lists and supplier orders.
-              There are four ways in:
+              handles purchasing (the inventory, supplier prices, order lists and supplier orders)
+              and menus (sections, dishes, prices, options and allergens). There are four ways in:
             </P>
             <DataTable
               head={['Where', 'Who', 'What it can do']}
               rows={[
-                ['Ask AI (sidebar), the AI assistant page, and AI assistant in the phone app', 'Staff', 'Find bookings, check tables, book, move, change status, update guest details, add staff notes; see what H&S is done and still due, tick checklists, log fridge, hold, cooking and delivery checks, add corrective actions, keep the action log; look up and change the inventory, supplier prices, suppliers and order lists, import price lists, fill and place orders, send, change and cancel purchase orders, book deliveries in'],
+                ['Ask AI (sidebar), the AI assistant page, and AI assistant in the phone app', 'Staff', 'Find bookings, check tables, book, move, change status, update guest details, add staff notes; see what H&S is done and still due, tick checklists, log fridge, hold, cooking and delivery checks, add corrective actions, keep the action log; look up and change the inventory, supplier prices, suppliers and order lists, import price lists, fill and place orders, send, change and cancel purchase orders, book deliveries in; look up menus and allergens, build a menu from a photo or list, add and change dishes, sections and prices'],
                 ['Your own AI app (Claude, Cursor and others) through the staff connector', 'Staff', 'The same as Ask AI, with your own permissions'],
                 ['The AI chat block on your website', 'Guests', 'Answer questions, book a table, change or cancel a booking'],
                 ['Guests\' own AI apps through Macaroonie\'s public connector', 'Guests', 'Find your restaurants, book, change or cancel'],
@@ -3359,6 +3365,44 @@ export default function Help() {
               The assistant doesn't delete items, prices, suppliers or lists: it switches them off,
               the same as the pages do. Check a price list import card carefully before pressing
               Import: it can change many prices at once.
+            </InfoBox>
+            <H3>Menus by chat</H3>
+            <P>
+              Ask things like <em>"Which dishes on the main menu are free from peanuts?"</em>,{' '}
+              <em>"Make a new lunch menu from this photo"</em> (with the photo or PDF attached),{' '}
+              <em>"Pad Thai is £11.75 now"</em>,{' '}
+              <em>"Add sesame to the Pad See Ew"</em> or{' '}
+              <em>"Put all the starters up 5%, rounded up to 5p"</em>. Menus, sections, dishes,
+              option groups and allergens can be named the way you'd say them; if a name could
+              mean more than one, the assistant asks which.
+            </P>
+            <DataTable
+              head={['You can', 'Who', 'Notes']}
+              rows={[
+                ['See the menus and what is on them', 'Menus view', 'Sections, dishes, prices, options, calories, allergens with their level, dietary tags, where each section shows.'],
+                ['Find dishes', 'Menus view', 'By name, by tag ("vegan"), or free from allergens. A dish where the allergen can be removed on request is listed separately, so the guest can ask for it without.'],
+                ['Make a menu', 'Owner or admin', 'Name, venue or all venues, tagline, served times, intro, and its sections and dishes in one go. New menus aren\'t published until you say so.'],
+                ['Change or copy a menu', 'Owner or admin', 'Rename, move to a venue, publish or unpublish, tagline, served times, intro. A copy keeps every section, dish, footer note and print design, and isn\'t published.'],
+                ['Add dishes', 'Owner or admin', 'Into sections already on the menu or new ones. A dish already in that section is left alone unless you ask to update it.'],
+                ['Change a dish', 'Owner or admin', 'Name, description, price, calories, note, online ordering on or off, house favourite, allergens and their level, dietary tags, options and their prices, which section it is in and where.'],
+                ['Change or remove a section', 'Owner or admin', 'Title, subtitle, where it shows (everywhere, printed menus only, nowhere), VAT, position. Removing a section takes its dishes with it; to keep them, hide the section instead.'],
+                ['Remove dishes', 'Owner or admin', 'The card warns when a dish is part of a meal deal.'],
+                ['Change prices', 'Owner or admin', 'Whole menu, a section or named dishes: by a %, by an amount or to one price, with rounding. Option prices go up or down with them (not when you set one price).'],
+              ]}
+            />
+            <P>
+              Every change shows a card first. A change to a dish&apos;s allergens, and a price that
+              changes by more than half, shows a <strong>Check</strong> box on the card: allergens
+              show on the website, printed menus, online ordering, the allergen lookup and the till,
+              so read them through before pressing Save.
+            </P>
+            <InfoBox type="info">
+              Options use your option groups (Menus → Variant groups): a dish gets its own price per
+              choice and the group itself isn&apos;t changed. A group name you don&apos;t have yet
+              makes a new group, and the card says so. The assistant never guesses allergens from a
+              dish name: if a photo or list doesn&apos;t show them, it adds the dishes without and
+              tells you. It doesn&apos;t change dish photos, meal deals, print designs, till buttons,
+              or the allergen and dietary tag list itself; do those on the Menus pages.
             </InfoBox>
             <H3>Attaching photos, screenshots and files</H3>
             <P>
