@@ -3942,7 +3942,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /api/website/config',            'admin', 'Create config row (first-time setup). Requires subdomain_slug.'],
                 ['PATCH /api/website/config',           'admin', 'Partial update. Mutating custom_domain clears custom_domain_verified.'],
                 ['GET /api/website/slug-available',     'auth',  'Global uniqueness check across ALL tenants. Does NOT use withTenant().'],
-                ['POST /api/website/verify-domain',     'admin', 'DNS-resolves custom_domain, matches A records to APP_PUBLIC_IPS and/or CNAME suffix to PUBLIC_ROOT_DOMAIN. Updates the verified flag.'],
+                ['POST /api/website/tenant-site/verify-domain', 'admin', 'DNS-resolves custom_domain, matches A records to platformIps() (what the site\'s own address and the root resolve to, plus APP_PUBLIC_IPS) and/or a CNAME ending in PUBLIC_ROOT_DOMAIN. Updates the verified flag; returns server_status and a hint.'],
                 ['GET/POST/PATCH/DELETE /api/website/gallery',    'auth/admin', 'Gallery CRUD + /gallery/reorder.'],
                 ['GET/POST/PATCH/DELETE /api/website/pages',      'auth/admin', 'Custom pages CRUD.'],
                 ['GET/POST/DELETE /api/website/menus',            'auth/admin', 'PDF menu docs CRUD. GET and POST need ?venue_id= (without it GET returns [] and POST 404s, which is why the admin page could never upload before it sent one).'],
@@ -4101,28 +4101,58 @@ GET /robots.txt`}</Code>
             </ul>
 
             <H3>Custom domain lifecycle</H3>
-            <Code>{`1. Tenant sets website_config.custom_domain via PATCH
-   → custom_domain_verified auto-set to false by the server.
-2. Tenant configures DNS:
-     CNAME @ → macaroonie.com     (preferred)
+            <Code>{`1. Tenant saves tenant_site.custom_domain (PATCH /website/tenant-site).
+   cleanCustomDomain(): lower case, no scheme / path / port / trailing dot,
+   must be a hostname, refuses our own root and *.root (422), and another
+   tenant's domain (409). Only a CHANGED domain sets
+   custom_domain_verified = false (the Domain section sends the domain
+   with every save).
+2. Tenant adds DNS:
+     CNAME www → {slug}.{root}
      OR
-     A     @ → <APP_PUBLIC_IP>    (requires APP_PUBLIC_IPS env set)
-3. Tenant clicks "Verify DNS" in admin
-   → POST /api/website/verify-domain
-   → Node resolves A + CNAME records, compares to expected values.
-   → On match, sets custom_domain_verified = true.
-4. Out-of-band: SSL cert provisioned (Nginx + certbot,
-   Caddy on-demand TLS, etc). The app does NOT provision certs.
-5. Site is now reachable at the custom domain. siteRenderer
-   matches the Host header to website_config.custom_domain.`}</Code>
-
-            <H3>Deployment follow-ups</H3>
+     A     @   → the IPs platformIps() returns: what {slug}.{root} and
+                 the root resolve to, plus APP_PUBLIC_IPS if set.
+3. Verify DNS → POST /website/tenant-site/verify-domain: resolves the
+   domain's CNAME / A records, compares, sets custom_domain_verified.
+4. Platform admin, on the server:
+     sudo bash scripts/nginx-custom-domain.sh <domain> [other names]
+   writes sites-available/macaroonie-domain-<domain> (everything proxied to
+   the API) and gets a certificate with certbot certonly --webroot.
+5. siteRenderer matches the Host header to tenant_site.custom_domain
+   (verified, site published).`}</Code>
+            <P>
+              Step 4 is the one that is easy to miss: nginx only sends a host to the API when a server
+              block names it. Until then a request for the domain lands on nginx&apos;s default server for
+              the port, which on this server is certbot&apos;s port-80 block for the apex (
+              <Mono>return 404</Mono>), so the guest gets a bare nginx 404 however the app is set up.{' '}
+              <Mono>GET /website/tenant-site/dns-setup</Mono> and the verify response carry{' '}
+              <Mono>server_status</Mono> from <Mono>domainServerStatus()</Mono>: it reads{' '}
+              <Mono>/etc/nginx/sites-enabled/macaroonie-domain-&lt;domain&gt;</Mono> (<Mono>https</Mono> when it
+              listens on 443, <Mono>http</Mono> before the certificate, <Mono>none</Mono> without the file,
+              null when the API isn&apos;t on the nginx server). The Domain section shows a notice for{' '}
+              <Mono>none</Mono> / <Mono>http</Mono> (with the command for platform admins) and links the
+              domain only once it is <Mono>https</Mono>.
+            </P>
+            <DataTable
+              head={['scripts/nginx-custom-domain.sh', 'What it does']}
+              rows={[
+                ['Arguments', 'The site\'s address first (as saved in Website > Domain), then any names that redirect to it (the www or bare version). All names need DNS pointing at the server.'],
+                ['Certificate', 'CERT_NAME if given, else an existing certificate in /etc/letsencrypt/live covering every name, else certbot certonly --webroot (cert name = the first name; renewed by certbot\'s timer with a nginx reload). Certbot never edits the file.'],
+                ['No certificate yet', 'If certbot fails (DNS not here yet, Cloudflare orange cloud), the HTTP-only block stays on, so the site works on http://, and the script exits 1 saying why. Run it again once DNS is right.'],
+                ['Checks', 'Warns (doesn\'t stop) when no tenant has the first name saved, when it isn\'t verified, or when the site isn\'t live (psql with api/.env\'s DATABASE_URL).'],
+                ['REMOVE=1 / DRY_RUN=1', 'Take the domain off (the certificate is kept) / print the config.'],
+              ]}
+            />
+            <P>
+              Tested against a local nginx with the API behind it: the bare 404 before, the site over
+              http:// with no certificate, the redirect from the other name, https with a certificate,
+              running it twice, and removal.
+            </P>
+            <H3>Wildcard pieces (tenant subdomains)</H3>
             <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
               <li>Nginx: wildcard server block for <Mono>*.macaroonie.com</Mono> proxying to the API.</li>
               <li>DNS: wildcard A record for <Mono>*.macaroonie.com</Mono> → app IP.</li>
-              <li>SSL: wildcard cert via Certbot DNS-01 (requires DNS at Cloudflare/Route53/etc).</li>
-              <li>Migrations 025 + 026 are auto-applied by the deploy workflow — see the Deployment section below.</li>
-              <li>Set <Mono>APP_PUBLIC_IPS=1.2.3.4,5.6.7.8</Mono> env var for the verify-domain endpoint to accept A-record matches.</li>
+              <li>SSL: wildcard cert via Certbot DNS-01 (Lightsail DNS hook scripts; see CLAUDE.md).</li>
             </ul>
           </section>
 
@@ -4423,7 +4453,8 @@ allTables sorted by sort_order → target at index i
                 ['office.macaroonie.com', 'The admin portal (admin/dist) plus the API paths', 'nginx: scripts/nginx-office-ops.sh'],
                 ['ops.macaroonie.com', 'The same admin build; / goes to /mobile/, the SPA sends any non-/mobile route to /mobile (IS_OPS_HOST in lib/hosts.js), and the page links /ops.webmanifest (scope /) so Android installs it as its own app', 'nginx: scripts/nginx-office-ops.sh'],
                 ['macaroonie.com (and www.)', 'The platform page: features, franchises, who it is for, roadmap (EPOS, kitchen screens, kiosks, loyalty; AI insights, AI assistant, MCP), how we build, team and the register-interest form (routes/platformSite.js, views/platform/landing.eta, plain HTML, edit the copy there). Other GETs 301 to the same path on office.; API paths (/api, /manage, /reservations, /widget-api, /ws, /webhooks, /uploads, /order-api) pass through; /sw.js is a service worker that removes itself so an admin installed on the apex stops showing', 'nginx: scripts/nginx-apex-landing.sh'],
-                ['{slug}.macaroonie.com / custom domains', 'Tenant sites (routes/siteRenderer.js). office and ops are in RESERVED_SUBDOMAINS', 'wildcard server block'],
+                ['{slug}.macaroonie.com', 'Tenant sites (routes/siteRenderer.js). office and ops are in RESERVED_SUBDOMAINS', 'wildcard server block'],
+                ['Custom domains (www.yourrestaurant.com)', 'Tenant sites, matched by tenant_site.custom_domain', 'nginx: scripts/nginx-custom-domain.sh, one run per domain (Website CMS → Custom domain lifecycle)'],
               ]}
             />
             <P>

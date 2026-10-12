@@ -13,6 +13,7 @@
 import { z }     from 'zod'
 import crypto    from 'node:crypto'
 import dns        from 'node:dns/promises'
+import fs         from 'node:fs/promises'
 import { withTenant, sql } from '../config/db.js'
 import { env }    from '../config/env.js'
 import { getStorage } from '../services/storageSvc.js'
@@ -470,6 +471,58 @@ async function ensureTenantSite(tx, tenantId) {
   return created
 }
 
+// ── Custom domains ───────────────────────────────────────────
+//
+// A custom domain only reaches the site once this server has an nginx block
+// for it (scripts/nginx-custom-domain.sh, run by hand on the server). Without
+// one, nginx answers the domain from its default server: a bare 404.
+
+const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
+const NGINX_SITES_ENABLED = '/etc/nginx/sites-enabled'
+
+/** The domain as guests type it: lower case, no scheme, path, port or
+ *  trailing dot. Empty → null. Our own addresses are refused. */
+export function cleanCustomDomain(value) {
+  if (value == null) return null
+  const host = String(value).trim().toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, '')
+    .replace(/[/?#].*$/, '')
+    .replace(/:\d+$/, '')
+    .replace(/\.$/, '')
+  if (!host) return null
+  if (!HOSTNAME_RE.test(host)) {
+    throw httpError(422, `"${String(value).trim()}" isn't a domain name. Type it like www.yourrestaurant.com.`)
+  }
+  const root = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
+  if (host === root || host.endsWith('.' + root)) {
+    throw httpError(422, `${host} is a Macaroonie address, and your site already has one. Enter a domain you own, like www.yourrestaurant.com.`)
+  }
+  return host
+}
+
+/** The IPs a custom domain's A records should point at: whatever the site's
+ *  own Macaroonie address and the root domain resolve to, plus APP_PUBLIC_IPS. */
+async function platformIps(slug) {
+  const root = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
+  const names = [...new Set([slug ? `${slug}.${root}` : null, root].filter(Boolean))]
+  const found = await Promise.all(names.map(n => dns.resolve4(n).catch(() => [])))
+  const extra = (process.env.APP_PUBLIC_IPS || '').split(',').map(s => s.trim()).filter(Boolean)
+  return [...new Set([...extra, ...found.flat()])]
+}
+
+/** Whether this server serves the domain: 'https', 'http' (no certificate
+ *  yet) or 'none'. null when this isn't the nginx server (local dev). */
+async function domainServerStatus(domain) {
+  if (!domain) return null
+  try { await fs.access(NGINX_SITES_ENABLED) } catch { return null }
+  try {
+    const conf = await fs.readFile(`${NGINX_SITES_ENABLED}/macaroonie-domain-${domain}`, 'utf8')
+    return /listen\s+443/.test(conf) ? 'https' : 'http'
+  } catch {
+    return 'none'
+  }
+}
+
 // ── Plugin ───────────────────────────────────────────────────
 
 export default async function websiteRoutes(app) {
@@ -489,7 +542,7 @@ export default async function websiteRoutes(app) {
   // ── PATCH /website/tenant-site ──────────────────────────
   app.patch('/tenant-site', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const body = TenantSiteBody.parse(req.body)
-    if ('custom_domain' in body) body.custom_domain_verified = false
+    if ('custom_domain' in body) body.custom_domain = cleanCustomDomain(body.custom_domain)
     if ('bimi_svg' in body) {
       try {
         body.bimi_svg = normalizeBimiSvg(body.bimi_svg)
@@ -497,12 +550,32 @@ export default async function websiteRoutes(app) {
         throw httpError(e.statusCode || 422, e.message)
       }
     }
-
-    const fields = Object.keys(body)
-    if (!fields.length) throw httpError(400, 'No fields to update')
+    if (!Object.keys(body).length) throw httpError(400, 'No fields to update')
 
     return withTenant(req.tenantId, async tx => {
-      await ensureTenantSite(tx, req.tenantId)
+      const current = await ensureTenantSite(tx, req.tenantId)
+
+      // The Domain section sends the domain with every save; only a new
+      // domain clears verification (it used to on every save, so switching
+      // "Site is live" took a verified domain offline).
+      if ('custom_domain' in body) {
+        if (body.custom_domain === (current.custom_domain || null)) {
+          delete body.custom_domain
+        } else {
+          body.custom_domain_verified = false
+          if (body.custom_domain) {
+            const [taken] = await tx`
+              SELECT 1 FROM tenant_site
+               WHERE lower(custom_domain) = ${body.custom_domain}
+                 AND tenant_id <> ${req.tenantId}
+               LIMIT 1
+            `
+            if (taken) throw httpError(409, `Another site already uses ${body.custom_domain}.`)
+          }
+        }
+      }
+      const fields = Object.keys(body)
+      if (!fields.length) return current
 
       // Subdomain uniqueness check across tenants (table-level).
       if (body.subdomain_slug) {
@@ -550,15 +623,14 @@ export default async function websiteRoutes(app) {
     const ts = await withTenant(req.tenantId, tx => ensureTenantSite(tx, req.tenantId))
     const root = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
     const slug = ts?.subdomain_slug || null
-    const ips = (process.env.APP_PUBLIC_IPS || '')
-      .split(',').map(s => s.trim()).filter(Boolean)
     return {
       root_domain:             root,
       subdomain_slug:          slug,
       custom_domain:           ts?.custom_domain || null,
       custom_domain_verified:  !!ts?.custom_domain_verified,
       cname_target:            slug ? `${slug}.${root}` : root,
-      a_records:               ips,
+      a_records:               await platformIps(slug),
+      server_status:           await domainServerStatus(ts?.custom_domain),
     }
   })
 
@@ -578,15 +650,14 @@ export default async function websiteRoutes(app) {
   // ── POST /website/tenant-site/verify-domain ─────────────
   app.post('/tenant-site/verify-domain', { preHandler: requireRole('admin', 'owner') }, async (req) => {
     const [ts] = await withTenant(req.tenantId, tx => tx`
-      SELECT custom_domain FROM tenant_site
+      SELECT custom_domain, subdomain_slug FROM tenant_site
        WHERE tenant_id = ${req.tenantId}
     `)
     if (!ts?.custom_domain) throw httpError(422, 'No custom domain configured')
 
     const domain = ts.custom_domain
     const expectedCnameSuffix = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
-    const expectedIps = (process.env.APP_PUBLIC_IPS || '')
-      .split(',').map(s => s.trim()).filter(Boolean)
+    const expectedIps = await platformIps(ts.subdomain_slug)
 
     let aRecords = []
     let cnameRecords = []
@@ -594,7 +665,7 @@ export default async function websiteRoutes(app) {
     try { cnameRecords = await dns.resolveCname(domain) } catch { /* no CNAME */ }
 
     const cnameMatch = cnameRecords.some(c => c.toLowerCase().endsWith(expectedCnameSuffix))
-    const aMatch     = expectedIps.length && aRecords.some(a => expectedIps.includes(a))
+    const aMatch     = expectedIps.length > 0 && aRecords.some(a => expectedIps.includes(a))
     const verified   = cnameMatch || aMatch
 
     await withTenant(req.tenantId, tx => tx`
@@ -603,14 +674,19 @@ export default async function websiteRoutes(app) {
        WHERE tenant_id = ${req.tenantId}
     `)
 
+    const serverStatus = await domainServerStatus(domain)
     return {
       verified, domain,
       a_records:     aRecords,
       cname_records: cnameRecords,
       expected: { cname_suffix: expectedCnameSuffix, ips: expectedIps },
-      hint: verified
-        ? 'Domain verified. SSL provisioning still happens outside the app (Nginx + certbot).'
-        : `Point ${domain} via CNAME to ${expectedCnameSuffix}, or an A record to one of the app's public IPs.`,
+      server_status: serverStatus,
+      hint: !verified
+        ? `Point ${domain} with a CNAME to ${ts.subdomain_slug ? ts.subdomain_slug + '.' : ''}${expectedCnameSuffix}` +
+          (expectedIps.length ? `, or an A record to ${expectedIps.join(' or ')}.` : '.')
+        : serverStatus === 'none'
+          ? `DNS is right. ${domain} still has to be switched on on our server; until then it shows a 404.`
+          : 'Domain verified.',
     }
   })
 
@@ -690,6 +766,9 @@ export default async function websiteRoutes(app) {
 
   async function brandDefaultsUpsert(req) {
     const body = TenantSiteBody.parse(req.body)
+    // The domain changes only through PATCH /tenant-site (cleaning,
+    // uniqueness, verification).
+    delete body.custom_domain
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
     return withTenant(req.tenantId, async tx => {

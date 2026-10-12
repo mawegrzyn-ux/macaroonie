@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-12 — Custom domains reach the site]
+
+- A custom domain (e.g. `onethai.com`) showed a plain 404 even with DNS right: the server had nothing set up for it, so its web server answered with its default 404. New server script `scripts/nginx-custom-domain.sh <domain> [other names]` switches a domain on: web server block and HTTPS certificate, with the www / bare version redirected to it.
+- **Website > Domain** says whether the domain is switched on yet (and gives platform admins the command), and links the domain only once it works over HTTPS. The guide no longer says the certificate is issued automatically.
+- Saving the Domain section (e.g. switching **Site is live**) no longer clears DNS verification; only typing a different domain does.
+- The domain is saved clean (no `https://`, path or trailing dot); a Macaroonie address or another site's domain is refused with a clear message.
+- Verify DNS accepts an A record pointing at the server without the `APP_PUBLIC_IPS` setting, and the guide lists the IP address to use.
+- No migration.
+
+---
+
 ## [2026-10-12 — AI assistant: menus]
 
 - **Ask AI** (and the staff connector for your own AI app) now works with menus as well as bookings, H&S and purchasing.

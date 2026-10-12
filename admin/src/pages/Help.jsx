@@ -2434,24 +2434,33 @@ export default function Help() {
               Cloudflare, Namecheap, and the rest). The short version:
             </P>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>In <strong>Setup &amp; domain</strong>, enter your full domain.</li>
-              <li>Save. Notice the <strong>DNS not verified</strong> warning that appears.</li>
               <li>
-                At your DNS provider (Cloudflare, GoDaddy, Route53 etc.), add a
-                <strong> CNAME record</strong> pointing your domain to{' '}
-                <Mono>macaroonie.com</Mono>. Alternatively, add an <strong>A record</strong>
-                pointing to the platform's public IP (ask support if unsure).
+                In <strong>Website → Domain</strong>, type the address guests will use, exactly:{' '}
+                <Mono>www.yourrestaurant.com</Mono> and <Mono>yourrestaurant.com</Mono> are different.
+                Save. You&apos;ll see <strong>DNS not verified</strong>.
               </li>
-              <li>Wait a few minutes for DNS to propagate.</li>
-              <li>Click <strong>Verify DNS</strong> in the admin.</li>
               <li>
-                Once verified, the platform will provision an SSL certificate (this can take
-                up to an hour). Your site then goes live at your domain.
+                At your DNS provider (Cloudflare, GoDaddy, 123-reg etc.), add the record the guide
+                shows: a <strong>CNAME</strong> to your Macaroonie address for <Mono>www.</Mono>, or an{' '}
+                <strong>A record</strong> to the IP address it lists for the bare domain. On Cloudflare,
+                set the record to <strong>DNS only</strong> (grey cloud).
+              </li>
+              <li>Wait a few minutes, then click <strong>Verify DNS</strong>.</li>
+              <li>
+                Once DNS is verified, Macaroonie switches the domain on on the server and issues its
+                HTTPS certificate. Until then the domain shows a plain <strong>404</strong> page: that is
+                expected, not a fault in your DNS. The Domain section says when it is switched on, and
+                the link to your domain appears.
               </li>
             </ol>
+            <InfoBox type="info">
+              Want both <Mono>yourrestaurant.com</Mono> and <Mono>www.yourrestaurant.com</Mono>? Enter one in
+              the Domain section (that is the site&apos;s address), add a DNS record for the other too, and
+              tell us: we send the other one on to it.
+            </InfoBox>
             <InfoBox type="warn">
-              Changing the custom domain clears the verified flag. You'll need to re-verify
-              after any edit.
+              Typing a different domain clears the verified flag, and you&apos;ll need to verify again.
+              Saving the Domain section without changing the domain keeps it verified.
             </InfoBox>
 
             <H3>Uploading images and PDFs</H3>
