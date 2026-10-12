@@ -3942,7 +3942,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['POST /api/website/config',            'admin', 'Create config row (first-time setup). Requires subdomain_slug.'],
                 ['PATCH /api/website/config',           'admin', 'Partial update. Mutating custom_domain clears custom_domain_verified.'],
                 ['GET /api/website/slug-available',     'auth',  'Global uniqueness check across ALL tenants. Does NOT use withTenant().'],
-                ['POST /api/website/tenant-site/verify-domain', 'admin', 'DNS-resolves custom_domain, matches A records to platformIps() (what the site\'s own address and the root resolve to, plus APP_PUBLIC_IPS) and/or a CNAME ending in PUBLIC_ROOT_DOMAIN. Updates the verified flag; returns server_status and a hint.'],
+                ['POST /api/website/tenant-site/verify-domain', 'admin', 'DNS-resolves custom_domain, matches A records to platformIps() (what the site\'s own address and the root resolve to, plus APP_PUBLIC_IPS) and/or a CNAME ending in PUBLIC_ROOT_DOMAIN. Updates the verified flag (verified also writes the domain sync\'s kick file); returns server_status, server_auto, server_state and a hint.'],
                 ['GET/POST/PATCH/DELETE /api/website/gallery',    'auth/admin', 'Gallery CRUD + /gallery/reorder.'],
                 ['GET/POST/PATCH/DELETE /api/website/pages',      'auth/admin', 'Custom pages CRUD.'],
                 ['GET/POST/DELETE /api/website/menus',            'auth/admin', 'PDF menu docs CRUD. GET and POST need ?venue_id= (without it GET returns [] and POST 404s, which is why the admin page could never upload before it sent one).'],
@@ -4113,40 +4113,73 @@ GET /robots.txt`}</Code>
      A     @   → the IPs platformIps() returns: what {slug}.{root} and
                  the root resolve to, plus APP_PUBLIC_IPS if set.
 3. Verify DNS → POST /website/tenant-site/verify-domain: resolves the
-   domain's CNAME / A records, compares, sets custom_domain_verified.
-4. Platform admin, on the server:
-     sudo bash scripts/nginx-custom-domain.sh <domain> [other names]
-   writes sites-available/macaroonie-domain-<domain> (everything proxied to
-   the API) and gets a certificate with certbot certonly --webroot.
+   domain's CNAME / A records, compares, sets custom_domain_verified,
+   and when verified writes /var/lib/macaroonie-domains/kick.
+4. The domain sync (scripts/custom-domains-sync.sh, a systemd timer every
+   minute, started at once by the kick) runs the domain script:
+     scripts/nginx-custom-domain.sh <domain> [www / bare twin]
+   which writes sites-available/macaroonie-domain-<domain> (everything
+   proxied to the API) and gets a certificate (certbot certonly --webroot).
 5. siteRenderer matches the Host header to tenant_site.custom_domain
    (verified, site published).`}</Code>
             <P>
-              Step 4 is the one that is easy to miss: nginx only sends a host to the API when a server
-              block names it. Until then a request for the domain lands on nginx&apos;s default server for
-              the port, which on this server is certbot&apos;s port-80 block for the apex (
-              <Mono>return 404</Mono>), so the guest gets a bare nginx 404 however the app is set up.{' '}
+              Step 4 is what makes the domain reach the site: nginx only sends a host to the API when a
+              server block names it. Without one a request for the domain lands on nginx&apos;s default
+              server for the port, which on this server is certbot&apos;s port-80 block for the apex (
+              <Mono>return 404</Mono>), so the guest gets a bare nginx 404 however the app is set up.
+            </P>
+            <H3>The domain sync</H3>
+            <P>
+              <Mono>scripts/install-domain-sync.sh</Mono> runs on every deploy (deploy.yml, with sudo). It
+              copies both scripts to root-owned <Mono>/usr/local/sbin/macaroonie-domains-sync</Mono> and{' '}
+              <Mono>/usr/local/sbin/macaroonie-domain</Mono>, makes <Mono>/var/lib/macaroonie-domains</Mono>{' '}
+              (its <Mono>kick</Mono> file owned by the app user) and enables{' '}
+              <Mono>macaroonie-domains.timer</Mono> (every minute) and <Mono>macaroonie-domains.path</Mono>{' '}
+              (runs the service when <Mono>kick</Mono> is written). The API never runs anything as root: it
+              only reads the state directory and writes <Mono>kick</Mono>.
+            </P>
+            <DataTable
+              head={['Each run', 'What happens']}
+              rows={[
+                ['Reads', 'SELECT lower(custom_domain), custom_domain_verified FROM tenant_site (psql, api/.env\'s DATABASE_URL). If that fails it exits 1 and changes nothing.'],
+                ['Removes', 'Every macaroonie-domain-* block whose domain no tenant has saved (any verification state), with its certificate (REMOVE=1 DELETE_CERT=1) and state. The database decides, so a block made by hand for a domain nobody saved goes too.'],
+                ['Switches on', 'Each verified domain without a 443 block: DNS must point only at this server (every A record in what the root resolves to plus APP_PUBLIC_IPS; any AAAA record too). Otherwise state waiting_dns with the reason, checked again every run (no certificate request, so no Let\'s Encrypt attempt). Then the domain script with the domain and its www / bare twin when the twin points here and no other tenant saved it.'],
+                ['Twin later', 'For a domain already on https, the twin is added once its DNS points here. The domain script keeps https on for the main name while it asks for the bigger certificate and if that fails.'],
+                ['Retries', 'A failed certificate waits 5 min, 15 min, 1 h, 6 h, then a day (Let\'s Encrypt allows 5 failed checks per name per hour). A kick retries sooner, but not within 2 minutes of the last try. Twins keep their own backoff in twins/<name>.'],
+                ['Reports', '<domain>.json (status working | waiting_dns | http | error | https, message: certbot\'s Detail line or the DNS reason, attempts, last_try, next_try) and last-run, all world-readable.'],
+                ['Stops', 'touch /var/lib/macaroonie-domains/disabled. One run at a time (flock); logs: journalctl -u macaroonie-domains.'],
+              ]}
+            />
+            <P>
               <Mono>GET /website/tenant-site/dns-setup</Mono> and the verify response carry{' '}
-              <Mono>server_status</Mono> from <Mono>domainServerStatus()</Mono>: it reads{' '}
-              <Mono>/etc/nginx/sites-enabled/macaroonie-domain-&lt;domain&gt;</Mono> (<Mono>https</Mono> when it
+              <Mono>server_status</Mono> from <Mono>domainServerStatus()</Mono> (reads{' '}
+              <Mono>/etc/nginx/sites-enabled/macaroonie-domain-&lt;domain&gt;</Mono>: <Mono>https</Mono> when it
               listens on 443, <Mono>http</Mono> before the certificate, <Mono>none</Mono> without the file,
-              null when the API isn&apos;t on the nginx server). The Domain section shows a notice for{' '}
-              <Mono>none</Mono> / <Mono>http</Mono> (with the command for platform admins) and links the
-              domain only once it is <Mono>https</Mono>.
+              null when the API isn&apos;t on the nginx server), plus <Mono>server_auto</Mono> (the sync&apos;s{' '}
+              <Mono>last-run</Mono> is under 5 minutes old) and <Mono>server_state</Mono> (its{' '}
+              <Mono>&lt;domain&gt;.json</Mono>, <Mono>next_try</Mono> in ms). The Domain section shows the
+              progress while <Mono>server_auto</Mono> is on (refetching every 10 seconds until https), the
+              manual command for platform admins when it is off, and links the domain only once it is{' '}
+              <Mono>https</Mono>. <Mono>DOMAIN_SYNC_DIR</Mono> and <Mono>NGINX_SITES_ENABLED</Mono> override
+              the paths (tests).
             </P>
             <DataTable
               head={['scripts/nginx-custom-domain.sh', 'What it does']}
               rows={[
-                ['Arguments', 'The site\'s address first (as saved in Website > Domain), then any names that redirect to it (the www or bare version). All names need DNS pointing at the server.'],
+                ['Arguments', 'The site\'s address first (as saved in Website > Domain), then any names that redirect to it (the www or bare version). All names need DNS pointing at the server. Run by the sync; by hand only to add a name the sync doesn\'t, or with the sync off.'],
                 ['Certificate', 'CERT_NAME if given, else an existing certificate in /etc/letsencrypt/live covering every name, else certbot certonly --webroot (cert name = the first name; renewed by certbot\'s timer with a nginx reload). Certbot never edits the file.'],
-                ['No certificate yet', 'If certbot fails (DNS not here yet, Cloudflare orange cloud), the HTTP-only block stays on, so the site works on http://, and the script exits 1 saying why. Run it again once DNS is right.'],
+                ['No certificate yet', 'If certbot fails (DNS not here yet, Cloudflare orange cloud), the HTTP-only block stays on, so the site works on http://, and the script exits 1 saying why. When a certificate for the main name already exists (adding a twin), https stays on with it and only the new name is left out.'],
                 ['Checks', 'Warns (doesn\'t stop) when no tenant has the first name saved, when it isn\'t verified, or when the site isn\'t live (psql with api/.env\'s DATABASE_URL).'],
-                ['REMOVE=1 / DRY_RUN=1', 'Take the domain off (the certificate is kept) / print the config.'],
+                ['REMOVE=1 / DRY_RUN=1', 'Take the domain off (DELETE_CERT=1 also deletes the certificate) / print the config.'],
+                ['Lock', 'One run at a time (flock on /run/lock/macaroonie-domain.lock); children get the lock closed so a restarted nginx never holds it.'],
               ]}
             />
             <P>
-              Tested against a local nginx with the API behind it: the bare 404 before, the site over
-              http:// with no certificate, the redirect from the other name, https with a certificate,
-              running it twice, and removal.
+              Tested against a local nginx, Postgres and the API with certbot stubbed: saved but not
+              verified left alone, a failed certificate (http:// only, backoff, kick), https, the twin added
+              later, a twin that fails keeping https, DNS pointing elsewhere and a stray AAAA record, removal
+              when the domain changes or nobody saved it, the API&apos;s kick and status fields, a bad
+              database URL, the off switch, the lock, and the installer (systemd-analyze verify).
             </P>
             <H3>Wildcard pieces (tenant subdomains)</H3>
             <ul className="list-disc ml-5 space-y-1.5 text-sm text-muted-foreground mb-4">
@@ -4454,7 +4487,7 @@ allTables sorted by sort_order → target at index i
                 ['ops.macaroonie.com', 'The same admin build; / goes to /mobile/, the SPA sends any non-/mobile route to /mobile (IS_OPS_HOST in lib/hosts.js), and the page links /ops.webmanifest (scope /) so Android installs it as its own app', 'nginx: scripts/nginx-office-ops.sh'],
                 ['macaroonie.com (and www.)', 'The platform page: features, franchises, who it is for, roadmap (EPOS, kitchen screens, kiosks, loyalty; AI insights, AI assistant, MCP), how we build, team and the register-interest form (routes/platformSite.js, views/platform/landing.eta, plain HTML, edit the copy there). Other GETs 301 to the same path on office.; API paths (/api, /manage, /reservations, /widget-api, /ws, /webhooks, /uploads, /order-api) pass through; /sw.js is a service worker that removes itself so an admin installed on the apex stops showing', 'nginx: scripts/nginx-apex-landing.sh'],
                 ['{slug}.macaroonie.com', 'Tenant sites (routes/siteRenderer.js). office and ops are in RESERVED_SUBDOMAINS', 'wildcard server block'],
-                ['Custom domains (www.yourrestaurant.com)', 'Tenant sites, matched by tenant_site.custom_domain', 'nginx: scripts/nginx-custom-domain.sh, one run per domain (Website CMS → Custom domain lifecycle)'],
+                ['Custom domains (www.yourrestaurant.com)', 'Tenant sites, matched by tenant_site.custom_domain', 'nginx: the domain sync (scripts/custom-domains-sync.sh, systemd timer installed by the deploy) runs scripts/nginx-custom-domain.sh per verified domain (Website CMS → Custom domain lifecycle)'],
               ]}
             />
             <P>

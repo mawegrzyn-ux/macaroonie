@@ -2447,16 +2447,32 @@ export default function Help() {
               </li>
               <li>Wait a few minutes, then click <strong>Verify DNS</strong>.</li>
               <li>
-                Once DNS is verified, Macaroonie switches the domain on on the server and issues its
-                HTTPS certificate. Until then the domain shows a plain <strong>404</strong> page: that is
-                expected, not a fault in your DNS. The Domain section says when it is switched on, and
-                the link to your domain appears.
+                Once DNS is verified, our server switches the domain on by itself and gets its HTTPS
+                certificate, usually within a minute or two. Until then the domain shows a plain{' '}
+                <strong>404</strong> page: that is expected, not a fault in your DNS. Stay on the Domain
+                section: it updates by itself and the link to your domain appears once it works.
               </li>
             </ol>
+            <P>What the Domain section can say while it switches the domain on:</P>
+            <DataTable
+              head={['Message', 'What it means']}
+              rows={[
+                ['Switching … on', 'All good; it usually takes a minute or two.'],
+                ['Waiting for …\'s DNS', 'Your domain doesn\'t point only at us yet. The message says where it points. Fix the record at your DNS provider; we check again every minute. A leftover IPv6 (AAAA) record that points elsewhere stops it too: delete it.'],
+                ['Works on http:// only for now', 'The site is on, but the HTTPS certificate couldn\'t be issued yet. We try again by ourselves (the time is shown); pressing Verify DNS tries again sooner. Usual cause: Cloudflare\'s orange cloud (switch it to DNS only).'],
+              ]}
+            />
             <InfoBox type="info">
               Want both <Mono>yourrestaurant.com</Mono> and <Mono>www.yourrestaurant.com</Mono>? Enter one in
-              the Domain section (that is the site&apos;s address), add a DNS record for the other too, and
-              tell us: we send the other one on to it.
+              the Domain section (that is the site&apos;s address) and point the other one at us too. It is
+              switched on with the first and sends visitors to it, also if you add its DNS record later
+              (within a minute of it pointing at us). Without that record, the other name doesn&apos;t work
+              and browsers show it as not secure.
+            </InfoBox>
+            <InfoBox type="info">
+              A browser that opened your domain before it was switched on can keep offering the old address
+              from its history (an <Mono>http://</Mono> or <Mono>www.</Mono> one). Type the full{' '}
+              <Mono>https://</Mono> address once, or try a private window, before deciding something is wrong.
             </InfoBox>
             <InfoBox type="warn">
               Typing a different domain clears the verified flag, and you&apos;ll need to verify again.

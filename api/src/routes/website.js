@@ -474,11 +474,17 @@ async function ensureTenantSite(tx, tenantId) {
 // ── Custom domains ───────────────────────────────────────────
 //
 // A custom domain only reaches the site once this server has an nginx block
-// for it (scripts/nginx-custom-domain.sh, run by hand on the server). Without
-// one, nginx answers the domain from its default server: a bare 404.
+// for it (scripts/nginx-custom-domain.sh). Without one, nginx answers the
+// domain from its default server: a bare 404. The domain sync
+// (scripts/custom-domains-sync.sh, a systemd timer installed by the deploy)
+// writes those blocks for verified domains and reports progress in
+// DOMAIN_SYNC_DIR; the API only reads that and writes `kick` to start a run.
 
 const HOSTNAME_RE = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/
-const NGINX_SITES_ENABLED = '/etc/nginx/sites-enabled'
+const NGINX_SITES_ENABLED = process.env.NGINX_SITES_ENABLED || '/etc/nginx/sites-enabled'
+const DOMAIN_SYNC_DIR     = process.env.DOMAIN_SYNC_DIR     || '/var/lib/macaroonie-domains'
+// The sync runs every minute; older than this means it isn't running here.
+const SYNC_FRESH_MS = 5 * 60_000
 
 /** The domain as guests type it: lower case, no scheme, path, port or
  *  trailing dot. Empty → null. Our own addresses are refused. */
@@ -513,7 +519,7 @@ async function platformIps(slug) {
 /** Whether this server serves the domain: 'https', 'http' (no certificate
  *  yet) or 'none'. null when this isn't the nginx server (local dev). */
 async function domainServerStatus(domain) {
-  if (!domain) return null
+  if (!domain || !HOSTNAME_RE.test(domain)) return null
   try { await fs.access(NGINX_SITES_ENABLED) } catch { return null }
   try {
     const conf = await fs.readFile(`${NGINX_SITES_ENABLED}/macaroonie-domain-${domain}`, 'utf8')
@@ -521,6 +527,41 @@ async function domainServerStatus(domain) {
   } catch {
     return 'none'
   }
+}
+
+/** What the domain sync says about the domain. `auto`: the sync has run in
+ *  the last few minutes, so it will switch the domain on by itself. `state`:
+ *  its last word on this domain ({ status: working | waiting_dns | http |
+ *  error | https, message, attempts, next_try (ms) }), or null. */
+async function domainSyncInfo(domain) {
+  let auto = false
+  try {
+    const st = await fs.stat(`${DOMAIN_SYNC_DIR}/last-run`)
+    auto = Date.now() - st.mtimeMs < SYNC_FRESH_MS
+  } catch { /* not installed */ }
+  let state = null
+  if (domain && HOSTNAME_RE.test(domain)) {
+    try {
+      const s = JSON.parse(await fs.readFile(`${DOMAIN_SYNC_DIR}/${domain}.json`, 'utf8'))
+      state = {
+        status:   s.status || null,
+        message:  s.message || null,
+        attempts: Number(s.attempts) || 0,
+        next_try: s.next_try ? Number(s.next_try) * 1000 : null,
+      }
+    } catch { /* no word yet */ }
+  }
+  return { auto, state }
+}
+
+/** Ask the domain sync to run now (it otherwise runs within a minute). */
+async function kickDomainSync() {
+  try { await fs.writeFile(`${DOMAIN_SYNC_DIR}/kick`, `${Date.now()}\n`) } catch { /* not installed */ }
+}
+
+async function domainServerFields(domain) {
+  const [status, sync] = await Promise.all([domainServerStatus(domain), domainSyncInfo(domain)])
+  return { server_status: status, server_auto: sync.auto, server_state: sync.state }
 }
 
 // ── Plugin ───────────────────────────────────────────────────
@@ -552,7 +593,8 @@ export default async function websiteRoutes(app) {
     }
     if (!Object.keys(body).length) throw httpError(400, 'No fields to update')
 
-    return withTenant(req.tenantId, async tx => {
+    let domainChanged = false
+    const saved = await withTenant(req.tenantId, async tx => {
       const current = await ensureTenantSite(tx, req.tenantId)
 
       // The Domain section sends the domain with every save; only a new
@@ -563,6 +605,7 @@ export default async function websiteRoutes(app) {
           delete body.custom_domain
         } else {
           body.custom_domain_verified = false
+          domainChanged = true
           if (body.custom_domain) {
             const [taken] = await tx`
               SELECT 1 FROM tenant_site
@@ -614,6 +657,9 @@ export default async function websiteRoutes(app) {
       }
       return row
     })
+    // The old domain's server block comes off on the sync's next run.
+    if (domainChanged) await kickDomainSync()
+    return saved
   })
 
   // ── GET /website/tenant-site/dns-setup ──────────────────
@@ -630,7 +676,7 @@ export default async function websiteRoutes(app) {
       custom_domain_verified:  !!ts?.custom_domain_verified,
       cname_target:            slug ? `${slug}.${root}` : root,
       a_records:               await platformIps(slug),
-      server_status:           await domainServerStatus(ts?.custom_domain),
+      ...(await domainServerFields(ts?.custom_domain)),
     }
   })
 
@@ -674,19 +720,25 @@ export default async function websiteRoutes(app) {
        WHERE tenant_id = ${req.tenantId}
     `)
 
-    const serverStatus = await domainServerStatus(domain)
+    // Verified: the sync switches it on (or retries a failed certificate) now.
+    if (verified) await kickDomainSync()
+    const server = await domainServerFields(domain)
     return {
       verified, domain,
       a_records:     aRecords,
       cname_records: cnameRecords,
       expected: { cname_suffix: expectedCnameSuffix, ips: expectedIps },
-      server_status: serverStatus,
+      ...server,
       hint: !verified
         ? `Point ${domain} with a CNAME to ${ts.subdomain_slug ? ts.subdomain_slug + '.' : ''}${expectedCnameSuffix}` +
           (expectedIps.length ? `, or an A record to ${expectedIps.join(' or ')}.` : '.')
-        : serverStatus === 'none'
-          ? `DNS is right. ${domain} still has to be switched on on our server; until then it shows a 404.`
-          : 'Domain verified.',
+        : server.server_status === 'https'
+          ? 'Domain verified.'
+          : server.server_auto
+            ? `DNS is right. We're switching ${domain} on now; it usually takes a minute or two.`
+            : server.server_status === 'none'
+              ? `DNS is right. ${domain} still has to be switched on on our server; until then it shows a 404.`
+              : 'Domain verified.',
     }
   })
 

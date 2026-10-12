@@ -399,10 +399,58 @@ function CopyChip({ value, label }) {
   )
 }
 
+function nextTryLabel(ms) {
+  if (!ms || ms <= Date.now()) return 'in a moment'
+  const d = new Date(ms)
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return d.toDateString() === new Date().toDateString()
+    ? `at ${time}`
+    : `on ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} at ${time}`
+}
+
 // Shown once DNS is verified but this server doesn't serve the domain yet:
-// no nginx block for it (scripts/nginx-custom-domain.sh), or no certificate.
-// Platform admins get the command to run on the server.
-function DomainServerNotice({ domain, status, isPlatformAdmin }) {
+// no nginx block for it, or no certificate. `auto`: the domain sync on the
+// server switches it on by itself (scripts/custom-domains-sync.sh) and `state`
+// is its progress; otherwise platform admins get the command to run.
+function DomainServerNotice({ domain, status, auto, state, isPlatformAdmin }) {
+  if (auto) {
+    const s = state?.status
+    const failed = s === 'http' || s === 'error'
+    return (
+      <div className="mt-2 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900 space-y-1.5">
+        {s === 'waiting_dns' ? (
+          <>
+            <p className="font-medium">Waiting for {domain}&apos;s DNS</p>
+            <p>{state.message}</p>
+            <p>We check again every minute and switch it on as soon as the DNS is right.</p>
+          </>
+        ) : failed ? (
+          <>
+            <p className="font-medium">
+              {status === 'http' ? `${domain} works on http:// only for now` : `${domain} isn't switched on yet`}
+            </p>
+            <p>
+              The HTTPS certificate couldn&apos;t be issued yet. We try again by ourselves {nextTryLabel(state.next_try)};
+              pressing Verify DNS tries again sooner.
+            </p>
+            {state.message && <p className="font-mono break-words text-[11px]">{state.message}</p>}
+            <p>
+              Usual causes: Cloudflare&apos;s proxy is on (it must be grey cloud, DNS only), or an old IPv6
+              (AAAA) record still points elsewhere.
+            </p>
+          </>
+        ) : (
+          <p className="font-medium inline-flex items-center gap-1.5">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Switching {domain} on. This usually takes a minute or two; this page updates by itself.
+          </p>
+        )}
+        {isPlatformAdmin && (
+          <p className="pt-1">Platform admin: progress is in <code>journalctl -u macaroonie-domains</code> on the server.</p>
+        )}
+      </div>
+    )
+  }
   const command = `sudo bash scripts/nginx-custom-domain.sh ${domain}`
   return (
     <div className="mt-2 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900 space-y-1.5">
@@ -423,7 +471,11 @@ function DomainServerNotice({ domain, status, isPlatformAdmin }) {
       )}
       {isPlatformAdmin && (
         <div className="space-y-1 pt-1">
-          <p>Platform admin: run this on the server, in /home/ubuntu/app{status === 'http' ? ', once DNS points at the server' : ''}:</p>
+          <p>
+            Platform admin: the automatic switch-on isn&apos;t running on the server (the deploy installs it
+            with scripts/install-domain-sync.sh). Meanwhile run this on the server, in /home/ubuntu/app
+            {status === 'http' ? ', once DNS points at the server' : ''}:
+          </p>
           <CopyChip value={command} />
           <p>Add the www or bare version after it (space separated) to send that one here too.</p>
         </div>
@@ -535,7 +587,8 @@ function CustomDomainGuideModal({ open, onClose, domain, slug, onVerify, verifyi
 
             <p className="text-xs text-muted-foreground">
               Want both <code className="text-xs">yourrestaurant.com</code> and <code className="text-xs">www.</code>? Enter <em>one</em> of them here (that is the site&apos;s address).
-              Add a record for the other one too and tell us: we send it on to the first. Or set up forwarding at your registrar.
+              Point the other one at us too (the same kind of record): it is switched on with the first and sends visitors to it,
+              even if you add it later.
             </p>
           </section>
 
@@ -573,9 +626,9 @@ function CustomDomainGuideModal({ open, onClose, domain, slug, onVerify, verifyi
           <section className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">5. We switch it on</h3>
             <p className="text-muted-foreground">
-              Once DNS verifies, Macaroonie switches the domain on on our server and issues its HTTPS
-              certificate. Until then <code className="text-xs">{host || 'your-domain'}</code> shows a 404 page;
-              the Domain section says when it is done. Your <code className="text-xs">{cnameTarget}</code> address
+              Once DNS verifies, our server switches the domain on by itself and gets its HTTPS certificate,
+              usually within a minute or two. Until then <code className="text-xs">{host || 'your-domain'}</code> shows
+              a 404 page; the Domain section shows how it is going. Your <code className="text-xs">{cnameTarget}</code> address
               keeps working throughout.
             </p>
           </section>
@@ -850,10 +903,17 @@ function TenantDomainSection({ tenantSite }) {
   const [guideOpen, setGuideOpen] = useState(false)
   // server_status: whether this server serves the domain yet (an nginx block
   // from scripts/nginx-custom-domain.sh): 'https' | 'http' | 'none' | null.
+  // server_auto / server_state: the domain sync switching it on by itself;
+  // while it does, this refetches so the notice follows its progress.
   const { data: dnsSetup } = useQuery({
     queryKey: ['tenant-dns-setup'],
     queryFn:  () => api.get('/website/tenant-site/dns-setup'),
     enabled:  !!tenantSite.custom_domain,
+    refetchInterval: (query) => {
+      const d = query.state.data
+      return d?.server_auto && d.custom_domain_verified && d.server_status && d.server_status !== 'https'
+        ? 10_000 : false
+    },
   })
   const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
   const serverStatus = tenantSite.custom_domain ? dnsSetup?.server_status : null
@@ -993,6 +1053,7 @@ function TenantDomainSection({ tenantSite }) {
           </div>
           {tenantSite.custom_domain && tenantSite.custom_domain_verified && (serverStatus === 'none' || serverStatus === 'http') && (
             <DomainServerNotice domain={tenantSite.custom_domain} status={serverStatus}
+              auto={!!dnsSetup?.server_auto} state={dnsSetup?.server_state}
               isPlatformAdmin={!!me?.is_platform_admin} />
           )}
           {verifyResult && !verifyResult.verified && (
