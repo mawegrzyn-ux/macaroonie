@@ -402,6 +402,7 @@ const TOOL_LABELS = {
   list_hs_actions: 'Looked at the action log',
   find_inventory_items: 'Searched the inventory', list_suppliers: 'Looked up suppliers',
   order_lists: 'Looked at the order lists', order_form: 'Opened the order', purchase_orders: 'Looked up supplier orders',
+  list_menus: 'Looked at the menus', get_menu: 'Opened the menu', find_dishes: 'Searched the menus',
 }
 
 /** The conversation as display items: user / assistant text, a short line

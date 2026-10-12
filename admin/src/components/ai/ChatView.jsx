@@ -25,6 +25,7 @@ const SUGGESTIONS = [
   'Which H&S checks are still to do today?',
   'Walk-in fridge is 4 degrees for the morning check',
   'Which supplier deliveries are due today?',
+  'Which dishes are free from peanuts?',
 ]
 
 export function useAiStatus() {
@@ -137,8 +138,8 @@ export default function ChatView({ conversationId, onConversationId, className }
         {empty && !isLoading && (
           <div className="text-center py-6">
             <Sparkles className="w-8 h-8 mx-auto text-primary mb-2" />
-            <p className="font-medium">Ask about bookings, H&S and purchasing</p>
-            <p className="text-sm text-muted-foreground mb-4">Bookings, checklists, food safety checks, the action log, and supplier orders, prices and price lists. Attach a photo, screenshot, PDF or CSV to work from. You confirm every change.</p>
+            <p className="font-medium">Ask about bookings, H&S, purchasing and menus</p>
+            <p className="text-sm text-muted-foreground mb-4">Bookings, checklists, food safety checks, the action log, supplier orders, prices and price lists, and menus: dishes, prices and allergens. Attach a photo, screenshot, PDF or CSV to work from. You confirm every change.</p>
             <div className="flex flex-col gap-2 max-w-sm mx-auto">
               {SUGGESTIONS.map(s => (
                 <button key={s} type="button" onClick={() => submit(s)}
@@ -193,7 +194,7 @@ export default function ChatView({ conversationId, onConversationId, className }
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
             rows={Math.min(5, Math.max(1, draft.split('\n').length))}
             maxLength={2000}
-            placeholder={att.files.length ? 'Add a message...' : 'Ask about bookings, H&S, orders...'}
+            placeholder={att.files.length ? 'Add a message...' : 'Ask about bookings, H&S, orders, menus...'}
             className="flex-1 min-w-0 resize-none rounded-md border bg-background px-3 py-2.5 text-sm min-h-[48px] focus:outline-none focus:ring-2 focus:ring-ring"
           />
           <button type="submit" disabled={!canSend}

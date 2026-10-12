@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-12 — AI assistant: menus]
+
+- **Ask AI** (and the staff connector for your own AI app) now works with menus as well as bookings, H&S and purchasing.
+- **Look things up**: the menus, what is on one, prices and option prices, allergens with their level, dietary tags, calories. **Find dishes** by name, by tag, or free from allergens; a dish where the allergen can be removed on request is listed separately, so the guest can ask for it without.
+- **Build a menu from a photo or PDF**: attach it and ask for a new menu. The card shows every section and dish before anything is saved; new menus aren't published until you say so.
+- **Change menus**: rename, move to a venue, publish or unpublish, copy; add dishes and sections; change a dish (price, description, calories, allergens and level, dietary tags, options and their prices, section and position); change or remove sections; remove dishes; change prices across a menu, sections or dishes by a %, an amount or to one price, with rounding.
+- Changes need an owner or admin login, the same as the Menus page. Allergen changes and price changes of more than half are flagged on the card. Options use your existing option groups (a new name makes a new group, and the card says so); allergens are never guessed.
+- No migration.
+
+---
+
 ## [2026-10-12 — Deliveroo menu file]
 
 - **Menus > Deliveroo menu**: open the menu file you download from the Deliveroo Hub (Menu, Menu Manager, Bulk management), or the same file saved from Excel, and update it from your menus here.
