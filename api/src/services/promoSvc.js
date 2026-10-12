@@ -17,7 +17,7 @@ const PROMO_COLS = `
   p.buy_qty, p.get_qty, p.get_percent, p.min_subtotal_pence, p.required_item_ids,
   p.max_discount_pence, p.apply_mode, p.code, p.max_uses, p.schedule, p.venue_ids,
   p.exclusive, p.sort_order, p.bundle, p.bundle_price_pence, p.tiers,
-  p.show_in_box, p.box_bg, p.box_text, p.box_image_url, p.created_at, p.updated_at`
+  p.show_in_box, p.box_bg, p.box_text, p.box_image_url, p.channels, p.created_at, p.updated_at`
 
 /**
  * Every promotion of the tenant, with uses and total discount so far.
@@ -42,13 +42,15 @@ export async function listPromotions(tx, tenantId) {
 
 /**
  * The promotions that can apply at a venue now or later: switched on, for
- * this venue, not ended (date range) and not used up. `today` is the
- * venue-local date.
+ * this venue and channel ('online' ordering or the 'pos' till, migration
+ * 156), not ended (date range) and not used up. `today` is the venue-local
+ * date.
  */
-export async function venuePromotions(tx, venue, today) {
+export async function venuePromotions(tx, venue, today, channel = 'online') {
   const venueId = venue.id
   const rows = await listPromotions(tx, venue.tenant_id)
   return rows.filter(p => p.is_active
+    && (p.channels || ['online']).includes(channel)
     && (!p.venue_ids?.length || p.venue_ids.includes(venueId))
     && !(p.schedule?.until && p.schedule.until < today)
     && !(p.max_uses && p.uses >= p.max_uses))

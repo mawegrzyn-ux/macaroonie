@@ -38,6 +38,7 @@ import { RichTextEditor } from '@/components/RichTextEditor'
 import { Card, Field, Input, TextArea, Btn, formatPrice, PriceInput } from '@/components/menus/shared'
 import { levelOf, LEVEL_LABELS } from '@shared/menuTags.js'
 import { LevelChip } from '@/components/menus/AllergenMatrix'
+import { SectionTillFields, ItemTillFields, useTillCourses, comboPayload } from '@/components/menus/TillFields'
 
 const SEEDS = [
   { slug: 'onethai-dinner', label: 'One Thai Dinner sample' },
@@ -336,6 +337,8 @@ function MenuEditor({ id, onBack }) {
           vat_rate_takeaway: s.vat_rate_takeaway ?? null,
           vat_rate_eat_in: s.vat_rate_eat_in ?? null,
           visibility: s.visibility || 'show',
+          pos_course_id: s.pos_course_id || null,
+          pos_colour: s.pos_colour || null,
           sort_order: si,
           items: (s.items || []).map((it, ii) => ({
             id: it.id,
@@ -352,6 +355,11 @@ function MenuEditor({ id, onBack }) {
             vat_rate_takeaway: it.vat_rate_takeaway ?? null,
             vat_rate_eat_in: it.vat_rate_eat_in ?? null,
             min_order_qty: it.min_order_qty > 1 ? it.min_order_qty : null,
+            kind: it.kind === 'combo' ? 'combo' : 'dish',
+            kitchen_name: it.kitchen_name || null,
+            pos_course_id: it.pos_course_id || null,
+            pos_colour: it.pos_colour || null,
+            combo: comboPayload(it),
             // One-off ad-hoc variants are retired — every variant must
             // come from a predefined group (attached below). Price can
             // still be overridden per item via variant_groups.overrides.
@@ -375,6 +383,8 @@ function MenuEditor({ id, onBack }) {
       qc.invalidateQueries({ queryKey: ['allergen-matrix', id] })
     },
   })
+
+  const tillCourses = useTillCourses()
 
   if (isLoading || !draft) {
     return (
@@ -505,6 +515,7 @@ function MenuEditor({ id, onBack }) {
         {selectedSection && (
           <SectionDrawer key={selectedSection.id}
             section={selectedSection}
+            courses={tillCourses}
             onChange={(patch) => patchSection(selectedSectionIndex, patch)}
             onRemove={() => { removeSectionAt(selectedSectionIndex); setSelectedSectionId(null) }}
             onClose={() => setSelectedSectionId(null)} />
@@ -516,6 +527,8 @@ function MenuEditor({ id, onBack }) {
             section={draft.sections[selectedItem.si]}
             dietaryTags={draft.dietary_tags || []}
             variantGroups={variantGroups}
+            sections={draft.sections || []}
+            courses={tillCourses}
             onChange={(patch) => patchItem(selectedItem.si, selectedItem.ii, patch)}
             onRemove={() => { removeItemAt(selectedItem.si, selectedItem.ii); setSelectedItemId(null) }}
             onClose={() => setSelectedItemId(null)} />
@@ -931,7 +944,7 @@ const SECTION_VISIBILITY = [
   { key: 'hidden',         label: 'Hide everywhere',   hint: 'Not printed, not on the website, not orderable. It stays here so you can show it again.' },
 ]
 
-function SectionDrawer({ section, onChange, onRemove, onClose }) {
+function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const count = (section.items || []).length
   return (
@@ -1033,6 +1046,8 @@ function SectionDrawer({ section, onChange, onRemove, onClose }) {
             Online orders, Setup. UK: hot takeaway food is 20%, most cold takeaway food is 0%.
           </p>
         </div>
+
+        <SectionTillFields section={section} courses={courses} onChange={onChange} />
       </div>
     </aside>
   )
@@ -1071,6 +1086,9 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, o
       )}
       {item.min_order_qty > 1 && (
         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-800 shrink-0" title="Minimum order quantity (online ordering)">Min {item.min_order_qty}</span>
+      )}
+      {item.kind === 'combo' && (
+        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-800 shrink-0" title="Meal deal on the till">Meal deal</span>
       )}
       {(item.dietary || []).length > 0 && (
         <span className="text-[10px] text-muted-foreground shrink-0">{item.dietary.length} tag{item.dietary.length === 1 ? '' : 's'}</span>
@@ -1248,7 +1266,7 @@ function AllergenPicker({ tags, item, onSet }) {
 
 // ── Item drawer — full dish editor, opened from a row in the middle list ──
 
-function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
+function ItemDrawer({ item, section, sections = [], courses, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
   const vatHint = (key) => section?.[key] != null
     ? `Blank = section (${Number(section[key])}%)` : 'Blank = venue default'
   const toggleDietary = (code) => {
@@ -1389,6 +1407,8 @@ function ItemDrawer({ item, section, dietaryTags, variantGroups = [], onChange, 
         </div>
 
         <AllergenPicker tags={allergenTags} item={item} onSet={setAllergen} />
+
+        <ItemTillFields item={item} section={section} sections={sections} courses={courses} onChange={onChange} />
 
         {/* Attached variant groups — the only source of variants. Every
             option is predefined in the group (managed on Menus > Variant

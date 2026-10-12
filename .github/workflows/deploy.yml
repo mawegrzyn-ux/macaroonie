@@ -57,6 +57,12 @@ jobs:
             cd $APP/admin && npm install --silent && npm run build
             chmod -R 755 $APP/admin/dist
 
+            echo "── till app (pos.): install + build ─────"
+            # Served by the API on pos.<domain> (routes/posSite.js), through
+            # the existing *.<domain> nginx block: no nginx change needed.
+            cd $APP/pos && npm install --silent && npm run build
+            chmod -R 755 $APP/pos/dist
+
             echo "── restart api ──────────────────────────"
             pm2 restart macaroonie-api && pm2 save
 

@@ -5,6 +5,20 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-11 — Till (POS): table service, counter, offline]
+
+- **The till** runs in Chrome or Edge on an Android or Windows tablet or PC at the till address (`pos.` + your domain), installable as an app. Staff sign in with their own PIN. It keeps taking orders and payments without the internet and catches up when the connection is back.
+- **Table service**: floor plan with live table colours, tabs, covers, seats, courses with **hold and fire**, dish choices (No / Light / Extra / On the side, and follow-on questions such as Steak then Cooking), meal deals, notes and allergies, **Send** to the kitchen, change or delete before sending, **void** with a reason after.
+- **On a check**: discounts and comps (with a manager's PIN when the role's limit is passed), service charge by revenue centre and covers, offers from Promotions, split or move items to another check, merge checks, move table, change server, item not on the menu, print bill, no sale.
+- **Paying**: cash with change, card (on your own card machine for now), voucher and others, tips, as many payments as needed; receipt or not. **Closed** checks: reprint, refund, reopen.
+- **Counter mode**: numbered orders, paid first, sent to the kitchen when closed.
+- **End of day**: X report, **Close the day (Z)** with the cash count; the Z figures can fill the day in Cash Recon automatically.
+- **Admin**: **Till setup** (tills and pairing codes, revenue centres, printers and what prints where, staff PINs, till roles, courses, receipts and payments, Cash Recon map), **Floor plan** designer, **Till reports** (days, checks with their full history, refused offline changes, print queue). Menus gain a Till box per section and dish (course, colour, kitchen name, meal deals); Variant groups gain the till options; Promotions can apply online, on the till, or both.
+- **Not yet**: the venue hub (kitchen printers and keeping tills in sync on the venue network), card machine links, kitchen screens. Until then bills and receipts print from the till's own print dialog and kitchen tickets wait in the print queue.
+- Migration **156**.
+
+---
+
 ## [2026-10-11 — Rota: take someone off a week]
 
 - **Rota**: each name has a button (person with a minus) that takes that person off the week you are looking at, after you confirm. Their row goes, any shifts or time off they had that week are cleared, and they are listed under the grid in **Off this week's rota**, where **Put back** brings them back. Saved with **Save rota** like the rest of the grid; **Discard changes** undoes it.

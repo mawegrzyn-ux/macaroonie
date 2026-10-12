@@ -11,6 +11,7 @@
 import { WebSocketServer } from 'ws'
 import { sql } from './db.js'
 import { isMember } from '../services/membershipSvc.js'
+import { verifyDevice } from '../routes/posApi.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
 
@@ -28,6 +29,19 @@ export function attachWss(httpServer, jwtVerify) {
 
   wss.on('connection', async (ws, req) => {
     const url    = new URL(req.url, `http://localhost`)
+
+    // A paired till (docs/POS.md): /ws?pos_device=<id>&secret=<secret>.
+    // Joins its venue's till room ('pos:<venueId>'), where the till API
+    // announces new events ('pos.seq'), config changes and presence.
+    const posDevice = url.searchParams.get('pos_device')
+    if (posDevice) {
+      const device = await verifyDevice(posDevice, url.searchParams.get('secret')).catch(() => null)
+      if (!device) { ws.close(4003, 'Forbidden'); return }
+      joinRoom(ws, 'pos:' + device.venue_id)
+      ws.send(JSON.stringify({ type: 'connected', venueId: device.venue_id }))
+      return
+    }
+
     const token  = url.searchParams.get('token')
     const venueId = url.searchParams.get('venue')
 
@@ -62,25 +76,27 @@ export function attachWss(httpServer, jwtVerify) {
       return
     }
 
-    // Join room
-    if (!rooms.has(venueId)) rooms.set(venueId, new Set())
-    rooms.get(venueId).add(ws)
-
-    ws.on('close', () => {
-      rooms.get(venueId)?.delete(ws)
-      if (rooms.get(venueId)?.size === 0) rooms.delete(venueId)
-    })
-
-    // Keepalive ping every 30s
-    const ping = setInterval(() => {
-      if (ws.readyState === ws.OPEN) ws.ping()
-    }, 30_000)
-
-    ws.on('close', () => clearInterval(ping))
+    joinRoom(ws, venueId)
     ws.send(JSON.stringify({ type: 'connected', venueId }))
   })
 
   return wss
+}
+
+function joinRoom(ws, room) {
+  if (!rooms.has(room)) rooms.set(room, new Set())
+  rooms.get(room).add(ws)
+
+  ws.on('close', () => {
+    rooms.get(room)?.delete(ws)
+    if (rooms.get(room)?.size === 0) rooms.delete(room)
+  })
+
+  // Keepalive ping every 30s
+  const ping = setInterval(() => {
+    if (ws.readyState === ws.OPEN) ws.ping()
+  }, 30_000)
+  ws.on('close', () => clearInterval(ping))
 }
 
 /**

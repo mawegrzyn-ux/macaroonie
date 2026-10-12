@@ -262,6 +262,20 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
   },
   {
+    key:    'pos_setup',
+    label:  'Till setup',
+    group:  'pos',
+    description: 'The till (POS): tills and pairing, revenue centres, printers and routing, floor plan, courses, till roles and staff PINs, receipts.',
+    default: { owner: 'manage', admin: 'manage', operator: 'none', viewer: 'none' },
+  },
+  {
+    key:    'pos_reports',
+    label:  'Till reports',
+    group:  'pos',
+    description: 'Till sales: X and Z reports, checks with their history, voids, discounts, refunds, offline conflicts, the print queue, filling Cash Recon.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
     key:    'food_safety',
     label:  'Food safety logs',
     group:  'food_safety',
@@ -358,6 +372,12 @@ export const MODULE_GROUPS = [
     label:  'Purchasing',
     description: 'Inventory, suppliers, order lists and purchase orders.',
     moduleKeys: ['purchasing', 'purchasing_setup'],
+  },
+  {
+    key:    'pos',
+    label:  'Till (POS)',
+    description: 'Table and counter service on tablets, working offline: orders to the kitchen, bills, payments, X / Z reports into Cash Recon.',
+    moduleKeys: ['pos_setup', 'pos_reports'],
   },
   {
     key:    'food_safety',

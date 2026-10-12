@@ -61,6 +61,9 @@ import navRoutes             from './routes/nav.js'
 import mcpRoutes             from './routes/mcp.js'
 import aiRoutes              from './routes/ai.js'
 import aiApiRoutes           from './routes/aiApi.js'
+import posSite               from './routes/posSite.js'
+import posSetupRoutes        from './routes/posSetup.js'
+import posApiRoutes          from './routes/posApi.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -173,6 +176,8 @@ export async function buildApp() {
   // redirect of old admin paths there to office.{root}. Its hook is global,
   // so it is registered before every route plugin.
   await app.register(platformSite)
+  // The till app on pos.{root} (routes/posSite.js); global hook like platformSite.
+  await app.register(posSite)
 
   // Stripe webhook first — must bypass JSON body parser
   await app.register(webhookRoutes)
@@ -237,6 +242,9 @@ export async function buildApp() {
   await app.register(mcpRoutes)
   await app.register(aiRoutes,    { prefix: '/api/ai' })
   await app.register(aiApiRoutes, { prefix: '/ai-api' })
+  // Till (POS): admin setup + reports, and the tills' own API (device auth).
+  await app.register(posSetupRoutes, { prefix: '/api/pos' })
+  await app.register(posApiRoutes,   { prefix: '/pos-api' })
 
   // ── Health check ─────────────────────────────────────────
   app.get('/api/health', async () => ({ ok: true, env: env.NODE_ENV }))

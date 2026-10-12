@@ -5,6 +5,7 @@
 #   ./deploy.sh            — deploy both API and admin
 #   ./deploy.sh api        — deploy API only
 #   ./deploy.sh admin      — deploy admin only
+#   ./deploy.sh pos        — build the till app only (served by the API on pos.)
 # =============================================================
 
 set -euo pipefail
@@ -60,11 +61,23 @@ deploy_admin() {
   # Nginx serves directly from dist/ — no reload needed
 }
 
+deploy_pos() {
+  info "Building the till app…"
+  # No .env: tills authenticate as paired devices, not through Auth0.
+  sudo -u "${APP_USER}" bash -c "
+    cd '${APP_DIR}/pos'
+    npm install --silent
+    npm run build
+  "
+  log "Till app built → ${APP_DIR}/pos/dist/ (served by the API on pos.)"
+}
+
 case "$TARGET" in
   api)   deploy_api   ;;
   admin) deploy_admin ;;
-  all)   deploy_api; deploy_admin ;;
-  *)     die "Unknown target '$TARGET'. Use: api | admin | all" ;;
+  pos)   deploy_pos   ;;
+  all)   deploy_api; deploy_admin; deploy_pos ;;
+  *)     die "Unknown target '$TARGET'. Use: api | admin | pos | all" ;;
 esac
 
 echo ""

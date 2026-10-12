@@ -28,6 +28,7 @@ const SECTIONS = [
   { id: 'navigation',   label: 'Navigation & Launcher' },
   { id: 'overview-tiles', label: 'Overview Tiles' },
   { id: 'purchasing', label: 'Purchasing' },
+  { id: 'pos', label: 'Till (POS)' },
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'AI Assistant & MCP' },
   { id: 'menus',        label: 'Menus' },
@@ -2657,6 +2658,135 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           </section>
 
           {/* ── MENUS ─────────────────────────────────────── */}
+          <section id="pos" data-doc="">
+            <H2>Till (POS)</H2>
+            <P>
+              Migration 156. Design and decisions in <Mono>docs/POS.md</Mono>. Four parts:{' '}
+              <Mono>shared/pos/</Mono> (the rules, pricing, printing and report maths, plain ESM used by the
+              till, the API and the admin), <Mono>pos/</Mono> (the till app, a React PWA served on{' '}
+              <Mono>pos.&lt;domain&gt;</Mono>), <Mono>routes/posApi.js</Mono> (<Mono>/pos-api</Mono>, the till's
+              API, device auth) and <Mono>routes/posSetup.js</Mono> (<Mono>/api/pos</Mono>, the admin pages,
+              modules <Mono>pos_setup</Mono> and <Mono>pos_reports</Mono>, group <Mono>pos</Mono>). Shared
+              server code: <Mono>services/posSvc.js</Mono>. Every query filters <Mono>tenant_id</Mono> itself.
+            </P>
+            <H3>Checks are events</H3>
+            <P>
+              A check is never edited in place. The till records events (<Mono>{'{ id: ULID, venue_id, device_id, staff_id, approved_by, check_id, type, payload, client_at }'}</Mono>,
+              26 check types in <Mono>CHECK_EVENTS</Mono> plus venue events <Mono>drawer.opened</Mono> and{' '}
+              <Mono>day.closed</Mono>) and <Mono>applyEvent(checks, event, {'{ staffById }'})</Mono> in{' '}
+              <Mono>shared/pos/checks.js</Mono> turns them into check state, refusing what the rules don't allow
+              (closed check, overpayment, missing permission, line already sent, ...). The till applies its own
+              events at once (optimistic) from an IndexedDB outbox; the server's sequencer
+              (<Mono>shared/pos/sequencer.js</Mono>, <Mono>createSequencer(store)</Mono>) applies them again in
+              arrival order under <Mono>pg_advisory_xact_lock(hashtext('pos:' || venue_id))</Mono>, gives each a
+              venue sequence number, the check number / counter order number and the trading day
+              (<Mono>assigned</Mono>), and stores refusals in <Mono>pos_event_rejections</Mono> (Till reports,
+              Refused changes). The same sequencer will run on the venue hub with a SQLite store: only the
+              store object differs.
+            </P>
+            <DataTable
+              head={['Table', 'What it holds']}
+              rows={[
+                ['pos_events', 'Every accepted event (id ULID text, seq per venue, assigned jsonb). The source of truth.'],
+                ['pos_event_rejections', 'Refused events with error + code; resolved_at / by / resolution from Till reports.'],
+                ['pos_checks', 'Projection: state jsonb (the whole check) plus number, order_no, status, table, server, totals, day_id for queries.'],
+                ['pos_check_lines / pos_payments', 'Projections for reporting (payments kind payment | refund).'],
+                ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
+                ['pos_venue_state', 'last_seq, next_check_no, next_order_no, next_z_number.'],
+                ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
+                ['pos_devices', 'Tills and (later) hubs: kind terminal | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at, settings jsonb (mode, revenue_centre_id, receipt_printer_id, floor_area_id), revoked_at.'],
+                ['pos_settings', 'Per venue: pin_salt, day_starts_at, VAT defaults, receipt texts, tenders jsonb, tips, require_covers, order_no_start, auto_logout_secs, counter_revenue_centre_id, recon_map, recon_auto_fill.'],
+                ['pos_revenue_centres', 'name, vat_mode (eat_in | takeaway), menu_ids, service_charge_percent + min covers, colour, sort_order.'],
+                ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
+                ['pos_printers / pos_print_routes', 'Printers (host, port, columns, backup); routes target_kind item | section | revenue_centre | default.'],
+                ['floor_areas', 'name, width x height in units, revenue_centre_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
+                ['cash_staff', 'pos_pin_hash (unique per venue), pos_role_id.'],
+                ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb { slots: [{ id, name, min, max, item_ids, section_ids, upcharges }] }; menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
+              ]}
+            />
+            <H3>Sync</H3>
+            <P>
+              <Mono>POST /pos-api/events</Mono> takes up to 200 events and answers per event (accepted with
+              seq + assigned, duplicate, or refused); the server forces <Mono>venue_id</Mono> and{' '}
+              <Mono>device_id</Mono> from the device. <Mono>GET /pos-api/sync?since=seq</Mono> returns newer events
+              and the checks they touched (<Mono>reset: true</Mono> with every open check when the till is too far
+              behind). Tills join the WebSocket room <Mono>pos:&lt;venueId&gt;</Mono>
+              (<Mono>/ws?pos_device=&amp;secret=</Mono>) for <Mono>pos.seq</Mono>, <Mono>pos.config</Mono>{' '}
+              (download config again), <Mono>pos.presence</Mono> and <Mono>pos.revoked</Mono>, and poll every
+              4 s without the socket (30 s with it). Derived state on the till = confirmed state from the server
+              + the outbox replayed on top; a refused outbox event is dropped with a toast.
+            </P>
+            <H3>Devices, PINs and permissions</H3>
+            <P>
+              A till is a paired device, not an Auth0 user: <Mono>POST /api/pos/venues/:id/devices</Mono> returns a
+              one-time code (sha256 stored, 30 minutes), <Mono>POST /pos-api/pair</Mono> swaps it for a device
+              secret, and every call sends <Mono>Authorization: Device &lt;id&gt;.&lt;secret&gt;</Mono> (device rows
+              cached 30 s; revoking or switching the module off stops it). People sign in on the till with a PIN:
+              <Mono> hashPin()</Mono> (<Mono>shared/pos/pin.js</Mono>, PBKDF2-SHA256, 60000 rounds, the venue's
+              salt, so the PIN alone finds the person) is checked on the till, offline. Events carry the person's
+              staff id; anything their role lacks needs <Mono>approved_by</Mono> (someone with{' '}
+              <Mono>manager</Mono> typed their PIN), checked by <Mono>permissionProblem()</Mono> on both sides.
+            </P>
+            <H3>Prices, VAT and offers</H3>
+            <P>
+              <Mono>shared/pos/pricing.js</Mono>: <Mono>priceItem()</Mono> (unit price + modifiers: prefixes No /
+              Light free, Extra / On the side priced, nested groups always extra; meal deal slot upcharges),{' '}
+              <Mono>posVatRate()</Mono> (dish, then section, then the venue default for the revenue centre's
+              vat_mode) and <Mono>checkTotals()</Mono> (line discounts and comps, then promotions, then check
+              discounts, then service charge; VAT inclusive per line rate). Promotions with channel{' '}
+              <Mono>pos</Mono> are worked out by the till with <Mono>applyPromotions()</Mono> from{' '}
+              <Mono>shared/promotions.js</Mono> and stored as a <Mono>promotions.set</Mono> event, so the server
+              and reports never recompute them.
+            </P>
+            <H3>Printing</H3>
+            <P>
+              <Mono>jobsForEvent()</Mono> in <Mono>shared/pos/printing.js</Mono> turns an event into print jobs
+              (kitchen tickets per printer and course on send, fire tickets, void tickets, bills, receipts,
+              drawer kicks), routed by <Mono>routeFor()</Mono>: item, then section, then revenue centre, then
+              default. The sequencer stores them in <Mono>pos_print_jobs</Mono> for the hub
+              (<Mono>POST /pos-api/print-jobs/claim</Mono> and <Mono>/:id/status</Mono>, hub devices only).
+              Until a hub exists, the till prints bills and receipts (and optionally kitchen tickets) through a
+              hidden iframe and the browser's print dialog (<Mono>pos/src/lib/print.js</Mono>). Ticket layout:
+              <Mono> shared/pos/tickets.js</Mono> (also used by <Mono>hub/</Mono>'s ESC/POS encoder).
+            </P>
+            <H3>Trading days, Z and Cash Recon</H3>
+            <P>
+              The first event after a Z opens a day (<Mono>business_date</Mono> by <Mono>day_starts_at</Mono> in
+              the venue time zone) and resets order numbers. <Mono>day.closed</Mono> needs no open checks; the
+              server stores <Mono>dayFigures()</Mono> (<Mono>shared/pos/reports.js</Mono>, also the till's X / Z)
+              and, with <Mono>recon_auto_fill</Mono>, calls <Mono>fillReconFromDay()</Mono>:{' '}
+              <Mono>reconValues()</Mono> maps figures through <Mono>recon_map</Mono> (income: revenue centre ids
+              / all / -refunds; takings: tender keys, amount + tips − refunds; SC: service_charge / tips) and{' '}
+              <Mono>fillReconDay()</Mono> (<Mono>services/reconFill.js</Mono>, shared with Loyverse) writes only
+              mapped fields and skips a submitted Cash Recon day.
+            </P>
+            <H3>Admin pages</H3>
+            <DataTable
+              head={['Page', 'Files']}
+              rows={[
+                ['Till setup /pos', 'pages/PosSetup.jsx (?tab=) + components/pos/*Section.jsx; GET /api/pos/venues/:id/setup is the one read (includes till_url = posOrigin(), sections and items for routing, recon_fields).'],
+                ['Floor plan /pos/floor', 'pages/PosFloor.jsx: snap 0.5 unit, pointer drag / resize, explicit Save per area (PUT /api/pos/floor-areas/:id/layout replaces tables on the area + decor).'],
+                ['Till reports /pos/reports', 'pages/PosReports.jsx: days (+ fill-recon, needs cash_recon manage too), checks with events, conflicts, print queue.'],
+                ['Menus, Variant groups, Promotions', 'components/menus/TillFields.jsx (section / dish Till box, comboPayload()); VariantGroupsManager pos_prefixes + child_group_id; Promotions Where (channels).'],
+              ]}
+            />
+            <H3>Hosting</H3>
+            <P>
+              <Mono>routes/posSite.js</Mono> (fastify-plugin, registered after the apex hook) serves{' '}
+              <Mono>pos/dist</Mono> for host kind <Mono>pos</Mono> (<Mono>platformHostKind()</Mono>) and lets{' '}
+              <Mono>/pos-api</Mono>, <Mono>/ws</Mono>, <Mono>/uploads/</Mono> and <Mono>/api/</Mono> through, so
+              the existing <Mono>*.&lt;domain&gt;</Mono> nginx block covers it. The deploy builds{' '}
+              <Mono>pos/</Mono> after the admin. <Mono>pos</Mono> is in <Mono>RESERVED_SUBDOMAINS</Mono>.
+            </P>
+            <InfoBox type="info">
+              Provisioned for later, not built: the venue hub (a <Mono>hub</Mono> device kind, the print-job claim
+              routes, <Mono>device.hub_url</Mono> in <Mono>pos/src/lib/transport.js</Mono>, which tries the hub
+              before the cloud), card payment adapters (tenders are external for now), and KDS. Tests:{' '}
+              <Mono>node --test shared/pos/test/*.test.mjs</Mono> (rules, pricing, printing, reports, the sequencer
+              against an in-memory store).
+            </InfoBox>
+          </section>
+
           <section id="web-ordering" data-doc="">
             <H2>Web Ordering</H2>
             <P>

@@ -1,0 +1,86 @@
+// shared/pos/permissions.js
+//
+// What a POS role lets a person do on the till. ONE list, used by the
+// check rules (shared/pos/checks.js, so the till and the sequencer refuse
+// the same things), the till's buttons and the admin role editor.
+//
+// A role (pos_roles.permissions):
+//   { void: bool, refund: bool, discount_max_pct: 0-100, comp: bool,
+//     open_drawer: bool, reopen: bool, take_over: bool, price_override: bool,
+//     transfer: bool, reports: bool, close_day: bool, manager: bool }
+//
+// Something a person's role doesn't allow can still be done with a manager's
+// approval: a person whose role allows it types their PIN, and the event
+// carries `approved_by` (their staff id). `manager` means "may approve".
+
+export const POS_PERMISSIONS = [
+  { key: 'void',           label: 'Void sent items',         hint: 'Take back an item the kitchen already has.' },
+  { key: 'refund',         label: 'Refund',                  hint: 'Give money back on a closed check.' },
+  { key: 'comp',           label: 'Comp items',              hint: 'Give an item free (100% off), with a reason.' },
+  { key: 'open_drawer',    label: 'Open the drawer',         hint: 'No sale: open the cash drawer without a payment.' },
+  { key: 'reopen',         label: 'Reopen checks',           hint: 'Open a closed check again.' },
+  { key: 'take_over',      label: 'Take over checks',        hint: 'Work on and transfer other people\'s checks.' },
+  { key: 'price_override', label: 'Change prices',           hint: 'Type a different price for an item.' },
+  { key: 'transfer',       label: 'Move items between checks', hint: 'Split checks, merge checks and move items.' },
+  { key: 'reports',        label: 'See reports',             hint: 'X report and today\'s figures on the till.' },
+  { key: 'close_day',      label: 'Close the day',           hint: 'Run the Z report and end the trading day.' },
+  { key: 'manager',        label: 'Approve for others',      hint: 'Type their PIN to allow what someone else\'s role doesn\'t.' },
+]
+
+export const PERMISSION_KEYS = POS_PERMISSIONS.map(p => p.key)
+
+/** Default roles for a new tenant (migration 156 and POST /api/pos/roles/defaults). */
+export const DEFAULT_POS_ROLES = [
+  { name: 'Server', permissions: { discount_max_pct: 0, transfer: true } },
+  {
+    name: 'Supervisor',
+    permissions: {
+      void: true, comp: true, discount_max_pct: 25, open_drawer: true, reopen: true,
+      take_over: true, transfer: true, reports: true, manager: true,
+    },
+  },
+  {
+    name: 'Manager',
+    permissions: {
+      void: true, refund: true, comp: true, discount_max_pct: 100, open_drawer: true, reopen: true,
+      take_over: true, price_override: true, transfer: true, reports: true, close_day: true, manager: true,
+    },
+  },
+]
+
+/** A role's permissions with every key present. */
+export function normalisePermissions(p = {}) {
+  const out = {}
+  for (const key of PERMISSION_KEYS) out[key] = !!p[key]
+  const pct = Number(p.discount_max_pct)
+  out.discount_max_pct = Number.isFinite(pct) ? Math.max(0, Math.min(100, Math.round(pct))) : 0
+  return out
+}
+
+/**
+ * Does `staff` (a { id, permissions } from the config) have `key`?
+ * For 'discount' pass the percent as `amount`.
+ */
+export function has(staff, key, amount = null) {
+  if (!staff || staff.is_active === false) return false
+  const p = staff.permissions || {}
+  if (key === 'discount') return (Number(p.discount_max_pct) || 0) >= (Number(amount) || 0)
+  return !!p[key]
+}
+
+/**
+ * May the event's person do `key`, themselves or with the approver's PIN?
+ * staffById: { [id]: { id, name, permissions, is_active } }.
+ * Returns null when allowed, else a reason.
+ */
+export function permissionProblem(staffById, event, key, amount = null) {
+  const who = staffById[event.staff_id]
+  if (!who) return 'Unknown staff member'
+  if (has(who, key, amount)) return null
+  if (event.approved_by) {
+    const approver = staffById[event.approved_by]
+    if (approver && has(approver, 'manager') && has(approver, key, amount)) return null
+    return 'The approver isn\'t allowed to do this'
+  }
+  return 'Needs a manager'
+}

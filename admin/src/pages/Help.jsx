@@ -33,6 +33,7 @@ const SECTIONS = [
   { id: 'online-orders',       label: 'Online Orders' },
   { id: 'ai-assistant',        label: 'AI Assistant' },
   { id: 'purchasing',          label: 'Purchasing' },
+  { id: 'till',                label: 'Till (POS)' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -3477,6 +3478,105 @@ export default function Help() {
               in, changing prices and importing a supplier's price list from a PDF or photo. See AI Assistant →
               Purchasing by chat.
             </InfoBox>
+          </section>
+
+          {/* ── TILL (POS) ─────────────────────────────────── */}
+          <section id="till" data-help="">
+            <H2>Till (POS)</H2>
+            <P>
+              The till takes orders and payments at the venue: table service (tables, tabs, courses) and
+              counter service (order numbers, pay first). It runs in Chrome or Edge on an Android or Windows
+              tablet or PC, at the till address shown in <strong>Till setup → Tills</strong>. Each till keeps
+              working without the internet: orders, payments and sign-ins carry on, and it catches up with
+              the other tills when the connection is back.
+            </P>
+            <InfoBox type="info">
+              Card payments are taken on your own card machine for now: the till records them as Card. Links
+              to card machines (Dojo, SumUp, Zettle, Stripe, Adyen) and the venue hub that prints to the kitchen
+              printers come later. Until the hub is set up, tills print bills and receipts through their own
+              browser, and kitchen tickets wait in the print queue (Till reports → Print queue).
+            </InfoBox>
+
+            <H3>Setting up (Till setup)</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Revenue centres</strong>: where sales are reported, e.g. Restaurant, Bar, Takeaway. Each picks its menus, eat-in or takeaway VAT, and an optional service charge (from a number of covers). Drag them into order.</li>
+              <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
+              <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
+              <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
+              <li><strong>Printers</strong>: the venue's Epson network printers (IP address, port 9100) and <strong>What prints where</strong>: a dish prints on the printers set for it, else for its section, else for its revenue centre, else Everything. Then Save printing.</li>
+              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, bill and receipt footers, the ways to pay, tips, asking for covers, where counter orders go, and when staff are signed out.</li>
+              <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
+              <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
+              <li><strong>Tills</strong>: tap <strong>Add a till</strong>, give it a name, table service or counter, then open the till address on the tablet and type the pairing code shown. The code works once, for 30 minutes. <strong>Pair again</strong> gives a new code (the old pairing stops); removing a till signs it out for good.</li>
+            </ol>
+
+            <H3>The menu on the till</H3>
+            <P>
+              The till uses your menus from the Menus page. In a section's panel, <strong>Till</strong> sets its
+              course and button colour. In a dish's panel, <strong>Till</strong> sets a shorter kitchen name, its
+              own course or colour, and whether it's a <strong>Meal deal</strong>: a set price (the dish's price)
+              with slots such as Main, Side and Drink, each a choice of whole sections or single dishes, with
+              optional extra charges (e.g. large drink +£1). Save the menu as usual.
+            </P>
+            <P>
+              On <strong>Menus → Variant groups</strong>, tick <strong>Offer No, Light, Extra and On the side</strong>{' '}
+              for toppings and sauces (No and Light are free; Extra and On the side charge the option's price),
+              and use <strong>Then ask</strong> next to an option to ask another group when it's picked (e.g.
+              Steak, then Cooking). Promotions can apply online, on the till, or both (<strong>Where</strong> in
+              the promotion).
+            </P>
+
+            <H3>Taking an order</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Sign in with your PIN. The till signs you out after the time set in Receipts and payments.</li>
+              <li><strong>Floor</strong>: tap a table (it asks for covers if set to), or <strong>New tab</strong> for a named tab. Colours show which tables are free, open, waiting for a held course, or billed.</li>
+              <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> at the bottom of the menu first if you want them. Dishes with choices or meal deals open a window to pick them, add a note or allergies.</li>
+              <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>
+              <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
+              <li><strong>More</strong>: guests, move table, name, server, revenue centre, discount, service charge, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check.</li>
+              <li><strong>Pay</strong>: cash (with change), card, voucher and so on, a tip if switched on, and as many payments as needed to split the bill. Then close with or without a receipt.</li>
+            </ol>
+            <P>
+              <strong>Counter</strong> takes an order with a number (from the number set in Receipts and
+              payments, each day), pays it, and sends it to the kitchen when it's closed.{' '}
+              <strong>Closed</strong> lists today's closed checks: print the receipt again, <strong>Refund</strong>{' '}
+              or <strong>Reopen</strong>.
+            </P>
+            <InfoBox type="tip">
+              Something your role doesn't allow (a void, a big discount, a refund) asks for a manager: someone
+              whose role has <strong>Approve for others</strong> types their PIN on the same till, and the check
+              records who approved it.
+            </InfoBox>
+
+            <H3>Without the internet</H3>
+            <P>
+              A till that can't reach the internet keeps going, and shows it at the top. Two tills that can't
+              reach each other may change the same check: when they catch up, a change that no longer fits
+              (e.g. an item added to a check another till had already closed) isn't saved. The till that made
+              it says <strong>Not saved</strong>, and it's listed in <strong>Till reports → Refused changes</strong>{' '}
+              for a manager to sort out and mark dealt with.
+            </P>
+
+            <H3>End of day</H3>
+            <P>
+              <strong>Reports</strong> on the till shows today's figures so far (X report). <strong>Close the day (Z)</strong>{' '}
+              needs every check closed: count the cash in the drawer (without the float) and type it in, then
+              <strong>Print Z</strong> for the cash-up. The next sale starts a new trading day. If <strong>Fill Cash Recon when the
+              day is closed</strong> is on (Till setup → Cash Recon), the day's sales, takings by way of paying,
+              service charge and tips are written into that day of Cash Recon; otherwise use{' '}
+              <strong>Fill Cash Recon</strong> on the day in Till reports. A submitted Cash Recon day isn't changed.
+            </P>
+
+            <H3>Till reports</H3>
+            <DataTable
+              head={['Tab', 'What it shows']}
+              rows={[
+                ['Days', 'Each trading day: sales, payments, cash expected and counted, revenue centres, VAT, staff, discounts and comps, voids, refunds, best sellers, open checks. The open day is shown as it stands now.'],
+                ['Checks', 'Every check of a day with its items, totals and full history: who did what, when, and who approved it.'],
+                ['Refused changes', 'Changes a till made offline that couldn\'t be applied when it caught up. Note what was done and mark them dealt with.'],
+                ['Print queue', 'Kitchen tickets and other jobs waiting for the venue hub.'],
+              ]}
+            />
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

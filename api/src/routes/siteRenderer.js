@@ -39,6 +39,8 @@ export const RESERVED_SUBDOMAINS = new Set([
   'cdn', 'ws', 'stripe', 'webhook', 'webhooks',
   // The admin portal and the phone app (services/platformHost.js).
   'office', 'ops',
+  // Kept for the POS till app and venue hubs (docs/POS.md).
+  'pos', 'hub',
 ])
 
 // The staging environment for a tenant always lives at

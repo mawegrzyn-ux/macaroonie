@@ -17,6 +17,7 @@ import { requireAuth, requireRole, requirePermission } from '../middleware/auth.
 import { httpError } from '../middleware/error.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS, ensureStandardAllergens } from '../services/menuSeeds.js'
 import { randomUUID } from 'node:crypto'
+import { notifyTillsOnWrite } from '../services/posNotify.js'
 import {
   BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS,
   normalizeLayout, layoutGeometry, buildContext, renderPageHtml, layoutFontsUrl,
@@ -44,6 +45,19 @@ const ItemGroupAttach = z.object({
   })).default([]),
 })
 
+// Till meal deals (migration 156): each slot is a choice the guest makes
+// (Main, Side, Drink) from its dishes and its sections' dishes.
+const ComboSlot = z.object({
+  id:          z.string().uuid(),
+  name:        z.string().min(1).max(60),
+  min:         z.number().int().min(0).max(10).default(1),
+  max:         z.number().int().min(1).max(10).default(1),
+  item_ids:    z.array(z.string().uuid()).max(200).default([]),
+  section_ids: z.array(z.string().uuid()).max(50).default([]),
+  upcharges:   z.record(z.string().uuid(), z.number().int().min(0).max(100000)).default({}),
+})
+const ComboBody = z.object({ slots: z.array(ComboSlot).max(10).default([]) })
+
 const ItemBody = z.object({
   id:             z.string().uuid().optional(),
   name:           z.string().min(1).max(200),
@@ -60,6 +74,12 @@ const ItemBody = z.object({
   vat_rate_takeaway: z.number().min(0).max(100).nullable().optional(),
   vat_rate_eat_in:   z.number().min(0).max(100).nullable().optional(),
   min_order_qty:     z.number().int().min(1).max(99).nullable().optional(),   // migration 133
+  // Till (migration 156)
+  kind:              z.enum(['dish', 'combo']).default('dish'),
+  kitchen_name:      z.string().max(60).nullable().optional(),
+  pos_course_id:     z.string().uuid().nullable().optional(),
+  pos_colour:        z.string().max(20).nullable().optional(),
+  combo:             ComboBody.nullable().optional(),
   variants:       z.array(VariantBody).default([]),
   variant_groups: z.array(ItemGroupAttach).default([]),
   // M:N to dietary tags — array of dietary tag CODES (e.g. ['gf', 'spicy'])
@@ -86,6 +106,9 @@ const SectionBody = z.object({
   // Where the section shows (migration 136): everywhere, printed menus
   // only (website_hidden), or nowhere (hidden).
   visibility: z.enum(['show', 'website_hidden', 'hidden']).default('show'),
+  // Till (migration 156): the course its dishes go in, button colour.
+  pos_course_id: z.string().uuid().nullable().optional(),
+  pos_colour:    z.string().max(20).nullable().optional(),
   items:      z.array(ItemBody).default([]),
 })
 
@@ -223,6 +246,8 @@ const VariantOptionBody = z.object({
   label:       z.string().min(1).max(60),
   price_pence: z.number().int().min(0).default(0),
   sort_order:  z.number().int().default(0),
+  // Till (migration 156): choosing this option asks another group (Steak -> Cooking).
+  child_group_id: z.string().uuid().nullable().optional(),
 })
 
 const VariantGroupBody = z.object({
@@ -233,8 +258,17 @@ const VariantGroupBody = z.object({
   price_mode: z.enum(['base', 'extra']).default('base'),
   min_select: z.number().int().min(0).max(20).default(1),
   max_select: z.number().int().min(1).max(20).default(1),
+  // Till (migration 156): offer No / Light / Extra / On the side per option.
+  pos_prefixes: z.boolean().default(false),
   options:    z.array(VariantOptionBody).default([]),
 })
+
+// A nested group must be one of the tenant's and not the group itself.
+async function childGroup(tx, tenantId, id, selfId) {
+  if (!id || id === selfId) return null
+  const [g] = await tx`SELECT id FROM menu_variant_groups WHERE id = ${id} AND tenant_id = ${tenantId}`
+  return g ? g.id : null
+}
 
 // ── Loaders ──────────────────────────────────────────────────
 
@@ -287,7 +321,8 @@ async function loadVariantGroups(tx, tenantId) {
     SELECT g.*,
            COALESCE(json_agg(jsonb_build_object(
              'id', o.id, 'label', o.label,
-             'price_pence', o.price_pence, 'sort_order', o.sort_order
+             'price_pence', o.price_pence, 'sort_order', o.sort_order,
+             'child_group_id', o.child_group_id
            ) ORDER BY o.sort_order, o.label) FILTER (WHERE o.id IS NOT NULL), '[]'::json) AS options
       FROM menu_variant_groups g
       LEFT JOIN menu_variant_options o ON o.group_id = g.id
@@ -376,6 +411,8 @@ export async function loadMenuFull(tx, menuId, tenantId) {
                'sort_order', i.sort_order, 'is_orderable', i.is_orderable,
                'vat_rate_takeaway', i.vat_rate_takeaway, 'vat_rate_eat_in', i.vat_rate_eat_in,
                'min_order_qty', i.min_order_qty,
+               'kind', i.kind, 'kitchen_name', i.kitchen_name, 'pos_course_id', i.pos_course_id,
+               'pos_colour', i.pos_colour, 'combo', i.combo,
                'variants', COALESCE((
                  SELECT json_agg(jsonb_build_object('id', v.id, 'label', v.label, 'price_pence', v.price_pence, 'sort_order', v.sort_order) ORDER BY v.sort_order)
                    FROM menu_item_variants v WHERE v.item_id = i.id
@@ -525,26 +562,29 @@ async function upsertMenuTree(tx, tenantId, menuId, body) {
     const [s] = await tx`
       INSERT INTO menu_sections (id, menu_id, tenant_id, title, subtitle, highlight, image_url, sort_order,
                                  print_break_before, print_keep_together,
-                                 vat_rate_takeaway, vat_rate_eat_in, visibility)
+                                 vat_rate_takeaway, vat_rate_eat_in, visibility, pos_course_id, pos_colour)
       VALUES (${section.id ?? randomUUID()}, ${menuId}, ${tenantId}, ${section.title},
               ${section.subtitle ?? null}, ${section.highlight ?? false}, ${section.image_url ?? null},
               ${section.sort_order ?? si},
               ${section.print_break_before ?? 'none'}, ${section.print_keep_together ?? false},
               ${section.vat_rate_takeaway ?? null}, ${section.vat_rate_eat_in ?? null},
-              ${section.visibility ?? 'show'})
+              ${section.visibility ?? 'show'}, ${section.pos_course_id ?? null}, ${section.pos_colour ?? null})
       RETURNING id
     `
     for (const [ii, item] of (section.items || []).entries()) {
       const [it] = await tx`
         INSERT INTO menu_items (id, section_id, tenant_id, name, native_name, description, price_pence, calories, notes, is_featured, image_url, sort_order,
-                                is_orderable, vat_rate_takeaway, vat_rate_eat_in, min_order_qty)
+                                is_orderable, vat_rate_takeaway, vat_rate_eat_in, min_order_qty,
+                                kind, kitchen_name, pos_course_id, pos_colour, combo)
         VALUES (${item.id ?? randomUUID()}, ${s.id}, ${tenantId}, ${item.name},
                 ${item.native_name ?? null}, ${item.description ?? null},
                 ${item.price_pence ?? null}, ${item.calories ?? null}, ${item.notes ?? null},
                 ${item.is_featured ?? false}, ${item.image_url ?? null},
                 ${item.sort_order ?? ii},
                 ${item.is_orderable ?? true}, ${item.vat_rate_takeaway ?? null}, ${item.vat_rate_eat_in ?? null},
-                ${item.min_order_qty > 1 ? item.min_order_qty : null})
+                ${item.min_order_qty > 1 ? item.min_order_qty : null},
+                ${item.kind === 'combo' ? 'combo' : 'dish'}, ${item.kitchen_name || null}, ${item.pos_course_id ?? null},
+                ${item.pos_colour ?? null}, ${item.kind === 'combo' && item.combo ? tx.json(item.combo) : null})
         RETURNING id
       `
       // Variants (ad-hoc, per-item)
@@ -698,6 +738,8 @@ export default async function menusRoutes(app) {
   // registration order, so the public routes must live outside.
   await app.register(async function adminMenuRoutes(app) {
     app.addHook('preHandler', requireAuth)
+    // Open tills show these menus: tell them to reload (services/posNotify.js).
+    app.addHook('onResponse', notifyTillsOnWrite)
 
   // ════════════════════════════════════════════════════════════
   //   MENUS — list / get / create / patch / delete
@@ -886,8 +928,11 @@ export default async function menusRoutes(app) {
         vat_rate_takeaway: s.vat_rate_takeaway != null ? Number(s.vat_rate_takeaway) : null,
         vat_rate_eat_in: s.vat_rate_eat_in != null ? Number(s.vat_rate_eat_in) : null,
         visibility: s.visibility || 'show',
+        pos_course_id: s.pos_course_id ?? null, pos_colour: s.pos_colour ?? null,
         items: (s.items || []).map(it => ({
           id: (newId[it.id] = randomUUID()),
+          kind: it.kind || 'dish', kitchen_name: it.kitchen_name ?? null, pos_course_id: it.pos_course_id ?? null,
+          pos_colour: it.pos_colour ?? null, combo: it.combo ?? null,
           name: it.name, native_name: it.native_name ?? null, description: it.description ?? null,
           price_pence: it.price_pence ?? null, calories: it.calories ?? null, notes: it.notes ?? null, is_featured: !!it.is_featured,
           image_url: it.image_url ?? null, sort_order: it.sort_order,
@@ -914,6 +959,19 @@ export default async function menusRoutes(app) {
         const id = randomUUID(); newId[c.id] = id
         return { id, kind: c.kind, title: c.title, body: c.body ?? null, sort_order: c.sort_order }
       })
+
+      // Meal deals point at the copy's own dishes and sections.
+      for (const sec of sections) {
+        for (const it of sec.items) {
+          if (!it.combo?.slots) continue
+          it.combo = { slots: it.combo.slots.map(sl => ({
+            ...sl, id: randomUUID(),
+            item_ids: (sl.item_ids || []).map(x => newId[x] || x),
+            section_ids: (sl.section_ids || []).map(x => newId[x] || x),
+            upcharges: Object.fromEntries(Object.entries(sl.upcharges || {}).map(([k, v]) => [newId[k] || k, v])),
+          })) }
+        }
+      }
 
       await upsertMenuTree(tx, req.tenantId, row.id, { sections, callouts })
 
@@ -1176,16 +1234,17 @@ export default async function menusRoutes(app) {
     const body = VariantGroupBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
-        INSERT INTO menu_variant_groups (tenant_id, name, sort_order, price_mode, min_select, max_select)
+        INSERT INTO menu_variant_groups (tenant_id, name, sort_order, price_mode, min_select, max_select, pos_prefixes)
         VALUES (${req.tenantId}, ${body.name}, ${body.sort_order}, ${body.price_mode},
-                ${Math.min(body.min_select, body.max_select)}, ${body.max_select})
+                ${Math.min(body.min_select, body.max_select)}, ${body.max_select}, ${body.pos_prefixes})
         RETURNING *
       `
       const options = []
       for (const [i, o] of (body.options || []).entries()) {
         const [opt] = await tx`
-          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order)
-          VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${o.sort_order ?? i})
+          INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id)
+          VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${o.sort_order ?? i},
+                  ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)})
           RETURNING *
         `
         options.push(opt)
@@ -1203,6 +1262,7 @@ export default async function menusRoutes(app) {
            SET name = ${body.name}, sort_order = ${body.sort_order},
                price_mode = ${body.price_mode},
                min_select = ${Math.min(body.min_select, body.max_select)}, max_select = ${body.max_select},
+               pos_prefixes = ${body.pos_prefixes},
                updated_at = now()
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
          RETURNING *
@@ -1215,15 +1275,17 @@ export default async function menusRoutes(app) {
         if (o.id) {
           const [opt] = await tx`
             UPDATE menu_variant_options
-               SET label = ${o.label}, price_pence = ${o.price_pence}, sort_order = ${i}
+               SET label = ${o.label}, price_pence = ${o.price_pence}, sort_order = ${i},
+                   child_group_id = ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)}
              WHERE id = ${o.id} AND group_id = ${g.id} AND tenant_id = ${req.tenantId}
              RETURNING *
           `
           if (opt) { keepIds.push(opt.id); options.push(opt) }
         } else {
           const [opt] = await tx`
-            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order)
-            VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${i})
+            INSERT INTO menu_variant_options (group_id, tenant_id, label, price_pence, sort_order, child_group_id)
+            VALUES (${g.id}, ${req.tenantId}, ${o.label}, ${o.price_pence}, ${i},
+                    ${await childGroup(tx, req.tenantId, o.child_group_id, g.id)})
             RETURNING *
           `
           keepIds.push(opt.id)

@@ -15,6 +15,7 @@
 // Module 'promotions' (web_ordering group): view to list, manage to change.
 
 import { z } from 'zod'
+import { notifyTillsOnWrite } from '../services/posNotify.js'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
@@ -62,6 +63,8 @@ const PromoBody = z.object({
   schedule:           MenuSchedule.default({ times: [] }),
   venue_ids:          z.array(uuid).max(200).default([]),
   exclusive:          z.boolean().default(false),
+  // Where it applies (migration 156): online ordering, the till, or both.
+  channels:           z.array(z.enum(['online', 'pos'])).min(1, 'Pick online ordering, the till or both').max(2).default(['online']),
   bundle:             z.array(BundlePart).max(8).default([]),
   bundle_price_pence: z.number().int().min(0).max(10000000).nullable().default(null),
   tiers:              z.array(Tier).max(10).default([]),
@@ -82,6 +85,7 @@ function clean(b) {
   p.box_bg = p.box_bg || null
   p.box_text = p.box_text || null
   p.box_image_url = p.box_image_url || null
+  p.channels = [...new Set(p.channels)]
   if (p.apply_mode === 'code' && p.code.length < 3) throw httpError(422, 'Enter a promo code of at least 3 characters')
   if (p.kind !== 'bundle') { p.bundle = []; p.bundle_price_pence = null }
   if (p.kind !== 'tiered') p.tiers = []
@@ -119,7 +123,7 @@ async function codeTaken(tx, tenantId, code, exceptId = null) {
 
 const COLS = ['name', 'description', 'badge_text', 'is_active', 'kind', 'discount_type', 'discount_value',
   'item_ids', 'section_ids', 'buy_qty', 'get_qty', 'get_percent', 'min_subtotal_pence', 'required_item_ids',
-  'max_discount_pence', 'apply_mode', 'code', 'max_uses', 'schedule', 'venue_ids', 'exclusive',
+  'max_discount_pence', 'apply_mode', 'code', 'max_uses', 'schedule', 'venue_ids', 'exclusive', 'channels',
   'bundle', 'bundle_price_pence', 'tiers', 'show_in_box', 'box_bg', 'box_text', 'box_image_url']
 const JSON_COLS = new Set(['schedule', 'bundle', 'tiers'])
 
@@ -131,6 +135,8 @@ function rowOf(tx, p) {
 
 export default async function promotionsRoutes(app) {
   app.addHook('preHandler', requireAuth)
+  // Promotions with the till channel are in the till's config.
+  app.addHook('onResponse', notifyTillsOnWrite)
   const view = requirePermission('promotions', 'view')
   const manage = requirePermission('promotions', 'manage')
 
