@@ -399,6 +399,39 @@ function CopyChip({ value, label }) {
   )
 }
 
+// Shown once DNS is verified but this server doesn't serve the domain yet:
+// no nginx block for it (scripts/nginx-custom-domain.sh), or no certificate.
+// Platform admins get the command to run on the server.
+function DomainServerNotice({ domain, status, isPlatformAdmin }) {
+  const command = `sudo bash scripts/nginx-custom-domain.sh ${domain}`
+  return (
+    <div className="mt-2 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900 space-y-1.5">
+      {status === 'http' ? (
+        <>
+          <p className="font-medium">{domain} works on http:// only</p>
+          <p>The HTTPS certificate hasn&apos;t been issued yet, so browsers warn on https://{domain}.</p>
+        </>
+      ) : (
+        <>
+          <p className="font-medium">{domain} isn&apos;t switched on yet</p>
+          <p>
+            DNS is right, but our server doesn&apos;t serve this domain yet, so guests get a 404.
+            Macaroonie switches it on on the server (web address and HTTPS certificate); your
+            Macaroonie address keeps working meanwhile.
+          </p>
+        </>
+      )}
+      {isPlatformAdmin && (
+        <div className="space-y-1 pt-1">
+          <p>Platform admin: run this on the server, in /home/ubuntu/app{status === 'http' ? ', once DNS points at the server' : ''}:</p>
+          <CopyChip value={command} />
+          <p>Add the www or bare version after it (space separated) to send that one here too.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DnsTable({ rows }) {
   return (
     <div className="border rounded-lg overflow-hidden text-xs">
@@ -494,14 +527,15 @@ function CustomDomainGuideModal({ open, onClose, domain, slug, onVerify, verifyi
                 <DnsTable rows={aRecords.map(ip => ({ type: 'A', name: '@', value: ip }))} />
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Point an A record named <code className="text-xs">@</code> at the same IPs as{' '}
-                  <code className="text-xs">{dns?.root_domain || 'macaroonie.com'}</code>. Ask us if you cannot look those up.
+                  Point an A record named <code className="text-xs">@</code> at the same IP address as{' '}
+                  <code className="text-xs">{cnameTarget}</code>.
                 </p>
               )}
             </div>
 
             <p className="text-xs text-muted-foreground">
-              Want both apex and www? Connect <em>one</em> of them here, then at the registrar add a redirect from the other (forwarding / URL redirect). Do not point two hostnames at us unless both are entered as separate custom domains — we only store one.
+              Want both <code className="text-xs">yourrestaurant.com</code> and <code className="text-xs">www.</code>? Enter <em>one</em> of them here (that is the site&apos;s address).
+              Add a record for the other one too and tell us: we send it on to the first. Or set up forwarding at your registrar.
             </p>
           </section>
 
@@ -537,11 +571,12 @@ function CustomDomainGuideModal({ open, onClose, domain, slug, onVerify, verifyi
           </section>
 
           <section className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">5. HTTPS certificate</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">5. We switch it on</h3>
             <p className="text-muted-foreground">
-              After a successful verify we issue an SSL certificate on our servers. That can take up to an hour.
-              Until it is ready, browsers may warn on <code className="text-xs">https://{host || 'your-domain'}</code>.
-              The Macaroonie subdomain stays on HTTPS throughout.
+              Once DNS verifies, Macaroonie switches the domain on on our server and issues its HTTPS
+              certificate. Until then <code className="text-xs">{host || 'your-domain'}</code> shows a 404 page;
+              the Domain section says when it is done. Your <code className="text-xs">{cnameTarget}</code> address
+              keeps working throughout.
             </p>
           </section>
 
@@ -813,6 +848,15 @@ function TenantDomainSection({ tenantSite }) {
   const [verifying,  setVerifying]  = useState(false)
   const [verifyResult, setVerifyResult] = useState(null)
   const [guideOpen, setGuideOpen] = useState(false)
+  // server_status: whether this server serves the domain yet (an nginx block
+  // from scripts/nginx-custom-domain.sh): 'https' | 'http' | 'none' | null.
+  const { data: dnsSetup } = useQuery({
+    queryKey: ['tenant-dns-setup'],
+    queryFn:  () => api.get('/website/tenant-site/dns-setup'),
+    enabled:  !!tenantSite.custom_domain,
+  })
+  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
+  const serverStatus = tenantSite.custom_domain ? dnsSetup?.server_status : null
 
   const dirty = slug !== (tenantSite.subdomain_slug || '') ||
                 domain !== (tenantSite.custom_domain || '') ||
@@ -840,7 +884,10 @@ function TenantDomainSection({ tenantSite }) {
       custom_domain:  domain || null,
       is_published:   pubd,
     }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tenant-site'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      qc.invalidateQueries({ queryKey: ['tenant-dns-setup'] })
+    },
   })
 
   const verify = useMutation({
@@ -861,6 +908,7 @@ function TenantDomainSection({ tenantSite }) {
     onSuccess:  (r) => {
       setVerifyResult(r)
       qc.invalidateQueries({ queryKey: ['tenant-site'] })
+      qc.invalidateQueries({ queryKey: ['tenant-dns-setup'] })
     },
     onError:    (e) => setVerifyResult({ verified: false, error: e?.body?.error || e.message }),
   })
@@ -874,7 +922,9 @@ function TenantDomainSection({ tenantSite }) {
   const liveUrl = tenantSite.subdomain_slug
     ? `https://${tenantSite.subdomain_slug}.macaroonie.com`
     : null
-  const customLiveUrl = tenantSite.custom_domain && tenantSite.custom_domain_verified
+  // Only link the domain once guests can open it (null = can't tell, e.g. local dev).
+  const customLiveUrl = tenantSite.custom_domain && tenantSite.custom_domain_verified && dnsSetup
+    && (serverStatus === 'https' || serverStatus == null)
     ? `https://${tenantSite.custom_domain}` : null
 
   return (
@@ -905,7 +955,7 @@ function TenantDomainSection({ tenantSite }) {
         </FormRow>
 
         <FormRow label="Custom domain (optional)"
-          hint="e.g. www.yourrestaurant.com. SSL is issued after DNS verifies.">
+          hint="A domain you own, e.g. www.yourrestaurant.com.">
           <div className="flex items-stretch gap-2">
             <TextInput value={domain}
               onChange={e => setDomain(e.target.value.toLowerCase().trim())}
@@ -941,13 +991,14 @@ function TenantDomainSection({ tenantSite }) {
               </span>
             )}
           </div>
+          {tenantSite.custom_domain && tenantSite.custom_domain_verified && (serverStatus === 'none' || serverStatus === 'http') && (
+            <DomainServerNotice domain={tenantSite.custom_domain} status={serverStatus}
+              isPlatformAdmin={!!me?.is_platform_admin} />
+          )}
           {verifyResult && !verifyResult.verified && (
             <div className="mt-2 text-xs bg-amber-50 border border-amber-200 rounded p-2 text-amber-900">
               <p className="font-medium mb-1">Verification failed</p>
               <p>{verifyResult.hint || verifyResult.error}</p>
-              {verifyResult.expected?.cname_suffix && (
-                <p className="mt-1 font-mono">CNAME → *.{verifyResult.expected.cname_suffix}</p>
-              )}
             </div>
           )}
           {customLiveUrl && (
