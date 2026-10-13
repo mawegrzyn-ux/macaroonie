@@ -25,6 +25,7 @@ import { RESERVED_SUBDOMAINS, STAGING_PREFIX } from './siteRenderer.js'
 import { publishTenantSite, overrideStagingWithProduction, publishStatus } from '../services/publishSvc.js'
 import { ensureOrderPage } from '../services/orderPage.js'
 import { publishQueue } from '../jobs/queues.js'
+import { hashPassword, loadStagingAccess, previewKey, stagingOrigin, MIN_PASSWORD } from '../services/stagingAccess.js'
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -44,6 +45,15 @@ const SlugSchema = z.string()
 
 const SchedulePublishBody = z.object({
   at: z.coerce.date(),
+})
+
+// null removes the staging password.
+const StagingAccessBody = z.object({
+  password: z.string()
+    .min(MIN_PASSWORD, `Use at least ${MIN_PASSWORD} characters`)
+    .max(200)
+    .refine(s => s.trim().length > 0, 'Use at least one letter or number')
+    .nullable(),
 })
 
 const SocialLinksSchema = z.record(z.string(), z.string().url().or(z.literal('')))
@@ -801,6 +811,55 @@ export default async function websiteRoutes(app) {
       RETURNING *
     `)
     return row
+  })
+
+  // ── Staging password (migration 158, services/stagingAccess.js) ──
+  // GET: whether staging asks for a password (never the hash) and its
+  // address. PUT { password | null }: set, change or remove it; any change
+  // signs everyone out of staging. POST staging-link: the staging address
+  // to open from here, with a 10-minute key when there is a password.
+  async function stagingInfo(tenantId) {
+    const [ts] = await withTenant(tenantId, tx => tx`
+      SELECT subdomain_slug FROM tenant_site WHERE tenant_id = ${tenantId}
+    `)
+    const access = await loadStagingAccess(tenantId)
+    return {
+      slug: ts?.subdomain_slug || null,
+      url: ts?.subdomain_slug ? stagingOrigin(ts.subdomain_slug) + '/' : null,
+      access,
+    }
+  }
+  const stagingView = ({ url, access }) => ({
+    protected: !!access,
+    updated_at: access?.updated_at || null,
+    updated_by: access?.updated_by || null,
+    url,
+  })
+
+  app.get('/tenant-site/staging-access', async (req) => stagingView(await stagingInfo(req.tenantId)))
+
+  app.put('/tenant-site/staging-access', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+    const { password } = StagingAccessBody.parse(req.body)
+    if (password === null) {
+      await withTenant(req.tenantId, tx => tx`DELETE FROM staging_access WHERE tenant_id = ${req.tenantId}`)
+    } else {
+      const hash = await hashPassword(password)
+      const by = req.user?.email || null
+      await withTenant(req.tenantId, tx => tx`
+        INSERT INTO staging_access (tenant_id, password_hash, updated_by, updated_at)
+        VALUES (${req.tenantId}, ${hash}, ${by}, now())
+        ON CONFLICT (tenant_id) DO UPDATE
+          SET password_hash = EXCLUDED.password_hash, updated_by = EXCLUDED.updated_by, updated_at = now()
+      `)
+    }
+    return stagingView(await stagingInfo(req.tenantId))
+  })
+
+  app.post('/tenant-site/staging-link', async (req) => {
+    const { url, access } = await stagingInfo(req.tenantId)
+    if (!url) throw httpError(422, 'Set a subdomain in Domain to get a staging address.')
+    if (!access) return { url, protected: false }
+    return { url: url + '?staging_key=' + previewKey(req.tenantId, access.password_hash), protected: true }
   })
 
   // ── POST /website/tenant-site/override-staging ──────────

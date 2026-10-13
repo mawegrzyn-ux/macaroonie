@@ -4122,6 +4122,40 @@ GET /robots.txt`}</Code>
               Override staging re-created pages without their ids or <Mono>system_key</Mono>.
             </P>
 
+            <H3>Staging password</H3>
+            <P>
+              Migration 158: <Mono>staging_access</Mono> (one row per tenant: <Mono>password_hash</Mono>,{' '}
+              <Mono>updated_by</Mono>, <Mono>updated_at</Mono>, RLS). No row = staging is open as before. Kept out of{' '}
+              <Mono>tenant_site</Mono> because that row is read with <Mono>SELECT *</Mono> by the renderer and returned whole
+              by the admin routes. <Mono>services/stagingAccess.js</Mono>: <Mono>hashPassword()</Mono> /{' '}
+              <Mono>checkPassword()</Mono> (scrypt, random salt, <Mono>s1$salt$hash</Mono>), <Mono>cookieValue()</Mono> /{' '}
+              <Mono>cookieOk()</Mono> (cookie <Mono>mcrn_staging</Mono> = issued-at + HMAC, 30 days, host-only, HttpOnly,
+              SameSite=Lax, Secure on https), <Mono>previewKey()</Mono> / <Mono>previewKeyOk()</Mono> (expiry + HMAC, 10
+              minutes), <Mono>safeNext()</Mono> (same-host paths only). Every HMAC is keyed by the stored hash, so changing
+              or removing the password ends all cookies and links, and one tenant&apos;s cookie means nothing on another
+              tenant&apos;s staging host.
+            </P>
+            <P>
+              Gate: the <Mono>onRequest</Mono> hook in <Mono>routes/siteRenderer.js</Mono>, staging hosts only, every route
+              in that plugin except <Mono>/robots.txt</Mono>, <Mono>/bimi.svg</Mono> and the login route. No valid cookie:
+              a <Mono>?staging_key=</Mono> that checks out sets the cookie and 302s to the same URL without the key;
+              otherwise 401 with <Mono>views/site/staging_login.eta</Mono> (noindex, <Mono>no-store</Mono>).{' '}
+              <Mono>POST /_staging/login</Mono> (form <Mono>password</Mono> + <Mono>next</Mono>, 10 a minute per IP) sets the
+              cookie and 303s back. Staging pages are sent <Mono>Cache-Control: private, no-cache</Mono>. Other plugins on the
+              same host (<Mono>/order-api</Mono>, <Mono>/widget-api</Mono>, <Mono>/uploads</Mono>) aren&apos;t gated: they
+              serve the same live data as production.
+            </P>
+            <P>
+              Admin API (<Mono>routes/website.js</Mono>): <Mono>GET /website/tenant-site/staging-access</Mono> →{' '}
+              <Mono>{'{ protected, updated_at, updated_by, url }'}</Mono> (never the hash);{' '}
+              <Mono>PUT</Mono> the same with <Mono>{'{ password }'}</Mono> (6-200 characters, not blank) or{' '}
+              <Mono>{'{ password: null }'}</Mono> to remove, owner/admin; <Mono>POST /website/tenant-site/staging-link</Mono>{' '}
+              → the staging URL, with a preview key when protected. Admin UI in <Mono>Website.jsx</Mono>:{' '}
+              <Mono>useStagingAccess()</Mono>, <Mono>StagingPassword</Mono> in the publish window&apos;s Staging card, and{' '}
+              <Mono>useOpenStaging()</Mono> on both Staging links (opens the tab during the click, then sends it to the
+              signed link, opener cleared).
+            </P>
+
             <H3>Admin page</H3>
             <P>
               <Mono>admin/src/pages/Website.jsx</Mono> at the <Mono>/website</Mono> route.

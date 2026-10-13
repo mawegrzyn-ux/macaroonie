@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Staging preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f3f4f6; color: #1a1a1a;
+      padding: 16px;
+    }
+    .card {
+      width: 100%; max-width: 380px; background: #fff; border: 1px solid #d1d5db; border-radius: 12px;
+      padding: 28px 24px; box-shadow: 0 4px 16px rgba(0,0,0,.06);
+    }
+    .tag {
+      display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+      color: #92400e; background: #fef3c7; border-radius: 999px; padding: 4px 10px; margin-bottom: 12px;
+    }
+    h1 { font-size: 20px; margin: 0 0 6px; }
+    p  { font-size: 14px; color: #4b5563; margin: 0 0 18px; line-height: 1.45; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+    input[type=password] {
+      width: 100%; min-height: 48px; font-size: 16px; padding: 10px 12px;
+      border: 1px solid #9ca3af; border-radius: 8px; background: #fff; color: inherit;
+    }
+    input[type=password]:focus { outline: 2px solid #630812; outline-offset: 1px; border-color: #630812; }
+    button {
+      margin-top: 14px; width: 100%; min-height: 48px; font-size: 15px; font-weight: 600;
+      color: #fff; background: #630812; border: 0; border-radius: 8px; cursor: pointer; touch-action: manipulation;
+    }
+    .err {
+      font-size: 13px; color: #991b1b; background: #fef2f2; border: 1px solid #fecaca;
+      border-radius: 8px; padding: 8px 10px; margin: 0 0 14px;
+    }
+    .foot { font-size: 12px; color: #9ca3af; margin: 18px 0 0; text-align: center; }
+  </style>
+</head>
+<body>
+  <form class="card" method="post" action="/_staging/login">
+    <span class="tag">Staging preview</span>
+    <h1><%= it.name || 'Website preview' %></h1>
+    <p>This is a preview of changes that aren't live yet. Enter the staging password to see it.</p>
+    <% if (it.error) { %><p class="err" role="alert"><%= it.error %></p><% } %>
+    <input type="hidden" name="next" value="<%= it.next || '/' %>" />
+    <label for="pw">Password</label>
+    <input id="pw" type="password" name="password" autocomplete="current-password" required autofocus />
+    <button type="submit">See the preview</button>
+    <p class="foot">Powered by Macaroonie</p>
+  </form>
+</body>
+</html>
