@@ -31,6 +31,10 @@ import { headingLayout, styleString } from '../../../shared/headingBlock.js'
 import { allergenKey } from '../../../shared/menuTags.js'
 import { env }            from '../config/env.js'
 import { ORDER_PAGE_KEY, DEFAULT_ORDER_PAGE } from '../services/orderPage.js'
+import {
+  loadStagingAccess, checkPassword, cookieValue, cookieOk, previewKeyOk,
+  setCookieHeader, readCookie, safeNext,
+} from '../services/stagingAccess.js'
 
 // Exported so api/src/routes/website.js can validate against the same
 // reserved list when an operator picks a subdomain slug.
@@ -132,6 +136,39 @@ function templateOf(cfg) {
   return KNOWN_TEMPLATES.has(key) ? key : DEFAULT_TEMPLATE
 }
 
+// Optional staging password (migration 158, services/stagingAccess.js).
+// Every route in this plugin on a staging host asks for it, except these.
+const STAGING_LOGIN_PATH = '/_staging/login'
+const STAGING_OPEN = new Set(['/bimi.svg', '/.well-known/bimi.svg', '/robots.txt', STAGING_LOGIN_PATH])
+
+/** The staging password for a slug's tenant, or null when there is none. */
+async function stagingGate(slug) {
+  const [ts] = await sql`
+    SELECT ts.tenant_id, ts.site_name, t.name AS tenant_name
+      FROM tenant_site ts
+      JOIN tenants t ON t.id = ts.tenant_id AND t.is_active = true
+     WHERE ts.subdomain_slug = ${slug}
+     LIMIT 1
+  `
+  if (!ts) return null
+  const access = await loadStagingAccess(ts.tenant_id)
+  if (!access) return null
+  return { tenantId: ts.tenant_id, hash: access.password_hash, name: ts.site_name || ts.tenant_name }
+}
+
+/** req.url without ?staging_key, for the redirect after a preview link. */
+function withoutKey(url) {
+  const u = new URL(url, 'http://x')
+  u.searchParams.delete('staging_key')
+  return safeNext(u.pathname + u.search)
+}
+
+function renderStagingLogin(reply, { name, next, error }) {
+  reply.header('Cache-Control', 'no-store')
+  reply.header('X-Frame-Options', 'SAMEORIGIN')
+  return reply.view('site/staging_login.eta', { name, next: safeNext(next), error })
+}
+
 export default async function siteRendererRoutes(app) {
 
   app.addHook('onRequest', async (req, reply) => {
@@ -141,9 +178,43 @@ export default async function siteRendererRoutes(app) {
     // covers every response on a staging host, including robots.txt/
     // sitemap.xml/non-HTML routes, and works even for crawlers that
     // ignore HTML meta tags.
-    if (req.siteHost?.isStaging) {
-      reply.header('X-Robots-Tag', 'noindex, nofollow')
+    if (!req.siteHost?.isStaging) return
+    reply.header('X-Robots-Tag', 'noindex, nofollow')
+
+    // Staging password: a valid cookie, or a signed preview link from the
+    // Website admin (sets the cookie, then the same URL without the key).
+    if (STAGING_OPEN.has(req.routeOptions?.url)) return
+    const gate = await stagingGate(req.siteHost.slug)
+    if (!gate || cookieOk(readCookie(req), gate.tenantId, gate.hash)) return
+    const key = req.query?.staging_key
+    const read = req.method === 'GET' || req.method === 'HEAD'
+    if (read && key && previewKeyOk(key, gate.tenantId, gate.hash)) {
+      reply.header('Set-Cookie', setCookieHeader(cookieValue(gate.tenantId, gate.hash)))
+      reply.redirect(withoutKey(req.url), 302)
+      return reply
     }
+    reply.code(401)
+    await renderStagingLogin(reply, {
+      name: gate.name,
+      next: key ? withoutKey(req.url) : req.url,
+      error: key ? 'That preview link has expired. Open staging from the Website page again, or enter the password.' : null,
+    })
+    return reply
+  })
+
+  // ── POST /_staging/login ─────────────────────────────────
+  // The staging password form. Right password: cookie, back to the page.
+  app.post(STAGING_LOGIN_PATH, { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+    if (!req.siteHost?.isStaging) return reply.callNotFound()
+    const next = safeNext(req.body?.next)
+    const gate = await stagingGate(req.siteHost.slug)
+    if (!gate) return reply.redirect(next, 303)
+    if (!(await checkPassword(req.body?.password, gate.hash))) {
+      reply.code(401)
+      return renderStagingLogin(reply, { name: gate.name, next, error: 'That password isn\'t right.' })
+    }
+    reply.header('Set-Cookie', setCookieHeader(cookieValue(gate.tenantId, gate.hash)))
+    return reply.redirect(next, 303)
   })
 
   async function serveBimi(req, reply) {
@@ -172,7 +243,8 @@ export default async function siteRendererRoutes(app) {
 
   const renderSite = async (reply, view, data) => {
     const tpl = templateOf(data.config)
-    reply.header('Cache-Control', 'public, max-age=0, must-revalidate')
+    // Staging may be behind a password: never let a shared cache keep it.
+    reply.header('Cache-Control', data.isStaging ? 'private, no-cache' : 'public, max-age=0, must-revalidate')
     reply.header('X-Frame-Options', 'SAMEORIGIN')
     return reply.view(`site/templates/${tpl}/${view}.eta`, { ...data, siteBlocks: SITE_BLOCKS })
   }

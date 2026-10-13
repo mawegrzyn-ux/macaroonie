@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-13 — Optional password for the staging site]
+
+- In the publish window, under **Staging**: **Add a password**. Visitors to your staging address are then asked for it before they see anything; once entered, their browser remembers it for 30 days.
+- The **Staging** button and **Open staging** take you straight in without typing it (the button shows a small lock while a password is set).
+- **Change password** signs everyone out of staging; **Remove password** (confirmed) opens it to anyone with the link again. Owners and admins only. The live site never asks for a password.
+- Migration: `158_staging_password.sql` (new table `staging_access`).
+
+---
+
 ## [2026-10-12 — Publish button shows whether the live site matches staging]
 
 - Under **Publish** (top of the website menu): *Live matches staging · published 3 days ago*, or *4 changes not live yet · last published yesterday*, with the number on the button too. It updates by itself a moment after each save.

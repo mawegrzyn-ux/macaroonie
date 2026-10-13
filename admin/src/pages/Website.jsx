@@ -18,6 +18,7 @@ import {
   Search, BarChart3, Eye, EyeOff, Check, X, Upload, Trash2, GripVertical,
   Plus, ExternalLink, Loader2, HelpCircle, Copy, Shield, Megaphone,
   PanelTop, PanelBottom, Rocket, CalendarClock, RotateCcw, TriangleAlert,
+  Lock, Unlock,
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
@@ -700,12 +701,161 @@ export function usePublishStatus() {
   return q.data
 }
 
+/**
+ * Whether staging asks for a password, and its address
+ * (GET /website/tenant-site/staging-access). Never the password itself.
+ */
+function useStagingAccess() {
+  const api = useApi()
+  return useQuery({
+    queryKey: ['staging-access'],
+    queryFn: () => api.get('/website/tenant-site/staging-access'),
+  }).data
+}
+
+/**
+ * onClick for a Staging link. With a password, opens a 10-minute signed
+ * link from the API instead (POST /website/tenant-site/staging-link), so
+ * staff go straight in. The tab is opened during the click so it isn't
+ * blocked as a pop-up, then sent to the link once it arrives.
+ */
+function useOpenStaging(access) {
+  const api = useApi()
+  return async e => {
+    if (!access?.protected) return
+    e.preventDefault()
+    const w = window.open('', '_blank')
+    try {
+      const { url } = await api.post('/website/tenant-site/staging-link', {})
+      if (w) { w.opener = null; w.location.href = url }
+      else window.open(url, '_blank', 'noopener')
+    } catch {
+      w?.close()
+    }
+  }
+}
+
+/** The staging password: add, change, remove (explicit Save, confirmed remove). */
+function StagingPassword({ access }) {
+  const api = useApi()
+  const qc  = useQueryClient()
+  const [mode, setMode] = useState(null)   // null | 'set' | 'remove'
+  const [pw, setPw] = useState('')
+  const [show, setShow] = useState(false)
+  const [done, setDone] = useState(null)
+
+  const save = useMutation({
+    mutationFn: password => api.put('/website/tenant-site/staging-access', { password }),
+    onSuccess: (data, password) => {
+      qc.setQueryData(['staging-access'], data)
+      setDone(password === null
+        ? 'Password removed. Anyone with the staging link can see it again.'
+        : 'Password saved. Anyone who was signed in to staging needs the new one.')
+      setMode(null); setPw(''); setShow(false)
+    },
+  })
+  const err = save.error
+  const errText = !err ? null
+    : err.status === 403 ? 'Only owners and admins can change the staging password.'
+    : err.body?.issues?.password?.[0] || err.body?.error || err.message
+  const tooShort = pw.length < 6 || !pw.trim()
+  const open = m => { setMode(m); setDone(null); save.reset() }
+
+  if (!access) return null
+  return (
+    <div className="border-t pt-4 space-y-3">
+      <div className="flex items-start gap-2">
+        {access.protected
+          ? <Lock className="w-4 h-4 mt-0.5 shrink-0 text-emerald-700" />
+          : <Unlock className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />}
+        <div className="min-w-0">
+          <p className="text-sm font-medium">
+            {access.protected ? 'Password on' : 'No password'}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {access.protected
+              ? <>Visitors to staging are asked for it. The Staging buttons here open it without typing it.
+                  {access.updated_at && <> Set {publishedLabel(access.updated_at)}{access.updated_by ? ` by ${access.updated_by}` : ''}.</>}</>
+              : 'Optional. Without one, anyone who has the staging link can see your draft.'}
+          </p>
+        </div>
+      </div>
+
+      {done && <p className="text-xs text-emerald-700 inline-flex items-center gap-1.5"><Check className="w-3.5 h-3.5" /> {done}</p>}
+
+      {mode === 'set' && (
+        <form className="space-y-2" onSubmit={e => { e.preventDefault(); if (!tooShort) save.mutate(pw) }}>
+          <label className="text-xs font-medium block" htmlFor="staging-pw">
+            {access.protected ? 'New password' : 'Password'}
+          </label>
+          <div className="flex items-stretch gap-2">
+            <input id="staging-pw" type={show ? 'text' : 'password'} value={pw} autoComplete="new-password"
+              onChange={e => setPw(e.target.value)} maxLength={200}
+              className="flex-1 min-w-0 min-h-[44px] border rounded-md px-3 text-sm touch-manipulation" />
+            <button type="button" onClick={() => setShow(v => !v)}
+              aria-label={show ? 'Hide password' : 'Show password'}
+              className="shrink-0 w-11 min-h-[44px] inline-flex items-center justify-center border rounded-md hover:bg-accent touch-manipulation">
+              {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">At least 6 characters. Share it with whoever needs to see the preview.</p>
+          <div className="flex gap-2">
+            <button type="submit" disabled={tooShort || save.isPending}
+              className="flex-1 min-h-[44px] inline-flex items-center justify-center gap-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md disabled:opacity-50 touch-manipulation">
+              {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save password
+            </button>
+            <button type="button" onClick={() => { setMode(null); setPw(''); save.reset() }}
+              className="flex-1 min-h-[44px] text-sm border rounded-md hover:bg-accent touch-manipulation">
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {mode === 'remove' && (
+        <div className="border border-destructive/40 rounded-lg p-3 space-y-2">
+          <p className="text-xs text-destructive">Remove the password? Anyone with the staging link will see your draft again.</p>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => save.mutate(null)} disabled={save.isPending}
+              className="flex-1 min-h-[44px] text-sm bg-destructive text-destructive-foreground rounded-lg disabled:opacity-50 touch-manipulation">
+              {save.isPending ? 'Removing…' : 'Yes, remove'}
+            </button>
+            <button type="button" onClick={() => setMode(null)}
+              className="flex-1 min-h-[44px] text-sm border rounded-lg hover:bg-accent touch-manipulation">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mode === null && (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => open('set')}
+            className="min-h-[44px] inline-flex items-center gap-1.5 border text-sm font-medium rounded-md px-3 hover:bg-accent touch-manipulation">
+            <Lock className="w-3.5 h-3.5" /> {access.protected ? 'Change password' : 'Add a password'}
+          </button>
+          {access.protected && (
+            <button type="button" onClick={() => open('remove')}
+              className="min-h-[44px] inline-flex items-center gap-1.5 border border-destructive/40 text-destructive text-sm rounded-md px-3 hover:bg-destructive/5 touch-manipulation">
+              <Unlock className="w-3.5 h-3.5" /> Remove password
+            </button>
+          )}
+        </div>
+      )}
+
+      {errText && <p className="text-xs text-destructive">{errText}</p>}
+    </div>
+  )
+}
+
 export function PublishButton({ tenantSite, onClick }) {
   const ts = tenantSite || {}
   const st = usePublishStatus()
+  const access = useStagingAccess()
+  const openStaging = useOpenStaging(access)
   const count = st && !st.never_published && !st.in_sync ? st.changes.length : 0
   const when = ts.published_at ? agoLabel(ts.published_at) : null
-  const stagingUrl = ts.subdomain_slug ? `https://staging-${ts.subdomain_slug}.macaroonie.com` : null
+  const stagingUrl = ts.subdomain_slug ? (access?.url || `https://staging-${ts.subdomain_slug}.macaroonie.com`) : null
   let line, tone
   if (!ts.published_at) { line = 'Not published yet'; tone = 'text-amber-600' }
   else if (!st) { line = 'Last published ' + when; tone = 'text-muted-foreground' }
@@ -725,11 +875,13 @@ export function PublishButton({ tenantSite, onClick }) {
           )}
         </button>
         {stagingUrl && (
-          <a href={stagingUrl} target="_blank" rel="noopener"
-            title="Open the staging site in a new tab" aria-label="Open staging site"
-            className="shrink-0 w-12 min-h-[48px] inline-flex flex-col items-center justify-center gap-0.5 rounded-lg border bg-background text-foreground hover:bg-accent touch-manipulation">
+          <a href={stagingUrl} target="_blank" rel="noopener" onClick={openStaging}
+            title={access?.protected ? 'Open the staging site in a new tab (password protected)' : 'Open the staging site in a new tab'}
+            aria-label="Open staging site"
+            className="relative shrink-0 w-12 min-h-[48px] inline-flex flex-col items-center justify-center gap-0.5 rounded-lg border bg-background text-foreground hover:bg-accent touch-manipulation">
             <ExternalLink className="w-4 h-4" />
             <span className="text-[10px] leading-none font-medium">Staging</span>
+            {access?.protected && <Lock className="absolute top-1 right-1 w-2.5 h-2.5 text-muted-foreground" />}
           </a>
         )}
       </div>
@@ -788,6 +940,8 @@ export function PublishModal({ tenantSite, onClose }) {
   const [confirmOverride, setConfirmOverride] = useState(false)
 
   const status = usePublishStatus()
+  const access = useStagingAccess()
+  const openStaging = useOpenStaging(access)
   const publishNow = useMutation({
     mutationFn: () => api.post('/website/tenant-site/publish', {}),
     onSuccess:  () => {
@@ -831,7 +985,7 @@ export function PublishModal({ tenantSite, onClose }) {
     ? `https://${tenantSite.custom_domain}`
     : tenantSite.subdomain_slug ? `https://${tenantSite.subdomain_slug}.macaroonie.com` : null
   const stagingUrl = tenantSite.subdomain_slug
-    ? `https://staging-${tenantSite.subdomain_slug}.macaroonie.com`
+    ? (access?.url || `https://staging-${tenantSite.subdomain_slug}.macaroonie.com`)
     : null
   const hasPendingSchedule = !!tenantSite.scheduled_publish_at
 
@@ -866,18 +1020,22 @@ export function PublishModal({ tenantSite, onClose }) {
           <SectionCard title="Staging"
             description="Every edit goes live on staging straight away: a private preview that search engines are told to ignore. Nothing reaches your live site until you publish."
             action={stagingUrl && (
-              <a href={stagingUrl} target="_blank" rel="noopener"
-                 className="text-xs text-primary hover:underline inline-flex items-center gap-1">
+              <a href={stagingUrl} target="_blank" rel="noopener" onClick={openStaging}
+                 className="text-xs text-primary hover:underline inline-flex items-center gap-1 min-h-[44px] shrink-0 touch-manipulation">
                 Open staging <ExternalLink className="w-3 h-3" />
               </a>
             )}
           >
             {stagingUrl ? (
-              <div className="text-xs bg-muted/60 rounded-md px-3 py-2 space-y-1">
-                <CopyChip value={stagingUrl} />
-                <p className="text-muted-foreground">
-                  Always shows your current draft, including unsaved pages. Marked <code className="text-[10px]">noindex</code> so it never appears in search results, and never uses your custom domain.
-                </p>
+              <div className="space-y-4">
+                <div className="text-xs bg-muted/60 rounded-md px-3 py-2 space-y-1">
+                  <CopyChip value={stagingUrl} />
+                  <p className="text-muted-foreground">
+                    Always shows your current draft, including unsaved pages. Marked <code className="text-[10px]">noindex</code> so it never appears in search results, and never uses your custom domain.
+                    {access?.protected && ' People you send this link to need the staging password.'}
+                  </p>
+                </div>
+                <StagingPassword access={access} />
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">Set a subdomain in Domain to get a staging preview link.</p>

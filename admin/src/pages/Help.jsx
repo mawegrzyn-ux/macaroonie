@@ -2337,6 +2337,22 @@ export default function Help() {
               the publish window reminds you that visitors see a 404 page.
             </P>
 
+            <H3>Staging password</H3>
+            <P>
+              Your staging site is hidden from search engines, but anyone who has its link can open it. To keep it
+              private, open the publish window and under <strong>Staging</strong> tap <strong>Add a password</strong>,
+              type one (at least 6 characters) and tap <strong>Save password</strong>. From then on, visitors to your
+              staging address see a page asking for the password; once they enter it, their browser remembers it for 30
+              days. Send the password to whoever needs to see the preview (your designer, the owner, a manager).
+            </P>
+            <P>
+              You don&apos;t need to type it yourself: the <strong>Staging</strong> button and <strong>Open staging</strong>{' '}
+              in the publish window take you straight in (the Staging button shows a small lock while a password is set).
+              <strong> Change password</strong> signs everyone out of staging, so they need the new one.{' '}
+              <strong>Remove password</strong> (asks you to confirm) opens staging to anyone with the link again. Only
+              owners and admins can set, change or remove it. Your live site never asks for a password.
+            </P>
+
             <H3>Theme manager — how it works</H3>
             <P>
               The <strong>Theme</strong> section controls the look &amp; feel of your site
