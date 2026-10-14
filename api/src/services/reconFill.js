@@ -2,8 +2,9 @@
 //
 // Writes figures from a till system into a Cash Recon day: income sources,
 // payment channels (takings) and service charge sources. Used by the
-// Loyverse fill (routes/loyverse.js) and the Macaroonie till's Z report
-// (services/posSvc.js), so both fill a day the same way:
+// Loyverse fill (routes/loyverse.js), the GloriaFood fill
+// (routes/gloriafood.js) and the Macaroonie till's Z report
+// (services/posSvc.js), so all fill a day the same way:
 //   - the day's report row is created if missing; a submitted day is skipped
 //   - each mapped field's entry is replaced, keeping its notes
 //   - income is split into net and VAT like the day view does
@@ -12,8 +13,9 @@
 const round2 = n => Math.round(n * 100) / 100
 
 const STAMPS = {
-  loyverse: ['loyverse_filled_at', 'loyverse_filled_by'],
-  pos:      ['pos_filled_at', 'pos_filled_by'],
+  loyverse:   ['loyverse_filled_at', 'loyverse_filled_by'],
+  pos:        ['pos_filled_at', 'pos_filled_by'],
+  gloriafood: ['gloriafood_filled_at', 'gloriafood_filled_by'],
 }
 
 /**

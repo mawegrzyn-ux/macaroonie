@@ -1317,6 +1317,47 @@ export default function Help() {
               window says so and the account shows the error under Loyverse accounts. Make a new token
               in Loyverse and use <strong>Replace token</strong>.
             </InfoBox>
+            <H3>Fill from GloriaFood</H3>
+            <P>
+              If guests order through <strong>GloriaFood</strong>, Cash Recon can fill a day&apos;s income,
+              service charges and takings from the venue&apos;s accepted GloriaFood orders, including how
+              they were paid. GloriaFood only hands orders over as it accepts them (it has no history to
+              read back), so orders count from the day you link the venue onwards. Set it up once per
+              venue in Cash Recon settings (gear icon) &gt; <strong>GloriaFood</strong> (owners and admins):
+            </P>
+            <DataTable
+              head={['Step', 'What to do']}
+              rows={[
+                ['1. Choose how orders arrive', '"GloriaFood sends them" (recommended): tap Link this venue, copy the address shown, then in the GloriaFood admin panel for that restaurant open Others > 3rd party integrations, add Push Accepted Order, paste the address as the endpoint and choose JSON. Or "Collect them every minute": add Poll Accepted Order v2 in GloriaFood, copy its key, paste it here and save. The key is checked with GloriaFood and never shown again.'],
+                ['2. Check it works', 'Place or accept a test order in GloriaFood. It shows under Latest orders received within a minute (test orders from GloriaFood\'s menu preview are marked and never counted). The first order also sets which GloriaFood restaurant this venue takes orders from; orders from any other restaurant are refused and the reason shows in red.'],
+                ['3. Pick the day rule', 'An order counts on the day it is collected or delivered (or, if you prefer, the day it was accepted). Orders before the trading day start count on the day before.'],
+                ['4. Map the lines', 'Same as Loyverse: each income source, service charge source and payment channel gets a list of GloriaFood figures, added or subtracted. Lines with nothing mapped are never changed.'],
+                ['5. Save', 'Nothing is kept until you tap Save.'],
+              ]}
+            />
+            <DataTable
+              head={['Figure', 'What it is']}
+              rows={[
+                ['Order totals', 'What customers paid: food after discounts, tax, tips, delivery and service fees.'],
+                ['Totals excluding tax', 'Order totals less the tax on them.'],
+                ['Food subtotal / Items before discounts / Discounts', 'The dishes after discounts, at full price, and the promotions and coupons taken off.'],
+                ['Delivery fees / Tips / Service fees / Tax', 'Each part of the orders on its own.'],
+                ['Payment', 'Order totals paid one way: Paid online, Cash, Card at the counter, Card by phone. An order paid two ways counts under its main payment (the fill window says how many).'],
+                ['Order type', 'Order totals of pickup, delivery, dine in, order ahead or table reservation orders.'],
+              ]}
+            />
+            <P>
+              A typical setup: income <em>GloriaFood sales</em> = Order totals minus Tips; service charge
+              <em> Tips</em> = Tips; a <em>GloriaFood online</em> takings channel = Payment: Paid online.
+              Then tap <strong>Fill from GloriaFood</strong> on a day or a week. The window works like the
+              Loyverse one, and also lists payments that aren&apos;t mapped, cancelled orders and test orders
+              (left out). Only accepted orders count; an order cancelled in GloriaFood later drops out the
+              next time you fill.
+            </P>
+            <InfoBox type="tip">
+              Guest names, phone numbers and addresses from GloriaFood are only kept for 30 days (the board
+              needs them); the order amounts stay for your records.
+            </InfoBox>
           </section>
 
           {/* ── FOOD SAFETY ───────────────────────────────── */}
@@ -3227,6 +3268,20 @@ export default function Help() {
               itself. An unpaid online order is released after 30 minutes. The{' '}
               <strong>Report</strong> tab shows orders, sales, average order, tips, refunds, money
               taken by payment method, your top dishes, discounts given and how often each promotion was used.
+            </P>
+            <H3>GloriaFood orders on the board</H3>
+            <P>
+              If the venue takes orders through GloriaFood and is linked in Cash Recon settings &gt;
+              GloriaFood, switch on <strong>Show GloriaFood orders on the Online orders board</strong> there.
+              They then appear on this board (and on the phone) next to your own online orders, with an
+              orange <strong>GloriaFood</strong> label, their type (pickup, delivery...) and how they were
+              paid. They arrive already accepted, so they start under In progress and chime like new orders.
+            </P>
+            <P>
+              Tap one to see the dishes, notes, delivery address and totals, print a ticket, or move it to
+              Preparing, Ready and Collected (Sent for deliveries). Those moves only change this board:
+              GloriaFood isn&apos;t told, and payments and refunds stay in GloriaFood. An order cancelled in
+              GloriaFood shows as Cancelled. GloriaFood orders aren&apos;t in the Report tab.
             </P>
             <H3>Promotions</H3>
             <P>

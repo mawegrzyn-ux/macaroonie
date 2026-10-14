@@ -64,11 +64,15 @@ export default function Orders() {
           </div>
         </div>
 
-        {ordering && !ordering.is_enabled && (
+        {ordering && !ordering.is_enabled && (board.data?.gloriafood?.show_on_board ? (
+          <div className="mb-4 rounded-md border bg-background p-3 text-sm text-muted-foreground">
+            This venue&apos;s GloriaFood orders show here. Macaroonie&apos;s own online ordering is off (<Link to="/orders/settings" className="underline">Ordering setup</Link>).
+          </div>
+        ) : (
           <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 text-amber-900 p-3 text-sm">
             Online ordering is switched off for this venue. Turn it on in <Link to="/orders/settings" className="underline">Ordering setup</Link>.
           </div>
-        )}
+        ))}
 
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex gap-1">

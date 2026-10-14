@@ -13,44 +13,24 @@
 //
 // Figures and labels come from shared/loyverse.js; the server reads
 // Loyverse again on Fill, so what is written never comes from the browser.
+// The mapping editor and the fill window are shared with GloriaFood
+// (reconShared.jsx).
 
 import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { format, parseISO } from 'date-fns'
+import { format } from 'date-fns'
 import {
-  Loader2, Plus, X, Check, AlertTriangle, RefreshCw, Search, Lock, Trash2, Pencil, Download, Wand2,
+  Loader2, Plus, X, Check, AlertTriangle, RefreshCw, Search, Trash2, Pencil, Download, Wand2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { TOTAL_KINDS, REF_KINDS, termLabel } from '@shared/loyverse.js'
+import {
+  DAY_STARTS, money, useReconLinkPerms, Card, inputCls, btn, btnPrimary, btnOutline,
+  MappingGroups, SummaryRow, ReconFillModal,
+} from './reconShared'
 
-const GROUPS = [
-  { key: 'income',  label: 'Income',                 configKey: 'income_sources',   empty: 'No active income sources.' },
-  { key: 'sc',      label: 'Service charges & tips', configKey: 'sc_sources',       empty: 'No active service charge sources.' },
-  { key: 'takings', label: 'Takings',                configKey: 'payment_channels', empty: 'No active payment channels.' },
-]
-
-const DAY_STARTS = Array.from({ length: 24 }, (_, i) => {
-  const h = Math.floor(i / 2), m = i % 2 ? '30' : '00'
-  return String(h).padStart(2, '0') + ':' + m
-})
-
-function money(n, currency = 'GBP') {
-  try {
-    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency || 'GBP' }).format(n ?? 0)
-  } catch {
-    return (n < 0 ? '-' : '') + '£' + Math.abs(n ?? 0).toFixed(2)
-  }
-}
-
-function useLoyversePerms() {
-  const api = useApi()
-  const { data: me } = useQuery({ queryKey: ['me'], queryFn: () => api.get('/me'), staleTime: 60_000 })
-  const level = me?.is_platform_admin ? 'manage' : (me?.permissions?.cash_recon ?? 'none')
-  const canFill = level === 'manage'
-  const canSetup = canFill && (!!me?.is_platform_admin || ['owner', 'admin'].includes(me?.role))
-  return { canFill, canSetup, ready: !!me }
-}
+const useLoyversePerms = useReconLinkPerms
 
 export function useLoyverseLink(venueId) {
   const api = useApi()
@@ -61,23 +41,6 @@ export function useLoyverseLink(venueId) {
     staleTime: 60_000,
   })
 }
-
-function Card({ title, action, children }) {
-  return (
-    <div className="rounded-2xl border shadow-sm overflow-hidden">
-      <div className="px-4 py-3 flex items-center justify-between gap-3 section-head">
-        <span className="text-sm font-semibold">{title}</span>
-        {action}
-      </div>
-      <div className="p-4 bg-background space-y-3">{children}</div>
-    </div>
-  )
-}
-
-const inputCls = 'h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40'
-const btn = 'min-h-[48px] px-4 rounded-xl text-sm font-medium touch-manipulation disabled:opacity-50 inline-flex items-center justify-center gap-2'
-const btnPrimary = cn(btn, 'bg-primary text-primary-foreground hover:bg-primary/90')
-const btnOutline = cn(btn, 'border hover:bg-muted')
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 
@@ -408,47 +371,25 @@ function VenueLinkCard({ venueId, config, canSetup }) {
           <strong> −</strong> on a figure to switch between adding and subtracting it. Lines with nothing added are
           never changed by a fill.
         </p>
-        {GROUPS.map(g => {
-          const fields = (config?.[g.configKey] ?? []).filter(f => f.is_active)
-          return (
-            <div key={g.key} className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                <h4 className="text-sm font-semibold">{g.label}</h4>
-                {g.key === 'takings' && canSetup && catalog && (
-                  <button type="button" onClick={matchPaymentTypes} className={btnOutline}>
-                    <Wand2 className="w-4 h-4" /> Match payment types by name
-                  </button>
-                )}
-              </div>
-              {g.key === 'takings' && matchNote && <p className="text-sm text-muted-foreground">{matchNote}</p>}
-              {fields.length === 0 && <p className="text-sm text-muted-foreground">{g.empty}</p>}
-              <div className="divide-y rounded-xl border">
-                {fields.map(f => {
-                  const terms = termsOf(g.key, f.id)
-                  return (
-                    <div key={f.id} className="p-3 flex flex-col sm:flex-row sm:items-center gap-2">
-                      <div className="sm:w-44 shrink-0 text-sm font-medium">{f.name}</div>
-                      <div className="flex-1 flex flex-wrap items-center gap-2">
-                        {terms.length === 0 && <span className="text-sm text-muted-foreground">Not filled from Loyverse</span>}
-                        {terms.map((t, i) => (
-                          <TermChip key={i} term={t} names={names} readOnly={readOnly}
-                            onFlip={() => setField(g.key, f.id, terms.map((x, j) => j === i ? { ...x, sign: -x.sign } : x))}
-                            onRemove={() => setField(g.key, f.id, terms.filter((_, j) => j !== i))} />
-                        ))}
-                        {!readOnly && (
-                          <button type="button" onClick={() => setPicker({ group: g.key, id: f.id, name: f.name })}
-                            className={cn(btnOutline, 'border-dashed')}>
-                            <Plus className="w-4 h-4" /> Add
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
+        <MappingGroups
+          config={config}
+          mappings={d.mappings}
+          termLabel={t => termLabel(t, names)}
+          readOnly={readOnly}
+          emptyText="Not filled from Loyverse"
+          onChange={setField}
+          onAdd={(group, f) => setPicker({ group, id: f.id, name: f.name })}
+          groupAction={group => group === 'takings' && (
+            <div className="flex flex-col items-end gap-1">
+              {canSetup && catalog && (
+                <button type="button" onClick={matchPaymentTypes} className={btnOutline}>
+                  <Wand2 className="w-4 h-4" /> Match payment types by name
+                </button>
+              )}
+              {matchNote && <p className="text-sm text-muted-foreground">{matchNote}</p>}
             </div>
-          )
-        })}
+          )}
+        />
       </Card>
 
       {canSetup && (
@@ -484,31 +425,6 @@ function VenueLinkCard({ venueId, config, canSetup }) {
         />
       )}
     </>
-  )
-}
-
-function TermChip({ term, names, onFlip, onRemove, readOnly }) {
-  const neg = term.sign < 0
-  return (
-    <span className={cn('inline-flex items-stretch rounded-xl border overflow-hidden text-sm',
-      neg ? 'border-red-200 bg-red-50 text-red-900' : 'border-green-200 bg-green-50 text-green-900')}>
-      {readOnly
-        ? <span className="px-3 flex items-center font-bold">{neg ? '−' : '+'}</span>
-        : (
-          <button type="button" onClick={onFlip}
-            aria-label={neg ? 'Subtracted, tap to add' : 'Added, tap to subtract'}
-            className="w-12 min-h-[48px] text-lg font-bold touch-manipulation hover:bg-black/5 border-r border-black/10">
-            {neg ? '−' : '+'}
-          </button>
-        )}
-      <span className="px-2 py-1 flex items-center">{termLabel(term, names)}</span>
-      {!readOnly && (
-        <button type="button" onClick={onRemove} aria-label="Remove"
-          className="w-12 min-h-[48px] flex items-center justify-center touch-manipulation hover:bg-black/5">
-          <X className="w-4 h-4" />
-        </button>
-      )}
-    </span>
   )
 }
 
@@ -611,178 +527,28 @@ export function LoyverseFillButton({ venueId, dates, onApplied, compact, classNa
   )
 }
 
+const LOYVERSE = { name: 'Loyverse', path: '/loyverse', valueKey: 'loyverse', settingsHint: 'Cash Recon settings > Loyverse' }
+
 export function LoyverseFillModal({ venueId, dates, onClose, onApplied }) {
-  const api = useApi()
-  const qc = useQueryClient()
-  const from = dates[0], to = dates[dates.length - 1]
-  const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ['loyverse-preview', venueId, from, to],
-    queryFn:  () => api.post(`/loyverse/venues/${venueId}/preview`, { from, to }),
-    staleTime: 0, gcTime: 0, retry: false,
-  })
-  const [picked, setPicked] = useState(null)
-  const [applying, setApplying] = useState(false)
-  const [applyError, setApplyError] = useState(null)
-  const [result, setResult] = useState(null)
-
-  useEffect(() => {
-    if (!data) return
-    setPicked(new Set(data.days
-      .filter(d => d.status !== 'submitted' && (dates.length === 1 || d.sales + d.refund_receipts > 0))
-      .map(d => d.date)))
-  }, [data, dates.length])
-
-  const currency = data?.currency || 'GBP'
-  const days = data?.days ?? []
-  const fields = data?.fields ?? []
-  const toggle = date => setPicked(p => { const n = new Set(p); n.has(date) ? n.delete(date) : n.add(date); return n })
-
-  async function apply() {
-    setApplying(true); setApplyError(null)
-    try {
-      const r = await api.post(`/loyverse/venues/${venueId}/apply`, { dates: [...picked].sort() })
-      setResult(r)
-      qc.invalidateQueries({ queryKey: ['cash-recon-daily', venueId] })
-      qc.invalidateQueries({ queryKey: ['cash-recon-week-detail', venueId] })
-      qc.invalidateQueries({ queryKey: ['cash-recon-week'] })
-      onApplied?.(r)
-    } catch (e) { setApplyError(e.message) }
-    setApplying(false)
-  }
-
-  const dayLabel = date => format(parseISO(date), 'EEE d MMM')
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4"
-      onClick={e => { if (e.target === e.currentTarget && !applying) onClose() }}>
-      <div className={cn('bg-background rounded-2xl shadow-xl w-full max-h-[85vh] flex flex-col', dates.length === 1 ? 'max-w-xl' : 'max-w-5xl')}>
-        <div className="p-4 border-b flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold">Fill from Loyverse</div>
-            <div className="text-xs text-muted-foreground">
-              {data ? [data.store_name, 'Trading day from ' + data.day_starts_at].filter(Boolean).join(' · ') : 'Reading Loyverse…'}
-            </div>
-          </div>
-          <button type="button" onClick={() => refetch()} disabled={isFetching || applying} aria-label="Read again"
-            className="w-12 h-12 flex items-center justify-center rounded-xl hover:bg-muted touch-manipulation disabled:opacity-40">
-            <RefreshCw className={cn('w-5 h-5', isFetching && 'animate-spin')} />
-          </button>
-          <button type="button" onClick={onClose} disabled={applying} aria-label="Close"
-            className="w-12 h-12 flex items-center justify-center rounded-xl hover:bg-muted touch-manipulation"><X className="w-5 h-5" /></button>
-        </div>
-
-        <div className="overflow-auto flex-1">
-          {isLoading && <div className="p-8 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /> Reading Loyverse…</div>}
-          {error && <div className="m-4 rounded-xl border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{error.message}</div>}
-          {data && fields.length === 0 && (
-            <div className="m-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              Nothing is mapped yet. Map fields in Cash Recon settings &gt; Loyverse.
-            </div>
-          )}
-          {data && fields.length > 0 && (
-            <table className="w-max min-w-full border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-background">
-                <tr>
-                  <th className="sticky left-0 z-20 bg-background text-left px-3 py-2 border-b min-w-[170px]" />
-                  {days.map(d => {
-                    const locked = d.status === 'submitted'
-                    const on = picked?.has(d.date)
-                    return (
-                      <th key={d.date} className="px-2 py-2 border-b text-center min-w-[112px] align-top">
-                        <div className="text-xs font-semibold">{dayLabel(d.date)}</div>
-                        {locked ? (
-                          <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-green-700 min-h-[48px]"><Lock className="w-3 h-3" /> Submitted</div>
-                        ) : (
-                          <button type="button" onClick={() => toggle(d.date)} aria-pressed={!!on} disabled={!!result}
-                            className={cn('mt-1 w-full min-h-[48px] rounded-xl border text-xs font-medium touch-manipulation flex items-center justify-center gap-1',
-                              on ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-muted')}>
-                            {on ? <><Check className="w-3.5 h-3.5" /> Fill</> : 'Skip'}
-                          </button>
-                        )}
-                      </th>
-                    )
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {GROUPS.map(g => {
-                  const gf = fields.filter(f => f.group === g.key)
-                  if (!gf.length) return null
-                  return [
-                    <tr key={g.key}><td colSpan={days.length + 1} className="sticky left-0 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{g.label}</td></tr>,
-                    ...gf.map(f => (
-                      <tr key={f.key} className="border-b">
-                        <td className="sticky left-0 z-[1] bg-background px-3 py-2 align-top">
-                          <div className="font-medium">{f.name}</div>
-                          <div className="text-[11px] text-muted-foreground leading-snug">
-                            {f.terms.map((t, i) => (i === 0 ? (t.sign < 0 ? '− ' : '') : (t.sign < 0 ? ' − ' : ' + ')) + termLabel(t)).join('')}
-                          </div>
-                        </td>
-                        {days.map(d => {
-                          const v = d.values[f.key]
-                          const same = v.current != null && Math.abs(v.current - v.loyverse) < 0.005
-                          return (
-                            <td key={d.date} className="px-2 py-2 text-right align-top tabular-nums">
-                              <div className={cn('font-semibold', v.loyverse < 0 && 'text-red-700')}>{money(v.loyverse, currency)}</div>
-                              <div className="text-[11px] text-muted-foreground">
-                                {v.current == null ? 'empty now' : same ? 'same now' : 'now ' + money(v.current, currency)}
-                              </div>
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    )),
-                  ]
-                })}
-                <tr><td colSpan={days.length + 1} className="sticky left-0 bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Loyverse day</td></tr>
-                <SummaryRow label="Receipts" days={days} render={d => d.sales + (d.refund_receipts ? ` + ${d.refund_receipts} refund${d.refund_receipts === 1 ? '' : 's'}` : '')} />
-                <SummaryRow label="Gross sales" days={days} render={d => money(d.totals.gross_sales, currency)} />
-                <SummaryRow label="Net sales" days={days} render={d => money(d.totals.net_sales, currency)} />
-                <SummaryRow label="Total collected" days={days} render={d => money(d.totals.total_collected, currency)} />
-                <SummaryRow label="Payment types not mapped" days={days} render={d => {
-                  const un = d.payments.filter(p => !p.mapped && Math.abs(p.amount) >= 0.005)
-                  if (!un.length) return <span className="text-muted-foreground">—</span>
-                  return <span className="text-amber-700">{un.map(p => p.name + ' ' + money(p.amount, currency)).join(', ')}</span>
-                }} />
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="p-4 border-t flex flex-wrap items-center gap-3">
-          {result ? (
-            <div className="text-sm flex-1 min-w-0">
-              {result.filled.length > 0 && <span className="text-green-700">Filled {result.filled.map(dayLabel).join(', ')}.</span>}
-              {result.skipped.length > 0 && <span className="text-muted-foreground"> Skipped {result.skipped.map(s => dayLabel(s.date)).join(', ')} (submitted).</span>}
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground flex-1 min-w-0">
-              Only mapped lines are written; their notes stay. Submitted days are never changed.
-              {applyError && <div className="text-sm text-destructive mt-1">{applyError}</div>}
-            </div>
-          )}
-          {result ? (
-            <button type="button" onClick={onClose} className={btnPrimary}>Done</button>
-          ) : (
-            <>
-              <button type="button" onClick={onClose} disabled={applying} className={btnOutline}>Cancel</button>
-              <button type="button" onClick={apply} disabled={applying || !picked?.size || !fields.length} className={btnPrimary}>
-                {applying && <Loader2 className="w-4 h-4 animate-spin" />}
-                {picked?.size ? `Fill ${picked.size} ${picked.size === 1 ? 'day' : 'days'}` : 'Fill'}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SummaryRow({ label, days, render }) {
-  return (
-    <tr className="border-b">
-      <td className="sticky left-0 z-[1] bg-background px-3 py-2 text-xs text-muted-foreground">{label}</td>
-      {days.map(d => <td key={d.date} className="px-2 py-2 text-right text-xs tabular-nums align-top">{render(d)}</td>)}
-    </tr>
+    <ReconFillModal
+      source={LOYVERSE} venueId={venueId} dates={dates} onClose={onClose} onApplied={onApplied}
+      termLabel={t => termLabel(t)}
+      subtitle={data => [data.store_name, 'Trading day from ' + data.day_starts_at].filter(Boolean).join(' · ')}
+      hasSales={d => d.sales + d.refund_receipts > 0}
+      summary={(days, currency) => (
+        <>
+          <SummaryRow label="Receipts" days={days} render={d => d.sales + (d.refund_receipts ? ` + ${d.refund_receipts} refund${d.refund_receipts === 1 ? '' : 's'}` : '')} />
+          <SummaryRow label="Gross sales" days={days} render={d => money(d.totals.gross_sales, currency)} />
+          <SummaryRow label="Net sales" days={days} render={d => money(d.totals.net_sales, currency)} />
+          <SummaryRow label="Total collected" days={days} render={d => money(d.totals.total_collected, currency)} />
+          <SummaryRow label="Payment types not mapped" days={days} render={d => {
+            const un = d.payments.filter(p => !p.mapped && Math.abs(p.amount) >= 0.005)
+            if (!un.length) return <span className="text-muted-foreground">—</span>
+            return <span className="text-amber-700">{un.map(p => p.name + ' ' + money(p.amount, currency)).join(', ')}</span>
+          }} />
+        </>
+      )}
+    />
   )
 }

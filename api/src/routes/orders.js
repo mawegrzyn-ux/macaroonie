@@ -17,6 +17,13 @@
 //   POST   /:id/promised                     { promised_at }
 //   POST   /:id/mark-paid                    { method: 'cash' | 'card_terminal' }
 //   POST   /:id/refund                       { amount_pence?, reason? }
+//   POST   /gloriafood/:id/status            { to: accepted | preparing | ready | completed }
+//
+// GET / also returns the venue's GloriaFood orders for the day (migration
+// 159) when the venue's GloriaFood link has show_on_board on: same shape,
+// source 'gloriafood', mixed in by ready time. Their board status is ours
+// only (GloriaFood isn't told); a cancelled GloriaFood order shows as
+// cancelled and can't be moved.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -28,6 +35,7 @@ import {
   changeStatus, changePromisedTime, markPaid, refundOrder,
 } from '../services/orderSvc.js'
 import { broadcast } from '../config/ws.js'
+import { boardOrders, boardOrder } from '../services/gloriafoodSvc.js'
 import { isScheduled, scheduleProblem } from '../../../shared/menuSchedule.js'
 
 const uuid = z.string().uuid()
@@ -341,13 +349,46 @@ export default async function ordersRoutes(app) {
       const promosByOrder = {}
       for (const p of promos) (promosByOrder[p.order_id] ||= []).push(p)
       const settings = await loadSettings(tx, venue.id)
+      const [gf] = await tx`
+        SELECT show_on_board FROM gloriafood_venue_links
+         WHERE tenant_id = ${req.tenantId} AND venue_id = ${venue.id}`
+      const gfOrders = gf?.show_on_board
+        ? await boardOrders(tx, { tenantId: req.tenantId, venueId: venue.id, date, timezone: venue.timezone })
+        : []
+      const all = [
+        ...orders.map(o => adminOrder(o, byOrder[o.id] || [], {}, promosByOrder[o.id] || [])),
+        ...gfOrders,
+      ]
+      if (gfOrders.length) all.sort((a, b) => new Date(a.promised_at) - new Date(b.promised_at))
       return {
         date,
         venue: { id: venue.id, name: venue.name, timezone: venue.timezone },
         ordering: { is_enabled: settings.is_enabled, is_paused: settings.is_paused, pause_message: settings.pause_message },
-        orders: orders.map(o => adminOrder(o, byOrder[o.id] || [], {}, promosByOrder[o.id] || [])),
+        gloriafood: { show_on_board: !!gf?.show_on_board },
+        orders: all,
       }
     })
+  })
+
+  // GloriaFood orders: our own board status only (migration 159).
+  app.post('/gloriafood/:id/status', { preHandler: manage }, async (req) => {
+    if (!uuid.safeParse(req.params.id).success) throw httpError(404, 'Order not found')
+    const b = z.object({ to: z.enum(['accepted', 'preparing', 'ready', 'completed']) }).parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      const [o] = await tx`
+        SELECT id, status, venue_id FROM gloriafood_orders
+         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+      if (!o) throw httpError(404, 'Order not found')
+      if (o.status !== 'accepted') throw httpError(422, 'This order was cancelled in GloriaFood.')
+      const [u] = await tx`
+        UPDATE gloriafood_orders
+           SET board_status = ${b.to}, board_status_by = ${actorOf(req)}, board_status_at = now(), updated_at = now()
+         WHERE id = ${o.id} AND tenant_id = ${req.tenantId}
+        RETURNING *`
+      return u
+    })
+    broadcast(row.venue_id, { type: 'order.updated', source: 'gloriafood' })
+    return { order: boardOrder(row) }
   })
 
   app.get('/:id', { preHandler: view }, async (req) => {

@@ -48,6 +48,7 @@ import inventoryRoutes       from './routes/inventory.js'
 import supplierRoutes        from './routes/suppliers.js'
 import purchasingRoutes      from './routes/purchasing.js'
 import loyverseRoutes        from './routes/loyverse.js'
+import gloriafoodRoutes, { gloriafoodWebhookRoutes } from './routes/gloriafood.js'
 import deliverooRoutes       from './routes/deliveroo.js'
 import testDataRoutes        from './routes/testData.js'
 import foodSafetyRoutes      from './routes/foodSafety.js'
@@ -184,6 +185,8 @@ export async function buildApp() {
   await app.register(webhookRoutes)
   // Payment gateway webhooks for web orders (raw body, per gateway)
   await app.register(paymentWebhookRoutes)
+  // GloriaFood "Push Accepted Order" (migration 159): POST /webhooks/gloriafood/:token
+  await app.register(gloriafoodWebhookRoutes)
 
   // Tenant SSR site renderer.
   // Only fires when the Host header matches `{slug}.{PUBLIC_ROOT_DOMAIN}` and
@@ -225,6 +228,7 @@ export async function buildApp() {
   await app.register(supplierRoutes,         { prefix: '/api/suppliers' })
   await app.register(purchasingRoutes,       { prefix: '/api/purchasing' })
   await app.register(loyverseRoutes,         { prefix: '/api/loyverse' })
+  await app.register(gloriafoodRoutes,       { prefix: '/api/gloriafood' })
   await app.register(deliverooRoutes,        { prefix: '/api/deliveroo' })
   await app.register(testDataRoutes,         { prefix: '/api/venues' })
   await app.register(foodSafetyRoutes,       { prefix: '/api/food-safety' })
