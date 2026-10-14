@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-14 — Admin: service worker error in the console]
+
+- The admin's browser console showed "Uncaught (in promise) non-precached-url ... /index.html" on every page since 22 August. It came from the app's offline helper (service worker) and didn't affect any page, but it hid real errors. Fixed.
+- No migration.
+
+---
+
 ## [2026-10-14 — Guestplan block uses Guestplan's own button]
 
 - The Guestplan booking block no longer puts its own "Book a table" button on the page. That button was meant to open Guestplan's form in one tap, but on the live site it didn't open the form and sent visitors back to Guestplan's own button for a second tap.
