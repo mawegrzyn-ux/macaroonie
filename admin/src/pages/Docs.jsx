@@ -4248,15 +4248,18 @@ GET /robots.txt`}</Code>
 
             <H3>Guestplan block (guestplan_widget)</H3>
             <P>
-              Embeds Guestplan&apos;s own loader (<Mono>cdn.guestplan.com/widget.js</Mono>, <Mono>window._gstpln.accessKey</Mono>).
-              With <Mono>launcher_mode</Mono> our floating button loads it on the first tap, then waits (MutationObserver plus a
-              200 ms poll, up to 10 s) for Guestplan&apos;s elements (<Mono>id</Mono> / <Mono>class</Mono> containing{' '}
-              <Mono>gstpln</Mono> or <Mono>guestplan</Mono>, open shadow roots included), hides itself and clicks Guestplan&apos;s
-              launcher, so one tap opens the form. If a Guestplan element is already taller than 260 px after 700 ms (it opened
-              itself) it doesn&apos;t click, since that would close it. A launcher inside an iframe can&apos;t be clicked, so
-              visitors tap it once more. If Guestplan never appears (blocked), our button comes back. Guestplan documents no
-              open call, so this follows its markup; our own button id starts <Mono>mcrn-gp-launch-</Mono> so the search
-              never finds it. Tested against stand-in scripts only.
+              Embeds Guestplan&apos;s own loader (<Mono>cdn.guestplan.com/widget.js</Mono>, <Mono>window._gstpln.accessKey</Mono>),
+              loaded with the page. Guestplan mounts its own floating button and booking form outside the block (on a desktop
+              it may open the form by itself); we don&apos;t draw a button. With no heading the block outputs only the script
+              (and the optional custom CSS), so it adds no empty band; with a heading it renders a section holding just the
+              heading. A second Guestplan block on a page only re-sets the access key.
+            </P>
+            <P>
+              The earlier &quot;Start closed&quot; option (<Mono>data.launcher_mode</Mono>: our own floating button that loaded
+              Guestplan on the first tap and then clicked Guestplan&apos;s launcher for the visitor) is gone: on the live site the
+              click never opened the form, so visitors had to tap twice. Migration 163 removes <Mono>launcher_mode</Mono> from
+              every stored and published block, and clears <Mono>heading</Mono> on blocks that had it on (it was the button&apos;s
+              label there).
             </P>
 
             <H3>Publishing (admin)</H3>

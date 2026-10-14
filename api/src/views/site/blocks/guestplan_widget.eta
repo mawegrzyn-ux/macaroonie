@@ -2,14 +2,23 @@
 /* ── guestplan_widget block ───────────────────────────────────────────
  *
  * Embeds a third-party Guestplan reservations widget via their official
- * loader script (https://cdn.guestplan.com/widget.js). Guestplan's
- * script self-mounts into the page — there's no iframe URL or container
- * element we control, and no documented colour/theme API for the embed
- * snippet itself, so this can't be wired to the site theme the way our
- * own reservations_widget block is. Look and feel is whatever Guestplan
- * configures against the access key on their side (check their
- * dashboard for branding options), plus whatever the operator pastes
- * into the optional custom CSS field as a manual, best-effort override.
+ * loader script (https://cdn.guestplan.com/widget.js), loaded with the
+ * page. Guestplan's script mounts itself (its own floating button and
+ * booking form, which it may open by itself on a desktop); there's no
+ * iframe URL or container element we control, and no documented
+ * colour/theme API for the embed snippet itself, so this can't be wired
+ * to the site theme the way our own reservations_widget block is. Look
+ * and feel is whatever Guestplan configures against the access key on
+ * their side, plus whatever the operator pastes into the optional custom
+ * CSS field as a manual, best-effort override.
+ *
+ * We used to put our own button in front and load Guestplan on its first
+ * tap (keeps the form closed on desktop), but tapping Guestplan's
+ * launcher for the visitor didn't open the form on the live site, so the
+ * visitor had to tap twice. Guestplan's own button is the only one now.
+ *
+ * Guestplan doesn't mount inside this block, so with no heading the block
+ * outputs only the script and adds no empty band to the page.
  *
  * If two of these blocks somehow end up on the same page, the second
  * one just re-sets the access key rather than loading the loader script
@@ -23,131 +32,34 @@ const containerStyle = d.container === 'full'
   : 'max-width:' + innerMax + '; margin:0 auto; padding:0 ' + pad + ';'
 const accessKey = String(d.access_key || '').trim()
 const accessKeyJs = JSON.stringify(accessKey)
-const launcherMode = !!d.launcher_mode
-/* Not 'gstpln…': the launcher script looks for Guestplan's own elements by that name. */
-const launcherId = 'mcrn-gp-launch-' + Math.random().toString(36).slice(2, 9)
 %>
+<% if (!accessKey) { %>
 <section class="block" style="padding:48px 0;">
   <div style="<%= containerStyle %> text-align:center;">
-    <% if (d.heading && !launcherMode) { %><h2 style="font-family:var(--f-heading); margin:0 0 24px;"><%= d.heading %></h2><% } %>
-    <% if (accessKey) { %>
-      <% if (d.custom_css) { %>
-        <style><%~ d.custom_css %></style>
-      <% } %>
-      <% if (launcherMode) { %>
-        <%
-        /* Guestplan doesn't publish a documented "start closed" option —
-           it decides its own default (can be expanded on desktop). We
-           can't override behaviour inside a script we don't control, so
-           instead we simply never load it until the visitor clicks this
-           button. Nothing Guestplan-related mounts before that click. */
-        %>
-        <button type="button" id="<%= launcherId %>"
-          style="display:inline-flex; align-items:center; gap:8px; background:var(--c-primary); color:#fff;
-                 border:none; border-radius:999px; padding:14px 28px; font-size:15px; font-weight:600;
-                 cursor:pointer; position:fixed; right:20px; bottom:20px; z-index:60; box-shadow:0 4px 16px rgba(0,0,0,0.2);">
-          <%= d.heading || 'Book a table' %>
-        </button>
-        <script>
-        /* One tap opens the booking form. Guestplan's script mounts its own
-           launcher button (closed, at least on phones), which used to need a
-           second tap. After loading it we wait for Guestplan's elements
-           (named gstpln / guestplan), hide our button so the two never
-           stack, and tap Guestplan's launcher for the visitor, unless its
-           panel is already open. Guestplan documents no "open" call, so this
-           goes by its markup; if the launcher sits inside an iframe it can't
-           be tapped from here and the visitor taps it once. */
-        (function () {
-          var btn = document.getElementById(<%~ JSON.stringify(launcherId) %>);
-          if (!btn) return;
-          var label = btn.textContent;
-          var SEL = '[id*="gstpln" i],[class*="gstpln" i],[id*="guestplan" i],[class*="guestplan" i]';
-          function visible(el) {
-            if (!el || el === btn || btn.contains(el)) return false;
-            var r = el.getBoundingClientRect();
-            return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
-          }
-          function found() {
-            var out = [];
-            document.querySelectorAll(SEL).forEach(function (el) {
-              if (visible(el)) out.push(el);
-              if (el.shadowRoot) el.shadowRoot.querySelectorAll('button,a,[role="button"]').forEach(function (x) { if (visible(x)) out.push(x); });
-            });
-            return out;
-          }
-          function opened(els) {
-            return els.some(function (el) { return el.getBoundingClientRect().height > 260; });
-          }
-          function launcherOf(els) {
-            for (var i = 0; i < els.length; i++) {
-              var el = els[i];
-              if (el.tagName === 'IFRAME') continue;
-              if (el.matches('button,a,[role="button"]')) return el;
-              var inner = el.querySelector('button,a,[role="button"]');
-              if (inner && visible(inner)) return inner;
-            }
-            for (var j = 0; j < els.length; j++) if (els[j].tagName !== 'IFRAME') return els[j];
-            return null;
-          }
-          function waitAndOpen() {
-            var started = Date.now(), seenAt = 0, done = false;
-            var obs = new MutationObserver(check);
-            function finish() { done = true; obs.disconnect(); clearInterval(timer); }
-            function check() {
-              if (done) return;
-              var els = found();
-              if (!els.length) {
-                if (Date.now() - started > 10000) {
-                  /* Guestplan didn't appear (blocked or offline): our button again. */
-                  finish(); btn.disabled = false; btn.textContent = label; btn.style.opacity = '';
-                  btn.addEventListener('click', onClick);
-                }
-                return;
-              }
-              btn.style.display = 'none';
-              if (!seenAt) seenAt = Date.now();
-              if (opened(els)) return finish();
-              /* Give Guestplan a moment to open itself before tapping. */
-              if (Date.now() - seenAt < 700) return;
-              finish();
-              var target = launcherOf(els);
-              if (target) target.click();
-            }
-            obs.observe(document.documentElement, { childList: true, subtree: true });
-            var timer = setInterval(check, 200);
-          }
-          function onClick() {
-            btn.removeEventListener('click', onClick);
-            btn.disabled = true; btn.style.opacity = '0.7'; btn.textContent = 'Opening…';
-            if (!window._gstpln) {
-              (function(g,s,t,p,l,n){
-                g["_gstpln"]={};
-                (l=s.createElement(t)),(n=s.getElementsByTagName(t)[0]);
-                l.async=1;l.src=p;n.parentNode.insertBefore(l,n);
-              })(window,document,"script","https://cdn.guestplan.com/widget.js");
-            }
-            window._gstpln.accessKey = <%~ accessKeyJs %>;
-            waitAndOpen();
-          }
-          btn.addEventListener('click', onClick);
-        })();
-        </script>
-      <% } else { %>
-        <script>
-        (function () {
-          if (!window._gstpln) {
-            (function(g,s,t,p,l,n){
-              g["_gstpln"]={};
-              (l=s.createElement(t)),(n=s.getElementsByTagName(t)[0]);
-              l.async=1;l.src=p;n.parentNode.insertBefore(l,n);
-            })(window,document,"script","https://cdn.guestplan.com/widget.js");
-          }
-          window._gstpln.accessKey = <%~ accessKeyJs %>;
-        })();
-        </script>
-      <% } %>
-    <% } else { %>
-      <p style="color:var(--c-muted);">Guestplan widget not configured &mdash; add your access key in the block editor.</p>
-    <% } %>
+    <p style="color:var(--c-muted);">Guestplan widget not configured &mdash; add your access key in the block editor.</p>
   </div>
 </section>
+<% } else { %>
+<% if (d.heading) { %>
+<section class="block" style="padding:48px 0;">
+  <div style="<%= containerStyle %> text-align:center;">
+    <h2 style="font-family:var(--f-heading); margin:0;"><%= d.heading %></h2>
+  </div>
+</section>
+<% } %>
+<% if (d.custom_css) { %>
+<style><%~ d.custom_css %></style>
+<% } %>
+<script>
+(function () {
+  if (!window._gstpln) {
+    (function(g,s,t,p,l,n){
+      g["_gstpln"]={};
+      (l=s.createElement(t)),(n=s.getElementsByTagName(t)[0]);
+      l.async=1;l.src=p;n.parentNode.insertBefore(l,n);
+    })(window,document,"script","https://cdn.guestplan.com/widget.js");
+  }
+  window._gstpln.accessKey = <%~ accessKeyJs %>;
+})();
+</script>
+<% } %>
