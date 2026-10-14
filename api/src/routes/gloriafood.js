@@ -15,10 +15,15 @@
 //   GET    /venues/:venueId/seen              payment methods / order types seen (mapping picker)
 //   POST   /venues/:venueId/preview           { from, to } GloriaFood figures next to what Cash Recon has
 //   POST   /venues/:venueId/apply             { dates } write the mapped fields for those days
+//   GET    /venues/:venueId/import            imported orders: count and dates, last import
+//   POST   /venues/:venueId/import            { file_name, data (base64), apply } GloriaFood's order export:
+//                                              without apply, what importing it would do; with apply, do it
+//   DELETE /venues/:venueId/import            remove the imported orders (not the ones GloriaFood sent)
+//   GET    /import-template                   CSV with the columns the import reads
 //   POST   /webhooks/gloriafood/:token        GloriaFood's "Push Accepted Order" integration
 //
-// Setup is owner/admin with Cash reconciliation manage (as Loyverse); preview
-// needs view; apply and poll need manage. Poll keys are stored as typed and
+// Setup is owner/admin with Cash reconciliation manage (as Loyverse), and so
+// is importing; preview needs view; apply and poll need manage. Poll keys are stored as typed and
 // never returned. Apply works only from the stored orders (never figures
 // from the browser), writes only mapped fields, keeps their notes and leaves
 // submitted days alone.
@@ -32,9 +37,11 @@ import { datesBetween } from '../services/loyverseSvc.js'
 import { fillReconDay, reconFields } from '../services/reconFill.js'
 import {
   GloriaFoodError, keyHint, newPushToken, pollVenue, ingestOrders, ordersOf, venueDays, seenValues,
+  importExport, importedStats, removeImported,
 } from '../services/gloriafoodSvc.js'
+import { readFile } from './deliveroo.js'
 import {
-  isValidTerm, sumTerms, MAPPING_GROUPS, PAYMENT_LABELS, TYPE_LABELS, paymentLabel, typeLabel,
+  isValidTerm, sumTerms, MAPPING_GROUPS, PAYMENT_LABELS, TYPE_LABELS, paymentLabel, typeLabel, IMPORT_COLUMNS,
 } from '../../../shared/gloriafood.js'
 
 const UUID = z.string().uuid()
@@ -62,6 +69,12 @@ const LinkBody = z.object({
   mappings:      z.object({ income: GroupMap, takings: GroupMap, sc: GroupMap }).default({}),
 })
 const PreviewBody = z.object({ from: DATE, to: DATE })
+const ImportBody  = z.object({
+  file_name: z.string().max(300).default(''),
+  data:      z.string().min(1).max(22_000_000),         // base64 of a file up to 16 MB
+  apply:     z.boolean().default(false),
+})
+const MAX_IMPORT_FILE = 16 * 1024 * 1024
 const ApplyBody   = z.object({ dates: z.array(DATE).min(1).max(MAX_DAYS) })
 
 const pounds = p => Math.round(p) / 100
@@ -77,7 +90,8 @@ async function loadLink(tx, tenantId, venueId) {
   const [link] = await tx`
     SELECT l.*,
            (SELECT count(*)::int FROM gloriafood_orders o
-             WHERE o.tenant_id = l.tenant_id AND o.venue_id = l.venue_id) AS order_count
+             WHERE o.tenant_id = l.tenant_id AND o.venue_id = l.venue_id
+               AND o.received_via <> 'import') AS order_count
       FROM gloriafood_venue_links l
      WHERE l.tenant_id = ${tenantId} AND l.venue_id = ${venueId}`
   return link || null
@@ -102,6 +116,9 @@ function linkView(link) {
     last_poll_at: link.last_poll_at,
     last_error: link.last_error,
     last_error_at: link.last_error_at,
+    last_import_at: link.last_import_at,
+    last_import_by: link.last_import_by,
+    last_import_file: link.last_import_file,
     updated_at: link.updated_at,
   }
 }
@@ -338,7 +355,7 @@ export default async function gloriafoodRoutes(app) {
         SELECT id, gf_order_id, status, source, order_type, payment, currency, total_pence,
                accepted_at, fulfill_at, received_at, received_via, restaurant_name
           FROM gloriafood_orders
-         WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}
+         WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND received_via <> 'import'
          ORDER BY received_at DESC, gf_order_id DESC
          LIMIT ${q.limit}`
       return rows.map(r => ({
@@ -350,6 +367,60 @@ export default async function gloriafoodRoutes(app) {
         received_via: r.received_via, restaurant_name: r.restaurant_name,
       }))
     })
+  })
+
+  app.get('/venues/:venueId/import', { preHandler: canView }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    return withTenant(req.tenantId, async tx => {
+      const venue = await ownVenue(tx, req.tenantId, venueId)
+      const link = await loadLink(tx, req.tenantId, venueId)
+      return {
+        imported: await importedStats(tx, { tenantId: req.tenantId, venueId, timezone: venue.timezone }),
+        last_import_at: link?.last_import_at ?? null,
+        last_import_by: link?.last_import_by ?? null,
+        last_import_file: link?.last_import_file ?? null,
+      }
+    })
+  })
+
+  app.post('/venues/:venueId/import', { preHandler: canSetup, bodyLimit: 24 * 1024 * 1024 }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = ImportBody.parse(req.body)
+    const buf = Buffer.from(body.data, 'base64')
+    if (!buf.length) throw httpError(422, 'That file is empty')
+    if (buf.length > MAX_IMPORT_FILE) throw httpError(422, 'That file is over 16 MB. Export a shorter date range from GloriaFood.')
+    const file = readFile(buf, body.file_name, { from: 'GloriaFood' })
+    try {
+      return await withTenant(req.tenantId, async tx => {
+        const venue = await ownVenue(tx, req.tenantId, venueId)
+        const result = await importExport(tx, {
+          tenantId: req.tenantId, venueId, timezone: venue.timezone, cells: file.cells,
+          fileName: body.file_name || null, apply: body.apply, by: by(req),
+        })
+        if (!body.apply) return result
+        return { ...result, imported: await importedStats(tx, { tenantId: req.tenantId, venueId, timezone: venue.timezone }) }
+      })
+    } catch (e) {
+      if (e instanceof GloriaFoodError) throw httpError(422, e.message)
+      throw e
+    }
+  })
+
+  app.delete('/venues/:venueId/import', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    return withTenant(req.tenantId, async tx => {
+      const venue = await ownVenue(tx, req.tenantId, venueId)
+      const removed = await removeImported(tx, { tenantId: req.tenantId, venueId })
+      return { removed, imported: await importedStats(tx, { tenantId: req.tenantId, venueId, timezone: venue.timezone }) }
+    })
+  })
+
+  app.get('/import-template', { preHandler: canView }, async (req, reply) => {
+    const csvCell = v => (/[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v)
+    const header = IMPORT_COLUMNS.map(c => csvCell(c.header)).join(',')
+    reply.header('content-type', 'text/csv; charset=utf-8')
+    reply.header('content-disposition', 'attachment; filename="gloriafood-orders-template.csv"')
+    return '\uFEFF' + header + '\r\n'
   })
 
   app.get('/venues/:venueId/seen', { preHandler: canSetup }, async req => {
@@ -377,8 +448,11 @@ export default async function gloriafoodRoutes(app) {
       return l?.method
     })
     const pollError = method === 'poll' ? await freshen(req.tenantId, venueId, req.log) : null
-    const { link, fields, figures, currency } = await readDays(req.tenantId, venueId, dates)
-    const current = await withTenant(req.tenantId, tx => currentValues(tx, req.tenantId, venueId, dates))
+    const { venue, link, fields, figures, currency } = await readDays(req.tenantId, venueId, dates)
+    const { current, imported } = await withTenant(req.tenantId, async tx => ({
+      current: await currentValues(tx, req.tenantId, venueId, dates),
+      imported: await importedStats(tx, { tenantId: req.tenantId, venueId, timezone: venue.timezone }),
+    }))
 
     const mappedPayments = new Set()
     for (const group of MAPPING_GROUPS) {
@@ -391,6 +465,7 @@ export default async function gloriafoodRoutes(app) {
       restaurant_name: link.gf_restaurant_name, currency: currency || 'GBP',
       day_starts_at: link.day_starts_at, day_basis: link.day_basis, method: link.method,
       last_order_at: link.last_order_at, last_error: link.last_error, poll_error: pollError,
+      imported,
       fields: fields.map(f => ({ key: f.key, group: f.group, id: f.id, name: f.name, terms: f.terms })),
       days: dates.map(date => {
         const day = figures[date]

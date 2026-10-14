@@ -13,7 +13,8 @@
 //         Authorization, Accept: application/json, Glf-Api-Version: 2. Each
 //         accepted order is handed over once, so it must be stored at once.
 // There is no way to read old orders back: only orders accepted after the
-// link is set up ever reach us.
+// link is set up ever reach us. Earlier days come from GloriaFood's own order
+// export, imported by importExport() (migration 162).
 
 import crypto from 'node:crypto'
 import { sql, withTenant } from '../config/db.js'
@@ -22,7 +23,8 @@ import { broadcast } from '../config/ws.js'
 import { tradingDay } from './loyverseSvc.js'
 import { zonedToUtc } from './orderSvc.js'
 import {
-  orderFromPayload, summariseOrders, paymentLabel, typeLabel,
+  orderFromPayload, summariseOrders, paymentLabel, typeLabel, isValidTerm, termLabel,
+  matchImportColumns, importMissingFigures, importOrderFromRow, IMPORT_COLUMNS,
 } from '../../../shared/gloriafood.js'
 
 export class GloriaFoodError extends Error {
@@ -151,7 +153,9 @@ export async function ingestWithTx(tx, { tenantId, venueId, orders, via }) {
         client_name = EXCLUDED.client_name, client_phone = EXCLUDED.client_phone,
         client_address = EXCLUDED.client_address, instructions = EXCLUDED.instructions,
         table_number = EXCLUDED.table_number, persons = EXCLUDED.persons,
-        items = EXCLUDED.items, payload = EXCLUDED.payload, updated_at = now()
+        items = EXCLUDED.items, payload = EXCLUDED.payload, updated_at = now(),
+        received_via = CASE WHEN gloriafood_orders.received_via = 'import'
+                            THEN EXCLUDED.received_via ELSE gloriafood_orders.received_via END
       WHERE gloriafood_orders.venue_id = EXCLUDED.venue_id
         AND gloriafood_orders.tenant_id = EXCLUDED.tenant_id
         AND (gloriafood_orders.gf_updated_at IS NULL OR EXCLUDED.gf_updated_at IS NULL
@@ -370,8 +374,200 @@ export async function boardOrders(tx, { tenantId, venueId, date, timezone }) {
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
        AND fulfill_at >= ${start} AND fulfill_at < ${end}
        AND status IN ('accepted', 'canceled', 'cancelled')
+       AND received_via <> 'import'
      ORDER BY fulfill_at, gf_order_id
   `
   return rows.map(boardOrder)
 }
 
+
+// ── Importing GloriaFood's order export ──────────────────────
+
+export const MAX_IMPORT_ROWS = 50000
+const MAX_LISTED_PROBLEMS = 50
+const IMPORT_BATCH = 500
+
+const isBlankRow = row => !row || row.every(v => String(v ?? '').trim() === '')
+
+/**
+ * Read GloriaFood's order export (header + rows as text) for a venue and say
+ * what importing it would do; with `apply`, do it. Inside `tx` (tenant
+ * context set). Orders GloriaFood sent directly (push / poll) are never
+ * changed, and orders from the moment live orders started arriving are left
+ * out, so nothing is counted twice even if the export's order numbers don't
+ * match the API's. Re-importing the same file updates the imported orders.
+ * Throws GloriaFoodError when the file can't be used.
+ */
+export async function importExport(tx, { tenantId, venueId, timezone, cells, fileName, apply = false, by = null }) {
+  const [link] = await tx`
+    SELECT * FROM gloriafood_venue_links
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+     ${apply ? tx`FOR UPDATE` : tx``}`
+  if (!link) throw new GloriaFoodError('Link this venue to GloriaFood first (save the GloriaFood settings above), then import its past orders.')
+
+  const headerAt = (cells || []).findIndex(r => !isBlankRow(r))
+  if (headerAt < 0) throw new GloriaFoodError('That file is empty.')
+  const header = cells[headerAt]
+  const { at, missing } = matchImportColumns(header)
+  if (missing.length) {
+    throw new GloriaFoodError('That file is missing ' + (missing.length === 1 ? 'a column it needs: ' : 'columns it needs: ')
+      + missing.join(', ') + '. Use the order list exported from GloriaFood, or the template.')
+  }
+  const body = cells.slice(headerAt + 1)
+  if (body.length > MAX_IMPORT_ROWS) throw new GloriaFoodError(`That file has ${body.length} rows; up to ${MAX_IMPORT_ROWS} can be imported at once. Export a shorter date range.`)
+
+  const tz = timezone || 'UTC'
+  const problems = []
+  const byId = new Map()
+  let duplicates = 0, blank = 0
+  body.forEach((row, i) => {
+    if (isBlankRow(row)) { blank++; return }
+    const line = headerAt + i + 2
+    const r = importOrderFromRow(row, at)
+    if (r.problem) { problems.push({ line, message: r.problem }); return }
+    const o = r.order
+    o.line = line
+    o.fulfill_at = zonedToUtc(o.fulfill_local.date, o.fulfill_local.time, tz).toISOString()
+    o.accepted_at = o.accepted_local ? zonedToUtc(o.accepted_local.date, o.accepted_local.time, tz).toISOString() : null
+    if (byId.has(o.gf_order_id)) duplicates++
+    byId.set(o.gf_order_id, o)          // the last row for an order wins
+  })
+  const orders = [...byId.values()]
+
+  // When orders started arriving from GloriaFood directly.
+  const [{ live_from }] = await tx`
+    SELECT min(COALESCE(accepted_at, fulfill_at, received_at)) AS live_from
+      FROM gloriafood_orders
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND received_via IN ('push', 'poll')`
+  const liveFrom = live_from ? new Date(live_from).getTime() : null
+
+  const ids = orders.map(o => o.gf_order_id)
+  const existing = ids.length ? await tx`
+    SELECT o.gf_order_id, o.venue_id, o.received_via, v.name AS venue_name
+      FROM gloriafood_orders o
+      LEFT JOIN venues v ON v.id = o.venue_id AND v.tenant_id = o.tenant_id
+     WHERE o.tenant_id = ${tenantId} AND o.gf_order_id = ANY(${ids}::bigint[])` : []
+  const known = new Map(existing.map(r => [Number(r.gf_order_id), r]))
+
+  const toWrite = []
+  const counts = { new: 0, update: 0, live: 0, after_live: 0, other_venue: 0 }
+  const otherVenues = new Set()
+  for (const o of orders) {
+    const k = known.get(o.gf_order_id)
+    if (k && k.venue_id !== venueId) { counts.other_venue++; otherVenues.add(k.venue_name || 'another venue'); continue }
+    if (k && k.received_via !== 'import') { counts.live++; continue }
+    if (liveFrom != null && new Date(o.accepted_at || o.fulfill_at).getTime() >= liveFrom) { counts.after_live++; continue }
+    counts[k ? 'update' : 'new']++
+    toWrite.push(o)
+  }
+
+  // What the written orders add up to (only accepted, non-test orders count).
+  const summary = { orders: toWrite.length, counted: 0, total_pence: 0, statuses: {}, payments: {}, types: {}, from: null, to: null, currencies: [] }
+  const currencies = new Set()
+  for (const o of toWrite) {
+    summary.statuses[o.status] = (summary.statuses[o.status] || 0) + 1
+    const day = o.fulfill_local.date
+    if (!summary.from || day < summary.from) summary.from = day
+    if (!summary.to || day > summary.to) summary.to = day
+    if (o.currency) currencies.add(o.currency)
+    if (o.status !== 'accepted' || o.source === 'admin') continue
+    summary.counted++
+    summary.total_pence += o.total_pence
+    const pay = o.payment || 'Unknown'
+    const p = summary.payments[pay] || (summary.payments[pay] = { label: paymentLabel(o.payment), count: 0, amount_pence: 0 })
+    p.count++; p.amount_pence += o.total_pence
+    const type = o.order_type || 'other'
+    const t = summary.types[type] || (summary.types[type] = { label: typeLabel(o.order_type), count: 0, amount_pence: 0 })
+    t.count++; t.amount_pence += o.total_pence
+  }
+  summary.currencies = [...currencies]
+
+  // Mapped Cash Recon figures this file can't supply.
+  const notInFile = new Set(importMissingFigures(at))
+  const mappingGaps = []
+  for (const group of Object.values(link.mappings || {})) {
+    for (const terms of Object.values(group || {})) {
+      for (const t of terms || []) {
+        if (isValidTerm(t) && notInFile.has(t.kind)) {
+          const label = termLabel(t)
+          if (!mappingGaps.includes(label)) mappingGaps.push(label)
+        }
+      }
+    }
+  }
+
+  const result = {
+    file_name: fileName || null,
+    rows: body.length - blank,
+    columns: {
+      used: IMPORT_COLUMNS.filter(c => at[c.key] != null).map(c => String(header[at[c.key]] ?? c.header).trim()),
+      not_in_file: IMPORT_COLUMNS.filter(c => at[c.key] == null).map(c => c.header),
+    },
+    counts: { ...counts, duplicates, problems: problems.length },
+    other_venues: [...otherVenues],
+    live_from: live_from ? new Date(live_from).toISOString() : null,
+    summary,
+    mapping_gaps: mappingGaps,
+    problems: problems.slice(0, MAX_LISTED_PROBLEMS),
+    applied: false,
+  }
+  if (!apply) return result
+
+  for (let i = 0; i < toWrite.length; i += IMPORT_BATCH) {
+    const rows = toWrite.slice(i, i + IMPORT_BATCH).map(o => ({
+      tenant_id: tenantId, venue_id: venueId, gf_order_id: o.gf_order_id,
+      gf_restaurant_id: link.gf_restaurant_id ?? null, restaurant_name: link.gf_restaurant_name ?? null,
+      status: o.status, order_type: o.order_type, source: o.source, payment: o.payment,
+      used_payment_methods: o.used_payment_methods, card_type: o.card_type, gateway_type: null,
+      currency: o.currency, total_pence: o.total_pence, subtotal_pence: o.subtotal_pence,
+      items_pence: o.items_pence, discount_pence: o.discount_pence, delivery_fee_pence: o.delivery_fee_pence,
+      tip_pence: o.tip_pence, service_fee_pence: o.service_fee_pence, tax_pence: o.tax_pence,
+      accepted_at: o.accepted_at, fulfill_at: o.fulfill_at, for_later: false,
+      items: tx.json([]),
+      payload: tx.json({ imported: { file: fileName || null, line: o.line } }),
+      board_status: 'completed', received_via: 'import',
+    }))
+    await tx`
+      INSERT INTO gloriafood_orders ${tx(rows,
+        'tenant_id', 'venue_id', 'gf_order_id', 'gf_restaurant_id', 'restaurant_name', 'status', 'order_type',
+        'source', 'payment', 'used_payment_methods', 'card_type', 'gateway_type', 'currency', 'total_pence',
+        'subtotal_pence', 'items_pence', 'discount_pence', 'delivery_fee_pence', 'tip_pence', 'service_fee_pence',
+        'tax_pence', 'accepted_at', 'fulfill_at', 'for_later', 'items', 'payload', 'board_status', 'received_via')}
+      ON CONFLICT (tenant_id, gf_order_id) DO UPDATE SET
+        status = EXCLUDED.status, order_type = EXCLUDED.order_type, source = EXCLUDED.source,
+        payment = EXCLUDED.payment, used_payment_methods = EXCLUDED.used_payment_methods,
+        card_type = EXCLUDED.card_type, currency = EXCLUDED.currency,
+        total_pence = EXCLUDED.total_pence, subtotal_pence = EXCLUDED.subtotal_pence,
+        delivery_fee_pence = EXCLUDED.delivery_fee_pence, tip_pence = EXCLUDED.tip_pence,
+        service_fee_pence = EXCLUDED.service_fee_pence, tax_pence = EXCLUDED.tax_pence,
+        accepted_at = EXCLUDED.accepted_at, fulfill_at = EXCLUDED.fulfill_at,
+        payload = EXCLUDED.payload, updated_at = now()
+      WHERE gloriafood_orders.received_via = 'import'
+        AND gloriafood_orders.venue_id = EXCLUDED.venue_id
+        AND gloriafood_orders.tenant_id = EXCLUDED.tenant_id`
+  }
+  await tx`
+    UPDATE gloriafood_venue_links
+       SET last_import_at = now(), last_import_by = ${by}, last_import_file = ${fileName || null}, updated_at = now()
+     WHERE id = ${link.id} AND tenant_id = ${tenantId}`
+  return { ...result, applied: true }
+}
+
+/** The venue's imported orders: { count, from, to } (venue-local dates), or count 0. */
+export async function importedStats(tx, { tenantId, venueId, timezone }) {
+  const [r] = await tx`
+    SELECT count(*)::int AS count, min(fulfill_at) AS first, max(fulfill_at) AS last
+      FROM gloriafood_orders
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND received_via = 'import'`
+  const day = d => (d ? new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'UTC' }).format(new Date(d)) : null)
+  return { count: r.count, from: day(r.first), to: day(r.last) }
+}
+
+/** Remove the venue's imported orders (orders GloriaFood sent directly stay). Returns how many. */
+export async function removeImported(tx, { tenantId, venueId }) {
+  const rows = await tx`
+    DELETE FROM gloriafood_orders
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND received_via = 'import'
+     RETURNING id`
+  return rows.length
+}

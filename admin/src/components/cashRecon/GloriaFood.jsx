@@ -10,6 +10,9 @@
 //                          and the latest orders received. One explicit Save.
 //   GloriaFoodFillButton   "Fill from GloriaFood" on the day view and the week
 //                          grid; opens the shared fill window (reconShared).
+//   ImportPastOrders       (settings) import GloriaFood's order export for the
+//                          days before the link: preview, then Import; remove
+//                          imported orders (migration 162).
 //
 // Figures and labels come from shared/gloriafood.js. GloriaFood only hands
 // over orders as they are accepted, so the figures are the orders stored
@@ -20,11 +23,11 @@ import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import {
-  Loader2, X, Check, AlertTriangle, RefreshCw, Search, Download, Copy, Link2, ShoppingBag,
+  Loader2, X, Check, AlertTriangle, RefreshCw, Search, Download, Copy, Link2, ShoppingBag, Upload, FileSpreadsheet,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { TOTAL_KINDS, REF_KINDS, termLabel } from '@shared/gloriafood.js'
+import { TOTAL_KINDS, REF_KINDS, termLabel, IMPORT_COLUMNS } from '@shared/gloriafood.js'
 import {
   DAY_STARTS, money, useReconLinkPerms, Card, inputCls, btn, btnPrimary, btnOutline, btnDanger,
   MappingGroups, SummaryRow, ReconFillModal,
@@ -64,7 +67,8 @@ export function GloriaFoodSettings({ venueId, config }) {
       <p className="text-sm text-muted-foreground leading-relaxed">
         Fill a day&apos;s income, service charges and takings from this venue&apos;s accepted GloriaFood orders, and
         (if you want) show those orders on the Online orders board. GloriaFood only hands orders over as they are
-        accepted, so orders count from the day you link the venue onwards.
+        accepted, so orders count from the day you link the venue onwards; for earlier days, import GloriaFood&apos;s
+        order export (Import past orders, below).
       </p>
       {ready && !canSetup && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
@@ -321,6 +325,8 @@ function VenueLinkCards({ venueId, config, canSetup }) {
         />
       </Card>
 
+      {link && <ImportPastOrders venueId={venueId} canSetup={canSetup} />}
+
       {link && <LatestOrders venueId={venueId} />}
 
       {canSetup && (
@@ -383,6 +389,201 @@ function PushUrl({ url }) {
         {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />} {copied ? 'Copied' : 'Copy'}
       </button>
     </div>
+  )
+}
+
+// ── Importing past orders ────────────────────────────────────────────────────
+
+const pence = (p, currency) => money((p || 0) / 100, currency)
+const dayLabel = d => (d ? format(new Date(d + 'T12:00:00'), 'd MMM yyyy') : '')
+const plural = (n, one, many) => n + ' ' + (n === 1 ? one : many)
+const NEEDED = IMPORT_COLUMNS.filter(c => c.need === 'required').map(c => c.header)
+const USEFUL = IMPORT_COLUMNS.filter(c => c.need === 'recommended').map(c => c.header)
+
+function readBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).split(',')[1] || '')
+    r.onerror = () => reject(new Error('That file couldn\'t be opened'))
+    r.readAsDataURL(file)
+  })
+}
+
+function ImportPastOrders({ venueId, canSetup }) {
+  const api = useApi()
+  const qc = useQueryClient()
+  const { data: status } = useQuery({
+    queryKey: ['gloriafood-import', venueId],
+    queryFn:  () => api.get(`/gloriafood/venues/${venueId}/import`),
+  })
+  const [file, setFile] = useState(null)            // { name, data }
+  const [preview, setPreview] = useState(null)
+  const [busy, setBusy] = useState(null)            // 'read' | 'import' | 'remove'
+  const [error, setError] = useState(null)
+  const [done, setDone] = useState(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  useEffect(() => { setFile(null); setPreview(null); setError(null); setDone(null); setConfirmRemove(false) }, [venueId])
+
+  const imported = status?.imported
+  async function pick(e) {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    setError(null); setDone(null); setPreview(null); setBusy('read')
+    try {
+      const data = await readBase64(f)
+      const res = await api.post(`/gloriafood/venues/${venueId}/import`, { file_name: f.name, data, apply: false })
+      setFile({ name: f.name, data })
+      setPreview(res)
+    } catch (err) {
+      setFile(null)
+      setError(err?.body?.error || err.message)
+    } finally { setBusy(null) }
+  }
+  async function runImport() {
+    setBusy('import'); setError(null)
+    try {
+      const res = await api.post(`/gloriafood/venues/${venueId}/import`, { file_name: file.name, data: file.data, apply: true })
+      setDone(`Imported ${plural(res.counts.new + res.counts.update, 'order', 'orders')} (${res.counts.new} new, ${res.counts.update} updated).`)
+      setFile(null); setPreview(null)
+      qc.invalidateQueries({ queryKey: ['gloriafood-import', venueId] })
+      qc.invalidateQueries({ queryKey: ['gloriafood-link', venueId] })
+      qc.invalidateQueries({ queryKey: ['gloriafood-seen', venueId] })
+    } catch (err) {
+      setError(err?.body?.error || err.message)
+    } finally { setBusy(null) }
+  }
+  async function remove() {
+    setBusy('remove'); setError(null)
+    try {
+      const res = await api.delete(`/gloriafood/venues/${venueId}/import`)
+      setDone(`Removed ${plural(res.removed, 'imported order', 'imported orders')}.`)
+      setConfirmRemove(false)
+      qc.invalidateQueries({ queryKey: ['gloriafood-import', venueId] })
+      qc.invalidateQueries({ queryKey: ['gloriafood-link', venueId] })
+    } catch (err) {
+      setError(err?.body?.error || err.message)
+    } finally { setBusy(null) }
+  }
+
+  const c = preview?.counts
+  const sum = preview?.summary
+  const cur = sum?.currencies?.[0] || 'GBP'
+  const toImport = c ? c.new + c.update : 0
+
+  return (
+    <Card title="Import past orders">
+      <div className="space-y-3 text-sm">
+        <p className="text-muted-foreground leading-relaxed">
+          GloriaFood only sends orders as they are accepted. For earlier days, export the order list from GloriaFood&apos;s
+          admin and import it here; Fill from GloriaFood then works for those days too. Orders GloriaFood sent directly are
+          never changed, orders from when they started arriving are left out, and importing a file again updates it rather
+          than adding twice. Guest names, emails and phone numbers in the file are not read.
+        </p>
+        <div className="rounded-xl border bg-muted/30 px-3 py-2.5 space-y-1">
+          <p><span className="font-medium">Columns it needs:</span> {NEEDED.join(', ')}, and Fulfillment date + Fulfillment time (or Confirmed date + Confirmed time).</p>
+          <p><span className="font-medium">Worth including:</span> {USEFUL.join(', ')}. Without them, fields mapped to a payment method or order type stay at £0 for imported days.</p>
+          <p className="text-muted-foreground">Other columns (subtotal, taxes, tips, delivery and service fees, currency...) are used when present. Column order doesn&apos;t matter.</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => api.download('/gloriafood/import-template', 'gloriafood-orders-template.csv')}
+            className={btnOutline}>
+            <Download className="w-4 h-4" /> Template
+          </button>
+          {canSetup && (
+            <label className={cn(btnPrimary, 'cursor-pointer', busy && 'opacity-50 pointer-events-none')}>
+              {busy === 'read' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              Choose file (CSV or Excel)
+              <input type="file" accept=".csv,.xlsx,.xls,text/csv" className="sr-only" onChange={pick} disabled={!!busy} />
+            </label>
+          )}
+        </div>
+
+        {imported && (
+          <p className="text-muted-foreground">
+            {imported.count
+              ? <>Imported so far: <span className="font-medium text-foreground">{plural(imported.count, 'order', 'orders')}</span>, {dayLabel(imported.from)} to {dayLabel(imported.to)}.</>
+              : 'No orders imported yet.'}
+            {status?.last_import_at && <> Last import {when(status.last_import_at)}{status.last_import_by ? ' by ' + status.last_import_by : ''}{status.last_import_file ? ' (' + status.last_import_file + ')' : ''}.</>}
+          </p>
+        )}
+
+        {error && <p className="text-destructive flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {error}</p>}
+        {done && <p className="text-green-700 flex items-start gap-1.5"><Check className="w-4 h-4 shrink-0 mt-0.5" /> {done} Fill Cash Recon days from the day view or the week grid.</p>}
+
+        {preview && (
+          <div className="rounded-xl border p-3 space-y-3" data-testid="import-preview">
+            <p className="font-medium flex items-center gap-2"><FileSpreadsheet className="w-4 h-4" /> {file?.name}: {plural(preview.rows, 'row', 'rows')} read</p>
+            <ul className="space-y-1">
+              <li><span className="font-semibold">{plural(c.new, 'order', 'orders')}</span> to add{c.update ? <>, <span className="font-semibold">{c.update}</span> already imported to update</> : null}.</li>
+              {c.live > 0 && <li className="text-muted-foreground">{plural(c.live, 'order was', 'orders were')} already received from GloriaFood directly, so left alone.</li>}
+              {c.after_live > 0 && <li className="text-muted-foreground">{plural(c.after_live, 'order is', 'orders are')} from {when(preview.live_from)} on, when orders started arriving directly, so left out.</li>}
+              {c.other_venue > 0 && <li className="text-amber-700">{plural(c.other_venue, 'order belongs', 'orders belong')} to {preview.other_venues.join(', ')}, so left out.</li>}
+              {c.duplicates > 0 && <li className="text-muted-foreground">{plural(c.duplicates, 'row repeats', 'rows repeat')} an order number; the last row is used.</li>}
+              {c.problems > 0 && <li className="text-amber-700">{plural(c.problems, 'row', 'rows')} can&apos;t be used (listed below).</li>}
+            </ul>
+
+            {sum.orders > 0 && (
+              <div className="space-y-2">
+                <p>
+                  {dayLabel(sum.from)} to {dayLabel(sum.to)}: <span className="font-semibold">{plural(sum.counted, 'accepted order', 'accepted orders')}</span>,{' '}
+                  <span className="font-semibold">{pence(sum.total_pence, cur)}</span>
+                  {sum.orders > sum.counted && <span className="text-muted-foreground"> (plus {sum.orders - sum.counted} cancelled, rejected or test, which don&apos;t count)</span>}.
+                </p>
+                <div className="divide-y rounded-xl border max-w-md">
+                  {Object.entries(sum.payments).map(([k, p]) => (
+                    <div key={k} className="px-3 py-1.5 flex items-center gap-3">
+                      <span className="flex-1 min-w-0 truncate">{p.label}</span>
+                      <span className="text-muted-foreground tabular-nums">{p.count}</span>
+                      <span className="w-24 text-right font-medium tabular-nums">{pence(p.amount_pence, cur)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {preview.mapping_gaps.length > 0 && (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                Your field mapping uses {preview.mapping_gaps.join(', ')}, which this file doesn&apos;t have: imported days will show £0 for it.
+                Map those fields to Order totals or Food subtotal if you fill past days.
+              </p>
+            )}
+            {preview.columns.not_in_file.length > 0 && (
+              <p className="text-xs text-muted-foreground">Not in this file (counted as 0 or left empty): {preview.columns.not_in_file.join(', ')}.</p>
+            )}
+
+            {preview.problems.length > 0 && (
+              <div className="rounded-xl border max-h-48 overflow-y-auto divide-y text-xs">
+                {preview.problems.map(pr => (
+                  <div key={pr.line} className="px-3 py-1.5"><span className="font-medium tabular-nums">Row {pr.line}:</span> {pr.message}</div>
+                ))}
+                {c.problems > preview.problems.length && <div className="px-3 py-1.5 text-muted-foreground">and {c.problems - preview.problems.length} more</div>}
+              </div>
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => { setPreview(null); setFile(null) }} className={btnOutline} disabled={!!busy}>Cancel</button>
+              <button type="button" onClick={runImport} disabled={!toImport || !!busy} className={btnPrimary}>
+                {busy === 'import' && <Loader2 className="w-4 h-4 animate-spin" />} Import {plural(toImport, 'order', 'orders')}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {canSetup && imported?.count > 0 && !preview && (
+          confirmRemove ? (
+            <ConfirmRow
+              text={`Remove the ${plural(imported.count, 'imported order', 'imported orders')}? Orders GloriaFood sent directly stay. Cash Recon days already filled keep their figures until you fill them again.`}
+              yes="Yes, remove" busy={busy === 'remove'} onNo={() => setConfirmRemove(false)} onYes={remove} />
+          ) : (
+            <button type="button" onClick={() => setConfirmRemove(true)} className={cn(btnOutline, 'text-destructive')}>
+              Remove imported orders
+            </button>
+          )
+        )}
+      </div>
+    </Card>
   )
 }
 
@@ -528,7 +729,9 @@ export function GloriaFoodFillModal({ venueId, dates, onClose, onApplied }) {
           )}
           {!data.last_order_at && (
             <div className="m-4 mb-0 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              No GloriaFood orders have reached this venue yet. Check the setup in {GLORIAFOOD.settingsHint}.
+              {data.imported?.count > 0
+                ? <>GloriaFood hasn&apos;t sent this venue an order yet, so only imported orders are here (up to {dayLabel(data.imported.to)}). Check the setup in {GLORIAFOOD.settingsHint}.</>
+                : <>No GloriaFood orders have reached this venue yet. Check the setup in {GLORIAFOOD.settingsHint}.</>}
             </div>
           )}
         </>
