@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-13 — Deploys no longer fail while the API is still starting]
+
+- The deploy's health check ran 3 seconds after restarting the API and failed whenever the API took a little longer to start (two of the last three deploys, both fine on a rerun). It now tries every 2 seconds for up to 30 seconds and only then fails the deploy.
+- nginx warned "protocol options redefined for 0.0.0.0:443" on every deploy because the custom domain blocks ask for HTTP/2 and the apex block didn't. Each deploy now adds `http2` to the HTTPS listen lines that lack it on an address where HTTP/2 is already on (`scripts/ensure-nginx-http2.sh`). Nothing changes for visitors: nginx already served those sites over HTTP/2.
+- No migration.
+
+---
+
 ## [2026-10-13 — Optional password for the staging site]
 
 - In the publish window, under **Staging**: **Add a password**. Visitors to your staging address are then asked for it before they see anything; once entered, their browser remembers it for 30 days.

@@ -4689,9 +4689,22 @@ git push origin main
 #   2. git fetch + hard reset to origin/main
 #   3. npm install (api)
 #   4. node scripts/migrate.js   (auto-baselines then applies pending)
-#   5. npm install + build (admin)
+#   5. npm install + build (admin, then the till app in pos/)
 #   6. pm2 restart macaroonie-api
-#   7. health check on /api/health`}</Code>
+#   7. nginx patches (sudo): /manage on the apex, SPA cache headers,
+#      http2 on every https listen (ensure-nginx-http2.sh), domain sync
+#   8. health check on /api/health: tries every 2 s for up to 30 s,
+#      then fails the deploy with the last 30 PM2 log lines`}</Code>
+            <P>
+              <Mono>scripts/ensure-nginx-http2.sh</Mono>: nginx 1.24 warns{' '}
+              <Mono>protocol options redefined for 0.0.0.0:443</Mono> when server blocks on one address disagree about{' '}
+              <Mono>http2</Mono> (certbot writes <Mono>listen 443 ssl;</Mono>, the custom domain script{' '}
+              <Mono>listen 443 ssl http2;</Mono>). http2 belongs to the listening socket, so once one block on an
+              address has it every name there is served over HTTP/2 already; the script adds <Mono>http2</Mono> to the
+              other <Mono>listen ... ssl</Mono> lines on that address (in the files <Mono>sites-enabled</Mono> points at),
+              runs <Mono>nginx -t</Mono> (restores every file and fails if it doesn&apos;t pass) and reloads. It never
+              removes http2 and leaves addresses where no block has it alone.
+            </P>
             <H3>First-time baselining</H3>
             <P>
               On a server whose schema was built with hand-run <Mono>psql</Mono> before the

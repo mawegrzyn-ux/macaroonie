@@ -75,6 +75,10 @@ jobs:
                 || echo "WARN: nginx /manage patch failed (guest links on apex may still hit Auth0)"
               sudo bash $APP/scripts/ensure-nginx-spa-cache.sh \
                 || echo "WARN: nginx SPA cache-header patch failed"
+              # Every https listen on an address agrees on http2, so nginx
+              # stops warning "protocol options redefined".
+              sudo bash $APP/scripts/ensure-nginx-http2.sh \
+                || echo "WARN: nginx http2 listen alignment failed"
               # Custom domains switch on by themselves (systemd timer); see
               # scripts/custom-domains-sync.sh.
               sudo bash $APP/scripts/install-domain-sync.sh \
@@ -84,7 +88,9 @@ jobs:
             fi
 
             echo "── health check ─────────────────────────"
-            sleep 3
-            curl -sf http://localhost:3000/api/health \
+            # The API takes a few seconds to start after the restart; wait up
+            # to 30 s for it to answer, then check once more for the result.
+            for i in $(seq 1 15); do curl -sf -o /dev/null --max-time 5 http://localhost:3000/api/health && break; sleep 2; done
+            curl -sf --max-time 5 http://localhost:3000/api/health \
               && echo "✓ API healthy" \
               || (echo "✗ health check failed"; pm2 logs macaroonie-api --lines 30 --nostream; exit 1)
