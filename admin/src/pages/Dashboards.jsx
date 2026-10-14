@@ -13,6 +13,7 @@ import { DashboardPage } from '@/pages/HSDashboard'
 export const CUSTOM_DASHBOARD_CONFIG = {
   apiBase:      '/custom-dashboards',
   keyPrefix:    'custom',
+  moduleKey:    'custom_dashboard',
   title:        'Dashboards',
   icon:         LayoutTemplate,
   primaryGroup: null,

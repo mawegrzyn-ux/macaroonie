@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-14 — Dashboards: View can use, only Manage changes the layout]
+
+- On the H&S, Cash Recon, Rota and blank Dashboards pages, people with **View** on that dashboard no longer see Edit layout, New dashboard, Create dashboard or Add widget. They can still open every dashboard, switch tabs, change the date and use the widgets. Before, the buttons showed for everyone and saving failed for View users.
+- What someone can do inside a widget still comes from that widget's own area (for example Cash Reconciliation for the cash widgets), so View on Cash Recon Dashboard plus Manage on Cash Reconciliation means filling in figures without changing the layout.
+- No migration.
+
+---
+
 ## [2026-10-14 — GloriaFood orders in Cash Recon and on the orders board]
 
 - Cash Recon settings > **GloriaFood**: link a venue to its GloriaFood restaurant. Either GloriaFood sends each accepted order to the venue's own address (integration *Push Accepted Order*, JSON), or Macaroonie collects them every minute with a key (*Poll Accepted Order v2*). GloriaFood only hands orders over as it accepts them, so orders count from the day the venue is linked.

@@ -1555,6 +1555,18 @@ export default function Help() {
               rows, and shorter widgets stack beside it instead of leaving a gap. The health &amp;
               safety widgets are:
             </P>
+            <P>
+              <strong>Who can change a dashboard.</strong> Each dashboard page has its own permission
+              in Access → Roles (H&amp;S Dashboard, Cash Recon Dashboard, Rota Dashboard,
+              Dashboards). <strong>View</strong> lets someone open the dashboards, switch tabs, change
+              the date and use the widgets; they don&apos;t see Edit layout, New dashboard or Add
+              widget. <strong>Manage</strong> is needed to add, rename, reorder or delete dashboards
+              and to add, remove, resize, rename or set up widgets. What someone can do inside a
+              widget (enter figures, tick a checklist, log a temperature) comes from that
+              widget&apos;s own area: for example, the cash widgets follow the Cash Reconciliation
+              permission, so View on Cash Recon Dashboard with Manage on Cash Reconciliation lets
+              someone fill in the week without changing the layout.
+            </P>
             <DataTable
               head={['Widget', 'Shows']}
               rows={[

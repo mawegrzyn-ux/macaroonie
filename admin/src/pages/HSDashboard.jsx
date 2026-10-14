@@ -352,6 +352,8 @@ function WidgetCard({
 export const HS_DASHBOARD_CONFIG = {
   apiBase:      '/hs-dashboards',
   keyPrefix:    'hs',
+  // Module whose Manage permission lets someone change the layout.
+  moduleKey:    'hs_dashboard',
   title:        'H&S Dashboard',
   icon:         LayoutGrid,
   primaryGroup: 'hs',
@@ -381,7 +383,12 @@ export function DashboardPage({ config }) {
 
   const [venueId, setVenueId] = useState('')
   const [activeDashboardId, setActiveDashboardId] = useState('')
-  const [editing, setEditing] = useState(false)
+  const [editingOn, setEditing] = useState(false)
+  // Changing the layout (tabs, widgets, sizes, options) needs Manage on the
+  // dashboard's module; View can open and use the dashboards. The API
+  // refuses layout changes without Manage too (routes/hsDashboards.js).
+  const canEditLayout = !!me?.is_platform_admin || me?.permissions?.[config.moduleKey] === 'manage'
+  const editing = canEditLayout && editingOn
   const [dashModal, setDashModal] = useState(null) // 'new' | dashboard row | null
   const [confirmDeleteDash, setConfirmDeleteDash] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
@@ -541,7 +548,7 @@ export function DashboardPage({ config }) {
               {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
             </select>
           )}
-          {dashboards.length > 0 && (
+          {canEditLayout && dashboards.length > 0 && (
             <button type="button" onClick={() => setEditing(e => !e)}
               className={cn(
                 'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation',
@@ -551,7 +558,7 @@ export function DashboardPage({ config }) {
               {editing ? 'Done editing' : 'Edit layout'}
             </button>
           )}
-          {venueId && dashboards.length > 0 && (
+          {canEditLayout && venueId && dashboards.length > 0 && (
             <button type="button" onClick={() => setDashModal('new')}
               className="inline-flex items-center gap-1.5 rounded-lg border hover:bg-accent px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
               <Plus className="w-4 h-4" /> New dashboard
@@ -602,11 +609,19 @@ export function DashboardPage({ config }) {
       ) : dashboards.length === 0 ? (
         <div className="border rounded-xl p-10 text-center">
           <TitleIcon className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-          <p className="text-muted-foreground text-sm mb-4">{config.emptyText}</p>
-          <button type="button" onClick={() => setDashModal('new')}
-            className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
-            <Plus className="w-4 h-4" /> Create dashboard
-          </button>
+          {canEditLayout ? (
+            <>
+              <p className="text-muted-foreground text-sm mb-4">{config.emptyText}</p>
+              <button type="button" onClick={() => setDashModal('new')}
+                className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
+                <Plus className="w-4 h-4" /> Create dashboard
+              </button>
+            </>
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              No dashboards here yet. Someone with Manage access to this dashboard can set one up.
+            </p>
+          )}
         </div>
       ) : (
         <>
@@ -670,13 +685,21 @@ export function DashboardPage({ config }) {
 
           {widgets.length === 0 ? (
             <div className="border rounded-xl p-10 text-center">
-              <p className="text-muted-foreground text-sm mb-4">
-                {config.emptyWidgetsText}
-              </p>
-              <button type="button" onClick={() => setAddWidgetOpen(true)}
-                className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
-                <Plus className="w-4 h-4" /> Add widget
-              </button>
+              {canEditLayout ? (
+                <>
+                  <p className="text-muted-foreground text-sm mb-4">
+                    {config.emptyWidgetsText}
+                  </p>
+                  <button type="button" onClick={() => setAddWidgetOpen(true)}
+                    className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] touch-manipulation">
+                    <Plus className="w-4 h-4" /> Add widget
+                  </button>
+                </>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  Nothing on this dashboard yet. Someone with Manage access to this dashboard can add widgets.
+                </p>
+              )}
             </div>
           ) : (
             <div>

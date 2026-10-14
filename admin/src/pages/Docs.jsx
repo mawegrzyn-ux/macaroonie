@@ -1623,7 +1623,13 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>apiBase</Mono>, <Mono>keyPrefix</Mono>, <Mono>title</Mono>, <Mono>icon</Mono>,{' '}
               <Mono>primaryGroup</Mono> (listed first in <Mono>AddWidgetModal</Mono>),{' '}
               <Mono>defaultNav</Mono> (navigator mode while no widget needs a date), the optional{' '}
-              <Mono>HeaderExtra</Mono> and the empty-state texts. <Mono>AddWidgetModal</Mono> lists
+              <Mono>HeaderExtra</Mono>, the empty-state texts and <Mono>moduleKey</Mono> (the
+              page&apos;s dashboard module, the same one the API mount uses). Every layout control
+              (Edit layout, New dashboard, Create dashboard, Add widget, and everything inside Edit
+              layout) shows only when <Mono>canEditLayout</Mono>: platform admin or{' '}
+              <Mono>me.permissions[moduleKey] === &apos;manage&apos;</Mono>, matching the API, which
+              refuses every layout write without Manage. View users get read-only empty-state
+              wording instead of the buttons. <Mono>AddWidgetModal</Mono> lists
               every type the person can use, grouped, and says how many it left out. The header has
               a <Mono>New dashboard</Mono> button (no need to enter Edit layout).{' '}
               <Mono>ClosedDayNotice</Mono> shows on any dashboard with an H&amp;S day widget (
