@@ -5,6 +5,15 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-14 — Guestplan block uses Guestplan's own button]
+
+- The Guestplan booking block no longer puts its own "Book a table" button on the page. That button was meant to open Guestplan's form in one tap, but on the live site it didn't open the form and sent visitors back to Guestplan's own button for a second tap.
+- Guestplan now loads with the page and shows its own floating booking button and form. The catch, which is why the old option existed: on a computer Guestplan may open its booking form by itself when the page loads.
+- The "Start closed" option is gone from the block. Blocks that used it also lose their heading, because there the heading was the button's label and would otherwise suddenly show on the page. A Guestplan block with no heading no longer leaves an empty gap where it sits.
+- Migration: `163_guestplan_own_button.sql` (removes the old setting from saved and published pages).
+
+---
+
 ## [2026-10-14 — Import past GloriaFood orders]
 
 - Cash Recon settings > **GloriaFood** > **Import past orders**: import the order list exported from GloriaFood's admin, so Fill from GloriaFood works for days before the venue was linked (GloriaFood's own link has no history). Choose a CSV or Excel file and the window shows what it found before saving: orders to add, dates, the accepted total by payment, rows it can't use with their row numbers, and any figure your mapping uses that the file doesn't have.

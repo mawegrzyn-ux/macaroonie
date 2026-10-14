@@ -20,22 +20,10 @@ export function GuestplanWidgetEditor({ data, onChange }) {
           className="w-full text-sm border rounded-md px-2 py-1.5 font-mono" />
       </FormRow>
       <FormRow label="Heading (optional)"
-        hint="Guestplan's script controls its own layout, so this heading just sits above where it mounts.">
+        hint="Shown where the block sits. Guestplan shows its own floating booking button and form; on a desktop it may open the form by itself.">
         <input value={data.heading || ''} onChange={e => set('heading')(e.target.value)}
           className="w-full text-sm border rounded-md px-2 py-1.5" />
       </FormRow>
-      <label className="flex items-start gap-2 text-sm">
-        <input type="checkbox" className="mt-0.5" checked={!!data.launcher_mode}
-          onChange={e => set('launcher_mode')(e.target.checked)} />
-        <span>
-          Start closed — show only a floating "Book a table" button
-          <span className="block text-xs text-muted-foreground mt-0.5">
-            Nothing of Guestplan's loads until a visitor taps the button. One tap loads it
-            and opens the booking form; the button then makes way for Guestplan&apos;s own.
-            If Guestplan ever draws its button inside a frame, visitors tap that once more.
-          </span>
-        </span>
-      </label>
       <FormRow label="Custom CSS (advanced, best effort)"
         hint="Guestplan doesn't document a colour/theme option we can verify, so this isn't linked to your site theme. Paste CSS here only if you've inspected the live widget's HTML yourself — it has no effect if Guestplan renders inside an iframe.">
         <textarea value={data.custom_css || ''} onChange={e => set('custom_css')(e.target.value)}

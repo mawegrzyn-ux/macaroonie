@@ -2370,7 +2370,7 @@ export default function Help() {
                 ['Online ordering',  'Links to takeaway/pre-order services (e.g. GloriaFood).'],
                 ['Delivery',         'Links to Deliveroo, Just Eat, Uber Eats, Gogetters, Foodhub.'],
                 ['Reservations widget', 'Embed the live reservations widget inline. Per-block: header, button, fonts (3 tracks), day colours. Every block also has an Anchor ID in its settings for in-page links.'],
-                ['Guestplan widget', 'If you take bookings with Guestplan: paste your access key in the block. With Start closed, the page shows one floating Book a table button; a tap loads Guestplan and opens its booking form.'],
+                ['Guestplan widget', 'If you take bookings with Guestplan: paste your access key in the block. Guestplan shows its own floating booking button and form on the page (on a computer it may open the form by itself). The heading is optional and shows where the block sits.'],
                 ['Pages',            'Standalone pages or modal overlays. Link picker lists them plus block anchors.'],
                 ['SEO',              'Meta title, description and social-preview image (Open Graph).'],
                 ['Analytics',        'Google Analytics 4 and Meta (Facebook) Pixel IDs.'],
