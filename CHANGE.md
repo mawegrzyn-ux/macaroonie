@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-14 — Import past GloriaFood orders]
+
+- Cash Recon settings > **GloriaFood** > **Import past orders**: import the order list exported from GloriaFood's admin, so Fill from GloriaFood works for days before the venue was linked (GloriaFood's own link has no history). Choose a CSV or Excel file and the window shows what it found before saving: orders to add, dates, the accepted total by payment, rows it can't use with their row numbers, and any figure your mapping uses that the file doesn't have.
+- Columns it must have: **Order ID**, **Outcome**, **Total**, and **Fulfillment date + Fulfillment time** (or **Confirmed date + Confirmed time**). Worth including: **Payment method** and **Type**. Subtotal, taxes, tips, delivery fee, service fees, cash discounts, channel, currency and card type are used when present. Column order doesn't matter. **Template** downloads an empty file with every column it reads.
+- Guest names, emails, phone numbers, addresses and comments in the file are never read. Orders GloriaFood sent directly are never changed, rows from when they started arriving are left out, and importing the same file again updates it instead of adding twice. Imported orders don't appear on the Online orders board. **Remove imported orders** takes them out again.
+- The export has no dishes or discounts, so Items before discounts and Discounts are £0 on imported days.
+- The fill window no longer says no GloriaFood orders exist when only imported ones do.
+- Migration: `162_gloriafood_import.sql` (`gloriafood_orders.received_via` allows `import`; `gloriafood_venue_links.last_import_at` / `_by` / `_file`).
+
+---
+
 ## [2026-10-14 — View and Manage on every page]
 
 - Every area now follows the same rule as the dashboards: **View** opens the page to look things up, **Manage** is needed to change anything. With View the change buttons are hidden or greyed out and a blue "View only" bar says so; the app also refuses the change if it is tried another way. This covers Cash reconciliation (week grid, each day, wages, expenses, settings, the phone pages), Food safety, Checklists, the H&S action log, Timeline and Bookings, Tables, Rules, Schedule, Venues, Customers, Menus (and option groups, allergens, the print designer), Online orders and Ordering setup, Till setup, Floor plan and Till reports, Website, Reservations widget, Reviews, Media, Emails, Staff, Rota setup, Issue log, Feature requests and Test data.

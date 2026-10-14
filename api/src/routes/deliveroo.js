@@ -84,13 +84,13 @@ function csvText(buf) {
 }
 
 /** A file -> header + rows as text. */
-export function readFile(buf, fileName = '') {
+export function readFile(buf, fileName = '', { from = 'Deliveroo' } = {}) {
   const isZip = buf.length > 3 && buf[0] === 0x50 && buf[1] === 0x4b
   const isOldExcel = buf.length > 3 && buf[0] === 0xd0 && buf[1] === 0xcf
   if (isZip || isOldExcel || /\.xlsx?$/i.test(fileName)) {
     let wb
     try { wb = XLSX.read(buf, { type: 'buffer', raw: false }) }
-    catch { throw httpError(422, "That file couldn't be read. Use the CSV from Deliveroo, or save it from Excel as .xlsx or CSV.") }
+    catch { throw httpError(422, `That file couldn't be read. Use the CSV from ${from}, or save it from Excel as .xlsx or CSV.`) }
     const ws = wb.Sheets[wb.SheetNames[0]]
     if (!ws) throw httpError(422, 'That workbook has no sheets')
     const cells = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', blankrows: false, raw: false })

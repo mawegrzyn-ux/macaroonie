@@ -222,3 +222,184 @@ export function summariseOrders(rows) {
   day.net_total = day.total - day.tax
   return day
 }
+
+// ── Importing GloriaFood's order export ──────────────────────
+//
+// GloriaFood's API only hands over orders as they are accepted, so days
+// before the link can be filled from the order list GloriaFood's admin
+// exports (CSV, or the same saved as Excel). Columns are found by their
+// heading (case, spacing and the "(YYYY-MM-DD)" notes don't matter); columns
+// can be in any order, and any not listed here are ignored (guest names,
+// emails, phones and addresses are never read). Dates are the restaurant's
+// local time; the API turns them into instants with the venue's time zone.
+
+export const IMPORT_COLUMNS = [
+  { key: 'order_id',       header: 'Order ID',                      need: 'required', names: ['order id', 'order', 'id', 'order number'],
+    hint: 'GloriaFood\'s order number. Orders already imported are updated, never doubled.' },
+  { key: 'outcome',        header: 'Outcome',                       need: 'required', names: ['outcome', 'status'],
+    hint: 'accepted, canceled, rejected... Only accepted orders count.' },
+  { key: 'total',          header: 'Total',                         need: 'required', names: ['total', 'total price', 'order total'],
+    hint: 'What the customer paid.' },
+  { key: 'fulfill_date',   header: 'Fulfillment date (YYYY-MM-DD)', need: 'date', names: ['fulfillment date', 'fulfilment date', 'fulfill date'],
+    hint: 'The day the order was collected or delivered.' },
+  { key: 'fulfill_time',   header: 'Fulfillment time',              need: 'date', names: ['fulfillment time', 'fulfilment time', 'fulfill time'] },
+  { key: 'confirmed_date', header: 'Confirmed date (YYYY-MM-DD)',   need: 'date', names: ['confirmed date', 'accepted date'],
+    hint: 'The day the order was accepted.' },
+  { key: 'confirmed_time', header: 'Confirmed time',                need: 'date', names: ['confirmed time', 'accepted time'] },
+  { key: 'placed_date',    header: 'Placed date (YYYY-MM-DD)',      need: 'optional', names: ['placed date'],
+    hint: 'Used only when an order has neither of the dates above.' },
+  { key: 'placed_time',    header: 'Placed time (hh:mm)',           need: 'optional', names: ['placed time'] },
+  { key: 'payment',        header: 'Payment method',                need: 'recommended', names: ['payment method', 'payment'],
+    hint: 'Needed to fill Cash Recon fields mapped to a payment method.' },
+  { key: 'type',           header: 'Type',                          need: 'recommended', names: ['type', 'order type'],
+    hint: 'pickup, delivery... Needed for fields mapped to an order type.' },
+  { key: 'channel',        header: 'Channel',                       need: 'optional', names: ['channel', 'source'],
+    hint: 'Where the order was placed. Channel "admin" is a GloriaFood test order and never counts.' },
+  { key: 'subtotal',       header: 'Subtotal',                      need: 'optional', names: ['subtotal', 'sub total'] },
+  { key: 'tax',            header: 'Total taxes',                   need: 'optional', names: ['total taxes', 'taxes', 'tax'] },
+  { key: 'tip',            header: 'Tip amount - gross',            need: 'optional', names: ['tip amount gross', 'tip amount', 'tip', 'tips'] },
+  { key: 'delivery_fee',   header: 'Delivery fee',                  need: 'optional', names: ['delivery fee', 'delivery fees'] },
+  { key: 'sf_subtotal',    header: 'Service fees on subtotal',      need: 'optional', names: ['service fees on subtotal'] },
+  { key: 'sf_total',       header: 'Service fees on total',         need: 'optional', names: ['service fees on total'] },
+  { key: 'cash_discounts', header: 'Cash discounts',                need: 'optional', names: ['cash discounts', 'cash discount'] },
+  { key: 'currency',       header: 'Currency',                      need: 'optional', names: ['currency'] },
+  { key: 'card_type',      header: 'Card type',                     need: 'optional', names: ['card type'] },
+  { key: 'extra_payment',  header: 'Additional payment method',     need: 'optional', names: ['additional payment method'] },
+]
+
+/** "Fulfillment date (YYYY-MM-DD)" -> "fulfillment date". */
+export const importHeading = h => String(h ?? '').replace(/^﻿/, '').toLowerCase()
+  .replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim()
+
+/** Where each import column is in a header row: { key: index }, plus what's missing. */
+export function matchImportColumns(header) {
+  const names = (header || []).map(importHeading)
+  const at = {}
+  for (const c of IMPORT_COLUMNS) {
+    const i = names.findIndex(n => c.names.includes(n))
+    if (i >= 0) at[c.key] = i
+  }
+  const missing = IMPORT_COLUMNS.filter(c => c.need === 'required' && at[c.key] == null).map(c => c.header)
+  const hasFulfil = at.fulfill_date != null && at.fulfill_time != null
+  const hasConfirmed = at.confirmed_date != null && at.confirmed_time != null
+  if (!hasFulfil && !hasConfirmed) missing.push('Fulfillment date + Fulfillment time (or Confirmed date + Confirmed time)')
+  const absent = IMPORT_COLUMNS.filter(c => c.need !== 'required' && c.need !== 'date' && at[c.key] == null).map(c => c.key)
+  return { at, missing, absent }
+}
+
+/** Figures (TOTAL_KINDS / REF_KINDS keys) an import can't supply, given the columns it has. */
+export function importMissingFigures(at) {
+  const out = ['items', 'discounts']
+  if (at.subtotal == null) out.push('subtotal')
+  if (at.tax == null) out.push('tax', 'net_total')
+  if (at.tip == null) out.push('tips')
+  if (at.delivery_fee == null) out.push('delivery_fees')
+  if (at.sf_subtotal == null && at.sf_total == null && at.cash_discounts == null) out.push('service_fees')
+  if (at.payment == null) out.push('payment')
+  if (at.type == null) out.push('order_type')
+  return out
+}
+
+/** "£1,234.50", "(2.00)", "-3" -> pence; '' -> 0; null when it isn't a number. */
+export function importPence(v) {
+  let s = String(v ?? '').trim()
+  if (s === '') return 0
+  let neg = false
+  if (/^\(.*\)$/.test(s)) { neg = true; s = s.slice(1, -1) }
+  s = s.replace(/[£$€\s,]/g, '')
+  if (s.startsWith('-')) { neg = !neg; s = s.slice(1) }
+  if (!/^\d+(\.\d+)?$/.test(s)) return null
+  const p = Math.round(Number(s) * 100)
+  return neg ? -p : p
+}
+
+/** "2026-10-13", "13/10/2026", "2026-10-13 00:00:00" -> "2026-10-13"; null otherwise. */
+export function importDate(v) {
+  const s = String(v ?? '').trim()
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T].*)?$/)
+  let y, mo, d
+  if (m) [, y, mo, d] = m
+  else {
+    m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:\s.*)?$/)   // UK day first
+    if (!m) return null
+    ;[, d, mo, y] = m
+  }
+  const iso = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  const t = new Date(iso + 'T00:00:00Z')
+  return isNaN(t.getTime()) || t.toISOString().slice(0, 10) !== iso ? null : iso
+}
+
+/** "19:16", "7:16", "19:16:00", "7:16 PM" -> "19:16"; null otherwise. */
+export function importTime(v) {
+  const m = String(v ?? '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?m\.?)?$/i)
+  if (!m) return null
+  let h = Number(m[1])
+  const min = Number(m[2])
+  const ap = m[3]?.toLowerCase().replace(/\./g, '')
+  if (ap === 'pm' && h < 12) h += 12
+  if (ap === 'am' && h === 12) h = 0
+  if (h > 23 || min > 59) return null
+  return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0')
+}
+
+const cellText = (row, i, max = 120) => (i == null ? null : (String(row[i] ?? '').trim().slice(0, max) || null))
+
+/**
+ * One export row as an order to store (money in pence, local date/times as
+ * { date, time } for the API to place in the venue's time zone), or
+ * { problem } when it can't be used. `at` comes from matchImportColumns().
+ */
+export function importOrderFromRow(row, at) {
+  const idText = cellText(row, at.order_id, 40) || ''
+  if (/e\+?\d+$/i.test(idText)) return { problem: `Order ID "${idText}" was shortened by Excel; export the file again, or format the column as a number before saving` }
+  if (!/^\d{1,15}$/.test(idText)) return { problem: idText ? `"${idText}" isn't a GloriaFood order number` : 'No order number' }
+  const total = importPence(row[at.total])
+  if (total == null) return { problem: `Total "${cellText(row, at.total)}" isn't an amount` }
+
+  const money = {}
+  for (const k of ['subtotal', 'tax', 'tip', 'delivery_fee', 'sf_subtotal', 'sf_total', 'cash_discounts']) {
+    if (at[k] == null) { money[k] = 0; continue }
+    const p = importPence(row[at[k]])
+    if (p == null) return { problem: `${IMPORT_COLUMNS.find(c => c.key === k).header} "${cellText(row, at[k])}" isn't an amount` }
+    money[k] = p
+  }
+
+  const local = (dk, tk) => {
+    if (at[dk] == null || at[tk] == null) return null
+    const date = importDate(row[at[dk]])
+    const time = importTime(row[at[tk]])
+    return date && time ? { date, time } : null
+  }
+  const fulfil = local('fulfill_date', 'fulfill_time')
+  const confirmed = local('confirmed_date', 'confirmed_time')
+  const placed = local('placed_date', 'placed_time')
+  if (!fulfil && !confirmed && !placed) return { problem: 'No date and time it was collected, delivered or accepted' }
+
+  const status = (cellText(row, at.outcome, 40) || '').toLowerCase().replace(/\s+/g, '_')
+  if (!status) return { problem: 'No outcome (accepted, canceled...)' }
+  const payment = cellText(row, at.payment, 60)
+  const extra = cellText(row, at.extra_payment, 60)
+
+  return {
+    order: {
+      gf_order_id: Number(idText),
+      status,
+      order_type: (cellText(row, at.type, 40) || '').toLowerCase() || null,
+      source: (cellText(row, at.channel, 40) || '').toLowerCase() || null,
+      payment,
+      used_payment_methods: [payment, extra].filter(Boolean),
+      card_type: cellText(row, at.card_type, 60),
+      currency: (cellText(row, at.currency, 3) || '').toUpperCase() || null,
+      total_pence: total,
+      subtotal_pence: money.subtotal,
+      items_pence: 0,
+      discount_pence: 0,
+      delivery_fee_pence: money.delivery_fee,
+      tip_pence: money.tip,
+      service_fee_pence: money.sf_subtotal + money.sf_total - Math.abs(money.cash_discounts),
+      tax_pence: money.tax,
+      fulfill_local: fulfil || confirmed || placed,
+      accepted_local: confirmed || null,
+    },
+  }
+}

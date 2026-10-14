@@ -1321,7 +1321,8 @@ export default function Help() {
               If guests order through <strong>GloriaFood</strong>, Cash Recon can fill a day&apos;s income,
               service charges and takings from the venue&apos;s accepted GloriaFood orders, including how
               they were paid. GloriaFood only hands orders over as it accepts them (it has no history to
-              read back), so orders count from the day you link the venue onwards. Set it up once per
+              read back), so orders count from the day you link the venue onwards; for earlier days, import
+              GloriaFood&apos;s order export (see Import past GloriaFood orders below). Set it up once per
               venue in Cash Recon settings (gear icon) &gt; <strong>GloriaFood</strong> (owners and admins):
             </P>
             <DataTable
@@ -1356,6 +1357,45 @@ export default function Help() {
             <InfoBox type="tip">
               Guest names, phone numbers and addresses from GloriaFood are only kept for 30 days (the board
               needs them); the order amounts stay for your records.
+            </InfoBox>
+            <H3>Import past GloriaFood orders</H3>
+            <P>
+              For days before the venue was linked, export the order list (CSV, or the same saved as Excel)
+              from the GloriaFood admin panel for that restaurant and import it in Cash Recon settings &gt;
+              <strong> GloriaFood</strong> &gt; <strong>Import past orders</strong> (owners and admins; link the
+              venue first). Choose the file and the window shows what it found before anything is saved: how
+              many orders to add, the dates, the accepted total by payment, rows it can&apos;t use (with the
+              row number), and any figure your mapping uses that the file doesn&apos;t have. Tap
+              <strong> Import</strong> to save them; Fill from GloriaFood then works for those days like any
+              other. <strong>Template</strong> downloads an empty file with every column the import reads.
+            </P>
+            <DataTable
+              head={['Column', 'Needed?', 'Used for']}
+              rows={[
+                ['Order ID', 'Must have', 'Matching: importing the same file again updates those orders instead of adding them twice.'],
+                ['Outcome', 'Must have', 'Only accepted orders count; canceled, rejected and timed out ones are kept but left out.'],
+                ['Total', 'Must have', 'Order totals and the payment and order type figures.'],
+                ['Fulfillment date + Fulfillment time', 'Must have (or Confirmed date + Confirmed time)', 'Which day the order counts on. Confirmed date and time are used for the accepted-time day rule, and when an order has no fulfilment time.'],
+                ['Payment method', 'Worth including', 'Payment figures (CASH, ONLINE, CARD...). Without it, fields mapped to a payment show £0 for imported days.'],
+                ['Type', 'Worth including', 'Order type figures (pickup, delivery...).'],
+                ['Channel, Subtotal, Total taxes, Tip amount - gross, Delivery fee, Service fees on subtotal, Service fees on total, Cash discounts, Currency, Card type', 'Optional', 'The matching figures. Left out, they count as £0.'],
+              ]}
+            />
+            <InfoBox type="tip">
+              The export has no dishes or discounts, so Items before discounts and Discounts are £0 for
+              imported days: if your mapping uses them, map that line to Order totals or Food subtotal before
+              filling past days (the import window warns you). Guest names, emails, phone numbers, addresses
+              and comments in the file are never read or stored. Column order doesn&apos;t matter, and
+              columns are found by their heading.
+            </InfoBox>
+            <InfoBox type="warn">
+              Orders GloriaFood sent directly are never changed by an import, and rows from the time they
+              started arriving onwards are left out, so nothing counts twice. If you open and save the file in
+              Excel, check the order numbers: Excel can shorten them (for example 1.25E+09), and the import
+              refuses those rows.
+              A payment method the export spells its own way (for example a card option you named in
+              GloriaFood) shows under that name when mapping. <strong>Remove imported orders</strong> takes
+              them all out again; days already filled keep their figures until you fill them again.
             </InfoBox>
           </section>
 

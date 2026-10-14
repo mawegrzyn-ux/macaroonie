@@ -1389,6 +1389,52 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               orders (amounts, payment, fulfil time) against GloriaFood&apos;s own order list, and that the
               integration accepts our address.
             </InfoBox>
+            <H3>GloriaFood: importing past orders (migration 162)</H3>
+            <P>
+              The API has no history, so days before the link come from the order list GloriaFood&apos;s
+              admin exports. Imported orders go into <Mono>gloriafood_orders</Mono> with{' '}
+              <Mono>received_via = &apos;import&apos;</Mono> (migration 162 widens the CHECK) and{' '}
+              <Mono>board_status = &apos;completed&apos;</Mono>, no <Mono>items</Mono> and a{' '}
+              <Mono>payload</Mono> of only <Mono>{'{ imported: { file, line } }'}</Mono>, so{' '}
+              <Mono>venueDays()</Mono> / <Mono>summariseOrders()</Mono> fill Cash Recon from them unchanged.
+              They are left out of the board (<Mono>boardOrders()</Mono>), the settings tab&apos;s latest
+              orders and its Orders received count. <Mono>gloriafood_venue_links.last_import_at</Mono> /{' '}
+              <Mono>_by</Mono> / <Mono>_file</Mono> record the last import.
+            </P>
+            <P>
+              <Mono>shared/gloriafood.js</Mono>: <Mono>IMPORT_COLUMNS</Mono> (key, header, need: required |
+              date | recommended | optional, heading aliases), <Mono>matchImportColumns()</Mono> (headings
+              matched by <Mono>importHeading()</Mono>: lower case, letters and digits only; order doesn&apos;t
+              matter; required = Order ID, Outcome, Total plus a Fulfillment or Confirmed date + time pair),{' '}
+              <Mono>importOrderFromRow()</Mono> (amounts with or without £ and thousands commas; dates
+              YYYY-MM-DD or DD/MM/YYYY; times with or without AM/PM; an id in Excel&apos;s 1.25E+09 form is a
+              row problem; service fees = on subtotal + on total - cash discounts; the day is the fulfilment
+              time, else confirmed, else placed; <Mono>accepted_at</Mono> = confirmed),{' '}
+              <Mono>importMissingFigures()</Mono> (items and discounts are never in the export). Guest
+              columns are never read.
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['importExport(tx, { tenantId, venueId, timezone, cells, fileName, apply, by })', 'Needs a link (locked FOR UPDATE when applying). Finds the header row, refuses a file missing a needed column (422 naming them) or over 50,000 rows, converts local times with zonedToUtc() in the venue time zone, last row wins for a repeated id. Each order is new, update (already imported for this venue), live (sent by push / poll: never touched), after_live (at or after the earliest push / poll order: left out so nothing counts twice) or other_venue (the id belongs to another venue: left out). Returns counts, the accepted total by payment and type, mapping_gaps (mapped figures the file lacks), not_in_file and the first 50 problems with row numbers. With apply, upserts in batches of 500; ON CONFLICT updates only rows still received_via import.'],
+                ['ingestWithTx()', 'A pushed or polled copy of an imported order replaces it and switches received_via to push / poll.'],
+                ['GET /api/gloriafood/venues/:venueId/import', 'Imported count and date range plus the last import (cash_recon view).'],
+                ['POST .../import { file_name, data (base64), apply }', 'Preview (apply false, writes nothing) or import. CSV or .xlsx up to 16 MB, read by readFile() from routes/deliveroo.js. Owner/admin + cash_recon manage.'],
+                ['DELETE .../import', 'Removes the venue\'s imported orders only (owner/admin + cash_recon manage).'],
+                ['GET /api/gloriafood/import-template', 'A CSV with every IMPORT_COLUMNS heading (cash_recon view).'],
+                ['POST .../preview', 'Also returns imported { count, from, to }, so the fill window doesn\'t claim no orders exist when only imported ones do.'],
+              ]}
+            />
+            <P>
+              Admin: <Mono>ImportPastOrders</Mono> in <Mono>components/cashRecon/GloriaFood.jsx</Mono>, below
+              the mapping on the GloriaFood tab: columns it needs, Template, choose file, preview, Import,
+              Remove imported orders (inline confirm).
+            </P>
+            <InfoBox type="warn">
+              Built from one real export (478 orders, all read). It assumes the export&apos;s Order ID is the
+              id the API sends; if it isn&apos;t, the live cutoff still stops imported and live orders
+              overlapping, except for orders a poll venue&apos;s queue still holds from before the import.
+            </InfoBox>
             <H3>Day PUT and the week grid</H3>
             <P>
               <Mono>PUT /:venueId/cash-recon/daily/:date</Mono> only changes the day note when the body
