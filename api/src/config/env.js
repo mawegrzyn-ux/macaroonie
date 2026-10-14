@@ -50,6 +50,10 @@ const schema = z.object({
   // stand-in server; tokens are per tenant, saved in Cash Recon settings.
   LOYVERSE_API_URL:      z.string().url().default('https://api.loyverse.com/v1.0'),
 
+  // GloriaFood Accepted Orders API (poll). Only changed to test against a
+  // stand-in server; keys are per venue, saved in Cash Recon settings.
+  GLORIAFOOD_API_URL:    z.string().url().default('https://pos.globalfoodsoft.com'),
+
   // Storage driver — 'local' writes to UPLOAD_DIR, 's3' writes to an
   // S3-compatible bucket (AWS S3, DigitalOcean Spaces, Cloudflare R2, …).
   STORAGE_DRIVER:        z.enum(['local', 's3']).default('local'),

@@ -8,13 +8,18 @@
 // Every action goes through /api/orders (routes/orders.js); the board
 // refreshes on the venue WebSocket (order.created / order.updated) and
 // every 30 seconds as a fallback.
+//
+// GloriaFood orders (migration 159) come in the same list when the venue's
+// GloriaFood link shows them on the board (source 'gloriafood'): marked
+// with a GloriaFood label, already accepted, moved through our own board
+// statuses only (GloriaFoodOrderModal), never paid or refunded here.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   X, Clock, Phone, Mail, AlertTriangle, Printer, CheckCircle2, ChefHat, PackageCheck,
-  Ban, RotateCcw, Loader2, Volume2, VolumeX, ChevronDown, ChevronUp, Banknote, CreditCard,
+  Ban, RotateCcw, Loader2, Volume2, VolumeX, ChevronDown, ChevronUp, Banknote, CreditCard, MapPin,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -45,6 +50,16 @@ export const COLUMNS = [
 ]
 
 export const money = (p, cur = 'GBP') => formatPence(p, cur)
+
+export const isGloriaFood = o => o?.source === 'gloriafood'
+
+export function GloriaFoodBadge({ className }) {
+  return (
+    <span className={cn('text-[11px] px-2 py-0.5 rounded-full font-semibold bg-orange-100 text-orange-800 border border-orange-200', className)}>
+      GloriaFood
+    </span>
+  )
+}
 
 export function timeOf(iso, tz) {
   return new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso))
@@ -148,6 +163,7 @@ export function useOrderActions(venueId) {
     promised: useMutation({ mutationFn: ({ id, promised_at }) => api.post(`/orders/${id}/promised`, { promised_at }), onSuccess: done }),
     markPaid: useMutation({ mutationFn: ({ id, method }) => api.post(`/orders/${id}/mark-paid`, { method }), onSuccess: done }),
     refund: useMutation({ mutationFn: ({ id, ...body }) => api.post(`/orders/${id}/refund`, body), onSuccess: done }),
+    gfStatus: useMutation({ mutationFn: ({ id, to }) => api.post(`/orders/gloriafood/${id}/status`, { to }), onSuccess: () => qc.invalidateQueries({ queryKey: ['orders', venueId] }) }),
   }
 }
 
@@ -171,15 +187,17 @@ export function printTicket(order, venue) {
   </style></head><body>
     <div>${esc(venue?.name || '')}</div>
     <h1>#${order.order_number}</h1>
-    <div class="big">${order.is_asap ? 'ASAP' : 'Collect'} ${timeOf(order.promised_at, tz)}</div>
+    ${isGloriaFood(order) ? `<div><b>GloriaFood</b> · ${esc(order.type_label)}${order.table_number ? ' · Table ' + esc(order.table_number) : ''}</div>` : ''}
+    <div class="big">${order.is_asap ? 'ASAP' : isGloriaFood(order) && order.order_type === 'delivery' ? 'Deliver' : 'Collect'} ${timeOf(order.promised_at, tz)}</div>
     <div>${esc(order.guest_name)} · ${esc(order.guest_phone || '')}</div>
+    ${isGloriaFood(order) && order.address ? `<div>${esc(order.address)}</div>` : ''}
     ${order.allergy_note ? `<div class="al">ALLERGY: ${esc(order.allergy_note)}</div>` : ''}
     ${order.notes ? `<div>Note: ${esc(order.notes)}</div>` : ''}
     <div style="margin-top:6px;">${lines}</div>
     ${(order.promotions || []).map(p => `<div class="l"><div>${esc(p.name)}${p.code ? ' (' + esc(p.code) + ')' : ''}</div><div>-${money(p.discount_pence, order.currency)}</div></div>`).join('')}
     ${order.tip_pence > 0 ? `<div class="l"><div>Tip</div><div>${money(order.tip_pence, order.currency)}</div></div>` : ''}
     <div class="t"><span>Total</span><span>${money(order.total_pence, order.currency)}</span></div>
-    <div>${PAYMENT[order.payment_status] || ''}</div>
+    <div>${isGloriaFood(order) ? esc(order.payment_label) : (PAYMENT[order.payment_status] || '')}</div>
   </body></html>`
   const frame = document.createElement('iframe')
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;'
@@ -212,7 +230,8 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
 
   // Chime when a new order arrives (not on first load).
   useEffect(() => {
-    const ids = new Set(orders.filter(o => o.status === 'placed').map(o => o.id))
+    // GloriaFood orders arrive already accepted: new ones still chime.
+    const ids = new Set(orders.filter(o => o.status === 'placed' || (isGloriaFood(o) && o.status === 'accepted')).map(o => o.id))
     if (seen.current) {
       for (const id of ids) if (!seen.current.has(id)) { chime.play(); break }
     }
@@ -228,11 +247,12 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
   const quick = o => {
     const next = { placed: 'accepted', accepted: 'ready', preparing: 'ready', ready: 'completed' }[o.status]
     if (!next) return null
-    const label = { accepted: 'Accept', ready: 'Ready', completed: 'Collected' }[next]
+    const label = { accepted: 'Accept', ready: 'Ready', completed: isGloriaFood(o) && o.order_type === 'delivery' ? 'Sent' : 'Collected' }[next]
+    const m = isGloriaFood(o) ? actions.gfStatus : actions.status
     return (
       <button
-        onClick={e => { e.stopPropagation(); actions.status.mutate({ id: o.id, to: next }) }}
-        disabled={actions.status.isPending}
+        onClick={e => { e.stopPropagation(); m.mutate({ id: o.id, to: next }) }}
+        disabled={m.isPending}
         className="min-h-[44px] px-4 rounded-md bg-primary text-primary-foreground text-sm font-semibold touch-manipulation disabled:opacity-50">
         {label}
       </button>
@@ -246,9 +266,10 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
         o.status === 'placed' && 'border-amber-400 ring-1 ring-amber-300')}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-lg font-bold">#{o.order_number}</span>
             <span className={cn('text-[11px] px-2 py-0.5 rounded-full font-medium', STATUS[o.status]?.cls)}>{STATUS[o.status]?.label}</span>
+            {isGloriaFood(o) && <GloriaFoodBadge />}
           </div>
           <div className="text-sm font-medium truncate">{o.guest_name}</div>
         </div>
@@ -262,7 +283,15 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
         <div className="flex gap-1.5 flex-wrap">
-          <span className={cn('text-[11px] px-2 py-0.5 rounded', o.payment_status === 'paid' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-700')}>{PAYMENT[o.payment_status]}</span>
+          {isGloriaFood(o) ? (
+            <>
+              <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-700">{o.type_label}</span>
+              <span className={cn('text-[11px] px-2 py-0.5 rounded', o.paid_online ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-700')}>{o.payment_label}</span>
+              {o.is_test && <span className="text-[11px] px-2 py-0.5 rounded bg-gray-100 text-gray-700">Test order</span>}
+            </>
+          ) : (
+            <span className={cn('text-[11px] px-2 py-0.5 rounded', o.payment_status === 'paid' ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-700')}>{PAYMENT[o.payment_status]}</span>
+          )}
           {o.allergy_note && <span className="text-[11px] px-2 py-0.5 rounded bg-red-100 text-red-700 font-semibold inline-flex items-center gap-1"><AlertTriangle className="w-3 h-3" />Allergy</span>}
         </div>
         {quick(o)}
@@ -277,7 +306,7 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
     </button>
   )
 
-  const actionError = actions.status.error?.message
+  const actionError = actions.status.error?.message || actions.gfStatus.error?.message
 
   return (
     <div>
@@ -323,7 +352,9 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
         </div>
       )}
 
-      {open && <OrderDetailModal order={open} venue={venue} venueId={venueId} onClose={() => setOpenId(null)} />}
+      {open && (isGloriaFood(open)
+        ? <GloriaFoodOrderModal order={open} venue={venue} venueId={venueId} onClose={() => setOpenId(null)} />
+        : <OrderDetailModal order={open} venue={venue} venueId={venueId} onClose={() => setOpenId(null)} />)}
     </div>
   )
 }
@@ -515,6 +546,116 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
                   ))}
                 </ul>
               )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── GloriaFood order ─────────────────────────────────────────
+// Read-only apart from our own board status: GloriaFood took the order and
+// any payment, and isn't told when it moves here.
+
+export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
+  const actions = useOrderActions(venueId)
+  const tz = venue?.timezone || 'Europe/London'
+  const busy = actions.gfStatus.isPending
+  const err = actions.gfStatus.error
+  const delivery = o.order_type === 'delivery'
+  const setStatus = to => actions.gfStatus.mutate({ id: o.id, to })
+  const cancelled = o.status === 'cancelled'
+  const Line = ({ label, pence, minus }) => pence ? (
+    <div className={cn('flex justify-between text-sm', minus && 'text-emerald-700')}>
+      <span>{label}</span><span>{minus ? '-' : ''}{money(pence, o.currency)}</span>
+    </div>
+  ) : null
+
+  const Btn = ({ onClick, children, primary, disabled }) => (
+    <button onClick={onClick} disabled={busy || disabled}
+      className={cn('inline-flex items-center justify-center gap-1.5 min-h-[48px] px-4 rounded-md text-sm font-semibold touch-manipulation disabled:opacity-50',
+        primary ? 'bg-primary text-primary-foreground' : 'border bg-background')}>
+      {children}
+    </button>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-5 h-14 border-b flex items-center justify-between sticky top-0 bg-background z-10">
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="font-bold text-lg">#{o.order_number}</h2>
+            <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', STATUS[o.status]?.cls)}>{STATUS[o.status]?.label}</span>
+            <GloriaFoodBadge />
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => printTicket(o, venue)} className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent touch-manipulation" title="Print ticket"><Printer className="w-5 h-5" /></button>
+            <button onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent touch-manipulation"><X className="w-5 h-5" /></button>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {err && <p className="text-sm text-destructive">{err.message}</p>}
+          {cancelled && (
+            <div className="rounded-md bg-red-50 border border-red-200 text-red-800 p-3 text-sm">This order was cancelled in GloriaFood.</div>
+          )}
+          {o.is_test && (
+            <div className="rounded-md bg-muted p-3 text-sm">A GloriaFood test order (placed from GloriaFood&apos;s menu preview). It isn&apos;t counted in Cash Recon.</div>
+          )}
+
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs text-muted-foreground">{o.type_label}{o.is_asap ? ', as soon as possible by' : delivery ? ', deliver at' : ', ready at'}</div>
+              <div className="text-2xl font-bold">{timeOf(o.promised_at, tz)}</div>
+            </div>
+            {o.table_number && <div className="text-right"><div className="text-xs text-muted-foreground">Table</div><div className="text-xl font-bold">{o.table_number}</div></div>}
+          </div>
+
+          <div className="space-y-1 text-sm">
+            <div className="font-semibold text-base">{o.guest_name}</div>
+            {o.guest_phone && <a href={`tel:${o.guest_phone}`} className="flex items-center gap-2 text-primary min-h-[32px]"><Phone className="w-4 h-4" />{o.guest_phone}</a>}
+            {o.address && <div className="flex items-start gap-2 text-muted-foreground"><MapPin className="w-4 h-4 shrink-0 mt-0.5" />{o.address}</div>}
+          </div>
+
+          {o.notes && <div className="rounded-md bg-muted p-3 text-sm"><strong>Note:</strong> {o.notes}</div>}
+
+          <div>
+            {(o.items || []).map(i => (
+              <div key={i.id} className="flex justify-between gap-3 py-2 border-b last:border-0 text-sm">
+                <div className="min-w-0">
+                  <div><strong>{i.qty} x</strong> {i.name}</div>
+                  {i.options?.length > 0 && <div className="text-xs text-muted-foreground">{i.options.map(x => x.label).join(', ')}</div>}
+                  {i.note && <div className="text-xs text-muted-foreground">Note: {i.note}</div>}
+                </div>
+                <div className="shrink-0">{money(i.line_total_pence, o.currency)}</div>
+              </div>
+            ))}
+            <div className="pt-2 space-y-0.5">
+              <Line label="Discounts" pence={o.discount_pence} minus />
+              <Line label="Delivery" pence={o.delivery_fee_pence} />
+              <Line label="Service fees" pence={o.service_fee_pence} />
+              <Line label="Tip" pence={o.tip_pence} />
+              <div className="flex justify-between font-bold"><span>Total</span><span>{money(o.total_pence, o.currency)}</span></div>
+              {o.tax_pence > 0 && <div className="flex justify-between text-xs text-muted-foreground"><span>Tax</span><span>{money(o.tax_pence, o.currency)}</span></div>}
+            </div>
+          </div>
+
+          <div className="rounded-md border p-3 text-sm flex justify-between gap-3">
+            <span className="font-semibold">{o.payment_label}</span>
+            {o.used_payment_methods?.length > 1 && <span className="text-muted-foreground">Paid two ways</span>}
+          </div>
+
+          {!cancelled && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <Btn onClick={() => setStatus('preparing')} disabled={o.status === 'preparing'}><ChefHat className="w-4 h-4" />Preparing</Btn>
+                <Btn onClick={() => setStatus('ready')} primary={o.status !== 'ready' && o.status !== 'completed'} disabled={o.status === 'ready'}><PackageCheck className="w-4 h-4" />Ready</Btn>
+                <Btn onClick={() => setStatus('completed')} primary={o.status === 'ready'} disabled={o.status === 'completed'}><CheckCircle2 className="w-4 h-4" />{delivery ? 'Sent' : 'Collected'}</Btn>
+              </div>
+              {o.status !== 'accepted' && <Btn onClick={() => setStatus('accepted')}><RotateCcw className="w-4 h-4" />Back to In progress</Btn>}
+              <p className="text-xs text-muted-foreground">These only move the order on this board. GloriaFood isn&apos;t told.</p>
+              {o.board_status_by && <p className="text-xs text-muted-foreground">Last moved by {o.board_status_by}{o.board_status_at ? ' at ' + timeOf(o.board_status_at, tz) : ''}.</p>}
             </div>
           )}
         </div>

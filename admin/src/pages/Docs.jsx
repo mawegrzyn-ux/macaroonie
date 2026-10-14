@@ -1281,6 +1281,65 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               server, not a live Loyverse account. Check the first real fill against the Loyverse
               Back Office sales summary for the same day and store.
             </InfoBox>
+            <H3>GloriaFood (migration 159)</H3>
+            <P>
+              Stores the venue&apos;s accepted GloriaFood online orders, fills a day&apos;s income, SC and
+              takings rows from them like Loyverse, and can show them on the Online orders board.
+              GloriaFood&apos;s Accepted Orders API v2 only hands an order over when it is accepted (push to
+              our URL, or a pop that returns each order once), so every order is stored on arrival in{' '}
+              <Mono>gloriafood_orders</Mono> (upserted by <Mono>(tenant_id, gf_order_id)</Mono>; an older{' '}
+              <Mono>updated_at</Mono> never overwrites a newer one; money in pence; dishes in{' '}
+              <Mono>items</Mono> for the board; <Mono>payload</Mono> is the order as sent minus guest
+              details). <Mono>gloriafood_venue_links</Mono> is one per venue: <Mono>method</Mono> push |
+              poll, <Mono>push_token</Mono> (24 random bytes, the URL&apos;s only check, never in the link
+              view), <Mono>poll_key</Mono> (never returned, <Mono>poll_key_hint</Mono>), the restaurant
+              learned from the first order (<Mono>gf_restaurant_id</Mono>; other restaurants&apos; orders
+              are refused with <Mono>last_error</Mono>), <Mono>day_basis</Mono> fulfill | accepted,{' '}
+              <Mono>day_starts_at</Mono>, <Mono>show_on_board</Mono>, <Mono>mappings</Mono> (Loyverse&apos;s
+              shape). Filled days record <Mono>cash_daily_reports.gloriafood_filled_at</Mono> /{' '}
+              <Mono>_by</Mono> through <Mono>fillReconDay()</Mono>.
+            </P>
+            <P>
+              <Mono>shared/gloriafood.js</Mono>: <Mono>orderFromPayload()</Mono> (items = type item rows;
+              discounts = item_discount of promo_cart / promo_item / promo_cart_item rows, so children are not
+              counted twice; delivery, tip, service fees net of cash_discount; checked against both GloriaFood
+              sample orders: items - discounts = sub_total_price), <Mono>summariseOrders()</Mono> (only{' '}
+              <Mono>status = &apos;accepted&apos;</Mono>, never <Mono>source = &apos;admin&apos;</Mono> test
+              orders; counts cancelled and split payments), <Mono>sumTerms()</Mono>. Figures: total,
+              net_total, subtotal, items, discounts, delivery_fees, tips, service_fees, tax; refs payment
+              (GloriaFood&apos;s <Mono>payment</Mono>: ONLINE, CASH, CARD, CARD_PHONE or others) and order_type.
+              An order paid two ways (<Mono>used_payment_methods</Mono> has 2) counts under{' '}
+              <Mono>payment</Mono>: GloriaFood doesn&apos;t send the split amounts.
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['POST /webhooks/gloriafood/:token', 'gloriafoodWebhookRoutes (root, no auth, 240/min per token). Looks the venue up by push_token, takes { count, orders }, an array or one order, ingests, answers { ok, stored, updated, refused }. XML or text: 415 and last_error says to switch the integration to JSON. Unknown token: 404.'],
+                ['services/gloriafoodSvc.js', 'popOrders(key) (POST {GLORIAFOOD_API_URL}/pos/order/pop, Authorization = key, Glf-Api-Version 2; 401/403 = key problem), ingestWithTx() (locks the link row, learns / checks the restaurant, upserts, sets last_order_at / last_error), pollVenue() (pop and store in one transaction under pg_try_advisory_xact_lock per link; orders popped but not stored are written to the log), pollAll() (every poll venue, then clears client_name / phone / address older than 30 days), venueDays() (trading-day windows from tradingDay(), by fulfill_at or accepted_at), boardOrders() / boardOrder().'],
+                ['jobs/queues.js', 'gloriafood-poll queue, repeat every 60 s, worker started in server.js (every API process; one run per tick).'],
+                ['GET|PUT|DELETE /api/gloriafood/venues/:venueId/link', 'View (no token or key), save (owner/admin + cash_recon manage; a new poll key is checked by polling with it, waiting orders are stored, a rejected key restores the old one or removes a new link), unlink (orders kept).'],
+                ['GET .../push-url, POST .../push-url/new, POST .../restaurant/reset, POST .../poll', 'The address (setup only), a new token, forget the learned restaurant, check GloriaFood now (cash_recon manage, poll venues only).'],
+                ['GET .../orders, GET .../seen', 'Latest stored orders (view), payment methods and order types known plus seen (setup).'],
+                ['POST .../preview, POST .../apply', 'As Loyverse (31 days max). Preview polls a poll venue first (poll_error on failure, never thrown) and returns values[key].source; apply works only from stored orders, skips submitted days, keeps notes.'],
+                ['Board', 'GET /api/orders appends boardOrders() (status accepted or canceled, fulfill_at on the board day in venue time) when show_on_board, sorted by promised_at, and returns gloriafood.show_on_board. POST /api/orders/gloriafood/:id/status { to: accepted | preparing | ready | completed } (web_orders manage) changes board_status only; a cancelled order is 422. Broadcasts order.created / order.updated with source gloriafood.'],
+              ]}
+            />
+            <P>
+              Admin: <Mono>components/cashRecon/GloriaFood.jsx</Mono> (<Mono>GloriaFoodSettings</Mono> = the
+              GloriaFood tab of Cash Recon settings, <Mono>GloriaFoodFillButton</Mono> next to every Loyverse
+              button). The mapping editor and the fill window are shared with Loyverse in{' '}
+              <Mono>components/cashRecon/reconShared.jsx</Mono> (<Mono>MappingGroups</Mono>,{' '}
+              <Mono>ReconFillModal</Mono> with a <Mono>source</Mono> config, <Mono>TermChip</Mono>,{' '}
+              <Mono>useReconLinkPerms()</Mono>). Board: <Mono>isGloriaFood()</Mono>,{' '}
+              <Mono>GloriaFoodBadge</Mono>, <Mono>GloriaFoodOrderModal</Mono> and the{' '}
+              <Mono>gfStatus</Mono> action in <Mono>components/orders/shared.jsx</Mono>.
+            </P>
+            <InfoBox type="warn">
+              Built from GloriaFood&apos;s published Accepted Orders API v2 and its two sample orders, and
+              tested against a stand-in server, not a live GloriaFood restaurant. Check the first real
+              orders (amounts, payment, fulfil time) against GloriaFood&apos;s own order list, and that the
+              integration accepts our address.
+            </InfoBox>
             <H3>Day PUT and the week grid</H3>
             <P>
               <Mono>PUT /:venueId/cash-recon/daily/:date</Mono> only changes the day note when the body
@@ -3010,6 +3069,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               VariantGroupsManager sends price_mode / min_select / max_select.
               <Mono> components/orders/ScheduleEditor.jsx</Mono> (date range + times of day) is shared by
               Ordering setup and Promotions.
+            </P>
+            <P>
+              GloriaFood orders (migration 159) join the board list when the venue&apos;s GloriaFood link has{' '}
+              <Mono>show_on_board</Mono> on: same shape with <Mono>source: &apos;gloriafood&apos;</Mono>, a
+              GloriaFood label, our own board status only (never paid, refunded or told to GloriaFood). See
+              Cash Reconciliation, GloriaFood.
             </P>
             <H3>Promotions (migration 131)</H3>
             <P>

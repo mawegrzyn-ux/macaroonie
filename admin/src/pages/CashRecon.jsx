@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
 import { LoyverseSettings, LoyverseFillButton } from '@/components/cashRecon/Loyverse'
+import { GloriaFoodSettings, GloriaFoodFillButton } from '@/components/cashRecon/GloriaFood'
 import { splitPay } from '@shared/payMethod.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -778,6 +779,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
           </div>
           <div className="ml-auto flex items-center gap-1.5">
             <LoyverseFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
+            <GloriaFoodFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
             {pendingCount > 0 && (
               <button
                 type="button"
@@ -1048,6 +1050,7 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
           </button>
         )}
         <LoyverseFillButton venueId={venueId} dates={days} />
+        <GloriaFoodFillButton venueId={venueId} dates={days} />
         <button type="button" onClick={onToggleMode} title="Spreadsheet view"
           className="flex items-center justify-center w-10 h-10 rounded-xl touch-manipulation hover:bg-muted transition-colors">
           <Table2 className="w-5 h-5" />
@@ -1401,6 +1404,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
           </div>
           <div className="ml-auto flex flex-wrap justify-end items-center gap-2">
             {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
+            {!isSubmitted && <GloriaFoodFillButton venueId={venueId} dates={[date]} />}
             {!isSubmitted && (
               <button
                 type="button"
@@ -1428,8 +1432,9 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
       <div className="p-4 space-y-4 pb-32">
 
         {hideHeader && !isSubmitted && (
-          <div className="flex justify-end empty:hidden">
+          <div className="flex flex-wrap justify-end gap-2 empty:hidden">
             <LoyverseFillButton venueId={venueId} dates={[date]} />
+            <GloriaFoodFillButton venueId={venueId} dates={[date]} />
           </div>
         )}
 
@@ -2037,6 +2042,7 @@ function SettingsView({ venueId, onBack }) {
     { key: 'sc',       label: 'Service Charges' },
     { key: 'expenses', label: 'Categories' },
     { key: 'loyverse', label: 'Loyverse' },
+    { key: 'gloriafood', label: 'GloriaFood' },
   ]
 
   return (
@@ -2073,6 +2079,7 @@ function SettingsView({ venueId, onBack }) {
         {tab === 'sc'       && <ScSourcesTab         venueId={venueId} items={config?.sc_sources        ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'expenses' && <ExpenseCategoriesTab venueId={venueId} items={config?.expense_categories ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'loyverse' && <LoyverseSettings venueId={venueId} config={config} />}
+        {tab === 'gloriafood' && <GloriaFoodSettings venueId={venueId} config={config} />}
       </div>
     </div>
   )

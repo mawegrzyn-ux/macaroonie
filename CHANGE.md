@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-14 — GloriaFood orders in Cash Recon and on the orders board]
+
+- Cash Recon settings > **GloriaFood**: link a venue to its GloriaFood restaurant. Either GloriaFood sends each accepted order to the venue's own address (integration *Push Accepted Order*, JSON), or Macaroonie collects them every minute with a key (*Poll Accepted Order v2*). GloriaFood only hands orders over as it accepts them, so orders count from the day the venue is linked.
+- Map income sources, service charges and payment channels to GloriaFood figures: order totals, food subtotal, discounts, delivery fees, tips, service fees, tax, and the totals by **payment** (paid online, cash, card at the counter, card by phone) or by order type. Then **Fill from GloriaFood** on a day or a week, as with Loyverse. Only accepted orders count; cancelled orders and GloriaFood's test orders are left out.
+- An order counts on the day it is collected or delivered (or the day it was accepted, if you prefer), with the venue's trading-day start.
+- Switch on **Show GloriaFood orders on the Online orders board** to see them on the board and the phone, with an orange GloriaFood label, type and payment. Staff can move them to Ready and Collected (GloriaFood isn't told).
+- The settings page lists the latest orders received. The first order sets which GloriaFood restaurant the venue takes orders from, and orders from any other restaurant are refused. Guest names, phones and addresses are kept for 30 days only.
+- The Loyverse mapping editor and fill window now share their code with GloriaFood (no change in how they work).
+- Migration: `159_gloriafood.sql` (new tables `gloriafood_venue_links`, `gloriafood_orders`; `cash_daily_reports.gloriafood_filled_at` / `_by`).
+
+---
+
 ## [2026-10-13 — Deploys no longer fail while the API is still starting]
 
 - The deploy's health check ran 3 seconds after restarting the API and failed whenever the API took a little longer to start (two of the last three deploys, both fine on a rerun). It now tries every 2 seconds for up to 30 seconds and only then fails the deploy.
