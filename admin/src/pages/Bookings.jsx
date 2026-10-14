@@ -15,6 +15,7 @@ import { useApi } from '@/lib/api'
 import { cn, formatTime, STATUS_LABELS, STATUS_COLOURS, openPicker } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
+import { usePermission } from '@/hooks/usePermission'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 
 const SELECTABLE_STATUSES = ['unconfirmed', 'confirmed', 'reconfirmed', 'arrived', 'seated', 'checked_out', 'no_show', 'cancelled']
@@ -59,6 +60,8 @@ export default function Bookings() {
   const [hideInactive,     setHideInactive]     = useState(true)
   const isDesktop = useIsDesktop()
   const [showNew,          setShowNew]          = useState(false)
+  // Bookings = View: no new booking button and no status changes from the list.
+  const { canManage } = usePermission('bookings')
   const [showCustSugg,     setShowCustSugg]     = useState(false)
   const isResizing        = useRef(false)
   const custDismissTimer  = useRef(null)
@@ -390,6 +393,7 @@ export default function Bookings() {
                     onRowClick={() => setSelected(b)}
                     onStatusClick={(e) => {
                       e.stopPropagation()
+                      if (!canManage) return
                       setStatusDropdownId(v => v === b.id ? null : b.id)
                     }}
                     onStatusSelect={(newStatus) => {
@@ -404,13 +408,15 @@ export default function Bookings() {
           )}
         </div>
 
-        <button
-          onClick={() => setShowNew(true)}
-          className="absolute bottom-6 right-6 z-30 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 active:scale-95 touch-manipulation transition-transform"
-          title="New booking"
-        >
-          <Plus className="w-6 h-6" />
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setShowNew(true)}
+            className="absolute bottom-6 right-6 z-30 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 active:scale-95 touch-manipulation transition-transform"
+            title="New booking"
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        )}
         </div>
 
         {isDesktop && (

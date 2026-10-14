@@ -49,12 +49,20 @@
 
 import { z }                            from 'zod'
 import { withTenant }                   from '../config/db.js'
-import { requireAuth, requireRole }     from '../middleware/auth.js'
+import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError }                    from '../middleware/error.js'
 import { getStorage }                   from '../services/storageSvc.js'
 import path                             from 'node:path'
 import { randomUUID }                   from 'node:crypto'
 import { openDatesOrNull }              from '../services/openDays.js'
+
+// Cash reconciliation permission: view reads, manage changes. Settings and
+// unsubmitting a day also stay owner / admin (operators have manage by default).
+const PERM = {
+  view:        requirePermission('cash_recon', 'view'),
+  manage:      requirePermission('cash_recon', 'manage'),
+  adminManage: [requireRole('admin', 'owner'), requirePermission('cash_recon', 'manage')],
+}
 
 // ── Schemas ───────────────────────────────────────────────────
 
@@ -357,7 +365,7 @@ export default async function cashReconRoutes(app) {
   // ── GET /:venueId/cash-recon/config ────────────────────────
   // Returns all config arrays for the venue in a single call.
   app.get('/:venueId/cash-recon/config', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.view,
   }, async (req) => {
     const { venueId } = req.params
 
@@ -420,7 +428,7 @@ export default async function cashReconRoutes(app) {
   // ── PATCH /:venueId/cash-recon/settings ───────────────────────────────────
   // Upserts per-venue cash recon settings (allow_bulk_submit, etc.)
   app.patch('/:venueId/cash-recon/settings', {
-    preHandler: requireRole('admin', 'owner'),
+    preHandler: PERM.adminManage,
   }, async (req) => {
     const { venueId } = req.params
     const body = z.object({
@@ -447,7 +455,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/config/income-sources
   app.post('/:venueId/cash-recon/config/income-sources', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId } = req.params
     const body = IncomeSourceBody.parse(req.body)
@@ -469,7 +477,7 @@ export default async function cashReconRoutes(app) {
   // PUT /:venueId/cash-recon/config/income-sources/reorder
   // MUST be registered before /:id to prevent Fastify treating 'reorder' as an id param
   app.put('/:venueId/cash-recon/config/income-sources/reorder', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId } = req.params
     const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
@@ -514,12 +522,12 @@ export default async function cashReconRoutes(app) {
 
     return row
   }
-  app.patch('/:venueId/cash-recon/config/income-sources/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, incomeSourceUpdateHandler)
-  app.put('/:venueId/cash-recon/config/income-sources/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, incomeSourceUpdateHandler)
+  app.patch('/:venueId/cash-recon/config/income-sources/:id', { preHandler: PERM.manage}, incomeSourceUpdateHandler)
+  app.put('/:venueId/cash-recon/config/income-sources/:id',   { preHandler: PERM.manage}, incomeSourceUpdateHandler)
 
   // DELETE /:venueId/cash-recon/config/income-sources/:id
   app.delete('/:venueId/cash-recon/config/income-sources/:id', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId, id } = req.params
 
@@ -566,7 +574,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/config/payment-channels
   app.post('/:venueId/cash-recon/config/payment-channels', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId } = req.params
     const body = ChannelBody.parse(req.body)
@@ -586,7 +594,7 @@ export default async function cashReconRoutes(app) {
 
   // PUT /:venueId/cash-recon/config/payment-channels/reorder
   app.put('/:venueId/cash-recon/config/payment-channels/reorder', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId } = req.params
     const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
@@ -631,12 +639,12 @@ export default async function cashReconRoutes(app) {
 
     return row
   }
-  app.patch('/:venueId/cash-recon/config/payment-channels/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, channelUpdateHandler)
-  app.put('/:venueId/cash-recon/config/payment-channels/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, channelUpdateHandler)
+  app.patch('/:venueId/cash-recon/config/payment-channels/:id', { preHandler: PERM.manage}, channelUpdateHandler)
+  app.put('/:venueId/cash-recon/config/payment-channels/:id',   { preHandler: PERM.manage}, channelUpdateHandler)
 
   // DELETE /:venueId/cash-recon/config/payment-channels/:id
   app.delete('/:venueId/cash-recon/config/payment-channels/:id', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId, id } = req.params
 
@@ -681,7 +689,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/config/sc-sources
   app.post('/:venueId/cash-recon/config/sc-sources', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId } = req.params
     const body = ScSourceBody.parse(req.body)
@@ -704,7 +712,7 @@ export default async function cashReconRoutes(app) {
 
   // PUT /:venueId/cash-recon/config/sc-sources/reorder
   app.put('/:venueId/cash-recon/config/sc-sources/reorder', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId } = req.params
     const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
@@ -749,12 +757,12 @@ export default async function cashReconRoutes(app) {
 
     return row
   }
-  app.patch('/:venueId/cash-recon/config/sc-sources/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, scSourceUpdateHandler)
-  app.put('/:venueId/cash-recon/config/sc-sources/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, scSourceUpdateHandler)
+  app.patch('/:venueId/cash-recon/config/sc-sources/:id', { preHandler: PERM.manage}, scSourceUpdateHandler)
+  app.put('/:venueId/cash-recon/config/sc-sources/:id',   { preHandler: PERM.manage}, scSourceUpdateHandler)
 
   // DELETE /:venueId/cash-recon/config/sc-sources/:id
   app.delete('/:venueId/cash-recon/config/sc-sources/:id', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId, id } = req.params
 
@@ -803,7 +811,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/config/expense-categories
   app.post('/:venueId/cash-recon/config/expense-categories', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId } = req.params
     const body = CategoryBody.parse(req.body)
@@ -820,7 +828,7 @@ export default async function cashReconRoutes(app) {
 
   // PUT /:venueId/cash-recon/config/expense-categories/reorder — BEFORE /:id
   app.put('/:venueId/cash-recon/config/expense-categories/reorder', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId } = req.params
     const { ids } = z.object({ ids: z.array(z.string().uuid()) }).parse(req.body)
@@ -860,12 +868,12 @@ export default async function cashReconRoutes(app) {
     })
     return row
   }
-  app.patch('/:venueId/cash-recon/config/expense-categories/:id', { preHandler: requireRole('operator', 'admin', 'owner') }, catUpdateHandler)
-  app.put('/:venueId/cash-recon/config/expense-categories/:id',   { preHandler: requireRole('operator', 'admin', 'owner') }, catUpdateHandler)
+  app.patch('/:venueId/cash-recon/config/expense-categories/:id', { preHandler: PERM.manage}, catUpdateHandler)
+  app.put('/:venueId/cash-recon/config/expense-categories/:id',   { preHandler: PERM.manage}, catUpdateHandler)
 
   // DELETE /:venueId/cash-recon/config/expense-categories/:id
   app.delete('/:venueId/cash-recon/config/expense-categories/:id', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId, id } = req.params
     await withTenant(req.tenantId, async tx => {
@@ -903,7 +911,7 @@ export default async function cashReconRoutes(app) {
 
   // GET /:venueId/cash-recon/week/:week_start
   app.get('/:venueId/cash-recon/week/:week_start', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.view,
   }, async (req) => {
     const { venueId, week_start: rawWeekStart } = req.params
 
@@ -1008,7 +1016,7 @@ export default async function cashReconRoutes(app) {
   // GET /:venueId/cash-recon/week-detail/:week_start
   // Returns full per-source/channel breakdown for all 7 days of the week in one call.
   app.get('/:venueId/cash-recon/week-detail/:week_start', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.view,
   }, async (req) => {
     const { venueId, week_start } = req.params
     const weekStart = toMondayStr(week_start)
@@ -1119,7 +1127,7 @@ export default async function cashReconRoutes(app) {
 
   // GET /:venueId/cash-recon/daily/:date
   app.get('/:venueId/cash-recon/daily/:date', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.view,
   }, async (req) => {
     const { venueId, date } = req.params
     parseDate(date)   // validates format
@@ -1142,7 +1150,7 @@ export default async function cashReconRoutes(app) {
   // PUT /:venueId/cash-recon/daily/:date
   // Upsert full daily report.
   app.put('/:venueId/cash-recon/daily/:date', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId, date } = req.params
     parseDate(date)
@@ -1292,7 +1300,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/daily/:date/submit
   app.post('/:venueId/cash-recon/daily/:date/submit', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId, date } = req.params
     parseDate(date)
@@ -1325,7 +1333,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/daily/:date/unsubmit (admin/owner only)
   app.post('/:venueId/cash-recon/daily/:date/unsubmit', {
-    preHandler: requireRole('admin', 'owner'),
+    preHandler: PERM.adminManage,
   }, async (req) => {
     const { venueId, date } = req.params
     parseDate(date)
@@ -1369,7 +1377,7 @@ export default async function cashReconRoutes(app) {
   // without risk of clobbering that day's income/takings/SC entries (unlike
   // PUT daily/:date, which replaces those wholesale from the request body).
   app.post('/:venueId/cash-recon/expenses', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId } = req.params
     const { date, description, category, category_id, amount, vat_amount, paid_by_card, notes } = z.object({
@@ -1411,7 +1419,7 @@ export default async function cashReconRoutes(app) {
 
   // PUT /:venueId/cash-recon/expenses/:expenseId
   app.put('/:venueId/cash-recon/expenses/:expenseId', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId, expenseId } = req.params
     const { description, category, category_id, amount, vat_amount, paid_by_card, notes } = z.object({
@@ -1455,7 +1463,7 @@ export default async function cashReconRoutes(app) {
   // DELETE /:venueId/cash-recon/expenses/:expenseId
   // Only allowed when no receipt is attached.
   app.delete('/:venueId/cash-recon/expenses/:expenseId', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId, expenseId } = req.params
 
@@ -1489,7 +1497,7 @@ export default async function cashReconRoutes(app) {
 
   // POST /:venueId/cash-recon/expenses/:expenseId/receipt
   app.post('/:venueId/cash-recon/expenses/:expenseId/receipt', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req, reply) => {
     const { venueId, expenseId } = req.params
 
@@ -1540,7 +1548,7 @@ export default async function cashReconRoutes(app) {
 
   // DELETE /:venueId/cash-recon/expenses/:expenseId/receipt
   app.delete('/:venueId/cash-recon/expenses/:expenseId/receipt', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId, expenseId } = req.params
 
@@ -1578,7 +1586,7 @@ export default async function cashReconRoutes(app) {
 
   // GET /:venueId/cash-recon/wages/:week_start
   app.get('/:venueId/cash-recon/wages/:week_start', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.view,
   }, async (req) => {
     const { venueId, week_start } = req.params
     const mondayStr = toMondayStr(week_start)
@@ -1600,7 +1608,7 @@ export default async function cashReconRoutes(app) {
 
   // PUT /:venueId/cash-recon/wages/:week_start
   app.put('/:venueId/cash-recon/wages/:week_start', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId, week_start } = req.params
     const mondayStr = toMondayStr(week_start)
@@ -1664,7 +1672,7 @@ export default async function cashReconRoutes(app) {
   // the full active-staff roster. Ad-hoc (staff_id-less) entries are skipped:
   // there's no stable identity to match them against in a future week.
   app.post('/:venueId/cash-recon/wages/:week_start/set-default', {
-    preHandler: requireRole('operator', 'admin', 'owner'),
+    preHandler: PERM.manage,
   }, async (req) => {
     const { venueId } = req.params
     const body = z.object({

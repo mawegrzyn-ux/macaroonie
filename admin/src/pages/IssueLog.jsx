@@ -7,6 +7,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Plus, ChevronRight, ExternalLink } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { format } from 'date-fns'
 
 // ── ITIL helpers ──────────────────────────────────────────────
@@ -353,20 +355,24 @@ export default function IssueLog() {
   })
 
   const isPlatformAdmin = me?.is_platform_admin ?? false
+  const { canManage } = usePermission('issue_log')
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">Issue log</h1>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
-          >
-            <Plus className="w-4 h-4" />
-            New issue
-          </button>
+          {canManage && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
+            >
+              <Plus className="w-4 h-4" />
+              New issue
+            </button>
+          )}
         </div>
+        {!canManage && <ReadOnlyNotice what="the issue log" className="mb-4" />}
 
         {/* Status filter tabs */}
         <div className="flex gap-1 mb-4 overflow-x-auto pb-1">

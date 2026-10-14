@@ -12,6 +12,8 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { FileSpreadsheet, Upload, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 const SHEET_LABELS = {
   KitchenDayChecklist: 'Kitchen Day Checklist',
@@ -26,6 +28,8 @@ const SHEET_LABELS = {
 
 export default function LegacyImport() {
   const api = useApi()
+  // Even the preview runs through the import route, which needs Test data manage.
+  const { canManage } = usePermission('test_data')
   const [venueId, setVenueId] = useState('')
   const [file, setFile] = useState(null)
   const [report, setReport] = useState(null)
@@ -66,7 +70,7 @@ export default function LegacyImport() {
     run.mutate({ commit: true })
   }
 
-  const canRun = !!file && !!selectedVenue && !run.isPending
+  const canRun = canManage && !!file && !!selectedVenue && !run.isPending
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -88,6 +92,7 @@ export default function LegacyImport() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-2xl">
+        {!canManage && <ReadOnlyNotice what="this page" />}
         <div className="border rounded-xl p-5 space-y-4">
           <p className="text-sm text-muted-foreground">
             Upload the spreadsheet. This first runs a <strong>preview</strong> (nothing is

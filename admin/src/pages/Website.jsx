@@ -28,6 +28,8 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { RichTextEditor } from '@/components/RichTextEditor'
@@ -4264,6 +4266,9 @@ function BrandBannerSection() {
 export default function Website() {
   const api = useApi()
   const qc  = useQueryClient()
+  // Website CMS = View: every section can be opened and read, but its
+  // controls are disabled and Publish is hidden.
+  const { canManage } = usePermission('website')
   const [searchParams, setSearchParams] = useSearchParams()
   const sectionParam = searchParams.get('section')
   // 'tenant' edits the tenant_site row; 'venue' edits a venue's website_config.
@@ -4358,7 +4363,7 @@ export default function Website() {
   return (
     <div className="flex h-full overflow-hidden">
       <aside className="w-56 shrink-0 border-r overflow-y-auto py-4 px-2">
-        {tenantSite?.id && <PublishButton tenantSite={tenantSite} onClick={() => setPublishOpen(true)} />}
+        {canManage && tenantSite?.id && <PublishButton tenantSite={tenantSite} onClick={() => setPublishOpen(true)} />}
         {!soleVenue && (
           <div className="px-2 mb-3 space-y-1">
             <button type="button" onClick={() => { setMode('tenant'); setActive('tenant-page') }}
@@ -4431,6 +4436,8 @@ export default function Website() {
             )}
           </div>
 
+          {!canManage && <ReadOnlyNotice what="the website" className="mb-4" />}
+          <ReadOnlyFieldset disabled={!canManage}>
           {mode === 'tenant' ? (
             tenantSite
               ? <TenantActiveSection active={active} tenantSite={tenantSite}
@@ -4460,6 +4467,7 @@ export default function Website() {
               tenantSite={tenantSite} pages={tenantPages} venues={venues}
               tenantName={tenantName} setMode={setMode} setActive={setActive} />
           )}
+          </ReadOnlyFieldset>
         </div>
       </main>
     </div>

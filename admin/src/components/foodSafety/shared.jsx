@@ -19,8 +19,32 @@ import { CSS } from '@dnd-kit/utilities'
 import { format } from 'date-fns'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 
 const AUTOSAVE_DEBOUNCE_MS = 600
+
+// Food safety logs = View: readings are shown, nothing can be logged or
+// changed (the API refuses it too).
+function useFoodSafetyReadOnly() {
+  return !usePermission('food_safety').canManage
+}
+
+// A logged reading as plain text, coloured like the editable cell (red =
+// out of range with no corrective action, amber = out of range, actioned).
+function ReadingDisplay({ log }) {
+  const out = log?.is_within_range === false
+  return (
+    <span title={out && log.corrective_action ? `Out of range — corrective action logged: ${log.corrective_action}` : undefined}
+      className={cn(
+        'inline-flex w-16 items-center justify-center text-sm font-semibold border rounded-lg px-1 py-2 min-h-[40px] bg-muted/30',
+        out && !log.corrective_action && 'border-red-400 bg-red-50 text-red-700',
+        out && log.corrective_action && 'border-amber-300 bg-amber-50 text-amber-700',
+      )}>
+      {log?.temperature_c != null ? String(log.temperature_c) : '—'}
+    </span>
+  )
+}
 
 // Same detection used by NewBookingModal's covers stepper — some touch
 // devices' native on-screen keyboard doesn't reliably appear for a
@@ -120,7 +144,7 @@ export function Badge({ ok, children }) {
 // flagged red; once a corrective action has been recorded (via the
 // end-of-day review, see EndOfDayReview below) it's flagged amber instead,
 // so the "still needs attention" cases stay visually distinct.
-export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving }) {
+export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving, readOnly }) {
   // Pre-fill with the lower end of the equipment's normal range (rather
   // than leaving the field blank behind a ghost placeholder) so the
   // operator starts from a plausible passing reading and only needs to
@@ -188,6 +212,7 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving
     isSaving && 'opacity-60',
   )
   const cellTitle = resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined
+  if (readOnly) return <ReadingDisplay log={existingLog} />
 
   return (
     <div className="flex items-center gap-1">
@@ -245,6 +270,7 @@ export function TempCell({ equipment, captureTime, existingLog, onSave, isSaving
 export function TempChecksTable({ venueId, date, emptyState, showType = true }) {
   const api = useApi()
   const qc = useQueryClient()
+  const readOnly = useFoodSafetyReadOnly()
 
   const enabled = !!venueId
 
@@ -314,6 +340,7 @@ export function TempChecksTable({ venueId, date, emptyState, showType = true }) 
                       existingLog={existingLog}
                       onSave={body => createTemp.mutate(body)}
                       isSaving={createTemp.isPending}
+                      readOnly={readOnly}
                     />
                   </td>
                 )
@@ -422,6 +449,7 @@ export function DeliveryModal({ venueId, onClose, onSave, isSaving }) {
 export function DeliveryChecksPanel({ venueId, date, emptyState }) {
   const api = useApi()
   const qc = useQueryClient()
+  const readOnly = useFoodSafetyReadOnly()
   const [showModal, setShowModal] = useState(false)
 
   const enabled = !!venueId
@@ -445,10 +473,12 @@ export function DeliveryChecksPanel({ venueId, date, emptyState }) {
     <>
       <div className="flex justify-between items-center mb-3 gap-2">
         <p className="text-xs text-muted-foreground">{deliveries.length} logged today</p>
-        <button type="button" onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium min-h-[36px] touch-manipulation">
-          <Plus className="w-3.5 h-3.5" /> New check
-        </button>
+        {!readOnly && (
+          <button type="button" onClick={() => setShowModal(true)}
+            className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium min-h-[36px] touch-manipulation">
+            <Plus className="w-3.5 h-3.5" /> New check
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -544,6 +574,7 @@ function DeliveryTick({ label, value, onChange }) {
 export function DeliveryChecksBoard({ venueId, date }) {
   const api = useApi()
   const qc = useQueryClient()
+  const readOnly = useFoodSafetyReadOnly()
   const [form, setForm] = useState(() => emptyDeliveryForm(date))
 
   const weekStart = mondayOf(date)
@@ -613,14 +644,20 @@ export function DeliveryChecksBoard({ venueId, date }) {
   return (
     <div className="flex flex-col lg:flex-row gap-4">
       <form onSubmit={submit} className="flex-1 min-w-0 border rounded-xl p-4 space-y-3 h-fit">
+        {readOnly && <ReadOnlyNotice what="delivery checks" />}
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-sm">{isEditing ? `Editing — ${form.vendor_name || 'delivery'}` : 'New delivery check'}</h3>
-          {isEditing && (
+          <h3 className="font-semibold text-sm">
+            {readOnly
+              ? (isEditing ? form.vendor_name || 'Delivery' : 'Tap a delivery to see its check')
+              : isEditing ? `Editing — ${form.vendor_name || 'delivery'}` : 'New delivery check'}
+          </h3>
+          {isEditing && !readOnly && (
             <button type="button" onClick={() => setForm(emptyDeliveryForm(date))} className="text-xs text-muted-foreground hover:underline touch-manipulation">
               Cancel edit
             </button>
           )}
         </div>
+        <ReadOnlyFieldset disabled={readOnly} className="space-y-3">
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium mb-1">Date *</label>
@@ -664,10 +701,13 @@ export function DeliveryChecksBoard({ venueId, date }) {
             onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
             className="w-full border rounded px-3 py-2 text-sm bg-background resize-none" />
         </div>
-        <button type="submit" disabled={isSaving || !form.vendor_name.trim()}
-          className="w-full bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
-          {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Log delivery'}
-        </button>
+        </ReadOnlyFieldset>
+        {!readOnly && (
+          <button type="submit" disabled={isSaving || !form.vendor_name.trim()}
+            className="w-full bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium min-h-[44px] disabled:opacity-50 touch-manipulation">
+            {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Log delivery'}
+          </button>
+        )}
       </form>
 
       <div className="lg:w-80 shrink-0 border rounded-xl p-3 space-y-2 max-h-[640px] overflow-y-auto">
@@ -857,7 +897,7 @@ export function HoldCaptureTimeModal({ initial, venueId, onClose, onSave, isSavi
 // One hold station × capture-time cell — identical interaction to TempCell
 // (autosave on type/stepper, debounced, out-of-range saves immediately —
 // see the note on TempCell) but posts station_id instead of equipment_id.
-function HoldCell({ station, captureTime, existingLog, onSave, isSaving }) {
+function HoldCell({ station, captureTime, existingLog, onSave, isSaving, readOnly }) {
   // Same lower-end-of-range pre-fill as TempCell — see its comment.
   const [value, setValue] = useState(() =>
     existingLog?.temperature_c != null ? String(existingLog.temperature_c)
@@ -913,6 +953,7 @@ function HoldCell({ station, captureTime, existingLog, onSave, isSaving }) {
     isSaving && 'opacity-60',
   )
   const cellTitle = resolved ? `Out of range — corrective action logged: ${existingLog.corrective_action}` : undefined
+  if (readOnly) return <ReadingDisplay log={existingLog} />
 
   return (
     <div className="flex items-center gap-1">
@@ -965,6 +1006,7 @@ function HoldCell({ station, captureTime, existingLog, onSave, isSaving }) {
 export function HoldChecksTable({ venueId, date, emptyState, showType = true }) {
   const api = useApi()
   const qc = useQueryClient()
+  const readOnly = useFoodSafetyReadOnly()
 
   const enabled = !!venueId
 
@@ -1031,6 +1073,7 @@ export function HoldChecksTable({ venueId, date, emptyState, showType = true }) 
                       existingLog={existingLog}
                       onSave={body => createHold.mutate(body)}
                       isSaving={createHold.isPending}
+                      readOnly={readOnly}
                     />
                   </td>
                 )
@@ -1438,6 +1481,7 @@ function sessionForNow(sessions, date) {
 export function CookingChecksPanel({ venueId, date }) {
   const api = useApi()
   const qc = useQueryClient()
+  const readOnly = useFoodSafetyReadOnly()
   // The last session picked in the pop-up, reused for the next reading.
   const [lastSessionId, setLastSessionId] = useState('')
   const [activeSectionId, setActiveSectionId] = useState('')
@@ -1514,6 +1558,11 @@ export function CookingChecksPanel({ venueId, date }) {
 
   return (
     <div className="flex flex-col lg:flex-row gap-4">
+      {readOnly ? (
+        <div className="flex-1 min-w-0">
+          <ReadOnlyNotice what="cooking checks" />
+        </div>
+      ) : (
       <div className="flex-1 min-w-0 space-y-3">
         {sessions.length === 0 && (
           <p className="text-sm text-muted-foreground">No cooking sessions yet. Add them in H&amp;S settings, Cooking sessions.</p>
@@ -1569,6 +1618,7 @@ export function CookingChecksPanel({ venueId, date }) {
           + Log a dish not on the list
         </button>
       </div>
+      )}
 
       <div className="lg:w-72 shrink-0 border rounded-xl p-3 space-y-2 max-h-[420px] overflow-y-auto">
         <p className="text-xs font-semibold text-muted-foreground uppercase">Today's checks ({checks.length})</p>
@@ -1598,10 +1648,10 @@ export function CookingChecksPanel({ venueId, date }) {
                 <ul className="space-y-1">
                   {g.checks.map(c => (
                     <li key={c.id}>
-                      <button type="button"
+                      <button type="button" disabled={readOnly}
                         onClick={() => setEntryTarget({ itemName: c.dish_name, existingCheck: c })}
-                        className="w-full flex items-center justify-between gap-2 text-sm text-left rounded-lg px-1.5 py-1 -mx-1.5 min-h-[44px] touch-manipulation hover:bg-accent"
-                        title="Tap to edit this reading">
+                        className="w-full flex items-center justify-between gap-2 text-sm text-left rounded-lg px-1.5 py-1 -mx-1.5 min-h-[44px] touch-manipulation hover:bg-accent disabled:hover:bg-transparent disabled:cursor-default"
+                        title={readOnly ? (c.corrective_action ? `Corrective action: ${c.corrective_action}` : undefined) : 'Tap to edit this reading'}>
                         <span className="min-w-0">
                           <span className="block font-medium truncate">{c.dish_name}</span>
                           <span className="block text-[11px] text-muted-foreground">
@@ -1619,7 +1669,7 @@ export function CookingChecksPanel({ venueId, date }) {
         })}
       </div>
 
-      {entryTarget && (
+      {entryTarget && !readOnly && (
         <CookingEntryModal
           target={entryTarget}
           venueId={venueId}
@@ -1652,6 +1702,7 @@ export function CookingChecksPanel({ venueId, date }) {
 export function EndOfDayReview({ venueId, date }) {
   const api = useApi()
   const qc = useQueryClient()
+  const readOnly = useFoodSafetyReadOnly()
   const [open, setOpen] = useState(false)
   const [index, setIndex] = useState(0)
   const [action, setAction] = useState('')
@@ -1734,13 +1785,15 @@ export function EndOfDayReview({ venueId, date }) {
 
   return (
     <>
-      <button type="button" onClick={openReview} disabled={unresolved.length === 0}
+      <button type="button" onClick={openReview} disabled={unresolved.length === 0 || readOnly}
         className={cn(
           'inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium min-h-[44px] touch-manipulation',
-          unresolved.length > 0 ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-emerald-50 text-emerald-700 cursor-default',
+          unresolved.length > 0 ? 'bg-red-600 text-white hover:bg-red-700 disabled:hover:bg-red-600 disabled:cursor-default' : 'bg-emerald-50 text-emerald-700 cursor-default',
         )}>
         {unresolved.length > 0 ? <AlertTriangle className="w-4 h-4" /> : <Check className="w-4 h-4" />}
-        {unresolved.length > 0 ? `End of day review (${unresolved.length})` : 'End of day — all clear'}
+        {unresolved.length > 0
+          ? (readOnly ? `${unresolved.length} need a corrective action` : `End of day review (${unresolved.length})`)
+          : 'End of day — all clear'}
       </button>
 
       {open && current && (

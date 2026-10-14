@@ -5,8 +5,15 @@
 
 import { z }          from 'zod'
 import { sql, withTenant } from '../config/db.js'
-import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js'
+import { requireAuth, requirePlatformAdmin, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
+
+// Issue log permission: view reads, manage reports and edits (platform
+// admins always pass).
+const PERM = {
+  view:   requirePermission('issue_log', 'view'),
+  manage: requirePermission('issue_log', 'manage'),
+}
 
 // ── ITIL priority matrix ──────────────────────────────────────
 //
@@ -61,7 +68,7 @@ export default async function issueLogRoutes(app) {
   app.addHook('preHandler', requireAuth)
 
   // ── GET /issues ───────────────────────────────────────────
-  app.get('/', async (req) => {
+  app.get('/', { preHandler: PERM.view }, async (req) => {
     const { status, category, priority, limit = '50', offset = '0' } = req.query
     const lim = parseIntParam(limit, 50)
     const off = parseIntParam(offset, 0)
@@ -95,7 +102,7 @@ export default async function issueLogRoutes(app) {
   })
 
   // ── POST /issues ──────────────────────────────────────────
-  app.post('/', async (req) => {
+  app.post('/', { preHandler: PERM.manage }, async (req) => {
     const body     = IssueBody.parse(req.body)
     const priority = calcPriority(body.impact, body.urgency)
 
@@ -111,7 +118,7 @@ export default async function issueLogRoutes(app) {
   })
 
   // ── PATCH /issues/:id ─────────────────────────────────────
-  app.patch('/:id', async (req) => {
+  app.patch('/:id', { preHandler: PERM.manage }, async (req) => {
     const body = IssuePatch.parse(req.body)
 
     /* tenants can only update title / description */

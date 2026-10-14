@@ -172,7 +172,8 @@ function SortableRow({ id, children }) {
 }
 
 /** Drag-reorder list (design rule 3). Calls onReorder(ids) after a drop. */
-export function SortableRows({ items, onReorder, renderItem }) {
+// `locked` (View access) shows the rows in order with no dragging.
+export function SortableRows({ items, onReorder, renderItem, locked = false }) {
   const [order, setOrder] = useState(items)
   useEffect(() => setOrder(items), [items])
   const sensors = useSensors(
@@ -184,6 +185,13 @@ export function SortableRows({ items, onReorder, renderItem }) {
     const next = arrayMove(order, order.findIndex(i => i.id === active.id), order.findIndex(i => i.id === over.id))
     setOrder(next)
     onReorder(next.map(i => i.id))
+  }
+  if (locked) {
+    return (
+      <div className="rounded-xl border divide-y overflow-hidden">
+        {order.map(item => <div key={item.id} className="px-2 py-1">{renderItem(item)}</div>)}
+      </div>
+    )
   }
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

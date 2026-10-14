@@ -11,6 +11,8 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Settings2, Plus, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import {
   useRotaSetup, PageHeader, SortableRows, Modal, Field, inputCls, ConfirmDelete, ErrorNote,
   Segmented, TimeSelect, hhmm, rangeMinutes, fmtHours,
@@ -231,6 +233,7 @@ export default function RotaSetup() {
   const { data: setup, isLoading } = useRotaSetup()
   const shifts = setup?.shifts ?? []
   const [editing, setEditing] = useState(null)
+  const { canManage } = usePermission('staff')
 
   const reorder = useMutation({
     mutationFn: ids => api.put('/rota/shifts/reorder', { ids }),
@@ -245,15 +248,18 @@ export default function RotaSetup() {
           {isLoading || !setup ? (
             <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
           ) : (
-            <>
+            <ReadOnlyFieldset disabled={!canManage} className="space-y-5">
+              {!canManage && <ReadOnlyNotice what="rota setup" />}
               <SettingsCard settings={setup.settings} />
               <section className="space-y-3">
                 <div className="flex items-center gap-3">
                   <h2 className="text-sm font-semibold flex-1">Day parts / shifts</h2>
-                  <button type="button" onClick={() => setEditing('new')}
-                    className="h-10 px-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation flex items-center gap-1.5">
-                    <Plus className="w-4 h-4" /> Add shift
-                  </button>
+                  {canManage && (
+                    <button type="button" onClick={() => setEditing('new')}
+                      className="h-10 px-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation flex items-center gap-1.5">
+                      <Plus className="w-4 h-4" /> Add shift
+                    </button>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Shared by every venue. Drag to set the order the shifts appear on the rota.
@@ -261,7 +267,7 @@ export default function RotaSetup() {
                 {shifts.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">No shifts yet. Add e.g. Lunch 11:30–15:00 and Dinner 18:00–23:00.</p>
                 ) : (
-                  <SortableRows items={shifts} onReorder={ids => reorder.mutate(ids)} renderItem={s => (
+                  <SortableRows items={shifts} locked={!canManage} onReorder={ids => reorder.mutate(ids)} renderItem={s => (
                     <button type="button" onClick={() => setEditing(s)}
                       className={`w-full min-h-[48px] flex flex-wrap items-center gap-x-3 gap-y-1 text-left rounded-lg px-2 py-1 hover:bg-muted touch-manipulation ${s.is_active ? '' : 'opacity-60'}`}>
                       <span className="flex-1 basis-24 min-w-0 truncate text-sm font-medium">{s.name}</span>
@@ -273,7 +279,7 @@ export default function RotaSetup() {
                 )}
               </section>
               <TipPotsSection pots={setup.pots ?? []} />
-            </>
+            </ReadOnlyFieldset>
           )}
         </div>
       </div>

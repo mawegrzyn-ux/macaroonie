@@ -9,6 +9,8 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { BadgeCheck, Plus, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import {
   useRotaSetup, PageHeader, SortableRows, Modal, Field, inputCls, ConfirmDelete, ErrorNote,
 } from '@/components/staff/shared'
@@ -66,6 +68,7 @@ export default function StaffRoles() {
   const { data: setup, isLoading } = useRotaSetup()
   const roles = setup?.roles ?? []
   const [editing, setEditing] = useState(null)
+  const { canManage } = usePermission('staff')
 
   const reorder = useMutation({
     mutationFn: ids => api.put('/rota/roles/reorder', { ids }),
@@ -75,13 +78,16 @@ export default function StaffRoles() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader icon={BadgeCheck} title="Roles">
-        <button type="button" onClick={() => setEditing('new')}
-          className="h-10 px-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation flex items-center gap-1.5">
-          <Plus className="w-4 h-4" /> Add role
-        </button>
+        {canManage && (
+          <button type="button" onClick={() => setEditing('new')}
+            className="h-10 px-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation flex items-center gap-1.5">
+            <Plus className="w-4 h-4" /> Add role
+          </button>
+        )}
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto p-4 space-y-3">
+          {!canManage && <ReadOnlyNotice what="the roles" />}
           <p className="text-xs text-muted-foreground">
             Roles are shared by every venue. The multiplier scales the tip points a person earns per shift.
           </p>
@@ -90,9 +96,9 @@ export default function StaffRoles() {
           ) : roles.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No roles yet. Add one, e.g. Manager, Chef, Waiter, Pot wash.</p>
           ) : (
-            <SortableRows items={roles} onReorder={ids => reorder.mutate(ids)} renderItem={r => (
-              <button type="button" onClick={() => setEditing(r)}
-                className={`w-full min-h-[48px] flex items-center gap-3 text-left rounded-lg px-2 hover:bg-muted touch-manipulation ${r.is_active ? '' : 'opacity-60'}`}>
+            <SortableRows items={roles} locked={!canManage} onReorder={ids => reorder.mutate(ids)} renderItem={r => (
+              <button type="button" onClick={() => setEditing(r)} disabled={!canManage}
+                className={`w-full min-h-[48px] flex items-center gap-3 text-left rounded-lg px-2 hover:bg-muted disabled:hover:bg-transparent disabled:cursor-default touch-manipulation ${r.is_active ? '' : 'opacity-60'}`}>
                 <span className="flex-1 min-w-0 truncate text-sm font-medium">{r.name}</span>
                 {!r.is_active && <span className="text-[11px] text-muted-foreground">Inactive</span>}
                 <span className="text-xs px-2 py-0.5 rounded-full bg-muted tabular-nums">×{Number(r.points_multiplier).toFixed(2)}</span>

@@ -13,6 +13,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Plus, X } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 import { Field, Input, PriceInput } from './shared'
 
@@ -21,10 +22,12 @@ const COLOURS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2
 /** Company courses, or null when the person can't see Till setup. */
 export function useTillCourses() {
   const api = useApi()
+  const { canView } = usePermission('pos_setup')
   const { data } = useQuery({
     queryKey: ['pos-courses'], queryFn: () => api.get('/pos/courses'), retry: false, staleTime: 60_000,
+    enabled: canView,
   })
-  return data || null
+  return (canView && data) || null
 }
 
 function ColourRow({ value, onChange, inheritLabel }) {

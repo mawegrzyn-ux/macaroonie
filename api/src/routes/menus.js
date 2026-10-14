@@ -13,7 +13,7 @@
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
-import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
+import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS, ensureStandardAllergens } from '../services/menuSeeds.js'
 import { randomUUID } from 'node:crypto'
@@ -24,6 +24,10 @@ import {
 } from '../../../shared/menuLayout.js'
 import { FONT_OPTIONS } from '../../../shared/fonts.js'
 import { ALLERGEN_LEVELS, allergenKey, menuTags, noticeOf } from '../../../shared/menuTags.js'
+
+// Changes need Menus manage. Reads stay open to every member of the tenant:
+// the website builder, ordering setup, Deliveroo and dashboards read menus.
+const PERM = { manage: requirePermission('menus', 'manage') }
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -861,7 +865,7 @@ export default async function menusRoutes(app) {
 
   // { name, layout } — a new design. A menu's first design is also made
   // the one used for printing.
-  app.post('/:id/designs', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/designs', { preHandler: PERM.manage}, async (req, reply) => {
     const body = z.object({ name: DesignName, layout: LayoutBody }).parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const menu = await menuOf(tx, req)
@@ -884,7 +888,7 @@ export default async function menusRoutes(app) {
   })
 
   // { name?, layout? }
-  app.put('/:id/designs/:designId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/:id/designs/:designId', { preHandler: PERM.manage}, async (req) => {
     const body = z.object({ name: DesignName.optional(), layout: LayoutBody.optional() }).parse(req.body)
     return withTenant(req.tenantId, async tx => {
       await menuOf(tx, req)
@@ -903,7 +907,7 @@ export default async function menusRoutes(app) {
 
   // Deleting the design used for printing sends printing back to the
   // automatic layout (ON DELETE SET NULL).
-  app.delete('/:id/designs/:designId', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:id/designs/:designId', { preHandler: PERM.manage}, async (req) => {
     return withTenant(req.tenantId, async tx => {
       await menuOf(tx, req)
       const d = await designOf(tx, req)
@@ -913,7 +917,7 @@ export default async function menusRoutes(app) {
   })
 
   // { design_id } — the design the print page uses; null = automatic layout.
-  app.put('/:id/print-design', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/:id/print-design', { preHandler: PERM.manage}, async (req) => {
     const { design_id } = z.object({ design_id: z.string().uuid().nullable() }).parse(req.body)
     return withTenant(req.tenantId, async tx => {
       const menu = await menuOf(tx, req)
@@ -933,7 +937,7 @@ export default async function menusRoutes(app) {
     })
   })
 
-  app.post('/', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/', { preHandler: PERM.manage}, async (req, reply) => {
     const body = MenuMetaBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO menus (tenant_id, venue_id, name, slug, tagline, service_times, intro_line, is_published, sort_order, print_columns, print_orientation, print_paper_size, print_hide_variant_group_headers, print_settings, hide_zero_priced_variants, hide_unpriced_variants)
@@ -949,7 +953,7 @@ export default async function menusRoutes(app) {
   // ── Duplicate — full copy (meta + sections/items/variants/dietary/
   // callouts) under a new menu row in the same scope. Unpublished by
   // default so a copy doesn't go live before the operator reviews it.
-  app.post('/:id/duplicate', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/duplicate', { preHandler: PERM.manage}, async (req, reply) => {
     if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
     const created = await withTenant(req.tenantId, async tx => {
       const full = await loadMenuFull(tx, req.params.id, req.tenantId)
@@ -1021,7 +1025,7 @@ export default async function menusRoutes(app) {
     return reply.code(201).send(created)
   })
 
-  app.patch('/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id', { preHandler: PERM.manage}, async (req) => {
     const body = MenuFullBody.parse(req.body)
     return withTenant(req.tenantId, async tx => {
       const [updated] = await tx`
@@ -1051,7 +1055,7 @@ export default async function menusRoutes(app) {
     })
   })
 
-  app.delete('/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM menus WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
       RETURNING id
@@ -1125,7 +1129,7 @@ export default async function menusRoutes(app) {
     `)
   })
 
-  app.post('/dietary', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/dietary', { preHandler: PERM.manage}, async (req, reply) => {
     const body = DietaryBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO menu_dietary_tags (tenant_id, code, label, glyph, colour, sort_order, kind, show_on_menu)
@@ -1142,7 +1146,7 @@ export default async function menusRoutes(app) {
     return withTenant(req.tenantId, tx => loadAllergenNotice(tx, req.tenantId))
   })
 
-  app.put('/allergen-notice', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/allergen-notice', { preHandler: PERM.manage}, async (req) => {
     const body = NoticeBody.parse(req.body)
     return withTenant(req.tenantId, async tx => {
       await tx`
@@ -1163,13 +1167,13 @@ export default async function menusRoutes(app) {
   })
 
   // Adds whichever of the 14 standard allergens the tenant doesn't have.
-  app.post('/dietary/standard-allergens', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/dietary/standard-allergens', { preHandler: PERM.manage}, async (req) => {
     const added = await withTenant(req.tenantId, tx => ensureStandardAllergens(tx, req.tenantId))
     return { added: added.length }
   })
 
   // Drag order of one list (allergens or dietary tags): ids in their new order.
-  app.patch('/dietary/reorder', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/dietary/reorder', { preHandler: PERM.manage}, async (req) => {
     const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1).max(500) }).parse(req.body)
     return withTenant(req.tenantId, async tx => {
       for (const [i, id] of ids.entries()) {
@@ -1179,7 +1183,7 @@ export default async function menusRoutes(app) {
     })
   })
 
-  app.patch('/dietary/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/dietary/:id', { preHandler: PERM.manage}, async (req) => {
     const body = DietaryBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -1210,7 +1214,7 @@ export default async function menusRoutes(app) {
 
   // Moves every dish link of a tag onto another tag, then deletes it.
   // A dish that already has the other tag keeps its own level there.
-  app.post('/dietary/:id/merge', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/dietary/:id/merge', { preHandler: PERM.manage}, async (req) => {
     const { into_id } = z.object({ into_id: z.string().uuid() }).parse(req.body)
     if (into_id === req.params.id) throw httpError(422, 'Pick a different tag to merge into')
     return withTenant(req.tenantId, async tx => {
@@ -1240,7 +1244,7 @@ export default async function menusRoutes(app) {
     })
   })
 
-  app.delete('/dietary/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/dietary/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM menu_dietary_tags WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
       RETURNING id
@@ -1257,7 +1261,7 @@ export default async function menusRoutes(app) {
     return withTenant(req.tenantId, tx => loadVariantGroups(tx, req.tenantId))
   })
 
-  app.post('/variant-groups', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/variant-groups', { preHandler: PERM.manage}, async (req, reply) => {
     const body = VariantGroupBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const [g] = await tx`
@@ -1281,7 +1285,7 @@ export default async function menusRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  app.patch('/variant-groups/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/variant-groups/:id', { preHandler: PERM.manage}, async (req) => {
     const body = VariantGroupBody.parse(req.body)
     return withTenant(req.tenantId, async tx => {
       const [g] = await tx`
@@ -1332,7 +1336,7 @@ export default async function menusRoutes(app) {
     })
   })
 
-  app.delete('/variant-groups/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/variant-groups/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM menu_variant_groups WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
       RETURNING id
@@ -1345,7 +1349,7 @@ export default async function menusRoutes(app) {
   //   SEED — POST /menus/seed/:slug → create a sample One Thai menu
   // ════════════════════════════════════════════════════════════
 
-  app.post('/seed/:slug', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/seed/:slug', { preHandler: PERM.manage}, async (req, reply) => {
     const seed = SEED_BY_SLUG[req.params.slug]
     if (!seed) throw httpError(404, `Unknown seed: ${req.params.slug}`)
     const venue_id = req.body?.venue_id || null

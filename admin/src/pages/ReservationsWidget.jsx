@@ -11,6 +11,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { Save, Loader2, Copy, ExternalLink, X } from 'lucide-react'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 import { ThemeColourPicker, resolveRole } from '@/components/website-builder/ThemeColourPicker'
@@ -60,6 +62,9 @@ export default function ReservationsWidget({ embedded = false }) {
     queryFn:  () => api.get('/venues'),
     staleTime: 60_000,
   })
+
+  // Saving the defaults needs Website manage (PATCH /website/tenant-site).
+  const { canManage } = usePermission('website')
 
   // Local form state — initialised once tenantSite loads, replaced on save.
   const [form,   setForm]   = useState(DEFAULT_SETTINGS)
@@ -131,163 +136,166 @@ export default function ReservationsWidget({ embedded = false }) {
         </p>
       </div>
 
-      {/* Header */}
-      <Card title="Header"
-        hint='The text shown at the top of the widget ("Brand / Book a table").'>
-        <Field label="Show header">
-          <ToggleSwitch checked={!!form.header_show} onChange={set('header_show')} />
-        </Field>
-        <Field label="Header text"
-          hint="Override the brand/site name shown at the top of the widget. Blank = use site name.">
-          <input className={inputClass}
-            value={form.header_text || ''}
-            onChange={e => set('header_text')(e.target.value)}
-            placeholder={tenantSite?.site_name || tenantSite?.brand_name || 'Site name'} />
-        </Field>
-        <Field label="Sub-header"
-          hint='Smaller line below the header. Default: "Book a table".'>
-          <input className={inputClass}
-            value={form.subheader_text || ''}
-            onChange={e => set('subheader_text')(e.target.value)}
-            placeholder="Book a table" />
-        </Field>
-      </Card>
+      {!canManage && !embedded && <ReadOnlyNotice what="the widget settings" />}
+      <ReadOnlyFieldset disabled={!canManage} className="space-y-6">
+        {/* Header */}
+        <Card title="Header"
+          hint='The text shown at the top of the widget ("Brand / Book a table").'>
+          <Field label="Show header">
+            <ToggleSwitch checked={!!form.header_show} onChange={set('header_show')} />
+          </Field>
+          <Field label="Header text"
+            hint="Override the brand/site name shown at the top of the widget. Blank = use site name.">
+            <input className={inputClass}
+              value={form.header_text || ''}
+              onChange={e => set('header_text')(e.target.value)}
+              placeholder={tenantSite?.site_name || tenantSite?.brand_name || 'Site name'} />
+          </Field>
+          <Field label="Sub-header"
+            hint='Smaller line below the header. Default: "Book a table".'>
+            <input className={inputClass}
+              value={form.subheader_text || ''}
+              onChange={e => set('subheader_text')(e.target.value)}
+              placeholder="Book a table" />
+          </Field>
+        </Card>
 
-      {/* Button */}
-      <Card title="Button"
-        hint='The "Continue / Confirm" button styling. Pick a role from the brand palette.'>
-        <Field label="Background colour"
-          hint="Blank = brand primary colour.">
-          <ThemeColourPicker value={form.button_bg} onChange={set('button_bg')} />
-        </Field>
-        <Field label="Text colour" hint="Blank = white.">
-          <ThemeColourPicker value={form.button_fg} onChange={set('button_fg')} />
-        </Field>
-        <Field label={`Corner radius — ${form.button_radius_px ?? 8}px`}>
-          <input type="range" min={0} max={40} step={1}
-            value={form.button_radius_px ?? 8}
-            onChange={e => set('button_radius_px')(Number(e.target.value))}
-            className="w-full" />
-        </Field>
-      </Card>
+        {/* Button */}
+        <Card title="Button"
+          hint='The "Continue / Confirm" button styling. Pick a role from the brand palette.'>
+          <Field label="Background colour"
+            hint="Blank = brand primary colour.">
+            <ThemeColourPicker value={form.button_bg} onChange={set('button_bg')} />
+          </Field>
+          <Field label="Text colour" hint="Blank = white.">
+            <ThemeColourPicker value={form.button_fg} onChange={set('button_fg')} />
+          </Field>
+          <Field label={`Corner radius — ${form.button_radius_px ?? 8}px`}>
+            <input type="range" min={0} max={40} step={1}
+              value={form.button_radius_px ?? 8}
+              onChange={e => set('button_radius_px')(Number(e.target.value))}
+              className="w-full" />
+          </Field>
+        </Card>
 
-      {/* Borders */}
-      <Card title="Borders + radii">
-        <Field label="Border colour"
-          hint="Used for input outlines and chip borders. Blank = the theme's border role.">
-          <ThemeColourPicker value={form.border_colour} onChange={set('border_colour')} />
-        </Field>
-        <Field label={`Card / chip radius — ${form.card_radius_px ?? 8}px`}>
-          <input type="range" min={0} max={40} step={1}
-            value={form.card_radius_px ?? 8}
-            onChange={e => set('card_radius_px')(Number(e.target.value))}
-            className="w-full" />
-        </Field>
-      </Card>
+        {/* Borders */}
+        <Card title="Borders + radii">
+          <Field label="Border colour"
+            hint="Used for input outlines and chip borders. Blank = the theme's border role.">
+            <ThemeColourPicker value={form.border_colour} onChange={set('border_colour')} />
+          </Field>
+          <Field label={`Card / chip radius — ${form.card_radius_px ?? 8}px`}>
+            <input type="range" min={0} max={40} step={1}
+              value={form.card_radius_px ?? 8}
+              onChange={e => set('card_radius_px')(Number(e.target.value))}
+              className="w-full" />
+          </Field>
+        </Card>
 
-      {/* Typography */}
-      <Card title="Typography"
-        hint="Three independent font tracks — the widget's body, the calendar date numbers, and the slot time buttons. Each can be a different Google Font + size.">
-        <Field label="Body font" hint="Used for headers, button labels, form fields. Blank = brand body font.">
-          <FontPicker
-            fonts={FONT_OPTIONS}
-            value={form.font_family}
-            onChange={set('font_family')}
-            placeholder={tenantSite?.font_family || 'Brand font'} />
-        </Field>
-        <Field label={`Body size — ${form.font_size_px ?? 16}px`}>
-          <input type="range" min={11} max={22} step={1}
-            value={form.font_size_px ?? 16}
-            onChange={e => set('font_size_px')(Number(e.target.value))}
-            className="w-full" />
-        </Field>
-        <hr className="my-3 border-border" />
-        <Field label="Calendar font" hint="The day numbers in the date picker. Try a tabular sans for clean alignment.">
-          <FontPicker
-            fonts={FONT_OPTIONS}
-            value={form.font_calendar_family}
-            onChange={set('font_calendar_family')}
-            placeholder="Inherit body font" />
-        </Field>
-        <Field label={`Calendar size — ${form.font_calendar_size_px ?? 15}px`}>
-          <input type="range" min={10} max={28} step={1}
-            value={form.font_calendar_size_px ?? 15}
-            onChange={e => set('font_calendar_size_px')(Number(e.target.value))}
-            className="w-full" />
-        </Field>
-        <hr className="my-3 border-border" />
-        <Field label="Time slots font" hint="The HH:MM buttons on the time-pick step.">
-          <FontPicker
-            fonts={FONT_OPTIONS}
-            value={form.font_slots_family}
-            onChange={set('font_slots_family')}
-            placeholder="Inherit body font" />
-        </Field>
-        <Field label={`Time slots size — ${form.font_slots_size_px ?? 14}px`}>
-          <input type="range" min={10} max={28} step={1}
-            value={form.font_slots_size_px ?? 14}
-            onChange={e => set('font_slots_size_px')(Number(e.target.value))}
-            className="w-full" />
-        </Field>
-      </Card>
+        {/* Typography */}
+        <Card title="Typography"
+          hint="Three independent font tracks — the widget's body, the calendar date numbers, and the slot time buttons. Each can be a different Google Font + size.">
+          <Field label="Body font" hint="Used for headers, button labels, form fields. Blank = brand body font.">
+            <FontPicker
+              fonts={FONT_OPTIONS}
+              value={form.font_family}
+              onChange={set('font_family')}
+              placeholder={tenantSite?.font_family || 'Brand font'} />
+          </Field>
+          <Field label={`Body size — ${form.font_size_px ?? 16}px`}>
+            <input type="range" min={11} max={22} step={1}
+              value={form.font_size_px ?? 16}
+              onChange={e => set('font_size_px')(Number(e.target.value))}
+              className="w-full" />
+          </Field>
+          <hr className="my-3 border-border" />
+          <Field label="Calendar font" hint="The day numbers in the date picker. Try a tabular sans for clean alignment.">
+            <FontPicker
+              fonts={FONT_OPTIONS}
+              value={form.font_calendar_family}
+              onChange={set('font_calendar_family')}
+              placeholder="Inherit body font" />
+          </Field>
+          <Field label={`Calendar size — ${form.font_calendar_size_px ?? 15}px`}>
+            <input type="range" min={10} max={28} step={1}
+              value={form.font_calendar_size_px ?? 15}
+              onChange={e => set('font_calendar_size_px')(Number(e.target.value))}
+              className="w-full" />
+          </Field>
+          <hr className="my-3 border-border" />
+          <Field label="Time slots font" hint="The HH:MM buttons on the time-pick step.">
+            <FontPicker
+              fonts={FONT_OPTIONS}
+              value={form.font_slots_family}
+              onChange={set('font_slots_family')}
+              placeholder="Inherit body font" />
+          </Field>
+          <Field label={`Time slots size — ${form.font_slots_size_px ?? 14}px`}>
+            <input type="range" min={10} max={28} step={1}
+              value={form.font_slots_size_px ?? 14}
+              onChange={e => set('font_slots_size_px')(Number(e.target.value))}
+              className="w-full" />
+          </Field>
+        </Card>
 
-      {/* Calendar colours */}
-      <Card title="Calendar day colours"
-        hint="Available days vs closed days (venue's day-off, e.g. Sunday). Theme roles only — pick from the brand palette. Blank fields fall back to sensible defaults.">
-        <Field label="Open day — background"><ThemeColourPicker value={form.cal_open_bg} onChange={set('cal_open_bg')} /></Field>
-        <Field label="Open day — text"><ThemeColourPicker value={form.cal_open_fg} onChange={set('cal_open_fg')} /></Field>
-        <Field label="Open day — border"><ThemeColourPicker value={form.cal_open_border} onChange={set('cal_open_border')} /></Field>
-        <hr className="my-3 border-border" />
-        <Field label="Closed day — background"><ThemeColourPicker value={form.cal_closed_bg} onChange={set('cal_closed_bg')} /></Field>
-        <Field label="Closed day — text"><ThemeColourPicker value={form.cal_closed_fg} onChange={set('cal_closed_fg')} /></Field>
-        <Field label="Closed day — border"><ThemeColourPicker value={form.cal_closed_border} onChange={set('cal_closed_border')} /></Field>
-      </Card>
+        {/* Calendar colours */}
+        <Card title="Calendar day colours"
+          hint="Available days vs closed days (venue's day-off, e.g. Sunday). Theme roles only — pick from the brand palette. Blank fields fall back to sensible defaults.">
+          <Field label="Open day — background"><ThemeColourPicker value={form.cal_open_bg} onChange={set('cal_open_bg')} /></Field>
+          <Field label="Open day — text"><ThemeColourPicker value={form.cal_open_fg} onChange={set('cal_open_fg')} /></Field>
+          <Field label="Open day — border"><ThemeColourPicker value={form.cal_open_border} onChange={set('cal_open_border')} /></Field>
+          <hr className="my-3 border-border" />
+          <Field label="Closed day — background"><ThemeColourPicker value={form.cal_closed_bg} onChange={set('cal_closed_bg')} /></Field>
+          <Field label="Closed day — text"><ThemeColourPicker value={form.cal_closed_fg} onChange={set('cal_closed_fg')} /></Field>
+          <Field label="Closed day — border"><ThemeColourPicker value={form.cal_closed_border} onChange={set('cal_closed_border')} /></Field>
+        </Card>
 
-      {/* Confirmation page */}
-      <Card title="Confirmation page"
-        hint="Content shown to guests after a successful booking. Merge fields: {{reference}} {{guest_name}} {{date}} {{time}} {{covers}} {{venue_name}} {{email}}.">
-        <Field label="Heading" hint="Override the confirmation heading. Blank = default.">
-          <input className={inputClass}
-            value={form.confirmation_heading || ''}
-            onChange={e => set('confirmation_heading')(e.target.value)}
-            placeholder="You're booked!" />
-        </Field>
-        <Field label="Body HTML"
-          hint="Shown below the booking summary card. Supports HTML tags and the merge fields above.">
-          <ConfBodyEditor
-            value={form.confirmation_body_html || ''}
-            onChange={set('confirmation_body_html')}
-            inputClass={inputClass}
-          />
-        </Field>
-        <Field label="CTA buttons"
-          hint="Up to 4 buttons shown below the body. Link to a menu, directions, review page, etc.">
-          <CtaListEditor
-            value={form.confirmation_ctas || []}
-            onChange={set('confirmation_ctas')}
-            inputClass={inputClass}
-          />
-        </Field>
-      </Card>
+        {/* Confirmation page */}
+        <Card title="Confirmation page"
+          hint="Content shown to guests after a successful booking. Merge fields: {{reference}} {{guest_name}} {{date}} {{time}} {{covers}} {{venue_name}} {{email}}.">
+          <Field label="Heading" hint="Override the confirmation heading. Blank = default.">
+            <input className={inputClass}
+              value={form.confirmation_heading || ''}
+              onChange={e => set('confirmation_heading')(e.target.value)}
+              placeholder="You're booked!" />
+          </Field>
+          <Field label="Body HTML"
+            hint="Shown below the booking summary card. Supports HTML tags and the merge fields above.">
+            <ConfBodyEditor
+              value={form.confirmation_body_html || ''}
+              onChange={set('confirmation_body_html')}
+              inputClass={inputClass}
+            />
+          </Field>
+          <Field label="CTA buttons"
+            hint="Up to 4 buttons shown below the body. Link to a menu, directions, review page, etc.">
+            <CtaListEditor
+              value={form.confirmation_ctas || []}
+              onChange={set('confirmation_ctas')}
+              inputClass={inputClass}
+            />
+          </Field>
+        </Card>
 
-      {/* Debug */}
-      <Card title="Debug"
-        hint="Diagnostic overlay shown at the top of the widget. Helps identify state + API issues. Leave OFF for normal customers.">
-        <Field label="Show debug overlay">
-          <ToggleSwitch checked={!!form.debug_enabled} onChange={set('debug_enabled')} />
-        </Field>
-      </Card>
+        {/* Debug */}
+        <Card title="Debug"
+          hint="Diagnostic overlay shown at the top of the widget. Helps identify state + API issues. Leave OFF for normal customers.">
+          <Field label="Show debug overlay">
+            <ToggleSwitch checked={!!form.debug_enabled} onChange={set('debug_enabled')} />
+          </Field>
+        </Card>
 
-      {/* Messages */}
-      <Card title="Messages">
-        <Field label="“Larger party” text"
-          hint="Shown under the covers row in the widget. Set to a single space to hide it entirely.">
-          <textarea className={inputClass + ' min-h-[60px]'}
-            value={form.large_party_text || ''}
-            onChange={e => set('large_party_text')(e.target.value)}
-            placeholder="Larger party? Call us — we’ll arrange combined tables." />
-        </Field>
-      </Card>
+        {/* Messages */}
+        <Card title="Messages">
+          <Field label="“Larger party” text"
+            hint="Shown under the covers row in the widget. Set to a single space to hide it entirely.">
+            <textarea className={inputClass + ' min-h-[60px]'}
+              value={form.large_party_text || ''}
+              onChange={e => set('large_party_text')(e.target.value)}
+              placeholder="Larger party? Call us — we’ll arrange combined tables." />
+          </Field>
+        </Card>
+      </ReadOnlyFieldset>
 
       {/* Live preview */}
       <Card title="Live preview"
@@ -365,17 +373,19 @@ export default function ReservationsWidget({ embedded = false }) {
       </Card>
 
       {/* Save bar */}
-      <div className="sticky bottom-0 bg-background border-t pt-3 pb-2 flex items-center gap-3">
-        <button type="button" disabled={!dirty || save.isPending}
-          onClick={onSave}
-          className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50">
-          {save.isPending
-            ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
-            : <><Save className="w-4 h-4" /> Save defaults</>}
-        </button>
-        {saved && !dirty && <span className="text-xs text-green-700">Saved.</span>}
-        {error && <span className="text-xs text-destructive">{error}</span>}
-      </div>
+      {canManage && (
+        <div className="sticky bottom-0 bg-background border-t pt-3 pb-2 flex items-center gap-3">
+          <button type="button" disabled={!dirty || save.isPending}
+            onClick={onSave}
+            className="inline-flex items-center gap-2 bg-primary text-primary-foreground rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50">
+            {save.isPending
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
+              : <><Save className="w-4 h-4" /> Save defaults</>}
+          </button>
+          {saved && !dirty && <span className="text-xs text-green-700">Saved.</span>}
+          {error && <span className="text-xs text-destructive">{error}</span>}
+        </div>
+      )}
     </div>
     </div>
   )

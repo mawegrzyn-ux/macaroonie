@@ -18,6 +18,8 @@ import {
   TriangleAlert, TrendingUp, Minus, ChevronUp, ChevronDown, ArrowUpDown, Newspaper,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
 // ── CSV parser ────────────────────────────────────────────────
@@ -81,6 +83,9 @@ function useIsDesktop(minWidth = 1024) {
 export default function Customers() {
   const api = useApi()
   const qc  = useQueryClient()
+  // Customers = View: profiles can be searched and read; adding, importing,
+  // editing, unsubscribing, export and anonymise are hidden.
+  const { canManage } = usePermission('customers')
 
   const [search,     setSearch]     = useState('')
   const [debouncedQ, setDebouncedQ] = useState('')
@@ -219,7 +224,7 @@ export default function Customers() {
             <Newspaper className="w-3.5 h-3.5" /> Newsletter
           </button>
 
-          <div className="flex items-center gap-2 ml-auto">
+          {canManage && <div className="flex items-center gap-2 ml-auto">
             {/* Import CSV */}
             <button
               onClick={() => setShowImport(true)}
@@ -236,7 +241,7 @@ export default function Customers() {
               <Plus className="w-3.5 h-3.5" />
               Add customer
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* Table */}
@@ -403,6 +408,7 @@ function SortableHeader({ col, label, align = 'left', sort, onSort }) {
 // ── Detail panel ──────────────────────────────────────────────
 function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
   const qc = useQueryClient()
+  const { canManage } = usePermission('customers')
   const [editing,          setEditing]          = useState(false)
   const [confirmAnonymise, setConfirmAnonymise] = useState(false)
   const [form, setForm] = useState({
@@ -509,7 +515,7 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
               Cancel
             </button>
           </div>
-        ) : !customer.is_anonymised && (
+        ) : canManage && !customer.is_anonymised && (
           <button
             onClick={() => setEditing(true)}
             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border rounded-lg hover:bg-accent touch-manipulation shrink-0 ml-2"
@@ -620,7 +626,7 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
                     </span>
                   )}
                 </p>
-                {!confirmUnsub ? (
+                {!canManage ? null : !confirmUnsub ? (
                   <button
                     type="button"
                     onClick={() => setConfirmUnsub(true)}
@@ -660,7 +666,7 @@ function CustomerDetail({ customer, api, onUpdated, onAnonymised, onClose }) {
         )}
 
         {/* GDPR */}
-        {!customer.is_anonymised && (
+        {canManage && !customer.is_anonymised && (
           <Section title="Privacy">
             <div className="space-y-2">
               <button

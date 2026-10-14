@@ -9,6 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Plus, Building2, ChevronRight, Globe, Check, X } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 
 const VenueSchema = z.object({
@@ -125,6 +126,8 @@ function VenueForm({ venue, onSave, onCancel }) {
 
 export default function Venues() {
   const api = useApi()
+  // Venues = View: the list can be read; adding and editing need Manage.
+  const { canManage } = usePermission('venues')
   const [editing,  setEditing]  = useState(null)   // venue object or 'new'
   const [expanded, setExpanded] = useState(null)   // venue id for detail
 
@@ -138,12 +141,14 @@ export default function Venues() {
       {/* Header */}
       <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <h1 className="font-semibold">Venues</h1>
-        <button
-          onClick={() => setEditing('new')}
-          className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded-lg"
-        >
-          <Plus className="w-4 h-4" /> Add venue
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setEditing('new')}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded-lg"
+          >
+            <Plus className="w-4 h-4" /> Add venue
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -204,12 +209,14 @@ export default function Venues() {
                       />
                     ) : (
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setEditing(venue.id)}
-                          className="text-sm px-3 py-1.5 border rounded-md hover:bg-accent"
-                        >
-                          Edit venue
-                        </button>
+                        {canManage && (
+                          <button
+                            onClick={() => setEditing(venue.id)}
+                            className="text-sm px-3 py-1.5 border rounded-md hover:bg-accent"
+                          >
+                            Edit venue
+                          </button>
+                        )}
                         <a
                           href={`/tables?venue=${venue.id}`}
                           className="text-sm px-3 py-1.5 border rounded-md hover:bg-accent"

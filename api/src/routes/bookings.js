@@ -10,12 +10,20 @@
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
 import { upsertCustomer } from './customers.js'
 import { assertAllocationFree, ensureUnallocatedTable } from '../services/occupancySvc.js'
+
+// Bookings permission: view reads, manage changes. Deleting a booking also
+// stays owner / admin (operators have manage by default).
+const PERM = {
+  view:        requirePermission('bookings', 'view'),
+  manage:      requirePermission('bookings', 'manage'),
+  adminManage: [requireRole('admin', 'owner'), requirePermission('bookings', 'manage')],
+}
 
 // Schedule a reminder email as a delayed BullMQ job.
 // Fires `reminder_hours_before` hours before `starts_at`.
@@ -91,7 +99,7 @@ export default async function bookingsRoutes(app) {
   // ── POST /holds ─────────────────────────────────────────
   // Creates a temporary lock on a slot.
   // Available to any authenticated user (operator booking on behalf of guest).
-  app.post('/holds', async (req, reply) => {
+  app.post('/holds', { preHandler: PERM.manage }, async (req, reply) => {
     const body = HoldBody.parse(req.body)
 
     const hold = await withTenant(req.tenantId, async tx => {
@@ -164,7 +172,7 @@ export default async function bookingsRoutes(app) {
 
   // ── DELETE /holds/:holdId ────────────────────────────────
   // Guest cancels during payment flow → slot freed immediately.
-  app.delete('/holds/:holdId', async (req) => {
+  app.delete('/holds/:holdId', { preHandler: PERM.manage }, async (req) => {
     const [hold] = await withTenant(req.tenantId, async tx => {
       // Also cancel Stripe PI if one was attached
       const [h] = await tx`
@@ -194,7 +202,7 @@ export default async function bookingsRoutes(app) {
   // ── POST /bookings ────────────────────────────────────────
   // Confirm a FREE booking (no deposit required).
   // Payment path goes through /payments/intent → Stripe webhook → auto-confirm.
-  app.post('/', async (req, reply) => {
+  app.post('/', { preHandler: PERM.manage }, async (req, reply) => {
     const body = BookingBody.parse(req.body)
 
     const booking = await withTenant(req.tenantId, async tx => {
@@ -285,7 +293,7 @@ export default async function bookingsRoutes(app) {
   // window, and capacity checks. Table assignment is explicit (one table,
   // multi-table auto-combo, or unallocated row).
   // Requires operator+ role.
-  app.post('/admin-override', { preHandler: requireRole('operator', 'admin', 'owner') }, async (req, reply) => {
+  app.post('/admin-override', { preHandler: PERM.manage}, async (req, reply) => {
     const body = z.object({
       venue_id:    z.string().uuid(),
       starts_at:   z.string().min(1),                          // YYYY-MM-DDTHH:MM:SS (server-local TZ)
@@ -548,7 +556,7 @@ export default async function bookingsRoutes(app) {
 
   // ── GET /bookings ─────────────────────────────────────────
   // Admin timeline query — filter by venue + date + status.
-  app.get('/', async (req) => {
+  app.get('/', { preHandler: PERM.view }, async (req) => {
     const q = ListQuery.parse(req.query)
 
     return withTenant(req.tenantId, tx => tx`
@@ -591,7 +599,7 @@ export default async function bookingsRoutes(app) {
   })
 
   // ── GET /bookings/:id ─────────────────────────────────────
-  app.get('/:id', async (req) => {
+  app.get('/:id', { preHandler: PERM.view }, async (req) => {
     const [booking] = await withTenant(req.tenantId, tx => tx`
       SELECT b.*, t.label AS table_label, v.name AS venue_name,
              v.timezone AS venue_timezone
@@ -606,7 +614,7 @@ export default async function bookingsRoutes(app) {
   })
 
   // ── PATCH /bookings/:id/status ────────────────────────────
-  app.patch('/:id/status', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.patch('/:id/status', { preHandler: PERM.manage}, async (req) => {
     const { status } = StatusBody.parse(req.body)
 
     const [booking] = await withTenant(req.tenantId, tx => tx`
@@ -632,7 +640,7 @@ export default async function bookingsRoutes(app) {
   // ── DELETE /bookings/:id ──────────────────────────────────
   // Hard-delete a booking. Restricted to admin/owner only.
   // Broadcasts booking.deleted so the timeline removes the card immediately.
-  app.delete('/:id', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.delete('/:id', { preHandler: PERM.adminManage}, async (req, reply) => {
     const [booking] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM bookings
        WHERE id        = ${req.params.id}
@@ -647,7 +655,7 @@ export default async function bookingsRoutes(app) {
 
   // ── PATCH /bookings/:id/move ──────────────────────────────
   // Admin drag-and-drop reschedule from the timeline.
-  app.patch('/:id/move', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.patch('/:id/move', { preHandler: PERM.manage}, async (req) => {
     const { table_id, starts_at } = z.object({
       table_id:  z.string().uuid(),
       starts_at: z.string().datetime(),
@@ -704,7 +712,7 @@ export default async function bookingsRoutes(app) {
 
   // ── PATCH /bookings/:id/guest ────────────────────────────
   // Edit guest name, email, phone, covers.
-  app.patch('/:id/guest', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.patch('/:id/guest', { preHandler: PERM.manage}, async (req) => {
     const body = z.object({
       guest_name:  z.string().min(1).max(200).optional(),
       guest_email: z.string().email().optional(),
@@ -726,7 +734,7 @@ export default async function bookingsRoutes(app) {
 
   // ── PATCH /bookings/:id/duration ──────────────────────────
   // Admin override: change ends_at (resize from timeline or drawer).
-  app.patch('/:id/duration', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.patch('/:id/duration', { preHandler: PERM.manage}, async (req) => {
     const { ends_at } = z.object({ ends_at: z.string().datetime() }).parse(req.body)
 
     const booking = await withTenant(req.tenantId, async tx => {
@@ -761,7 +769,7 @@ export default async function bookingsRoutes(app) {
   //   { table_id }              — single table
   //   { combination_id }        — pre-configured combination
   //   { table_ids: [id, id…] }  — ad-hoc multi-table: finds matching combo or auto-creates one
-  app.patch('/:id/tables', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.patch('/:id/tables', { preHandler: PERM.manage}, async (req) => {
     const body = z.object({
       table_id:       z.string().uuid().optional(),
       combination_id: z.string().uuid().nullable().optional(),
@@ -905,7 +913,7 @@ export default async function bookingsRoutes(app) {
   //   7. Execute all moves atomically; broadcast every change
   //
   // Returns: { moved: Booking, displaced: Booking[] }
-  app.patch('/:id/relocate', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.patch('/:id/relocate', { preHandler: PERM.manage}, async (req) => {
     const body = z.object({
       target_table_id: z.string().uuid(),
       starts_at:       z.string().datetime().optional(),
@@ -1448,7 +1456,7 @@ export default async function bookingsRoutes(app) {
   // ── PATCH /bookings/:id/lock ──────────────────────────────
   // Toggle table_locked. When locked, /relocate will refuse to cascade-
   // displace this booking to make room for another booking.
-  app.patch('/:id/lock', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.patch('/:id/lock', { preHandler: PERM.manage}, async (req) => {
     const { locked } = z.object({ locked: z.boolean() }).parse(req.body)
 
     const [booking] = await withTenant(req.tenantId, tx => tx`
@@ -1463,7 +1471,7 @@ export default async function bookingsRoutes(app) {
   })
 
   // ── PATCH /bookings/:id/notes ─────────────────────────────
-  app.patch('/:id/notes', async (req) => {
+  app.patch('/:id/notes', { preHandler: PERM.manage }, async (req) => {
     const { operator_notes } = z.object({
       operator_notes: z.string().max(2000),
     }).parse(req.body)

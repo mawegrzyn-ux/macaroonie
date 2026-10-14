@@ -8,6 +8,8 @@
 import { useSearchParams, Link } from 'react-router-dom'
 import { MonitorSmartphone, Loader2, LayoutPanelTop, BarChart3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { PageHeader, VenueSelect, usePosVenue, usePosSetup, ErrorNote } from '@/components/pos/shared'
 import TillsSection from '@/components/pos/TillsSection'
 import RevenueCentresSection from '@/components/pos/RevenueCentresSection'
@@ -33,6 +35,7 @@ export default function PosSetup() {
   const tab = TABS.find(t => t.key === params.get('tab')) || TABS[0]
   const { venues, venueId, setVenueId, isLoading: venuesLoading } = usePosVenue()
   const { data: setup, isLoading, error } = usePosSetup(venueId)
+  const { canManage } = usePermission('pos_setup')
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -60,7 +63,12 @@ export default function PosSetup() {
           {!venuesLoading && !venues.length && <p className="text-sm text-muted-foreground">Add a venue first.</p>}
           <ErrorNote error={error} />
           {(isLoading || venuesLoading) && <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
-          {setup && tab.render({ venueId, setup })}
+          {setup && !canManage && <ReadOnlyNotice what="the till setup" />}
+          {setup && (
+            <ReadOnlyFieldset disabled={!canManage}>
+              {tab.render({ venueId, setup })}
+            </ReadOnlyFieldset>
+          )}
         </div>
       </div>
     </div>

@@ -10,7 +10,7 @@
 // B1: Grey background strips on fully-unavailable slots (covers=1 overlay)
 // B2: Inline "Confirm" button on unconfirmed cards when enable_unconfirmed_flow is on
 
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef, createContext, useContext } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, addDays, subDays, parseISO, startOfDay } from 'date-fns'
 import { DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, useDroppable, useDraggable } from '@dnd-kit/core'
@@ -18,6 +18,7 @@ import { restrictToWindowEdges } from '@dnd-kit/modifiers'
 import { ChevronLeft, ChevronRight, Plus, TriangleAlert, Phone, Info, Lock } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { useRealtimeBookings } from '@/hooks/useRealtimeBookings'
+import { usePermission } from '@/hooks/usePermission'
 import { cn, formatTime, STATUS_COLOURS, STATUS_LABELS, openPicker } from '@/lib/utils'
 import BookingDrawer from '@/components/bookings/BookingDrawer'
 import NewBookingModal from '@/components/bookings/NewBookingModal'
@@ -68,10 +69,16 @@ function durationToWidth(startIso, endIso, hw = HOUR_WIDTH) {
 // tileMode: 'compact' | 'extensive'
 // compactFontSize: 'sm' | 'md' | 'lg'  (ignored in extensive mode)
 // tableById: Map<uuid, table> — used in extensive mode for table label display
+// Bookings = View: the timeline can be looked at and bookings opened, but
+// tiles don't drag or resize and empty slots don't start a new booking.
+const TimelineReadOnly = createContext(false)
+
 function BookingCard({ booking, onClick, onLongPress, isDragging, resizePreviewMs, onResizeStart, spanRows = 1, enableUnconfirmedFlow = false, onConfirm, overCapacity = false, isOverlap = false, rowHeight, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH, startHour = START_HOUR }) {
+  const readOnly = useContext(TimelineReadOnly)
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id:   booking.id,
     data: { booking },
+    disabled: readOnly,
   })
 
   // ── Long-press: 5 s hold → open the stacked booking beneath ──
@@ -119,7 +126,7 @@ function BookingCard({ booking, onClick, onLongPress, isDragging, resizePreviewM
     zIndex: isDragging ? 20 : spanRows > 1 ? 5 : (['cancelled','no_show','checked_out'].includes(booking.status) ? 0 : 1),
   }
 
-  const showConfirmBtn = enableUnconfirmedFlow && booking.status === 'unconfirmed'
+  const showConfirmBtn = !readOnly && enableUnconfirmedFlow && booking.status === 'unconfirmed'
   const hasNotes = !!(booking.operator_notes || booking.guest_notes)
 
   // Table label string for extensive mode
@@ -226,10 +233,12 @@ function BookingCard({ booking, onClick, onLongPress, isDragging, resizePreviewM
       )}
 
       {/* Resize handle */}
-      <div
-        className="absolute right-[8px] top-0 bottom-0 w-2 cursor-ew-resize hover:bg-black/10"
-        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); onResizeStart(booking, e.clientX) }}
-      />
+      {!readOnly && (
+        <div
+          className="absolute right-[8px] top-0 bottom-0 w-2 cursor-ew-resize hover:bg-black/10"
+          onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); onResizeStart(booking, e.clientX) }}
+        />
+      )}
     </div>
   )
 }
@@ -243,6 +252,7 @@ function BookingCard({ booking, onClick, onLongPress, isDragging, resizePreviewM
 // isUnallocated: if true this is the system Unallocated row — bookings can be
 //   dragged OUT but not dropped INTO it (rejected in handleDragEnd).
 function TableRow({ table, bookings, date, onBookingClick, onLongPress, activeId, onResizeStart, resizeBookingId, resizePreviewMs, comboSpanMap, isUnallocated = false, onCanvasClick, enableUnconfirmedFlow = false, onConfirm, nowX, overCapacityIds = new Set(), overlappingIds = null, rowHeight = ROW_HEIGHT, tileMode = 'compact', compactFontSize = 'sm', tableById, hourWidth = HOUR_WIDTH, startHour = START_HOUR, totalHours = TOTAL_HOURS }) {
+  const readOnly = useContext(TimelineReadOnly)
   const { setNodeRef, isOver } = useDroppable({
     id:   `row-${table.id}`,
     data: { tableId: table.id, isUnallocated },
@@ -297,7 +307,7 @@ function TableRow({ table, bookings, date, onBookingClick, onLongPress, activeId
           'relative transition-colors',
           isUnallocated
             ? 'bg-orange-50/40 border-b border-orange-200'
-            : isOver ? 'bg-blue-50' : 'cursor-cell',
+            : isOver ? 'bg-blue-50' : !readOnly && 'cursor-cell',
         )}
         style={{
           height: rowHeight,
@@ -416,6 +426,7 @@ function TimelineHeader({ nowX, nowLabel, hourWidth = HOUR_WIDTH, headerBgStrips
 export default function Timeline() {
   const api         = useApi()
   const queryClient = useQueryClient()
+  const { canManage } = usePermission('bookings')
 
   // View settings shared with AppShell sidebar (panelMode now lives in context)
   const tlSettings = useTimelineSettings()
@@ -878,6 +889,7 @@ export default function Timeline() {
 
   // ── Click on empty canvas slot → open new booking at that time ─
   function handleCanvasClick(e, table) {
+    if (!canManage) return
     const rect     = e.currentTarget.getBoundingClientRect()
     const x        = e.clientX - rect.left
     // Convert pixel offset → minutes since startHour, snapped to 15 min
@@ -1129,6 +1141,7 @@ export default function Timeline() {
             Loading…
           </div>
         ) : (
+          <TimelineReadOnly.Provider value={!canManage}>
           <DndContext
             sensors={sensors}
             modifiers={[restrictToWindowEdges]}
@@ -1300,20 +1313,21 @@ export default function Timeline() {
               )}
             </DragOverlay>
           </DndContext>
+          </TimelineReadOnly.Provider>
         )}
       </div>
       {/* end timeline scroll */}
       </div>
 
       {/* FAB — New booking, anchored to the timeline content column */}
-      <button
+      {canManage && <button
         onClick={() => setShowNew(true)}
         disabled={!venueId}
         className="absolute bottom-6 right-6 z-30 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center disabled:opacity-50 touch-manipulation hover:bg-primary/90 transition-colors"
         title="New booking"
       >
         <Plus className="w-6 h-6" />
-      </button>
+      </button>}
 
       {/* end left column */}
 

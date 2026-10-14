@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-14 — View and Manage on every page]
+
+- Every area now follows the same rule as the dashboards: **View** opens the page to look things up, **Manage** is needed to change anything. With View the change buttons are hidden or greyed out and a blue "View only" bar says so; the app also refuses the change if it is tried another way. This covers Cash reconciliation (week grid, each day, wages, expenses, settings, the phone pages), Food safety, Checklists, the H&S action log, Timeline and Bookings, Tables, Rules, Schedule, Venues, Customers, Menus (and option groups, allergens, the print designer), Online orders and Ordering setup, Till setup, Floor plan and Till reports, Website, Reservations widget, Reviews, Media, Emails, Staff, Rota setup, Issue log, Feature requests and Test data.
+- Pages that used the older fixed roles (Owner / Admin / Operator / Viewer) now follow each role's View / Manage settings in Access → Roles, so custom roles work there too. A few changes still also need an Owner or Admin login: Cash Recon settings, unsubmitting a day or week, deleting a booking and refunds. Removing an email suppression needs the Owner.
+- What changes with the built-in roles: Operators can now only look at customers (no more editing, importing or unsubscribing; anonymise and export were already Owner / Admin). Viewers can now look at customers, and can no longer add bookings or change booking notes, which they could before. Change any of this in the role's matrix if it doesn't suit.
+- Email settings no longer show the provider's API key or password to people with View.
+- Tenants created since roles were introduced had no built-in roles stored, so roles couldn't be edited for them; every tenant now has the four built-in roles.
+- Fixed: the Feature requests list and upvoting failed with a server error for everyone.
+- Migrations: `160_builtin_roles_every_tenant.sql` (adds the four built-in roles to every tenant that lacks them), `161_feature_upvotes_user_text.sql` (`feature_request_upvotes.user_id` becomes text).
+
+---
+
 ## [2026-10-14 — Dashboards: View can use, only Manage changes the layout]
 
 - On the H&S, Cash Recon, Rota and blank Dashboards pages, people with **View** on that dashboard no longer see Edit layout, New dashboard, Create dashboard or Add widget. They can still open every dashboard, switch tabs, change the date and use the widgets. Before, the buttons showed for everyone and saving failed for View users.

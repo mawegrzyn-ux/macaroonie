@@ -5,10 +5,16 @@
 
 import { z }          from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { env }        from '../config/env.js'
 import { reviewScrapeQueue } from '../jobs/queues.js'
+
+// Reviews belong to the website: view reads, manage changes.
+const PERM = {
+  view:   requirePermission('website', 'view'),
+  manage: requirePermission('website', 'manage'),
+}
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -56,7 +62,7 @@ export default async function reviewsRoutes(app) {
 
   // ── GET /reviews ─────────────────────────────────────────
   // Params: venue_id, platform, is_approved, is_featured, min_rating, limit, offset
-  app.get('/', async (req) => {
+  app.get('/', { preHandler: PERM.view }, async (req) => {
     const {
       venue_id, platform, is_approved, is_featured, min_rating,
       limit = '50', offset = '0', sort = 'newest',
@@ -88,7 +94,7 @@ export default async function reviewsRoutes(app) {
   })
 
   // ── GET /reviews/stats ────────────────────────────────────
-  app.get('/stats', async (req) => {
+  app.get('/stats', { preHandler: PERM.view }, async (req) => {
     const { venue_id } = req.query
     return withTenant(req.tenantId, tx => {
       const vFilter = venue_id ? tx`AND r.venue_id = ${venue_id}` : tx``
@@ -111,7 +117,7 @@ export default async function reviewsRoutes(app) {
   })
 
   // ── GET /reviews/scrape-jobs ──────────────────────────────
-  app.get('/scrape-jobs', async (req) => {
+  app.get('/scrape-jobs', { preHandler: PERM.view }, async (req) => {
     const { venue_id } = req.query
     return withTenant(req.tenantId, tx => {
       const vFilter = venue_id ? tx`AND j.venue_id = ${venue_id}` : tx``
@@ -128,7 +134,7 @@ export default async function reviewsRoutes(app) {
   })
 
   // ── GET /reviews/:id ──────────────────────────────────────
-  app.get('/:id', async (req) => {
+  app.get('/:id', { preHandler: PERM.view }, async (req) => {
     const rows = await withTenant(req.tenantId, tx => tx`
       SELECT r.*, v.name AS venue_name
         FROM reviews r
@@ -142,7 +148,7 @@ export default async function reviewsRoutes(app) {
 
   // ── POST /reviews ─────────────────────────────────────────
   // Manual review entry.
-  app.post('/', async (req) => {
+  app.post('/', { preHandler: PERM.manage }, async (req) => {
     const body = ReviewBody.parse(req.body)
     const rows = await withTenant(req.tenantId, tx => tx`
       INSERT INTO reviews
@@ -159,7 +165,7 @@ export default async function reviewsRoutes(app) {
   })
 
   // ── PATCH /reviews/:id ────────────────────────────────────
-  app.patch('/:id', async (req) => {
+  app.patch('/:id', { preHandler: PERM.manage }, async (req) => {
     const body   = ReviewPatch.parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -176,7 +182,7 @@ export default async function reviewsRoutes(app) {
   })
 
   // ── DELETE /reviews/:id ───────────────────────────────────
-  app.delete('/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:id', { preHandler: PERM.manage}, async (req) => {
     const rows = await withTenant(req.tenantId, tx => tx`
       DELETE FROM reviews
        WHERE id = ${req.params.id}
@@ -188,7 +194,7 @@ export default async function reviewsRoutes(app) {
   })
 
   // ── POST /reviews/bulk-approve ────────────────────────────
-  app.post('/bulk-approve', async (req) => {
+  app.post('/bulk-approve', { preHandler: PERM.manage }, async (req) => {
     const { ids, is_approved } = z.object({
       ids:         z.array(z.string().uuid()).min(1).max(200),
       is_approved: z.boolean(),
@@ -206,7 +212,7 @@ export default async function reviewsRoutes(app) {
 
   // ── POST /reviews/scrape ──────────────────────────────────
   // Triggers an Apify scrape job. Returns immediately; results arrive async.
-  app.post('/scrape', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/scrape', { preHandler: PERM.manage}, async (req) => {
     const body = ScrapeBody.parse(req.body)
 
     const apiKey = env.APIFY_API_KEY
@@ -250,7 +256,7 @@ export default async function reviewsRoutes(app) {
   // ── POST /reviews/import-csv ──────────────────────────────
   // Accepts a CSV upload. Columns: reviewer_name, rating, review_text, review_date, attr (alias for reviewer_name)
   // Returns: { imported, skipped }
-  app.post('/import-csv', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/import-csv', { preHandler: PERM.manage}, async (req) => {
     const { venue_id, platform = 'manual' } = req.query
 
     const file = await req.file()

@@ -14,6 +14,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { LayoutPanelTop, Loader2, Plus, Pencil, RotateCw, Square, Circle, Trash2, Type, Minus, Sprout, GlassWater } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import {
   PageHeader, VenueSelect, usePosVenue, usePosSetup, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Btn, NumberBox,
 } from '@/components/pos/shared'
@@ -113,7 +115,7 @@ function AreaModal({ venueId, setup, area, onClose, onSaved }) {
 }
 
 /** The plan: tables and decor that drag and resize on a snap grid. */
-function Plan({ area, draft, setDraft, selected, setSelected, labels }) {
+function Plan({ area, draft, setDraft, selected, setSelected, labels, readOnly }) {
   const box = useRef(null)
   const [width, setWidth] = useState(800)
   const drag = useRef(null)
@@ -129,6 +131,7 @@ function Plan({ area, draft, setDraft, selected, setSelected, labels }) {
     setDraft(d => ({ ...d, [kind]: d[kind].map(x => (x.id === id ? fn(x) : x)) }))
   }
   function start(e, kind, el, mode) {
+    if (readOnly) return
     e.stopPropagation()
     e.currentTarget.setPointerCapture?.(e.pointerId)
     setSelected({ kind, id: el.id })
@@ -154,7 +157,7 @@ function Plan({ area, draft, setDraft, selected, setSelected, labels }) {
   const sel = (kind, id) => selected?.kind === kind && selected.id === id
   return (
     <div ref={box} className="w-full overflow-x-auto">
-      <div className="relative rounded-xl border bg-background select-none touch-none"
+      <div className={cn('relative rounded-xl border bg-background select-none', !readOnly && 'touch-none')}
         style={{
           width: area.width * scale, height: area.height * scale,
           backgroundImage: 'linear-gradient(to right, hsl(var(--border) / .5) 1px, transparent 1px), linear-gradient(to bottom, hsl(var(--border) / .5) 1px, transparent 1px)',
@@ -165,7 +168,7 @@ function Plan({ area, draft, setDraft, selected, setSelected, labels }) {
         data-testid="floor-plan">
         {draft.decor.map(d => (
           <div key={d.id} onPointerDown={e => start(e, 'decor', d, 'move')}
-            className={cn('absolute flex items-center justify-center text-xs font-semibold text-muted-foreground cursor-move touch-none',
+            className={cn('absolute flex items-center justify-center text-xs font-semibold text-muted-foreground touch-none', !readOnly && 'cursor-move',
               d.kind === 'wall' ? 'bg-slate-400' : d.kind === 'bar' ? 'bg-amber-100 border border-amber-300 rounded-lg' : d.kind === 'plant' ? 'bg-green-100 rounded-full' : 'border border-dashed',
               sel('decor', d.id) && 'ring-2 ring-primary z-10')}
             style={{ left: d.x * scale, top: d.y * scale, width: d.w * scale, height: d.h * scale }}>
@@ -177,7 +180,7 @@ function Plan({ area, draft, setDraft, selected, setSelected, labels }) {
           const s = drawnSize(t)
           return (
             <div key={t.id} onPointerDown={e => start(e, 'tables', t, 'move')} data-testid={'table-' + labels[t.id]}
-              className={cn('absolute flex items-center justify-center bg-primary/10 border-2 border-primary/50 text-sm font-semibold cursor-move touch-none',
+              className={cn('absolute flex items-center justify-center bg-primary/10 border-2 border-primary/50 text-sm font-semibold touch-none', !readOnly && 'cursor-move',
                 t.shape === 'round' ? 'rounded-full' : 'rounded-xl', sel('tables', t.id) && 'ring-2 ring-primary ring-offset-2 z-10')}
               style={{ left: t.x * scale, top: t.y * scale, width: s.w * scale, height: s.h * scale }}>
               {labels[t.id]}
@@ -202,6 +205,7 @@ export default function PosFloor() {
   const qc = useQueryClient()
   const { venues, venueId, setVenueId, isLoading: venuesLoading } = usePosVenue()
   const { data: setup, isLoading, error } = usePosSetup(venueId)
+  const { canManage } = usePermission('pos_setup')
   const [areaId, setAreaId] = useState(null)
   const [editingArea, setEditingArea] = useState(null) // area | 'new' | null
   const [selected, setSelected] = useState(null)
@@ -249,6 +253,7 @@ export default function PosFloor() {
           {(isLoading || venuesLoading) && <div className="flex justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}
           {setup && (
             <>
+              {!canManage && <ReadOnlyNotice what="the floor plan" />}
               <div className="flex flex-wrap items-center gap-1.5">
                 {setup.floor_areas.map(a => (
                   <button key={a.id} type="button" disabled={dirty && a.id !== area?.id}
@@ -259,36 +264,40 @@ export default function PosFloor() {
                     {a.name}
                   </button>
                 ))}
-                <Btn onClick={() => setEditingArea('new')} disabled={dirty}><Plus className="w-4 h-4" /> Add an area</Btn>
-                {area && <Btn onClick={() => setEditingArea(area)} disabled={dirty} title={'Edit ' + area.name}><Pencil className="w-4 h-4" /></Btn>}
+                {canManage && <Btn onClick={() => setEditingArea('new')} disabled={dirty}><Plus className="w-4 h-4" /> Add an area</Btn>}
+                {canManage && area && <Btn onClick={() => setEditingArea(area)} disabled={dirty} title={'Edit ' + area.name}><Pencil className="w-4 h-4" /></Btn>}
               </div>
 
               {!area && (
                 <div className="rounded-xl border bg-background p-6 text-sm text-muted-foreground">
-                  No floor areas yet. Add one (e.g. Restaurant) and place the venue's tables on it. Tables are added on the Tables page.
+                  {canManage
+                    ? 'No floor areas yet. Add one (e.g. Restaurant) and place the venue\'s tables on it. Tables are added on the Tables page.'
+                    : 'No floor areas yet.'}
                 </div>
               )}
 
               {area && (
                 <div className="flex flex-col lg:flex-row gap-4 items-start">
                   <div className="flex-1 min-w-0 w-full space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {DECOR.map(d => (
-                        <Btn key={d.kind} onClick={() => addDecor(d.kind)}><d.icon className="w-4 h-4" /> {d.label}</Btn>
-                      ))}
-                    </div>
-                    <Plan area={area} draft={draft} setDraft={setDraft} selected={selected} setSelected={setSelected} labels={labels} />
-                    <div className="flex flex-wrap items-center gap-3">
+                    {canManage && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        {DECOR.map(d => (
+                          <Btn key={d.kind} onClick={() => addDecor(d.kind)}><d.icon className="w-4 h-4" /> {d.label}</Btn>
+                        ))}
+                      </div>
+                    )}
+                    <Plan area={area} draft={draft} setDraft={setDraft} selected={selected} setSelected={setSelected} labels={labels} readOnly={!canManage} />
+                    {canManage && <div className="flex flex-wrap items-center gap-3">
                       <Btn variant="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
                         {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save {area.name}
                       </Btn>
                       {dirty && <Btn onClick={() => { setDraft(saved); setSelected(null) }}>Discard</Btn>}
                       {!dirty && save.isSuccess && <span className="text-sm text-green-700">Saved. Tills update straight away.</span>}
                       <ErrorNote error={save.error} />
-                    </div>
+                    </div>}
                   </div>
 
-                  <aside className="w-full lg:w-72 shrink-0 space-y-4">
+                  {canManage && <aside className="w-full lg:w-72 shrink-0 space-y-4">
                     {selTable && (
                       <section className="rounded-xl border bg-background overflow-hidden">
                         <div className="px-4 py-3 section-head"><h2 className="text-sm font-semibold">Table {labels[selTable.id]}</h2></div>
@@ -343,14 +352,14 @@ export default function PosFloor() {
                         ))}
                       </div>
                     </section>
-                  </aside>
+                  </aside>}
                 </div>
               )}
             </>
           )}
         </div>
       </div>
-      {editingArea && setup && (
+      {canManage && editingArea && setup && (
         <AreaModal venueId={venueId} setup={setup} area={editingArea === 'new' ? null : editingArea}
           onClose={() => setEditingArea(null)} onSaved={row => setAreaId(row?.id || null)} />
       )}

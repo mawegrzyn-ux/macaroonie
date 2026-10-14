@@ -9,12 +9,18 @@
 import Stripe from 'stripe'
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { broadcastBooking } from '../services/broadcastSvc.js'
 import { env } from '../config/env.js'
 import { allocateBestFit } from '../services/occupancySvc.js'
+
+// Booking deposits: bookings manage. Refunds also stay owner / admin.
+const PERM = {
+  manage:      requirePermission('bookings', 'manage'),
+  adminManage: [requireRole('admin', 'owner'), requirePermission('bookings', 'manage')],
+}
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY, { apiVersion: '2024-04-10' })
 
@@ -26,7 +32,7 @@ export default async function paymentsRoutes(app) {
   // POST /payments/intent
   // Called after hold is created and deposit is required.
   // Returns client_secret for Stripe.js to complete payment.
-  app.post('/intent', async (req, reply) => {
+  app.post('/intent', { preHandler: PERM.manage }, async (req, reply) => {
     const { hold_id } = z.object({ hold_id: z.string().uuid() }).parse(req.body)
 
     const result = await withTenant(req.tenantId, async tx => {
@@ -84,7 +90,7 @@ export default async function paymentsRoutes(app) {
   })
 
   // POST /payments/:id/refund  (admin)
-  app.post('/:id/refund', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/:id/refund', { preHandler: PERM.adminManage}, async (req) => {
     const { amount } = z.object({
       amount: z.number().positive().optional(),  // in major currency unit; omit = full refund
     }).parse(req.body)

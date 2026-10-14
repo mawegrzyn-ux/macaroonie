@@ -307,6 +307,27 @@ export const MODULES = [
 
 export const MODULE_KEYS = MODULES.map(m => m.key)
 
+// The four built-in roles every tenant has (tenant_roles, is_builtin). They
+// are stored with empty permissions; resolvePermission() then falls back to
+// each module's default for the role's key, until an owner edits them.
+export const BUILTIN_ROLES = [
+  { key: 'owner',    label: 'Owner',    sort_order: 1, description: 'Full access to all enabled modules + can manage team and roles.' },
+  { key: 'admin',    label: 'Admin',    sort_order: 2, description: 'Manages venues, rules, website, emails, schedule. Cannot manage team or roles.' },
+  { key: 'operator', label: 'Operator', sort_order: 3, description: 'Front-of-house. Manages bookings, views the timeline, handles walk-ins.' },
+  { key: 'viewer',   label: 'Viewer',   sort_order: 4, description: 'Read-only access to bookings and timeline.' },
+]
+
+/** Add any missing built-in roles for a tenant (new tenants, migration 160). */
+export async function seedBuiltinRoles(tx, tenantId) {
+  for (const r of BUILTIN_ROLES) {
+    await tx`
+      INSERT INTO tenant_roles (tenant_id, key, label, description, is_builtin, sort_order, permissions)
+      VALUES (${tenantId}, ${r.key}, ${r.label}, ${r.description}, true, ${r.sort_order}, '{}'::jsonb)
+      ON CONFLICT (tenant_id, key) DO NOTHING
+    `
+  }
+}
+
 export const PERMISSION_LEVELS = ['none', 'view', 'manage']
 
 // ── Module groups (for tenant master switches) ─────────────

@@ -11,9 +11,9 @@
 //
 //   create_menu      a new menu, optionally with sections and dishes (a menu
 //                    read from a photo or PDF goes in here)                   menus, manage
-//   update_menu      name, venue, published, tagline, service times, intro    + owner or admin
-//   duplicate_menu   a copy, not published                                    (the menu routes'
-//   add_dishes       dishes into existing or new sections                      own rule)
+//   update_menu      name, venue, published, tagline, service times, intro
+//   duplicate_menu   a copy, not published
+//   add_dishes       dishes into existing or new sections
 //   update_dish      one dish: name, description, price, options, allergens,
 //                    dietary tags, calories, orderable, featured, move
 //   remove_dishes
@@ -112,18 +112,8 @@ function cut(lines, max = MAX_LINES) {
 
 const requireRead = ctx => requireStaffPermission(ctx, 'menus', 'view')
 
-/** Menus manage, and owner or admin: the menu routes' own rule (requireRole). */
-async function requireEdit(ctx) {
-  await requireStaffPermission(ctx, 'menus', 'manage')
-  if (ctx.principal?.isPlatformAdmin) return
-  const [u] = await withTenant(ctx.tenantId, tx => tx`
-    SELECT role FROM users
-     WHERE auth0_user_id = ${ctx.principal?.sub ?? ''} AND tenant_id = ${ctx.tenantId} AND is_active = true
-  `)
-  if (!['owner', 'admin'].includes(u?.role)) {
-    throw new ToolError('Changing menus needs an owner or admin login (the Menus page has the same rule).', 403)
-  }
-}
+/** Menus manage: the menu routes' own rule. */
+const requireEdit = ctx => requireStaffPermission(ctx, 'menus', 'manage')
 
 async function audited(ctx, tool, input, fn) {
   try {

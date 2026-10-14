@@ -17,7 +17,7 @@ import fs         from 'node:fs/promises'
 import { withTenant, sql } from '../config/db.js'
 import { env }    from '../config/env.js'
 import { getStorage } from '../services/storageSvc.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requirePermission, requireAnyPermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { normalizeBimiSvg } from '../services/bimiSvg.js'
 import { loadOpeningHours } from '../services/siteDataSvc.js'
@@ -26,6 +26,15 @@ import { publishTenantSite, overrideStagingWithProduction, publishStatus } from 
 import { ensureOrderPage } from '../services/orderPage.js'
 import { publishQueue } from '../jobs/queues.js'
 import { hashPassword, loadStagingAccess, previewKey, stagingOrigin, MIN_PASSWORD } from '../services/stagingAccess.js'
+
+// Website permission: view reads, manage changes. GET /tenant-site stays open
+// (Ordering setup, Emails and Promotions read the site's settings), and image
+// uploads also serve Promotions and Menus.
+const PERM = {
+  view:   requirePermission('website', 'view'),
+  manage: requirePermission('website', 'manage'),
+  upload: requireAnyPermission(['website', 'promotions', 'menus'], 'manage'),
+}
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -591,7 +600,7 @@ export default async function websiteRoutes(app) {
   })
 
   // ── PATCH /website/tenant-site ──────────────────────────
-  app.patch('/tenant-site', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/tenant-site', { preHandler: PERM.manage}, async (req) => {
     const body = TenantSiteBody.parse(req.body)
     if ('custom_domain' in body) body.custom_domain = cleanCustomDomain(body.custom_domain)
     if ('bimi_svg' in body) {
@@ -675,7 +684,7 @@ export default async function websiteRoutes(app) {
   // ── GET /website/tenant-site/dns-setup ──────────────────
   // Values the admin UI needs for the custom-domain how-to (CNAME target
   // and public A records). Auth required; not a secret — these are public DNS.
-  app.get('/tenant-site/dns-setup', async (req) => {
+  app.get('/tenant-site/dns-setup', { preHandler: PERM.view }, async (req) => {
     const ts = await withTenant(req.tenantId, tx => ensureTenantSite(tx, req.tenantId))
     const root = env.PUBLIC_ROOT_DOMAIN.toLowerCase()
     const slug = ts?.subdomain_slug || null
@@ -692,7 +701,7 @@ export default async function websiteRoutes(app) {
 
   // ── GET /website/tenant-site/slug-available?slug=foo ────
   // Global uniqueness check.
-  app.get('/tenant-site/slug-available', async (req) => {
+  app.get('/tenant-site/slug-available', { preHandler: PERM.view }, async (req) => {
     const slug = SlugSchema.parse(req.query.slug)
     const [hit] = await sql`
       SELECT 1 FROM tenant_site
@@ -704,7 +713,7 @@ export default async function websiteRoutes(app) {
   })
 
   // ── POST /website/tenant-site/verify-domain ─────────────
-  app.post('/tenant-site/verify-domain', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/tenant-site/verify-domain', { preHandler: PERM.manage}, async (req) => {
     const [ts] = await withTenant(req.tenantId, tx => tx`
       SELECT custom_domain, subdomain_slug FROM tenant_site
        WHERE tenant_id = ${req.tenantId}
@@ -769,9 +778,9 @@ export default async function websiteRoutes(app) {
   // ── GET /website/tenant-site/publish-status ─────────────
   // Whether the live site matches staging; if not, what publishing would
   // change (Website menu areas, pages, locations). Shown by the Publish button.
-  app.get('/tenant-site/publish-status', async (req) => publishStatus(req.tenantId))
+  app.get('/tenant-site/publish-status', { preHandler: PERM.view }, async (req) => publishStatus(req.tenantId))
 
-  app.post('/tenant-site/publish', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/tenant-site/publish', { preHandler: PERM.manage}, async (req) => {
     await cancelScheduledPublish(req.tenantId)
     return publishTenantSite(req.tenantId)
   })
@@ -779,7 +788,7 @@ export default async function websiteRoutes(app) {
   // ── POST /website/tenant-site/schedule-publish ──────────
   // Body: { at: ISO timestamp in the future }. Replaces any existing
   // scheduled publish (one pending publish per tenant — jobId dedup).
-  app.post('/tenant-site/schedule-publish', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/tenant-site/schedule-publish', { preHandler: PERM.manage}, async (req) => {
     const { at } = SchedulePublishBody.parse(req.body)
     if (at.getTime() <= Date.now()) throw httpError(422, 'Scheduled time must be in the future')
 
@@ -802,7 +811,7 @@ export default async function websiteRoutes(app) {
 
   // ── DELETE /website/tenant-site/schedule-publish ────────
   // Cancels a pending scheduled publish. Does not touch published_snapshot.
-  app.delete('/tenant-site/schedule-publish', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/tenant-site/schedule-publish', { preHandler: PERM.manage}, async (req) => {
     await cancelScheduledPublish(req.tenantId)
     const [row] = await withTenant(req.tenantId, tx => tx`
       UPDATE tenant_site
@@ -836,9 +845,9 @@ export default async function websiteRoutes(app) {
     url,
   })
 
-  app.get('/tenant-site/staging-access', async (req) => stagingView(await stagingInfo(req.tenantId)))
+  app.get('/tenant-site/staging-access', { preHandler: PERM.view }, async (req) => stagingView(await stagingInfo(req.tenantId)))
 
-  app.put('/tenant-site/staging-access', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/tenant-site/staging-access', { preHandler: PERM.manage}, async (req) => {
     const { password } = StagingAccessBody.parse(req.body)
     if (password === null) {
       await withTenant(req.tenantId, tx => tx`DELETE FROM staging_access WHERE tenant_id = ${req.tenantId}`)
@@ -855,7 +864,7 @@ export default async function websiteRoutes(app) {
     return stagingView(await stagingInfo(req.tenantId))
   })
 
-  app.post('/tenant-site/staging-link', async (req) => {
+  app.post('/tenant-site/staging-link', { preHandler: PERM.view }, async (req) => {
     const { url, access } = await stagingInfo(req.tenantId)
     if (!url) throw httpError(422, 'Set a subdomain in Domain to get a staging address.')
     if (!access) return { url, protected: false }
@@ -867,7 +876,7 @@ export default async function websiteRoutes(app) {
   // (tenant_site content, each venue's website_config, website_pages) to
   // whatever's in the last published snapshot. 409 if nothing's been
   // published yet.
-  app.post('/tenant-site/override-staging', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/tenant-site/override-staging', { preHandler: PERM.manage}, async (req) => {
     await overrideStagingWithProduction(req.tenantId)
     return withTenant(req.tenantId, tx => ensureTenantSite(tx, req.tenantId))
   })
@@ -876,7 +885,7 @@ export default async function websiteRoutes(app) {
   // (Old admin-portal builds use these. Both POST and PATCH do the same
   // upsert via ensureTenantSite — admin code may call POST when it thinks
   // the row doesn't exist yet, even though our GET always creates one.)
-  app.get('/brand-defaults', async (req) => {
+  app.get('/brand-defaults', { preHandler: PERM.view }, async (req) => {
     return withTenant(req.tenantId, async tx => ensureTenantSite(tx, req.tenantId))
   })
 
@@ -917,9 +926,9 @@ export default async function websiteRoutes(app) {
     })
   }
 
-  app.patch('/brand-defaults', { preHandler: requireRole('admin', 'owner') },
+  app.patch('/brand-defaults', { preHandler: PERM.manage},
     async (req) => brandDefaultsUpsert(req))
-  app.post('/brand-defaults',  { preHandler: requireRole('admin', 'owner') },
+  app.post('/brand-defaults',  { preHandler: PERM.manage},
     async (req) => brandDefaultsUpsert(req))
 
   // ════════════════════════════════════════════════════════════
@@ -929,7 +938,7 @@ export default async function websiteRoutes(app) {
   // ── GET /website/configs ────────────────────────────────
   // Every venue's location-page config — used by the admin to show a
   // venue switcher with "configured / not configured" badges.
-  app.get('/configs', async (req) => {
+  app.get('/configs', { preHandler: PERM.view }, async (req) => {
     return withTenant(req.tenantId, tx => tx`
       SELECT v.id AS venue_id, v.name AS venue_name, v.slug AS venue_slug,
              wc.id AS config_id,
@@ -944,7 +953,7 @@ export default async function websiteRoutes(app) {
   })
 
   // ── GET /website/config?venue_id=X ──────────────────────
-  app.get('/config', async (req) => {
+  app.get('/config', { preHandler: PERM.view }, async (req) => {
     const venueId = req.query.venue_id
     if (!venueId) throw httpError(400, 'venue_id is required')
     return withTenant(req.tenantId, async tx => {
@@ -954,7 +963,7 @@ export default async function websiteRoutes(app) {
   })
 
   // ── POST /website/config (create venue config row) ──────
-  app.post('/config', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/config', { preHandler: PERM.manage}, async (req, reply) => {
     const venue_id = req.body?.venue_id || req.query.venue_id
     if (!venue_id) throw httpError(422, 'venue_id is required')
 
@@ -977,7 +986,7 @@ export default async function websiteRoutes(app) {
   })
 
   // ── PATCH /website/config?venue_id=X ────────────────────
-  app.patch('/config', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/config', { preHandler: PERM.manage}, async (req) => {
     const venueId = req.query.venue_id || req.body?.venue_id
     if (!venueId) throw httpError(400, 'venue_id is required')
 
@@ -1006,7 +1015,7 @@ export default async function websiteRoutes(app) {
 
   // ── Gallery ─────────────────────────────────────────────
 
-  app.get('/gallery', async (req) => withTenant(req.tenantId, async tx => {
+  app.get('/gallery', { preHandler: PERM.view }, async (req) => withTenant(req.tenantId, async tx => {
     const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
@@ -1016,7 +1025,7 @@ export default async function websiteRoutes(app) {
     `
   }))
 
-  app.post('/gallery', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/gallery', { preHandler: PERM.manage}, async (req, reply) => {
     const body = GalleryBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
       const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
@@ -1033,7 +1042,7 @@ export default async function websiteRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  app.patch('/gallery/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/gallery/:id', { preHandler: PERM.manage}, async (req) => {
     const body = GalleryBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -1048,7 +1057,7 @@ export default async function websiteRoutes(app) {
     return row
   })
 
-  app.delete('/gallery/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/gallery/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM website_gallery_images
        WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
@@ -1058,7 +1067,7 @@ export default async function websiteRoutes(app) {
     return { ok: true }
   })
 
-  app.patch('/gallery/reorder', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/gallery/reorder', { preHandler: PERM.manage}, async (req) => {
     const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body)
     await withTenant(req.tenantId, async tx => {
       for (let i = 0; i < ids.length; i++) {
@@ -1082,7 +1091,7 @@ export default async function websiteRoutes(app) {
     return v
   }
 
-  app.get('/pages', async (req) => withTenant(req.tenantId, async tx => {
+  app.get('/pages', { preHandler: PERM.view }, async (req) => withTenant(req.tenantId, async tx => {
     const venueId = pageVenueFilter(req)
     if (venueId) {
       return tx`
@@ -1098,7 +1107,7 @@ export default async function websiteRoutes(app) {
     `
   }))
 
-  app.post('/pages', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/pages', { preHandler: PERM.manage}, async (req, reply) => {
     const body = PageBody.parse(req.body)
     const venueId = pageVenueFilter(req)
     const [row] = await withTenant(req.tenantId, tx => tx`
@@ -1115,7 +1124,7 @@ export default async function websiteRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  app.patch('/pages/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/pages/:id', { preHandler: PERM.manage}, async (req) => {
     const parsed = PageBody.partial().parse(req.body)
     // Only persist keys the client sent — Zod defaults must not overwrite
     // kind / is_published when PageBuilder saves { blocks } alone.
@@ -1150,7 +1159,7 @@ export default async function websiteRoutes(app) {
     })
   })
 
-  app.delete('/pages/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/pages/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, async tx => {
       const [cur] = await tx`SELECT system_key FROM website_pages WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
       if (cur?.system_key) throw httpError(422, 'The ordering page can\'t be deleted')
@@ -1168,7 +1177,7 @@ export default async function websiteRoutes(app) {
   // Seeds Terms / Privacy / Cookies as tenant-level pages with sensible
   // default content the operator can edit. Idempotent: if a page with
   // one of the reserved slugs already exists, we leave it alone.
-  app.post('/legal-pages', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/legal-pages', { preHandler: PERM.manage}, async (req) => {
     const [tenantSite, tenant] = await withTenant(req.tenantId, async tx => {
       const [ts] = await tx`SELECT brand_name, site_name FROM tenant_site WHERE tenant_id = ${req.tenantId}`
       const [t]  = await tx`SELECT name FROM tenants       WHERE id = ${req.tenantId}`
@@ -1216,7 +1225,7 @@ export default async function websiteRoutes(app) {
 
   // ── Menus (PDF documents) ───────────────────────────────
 
-  app.get('/menus', async (req) => withTenant(req.tenantId, async tx => {
+  app.get('/menus', { preHandler: PERM.view }, async (req) => withTenant(req.tenantId, async tx => {
     const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return []
     return tx`
@@ -1226,7 +1235,7 @@ export default async function websiteRoutes(app) {
     `
   }))
 
-  app.post('/menus', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/menus', { preHandler: PERM.manage}, async (req, reply) => {
     const body = MenuBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
       const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
@@ -1242,7 +1251,7 @@ export default async function websiteRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  app.delete('/menus/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/menus/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM website_menu_documents
        WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
@@ -1254,14 +1263,14 @@ export default async function websiteRoutes(app) {
 
   // ── Opening hours (bulk upsert) ─────────────────────────
 
-  app.get('/opening-hours', async (req) => withTenant(req.tenantId, async tx => {
+  app.get('/opening-hours', { preHandler: PERM.view }, async (req) => withTenant(req.tenantId, async tx => {
     const venueId = req.query.venue_id
     if (!venueId) return []
     const cfg = await ensureVenueConfig(tx, req.tenantId, venueId)
     return loadOpeningHours(tx, venueId, cfg)
   }))
 
-  app.post('/opening-hours', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/opening-hours', { preHandler: PERM.manage}, async (req) => {
     const rows = z.array(OpeningHourRow).parse(req.body)
     await withTenant(req.tenantId, async tx => {
       const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
@@ -1287,7 +1296,7 @@ export default async function websiteRoutes(app) {
 
   // ── Allergen info ───────────────────────────────────────
 
-  app.get('/allergens', async (req) => withTenant(req.tenantId, async tx => {
+  app.get('/allergens', { preHandler: PERM.view }, async (req) => withTenant(req.tenantId, async tx => {
     const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
     if (!cfg) return {}
     const [row] = await tx`
@@ -1296,7 +1305,7 @@ export default async function websiteRoutes(app) {
     return row ?? {}
   }))
 
-  app.post('/allergens', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/allergens', { preHandler: PERM.manage}, async (req) => {
     const body = AllergenBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, async tx => {
       const cfg = await ensureVenueConfig(tx, req.tenantId, req.query.venue_id)
@@ -1320,7 +1329,7 @@ export default async function websiteRoutes(app) {
   })
 
   // ── File upload ─────────────────────────────────────────
-  app.post('/upload', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/upload', { preHandler: PERM.upload}, async (req, reply) => {
     if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
 
     const parts = req.parts()

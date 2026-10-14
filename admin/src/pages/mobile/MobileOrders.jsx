@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Ban } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { OrderBoard, AvailabilityModal, PauseButton, useOrders, todayIn } from '@/components/orders/shared'
+import { usePermission } from '@/hooks/usePermission'
 
 export default function MobileOrders() {
   const api = useApi()
@@ -21,6 +22,7 @@ export default function MobileOrders() {
   const venue = venues.find(v => v.id === venueId)
   const date = todayIn(venue?.timezone)
   const board = useOrders(venueId, date)
+  const { canManage } = usePermission('web_orders')
 
   return (
     <div className="p-3 space-y-3">
@@ -29,12 +31,14 @@ export default function MobileOrders() {
           {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
         </select>
       )}
-      <div className="flex gap-2">
-        <button onClick={() => setSoldOut(true)} className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] rounded-md border text-sm font-medium touch-manipulation">
-          <Ban className="w-4 h-4" /> Sold out
-        </button>
-        <PauseButton venueId={venueId} ordering={board.data?.ordering} />
-      </div>
+      {canManage && (
+        <div className="flex gap-2">
+          <button onClick={() => setSoldOut(true)} className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] rounded-md border text-sm font-medium touch-manipulation">
+            <Ban className="w-4 h-4" /> Sold out
+          </button>
+          <PauseButton venueId={venueId} ordering={board.data?.ordering} />
+        </div>
+      )}
       {board.data?.ordering?.is_paused && (
         <div className="rounded-md bg-amber-100 text-amber-900 p-3 text-sm font-medium">Orders are paused.</div>
       )}

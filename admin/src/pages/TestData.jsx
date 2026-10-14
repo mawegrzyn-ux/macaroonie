@@ -10,6 +10,8 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { FlaskConical, Sparkles, Trash2, Loader2, CheckCircle2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 
 const STATUS_OPTIONS = [
   { value: 'confirmed',   label: 'Confirmed' },
@@ -29,6 +31,7 @@ function addDays(dateStr, days) {
 
 export default function TestData() {
   const api = useApi()
+  const { canManage } = usePermission('test_data')
   const [selectedVenueId, setSelectedVenueId] = useState('')
 
   const { data: venues = [] } = useQuery({
@@ -57,10 +60,13 @@ export default function TestData() {
       <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-2xl">
         {venueId ? (
           <>
-            <SeedSection api={api} venueId={venueId} />
-            <ClearSection api={api} venueId={venueId} />
-            <HsSection api={api} venueId={venueId} />
-            <HsClearSection api={api} venueId={venueId} />
+            {!canManage && <ReadOnlyNotice what="the test data tools" />}
+            <ReadOnlyFieldset disabled={!canManage} className="space-y-6">
+              <SeedSection api={api} venueId={venueId} />
+              <ClearSection api={api} venueId={venueId} />
+              <HsSection api={api} venueId={venueId} />
+              <HsClearSection api={api} venueId={venueId} />
+            </ReadOnlyFieldset>
           </>
         ) : (
           <p className="text-sm text-muted-foreground">Pick a venue to continue.</p>

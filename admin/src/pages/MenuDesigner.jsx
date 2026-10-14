@@ -37,6 +37,7 @@ import {
   LayoutTemplate, Repeat,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import {
@@ -156,6 +157,8 @@ export default function MenuDesigner() {
   const [searchParams, setSearchParams] = useSearchParams()
   const api = useApi()
   const qc = useQueryClient()
+  // Menus = View: the designs can be looked at; changes can't be saved.
+  const { canManage } = usePermission('menus')
 
   const { data: menu, isLoading, isError } = useQuery({
     queryKey: ['menu-design', id],
@@ -599,11 +602,15 @@ export default function MenuDesigner() {
             <Printer className="w-4 h-4" /> <span className="hidden lg:inline">Preview</span>
           </a>
         )}
-        <button disabled={!dirty || save.isPending || !layout} onClick={() => save.mutate()}
-          className="inline-flex items-center gap-1.5 rounded-md px-4 min-h-[44px] text-sm font-medium bg-primary text-primary-foreground disabled:opacity-50 touch-manipulation">
-          {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          {dirty ? 'Save' : 'Saved'}
-        </button>
+        {canManage ? (
+          <button disabled={!dirty || save.isPending || !layout} onClick={() => save.mutate()}
+            className="inline-flex items-center gap-1.5 rounded-md px-4 min-h-[44px] text-sm font-medium bg-primary text-primary-foreground disabled:opacity-50 touch-manipulation">
+            {save.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {dirty ? 'Save' : 'Saved'}
+          </button>
+        ) : (
+          <span className="text-xs text-muted-foreground px-2">View only</span>
+        )}
       </div>
       {save.isError && (
         <div className="shrink-0 bg-destructive/10 text-destructive text-sm px-4 py-2 border-b">

@@ -5,8 +5,15 @@
 
 import { z }          from 'zod'
 import { sql, withTenant } from '../config/db.js'
-import { requireAuth, requirePlatformAdmin } from '../middleware/auth.js'
+import { requireAuth, requirePlatformAdmin, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
+
+// Feature requests permission: view reads, manage submits, edits and upvotes
+// (platform admins always pass).
+const PERM = {
+  view:   requirePermission('feature_requests', 'view'),
+  manage: requirePermission('feature_requests', 'manage'),
+}
 
 // ── Schemas ───────────────────────────────────────────────────
 
@@ -36,7 +43,7 @@ export default async function featureRequestsRoutes(app) {
   // ── GET /feature-requests ─────────────────────────────────
   // All tenants see all requests (cross-tenant feature board).
   // has_upvoted is derived from feature_request_upvotes for req.user.id.
-  app.get('/', async (req) => {
+  app.get('/', { preHandler: PERM.view }, async (req) => {
     const { status, sort = 'votes' } = req.query
     const userId = req.user?.id ?? null
 
@@ -62,7 +69,7 @@ export default async function featureRequestsRoutes(app) {
   })
 
   // ── POST /feature-requests ────────────────────────────────
-  app.post('/', async (req) => {
+  app.post('/', { preHandler: PERM.manage }, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     const body = RequestBody.parse(req.body)
 
@@ -77,7 +84,7 @@ export default async function featureRequestsRoutes(app) {
   })
 
   // ── PATCH /feature-requests/:id ───────────────────────────
-  app.patch('/:id', async (req) => {
+  app.patch('/:id', { preHandler: PERM.manage }, async (req) => {
     const body = RequestPatch.parse(req.body)
 
     if (!req.isPlatformAdmin) {
@@ -112,7 +119,7 @@ export default async function featureRequestsRoutes(app) {
 
   // ── POST /feature-requests/:id/upvote ─────────────────────
   // Toggle upvote for the current user. Returns { upvoted, upvotes }.
-  app.post('/:id/upvote', async (req) => {
+  app.post('/:id/upvote', { preHandler: PERM.manage }, async (req) => {
     const requestId = req.params.id
     const userId    = req.user.sub
     const tenantId  = req.tenantId

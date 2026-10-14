@@ -14,6 +14,8 @@ import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { UsersRound, Plus, Loader2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { PAY_TYPES, staffRateLabel } from '@/pages/CashRecon'
 import { PAY_METHODS, payMethodLabel } from '@shared/payMethod.js'
@@ -170,6 +172,8 @@ export default function Staff() {
   const [venueId, setVenueId] = useVenueChoice(venues)
   const { data: setup } = useRotaSetup()
   const [editing, setEditing] = useState(null) // null | 'new' | staff row
+  // Staff & rota setup = View: the list can be read, not changed.
+  const { canManage } = usePermission('staff')
 
   const { data: staff = [], isLoading } = useQuery({
     queryKey: ['rota-staff', venueId],
@@ -189,29 +193,33 @@ export default function Staff() {
     <div className="flex flex-col h-full overflow-hidden">
       <PageHeader icon={UsersRound} title="Staff">
         <VenuePicker venues={venues} venueId={venueId} onChange={setVenueId} />
-        <button type="button" onClick={() => setEditing('new')} disabled={!venueId}
-          className="h-10 px-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center gap-1.5">
-          <Plus className="w-4 h-4" /> Add staff
-        </button>
+        {canManage && (
+          <button type="button" onClick={() => setEditing('new')} disabled={!venueId}
+            className="h-10 px-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center gap-1.5">
+            <Plus className="w-4 h-4" /> Add staff
+          </button>
+        )}
       </PageHeader>
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-4 space-y-3">
-          <p className="text-xs text-muted-foreground">
-            Drag to change the order used on the rota and wages. Tap a person to edit their role and pay.
-          </p>
+          {canManage ? (
+            <p className="text-xs text-muted-foreground">
+              Drag to change the order used on the rota and wages. Tap a person to edit their role and pay.
+            </p>
+          ) : <ReadOnlyNotice what="the staff list" />}
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
           ) : staff.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No staff for this venue yet.</p>
           ) : (
-            <SortableRows items={staff} onReorder={ids => reorder.mutate(ids)} renderItem={s => {
+            <SortableRows items={staff} locked={!canManage} onReorder={ids => reorder.mutate(ids)} renderItem={s => {
               const role = s.role_id ? roleById[s.role_id] : null
               const rate = staffRateLabel(s)
               const shiftRateCount = Object.keys(s.shift_rates ?? {}).length
               return (
-                <button type="button" onClick={() => setEditing(s)}
-                  className={cn('w-full min-h-[48px] flex flex-wrap items-center gap-x-3 gap-y-1 text-left rounded-lg px-2 py-1.5 hover:bg-muted touch-manipulation', !s.is_active && 'opacity-60')}>
+                <button type="button" onClick={() => setEditing(s)} disabled={!canManage}
+                  className={cn('w-full min-h-[48px] flex flex-wrap items-center gap-x-3 gap-y-1 text-left rounded-lg px-2 py-1.5 hover:bg-muted disabled:hover:bg-transparent disabled:cursor-default touch-manipulation', !s.is_active && 'opacity-60')}>
                   <span className="flex-1 basis-32 min-w-0 truncate text-sm font-medium">{s.name}</span>
                   {role && <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/10 text-primary">{role.name}</span>}
                   <span className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">

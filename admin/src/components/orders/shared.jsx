@@ -22,6 +22,7 @@ import {
   Ban, RotateCcw, Loader2, Volume2, VolumeX, ChevronDown, ChevronUp, Banknote, CreditCard, MapPin,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 import { formatPence } from '@shared/orderPricing.js'
 
@@ -216,6 +217,9 @@ export function printTicket(order, venue) {
 
 export function OrderBoard({ venueId, date, compact = false, showUnpaid = false }) {
   const q = useOrders(venueId, date, { includeUnpaid: showUnpaid })
+  // Online orders = View: the board and each order can be looked at; status
+  // buttons, pay, refund and timing changes are hidden.
+  const { canManage } = usePermission('web_orders')
   const actions = useOrderActions(venueId)
   const chime = useChime()
   const [openId, setOpenId] = useState(null)
@@ -246,7 +250,7 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
 
   const quick = o => {
     const next = { placed: 'accepted', accepted: 'ready', preparing: 'ready', ready: 'completed' }[o.status]
-    if (!next) return null
+    if (!next || !canManage) return null
     const label = { accepted: 'Accept', ready: 'Ready', completed: isGloriaFood(o) && o.order_type === 'delivery' ? 'Sent' : 'Collected' }[next]
     const m = isGloriaFood(o) ? actions.gfStatus : actions.status
     return (
@@ -368,6 +372,7 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
   const detail = useQuery({ queryKey: ['order', summary.id], queryFn: () => api.get(`/orders/${summary.id}`) })
   const o = detail.data || summary
   const actions = useOrderActions(venueId)
+  const { canManage } = usePermission('web_orders')
   const tz = venue?.timezone || 'Europe/London'
   const [confirm, setConfirm] = useState(null)   // 'reject' | 'cancel' | 'refund'
   const [reason, setReason] = useState('')
@@ -387,7 +392,7 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
     actions.promised.mutate({ id: o.id, promised_at: new Date(base + mins * 60000).toISOString() })
   }
 
-  const Btn = ({ onClick, children, tone = 'default', disabled }) => (
+  const Btn = ({ onClick, children, tone = 'default', disabled }) => !canManage ? null : (
     <button onClick={onClick} disabled={busy || disabled}
       className={cn('inline-flex items-center justify-center gap-1.5 min-h-[48px] px-4 rounded-md text-sm font-semibold touch-manipulation disabled:opacity-50',
         tone === 'primary' && 'bg-primary text-primary-foreground',
@@ -560,6 +565,7 @@ export function OrderDetailModal({ order: summary, venue, venueId, onClose }) {
 
 export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
   const actions = useOrderActions(venueId)
+  const { canManage } = usePermission('web_orders')
   const tz = venue?.timezone || 'Europe/London'
   const busy = actions.gfStatus.isPending
   const err = actions.gfStatus.error
@@ -572,7 +578,7 @@ export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
     </div>
   ) : null
 
-  const Btn = ({ onClick, children, primary, disabled }) => (
+  const Btn = ({ onClick, children, primary, disabled }) => !canManage ? null : (
     <button onClick={onClick} disabled={busy || disabled}
       className={cn('inline-flex items-center justify-center gap-1.5 min-h-[48px] px-4 rounded-md text-sm font-semibold touch-manipulation disabled:opacity-50',
         primary ? 'bg-primary text-primary-foreground' : 'border bg-background')}>
@@ -735,11 +741,12 @@ export function PauseButton({ venueId, ordering }) {
   const qc = useQueryClient()
   const [asking, setAsking] = useState(false)
   const [msg, setMsg] = useState('')
+  const { canManage } = usePermission('web_orders')
   const m = useMutation({
     mutationFn: body => api.post(`/orders/pause/${venueId}`, body),
     onSuccess: () => { setAsking(false); qc.invalidateQueries({ queryKey: ['orders', venueId] }) },
   })
-  if (!ordering) return null
+  if (!ordering || !canManage) return null
   if (ordering.is_paused) {
     return (
       <button onClick={() => m.mutate({ paused: false })} disabled={m.isPending}

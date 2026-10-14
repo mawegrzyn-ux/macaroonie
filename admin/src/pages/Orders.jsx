@@ -12,6 +12,7 @@ import { ShoppingBag, ChevronLeft, ChevronRight, Settings2, Ban, Loader2, BadgeP
 import { useApi } from '@/lib/api'
 import { cn, openPicker } from '@/lib/utils'
 import { OrderBoard, AvailabilityModal, PauseButton, useOrders, money, todayIn } from '@/components/orders/shared'
+import { usePermission } from '@/hooks/usePermission'
 
 function addDays(date, n) {
   const [y, m, d] = date.split('-').map(Number)
@@ -28,6 +29,7 @@ export default function Orders() {
   const [venueId, setVenueId] = useState(() => { try { return localStorage.getItem('maca_orders_venue') || '' } catch { return '' } })
   const [tab, setTab] = useState('board')
   const [soldOut, setSoldOut] = useState(false)
+  const { canManage: canManageOrders } = usePermission('web_orders')
   const { data: venues = [] } = useQuery({ queryKey: ['venues'], queryFn: () => api.get('/venues') })
 
   useEffect(() => {
@@ -95,9 +97,11 @@ export default function Orders() {
                 <button onClick={() => setDate(d => addDays(d, 1))} className="w-11 h-11 border rounded-md flex items-center justify-center touch-manipulation"><ChevronRight className="w-4 h-4" /></button>
                 {date !== today && <button onClick={() => setDate(today)} className="min-h-[44px] px-3 border rounded-md text-sm touch-manipulation">Today</button>}
               </div>
-              <button onClick={() => setSoldOut(true)} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-md border text-sm font-medium touch-manipulation">
-                <Ban className="w-4 h-4" /> Sold out
-              </button>
+              {canManageOrders && (
+                <button onClick={() => setSoldOut(true)} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-md border text-sm font-medium touch-manipulation">
+                  <Ban className="w-4 h-4" /> Sold out
+                </button>
+              )}
               <PauseButton venueId={venueId} ordering={ordering} />
             </div>
           )}

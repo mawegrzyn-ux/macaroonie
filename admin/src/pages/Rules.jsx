@@ -8,6 +8,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Save } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 
 const BookingRulesSchema = z.object({
   slot_duration_mins:        z.coerce.number().int().min(15).max(480),
@@ -70,6 +72,8 @@ function Section({ title, description, children }) {
 export default function Rules() {
   const api     = useApi()
   const qc      = useQueryClient()
+  // Booking rules = View: the rules can be read, nothing changed.
+  const { canManage } = usePermission('rules')
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -153,7 +157,8 @@ export default function Rules() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-xl space-y-5">
+        <ReadOnlyFieldset disabled={!canManage} className="max-w-xl space-y-5">
+          {!canManage && <ReadOnlyNotice what="the booking rules" />}
 
           {/* ── Booking rules ────────────────────────────── */}
           <form onSubmit={submitRules(data => rulesMutation.mutate(data))}>
@@ -387,7 +392,7 @@ export default function Rules() {
               </button>
             </Section>
           </form>
-        </div>
+        </ReadOnlyFieldset>
       </div>
     </div>
   )

@@ -7,6 +7,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Plus, ThumbsUp, ExternalLink } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { format } from 'date-fns'
 
 // ── Constants ─────────────────────────────────────────────────
@@ -271,20 +273,24 @@ export default function FeatureRequests() {
   })
 
   const isPlatformAdmin = me?.is_platform_admin ?? false
+  const { canManage } = usePermission('feature_requests')
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold">Feature requests</h1>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
-          >
-            <Plus className="w-4 h-4" />
-            New request
-          </button>
+          {canManage && (
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium touch-manipulation min-h-[44px]"
+            >
+              <Plus className="w-4 h-4" />
+              New request
+            </button>
+          )}
         </div>
+        {!canManage && <ReadOnlyNotice what="feature requests" className="mb-4" />}
 
         {/* Controls */}
         <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -354,7 +360,7 @@ export default function FeatureRequests() {
                 <div className="flex items-center gap-3">
                   <button
                     onClick={e => { e.stopPropagation(); upvoteMut.mutate(req.id) }}
-                    disabled={upvoteMut.isPending}
+                    disabled={!canManage || upvoteMut.isPending}
                     className={cn(
                       'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border touch-manipulation transition-colors min-h-[44px]',
                       req.has_upvoted

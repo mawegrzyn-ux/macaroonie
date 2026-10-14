@@ -21,6 +21,7 @@ import {
   Lock, Unlock,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
 import { cn, STATUS_LABELS, STATUS_COLOURS } from '@/lib/utils'
 
 // All statuses an operator can manually set.
@@ -52,8 +53,13 @@ const STATUS_DOT = {
 
 export default function BookingDrawer({ booking, onClose, onUpdated, panelMode = false, inlineMode = false }) {
   const api = useApi()
+  // Bookings = View: the booking is shown as it is; nothing opens for
+  // editing and the status, lock, refund and delete controls are hidden.
+  // Deleting also stays owner / admin on the API.
+  const { canManage, isOwnerOrAdmin } = usePermission('bookings')
 
-  const [editMode,      setEditMode]      = useState(null)
+  const [editMode,      setEditModeRaw]   = useState(null)
+  const setEditMode = canManage ? setEditModeRaw : () => {}
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   // ── Guest fields ───────────────────────────────────────────
@@ -564,7 +570,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
               {/* Table lock toggle — prevents cascade displacement by /relocate */}
               <button
                 onClick={() => lockMutation.mutate(!booking.table_locked)}
-                disabled={lockMutation.isPending}
+                disabled={lockMutation.isPending || !canManage}
                 title={booking.table_locked
                   ? 'Table is locked — click to allow the system to move this booking'
                   : 'Table is unlocked — click to prevent the system from moving this booking'}
@@ -700,7 +706,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                   onClick={() => setEditMode('notes')}
                   className="text-sm text-muted-foreground cursor-text min-h-10 hover:bg-muted rounded-lg p-2 -mx-2 transition-colors"
                 >
-                  {notes || <span className="italic">Tap to add notes…</span>}
+                  {notes || <span className="italic">{canManage ? 'Tap to add notes…' : 'No notes'}</span>}
                 </div>
               )}
             </div>
@@ -715,7 +721,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                     <button
                       key={s}
                       onClick={() => !isActive && statusMutation.mutate(s)}
-                      disabled={statusMutation.isPending}
+                      disabled={statusMutation.isPending || (!canManage && !isActive)}
                       className={cn(
                         'flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold touch-manipulation transition-all disabled:opacity-50',
                         isActive
@@ -753,7 +759,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                     </span>
                   </span>
                 </div>
-                {booking.payment_status === 'succeeded' && (
+                {canManage && isOwnerOrAdmin && booking.payment_status === 'succeeded' && (
                   <button
                     onClick={() => refundMutation.mutate()}
                     disabled={refundMutation.isPending}
@@ -766,7 +772,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
             )}
 
             {/* ── Delete booking ────────────────────────────── */}
-            <div className="pt-2 border-t">
+            {canManage && isOwnerOrAdmin && <div className="pt-2 border-t">
               {!confirmDelete ? (
                 <button
                   onClick={() => setConfirmDelete(true)}
@@ -806,7 +812,7 @@ export default function BookingDrawer({ booking, onClose, onUpdated, panelMode =
                   )}
                 </div>
               )}
-            </div>
+            </div>}
 
           </div>
         </div>

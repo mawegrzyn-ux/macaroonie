@@ -35,9 +35,13 @@ async function loadSharp() {
   return _sharp
 }
 import { withTenant } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requireAnyPermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { getStorage } from '../services/storageSvc.js'
+
+// The media library serves the website and menus: changes need manage on
+// either. Browsing stays open to every member of the tenant.
+const PERM = { manage: requireAnyPermission(['website', 'menus'], 'manage') }
 
 const ALLOWED_MIMES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml',
@@ -90,7 +94,7 @@ export default async function mediaRoutes(app) {
     `)
   })
 
-  app.post('/categories', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/categories', { preHandler: PERM.manage}, async (req, reply) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     const body = CategoryBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
@@ -101,7 +105,7 @@ export default async function mediaRoutes(app) {
     return reply.code(201).send(row)
   })
 
-  app.patch('/categories/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/categories/:id', { preHandler: PERM.manage}, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     const body = CategoryBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
@@ -114,7 +118,7 @@ export default async function mediaRoutes(app) {
     return row
   })
 
-  app.delete('/categories/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/categories/:id', { preHandler: PERM.manage}, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     // ON DELETE SET NULL on media_items.category_id handles orphans automatically
     const [row] = await withTenant(req.tenantId, tx => tx`
@@ -189,7 +193,7 @@ export default async function mediaRoutes(app) {
 
   // ── Items: upload ────────────────────────────────────────
   // Form fields: file, scope (default 'shared'), category_id (optional)
-  app.post('/items/upload', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/items/upload', { preHandler: PERM.manage}, async (req, reply) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
 
@@ -265,7 +269,7 @@ export default async function mediaRoutes(app) {
   // continues to work). url + storage_key + bytes + dimensions + hash
   // are updated. The OLD file is deleted from storage best-effort.
   // Form fields: file (required)
-  app.post('/items/:id/replace', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/items/:id/replace', { preHandler: PERM.manage}, async (req, reply) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     if (!req.isMultipart()) throw httpError(400, 'Expected multipart/form-data')
 
@@ -330,7 +334,7 @@ export default async function mediaRoutes(app) {
   })
 
   // ── Items: patch (rename, recategorize, rescope) ──────────
-  app.patch('/items/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/items/:id', { preHandler: PERM.manage}, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     const body = ItemPatch.parse(req.body)
     const fields = Object.keys(body)
@@ -354,7 +358,7 @@ export default async function mediaRoutes(app) {
   })
 
   // ── Items: delete ─────────────────────────────────────────
-  app.delete('/items/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/items/:id', { preHandler: PERM.manage}, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
 
     const [row] = await withTenant(req.tenantId, tx => tx`
@@ -371,7 +375,7 @@ export default async function mediaRoutes(app) {
   })
 
   // ── Items: bulk ───────────────────────────────────────────
-  app.post('/items/bulk', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/items/bulk', { preHandler: PERM.manage}, async (req) => {
     if (!req.tenantId) throw httpError(400, 'No tenant context')
     const body = BulkBody.parse(req.body)
 

@@ -138,8 +138,7 @@ export default function Help() {
               {[
                 ['Owner', 'Full access. Can manage billing, team, and all settings.'],
                 ['Admin', 'Can configure venues, tables, schedules, and rules. Can manage bookings.'],
-                ['Operator', 'Can create and manage bookings. Cannot change venue configuration.'],
-                ['Viewer', 'Read-only. Can view bookings and schedules but cannot make changes.'],
+                ['Operator', 'Can create and manage bookings, Cash Recon, the rota and H&S checks. Can look at customers, tables and the schedule but not change them.'],                ['Viewer', 'Read-only. Can view bookings, customers, menus and schedules but cannot make changes.'],
               ].map(([role, desc]) => (
                 <div key={role} className="flex gap-3 items-start border rounded-lg px-3 py-2">
                   <span className="text-sm font-semibold w-20 shrink-0">{role}</span>
@@ -4186,6 +4185,30 @@ export default function Help() {
               Owner can&apos;t access a disabled module. To grant access, turn the module on
               first, then check the role permission.
             </InfoBox>
+
+            <H3>What View and Manage mean</H3>
+            <P>
+              The same rule applies on every page: <strong>View</strong> lets someone open the
+              page and use it to look things up, <strong>Manage</strong> lets them change things
+              there, and <strong>None</strong> hides it. With View, the buttons that change things
+              are hidden or greyed out and a blue &ldquo;View only&rdquo; bar says so at the top;
+              the app also refuses the change if it&apos;s tried another way. For example: View on
+              Cash reconciliation shows the week and each day with every figure, but nothing can be
+              typed, submitted or set up; View on Menus opens each menu without Save; View on a
+              dashboard shows its widgets but no Edit layout.
+            </P>
+            <P>
+              A few changes also need an Owner or Admin login on top of Manage, because they undo
+              finished work or touch money: Cash Recon settings and unsubmitting a submitted day or
+              week, deleting a booking, refunding a deposit. Removing an email suppression needs the
+              Owner. Team and Access themselves stay Owner only.
+            </P>
+            <P>
+              The built-in roles start from sensible defaults: an Operator manages bookings, Cash
+              Recon, the rota, online orders and H&amp;S checks, and can view customers, venues,
+              tables, the schedule and menus; a Viewer can view bookings, customers, menus and the
+              H&amp;S pages. Change any of these in the role&apos;s matrix.
+            </P>
           </section>
 
           {/* ── EMAIL MONITORING ───────────────────────────── */}

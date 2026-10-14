@@ -24,7 +24,7 @@ import jwksClient from 'jwks-rsa'
 import { createVerifier } from 'fast-jwt'   // fast-jwt ships with fastify/jwt, no extra dep
 import { env } from '../config/env.js'
 import { sql, withTenant } from '../config/db.js'
-import { resolvePermission } from '../config/modules.js'
+import { resolvePermission, MODULES } from '../config/modules.js'
 import { isMember } from '../services/membershipSvc.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
@@ -359,6 +359,14 @@ export async function requirePlatformAdmin(req, reply) {
  *   preHandler: [requireAuth, requirePermission('cash_recon', 'manage')]
  */
 const PERMISSION_RANK = { none: 0, view: 1, manage: 2 }
+const MODULE_LABEL = Object.fromEntries(MODULES.map(m => [m.key, m.label]))
+
+/** "Your role can view Cash reconciliation but not change it." */
+function permissionMessage(moduleKey, actual, required) {
+  const label = MODULE_LABEL[moduleKey] ?? moduleKey
+  if (actual === 'view' && required === 'manage') return `Your role can view ${label} but not change it.`
+  return `Your role doesn't have access to ${label}.`
+}
 
 /**
  * The caller's effective level ('none' | 'view' | 'manage') for a module:
@@ -381,7 +389,9 @@ export async function permissionLevel(req, moduleKey) {
   // Lookup permissions: prefer custom_role_id, fall back to built-in matching users.role.
   const [permRow] = await sql`
     SELECT COALESCE(r_custom.permissions, r_builtin.permissions, '{}'::jsonb) AS permissions,
-           COALESCE(r_custom.key, r_builtin.key) AS role_key
+           -- users.role when the tenant has no built-in role rows: the
+           -- module defaults for that role still apply.
+           COALESCE(r_custom.key, r_builtin.key, u.role::text) AS role_key
       FROM users u
  LEFT JOIN tenant_roles r_custom  ON r_custom.id  = u.custom_role_id
  LEFT JOIN tenant_roles r_builtin ON r_builtin.tenant_id = u.tenant_id
@@ -405,7 +415,7 @@ export function requirePermission(moduleKey, requiredLevel = 'view') {
 
     const actual = await permissionLevel(req, moduleKey)
     if (PERMISSION_RANK[actual] < PERMISSION_RANK[requiredLevel]) {
-      return reply.code(403).send({ error: `Insufficient permission for ${moduleKey} (have: ${actual}, need: ${requiredLevel})` })
+      return reply.code(403).send({ error: permissionMessage(moduleKey, actual, requiredLevel) })
     }
   }
 }
@@ -420,6 +430,9 @@ export function requireAnyPermission(moduleKeys, requiredLevel = 'view') {
       const actual = await permissionLevel(req, key)
       if (PERMISSION_RANK[actual] >= PERMISSION_RANK[requiredLevel]) return
     }
-    return reply.code(403).send({ error: `Insufficient permission (need ${requiredLevel} on one of: ${moduleKeys.join(', ')})` })
+    const labels = moduleKeys.map(k => MODULE_LABEL[k] ?? k).join(' or ')
+    return reply.code(403).send({ error: requiredLevel === 'manage'
+      ? `Your role can't change this: it needs ${labels}.`
+      : `Your role doesn't have access to ${labels}.` })
   }
 }

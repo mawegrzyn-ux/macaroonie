@@ -8,7 +8,7 @@
 //   'wages'    — weekly wages form
 //   'settings' — config management (income sources, payment channels, SC, staff)
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   format, addWeeks, subWeeks, startOfISOWeek, addDays, parseISO,
@@ -20,6 +20,8 @@ import {
   AlertTriangle, CreditCard,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
@@ -28,6 +30,11 @@ import { GloriaFoodSettings, GloriaFoodFillButton } from '@/components/cashRecon
 import { splitPay } from '@shared/payMethod.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// True inside a part of Cash Recon the person can only view (Cash
+// reconciliation = View): inputs become read-only, toggles are disabled and
+// add / edit / delete controls are hidden. The API refuses the changes too.
+const CashReadOnly = createContext(false)
 
 // "Paid on" day for a cash wage: which day of the week the cash came out of
 // the till (cash_wage_entries.paid_date). That day's variance adds it back.
@@ -258,6 +265,7 @@ export function SaveIndicator({ saving, saved, error }) {
 }
 
 function AmountInput({ value, onChange, onBlur, placeholder = '0.00', className }) {
+  const readOnly = useContext(CashReadOnly)
   return (
     <input
       type="number"
@@ -265,11 +273,13 @@ function AmountInput({ value, onChange, onBlur, placeholder = '0.00', className 
       step="0.01"
       placeholder={placeholder}
       value={value}
+      readOnly={readOnly}
       onChange={e => onChange(e.target.value)}
-      onBlur={onBlur}
+      onBlur={readOnly ? undefined : onBlur}
       className={cn(
         'h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation',
         'focus:outline-none focus:ring-2 focus:ring-primary/40',
+        readOnly && 'bg-muted/40 focus:ring-0',
         className
       )}
     />
@@ -277,32 +287,37 @@ function AmountInput({ value, onChange, onBlur, placeholder = '0.00', className 
 }
 
 function TextInput({ value, onChange, onBlur, placeholder, className }) {
+  const readOnly = useContext(CashReadOnly)
   return (
     <input
       type="text"
       placeholder={placeholder}
       value={value}
+      readOnly={readOnly}
       onChange={e => onChange(e.target.value)}
-      onBlur={onBlur}
+      onBlur={readOnly ? undefined : onBlur}
       className={cn(
         'h-12 w-full rounded-xl border bg-background px-3 text-base touch-manipulation',
         'focus:outline-none focus:ring-2 focus:ring-primary/40',
+        readOnly && 'bg-muted/40 focus:ring-0',
         className
       )}
     />
   )
 }
 
-function Toggle({ checked, onChange, label }) {
+function Toggle({ checked, onChange, label, disabled }) {
+  const readOnly = useContext(CashReadOnly) || disabled
   return (
-    <label className="flex items-center gap-2 cursor-pointer touch-manipulation select-none">
+    <label className={cn('flex items-center gap-2 touch-manipulation select-none', readOnly ? 'cursor-default' : 'cursor-pointer')}>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
+        disabled={readOnly}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative inline-flex h-6 w-11 rounded-full transition-colors touch-manipulation',
+          'relative inline-flex h-6 w-11 rounded-full transition-colors touch-manipulation disabled:opacity-60',
           checked ? 'bg-primary' : 'bg-muted'
         )}
       >
@@ -336,7 +351,7 @@ function IconBtn({ onClick, disabled, title, className, children }) {
 
 // ── Notes modal ─────────────────────────────────────────────────────────────
 
-function NoteModal({ label, value, onSave, onClose }) {
+function NoteModal({ label, value, onSave, onClose, readOnly }) {
   const [draft, setDraft] = useState(value ?? '')
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4"
@@ -347,7 +362,8 @@ function NoteModal({ label, value, onSave, onClose }) {
           <IconBtn onClick={onClose}><X className="w-5 h-5" /></IconBtn>
         </div>
         <textarea
-          autoFocus
+          autoFocus={!readOnly}
+          readOnly={readOnly}
           value={draft}
           onChange={e => setDraft(e.target.value)}
           placeholder="Add a note for this entry…"
@@ -360,15 +376,17 @@ function NoteModal({ label, value, onSave, onClose }) {
             onClick={onClose}
             className="h-10 px-4 rounded-xl border text-sm font-medium touch-manipulation hover:bg-muted"
           >
-            Cancel
+            {readOnly ? 'Close' : 'Cancel'}
           </button>
-          <button
-            type="button"
-            onClick={() => { onSave(draft); onClose() }}
-            className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation hover:bg-primary/90"
-          >
-            Save Note
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => { onSave(draft); onClose() }}
+              className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium touch-manipulation hover:bg-primary/90"
+            >
+              Save Note
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -376,8 +394,11 @@ function NoteModal({ label, value, onSave, onClose }) {
 }
 
 function NoteButton({ label, value, onSave }) {
+  const readOnly = useContext(CashReadOnly)
   const [open, setOpen] = useState(false)
   const hasNote = !!(value && value.trim())
+  // View only: a note can be read, and there is nothing to open without one.
+  if (readOnly && !hasNote) return <span className="mt-1 h-9 w-9 shrink-0" />
   return (
     <>
       <button
@@ -397,6 +418,7 @@ function NoteButton({ label, value, onSave }) {
         <NoteModal
           label={label}
           value={value}
+          readOnly={readOnly}
           onClose={() => setOpen(false)}
           onSave={onSave}
         />
@@ -531,6 +553,7 @@ export function useReconWeek(venueId, weekStart) {
 export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSelectDay, onSelectWages, onSettings, onToggleMode, hideHeader }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const { canManage } = usePermission('cash_recon')
 
   const { data: config } = useQuery({
     queryKey: ['cash-recon-config', venueId],
@@ -570,7 +593,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
   } = reconCalc({ config, detail, weekStart, getCellVal })
 
   function startEdit(date, cat, id) {
-    if (detail?.days?.[date]?.status === 'submitted') return
+    if (!canManage || detail?.days?.[date]?.status === 'submitted') return
     setEditCell({ date, cat, id })
     setEditVal(getCellVal(date, cat, id))
   }
@@ -687,6 +710,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
   function EditableCell({ date, cat, id }) {
     const isEdit = editCell?.date === date && editCell?.cat === cat && editCell?.id === id
     const submitted = detail?.days?.[date]?.status === 'submitted'
+    const locked = submitted || !canManage
     const val = getCellVal(date, cat, id)
     const num = parseNum(val)
 
@@ -712,10 +736,10 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
 
     return (
       <td
-        onClick={() => !submitted && startEdit(date, cat, id)}
+        onClick={() => !locked && startEdit(date, cat, id)}
         className={cn(
           'px-2 py-1 text-xs text-right border-r border-border/60 w-[86px] min-w-[86px] tabular-nums',
-          !submitted && 'cursor-pointer hover:bg-muted/60',
+          !locked && 'cursor-pointer hover:bg-muted/60',
           submitted && 'text-muted-foreground',
           num === 0 && 'text-muted-foreground/40'
         )}
@@ -780,7 +804,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
           <div className="ml-auto flex items-center gap-1.5">
             <LoyverseFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
             <GloriaFoodFillButton compact venueId={venueId} dates={isoWeekDates(weekStart)} onApplied={() => setOverrides({})} />
-            {pendingCount > 0 && (
+            {canManage && pendingCount > 0 && (
               <button
                 type="button"
                 onClick={handleSubmitAll}
@@ -807,6 +831,7 @@ export function SpreadsheetView({ venueId, venues, setVenueId, weekStart, setWee
 
       {/* Table */}
       <div className="flex-1 overflow-auto bg-background">
+        {!canManage && <ReadOnlyNotice what="the reconciliation" className="m-3 w-fit" />}
         <table className="w-max border-collapse text-sm">
           {/* Column headers */}
           <thead className="sticky top-0 z-10 bg-background shadow-[0_1px_0_hsl(var(--border))]">
@@ -1150,6 +1175,9 @@ function WeekView({ venueId, venues, setVenueId, weekStart, setWeekStart, onSele
 export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const { canManage, isOwnerOrAdmin } = usePermission('cash_recon')
+  // Unsubmitting also stays owner / admin on the API.
+  const canUnsubmit = canManage && isOwnerOrAdmin
 
   const [saving, setSaving]   = useState(false)
   const [saved,  setSaved]    = useState(false)
@@ -1375,11 +1403,13 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
       status: currentStatus,
       saving, saved, saveErr,
       isSubmitted,
+      canSubmit: canManage,
+      canUnsubmit,
       submitPending: submitMutation.isPending,
       submit:   () => submitMutation.mutate('submit'),
       unsubmit: () => submitMutation.mutate('unsubmit'),
     })
-  }, [currentStatus, saving, saved, saveErr, isSubmitted, submitMutation.isPending, onStateChange])
+  }, [currentStatus, saving, saved, saveErr, isSubmitted, canManage, canUnsubmit, submitMutation.isPending, onStateChange])
 
   if (configLoading || dailyLoading) {
     return (
@@ -1405,7 +1435,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
           <div className="ml-auto flex flex-wrap justify-end items-center gap-2">
             {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
             {!isSubmitted && <GloriaFoodFillButton venueId={venueId} dates={[date]} />}
-            {!isSubmitted && (
+            {canManage && !isSubmitted && (
               <button
                 type="button"
                 disabled={submitMutation.isPending}
@@ -1415,7 +1445,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
                 {submitMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit Declaration'}
               </button>
             )}
-            {isSubmitted && (
+            {canUnsubmit && isSubmitted && (
               <button
                 type="button"
                 disabled={submitMutation.isPending}
@@ -1429,7 +1459,9 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
         </div>
       )}
 
+      <CashReadOnly.Provider value={!canManage}>
       <div className="p-4 space-y-4 pb-32">
+        {!canManage && <ReadOnlyNotice what="this day" />}
 
         {hideHeader && !isSubmitted && (
           <div className="flex flex-wrap justify-end gap-2 empty:hidden">
@@ -1647,6 +1679,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
           </p>
         </div>
       </div>
+      </CashReadOnly.Provider>
     </div>
   )
 }
@@ -1655,6 +1688,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
 
 function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config }) {
   const api = useApi()
+  const readOnly = useContext(CashReadOnly)
   const [addOpen,   setAddOpen]   = useState(false)
   const [editId,    setEditId]    = useState(null)
   const [newForm,   setNewForm]   = useState({ description: '', category_id: null, amount: '', vat_amount: '', paid_by_card: false, notes: '' })
@@ -1880,6 +1914,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                 </a>
               )}
 
+              {!readOnly && (
               <div className="flex items-center gap-2 flex-wrap">
                 {!exp.receipt_url && (
                   <>
@@ -1921,12 +1956,13 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
                   </IconBtn>
                 </div>
               </div>
+              )}
             </div>
           )
         })}
 
         {/* Add expense form */}
-        {addOpen ? (
+        {readOnly ? null : addOpen ? (
           <div className="rounded-xl border p-3 bg-muted/20 space-y-2">
             <TextInput placeholder="Description *" value={newForm.description} onChange={v => setNewForm(p => ({ ...p, description: v }))} />
             <CategoryChips selected={newForm.category_id} onSelect={id => setNewForm(p => ({ ...p, category_id: id }))} />
@@ -1968,6 +2004,7 @@ function ExpensesSection({ venueId, date, expenses, setExpenses, onSaved, config
 // on, Notes, explicit Save), the same editor the Cash Dashboard wage widgets
 // and /mobile/wages use. Wages aren't submitted; the days are.
 function WagesView({ venueId, weekStart, onBack }) {
+  const { canManage } = usePermission('cash_recon')
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <div className="sticky top-0 z-10 bg-background border-b px-4 max-lg:notouch:pl-14 py-3 flex items-center gap-3">
@@ -1980,7 +2017,8 @@ function WagesView({ venueId, weekStart, onBack }) {
             Cash wages come out of the till on the <strong>Paid on</strong> day, so that day's variance counts them.
             Anything not paid in full carries to next week's rota pay.
           </p>
-          <WeekWagesEditor venueId={venueId} weekStart={weekStart} showWeekNotes />
+          {!canManage && <ReadOnlyNotice what="the wages" className="mb-3" />}
+          <WeekWagesEditor venueId={venueId} weekStart={weekStart} showWeekNotes readOnly={!canManage} />
         </SectionCard>
       </div>
     </div>
@@ -2016,6 +2054,7 @@ function SettingsView({ venueId, onBack }) {
   const [tab, setTab] = useState('general')
   const api = useApi()
   const qc  = useQueryClient()
+  const { canManage } = usePermission('cash_recon')
 
   const { data: config, isLoading } = useQuery({
     queryKey: ['cash-recon-config', venueId],
@@ -2073,6 +2112,8 @@ function SettingsView({ venueId, onBack }) {
       </div>
 
       <div className="p-4">
+        {!canManage && <ReadOnlyNotice what="these settings" className="mb-4" />}
+        <CashReadOnly.Provider value={!canManage}>
         {tab === 'general'  && <GeneralTab           venueId={venueId} venueSettings={config?.venue_settings} onRefetch={refetchConfig} api={api} />}
         {tab === 'income'   && <IncomeSourcesTab     venueId={venueId} items={config?.income_sources      ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'channels' && <PaymentChannelsTab   venueId={venueId} items={config?.payment_channels  ?? []} onRefetch={refetchConfig} api={api} />}
@@ -2080,6 +2121,7 @@ function SettingsView({ venueId, onBack }) {
         {tab === 'expenses' && <ExpenseCategoriesTab venueId={venueId} items={config?.expense_categories ?? []} onRefetch={refetchConfig} api={api} />}
         {tab === 'loyverse' && <LoyverseSettings venueId={venueId} config={config} />}
         {tab === 'gloriafood' && <GloriaFoodSettings venueId={venueId} config={config} />}
+        </CashReadOnly.Provider>
       </div>
     </div>
   )
@@ -2089,6 +2131,8 @@ function SettingsView({ venueId, onBack }) {
 
 function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
   const [saving, setSaving] = useState(false)
+  // Cash Recon settings are owner / admin on the API, as well as manage.
+  const { isOwnerOrAdmin } = usePermission('cash_recon')
   const allowBulk = venueSettings?.allow_bulk_submit ?? false
 
   async function toggle(val) {
@@ -2115,7 +2159,7 @@ function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
           <div className="shrink-0 mt-0.5">
             {saving
               ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-              : <Toggle checked={allowBulk} onChange={toggle} />
+              : <Toggle checked={allowBulk} onChange={toggle} disabled={!isOwnerOrAdmin} />
             }
           </div>
         </div>
@@ -2127,6 +2171,7 @@ function GeneralTab({ venueId, venueSettings, onRefetch, api }) {
 // ── Generic list manager for settings tabs ────────────────────────────────────
 
 function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, renderForm, renderMeta, emptyLabel, addLabel }) {
+  const readOnly = useContext(CashReadOnly)
   const [editId,  setEditId]  = useState(null)
   const [editVals, setEditVals] = useState({})
   const [addOpen, setAddOpen] = useState(false)
@@ -2181,7 +2226,7 @@ function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, 
         return (
           <div key={item.id} className={cn('rounded-xl border p-3 flex items-center gap-2', !item.is_active && 'opacity-60')}>
             {/* Up/down order controls */}
-            <div className="flex flex-col gap-0.5 shrink-0">
+            {!readOnly && <div className="flex flex-col gap-0.5 shrink-0">
               <button type="button" onClick={() => onMove(idx, -1)} disabled={idx === 0}
                 className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted touch-manipulation disabled:opacity-30">
                 <ChevronUp className="w-3 h-3" />
@@ -2190,7 +2235,7 @@ function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, 
                 className="w-6 h-6 flex items-center justify-center rounded hover:bg-muted touch-manipulation disabled:opacity-30">
                 <ChevronDown className="w-3 h-3" />
               </button>
-            </div>
+            </div>}
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -2201,17 +2246,21 @@ function SettingsListManager({ items, onMove, onToggleActive, onDelete, onSave, 
             </div>
 
             <Toggle checked={item.is_active} onChange={() => onToggleActive(item.id, !item.is_active)} />
-            <IconBtn onClick={() => { setEditId(item.id); setEditVals({ ...item }) }} title="Edit">
-              <Pencil className="w-4 h-4" />
-            </IconBtn>
-            <IconBtn onClick={() => onDelete(item.id)} title="Delete" className="text-destructive hover:bg-destructive/10">
-              <Trash2 className="w-4 h-4" />
-            </IconBtn>
+            {!readOnly && (
+              <>
+                <IconBtn onClick={() => { setEditId(item.id); setEditVals({ ...item }) }} title="Edit">
+                  <Pencil className="w-4 h-4" />
+                </IconBtn>
+                <IconBtn onClick={() => onDelete(item.id)} title="Delete" className="text-destructive hover:bg-destructive/10">
+                  <Trash2 className="w-4 h-4" />
+                </IconBtn>
+              </>
+            )}
           </div>
         )
       })}
 
-      {addOpen ? (
+      {readOnly ? null : addOpen ? (
         <div className="rounded-xl border p-3 bg-muted/20 space-y-3">
           {renderForm({ vals: newVals, setVals: setNewVals })}
           <div className="flex gap-2">

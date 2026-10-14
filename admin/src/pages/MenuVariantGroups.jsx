@@ -8,8 +8,11 @@
 import { Link } from 'react-router-dom'
 import { ChevronLeft, Layers } from 'lucide-react'
 import { VariantGroupsManager } from '@/components/menus/VariantGroupsManager'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 
 export default function MenuVariantGroups() {
+  const { canManage } = usePermission('menus')
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 max-w-3xl mx-auto space-y-5">
@@ -25,7 +28,8 @@ export default function MenuVariantGroups() {
             Options are always predefined here — default prices can be overridden per dish.
           </p>
         </div>
-        <VariantGroupsManager />
+        {!canManage && <ReadOnlyNotice what="the option groups" />}
+        <ReadOnlyFieldset disabled={!canManage}><VariantGroupsManager /></ReadOnlyFieldset>
       </div>
     </div>
   )

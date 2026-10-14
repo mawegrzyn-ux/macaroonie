@@ -642,7 +642,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Two layers of access control, introduced by migration 038. The model in
               <Mono>api/src/config/modules.js</Mono> is the single source of truth for
-              every module the platform knows about (14 modules currently).
+              every module the platform knows about (<Mono>MODULES</Mono>).
             </P>
 
             <H3>Schema (migration 038)</H3>
@@ -701,6 +701,55 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono> permissions: {`{ [module]: level }`}</Mono>, computed from the union of
               tenant_modules + role permissions. The frontend uses this to gate nav entries
               in <Mono>AppShell.jsx</Mono>.
+            </P>
+
+            <H3>View uses, Manage changes (Oct 2026 rollout)</H3>
+            <P>
+              Every module&apos;s routes now go through module permissions: reads need{' '}
+              <Mono>view</Mono>, changes need <Mono>manage</Mono>. Route files that used the old
+              <Mono> requireRole(&apos;admin&apos;, &apos;owner&apos;)</Mono> gates (Cash Recon, bookings,
+              venues, schedules, customers, menus, website, media, reviews, emails, email monitor,
+              payments, issue log, feature requests) define a <Mono>PERM</Mono> object after their
+              imports (<Mono>PERM.view</Mono>, <Mono>PERM.manage</Mono>, and where the old gate was
+              owner/admin and the operator default is already manage, <Mono>PERM.adminManage</Mono>{' '}
+              = <Mono>[requireRole(&apos;admin&apos;, &apos;owner&apos;), requirePermission(module, &apos;manage&apos;)]</Mono>:
+              Cash Recon settings and unsubmit, deleting a booking, refunds; removing an email
+              suppression is owner + manage). Uploads to the website store accept any of website,
+              promotions or menus manage; media changes website or menus manage
+              (<Mono>requireAnyPermission</Mono>).
+            </P>
+            <P>
+              Reads other modules depend on stay open to every tenant member: the venue list and
+              venue detail, tables, sections, combinations, booking rules, schedules,{' '}
+              <Mono>GET /website/tenant-site</Mono>, menu reads and the media library list. Only
+              their writes are gated. A refusal reads &ldquo;Your role can view X but not change
+              it.&rdquo; / &ldquo;Your role doesn&apos;t have access to X.&rdquo; (<Mono>permissionMessage()</Mono>{' '}
+              in <Mono>auth.js</Mono>). <Mono>GET /email-templates/settings/:venueId</Mono> returns
+              the provider key, SMTP password and SES secret as <Mono>null</Mono> with{' '}
+              <Mono>secrets_hidden: true</Mono> below manage.
+            </P>
+            <P>
+              Built-in roles: tenants created after migration 038 had no <Mono>tenant_roles</Mono>{' '}
+              rows, so a user&apos;s role resolved to nothing. Migration 160 inserts the four
+              built-in roles for every tenant (<Mono>ON CONFLICT DO NOTHING</Mono>), new tenants get
+              them from <Mono>seedBuiltinRoles()</Mono> (<Mono>modules.js</Mono>, called by{' '}
+              <Mono>POST /api/platform/tenants</Mono>), and the role key falls back to{' '}
+              <Mono>users.role</Mono> when no role row matches. An empty built-in permissions map
+              means the module defaults; <Mono>GET /api/access/roles</Mono> returns every module&apos;s
+              resolved level (<Mono>resolvePermission()</Mono>).
+            </P>
+            <P>
+              Admin side: <Mono>usePermission(moduleKey)</Mono> (<Mono>hooks/usePermission.js</Mono>)
+              returns <Mono>{'{ level, canView, canManage, isOwnerOrAdmin, isOwner, loaded }'}</Mono>{' '}
+              from <Mono>/me</Mono>. Screens hide or disable their change controls when{' '}
+              <Mono>canManage</Mono> is false and show <Mono>ReadOnlyNotice</Mono>; a settings form
+              is wrapped in <Mono>ReadOnlyFieldset</Mono> (a native{' '}
+              <Mono>{'<fieldset disabled>'}</Mono>, which disables every input, select and button
+              inside, but not links or clickable divs). Deep component trees pass the state through
+              a small context (<Mono>CashReadOnly</Mono> in CashRecon.jsx, <Mono>TimelineReadOnly</Mono>,
+              <Mono> MenuReadOnly</Mono>). Dashboards use the page config&apos;s{' '}
+              <Mono>moduleKey</Mono> (see H&amp;S Dashboard). The API refuses the change regardless,
+              so the admin only decides what is shown.
             </P>
           </section>
 
@@ -964,7 +1013,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['/api/feature-requests GET /', 'tenant', 'List feature requests. Includes upvoted_by_me flag per request.'],
                 ['/api/feature-requests POST /', 'tenant', 'Submit a feature request.'],
                 ['/api/feature-requests PATCH /:id', 'platform admin', 'Update status, admin_notes.'],
-                ['/api/feature-requests POST /:id/upvote', 'tenant', 'Toggle upvote (insert or delete from feature_request_upvotes).'],
+                ['/api/feature-requests POST /:id/upvote', 'tenant', 'Toggle upvote (insert or delete from feature_request_upvotes). user_id holds the Auth0 user id as text (migration 161; it was uuid, so every list and upvote failed).'],
                 ['/api/feature-requests POST /:id/promote', 'platform admin', 'Promote to backlog item.'],
                 ['/api/changelog GET /', 'any', 'List changelog entries. Tenants see published only; platform admin sees all.'],
                 ['/api/changelog POST /', 'platform admin', 'Create a changelog entry (draft by default).'],

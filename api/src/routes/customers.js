@@ -14,7 +14,14 @@
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requirePermission } from '../middleware/auth.js'
+
+// Customers permission: view reads (including the booking screens' guest
+// search), manage changes, anonymise and export.
+const PERM = {
+  view:   requirePermission('customers', 'view'),
+  manage: requirePermission('customers', 'manage'),
+}
 
 function httpError(code, msg) {
   const e = new Error(msg)
@@ -64,7 +71,7 @@ export default async function customersRoutes(app) {
 
   // ── POST /customers ───────────────────────────────────────
   // Manually create a customer record.
-  app.post('/', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req, reply) => {
+  app.post('/', { preHandler: PERM.manage}, async (req, reply) => {
     const body = z.object({
       name:        z.string().min(1).max(200),
       email:       z.string().email().nullable().optional(),
@@ -86,7 +93,7 @@ export default async function customersRoutes(app) {
   // Each row: upsert by email (if provided); skip walk-in/TBC emails.
   // Processed in batches of 500 to avoid one giant transaction.
   // Returns { created, updated, skipped, errors[] }.
-  app.post('/import', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req, reply) => {
+  app.post('/import', { preHandler: PERM.manage}, async (req, reply) => {
     const body = z.object({
       customers: z.array(z.object({
         name:        z.string().min(1).max(200),
@@ -162,7 +169,7 @@ export default async function customersRoutes(app) {
   //   returns { rows: [...], total: N } for infinite scroll
   // Legacy search mode (no offset — used by booking-form suggestion dropdowns):
   //   returns plain array
-  app.get('/', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.get('/', { preHandler: PERM.view}, async (req) => {
     const { q = '', limit = '50', offset: rawOffset, sort: rawSort, dir: rawDir } = req.query
     const paginate = rawOffset !== undefined
     const lim = Math.min(parseInt(limit, 10) || 50, 200)
@@ -228,7 +235,7 @@ export default async function customersRoutes(app) {
 
   // ── GET /customers/:id ─────────────────────────────────────
   // Returns the customer + their full booking history.
-  app.get('/:id', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.get('/:id', { preHandler: PERM.view}, async (req) => {
     const [customer] = await withTenant(req.tenantId, tx => tx`
       SELECT id, name, email, phone, notes, visit_count, is_anonymised, anonymised_at, created_at, updated_at,
              marketing_opt_in, marketing_opt_in_at, marketing_opt_in_source, marketing_opt_out_at
@@ -254,7 +261,7 @@ export default async function customersRoutes(app) {
   })
 
   // ── PATCH /customers/:id ───────────────────────────────────
-  app.patch('/:id', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.patch('/:id', { preHandler: PERM.manage}, async (req) => {
     const body = z.object({
       name:        z.string().min(1).max(200).optional(),
       email:       z.string().email().nullable().optional(),
@@ -283,7 +290,7 @@ export default async function customersRoutes(app) {
   // ── POST /customers/:id/unsubscribe ────────────────────────
   // Takes the customer off the newsletter (migration 125). There is no
   // staff "subscribe": only the guest can opt in, at checkout.
-  app.post('/:id/unsubscribe', { preHandler: requireRole('admin', 'owner', 'operator') }, async (req) => {
+  app.post('/:id/unsubscribe', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       UPDATE customers
          SET marketing_opt_in = false, marketing_opt_out_at = now(), updated_at = now()
@@ -298,7 +305,7 @@ export default async function customersRoutes(app) {
   // GDPR right to erasure. Does NOT delete the row — replaces all PII
   // with anonymised values and sets is_anonymised=true.
   // Also anonymises all linked booking guest fields + regenerates references.
-  app.post('/:id/anonymise', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/anonymise', { preHandler: PERM.manage}, async (req, reply) => {
     // Deterministic anon ID derived from the customer UUID (stable across calls)
     const suffix   = req.params.id.replace(/-/g, '').slice(0, 12)
     const anonEmail = `anon-${suffix}@deleted.local`
@@ -365,7 +372,7 @@ export default async function customersRoutes(app) {
 
   // ── GET /customers/:id/export ──────────────────────────────
   // GDPR data export — returns a JSON file download.
-  app.get('/:id/export', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.get('/:id/export', { preHandler: PERM.manage}, async (req, reply) => {
     const [customer] = await withTenant(req.tenantId, tx => tx`
       SELECT id, name, email, phone, notes, visit_count, created_at, updated_at, is_anonymised,
              marketing_opt_in, marketing_opt_in_at, marketing_opt_in_source, marketing_opt_out_at
