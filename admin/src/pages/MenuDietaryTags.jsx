@@ -7,8 +7,12 @@
 import { Link } from 'react-router-dom'
 import { ChevronLeft, Tag } from 'lucide-react'
 import { DietaryTagsManager } from '@/components/menus/DietaryTagsManager'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 
 export default function MenuDietaryTags() {
+  // Menus = View: the tags and the allergen notice are shown, not editable.
+  const { canManage } = usePermission('menus')
   return (
     <div className="h-full overflow-y-auto">
       <div className="p-6 max-w-3xl mx-auto space-y-5">
@@ -23,7 +27,8 @@ export default function MenuDietaryTags() {
             Badges shown next to dishes, shared across all your menus. Tap one to edit it.
           </p>
         </div>
-        <DietaryTagsManager />
+        {!canManage && <ReadOnlyNotice what="the allergens and dietary tags" />}
+        <ReadOnlyFieldset disabled={!canManage}><DietaryTagsManager /></ReadOnlyFieldset>
       </div>
     </div>
   )

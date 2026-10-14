@@ -5,11 +5,17 @@
 
 import { z }  from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requirePermission, permissionLevel } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { sendEmail, renderTemplate, MERGE_FIELDS, buildMergeFields } from '../services/emailSvc.js'
 import { DEFAULT_TEMPLATES } from '../services/emailTemplateDefaults.js'
 import { env } from '../config/env.js'
+
+// Booking emails permission: view reads (secrets hidden), manage changes.
+const PERM = {
+  view:   requirePermission('email_templates', 'view'),
+  manage: requirePermission('email_templates', 'manage'),
+}
 
 const TemplateBody = z.object({
   venue_id:  z.string().uuid().nullable().optional(),
@@ -55,7 +61,7 @@ export default async function emailTemplateRoutes(app) {
   app.get('/defaults', async () => DEFAULT_TEMPLATES)
 
   // ── GET /email-templates?venue_id=X ─────────────────────
-  app.get('/', async (req) => {
+  app.get('/', { preHandler: PERM.view }, async (req) => {
     const venueId = req.query.venue_id || null
     return withTenant(req.tenantId, tx => tx`
       SELECT * FROM email_templates
@@ -66,7 +72,7 @@ export default async function emailTemplateRoutes(app) {
   })
 
   // ── POST /email-templates ───────────────────────────────
-  app.post('/', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/', { preHandler: PERM.manage}, async (req, reply) => {
     const body = TemplateBody.parse(req.body)
     const [row] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO email_templates
@@ -85,7 +91,7 @@ export default async function emailTemplateRoutes(app) {
   })
 
   // ── PATCH /email-templates/:id ──────────────────────────
-  app.patch('/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id', { preHandler: PERM.manage}, async (req) => {
     const body   = TemplatePatch.parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -101,7 +107,7 @@ export default async function emailTemplateRoutes(app) {
   })
 
   // ── DELETE /email-templates/:id ─────────────────────────
-  app.delete('/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM email_templates
        WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
@@ -113,7 +119,7 @@ export default async function emailTemplateRoutes(app) {
 
   // ── POST /email-templates/preview ───────────────────────
   // Renders a template with sample data for the admin preview.
-  app.post('/preview', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/preview', { preHandler: PERM.view}, async (req) => {
     const { subject, body_html } = z.object({
       subject:   z.string(),
       body_html: z.string(),
@@ -138,7 +144,7 @@ export default async function emailTemplateRoutes(app) {
   //
   // Body: { venue_id, type: 'confirmation'|'reminder'|'modification'|'cancellation', to: string }
   // Used by the Widget Test page and the Email Templates settings tab.
-  app.post('/send-test', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.post('/send-test', { preHandler: PERM.manage}, async (req) => {
     const body = z.object({
       venue_id: z.string().uuid(),
       type:     z.enum(['confirmation', 'reminder', 'modification', 'cancellation']),
@@ -258,7 +264,7 @@ export default async function emailTemplateRoutes(app) {
   })
 
   // ── GET /email-templates/log?venue_id=X&limit=50 ────────
-  app.get('/log', async (req) => {
+  app.get('/log', { preHandler: PERM.view }, async (req) => {
     const limit = Math.min(Number(req.query.limit) || 50, 200)
     return withTenant(req.tenantId, tx => tx`
       SELECT el.*, b.guest_name, b.covers, b.starts_at
@@ -272,13 +278,25 @@ export default async function emailTemplateRoutes(app) {
 
   // ── Venue email settings ────────────────────────────────
 
-  app.get('/settings/:venueId', async (req) => {
+  app.get('/settings/:venueId', { preHandler: PERM.view }, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       SELECT * FROM venue_email_settings
        WHERE venue_id = ${req.params.venueId}
          AND tenant_id = ${req.tenantId}
     `)
-    return row ?? {}
+    if (!row) return {}
+    // Provider secrets only for people who can change them. SES keeps its
+    // secret access key in provider_domain.
+    if (await permissionLevel(req, 'email_templates') !== 'manage') {
+      return {
+        ...row,
+        provider_api_key: null,
+        smtp_pass:        null,
+        provider_domain:  row.email_provider === 'ses' ? null : row.provider_domain,
+        secrets_hidden:   true,
+      }
+    }
+    return row
   })
 
   // POST + PATCH are aliases — both upsert the venue_email_settings row
@@ -323,9 +341,9 @@ export default async function emailTemplateRoutes(app) {
     return reply.code(statusCode).send(row)
   }
 
-  app.post('/settings/:venueId',  { preHandler: requireRole('admin', 'owner') },
+  app.post('/settings/:venueId',  { preHandler: PERM.manage},
     (req, reply) => upsertSettings(req, reply, 201))
 
-  app.patch('/settings/:venueId', { preHandler: requireRole('admin', 'owner') },
+  app.patch('/settings/:venueId', { preHandler: PERM.manage},
     (req, reply) => upsertSettings(req, reply, 200))
 }

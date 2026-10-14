@@ -12,6 +12,8 @@ import {
 } from 'lucide-react'
 import { useApi }  from '@/lib/api'
 import { cn }      from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 const PLATFORMS = [
   { key: '',            label: 'All platforms' },
@@ -292,7 +294,7 @@ function CsvImportButton({ venueId, onImported }) {
 
 // ── Review row ────────────────────────────────────────────────
 
-function ReviewRow({ review, onPatch, onDelete }) {
+function ReviewRow({ review, onPatch, onDelete, canManage }) {
   const [expanded, setExpanded] = useState(false)
   const [confirm, setConfirm]   = useState(false)
 
@@ -334,7 +336,7 @@ function ReviewRow({ review, onPatch, onDelete }) {
               <p className="text-sm">{review.reply_text}</p>
             </div>
           )}
-          <div className="flex items-center gap-2 flex-wrap">
+          {canManage && <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={() => onPatch({ is_approved: !review.is_approved })}
               className={cn('flex items-center gap-1 text-xs px-2 py-1 rounded border touch-manipulation',
@@ -363,7 +365,7 @@ function ReviewRow({ review, onPatch, onDelete }) {
                 <Trash2 className="w-3 h-3" /> Delete
               </button>
             )}
-          </div>
+          </div>}
         </div>
       )}
     </div>
@@ -375,6 +377,8 @@ function ReviewRow({ review, onPatch, onDelete }) {
 export default function Reviews() {
   const api = useApi()
   const qc  = useQueryClient()
+  // Reviews are part of the website module (the reviews band block).
+  const { canManage } = usePermission('website')
 
   const [venueId,      setVenueId]      = useState('')
   const [platform,     setPlatform]     = useState('')
@@ -452,17 +456,21 @@ export default function Reviews() {
             <button onClick={() => refetch()} className="p-2 border rounded touch-manipulation" title="Refresh">
               <RefreshCw className="w-4 h-4" />
             </button>
-            <button onClick={() => setShowScrape(true)}
-              className="flex items-center gap-1.5 border rounded px-3 py-2 text-sm touch-manipulation">
-              <Globe className="w-4 h-4" /> Scrape Google
-            </button>
-            <CsvImportButton venueId={venueId || null} onImported={invalidateAll} />
-            <button onClick={() => setShowAdd(true)}
-              className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded px-3 py-2 text-sm font-medium touch-manipulation">
-              <Plus className="w-4 h-4" /> Add review
-            </button>
+            {canManage && <>
+              <button onClick={() => setShowScrape(true)}
+                className="flex items-center gap-1.5 border rounded px-3 py-2 text-sm touch-manipulation">
+                <Globe className="w-4 h-4" /> Scrape Google
+              </button>
+              <CsvImportButton venueId={venueId || null} onImported={invalidateAll} />
+              <button onClick={() => setShowAdd(true)}
+                className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded px-3 py-2 text-sm font-medium touch-manipulation">
+                <Plus className="w-4 h-4" /> Add review
+              </button>
+            </>}
           </div>
         </div>
+
+        {!canManage && <ReadOnlyNotice what="reviews" />}
 
         {/* Stats */}
         {stats && (
@@ -516,7 +524,7 @@ export default function Reviews() {
             className={cn('px-2 py-1.5 text-sm rounded border touch-manipulation', showPending ? 'bg-amber-500 text-white' : '')}>
             Pending {stats?.pending ? `(${stats.pending})` : ''}
           </button>
-          {pendingIds.length > 0 && (
+          {canManage && pendingIds.length > 0 && (
             <button
               onClick={() => bulkApproveMutation.mutate({ ids: pendingIds, is_approved: true })}
               className="ml-auto text-xs px-2 py-1 rounded border border-emerald-300 text-emerald-700 touch-manipulation">
@@ -531,7 +539,7 @@ export default function Reviews() {
         ) : reviews.length === 0 ? (
           <div className="text-center py-12 space-y-3 text-muted-foreground">
             <MessageSquare className="w-10 h-10 mx-auto opacity-30" />
-            <p className="text-sm">No reviews yet. Add one manually, import a CSV, or scrape from Google.</p>
+            <p className="text-sm">{canManage ? 'No reviews yet. Add one manually, import a CSV, or scrape from Google.' : 'No reviews yet.'}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -539,6 +547,7 @@ export default function Reviews() {
               <ReviewRow
                 key={r.id}
                 review={r}
+                canManage={canManage}
                 onPatch={(patch) => patchMutation.mutate({ id: r.id, ...patch })}
                 onDelete={() => deleteMutation.mutate(r.id)}
               />
@@ -547,14 +556,14 @@ export default function Reviews() {
         )}
 
         {/* Modals */}
-        {showAdd && (
+        {canManage && showAdd && (
           <AddReviewModal
             venueId={venueId || null}
             onClose={() => setShowAdd(false)}
             onSaved={invalidateAll}
           />
         )}
-        {showScrape && (
+        {canManage && showScrape && (
           <ScrapeModal
             venues={venues}
             onClose={() => setShowScrape(false)}

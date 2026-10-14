@@ -30,6 +30,7 @@ import { format, subWeeks, parseISO } from 'date-fns'
 import { Check, Loader2, Plus, Trash2, Copy, Star, X, AlertTriangle } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { splitPay } from '@shared/payMethod.js'
 import {
   fmt, parseNum, getMonday, isoWeekDates, staffRateLabel, wageEntryForStaff, defaultWageEntries, PaidDaySelect,
@@ -140,11 +141,15 @@ function useWidth() {
  * @param paidOnly            just Name and Paid per person (Cash Dashboard options)
  * @param showBank            show the Bank transfer column (off in widgets
  *                            unless their option is on)
+ * @param readOnly            Cash reconciliation = View: every field disabled,
+ *                            no list changes, pay-all or Save
  */
 export function WeekWagesEditor({
   venueId, weekStart, defaultPaidDay, showWeekNotes = false, layout = 'auto',
   hideManage = false, hideBulk = false, paidOnly = false, showBank = true, hidePaidOnForAll = false,
+  readOnly = false,
 }) {
+  if (readOnly) { hideManage = true; hideBulk = true }
   const api = useApi()
   const qc = useQueryClient()
   const [rootRef, width] = useWidth()
@@ -393,10 +398,13 @@ export function WeekWagesEditor({
   }
 
   return (
+    <ReadOnlyFieldset disabled={readOnly}>
     <div ref={rootRef} className="space-y-2">
       {isNew && draft === null && rows.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          Nothing saved for this week yet. Filled from your {config.wage_defaults?.length ? 'default list' : 'active staff'}; Save to keep it.
+          {readOnly
+            ? 'Nothing saved for this week yet.'
+            : `Nothing saved for this week yet. Filled from your ${config.wage_defaults?.length ? 'default list' : 'active staff'}; Save to keep it.`}
         </p>
       )}
 
@@ -608,7 +616,7 @@ export function WeekWagesEditor({
         </button>
       </div>}
 
-      {canSave && (
+      {canSave && !readOnly && (
         <div className="flex gap-2 pt-1">
           <button type="button" onClick={() => save.mutate()} disabled={save.isPending}
             className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-medium touch-manipulation disabled:opacity-50 flex items-center justify-center gap-1.5">
@@ -623,5 +631,6 @@ export function WeekWagesEditor({
         </div>
       )}
     </div>
+    </ReadOnlyFieldset>
   )
 }

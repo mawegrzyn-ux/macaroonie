@@ -2,8 +2,17 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+
+// Changes need manage on the module they belong to. Reads stay open to every
+// member of the tenant: venues, tables and rules are reference data that the
+// timeline, booking drawer, cash recon and every venue picker read.
+const PERM = {
+  venues: requirePermission('venues', 'manage'),
+  tables: requirePermission('tables', 'manage'),
+  rules:  requirePermission('rules', 'manage'),
+}
 
 // ── Schemas ──────────────────────────────────────────────────
 
@@ -64,7 +73,7 @@ export default async function venuesRoutes(app) {
   })
 
   // ── POST /venues ─────────────────────────────────────────
-  app.post('/', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/', { preHandler: PERM.venues}, async (req, reply) => {
     const body = VenueBody.parse(req.body)
     const [venue] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO venues (tenant_id, name, slug, timezone, currency, zero_cap_display, is_active, google_place_id)
@@ -77,7 +86,7 @@ export default async function venuesRoutes(app) {
   })
 
   // ── PATCH /venues/:id ────────────────────────────────────
-  app.patch('/:id', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id', { preHandler: PERM.venues}, async (req) => {
     const body = VenueBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -106,7 +115,7 @@ export default async function venuesRoutes(app) {
   })
 
   // POST /venues/:id/sections
-  app.post('/:id/sections', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/sections', { preHandler: PERM.venues}, async (req, reply) => {
     const body = SectionBody.parse(req.body)
     const [section] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO venue_sections (venue_id, tenant_id, name, sort_order, is_active)
@@ -117,7 +126,7 @@ export default async function venuesRoutes(app) {
   })
 
   // PATCH /venues/:id/sections/:sid
-  app.patch('/:id/sections/:sid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id/sections/:sid', { preHandler: PERM.venues}, async (req) => {
     const body = SectionBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -149,7 +158,7 @@ export default async function venuesRoutes(app) {
   })
 
   // POST /venues/:id/tables
-  app.post('/:id/tables', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/tables', { preHandler: PERM.tables}, async (req, reply) => {
     const body = TableBody.parse(req.body)
     const [table] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO tables (venue_id, tenant_id, section_id, label, min_covers, max_covers, sort_order, is_active)
@@ -164,7 +173,7 @@ export default async function venuesRoutes(app) {
   })
 
   // PATCH /venues/:id/tables/:tid
-  app.patch('/:id/tables/:tid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id/tables/:tid', { preHandler: PERM.tables}, async (req) => {
     const body = TableBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -185,7 +194,7 @@ export default async function venuesRoutes(app) {
   // Accepts { ids: [uuid, ...] } — the complete ordered list of table IDs for this venue.
   // Sets sort_order = array index for each. Tables missing from the list are left unchanged.
   // The order here drives: timeline row order, smart-allocation adjacency logic.
-  app.patch('/:id/tables/reorder', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id/tables/reorder', { preHandler: PERM.tables}, async (req) => {
     const { ids } = z.object({
       ids: z.array(z.string().uuid()).min(1),
     }).parse(req.body)
@@ -213,7 +222,7 @@ export default async function venuesRoutes(app) {
   })
 
   // DELETE /venues/:id/tables/:tid (soft delete)
-  app.delete('/:id/tables/:tid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:id/tables/:tid', { preHandler: PERM.tables}, async (req) => {
     const [table] = await withTenant(req.tenantId, tx => tx`
       UPDATE tables SET is_active = false, updated_at = now()
        WHERE id = ${req.params.tid}
@@ -256,7 +265,7 @@ export default async function venuesRoutes(app) {
   })
 
   // POST /venues/:id/combinations
-  app.post('/:id/combinations', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/combinations', { preHandler: PERM.tables}, async (req, reply) => {
     const body = CombinationBody.parse(req.body)
     const combo = await withTenant(req.tenantId, async tx => {
       const [c] = await tx`
@@ -276,7 +285,7 @@ export default async function venuesRoutes(app) {
   })
 
   // PATCH /venues/:id/combinations/:cid
-  app.patch('/:id/combinations/:cid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id/combinations/:cid', { preHandler: PERM.tables}, async (req) => {
     const body = CombinationBody.partial().omit({ table_ids: true }).parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -293,7 +302,7 @@ export default async function venuesRoutes(app) {
   })
 
   // DELETE /venues/:id/combinations/:cid
-  app.delete('/:id/combinations/:cid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:id/combinations/:cid', { preHandler: PERM.tables}, async (req) => {
     const [combo] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM table_combinations
        WHERE id = ${req.params.cid}
@@ -343,7 +352,7 @@ export default async function venuesRoutes(app) {
   })
 
   // POST /venues/:id/rules
-  app.post('/:id/rules', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/rules', { preHandler: PERM.rules}, async (req, reply) => {
     const body = BookingRulesBody.required().parse(req.body)
     const [rules] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO booking_rules
@@ -386,7 +395,7 @@ export default async function venuesRoutes(app) {
   })
 
   // PATCH /venues/:id/rules
-  app.patch('/:id/rules', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id/rules', { preHandler: PERM.rules}, async (req) => {
     const body   = BookingRulesBody.parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -419,7 +428,7 @@ export default async function venuesRoutes(app) {
   })
 
   // POST /venues/:id/deposit-rules
-  app.post('/:id/deposit-rules', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/deposit-rules', { preHandler: PERM.rules}, async (req, reply) => {
     const body = DepositRulesBody.parse(req.body)
     if (body.requires_deposit && (!body.deposit_type || !body.deposit_amount)) {
       throw httpError(422, 'deposit_type and deposit_amount are required when requires_deposit is true')
@@ -448,7 +457,7 @@ export default async function venuesRoutes(app) {
   })
 
   // PATCH /venues/:id/deposit-rules
-  app.patch('/:id/deposit-rules', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:id/deposit-rules', { preHandler: PERM.rules}, async (req) => {
     const body   = DepositRulesBody.parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -496,7 +505,7 @@ export default async function venuesRoutes(app) {
   })
 
   // POST /venues/:id/disallowed-pairs
-  app.post('/:id/disallowed-pairs', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:id/disallowed-pairs', { preHandler: PERM.tables}, async (req, reply) => {
     const { table_id_a, table_id_b } = z.object({
       table_id_a: z.string().uuid(),
       table_id_b: z.string().uuid(),
@@ -526,7 +535,7 @@ export default async function venuesRoutes(app) {
   })
 
   // DELETE /venues/:id/disallowed-pairs/:pid
-  app.delete('/:id/disallowed-pairs/:pid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:id/disallowed-pairs/:pid', { preHandler: PERM.tables}, async (req) => {
     const [pair] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM disallowed_table_pairs
        WHERE id        = ${req.params.pid}

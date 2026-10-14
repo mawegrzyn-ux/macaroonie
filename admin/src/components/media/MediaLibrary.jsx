@@ -24,6 +24,8 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ImageEditor } from './ImageEditor'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 const ALL_FORMS = '__all__'
 const NO_CATEGORY = '__none__'
@@ -38,6 +40,11 @@ export function MediaLibraryModal({
 }) {
   const api = useApi()
   const qc  = useQueryClient()
+  // Uploading and changing media needs Website or Menus manage (the API's
+  // rule); everyone else can browse.
+  const website = usePermission('website')
+  const menus = usePermission('menus')
+  const canEdit = website.canManage || menus.canManage
 
   const [fullscreen, setFullscreen]   = useState(false)
   const [view, setView]               = useState('grid')           // 'grid' | 'list'
@@ -172,6 +179,7 @@ export function MediaLibraryModal({
   }, [api, qc])
 
   const handleFiles = useCallback(async (files) => {
+    if (!canEdit) return
     const list = Array.from(files || []).filter(f => f.type.startsWith('image/'))
     if (!list.length) return
 
@@ -207,7 +215,7 @@ export function MediaLibraryModal({
 
       await performUpload(file, targetScope, uploadCategoryId)
     }
-  }, [api, defaultScope, scopeFilter, uploadCategoryId, sha256OfFile, performUpload, deleteItem])
+  }, [api, canEdit, defaultScope, scopeFilter, uploadCategoryId, sha256OfFile, performUpload, deleteItem])
 
   // ── Drag-and-drop ──────────────────────────────────────
   const onDragEnter = useCallback((e) => {
@@ -323,6 +331,7 @@ export function MediaLibraryModal({
                 categories={categories}
                 active={categoryFilter}
                 onSelect={setCategory}
+                canEdit={canEdit}
                 onCreate={(name) => createCategory.mutate(name)}
                 onRename={(id, name) => renameCategory.mutate({ id, name })}
                 onDelete={(id) => {
@@ -330,7 +339,8 @@ export function MediaLibraryModal({
                 }}
               />
 
-              <div className="border-t pt-3">
+              {!canEdit && <ReadOnlyNotice what="the media library" className="text-xs" />}
+              {canEdit && <div className="border-t pt-3">
                 <p className="text-[11px] uppercase font-semibold text-muted-foreground tracking-wide mb-1.5">Upload to</p>
                 <select value={uploadCategoryId ?? ''} onChange={e => setUploadCategoryId(e.target.value || null)}
                   className="w-full text-sm border rounded-md px-2 py-1.5 bg-background mb-2">
@@ -346,7 +356,7 @@ export function MediaLibraryModal({
                 <p className="text-[11px] text-muted-foreground mt-1.5">
                   Or drag images onto {inline ? 'this page' : 'the modal'}.
                 </p>
-              </div>
+              </div>}
             </div>
           </aside>
 
@@ -398,9 +408,11 @@ export function MediaLibraryModal({
                 <div className="flex flex-col items-center justify-center text-center py-12 text-muted-foreground">
                   <ImageIcon className="w-10 h-10 mb-3 opacity-30" />
                   <p className="text-sm">No items match the current filter.</p>
-                  <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-sm text-primary hover:underline">
-                    Upload your first image
-                  </button>
+                  {canEdit && (
+                    <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-sm text-primary hover:underline">
+                      Upload your first image
+                    </button>
+                  )}
                 </div>
               ) : view === 'grid' ? (
                 <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))' }}>
@@ -461,6 +473,7 @@ export function MediaLibraryModal({
                 <DetailEmpty />
               ) : selected.length === 1 ? (
                 <DetailSingle item={singleSelected}
+                  canEdit={canEdit}
                   categories={categories}
                   scopes={scopes}
                   onPatch={(body) => patchItem.mutate({ id: singleSelected.id, body })}
@@ -473,6 +486,7 @@ export function MediaLibraryModal({
                 />
               ) : (
                 <DetailMulti count={selected.length}
+                  canEdit={canEdit}
                   categories={categories}
                   scopes={scopes}
                   onMoveCategory={(id) => bulkAction.mutate({ action: 'move-category', ids: [...selectedIds], category_id: id })}
@@ -488,7 +502,7 @@ export function MediaLibraryModal({
           </div>
 
           {/* Drop overlay */}
-          {dragActive && (
+          {canEdit && dragActive && (
             <div className="absolute inset-0 bg-primary/10 border-4 border-dashed border-primary rounded-xl flex items-center justify-center pointer-events-none">
               <div className="bg-background rounded-lg px-6 py-4 shadow-lg">
                 <Upload className="w-8 h-8 text-primary mx-auto mb-2" />
@@ -518,7 +532,7 @@ export function MediaLibraryModal({
       </div>
 
       {/* Image editor — overlays the whole library modal when active */}
-      {editorItem && (
+      {canEdit && editorItem && (
         <ImageEditor item={editorItem}
           onClose={() => setEditorItem(null)}
           onSaved={(saved, mode) => {
@@ -535,7 +549,7 @@ export function MediaLibraryModal({
 
 // ──────────────────────────────────────────────────────────
 
-function CategoriesList({ categories, active, onSelect, onCreate, onRename, onDelete }) {
+function CategoriesList({ categories, active, onSelect, onCreate, onRename, onDelete, canEdit = true }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [editing, setEditing] = useState(null)
@@ -552,13 +566,13 @@ function CategoriesList({ categories, active, onSelect, onCreate, onRename, onDe
         </CatRow>
         {categories.map(c => (
           <CatRow key={c.id} active={active === c.id} onClick={() => onSelect(c.id)} icon={<Tag className="w-3.5 h-3.5" />}
-            onRename={(newName) => onRename(c.id, newName)} onDelete={() => onDelete(c.id)}
+            onRename={canEdit ? (newName) => onRename(c.id, newName) : null} onDelete={() => onDelete(c.id)}
             count={c.item_count}>
             {c.name}
           </CatRow>
         ))}
       </div>
-      {creating ? (
+      {!canEdit ? null : creating ? (
         <div className="flex items-center gap-1 mt-1.5">
           <input autoFocus value={name} onChange={e => setName(e.target.value)}
             placeholder="Category name"
@@ -640,9 +654,27 @@ function DetailEmpty() {
   )
 }
 
-function DetailSingle({ item, categories, scopes, onPatch, onEdit, onDelete }) {
+function DetailSingle({ item, categories, scopes, onPatch, onEdit, onDelete, canEdit = true }) {
   const [filename, setFilename] = useState(item.filename)
   useEffect(() => setFilename(item.filename), [item.id, item.filename])
+
+  if (!canEdit) {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="aspect-square rounded-md overflow-hidden bg-muted">
+          <img src={item.url} alt={item.filename} className="w-full h-full object-contain" />
+        </div>
+        <dl className="text-xs text-muted-foreground space-y-1">
+          <div className="flex justify-between gap-3"><dt>Filename</dt><dd className="text-foreground truncate">{item.filename}</dd></div>
+          <div className="flex justify-between gap-3"><dt>Category</dt><dd>{item.category_name || 'None'}</dd></div>
+          <div className="flex justify-between gap-3"><dt>Scope</dt><dd className="font-mono">{item.scope}</dd></div>
+          <div className="flex justify-between"><dt>Dimensions</dt><dd>{item.width && item.height ? `${item.width}×${item.height}` : '—'}</dd></div>
+          <div className="flex justify-between"><dt>Size</dt><dd>{(item.bytes / 1024).toFixed(0)} KB</dd></div>
+          <div className="flex justify-between"><dt>Uploaded</dt><dd>{new Date(item.created_at).toLocaleDateString('en-GB')}</dd></div>
+        </dl>
+      </div>
+    )
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -703,7 +735,8 @@ function DetailSingle({ item, categories, scopes, onPatch, onEdit, onDelete }) {
   )
 }
 
-function DetailMulti({ count, categories, scopes, onMoveCategory, onMoveScope, onDelete }) {
+function DetailMulti({ count, categories, scopes, onMoveCategory, onMoveScope, onDelete, canEdit = true }) {
+  if (!canEdit) return <p className="p-4 text-sm font-medium">{count} item{count !== 1 ? 's' : ''} selected</p>
   return (
     <div className="p-4 space-y-4">
       <p className="text-sm font-medium">{count} item{count !== 1 ? 's' : ''} selected</p>

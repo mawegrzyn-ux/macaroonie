@@ -44,17 +44,17 @@ function MobileDayDeclaration({ venueId, date, onBack }) {
           <h1 className="text-base font-semibold truncate">{format(parseISO(date), 'EEE, dd MMM')}</h1>
           <SaveIndicator saving={dayState.saving} saved={dayState.saved} error={dayState.saveErr} />
         </div>
-        {!dayState.isSubmitted ? (
+        {!dayState.isSubmitted ? (dayState.canSubmit && (
           <button type="button" disabled={dayState.submitPending} onClick={dayState.submit}
             className="h-10 px-3 rounded-lg bg-green-600 text-white text-sm font-medium touch-manipulation hover:bg-green-700 disabled:opacity-50 shrink-0">
             {dayState.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit'}
           </button>
-        ) : (
+        )) : (dayState.canUnsubmit && (
           <button type="button" disabled={dayState.submitPending} onClick={dayState.unsubmit}
             className="h-10 px-3 rounded-lg border text-sm font-medium touch-manipulation hover:bg-muted disabled:opacity-50 shrink-0">
             {dayState.submitPending ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Unsubmit'}
           </button>
-        )}
+        ))}
         <MobileLogoutButton />
       </header>
       <div className="flex-1 min-h-0">

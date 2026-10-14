@@ -14,7 +14,7 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requireRole, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import {
   getStats,
@@ -23,6 +23,12 @@ import {
   pingApiKey,
 } from '../services/sendgridSvc.js'
 import { env } from '../config/env.js'
+
+// Booking emails permission: view reads. Clearing a suppression stays owner only.
+const PERM = {
+  view:        requirePermission('email_templates', 'view'),
+  ownerManage: [requireRole('owner'), requirePermission('email_templates', 'manage')],
+}
 
 const SUPPRESSION_TYPES = ['bounces', 'blocks', 'spam_reports', 'invalid_emails']
 
@@ -57,7 +63,7 @@ export default async function emailMonitoringRoutes(app) {
   // ── GET /summary ────────────────────────────────────────
   // One-shot: stats + all suppression counts + recent log. Used by the
   // page on first load so we don't need 5 round-trips.
-  app.get('/summary', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.get('/summary', { preHandler: PERM.view}, async (req) => {
     const venueId = req.query.venue_id
     const days    = Math.min(Number(req.query.days) || 30, 90)
     if (!venueId) throw httpError(400, 'venue_id is required')
@@ -134,7 +140,7 @@ export default async function emailMonitoringRoutes(app) {
   })
 
   // ── GET /stats ──────────────────────────────────────────
-  app.get('/stats', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.get('/stats', { preHandler: PERM.view}, async (req) => {
     const venueId = req.query.venue_id
     const days    = Math.min(Number(req.query.days) || 30, 90)
     if (!venueId) throw httpError(400, 'venue_id is required')
@@ -146,7 +152,7 @@ export default async function emailMonitoringRoutes(app) {
   })
 
   // ── GET /suppressions/:type ─────────────────────────────
-  app.get('/suppressions/:type', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.get('/suppressions/:type', { preHandler: PERM.view}, async (req) => {
     if (!SUPPRESSION_TYPES.includes(req.params.type)) {
       throw httpError(400, 'Invalid suppression type')
     }
@@ -159,7 +165,7 @@ export default async function emailMonitoringRoutes(app) {
   })
 
   // ── DELETE /suppressions/:type/:email ───────────────────
-  app.delete('/suppressions/:type/:email', { preHandler: requireRole('owner') }, async (req) => {
+  app.delete('/suppressions/:type/:email', { preHandler: PERM.ownerManage}, async (req) => {
     if (!SUPPRESSION_TYPES.includes(req.params.type)) {
       throw httpError(400, 'Invalid suppression type')
     }
@@ -174,7 +180,7 @@ export default async function emailMonitoringRoutes(app) {
   // ── GET /log ────────────────────────────────────────────
   // Local email_log (what WE tried to send). Cross-references with
   // SendGrid suppressions on the frontend via recipient match.
-  app.get('/log', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.get('/log', { preHandler: PERM.view}, async (req) => {
     const limit = Math.min(Number(req.query.limit) || 100, 500)
     const venueIdFilter = req.query.venue_id
     return withTenant(req.tenantId, tx => tx`

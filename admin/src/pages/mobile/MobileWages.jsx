@@ -16,9 +16,12 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { getMonday } from '@/pages/CashRecon'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 export default function MobileWages() {
   const api = useApi()
+  const { canManage } = usePermission('cash_recon')
   const [venueId,   setVenueId]   = useState('')
   const [weekStart, setWeekStart] = useState(getMonday(new Date()))
 
@@ -54,7 +57,8 @@ export default function MobileWages() {
         </button>
       )}
 
-      {venueId && <WeekWagesEditor venueId={venueId} weekStart={weekStart} layout="cards" showWeekNotes showBank={false} hidePaidOnForAll />}
+      {venueId && !canManage && <ReadOnlyNotice what="the wages" />}
+      {venueId && <WeekWagesEditor venueId={venueId} weekStart={weekStart} layout="cards" showWeekNotes showBank={false} hidePaidOnForAll readOnly={!canManage} />}
     </div>
   )
 }

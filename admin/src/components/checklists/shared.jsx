@@ -9,6 +9,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Check, CheckCheck } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
 
@@ -40,6 +41,8 @@ export function periodLabel(frequency, periodStart) {
 export function ChecklistRunPanel({ template, date, onClose, hideHeader = false, onStateChange }) {
   const api = useApi()
   const qc = useQueryClient()
+  // Checklists = View: ticks and notes are shown, nothing can be changed.
+  const readOnly = !usePermission('checklists').canManage
   const [checks, setChecks] = useState({})
   const [notes, setNotes] = useState('')
   const notesTimerRef = useRef(null)
@@ -133,12 +136,12 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false,
   useEffect(() => {
     if (!hideHeader || !data) return
     onStateChange?.({
-      isCompleted, isPending: save.isPending, hasItems: totalCount > 0,
+      isCompleted, isPending: save.isPending, hasItems: totalCount > 0, readOnly,
       tickAll: () => setAll(true),
       untickAll: () => setAll(false),
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hideHeader, !!data, isCompleted, totalCount, save.isPending, data?.period_start, data?.instance?.id])
+  }, [hideHeader, !!data, isCompleted, totalCount, readOnly, save.isPending, data?.period_start, data?.instance?.id])
 
   return (
     <>
@@ -155,7 +158,7 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false,
           {periodLabel(template.frequency, data?.period_start ?? date)}
           {totalCount > 0 && <> · {checkedCount}/{totalCount} done</>}
         </p>
-        {!hideHeader && totalCount > 0 && !isCompleted && (
+        {!hideHeader && !readOnly && totalCount > 0 && !isCompleted && (
           <button type="button" onClick={() => setAll(true)} disabled={save.isPending}
             className="inline-flex items-center gap-1.5 rounded-lg border px-3 min-h-[44px] text-sm font-medium hover:bg-accent disabled:opacity-50 touch-manipulation shrink-0">
             <CheckCheck className="w-4 h-4" /> Tick all
@@ -184,8 +187,8 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false,
           <ul className="border rounded-lg divide-y mb-3">
             {(data?.items ?? []).map(it => (
               <li key={it.id}>
-                <label className="flex items-start gap-3 px-3 py-3 touch-manipulation min-h-[48px] cursor-pointer">
-                  <input type="checkbox" checked={!!checks[it.id]}
+                <label className={cn('flex items-start gap-3 px-3 py-3 touch-manipulation min-h-[48px]', readOnly ? 'cursor-default' : 'cursor-pointer')}>
+                  <input type="checkbox" checked={!!checks[it.id]} disabled={readOnly}
                     onChange={e => toggleCheck(it.id, e.target.checked)}
                     className="mt-0.5 w-5 h-5 shrink-0 touch-manipulation" />
                   <span className="text-sm leading-snug">{it.label}</span>
@@ -195,7 +198,8 @@ export function ChecklistRunPanel({ template, date, onClose, hideHeader = false,
           </ul>
 
           <label className="block text-xs font-medium mb-1">Notes</label>
-          <textarea value={notes} onChange={e => handleNotesChange(e.target.value)} onBlur={flushNotes}
+          <textarea value={notes} readOnly={readOnly}
+            onChange={e => handleNotesChange(e.target.value)} onBlur={readOnly ? undefined : flushNotes}
             rows={2}
             className="w-full border rounded px-3 py-2 text-sm bg-background resize-none mb-4" />
 
@@ -216,6 +220,12 @@ export function ChecklistHeaderAction({ state }) {
   const [confirmUntick, setConfirmUntick] = useState(false)
   useEffect(() => { if (!state?.isCompleted) setConfirmUntick(false) }, [state?.isCompleted])
   if (!state?.hasItems) return null
+  // View only: just say whether it is done.
+  if (state.readOnly) {
+    return state.isCompleted
+      ? <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 px-1.5 shrink-0"><Check className="w-3.5 h-3.5" /> All done</span>
+      : null
+  }
 
   if (!state.isCompleted) {
     return (

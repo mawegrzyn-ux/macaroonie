@@ -15,7 +15,7 @@
 //
 // Single Save button PATCHes the whole tree (server delete-and-reinserts).
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, createContext, useContext } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -32,6 +32,8 @@ import {
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
 import { CSS } from '@dnd-kit/utilities'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { RichTextEditor } from '@/components/RichTextEditor'
@@ -49,6 +51,10 @@ const SEEDS = [
 //  Top-level page
 // ════════════════════════════════════════════════════════════
 
+// Menus = View: menus can be opened and every dish read, but nothing can be
+// added, moved, changed or saved (the API refuses it too).
+const MenuReadOnly = createContext(false)
+
 export default function Menus() {
   // ?edit=<id> opens a menu (the menu designer links back here with it).
   const [params, setParams] = useSearchParams()
@@ -65,6 +71,7 @@ export default function Menus() {
 function MenuList({ onEdit }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const { canManage } = usePermission('menus')
   const [creating, setCreating] = useState(false)
 
   const { data: menus = [], isLoading } = useQuery({
@@ -105,14 +112,15 @@ function MenuList({ onEdit }) {
             Structured menus — sections, dishes, variants, allergens. Render on the website inline or print as PDF.
           </p>
         </div>
-        <div className="flex gap-2">
+        {canManage && <div className="flex gap-2">
           <Btn variant="secondary" onClick={() => setCreating(true)}>
             <Plus className="w-4 h-4" /> New menu
           </Btn>
-        </div>
+        </div>}
       </div>
 
-      <Card title="Sample menus"
+      {!canManage && <ReadOnlyNotice what="the menus" />}
+      {canManage && <Card title="Sample menus"
         description="Seed a starter menu in your tenant — edit afterwards. Both samples include sections, dishes, variants, and dietary tags pre-populated.">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {SEEDS.map(s => (
@@ -123,7 +131,7 @@ function MenuList({ onEdit }) {
             </Btn>
           ))}
         </div>
-      </Card>
+      </Card>}
 
       <Card title="Your menus"
         description={`${menus.length} menu${menus.length === 1 ? '' : 's'} on this tenant.`}>
@@ -167,7 +175,8 @@ function MenuList({ onEdit }) {
                       <Leaf className="w-3.5 h-3.5" /> Dietary list
                     </a>
                     <button onClick={() => onEdit(m.id)}
-                      className="text-xs text-primary hover:underline px-2 py-1.5">Edit</button>
+                      className="text-xs text-primary hover:underline px-2 py-1.5">{canManage ? 'Edit' : 'Open'}</button>
+                    {canManage && <>
                     <button onClick={() => duplicate.mutate(m.id)} disabled={duplicate.isPending}
                       title="Duplicate menu"
                       className="text-muted-foreground hover:text-foreground hover:bg-accent p-1.5 rounded disabled:opacity-50">
@@ -179,6 +188,7 @@ function MenuList({ onEdit }) {
                       className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
+                    </>}
                   </div>
                 </div>
               )
@@ -281,6 +291,7 @@ function MenuEditor({ id, onBack }) {
   const api = useApi()
   const navigate = useNavigate()
   const qc  = useQueryClient()
+  const { canManage } = usePermission('menus')
 
   const { data: menu, isLoading } = useQuery({
     queryKey: ['menu', id],
@@ -447,11 +458,11 @@ function MenuEditor({ id, onBack }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setDetailsOpen(true)}
+          {canManage && <button onClick={() => setDetailsOpen(true)}
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2 min-h-[44px] touch-manipulation">
             <SettingsIcon className="w-3.5 h-3.5" /> Settings
-          </button>
-          {dirty ? (
+          </button>}
+          {!canManage ? null : dirty ? (
             <span title="Save your changes first — the designer shows the saved menu."
               className="inline-flex items-center gap-1.5 text-sm text-muted-foreground/50 px-3 py-2 min-h-[44px] cursor-not-allowed select-none">
               <LayoutTemplate className="w-3.5 h-3.5" /> Design print
@@ -487,10 +498,10 @@ function MenuEditor({ id, onBack }) {
               </a>
             </>
           )}
-          <Btn disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+          {canManage && <Btn disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
             {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {dirty ? 'Save changes' : 'Saved'}
-          </Btn>
+          </Btn>}
         </div>
       </div>
 
@@ -500,6 +511,8 @@ function MenuEditor({ id, onBack }) {
         </div>
       )}
 
+      {!canManage && <ReadOnlyNotice what="this menu" />}
+      <MenuReadOnly.Provider value={!canManage}>
       {/* Sections + dish list, with a right-hand drawer for the selected dish or section */}
       <div className="flex gap-4 items-start">
         <div className="flex-1 min-w-0">
@@ -539,9 +552,10 @@ function MenuEditor({ id, onBack }) {
       <CalloutsPanel
         callouts={draft.callouts || []}
         onChange={(callouts) => set('callouts', callouts)} />
+      </MenuReadOnly.Provider>
 
       {/* Sticky bottom save bar (mirror of top, easier to reach when long) */}
-      {dirty && (
+      {canManage && dirty && (
         <div className="fixed bottom-0 left-0 right-0 bg-background border-t shadow-lg z-20">
           <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-end gap-2">
             <span className="text-xs text-muted-foreground">Unsaved changes.</span>
@@ -742,9 +756,10 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, selectedSection
     onChange(next)
   }
 
+  const readOnly = useContext(MenuReadOnly)
   return (
     <Card title="Sections" description="Group dishes into sections (Starters, Soups, Curries…)."
-      action={<Btn variant="secondary" onClick={addSection}><Plus className="w-3.5 h-3.5" /> Add section</Btn>}>
+      action={readOnly ? null : <Btn variant="secondary" onClick={addSection}><Plus className="w-3.5 h-3.5" /> Add section</Btn>}>
       {sections.length === 0
         ? <p className="text-sm text-muted-foreground text-center py-4">No sections yet.</p>
         : (
@@ -767,6 +782,7 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, selectedSection
 }
 
 function SectionEditor({ section, index, total, selectedItemId, onSelectItem, selected, onSelect, onMoveUp, onMoveDown, onItemsChange }) {
+  const readOnly = useContext(MenuReadOnly)
   const [open, setOpen] = useState(true)
   const items = section.items || []
   const vat = sectionVatLabel(section)
@@ -838,10 +854,10 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
         {section.visibility === 'hidden' && <Badge title="Not printed, not on the website, not orderable">Hidden</Badge>}
         {section.visibility === 'website_hidden' && <Badge title="Printed menus only: not on the website or online ordering">Print only</Badge>}
         <span className="text-[11px] text-muted-foreground shrink-0">{items.length} dish{items.length === 1 ? '' : 'es'}</span>
-        <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+        {!readOnly && <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
           <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-2 min-h-[32px] disabled:opacity-30">↑</button>
           <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-2 min-h-[32px] disabled:opacity-30">↓</button>
-        </div>
+        </div>}
       </div>
       {open && (
         <div className="p-2 space-y-1">
@@ -861,10 +877,10 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
               </div>
             </SortableContext>
           </DndContext>
-          <button onClick={addItem}
+          {!readOnly && <button onClick={addItem}
             className="w-full text-xs border-2 border-dashed border-amber-300 rounded-md py-2 text-amber-800/70 hover:bg-amber-100 hover:text-amber-900 bg-amber-50/40">
             + Add dish
-          </button>
+          </button>}
         </div>
       )}
     </div>
@@ -945,15 +961,16 @@ const SECTION_VISIBILITY = [
 ]
 
 function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
+  const readOnly = useContext(MenuReadOnly)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const count = (section.items || []).length
   return (
     <aside className="border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px]">
       <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
-        <p className="text-sm font-semibold flex-1 truncate">Edit section</p>
-        <button onClick={() => setConfirmDelete(true)} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete section">
+        <p className="text-sm font-semibold flex-1 truncate">{readOnly ? 'Section' : 'Edit section'}</p>
+        {!readOnly && <button onClick={() => setConfirmDelete(true)} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete section">
           <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        </button>}
         <button onClick={onClose} className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
           <X className="w-4 h-4" />
         </button>
@@ -974,7 +991,7 @@ function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <ReadOnlyFieldset disabled={readOnly} className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex items-start gap-3">
           <SectionImagePicker url={section.image_url || null} onChange={(image_url) => onChange({ image_url })} />
           <div className="flex-1 space-y-2">
@@ -1048,7 +1065,7 @@ function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
         </div>
 
         <SectionTillFields section={section} courses={courses} onChange={onChange} />
-      </div>
+      </ReadOnlyFieldset>
     </aside>
   )
 }
@@ -1058,7 +1075,8 @@ function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
 // within the section.
 function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, onMoveDown }) {
   const groupCount = (item.variant_groups || []).length
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
+  const readOnly = useContext(MenuReadOnly)
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: item.id, disabled: readOnly })
   return (
     <div
       ref={setNodeRef}
@@ -1069,12 +1087,14 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, o
         selected ? 'border-primary ring-1 ring-primary/30 bg-primary/5' : 'border-amber-200',
         isDragging && 'z-10 shadow-lg opacity-90',
       )}>
-      <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners}
-        onClick={e => e.stopPropagation()}
-        aria-label={`Drag to reorder ${item.name || 'dish'}`}
-        className="w-10 min-h-[44px] flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing touch-none text-muted-foreground hover:text-foreground">
-        <GripVertical className="w-4 h-4" />
-      </button>
+      {readOnly ? <span className="w-2 shrink-0" /> : (
+        <button type="button" ref={setActivatorNodeRef} {...attributes} {...listeners}
+          onClick={e => e.stopPropagation()}
+          aria-label={`Drag to reorder ${item.name || 'dish'}`}
+          className="w-10 min-h-[44px] flex items-center justify-center shrink-0 cursor-grab active:cursor-grabbing touch-none text-muted-foreground hover:text-foreground">
+          <GripVertical className="w-4 h-4" />
+        </button>
+      )}
       {item.image_url
         ? <img src={item.image_url} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
         : <ImageIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />}
@@ -1094,13 +1114,13 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, o
         <span className="text-[10px] text-muted-foreground shrink-0">{item.dietary.length} tag{item.dietary.length === 1 ? '' : 's'}</span>
       )}
       <span className="text-xs font-mono text-muted-foreground shrink-0 w-16 text-right">{formatPrice(item.price_pence)}</span>
-      <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
+      {!readOnly && <div className="flex items-center gap-0.5 shrink-0" onClick={e => e.stopPropagation()}>
         <button onClick={onMoveUp}   disabled={index === 0}        className="text-xs px-1.5 disabled:opacity-30">↑</button>
         <button onClick={onMoveDown} disabled={index === total - 1} className="text-xs px-1.5 disabled:opacity-30">↓</button>
         <button onClick={onRemove} className="text-destructive hover:bg-destructive/10 p-1 rounded">
           <Trash2 className="w-3 h-3" />
         </button>
-      </div>
+      </div>}
     </div>
   )
 }
@@ -1267,6 +1287,7 @@ function AllergenPicker({ tags, item, onSet }) {
 // ── Item drawer — full dish editor, opened from a row in the middle list ──
 
 function ItemDrawer({ item, section, sections = [], courses, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
+  const readOnly = useContext(MenuReadOnly)
   const vatHint = (key) => section?.[key] != null
     ? `Blank = section (${Number(section[key])}%)` : 'Blank = venue default'
   const toggleDietary = (code) => {
@@ -1313,15 +1334,15 @@ function ItemDrawer({ item, section, sections = [], courses, dietaryTags, varian
   return (
     <aside className="border rounded-lg bg-background flex flex-col w-[380px] shrink-0 max-h-[calc(100vh-140px)] sticky top-[76px]">
       <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
-        <p className="text-sm font-semibold flex-1 truncate">Edit dish</p>
-        <button onClick={onRemove} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete dish">
+        <p className="text-sm font-semibold flex-1 truncate">{readOnly ? 'Dish' : 'Edit dish'}</p>
+        <button onClick={onRemove} hidden={readOnly} className="text-destructive hover:bg-destructive/10 p-1.5 rounded" title="Delete dish">
           <Trash2 className="w-3.5 h-3.5" />
         </button>
         <button onClick={onClose} className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent">
           <X className="w-4 h-4" />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <ReadOnlyFieldset disabled={readOnly} className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex items-start gap-3">
           <ItemImagePicker url={item.image_url || null} onChange={(image_url) => onChange({ image_url })} />
           <div className="flex-1 space-y-2">
@@ -1471,7 +1492,7 @@ function ItemDrawer({ item, section, sections = [], courses, dietaryTags, varian
             )
           })}
         </div>
-      </div>
+      </ReadOnlyFieldset>
     </aside>
   )
 }
@@ -1479,6 +1500,7 @@ function ItemDrawer({ item, section, sections = [], courses, dietaryTags, varian
 // ── Callouts ─────────────────────────────────────────────────
 
 function CalloutsPanel({ callouts, onChange }) {
+  const readOnly = useContext(MenuReadOnly)
   const add = () => onChange([...callouts, { id: crypto.randomUUID(), kind: 'custom', title: 'New callout', body: '' }])
   const set = (i, patch) => {
     const next = callouts.slice(); next[i] = { ...next[i], ...patch }; onChange(next)
@@ -1492,9 +1514,10 @@ function CalloutsPanel({ callouts, onChange }) {
     { value: 'custom',     label: 'Custom' },
   ]
   return (
+    <ReadOnlyFieldset disabled={readOnly}>
     <Card title="Footer callouts"
       description="Notes shown at the bottom of the printable menu (allergy notice, Go Large upgrade, ordering info)."
-      action={<Btn variant="secondary" onClick={add}><Plus className="w-3.5 h-3.5" /> Add callout</Btn>}>
+      action={readOnly ? null : <Btn variant="secondary" onClick={add}><Plus className="w-3.5 h-3.5" /> Add callout</Btn>}>
       {callouts.length === 0
         ? <p className="text-sm text-muted-foreground text-center py-4">No callouts yet.</p>
         : (
@@ -1531,5 +1554,6 @@ function CalloutsPanel({ callouts, onChange }) {
           </div>
         )}
     </Card>
+    </ReadOnlyFieldset>
   )
 }

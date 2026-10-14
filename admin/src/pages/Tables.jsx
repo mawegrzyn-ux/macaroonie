@@ -19,6 +19,8 @@ import {
   GripVertical, Save, Ban, TriangleAlert,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 
 // ── Schemas ──────────────────────────────────────────────────
@@ -430,6 +432,8 @@ function SortableRow({ table, sections, venueId, editingTable, setEditingTable, 
 export default function Tables() {
   const api = useApi()
   const qc  = useQueryClient()
+  // Tables = View: the layout can be read, nothing changed.
+  const { canManage } = usePermission('tables')
 
   const [selectedVenueId, setSelectedVenueId] = useState(null)
   const [editingTable,    setEditingTable]     = useState(null)
@@ -566,15 +570,18 @@ export default function Tables() {
           >
             {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
           </select>
-          <button onClick={() => setEditingTable('new')}
-            className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded-lg">
-            <Plus className="w-4 h-4" /> Add table
-          </button>
+          {canManage && (
+            <button onClick={() => setEditingTable('new')}
+              className="flex items-center gap-1.5 text-sm px-3 py-1.5 bg-primary text-primary-foreground rounded-lg">
+              <Plus className="w-4 h-4" /> Add table
+            </button>
+          )}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="max-w-2xl space-y-6">
+        <ReadOnlyFieldset disabled={!canManage} className="max-w-2xl space-y-6">
+          {!canManage && <ReadOnlyNotice what="the tables" />}
 
           {/* Sections management */}
           <div>
@@ -814,7 +821,7 @@ export default function Tables() {
             )}
           </div>
 
-        </div>
+        </ReadOnlyFieldset>
       </div>
     </div>
   )

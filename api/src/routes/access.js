@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requireRole } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
-import { MODULES, MODULE_KEYS, MODULE_GROUPS, PERMISSION_LEVELS } from '../config/modules.js'
+import { MODULES, MODULE_KEYS, MODULE_GROUPS, PERMISSION_LEVELS, resolvePermission } from '../config/modules.js'
 
 const PermissionSchema = z.record(
   z.string(),
@@ -140,13 +140,20 @@ export default async function accessRoutes(app) {
   // the role dropdown.
   app.get('/roles', async (req) => {
     if (!req.tenantId) return []
-    return withTenant(req.tenantId, tx => tx`
+    const rows = await withTenant(req.tenantId, tx => tx`
       SELECT id, key, label, description, is_builtin, is_active,
              permissions, sort_order, created_at, updated_at
         FROM tenant_roles
        WHERE tenant_id = ${req.tenantId}
        ORDER BY sort_order, label
     `)
+    // Every module with its effective level: a module the role has no entry
+    // for gets its default (built-in roles) or none (custom roles), so the
+    // matrix shows what actually applies and saving writes it explicitly.
+    return rows.map(r => ({
+      ...r,
+      permissions: Object.fromEntries(MODULE_KEYS.map(k => [k, resolvePermission(k, r.permissions, r.is_builtin ? r.key : null)])),
+    }))
   })
 
   // ── POST /api/access/roles ─────────────────────────────

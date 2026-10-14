@@ -13,6 +13,7 @@ import { DashboardPage } from '@/pages/HSDashboard'
 export const ROTA_DASHBOARD_CONFIG = {
   apiBase:      '/rota-dashboards',
   keyPrefix:    'rota',
+  moduleKey:    'rota_dashboard',
   title:        'Rota Dashboard',
   icon:         CalendarDays,
   primaryGroup: 'rota',

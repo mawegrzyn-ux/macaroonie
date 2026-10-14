@@ -6,6 +6,8 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, ChevronDown, ChevronUp, Trash2, Save, Copy, Pencil } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn, DAYS, INTERVALS } from '@/lib/utils'
 
 // ── Slot caps editor ──────────────────────────────────────────
@@ -452,6 +454,8 @@ function DayCard({ dow, template, venueId, allDows }) {
 export default function Schedule() {
   const api = useApi()
   const qc  = useQueryClient()
+  // Schedule = View: the schedule can be read, nothing changed.
+  const { canManage } = usePermission('schedule')
   const [selectedVenueId, setSelectedVenueId] = useState(null)
   const [copyFromId, setCopyFromId]           = useState('')
   const [showCopyFrom, setShowCopyFrom]       = useState(false)
@@ -489,7 +493,7 @@ export default function Schedule() {
       <div className="flex items-center justify-between px-6 h-14 border-b shrink-0 bg-background">
         <h1 className="font-semibold">Schedule</h1>
         <div className="flex items-center gap-2">
-          {otherVenues.length > 0 && (
+          {canManage && otherVenues.length > 0 && (
             showCopyFrom ? (
               <div className="flex items-center gap-2">
                 <select
@@ -534,7 +538,8 @@ export default function Schedule() {
         {isLoading ? (
           <p className="text-muted-foreground text-sm">Loading…</p>
         ) : (
-          <div className="space-y-3 max-w-2xl">
+          <ReadOnlyFieldset disabled={!canManage} className="space-y-3 max-w-2xl">
+            {!canManage && <ReadOnlyNotice what="the schedule" />}
             <p className="text-sm text-muted-foreground mb-4">
               Configure open days, sitting windows, and per-slot cover caps.
               Toggle a day off to close it. Click a sitting to edit its slot caps.
@@ -548,13 +553,13 @@ export default function Schedule() {
                 allDows={[1,2,3,4,5,6,0]}
               />
             ))}
-          </div>
+          </ReadOnlyFieldset>
         )}
 
         {venueId && (
           <>
             <hr className="my-6" />
-            <ExceptionsSection venueId={venueId} />
+            <ReadOnlyFieldset disabled={!canManage}><ExceptionsSection venueId={venueId} /></ReadOnlyFieldset>
           </>
         )}
       </div>

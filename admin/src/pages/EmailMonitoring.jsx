@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
 
 const SUPPRESSION_META = {
   bounces:        { label: 'Bounces',         icon: MailX,        color: 'text-amber-700 bg-amber-50',  description: 'Recipient mailbox rejected the message.' },
@@ -42,6 +43,9 @@ export default function EmailMonitoring() {
   })
 
   const venueId = selectedVenueId || venues[0]?.id || ''
+  // Removing a suppression: owner with Emails manage (the API's rule).
+  const emailPerm = usePermission('email_templates')
+  const canRemove = emailPerm.canManage && emailPerm.isOwner
 
   const { data: summary, isLoading: summaryLoading, refetch: refetchSummary } = useQuery({
     queryKey: ['email-monitoring', 'summary', venueId, days],
@@ -256,7 +260,7 @@ export default function EmailMonitoring() {
                       type={type}
                       meta={meta}
                       items={supp?.[type] ?? []}
-                      onRemove={(email) => removeSuppression.mutate({ type, email })}
+                      onRemove={canRemove ? (email) => removeSuppression.mutate({ type, email }) : null}
                       pending={removeSuppression.isPending && removeSuppression.variables?.email}
                     />
                   ))}
@@ -329,12 +333,14 @@ function SuppressionCard({ type, meta, items, onRemove, pending }) {
                     <p className="text-xs font-mono truncate">{s.email}</p>
                     {s.reason && <p className="text-[10px] text-muted-foreground truncate">{s.reason}</p>}
                   </div>
-                  <button onClick={() => onRemove(s.email)}
-                    disabled={pending === s.email}
-                    title="Remove suppression"
-                    className="p-1 rounded text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50">
-                    {pending === s.email ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
-                  </button>
+                  {onRemove && (
+                    <button onClick={() => onRemove(s.email)}
+                      disabled={pending === s.email}
+                      title="Remove suppression"
+                      className="p-1 rounded text-muted-foreground hover:text-destructive touch-manipulation disabled:opacity-50">
+                      {pending === s.email ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                    </button>
+                  )}
                 </div>
               ))}
               {items.length > 5 && (

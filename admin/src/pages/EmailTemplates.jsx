@@ -21,6 +21,8 @@ import TextAlign from '@tiptap/extension-text-align'
 import TextStyle from '@tiptap/extension-text-style'
 import Color from '@tiptap/extension-color'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 
 const EMAIL_TYPES = [
@@ -107,6 +109,7 @@ function Toggle({ value, onChange, label }) {
 function TemplateEditor({ venueId }) {
   const api = useApi()
   const qc  = useQueryClient()
+  const readOnly = !usePermission('email_templates').canManage
 
   const { data: templates = [] } = useQuery({
     queryKey: ['email-templates', venueId],
@@ -243,6 +246,7 @@ function TemplateEditor({ venueId }) {
         {!tpl && <span className="text-amber-600 ml-1">(using built-in default — edit to customise)</span>}
       </p>
 
+      <ReadOnlyFieldset disabled={readOnly} className="space-y-5">
       {/* Subject */}
       <SectionCard title="Subject line">
         <TextInput value={subject} onChange={e => setSubject(e.target.value)}
@@ -450,6 +454,7 @@ function TemplateEditor({ venueId }) {
           </button>
         </div>
       </div>
+      </ReadOnlyFieldset>
     </div>
   )
 }
@@ -866,6 +871,9 @@ const TABS = [
 
 export default function EmailTemplatesPage() {
   const api = useApi()
+  // Booking emails = View: templates and settings can be read (provider
+  // secrets aren't sent), nothing saved or sent.
+  const { canManage } = usePermission('email_templates')
   const [tab, setTab] = useState('templates')
   const [venueId, setVenueId] = useState(null)
 
@@ -910,8 +918,9 @@ export default function EmailTemplatesPage() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto p-6">
+          {!canManage && tab !== 'log' && <ReadOnlyNotice what="the booking emails" className="mb-4" />}
           {tab === 'templates' && <TemplateEditor venueId={venueId} />}
-          {tab === 'settings'  && <EmailSettings venueId={venueId} />}
+          {tab === 'settings'  && <ReadOnlyFieldset disabled={!canManage}><EmailSettings venueId={venueId} /></ReadOnlyFieldset>}
           {tab === 'log'       && <EmailLog />}
         </div>
       </div>

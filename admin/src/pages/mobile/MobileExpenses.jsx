@@ -15,6 +15,8 @@ import { Plus, X, Camera, Trash2, Receipt, ChevronLeft, ChevronRight, Lock } fro
 import { useApi } from '@/lib/api'
 import { cn, openPicker } from '@/lib/utils'
 import { PaidByCardToggle, CardBadge, useReconWeek, getMonday } from '@/pages/CashRecon'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 function todayStr() {
   return format(new Date(), 'yyyy-MM-dd')
@@ -254,6 +256,7 @@ function ExpenseRow({ exp, cat, onClick }) {
 // Cash Recon Dashboard's petty cash widget renders exactly the same panel.
 export function PettyCashPanel({ venueId, date }) {
   const api = useApi()
+  const { canManage } = usePermission('cash_recon')
   const [target, setTarget] = useState(null) // { date, expense | null }
   const actions = useExpenseActions(venueId, () => setTarget(null))
 
@@ -305,12 +308,12 @@ export function PettyCashPanel({ venueId, date }) {
         <div className="space-y-2">
           {expenses.map(exp => (
             <ExpenseRow key={exp.id} exp={exp} cat={exp.category_id ? catById[exp.category_id] : null}
-              onClick={() => setTarget({ date, expense: exp })} />
+              onClick={canManage ? () => setTarget({ date, expense: exp }) : null} />
           ))}
         </div>
       )}
 
-      {!isSubmitted && (
+      {canManage && !isSubmitted && (
         <button type="button" onClick={() => setTarget({ date, expense: null })}
           className="w-full inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground rounded-lg px-4 py-2.5 text-sm font-medium min-h-[48px] touch-manipulation">
           <Plus className="w-4 h-4" /> Add expense
@@ -325,6 +328,7 @@ export function PettyCashPanel({ venueId, date }) {
 // The whole week (Mon-Sun) for one venue: week totals, then each day's
 // expenses with its own Add button. Submitted days are read-only.
 function WeekExpensesPanel({ venueId, weekStart }) {
+  const { canManage } = usePermission('cash_recon')
   const [target, setTarget] = useState(null)
   const actions = useExpenseActions(venueId, () => setTarget(null))
   const { config, detail, isLoading } = useReconWeek(venueId, weekStart)
@@ -344,6 +348,7 @@ function WeekExpensesPanel({ venueId, weekStart }) {
 
   return (
     <div className="space-y-3">
+      {!canManage && <ReadOnlyNotice what="the expenses" />}
       <div className="rounded-lg border px-3 py-2.5 space-y-1">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">Cash total for the week</span>
@@ -384,7 +389,7 @@ function WeekExpensesPanel({ venueId, weekStart }) {
                 )}
               </span>
               <span className="text-sm font-semibold tabular-nums">{expenses.length ? fmt(dayCash) : ''}</span>
-              {!submitted && (
+              {canManage && !submitted && (
                 <button type="button" onClick={() => setTarget({ date, expense: null })}
                   aria-label={`Add expense on ${format(parseISO(date), 'EEEE d MMMM')}`}
                   className="h-11 px-3 rounded-lg border bg-background text-sm font-medium inline-flex items-center gap-1 touch-manipulation hover:bg-muted">
@@ -396,7 +401,7 @@ function WeekExpensesPanel({ venueId, weekStart }) {
               <div className="p-2 space-y-2">
                 {expenses.map(exp => (
                   <ExpenseRow key={exp.id} exp={exp} cat={exp.category_id ? catById[exp.category_id] : null}
-                    onClick={submitted ? null : () => setTarget({ date, expense: exp })} />
+                    onClick={submitted || !canManage ? null : () => setTarget({ date, expense: exp })} />
                 ))}
               </div>
             )}

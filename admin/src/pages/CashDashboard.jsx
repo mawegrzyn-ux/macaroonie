@@ -17,6 +17,7 @@ import { DashboardPage } from '@/pages/HSDashboard'
 export const CASH_DASHBOARD_CONFIG = {
   apiBase:      '/cash-dashboards',
   keyPrefix:    'cash',
+  moduleKey:    'cash_dashboard',
   title:        'Cash Dashboard',
   icon:         Wallet,
   primaryGroup: 'cash',

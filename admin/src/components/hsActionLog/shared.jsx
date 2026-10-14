@@ -20,6 +20,8 @@ import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } 
 import { CSS } from '@dnd-kit/utilities'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
 import { useApi } from '@/lib/api'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 
 const PRIORITY_LABELS = { low: 'Low', medium: 'Medium', high: 'High', critical: 'Critical' }
@@ -36,7 +38,7 @@ function todayStr() {
 
 // ── Entry add/edit modal ─────────────────────────────────────────
 
-function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, isSaving }) {
+function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, isSaving, readOnly }) {
   const [categoryId, setCategoryId] = useState(initial?.category_id ?? '')
   const [loggedDate, setLoggedDate] = useState(initial?.logged_date ?? todayStr())
   const [task, setTask] = useState(initial?.task ?? '')
@@ -71,13 +73,14 @@ function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, i
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-background rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b sticky top-0 bg-background">
-          <h2 className="text-lg font-semibold">{initial ? 'Edit action' : 'New action'}</h2>
+          <h2 className="text-lg font-semibold">{readOnly ? 'Action' : initial ? 'Edit action' : 'New action'}</h2>
           <button type="button" onClick={onClose} className="p-1.5 rounded hover:bg-accent"><X className="w-4 h-4" /></button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">
+          <ReadOnlyFieldset disabled={readOnly} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Task *</label>
-            <input value={task} onChange={e => setTask(e.target.value)} required autoFocus
+            <input value={task} onChange={e => setTask(e.target.value)} required autoFocus={!readOnly}
               placeholder="e.g. Replace hinge on the kitchen door"
               className="w-full border rounded px-3 py-2 text-sm bg-background min-h-[44px] touch-manipulation" />
           </div>
@@ -127,9 +130,14 @@ function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, i
               placeholder="Progress notes, what was ordered, who to chase, etc."
               className="w-full border rounded px-3 py-2 text-sm bg-background resize-none touch-manipulation" />
           </div>
+          </ReadOnlyFieldset>
           <div>
             <label className="block text-sm font-medium mb-1">Attachment</label>
-            {attachmentUrl ? (
+            {readOnly ? (
+              attachmentUrl
+                ? <a href={attachmentUrl} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline truncate">View attachment</a>
+                : <p className="text-sm text-muted-foreground">None</p>
+            ) : attachmentUrl ? (
               <div className="flex items-center gap-2">
                 <a href={attachmentUrl} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline truncate">
                   View attachment
@@ -150,6 +158,11 @@ function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, i
               onPick={(url, item) => { setAttachmentMediaId(item.id); setAttachmentUrl(url); setPickerOpen(false) }} />
           </div>
 
+          {readOnly ? (
+            <div className="flex justify-end pt-2">
+              <button type="button" onClick={onClose} className="px-4 py-2 border rounded text-sm min-h-[44px] touch-manipulation">Close</button>
+            </div>
+          ) : (
           <div className="flex items-center justify-between gap-2 pt-2">
             {initial && onDelete && (
               !confirmDelete ? (
@@ -174,6 +187,7 @@ function EntryModal({ initial, venueId, categories, onClose, onSave, onDelete, i
               </button>
             </div>
           </div>
+          )}
         </form>
       </div>
     </div>
@@ -281,6 +295,9 @@ function CategoriesModal({ categories, onClose, mutations }) {
 export function HSActionLogPanel({ venueId }) {
   const api = useApi()
   const qc = useQueryClient()
+  // H&S Action Log = View: the list and each action can be read, nothing
+  // can be added, ticked or changed.
+  const readOnly = !usePermission('hs_action_log').canManage
   const [status, setStatus] = useState('open')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [entryModal, setEntryModal] = useState(null) // 'new' | entry row | null
@@ -353,17 +370,20 @@ export function HSActionLogPanel({ venueId }) {
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setCategoriesOpen(true)}
-            className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation" title="Manage categories">
-            <Settings className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={() => setEntryModal('new')}
-            className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium min-h-[40px] touch-manipulation">
-            <Plus className="w-4 h-4" /> Add
-          </button>
-        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-1">
+            <button type="button" onClick={() => setCategoriesOpen(true)}
+              className="p-2 rounded hover:bg-accent text-muted-foreground touch-manipulation" title="Manage categories">
+              <Settings className="w-4 h-4" />
+            </button>
+            <button type="button" onClick={() => setEntryModal('new')}
+              className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground rounded-lg px-3 py-2 text-sm font-medium min-h-[40px] touch-manipulation">
+              <Plus className="w-4 h-4" /> Add
+            </button>
+          </div>
+        )}
       </div>
+      {readOnly && <ReadOnlyNotice what="the action log" />}
 
       {isLoading ? (
         <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
@@ -375,11 +395,11 @@ export function HSActionLogPanel({ venueId }) {
             const overdue = entry.due_date && !entry.is_completed && isPast(parseISO(entry.due_date))
             return (
               <div key={entry.id} className="flex items-start gap-3 px-4 py-3 hover:bg-accent/30">
-                <button type="button"
+                <button type="button" disabled={readOnly}
                   onClick={() => toggleComplete.mutate({ id: entry.id, is_completed: !entry.is_completed })}
                   className={cn(
-                    'w-6 h-6 mt-0.5 shrink-0 rounded-md border flex items-center justify-center touch-manipulation',
-                    entry.is_completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'hover:bg-accent',
+                    'w-6 h-6 mt-0.5 shrink-0 rounded-md border flex items-center justify-center touch-manipulation disabled:cursor-default',
+                    entry.is_completed ? 'bg-emerald-500 border-emerald-500 text-white' : 'hover:bg-accent disabled:hover:bg-transparent',
                   )}>
                   {entry.is_completed && <Check className="w-3.5 h-3.5" />}
                 </button>
@@ -421,6 +441,7 @@ export function HSActionLogPanel({ venueId }) {
           onSave={handleSave}
           onDelete={id => deleteEntry.mutate(id)}
           isSaving={createEntry.isPending || patchEntry.isPending}
+          readOnly={readOnly}
         />
       )}
 

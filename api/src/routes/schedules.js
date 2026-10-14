@@ -24,8 +24,12 @@
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
-import { requireAuth, requireRole } from '../middleware/auth.js'
+import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
+
+// Changes need Schedule manage; reads stay open (the timeline and booking
+// screens read sittings).
+const PERM = { manage: requirePermission('schedule', 'manage') }
 
 const DOW = z.coerce.number().int().min(0).max(6)
 
@@ -196,7 +200,7 @@ export default async function schedulesRoutes(app) {
 
   // ── PUT /venues/:venueId/schedule/template/:dow ───────────
   // Upsert a day template (is_open + interval).
-  app.put('/:venueId/schedule/template/:dow', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/:venueId/schedule/template/:dow', { preHandler: PERM.manage}, async (req) => {
     const { venueId } = req.params
     const dow  = DOW.parse(req.params.dow)
     const body = TemplateBody.parse(req.body)
@@ -217,7 +221,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── POST /venues/:venueId/schedule/template/:dow/sittings ─
-  app.post('/:venueId/schedule/template/:dow/sittings', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:venueId/schedule/template/:dow/sittings', { preHandler: PERM.manage}, async (req, reply) => {
     const { venueId } = req.params
     const dow  = DOW.parse(req.params.dow)
     const body = SittingBody.parse(req.body)
@@ -244,7 +248,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── PATCH /venues/:venueId/schedule/sittings/:sid ─────────
-  app.patch('/:venueId/schedule/sittings/:sid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:venueId/schedule/sittings/:sid', { preHandler: PERM.manage}, async (req) => {
     const body   = SittingBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -262,7 +266,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── DELETE /venues/:venueId/schedule/sittings/:sid ────────
-  app.delete('/:venueId/schedule/sittings/:sid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:venueId/schedule/sittings/:sid', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM venue_sittings
        WHERE id = ${req.params.sid}
@@ -277,7 +281,7 @@ export default async function schedulesRoutes(app) {
   // ── PUT /venues/:venueId/schedule/sittings/:sid/caps ──────
   // Replace all slot caps for a sitting atomically.
   // Send the full array — missing slots revert to sitting default.
-  app.put('/:venueId/schedule/sittings/:sid/caps', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/:venueId/schedule/sittings/:sid/caps', { preHandler: PERM.manage}, async (req) => {
     const caps = CapsBody.parse(req.body)
     const { sid, venueId } = req.params
 
@@ -314,7 +318,7 @@ export default async function schedulesRoutes(app) {
 
   // ── POST /venues/:venueId/schedule/copy-day ──────────────
   // Copies sittings + caps from one day-of-week to another within the same venue.
-  app.post('/:venueId/schedule/copy-day', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:venueId/schedule/copy-day', { preHandler: PERM.manage}, async (req, reply) => {
     const { source_dow, target_dow } = z.object({
       source_dow: DOW,
       target_dow: DOW,
@@ -371,7 +375,7 @@ export default async function schedulesRoutes(app) {
 
   // ── POST /venues/:venueId/schedule/copy-from ─────────────
   // Replaces target venue's full schedule with a copy from source_venue_id.
-  app.post('/:venueId/schedule/copy-from', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:venueId/schedule/copy-from', { preHandler: PERM.manage}, async (req, reply) => {
     const { source_venue_id } = z.object({ source_venue_id: z.string().uuid() }).parse(req.body)
     const { venueId } = req.params
     if (source_venue_id === venueId) throw httpError(400, 'Source and target venue must be different')
@@ -457,7 +461,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── POST /venues/:venueId/schedule/overrides ──────────────
-  app.post('/:venueId/schedule/overrides', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:venueId/schedule/overrides', { preHandler: PERM.manage}, async (req, reply) => {
     const body = OverrideBody.parse(req.body)
     const [override] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO schedule_date_overrides
@@ -471,7 +475,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── PATCH /venues/:venueId/schedule/overrides/:oid ────────
-  app.patch('/:venueId/schedule/overrides/:oid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:venueId/schedule/overrides/:oid', { preHandler: PERM.manage}, async (req) => {
     const body   = OverrideBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -489,7 +493,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── DELETE /venues/:venueId/schedule/overrides/:oid ───────
-  app.delete('/:venueId/schedule/overrides/:oid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:venueId/schedule/overrides/:oid', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM schedule_date_overrides
        WHERE id = ${req.params.oid}
@@ -502,7 +506,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── POST override sittings + caps (same pattern as weekly) ─
-  app.post('/:venueId/schedule/overrides/:oid/sittings', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:venueId/schedule/overrides/:oid/sittings', { preHandler: PERM.manage}, async (req, reply) => {
     const body = SittingBody.parse(req.body)
     const [sitting] = await withTenant(req.tenantId, tx => tx`
       INSERT INTO override_sittings
@@ -517,7 +521,7 @@ export default async function schedulesRoutes(app) {
     return reply.code(201).send(sitting)
   })
 
-  app.put('/:venueId/schedule/overrides/sittings/:sid/caps', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/:venueId/schedule/overrides/sittings/:sid/caps', { preHandler: PERM.manage}, async (req) => {
     const caps = CapsBody.parse(req.body)
     const { sid, venueId } = req.params
 
@@ -599,7 +603,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── POST /venues/:venueId/schedule/exceptions ─────────────
-  app.post('/:venueId/schedule/exceptions', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:venueId/schedule/exceptions', { preHandler: PERM.manage}, async (req, reply) => {
     const body = ExceptionBody.parse(req.body)
     if (body.date_to < body.date_from) throw httpError(422, 'date_to must be on or after date_from')
 
@@ -615,7 +619,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── PATCH /venues/:venueId/schedule/exceptions/:eid ───────
-  app.patch('/:venueId/schedule/exceptions/:eid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:venueId/schedule/exceptions/:eid', { preHandler: PERM.manage}, async (req) => {
     const body = ExceptionBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -633,7 +637,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── DELETE /venues/:venueId/schedule/exceptions/:eid ──────
-  app.delete('/:venueId/schedule/exceptions/:eid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:venueId/schedule/exceptions/:eid', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM schedule_exceptions
        WHERE id        = ${req.params.eid}
@@ -647,7 +651,7 @@ export default async function schedulesRoutes(app) {
 
   // ── PUT /venues/:venueId/schedule/exceptions/:eid/template/:dow ─
   // Upsert a DOW template within an alternative-schedule exception.
-  app.put('/:venueId/schedule/exceptions/:eid/template/:dow', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/:venueId/schedule/exceptions/:eid/template/:dow', { preHandler: PERM.manage}, async (req) => {
     const { venueId, eid } = req.params
     const dow  = DOW.parse(req.params.dow)
     const body = ExceptionDayTemplateBody.parse(req.body)
@@ -672,7 +676,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── POST /venues/:venueId/schedule/exceptions/:eid/template/:dow/sittings ─
-  app.post('/:venueId/schedule/exceptions/:eid/template/:dow/sittings', { preHandler: requireRole('admin', 'owner') }, async (req, reply) => {
+  app.post('/:venueId/schedule/exceptions/:eid/template/:dow/sittings', { preHandler: PERM.manage}, async (req, reply) => {
     const { venueId, eid } = req.params
     const dow  = DOW.parse(req.params.dow)
     const body = SittingBody.parse(req.body)
@@ -703,7 +707,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── PATCH /venues/:venueId/schedule/exceptions/:eid/sittings/:sid ─
-  app.patch('/:venueId/schedule/exceptions/:eid/sittings/:sid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.patch('/:venueId/schedule/exceptions/:eid/sittings/:sid', { preHandler: PERM.manage}, async (req) => {
     const body   = SittingBody.partial().parse(req.body)
     const fields = Object.keys(body)
     if (!fields.length) throw httpError(400, 'No fields to update')
@@ -724,7 +728,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── DELETE /venues/:venueId/schedule/exceptions/:eid/sittings/:sid ─
-  app.delete('/:venueId/schedule/exceptions/:eid/sittings/:sid', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.delete('/:venueId/schedule/exceptions/:eid/sittings/:sid', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
       DELETE FROM exception_sittings
        WHERE id         = ${req.params.sid}
@@ -740,7 +744,7 @@ export default async function schedulesRoutes(app) {
   })
 
   // ── PUT /venues/:venueId/schedule/exceptions/:eid/sittings/:sid/caps ─
-  app.put('/:venueId/schedule/exceptions/:eid/sittings/:sid/caps', { preHandler: requireRole('admin', 'owner') }, async (req) => {
+  app.put('/:venueId/schedule/exceptions/:eid/sittings/:sid/caps', { preHandler: PERM.manage}, async (req) => {
     const caps = CapsBody.parse(req.body)
     const { sid, venueId, eid } = req.params
 

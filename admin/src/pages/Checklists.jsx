@@ -14,6 +14,8 @@ import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { FREQUENCY_LABELS, periodLabel, ChecklistRunPanel } from '@/components/checklists/shared'
 import { HsSettingsButton, ClosedDayNotice } from '@/components/hs/HsSettings'
+import { usePermission } from '@/hooks/usePermission'
+import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 const TABS = [
   { key: 'today',     label: 'Today',       icon: ListChecks },
@@ -489,6 +491,11 @@ export default function Checklists() {
   const [tab, setTab] = useState('today')
   const [venueId, setVenueId] = useState('')
   const [date, setDate] = useState(todayStr())
+  // Checklists = View: today's checklists can be looked at, not ticked, and
+  // the checklist builder isn't shown.
+  const { canManage } = usePermission('checklists')
+  const tabs = canManage ? TABS : TABS.filter(t => t.key === 'today')
+  const shownTab = canManage ? tab : 'today'
 
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
@@ -511,7 +518,7 @@ export default function Checklists() {
                 {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             )}
-            {tab === 'today' && (
+            {shownTab === 'today' && (
               <input type="date" value={date} onChange={e => setDate(e.target.value)}
                 className="border rounded px-3 py-2 text-sm bg-background min-h-[44px]" />
             )}
@@ -519,8 +526,9 @@ export default function Checklists() {
           </div>
         </div>
 
-        <div className="flex gap-1 mb-4">
-          {TABS.map(t => {
+        {!canManage && <ReadOnlyNotice what="the checklists" className="mb-4" />}
+        {tabs.length > 1 && <div className="flex gap-1 mb-4">
+          {tabs.map(t => {
             const Icon = t.icon
             return (
               <button key={t.key} type="button" onClick={() => setTab(t.key)}
@@ -533,11 +541,11 @@ export default function Checklists() {
               </button>
             )
           })}
-        </div>
+        </div>}
 
         {!venueId ? (
           <p className="text-muted-foreground text-sm py-12 text-center">Select a venue to begin.</p>
-        ) : tab === 'today' ? (
+        ) : shownTab === 'today' ? (
           <TodayTab venueId={venueId} date={date} api={api} />
         ) : (
           <TemplatesTab venueId={venueId} api={api} qc={qc} />

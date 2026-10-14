@@ -35,6 +35,7 @@ import {
 } from '@/pages/CashRecon'
 import { PettyCashPanel } from '@/pages/mobile/MobileExpenses'
 import { WeekWagesEditor } from './WagesTable'
+import { usePermission } from '@/hooks/usePermission'
 import { useRotaPay, useRotaPerms, tipRows, TipMoneyCell } from '@/components/staff/rota'
 
 // Display options for the two wage widgets (widget.settings), passed to
@@ -617,10 +618,11 @@ function WeekSummaryGridWidget({ venueId, ctx }) {
 // A payment entered here is recorded on the day selected on the dashboard.
 
 function WeekWagesWidget({ venueId, ctx, settings }) {
+  const { canManage } = usePermission('cash_recon')
   return (
     <WeekWagesEditor venueId={venueId} weekStart={ctx.weekStart} defaultPaidDay={ctx.selectedDay}
       hideManage={!!settings?.hide_manage} hideBulk={!!settings?.hide_bulk} paidOnly={!!settings?.paid_only}
-      showBank={!!settings?.show_bank} />
+      showBank={!!settings?.show_bank} readOnly={!canManage} />
   )
 }
 

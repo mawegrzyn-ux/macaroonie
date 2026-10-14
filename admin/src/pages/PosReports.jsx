@@ -11,6 +11,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { BarChart3, Loader2, ChevronLeft, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { usePermission } from '@/hooks/usePermission'
 import { checkTotals, modifierText } from '@shared/pos/pricing.js'
 import { TENDERS } from '@shared/pos/checks.js'
 import { PageHeader, VenueSelect, usePosVenue, ErrorNote, Btn, Segmented, money, inputCls } from '@/components/pos/shared'
@@ -55,6 +56,7 @@ function Rows({ rows }) {
 function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
   const api = useApi()
   const qc = useQueryClient()
+  const { canManage } = usePermission('pos_reports')
   const { data: day, isLoading, error } = useQuery({
     queryKey: ['pos-day', venueId, dayId], queryFn: () => api.get(`/pos/venues/${venueId}/days/${dayId}`),
   })
@@ -157,9 +159,11 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
                 ? <p className="flex items-center gap-2 text-amber-700"><AlertTriangle className="w-4 h-4" /> Not filled: {day.recon_error}.</p>
                 : <p className="text-muted-foreground">Not filled yet.</p>}
             <p className="text-xs text-muted-foreground">Writes the mapped figures (Till setup, Cash Recon) into the Cash Recon day for {dayLabel(day.business_date)}. Fields that aren't mapped are left alone; a submitted Cash Recon day isn't changed.</p>
-            <Btn variant="primary" disabled={fill.isPending} onClick={() => fill.mutate()}>
-              {fill.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {day.recon_filled_at ? 'Fill Cash Recon again' : 'Fill Cash Recon'}
-            </Btn>
+            {canManage && (
+              <Btn variant="primary" disabled={fill.isPending} onClick={() => fill.mutate()}>
+                {fill.isPending && <Loader2 className="w-4 h-4 animate-spin" />} {day.recon_filled_at ? 'Fill Cash Recon again' : 'Fill Cash Recon'}
+              </Btn>
+            )}
             {fill.data && !fill.data.filled && (
               <p className="text-amber-700">{fill.data.skipped === 'not_mapped' ? 'Nothing is mapped to Cash Recon yet.' : 'The Cash Recon day is already submitted: unsubmit it first.'}</p>
             )}
@@ -351,6 +355,7 @@ function ChecksTab({ venueId, dayId, setDayId }) {
 
 function ConflictRow({ c, onResolved }) {
   const api = useApi()
+  const { canManage } = usePermission('pos_reports')
   const [note, setNote] = useState('')
   const resolve = useMutation({ mutationFn: () => api.patch(`/pos/conflicts/${c.id}`, { resolution: note.trim() }), onSuccess: onResolved })
   const p = c.payload || {}
@@ -369,6 +374,8 @@ function ConflictRow({ c, onResolved }) {
       </div>
       {c.resolved_at ? (
         <p className="text-xs text-green-700">Dealt with {when(c.resolved_at)}{c.resolved_by ? ' by ' + c.resolved_by : ''}: {c.resolution}</p>
+      ) : !canManage ? (
+        <p className="text-xs text-muted-foreground">Not dealt with yet.</p>
       ) : (
         <div className="flex flex-wrap gap-2">
           <input className={cn(inputCls, 'flex-1 min-w-[200px]')} value={note} maxLength={300} onChange={e => setNote(e.target.value)} placeholder="What was done, e.g. added to the next check" aria-label="What was done" />

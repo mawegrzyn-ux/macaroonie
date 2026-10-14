@@ -20,7 +20,7 @@ import {
   isConfigured as auth0IsConfigured,
   provisionTenantOrg,
 } from '../services/auth0MgmtSvc.js'
-import { MODULES, MODULE_KEYS, resolvePermission } from '../config/modules.js'
+import { MODULES, MODULE_KEYS, resolvePermission, seedBuiltinRoles } from '../config/modules.js'
 import { listMemberships } from '../services/membershipSvc.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
 import { seedDefaultDashboardTiles } from '../config/defaultDashboardTiles.js'
@@ -134,6 +134,10 @@ export default async function platformRoutes(app) {
           effectiveRole = { id: localUser.r_id, key: localUser.r_key, label: localUser.r_label, permissions: localUser.r_permissions }
         } else if (localUser.rb_id) {
           effectiveRole = { id: localUser.rb_id, key: localUser.rb_key, label: localUser.rb_label, permissions: localUser.rb_permissions }
+        } else {
+          // No built-in role rows for this tenant: the module defaults for
+          // users.role apply (same fallback as permissionLevel()).
+          effectiveRole = { id: null, key: localUser.role, label: null, permissions: {} }
         }
       }
     }
@@ -348,6 +352,8 @@ export default async function platformRoutes(app) {
 
     // New tenants start from the same default nav tree existing tenants
     // were seeded with — otherwise they'd open to an empty sidebar.
+    await withTenant(tenant.id, tx => seedBuiltinRoles(tx, tenant.id))
+      .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to add built-in roles for new tenant'))
     await withTenant(tenant.id, tx => seedDefaultNav(tx, tenant.id))
       .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to seed default nav for new tenant'))
     await withTenant(tenant.id, tx => seedDefaultDashboardTiles(tx, tenant.id))
