@@ -36,6 +36,8 @@ export const ENTRY_STATUSES = [
   { key: 'abs',  label: 'ABS',  name: 'Absent',          print: { bg: '#fef3c7', fg: '#92400e' } },
 ]
 export const STATUS_BY_KEY = Object.fromEntries(ENTRY_STATUSES.map(s => [s.key, s]))
+// A day the person is off the rota from the Staff page (left / off-rota period).
+const AWAY_PRINT = { bg: '#f3f4f6', fg: '#6b7280' }
 export const statusOf = e => (e.status && STATUS_BY_KEY[e.status] ? e.status : 'on')
 
 /**
@@ -81,6 +83,12 @@ export function buildRotaSheet({ week, entries, mode, venueName, unsaved, hideCl
     const working = []
     const cells = dates.map(d => {
       const mine = entries.filter(e => e.staff_id === st.id && e.work_date === d)
+      const away = st.off_days?.[d]
+      if (away && !mine.length) {
+        working.push(false)
+        tones.push('away')
+        return [away.kind === 'left' ? 'Left' : 'Off rota']
+      }
       // Worked lines first (shift names or times), then one line per kind
       // of time off, e.g. "SICK: Lunch, Dinner" or "PTO 09:00–17:00".
       const items = mode === 'day_parts'
@@ -166,6 +174,7 @@ export function rotaHtml(sheet) {
   th.hours, td.hours { width: 6%; text-align: right; }
   ${ENTRY_STATUSES.map(st => `td.st-${st.key} { background: ${st.print.bg}; color: ${st.print.fg}; font-weight: 600; }`).join('\n  ')}
   td.off { color: #9ca3af; }
+  td.st-away { background: ${AWAY_PRINT.bg}; color: ${AWAY_PRINT.fg}; font-style: italic; }
   .role { font-size: 8pt; color: #555; font-weight: 400; }
   tfoot td { background: #f3f4f6; font-size: 8pt; }
   tr { page-break-inside: avoid; }
@@ -292,7 +301,7 @@ export function drawRotaCanvas(sheet, scale = 2) {
     }
     r.cells.forEach((lines, i) => {
       const x = colX[i + 1]
-      const tone = STATUS_BY_KEY[r.tones?.[i]]?.print
+      const tone = r.tones?.[i] === 'away' ? AWAY_PRINT : STATUS_BY_KEY[r.tones?.[i]]?.print
       cellBox(x, y, dayW, h, lines.length && tone ? tone.bg : '#ffffff')
       ctx.textAlign = 'center'
       if (!lines.length) {

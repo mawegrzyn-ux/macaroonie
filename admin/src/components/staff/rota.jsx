@@ -16,6 +16,9 @@
 // The draft also holds who is off this week's rota (migration 155): the
 // button by a name takes them off (clearing their cells), the strip under
 // the grid puts them back, and Save rota sends both.
+// Days a person is off the rota from the Staff page (migration 164: past
+// their last working day, or in an off-rota period) come as staff[].off_days
+// and show as blocked cells; people away all week are listed under the grid.
 //
 // All pay / points / tip maths is server-side (services/rotaCalc.js);
 // the tables here only display GET .../pay and send overrides.
@@ -30,6 +33,7 @@ import { cn } from '@/lib/utils'
 import { fmt, getMonday } from '@/pages/CashRecon'
 import {
   Modal, TimeSelect, ErrorNote, hhmm, toMin, rangeMinutes, fmtHours, inputCls, useVenues, Segmented, ConfirmDelete,
+  fmtDay, offDayText,
 } from '@/components/staff/shared'
 import {
   buildRotaSheet, printRota, saveRotaImage, visibleRotaDates, isClosedDay, ENTRY_STATUSES, STATUS_BY_KEY, statusOf,
@@ -218,6 +222,17 @@ function entryMinutes(e, shiftById) {
 // Unsaved drafts survive week / venue switching within the session.
 const draftCache = new Map()
 
+// Hatching for days a person is off the rota (left, or an off-rota period).
+const AWAY_STYLE = { backgroundImage: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.07) 0 6px, transparent 6px 12px)' }
+
+/** Note under a name when part of the week is blocked, or null. */
+function awayNote(st, dates) {
+  const day = dates.find(d => st.off_days?.[d])
+  if (!day) return null
+  const off = st.off_days[day]
+  return off.kind === 'left' ? `Last day ${fmtDay(off.left_on)}` : `Off rota ${fmtDay(off.from)} to ${fmtDay(off.until)}`
+}
+
 // ── Rota grid ─────────────────────────────────────────────────
 
 /**
@@ -286,9 +301,15 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   const dirty = (draft != null && signature(draft) !== signature(serverEntries))
     || idsSig(removedIds) !== idsSig(serverRemoved)
 
+  // staff id -> { date: off } for days they're off the rota (Staff page).
+  const offById = useMemo(() => new Map((week?.staff ?? []).map(s => [s.id, s.off_days ?? {}])), [week])
+  const offOn = (staffId, d) => offById.get(staffId)?.[d] ?? null
+
   const save = useMutation({
+    // A draft kept from before a leaving date / period was set may still
+    // hold entries on those days; they can't be saved, so they're dropped.
     mutationFn: () => api.put(`/rota/venues/${venueId}/weeks/${weekStart}/entries`, {
-      entries: entries.map(clean), removed_staff_ids: removedIds,
+      entries: entries.filter(e => !offOn(e.staff_id, e.work_date)).map(clean), removed_staff_ids: removedIds,
     }),
     onSuccess: () => {
       draftCache.delete(`${cacheKey}|${mode}`)
@@ -343,7 +364,7 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
   // A tap flicks the cell between OFF and the person's mode; a cell holding
   // another status (e.g. ON while the mode is SICK) switches to the mode.
   function toggle(staffId, date, shiftId) {
-    if (!canEdit) return
+    if (!canEdit || offOn(staffId, date)) return
     const mode = modeFor(staffId)
     const match = e => e.shift_id === shiftId && e.staff_id === staffId && e.work_date === date
     setDraft(prev => {
@@ -432,7 +453,9 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
         </p>
       )}
       {allStaff.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-6 text-center">No active staff for this venue. Add people on the Staff page.</p>
+        <p className="text-sm text-muted-foreground py-6 text-center">
+          {week.away_staff?.length ? 'Everyone is off the rota this week.' : 'No active staff for this venue. Add people on the Staff page.'}
+        </p>
       ) : staff.length === 0 ? (
         <p className="text-sm text-muted-foreground py-6 text-center">Everyone is off this week's rota.</p>
       ) : mode === 'day_parts' && shifts.length === 0 ? (
@@ -479,6 +502,9 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
                         <div className="flex-1 min-w-0">
                           <div className={cn('text-sm font-medium truncate max-w-[160px]', !st.is_active && 'text-muted-foreground')}>{st.name}</div>
                           {st.role_name && <div className="text-[11px] text-muted-foreground truncate max-w-[160px]">{st.role_name}</div>}
+                          {awayNote(st, week.dates) && (
+                            <div className="text-[11px] text-amber-800 truncate max-w-[160px]" title={awayNote(st, week.dates)}>{awayNote(st, week.dates)}</div>
+                          )}
                         </div>
                         {canEdit && (
                           <button type="button" onClick={() => setConfirmRemove(st.id)}
@@ -492,7 +518,11 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
                     )}
                   </td>
                   {mode === 'day_parts'
-                    ? dates.map(d => shifts.map((s, i) => {
+                    ? dates.map(d => offOn(st.id, d) ? (
+                        <td key={d} colSpan={shifts.length} className="border-l p-0.5">
+                          <AwayCell off={offOn(st.id, d)} name={st.name} date={d} />
+                        </td>
+                      ) : shifts.map((s, i) => {
                         const status = cellStatus.get(`${st.id}|${d}|${s.id}`)
                         const label = status ? STATUS_BY_KEY[status].label : 'OFF'
                         return (
@@ -509,6 +539,9 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
                         )
                       }))
                     : dates.map(d => {
+                        if (offOn(st.id, d)) {
+                          return <td key={d} className="border-l p-0.5"><AwayCell off={offOn(st.id, d)} name={st.name} date={d} /></td>
+                        }
                         const periods = periodsByCell[`${st.id}|${d}`] ?? []
                         const tone = periods.some(p => statusOf(p) === 'on') ? 'on' : (periods[0] ? statusOf(periods[0]) : null)
                         return (
@@ -573,6 +606,20 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           )}
         </div>
       )}
+      {(week.away_staff ?? []).length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
+          <span className="text-xs font-medium text-muted-foreground mr-1">Off the rota all week</span>
+          {week.away_staff.map(s => (
+            <span key={s.id} className="text-sm rounded-lg bg-muted px-2.5 py-1" title={offDayText(s)}>
+              {s.name}{' '}
+              <span className="text-xs text-muted-foreground">
+                {s.kind === 'left' ? `last day ${fmtDay(s.left_on)}` : `until ${fmtDay(s.until)}`}{s.note ? ` · ${s.note}` : ''}
+              </span>
+            </span>
+          ))}
+          <span className="w-full text-[11px] text-muted-foreground">Leaving dates and periods off the rota are set on the Staff page.</span>
+        </div>
+      )}
       {editingCell && (
         <PeriodEditor
           staff={editingCell.staff} date={editingCell.date} step={step}
@@ -582,6 +629,17 @@ export function RotaGrid({ venueId, weekStart, canEdit, selectedDay, onSelectDay
           onApply={periods => { setPeriods(editingCell.staff.id, editingCell.date, periods); setEditingCell(null) }}
           onClose={() => setEditingCell(null)} />
       )}
+    </div>
+  )
+}
+
+/** A day the person is off the rota (Staff page): left, or an off-rota period. Not tappable. */
+function AwayCell({ off, name, date }) {
+  const text = offDayText(off)
+  return (
+    <div role="img" aria-label={`${name} ${format(parseISO(date), 'EEE')}: ${text}`} title={text} style={AWAY_STYLE}
+      className="h-11 min-w-[44px] rounded-md bg-muted/40 text-[10px] font-semibold text-muted-foreground flex items-center justify-center px-1">
+      {off.kind === 'left' ? 'LEFT' : 'AWAY'}
     </div>
   )
 }
@@ -678,7 +736,7 @@ function RotaToolbar({ venueId, weekStart, dirty, saving, onSave, onDiscard, onC
       {dirty && <span className="w-full text-[11px] text-muted-foreground text-right">Save or discard before copying another week.</span>}
       {copy.data?.skipped > 0 && !copyFrom && (
         <span className="w-full text-[11px] text-muted-foreground text-right">
-          {copy.data.skipped} shift{copy.data.skipped === 1 ? '' : 's'} for people off this week's rota {copy.data.skipped === 1 ? 'was' : 'were'} not copied.
+          {copy.data.skipped} shift{copy.data.skipped === 1 ? '' : 's'} {copy.data.skipped === 1 ? 'was' : 'were'} not copied: the person is off this week's rota, away on that day, or has left.
         </span>
       )}
       <div className="w-full"><ErrorNote error={copy.error} /></div>
