@@ -19,6 +19,7 @@ import { useApi } from '@/lib/api'
 import { applySiteTheme } from '@/contexts/SettingsContext'
 import { MOBILE_MODULES } from '@/mobile/registry'
 import { IS_OPS_HOST } from '@/lib/hosts'
+import PageErrorBoundary from '@/components/PageErrorBoundary'
 
 // Lets a mobile page (e.g. a full-page detail drilled into from a list —
 // see MobileCashUp's day view) suppress this shell's own header when it
@@ -161,7 +162,9 @@ export default function MobileShell() {
 
       <main className="flex-1 overflow-y-auto overscroll-contain">
         <HeaderVisibilityContext.Provider value={headerVisibility}>
-          <Outlet />
+          <PageErrorBoundary key={location.pathname}>
+            <Outlet />
+          </PageErrorBoundary>
         </HeaderVisibilityContext.Provider>
       </main>
     </div>

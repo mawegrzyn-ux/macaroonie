@@ -1428,7 +1428,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               Admin: <Mono>ImportPastOrders</Mono> in <Mono>components/cashRecon/GloriaFood.jsx</Mono>, below
               the mapping on the GloriaFood tab: columns it needs, Template, choose file, preview, Import,
-              Remove imported orders (inline confirm).
+              Remove imported orders (inline confirm). <Mono>checkImportReply()</Mono> turns a reply without
+              <Mono>counts</Mono> / <Mono>summary</Mono> (an HTML page from a proxy, an empty body) into an error in the
+              card, and a file the browser can&apos;t read (cloud placeholder, aborted read) says so; both are also
+              logged to the console.
             </P>
             <InfoBox type="warn">
               Built from one real export (478 orders, all read). It assumes the export&apos;s Order ID is the
@@ -2170,6 +2173,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Because of that there is no navigation fallback (<Mono>navigateFallback: null</Mono>): a fallback to a page
               that isn&apos;t precached makes Workbox throw <Mono>non-precached-url</Mono> each time the worker starts, which
               showed in every console from 22 Aug to 14 Oct 2026.
+            </P>
+            <H3>Page crash message</H3>
+            <P>
+              <Mono>PageErrorBoundary</Mono> (<Mono>components/PageErrorBoundary.jsx</Mono>) wraps the page outlet in
+              both <Mono>AppShell</Mono> and <Mono>MobileShell</Mono>, keyed by the path. A page that throws while it renders
+              shows &quot;This page stopped working&quot; with the error text and a Reload button, and logs the error with its
+              component stack (<Mono>Page crashed:</Mono>), instead of unmounting the whole admin to a blank screen. The
+              sidebar and header stay usable, and moving to another page clears it. It doesn&apos;t catch errors in event
+              handlers or promises; those still need their own try/catch and a visible message.
             </P>
             <H3>Scoped second PWA manifest</H3>
             <P>

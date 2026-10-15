@@ -403,10 +403,21 @@ const USEFUL = IMPORT_COLUMNS.filter(c => c.need === 'recommended').map(c => c.h
 function readBase64(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader()
+    const fail = () => reject(new Error('That file couldn\'t be opened. If it is in OneDrive, Google Drive or iCloud, download it to this device first.'))
     r.onload = () => resolve(String(r.result).split(',')[1] || '')
-    r.onerror = () => reject(new Error('That file couldn\'t be opened'))
+    r.onerror = fail
+    r.onabort = fail
     r.readAsDataURL(file)
   })
+}
+
+// The import route always answers with counts; anything else (an HTML page
+// from a proxy, an empty reply) must show as an error, not as nothing.
+function checkImportReply(res) {
+  if (!res || typeof res !== 'object' || !res.counts || !res.summary) {
+    throw new Error('The server sent back something unexpected, so nothing was imported. Reload the page and try again.')
+  }
+  return res
 }
 
 function ImportPastOrders({ venueId, canSetup }) {
@@ -432,10 +443,11 @@ function ImportPastOrders({ venueId, canSetup }) {
     setError(null); setDone(null); setPreview(null); setBusy('read')
     try {
       const data = await readBase64(f)
-      const res = await api.post(`/gloriafood/venues/${venueId}/import`, { file_name: f.name, data, apply: false })
+      const res = checkImportReply(await api.post(`/gloriafood/venues/${venueId}/import`, { file_name: f.name, data, apply: false }))
       setFile({ name: f.name, data })
       setPreview(res)
     } catch (err) {
+      console.error('GloriaFood import preview failed', err)
       setFile(null)
       setError(err?.body?.error || err.message)
     } finally { setBusy(null) }
@@ -443,13 +455,14 @@ function ImportPastOrders({ venueId, canSetup }) {
   async function runImport() {
     setBusy('import'); setError(null)
     try {
-      const res = await api.post(`/gloriafood/venues/${venueId}/import`, { file_name: file.name, data: file.data, apply: true })
+      const res = checkImportReply(await api.post(`/gloriafood/venues/${venueId}/import`, { file_name: file.name, data: file.data, apply: true }))
       setDone(`Imported ${plural(res.counts.new + res.counts.update, 'order', 'orders')} (${res.counts.new} new, ${res.counts.update} updated).`)
       setFile(null); setPreview(null)
       qc.invalidateQueries({ queryKey: ['gloriafood-import', venueId] })
       qc.invalidateQueries({ queryKey: ['gloriafood-link', venueId] })
       qc.invalidateQueries({ queryKey: ['gloriafood-seen', venueId] })
     } catch (err) {
+      console.error('GloriaFood import failed', err)
       setError(err?.body?.error || err.message)
     } finally { setBusy(null) }
   }
@@ -519,7 +532,7 @@ function ImportPastOrders({ venueId, canSetup }) {
               <li><span className="font-semibold">{plural(c.new, 'order', 'orders')}</span> to add{c.update ? <>, <span className="font-semibold">{c.update}</span> already imported to update</> : null}.</li>
               {c.live > 0 && <li className="text-muted-foreground">{plural(c.live, 'order was', 'orders were')} already received from GloriaFood directly, so left alone.</li>}
               {c.after_live > 0 && <li className="text-muted-foreground">{plural(c.after_live, 'order is', 'orders are')} from {when(preview.live_from)} on, when orders started arriving directly, so left out.</li>}
-              {c.other_venue > 0 && <li className="text-amber-700">{plural(c.other_venue, 'order belongs', 'orders belong')} to {preview.other_venues.join(', ')}, so left out.</li>}
+              {c.other_venue > 0 && <li className="text-amber-700">{plural(c.other_venue, 'order belongs', 'orders belong')} to {(preview.other_venues || []).join(', ')}, so left out.</li>}
               {c.duplicates > 0 && <li className="text-muted-foreground">{plural(c.duplicates, 'row repeats', 'rows repeat')} an order number; the last row is used.</li>}
               {c.problems > 0 && <li className="text-amber-700">{plural(c.problems, 'row', 'rows')} can&apos;t be used (listed below).</li>}
             </ul>
@@ -532,7 +545,7 @@ function ImportPastOrders({ venueId, canSetup }) {
                   {sum.orders > sum.counted && <span className="text-muted-foreground"> (plus {sum.orders - sum.counted} cancelled, rejected or test, which don&apos;t count)</span>}.
                 </p>
                 <div className="divide-y rounded-xl border max-w-md">
-                  {Object.entries(sum.payments).map(([k, p]) => (
+                  {Object.entries(sum.payments || {}).map(([k, p]) => (
                     <div key={k} className="px-3 py-1.5 flex items-center gap-3">
                       <span className="flex-1 min-w-0 truncate">{p.label}</span>
                       <span className="text-muted-foreground tabular-nums">{p.count}</span>
@@ -543,17 +556,17 @@ function ImportPastOrders({ venueId, canSetup }) {
               </div>
             )}
 
-            {preview.mapping_gaps.length > 0 && (
+            {preview.mapping_gaps?.length > 0 && (
               <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
                 Your field mapping uses {preview.mapping_gaps.join(', ')}, which this file doesn&apos;t have: imported days will show £0 for it.
                 Map those fields to Order totals or Food subtotal if you fill past days.
               </p>
             )}
-            {preview.columns.not_in_file.length > 0 && (
+            {preview.columns?.not_in_file?.length > 0 && (
               <p className="text-xs text-muted-foreground">Not in this file (counted as 0 or left empty): {preview.columns.not_in_file.join(', ')}.</p>
             )}
 
-            {preview.problems.length > 0 && (
+            {preview.problems?.length > 0 && (
               <div className="rounded-xl border max-h-48 overflow-y-auto divide-y text-xs">
                 {preview.problems.map(pr => (
                   <div key={pr.line} className="px-3 py-1.5"><span className="font-medium tabular-nums">Row {pr.line}:</span> {pr.message}</div>
