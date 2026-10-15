@@ -23,7 +23,9 @@
 // 159) when the venue's GloriaFood link has show_on_board on: same shape,
 // source 'gloriafood', mixed in by ready time. Their board status is ours
 // only (GloriaFood isn't told); a cancelled GloriaFood order shows as
-// cancelled and can't be moved.
+// cancelled and can't be moved. Orders imported from GloriaFood's export
+// (migration 162) are added on days before today, marked imported, and
+// can't be moved either.
 
 import { z } from 'zod'
 import { withTenant } from '../config/db.js'
@@ -352,8 +354,12 @@ export default async function ordersRoutes(app) {
       const [gf] = await tx`
         SELECT show_on_board FROM gloriafood_venue_links
          WHERE tenant_id = ${req.tenantId} AND venue_id = ${venue.id}`
+      // Imported GloriaFood orders (migration 162) show on past days only.
       const gfOrders = gf?.show_on_board
-        ? await boardOrders(tx, { tenantId: req.tenantId, venueId: venue.id, date, timezone: venue.timezone })
+        ? await boardOrders(tx, {
+          tenantId: req.tenantId, venueId: venue.id, date, timezone: venue.timezone,
+          includeImported: date < localParts(new Date(), venue.timezone).date,
+        })
         : []
       const all = [
         ...orders.map(o => adminOrder(o, byOrder[o.id] || [], {}, promosByOrder[o.id] || [])),
@@ -376,9 +382,10 @@ export default async function ordersRoutes(app) {
     const b = z.object({ to: z.enum(['accepted', 'preparing', 'ready', 'completed']) }).parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const [o] = await tx`
-        SELECT id, status, venue_id FROM gloriafood_orders
+        SELECT id, status, venue_id, received_via FROM gloriafood_orders
          WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
       if (!o) throw httpError(404, 'Order not found')
+      if (o.received_via === 'import') throw httpError(422, 'This order was imported from GloriaFood\'s order export. It can be looked at but not moved.')
       if (o.status !== 'accepted') throw httpError(422, 'This order was cancelled in GloriaFood.')
       const [u] = await tx`
         UPDATE gloriafood_orders

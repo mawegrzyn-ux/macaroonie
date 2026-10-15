@@ -13,6 +13,9 @@
 //   ImportPastOrders       (settings) import GloriaFood's order export for the
 //                          days before the link: preview, then Import; remove
 //                          imported orders (migration 162).
+//   GloriaFoodOrdersButton "GloriaFood orders" on the day view: every order on
+//                          that trading day (live and imported), the day's
+//                          totals, tap one for its amounts. Read only.
 //
 // Figures and labels come from shared/gloriafood.js. GloriaFood only hands
 // over orders as they are accepted, so the figures are the orders stored
@@ -24,6 +27,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import {
   Loader2, X, Check, AlertTriangle, RefreshCw, Search, Download, Copy, Link2, ShoppingBag, Upload, FileSpreadsheet,
+  ReceiptText, ChevronLeft, ChevronRight, ChevronDown,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -299,7 +303,7 @@ function VenueLinkCards({ venueId, config, canSetup }) {
         </p>
         <Switch checked={d.show_on_board} disabled={readOnly} onChange={v => set({ show_on_board: v })}
           label="Show GloriaFood orders on the Online orders board"
-          hint="They show with a GloriaFood label next to your own online orders. Moving one to Ready or Collected only changes the board; GloriaFood isn't told." />
+          hint="They show with a GloriaFood label next to your own online orders. Moving one to Ready or Collected only changes the board; GloriaFood isn't told. Imported past orders show on past days, under Done, to look at only." />
         {base.show_on_board && (
           <Link to="/orders" className="inline-flex items-center gap-1.5 text-sm text-primary underline-offset-2 hover:underline min-h-[44px]">
             <ShoppingBag className="w-4 h-4" /> Open the Online orders board
@@ -524,6 +528,12 @@ function ImportPastOrders({ venueId, canSetup }) {
 
         {error && <p className="text-destructive flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {error}</p>}
         {done && <p className="text-green-700 flex items-start gap-1.5"><Check className="w-4 h-4 shrink-0 mt-0.5" /> {done} Fill Cash Recon days from the day view or the week grid.</p>}
+        {imported?.count > 0 && (
+          <p className="text-muted-foreground">
+            To see the orders one by one, open a day in Cash Recon and tap GloriaFood orders. With &quot;Show GloriaFood orders on
+            the Online orders board&quot; on, they also show on the board&apos;s past days.
+          </p>
+        )}
 
         {preview && (
           <div className="rounded-xl border p-3 space-y-3" data-testid="import-preview">
@@ -771,5 +781,220 @@ export function GloriaFoodFillModal({ venueId, dates, onClose, onApplied }) {
         </>
       )}
     />
+  )
+}
+
+// ── A day's orders ───────────────────────────────────────────────────────────
+// GET /gloriafood/venues/:id/day places orders on trading days exactly as a
+// fill does, so the totals here are what Fill from GloriaFood writes from.
+// Read only, and no guest details: this is the money behind the figures.
+
+const addDays = (date, n) => {
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+const clock = (iso, tz) => (iso
+  ? new Intl.DateTimeFormat('en-GB', { timeZone: tz || undefined, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso))
+  : '')
+const clockDay = (iso, tz) => (iso
+  ? new Intl.DateTimeFormat('en-GB', { timeZone: tz || undefined, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso))
+  : '')
+
+export function GloriaFoodOrdersButton({ venueId, date, compact, className }) {
+  const { data } = useGloriaFoodLink(venueId)
+  const [open, setOpen] = useState(false)
+  if (!data?.link || !date) return null
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}
+        className={cn(compact
+          ? 'h-8 px-3 rounded-lg border text-xs font-semibold touch-manipulation hover:bg-muted flex items-center gap-1.5 whitespace-nowrap'
+          : 'h-10 px-4 rounded-xl border text-sm font-medium touch-manipulation hover:bg-muted flex items-center gap-2 whitespace-nowrap',
+          className)}>
+        <ReceiptText className={compact ? 'w-3 h-3' : 'w-4 h-4'} /> GloriaFood orders
+      </button>
+      {open && <GloriaFoodDayOrders venueId={venueId} date={date} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
+function GloriaFoodDayOrders({ venueId, date: startDate, onClose }) {
+  const api = useApi()
+  const [date, setDate] = useState(startDate)
+  const [openId, setOpenId] = useState(null)
+  const q = useQuery({
+    queryKey: ['gloriafood-day', venueId, date],
+    queryFn:  () => api.get(`/gloriafood/venues/${venueId}/day?date=${date}`),
+  })
+  useEffect(() => { setOpenId(null) }, [date])
+  useEffect(() => {
+    const onKey = e => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const d = q.data
+  const cur = d?.currency || 'GBP'
+  const tz = d?.timezone
+  const f = d?.figures
+  const navBtn = 'w-11 h-11 rounded-xl border flex items-center justify-center touch-manipulation hover:bg-muted shrink-0'
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
+      <div role="dialog" aria-label="GloriaFood orders"
+        className="bg-background rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 section-head flex items-center gap-2">
+          <ReceiptText className="w-5 h-5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold leading-tight">GloriaFood orders</h2>
+            {d && (
+              <p className="text-xs text-muted-foreground truncate">
+                {d.day_basis === 'accepted' ? 'By accepted time' : 'By collection / delivery time'} · Trading day from {String(d.day_starts_at).slice(0, 5)}
+              </p>
+            )}
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close"
+            className="w-11 h-11 rounded-xl flex items-center justify-center touch-manipulation hover:bg-black/5 shrink-0">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-4 py-2 border-b flex items-center gap-2">
+          <button type="button" className={navBtn} onClick={() => setDate(x => addDays(x, -1))} aria-label="Day before"><ChevronLeft className="w-4 h-4" /></button>
+          <div className="flex-1 text-center text-sm font-semibold">{format(new Date(date + 'T12:00:00'), 'EEEE d MMMM yyyy')}</div>
+          <button type="button" className={navBtn} onClick={() => setDate(x => addDays(x, 1))} aria-label="Day after"><ChevronRight className="w-4 h-4" /></button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-4 space-y-4">
+          {q.isLoading && <div className="py-10 flex justify-center"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>}
+          {q.isError && (
+            <p className="text-sm text-destructive flex items-start gap-1.5"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {q.error?.body?.error || q.error?.message}</p>
+          )}
+
+          {f && (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <Stat label="Orders counted" value={f.orders} />
+                <Stat label="Order totals" value={pence(f.total_pence, cur)} />
+                <Stat label="Tips" value={pence(f.tips_pence, cur)} />
+                <Stat label="Not counted" value={f.not_counted}
+                  hint={[f.cancelled ? `${f.cancelled} cancelled` : null, f.test_orders ? `${f.test_orders} test` : null].filter(Boolean).join(', ')} />
+              </div>
+
+              {f.payments.length > 0 && (
+                <div className="rounded-xl border divide-y text-sm">
+                  {f.payments.map(p => (
+                    <div key={p.id} className="px-3 py-2 flex items-center gap-3">
+                      <span className="flex-1 min-w-0 truncate">{p.name}</span>
+                      <span className="text-muted-foreground tabular-nums">{p.count}</span>
+                      <span className="w-24 text-right font-medium tabular-nums">{pence(p.amount_pence, cur)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {d.orders.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">No GloriaFood orders on this day.</p>
+              ) : (
+                <div className="rounded-xl border divide-y" data-testid="gf-day-orders">
+                  {d.orders.map(o => (
+                    <DayOrderRow key={o.id} o={o} tz={tz} cur={o.currency || cur}
+                      open={openId === o.id} onToggle={() => setOpenId(id => (id === o.id ? null : o.id))} />
+                  ))}
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Only accepted orders count in Cash Recon; cancelled, rejected and GloriaFood test orders are listed but not
+                counted. Imported orders come from GloriaFood&apos;s order export, which has no dishes or customer details.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, value, hint }) {
+  return (
+    <div className="rounded-xl border px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold tabular-nums">{value}</div>
+      {hint && <div className="text-xs text-muted-foreground">{hint}</div>}
+    </div>
+  )
+}
+
+function DayOrderRow({ o, tz, cur, open, onToggle }) {
+  const cancelled = o.status === 'canceled' || o.status === 'cancelled'
+  const Line = ({ label, value, minus }) => (value ? (
+    <div className="flex justify-between gap-3"><span className="text-muted-foreground">{label}</span><span className="tabular-nums">{minus ? '-' : ''}{pence(value, cur)}</span></div>
+  ) : null)
+  return (
+    <div>
+      <button type="button" onClick={onToggle} aria-expanded={open}
+        className="w-full min-h-[56px] px-3 py-2 flex items-center gap-3 text-left touch-manipulation hover:bg-muted/50">
+        <span className="w-12 shrink-0 text-sm font-semibold tabular-nums">{clock(o.at, tz)}</span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-semibold">#{o.order_number}</span>
+            {o.imported && <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200">Imported</span>}
+            {o.status !== 'accepted' && (
+              <span className={cn('text-[11px] px-2 py-0.5 rounded-full', cancelled || o.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700')}>{o.status_label}</span>
+            )}
+            {o.is_test && <span className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">Test</span>}
+          </span>
+          <span className="block text-xs text-muted-foreground truncate">{o.type_label} · {o.payment_label}</span>
+        </span>
+        <span className={cn('text-sm font-semibold tabular-nums shrink-0', !o.counts && 'line-through text-muted-foreground font-normal')}>{pence(o.total_pence, cur)}</span>
+        <ChevronDown className={cn('w-4 h-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="px-3 pb-3 pl-[4.5rem] text-sm space-y-2">
+          {!o.counts && (
+            <p className="text-xs text-amber-700">
+              {o.is_test ? 'A GloriaFood test order: not counted in Cash Recon.' : `${o.status_label}: not counted in Cash Recon.`}
+            </p>
+          )}
+          <div className="space-y-0.5">
+            {o.accepted_at && <div className="flex justify-between gap-3"><span className="text-muted-foreground">Accepted</span><span>{clockDay(o.accepted_at, tz)}</span></div>}
+            {o.fulfill_at && <div className="flex justify-between gap-3"><span className="text-muted-foreground">{o.type === 'delivery' ? 'Delivery' : 'Collection'}</span><span>{clockDay(o.fulfill_at, tz)}</span></div>}
+          </div>
+          {o.items.length > 0 && (
+            <div className="space-y-1 border-t pt-2">
+              {o.items.map((i, n) => (
+                <div key={n} className="flex justify-between gap-3">
+                  <span className="min-w-0"><strong>{i.qty} x</strong> {i.name}{i.options.length > 0 && <span className="block text-xs text-muted-foreground">{i.options.join(', ')}</span>}</span>
+                  <span className="tabular-nums shrink-0">{pence(i.total_pence, cur)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="space-y-0.5 border-t pt-2">
+            <Line label="Items before discounts" value={o.items_pence} />
+            <Line label="Discounts" value={o.discount_pence} minus />
+            <Line label="Food subtotal" value={o.subtotal_pence} />
+            <Line label="Delivery fee" value={o.delivery_fee_pence} />
+            <Line label="Service fees" value={o.service_fee_pence} />
+            <Line label="Tip" value={o.tip_pence} />
+            <div className="flex justify-between gap-3 font-semibold"><span>Total</span><span className="tabular-nums">{pence(o.total_pence, cur)}</span></div>
+            <Line label="Tax (included)" value={o.tax_pence} />
+          </div>
+          <div className="text-xs text-muted-foreground border-t pt-2 space-y-0.5">
+            <div>
+              Paid: {o.used_payment_labels.length > 1 ? o.used_payment_labels.join(' + ') + ' (counts under ' + o.payment_label + ')' : o.payment_label}
+              {o.card_type ? ' · ' + o.card_type : ''}
+            </div>
+            <div>
+              {o.imported
+                ? <>Imported from {o.import_file || 'GloriaFood\'s order export'}{o.import_line ? `, line ${o.import_line}` : ''}</>
+                : o.received_via === 'poll' ? 'Collected from GloriaFood' : 'Sent by GloriaFood'}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

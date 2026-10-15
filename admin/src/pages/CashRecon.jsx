@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
 import { useTimelineSettings } from '@/contexts/TimelineSettingsContext'
 import { WeekWagesEditor } from '@/components/cashRecon/WagesTable'
 import { LoyverseSettings, LoyverseFillButton } from '@/components/cashRecon/Loyverse'
-import { GloriaFoodSettings, GloriaFoodFillButton } from '@/components/cashRecon/GloriaFood'
+import { GloriaFoodSettings, GloriaFoodFillButton, GloriaFoodOrdersButton } from '@/components/cashRecon/GloriaFood'
 import { splitPay } from '@shared/payMethod.js'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -1433,6 +1433,7 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
             </div>
           </div>
           <div className="ml-auto flex flex-wrap justify-end items-center gap-2">
+            <GloriaFoodOrdersButton venueId={venueId} date={date} />
             {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
             {!isSubmitted && <GloriaFoodFillButton venueId={venueId} dates={[date]} />}
             {canManage && !isSubmitted && (
@@ -1463,10 +1464,11 @@ export function DayView({ venueId, date, onBack, hideHeader, onStateChange }) {
       <div className="p-4 space-y-4 pb-32">
         {!canManage && <ReadOnlyNotice what="this day" />}
 
-        {hideHeader && !isSubmitted && (
+        {hideHeader && (
           <div className="flex flex-wrap justify-end gap-2 empty:hidden">
-            <LoyverseFillButton venueId={venueId} dates={[date]} />
-            <GloriaFoodFillButton venueId={venueId} dates={[date]} />
+            <GloriaFoodOrdersButton venueId={venueId} date={date} />
+            {!isSubmitted && <LoyverseFillButton venueId={venueId} dates={[date]} />}
+            {!isSubmitted && <GloriaFoodFillButton venueId={venueId} dates={[date]} />}
           </div>
         )}
 

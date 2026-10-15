@@ -12,7 +12,10 @@
 // GloriaFood orders (migration 159) come in the same list when the venue's
 // GloriaFood link shows them on the board (source 'gloriafood'): marked
 // with a GloriaFood label, already accepted, moved through our own board
-// statuses only (GloriaFoodOrderModal), never paid or refunded here.
+// statuses only (GloriaFoodOrderModal), never paid or refunded here. On days
+// before today the list also has orders imported from GloriaFood's export
+// (imported: true, migration 162): Done column, Imported label, view only,
+// no dishes or guest details.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -58,6 +61,16 @@ export function GloriaFoodBadge({ className }) {
   return (
     <span className={cn('text-[11px] px-2 py-0.5 rounded-full font-semibold bg-orange-100 text-orange-800 border border-orange-200', className)}>
       GloriaFood
+    </span>
+  )
+}
+
+/** An order that came from GloriaFood's order export, not from GloriaFood directly. */
+export function ImportedBadge({ className }) {
+  return (
+    <span className={cn('text-[11px] px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-700 border border-gray-200', className)}
+      title="Imported from GloriaFood's order export">
+      Imported
     </span>
   )
 }
@@ -231,6 +244,9 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
   const orders = q.data?.orders || []
   const venue = q.data?.venue
   const tz = venue?.timezone || 'Europe/London'
+  // A past day is a record: open Done (where its orders are) straight away.
+  const past = !!date && !!venue && date < todayIn(tz)
+  useEffect(() => { setShowDone(past) }, [date, past])
 
   // Chime when a new order arrives (not on first load).
   useEffect(() => {
@@ -250,7 +266,7 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
 
   const quick = o => {
     const next = { placed: 'accepted', accepted: 'ready', preparing: 'ready', ready: 'completed' }[o.status]
-    if (!next || !canManage) return null
+    if (!next || !canManage || o.imported) return null
     const label = { accepted: 'Accept', ready: 'Ready', completed: isGloriaFood(o) && o.order_type === 'delivery' ? 'Sent' : 'Collected' }[next]
     const m = isGloriaFood(o) ? actions.gfStatus : actions.status
     return (
@@ -274,16 +290,17 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
             <span className="text-lg font-bold">#{o.order_number}</span>
             <span className={cn('text-[11px] px-2 py-0.5 rounded-full font-medium', STATUS[o.status]?.cls)}>{STATUS[o.status]?.label}</span>
             {isGloriaFood(o) && <GloriaFoodBadge />}
+            {o.imported && <ImportedBadge />}
           </div>
-          <div className="text-sm font-medium truncate">{o.guest_name}</div>
+          {!o.imported && <div className="text-sm font-medium truncate">{o.guest_name}</div>}
         </div>
         <div className="text-right shrink-0">
           <div className="flex items-center gap-1 justify-end text-sm font-semibold"><Clock className="w-3.5 h-3.5" />{o.is_asap ? 'ASAP ' : ''}{timeOf(o.promised_at, tz)}</div>
-          <div className="text-sm">{money(o.total_pence, o.currency)}</div>
+          <div className={cn('text-sm', isGloriaFood(o) && o.status === 'cancelled' && 'line-through text-muted-foreground')}>{money(o.total_pence, o.currency)}</div>
         </div>
       </div>
       <div className="mt-2 text-xs text-muted-foreground line-clamp-2">
-        {o.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
+        {o.imported ? 'From GloriaFood\'s order export: no dishes' : o.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 flex-wrap">
         <div className="flex gap-1.5 flex-wrap">
@@ -311,13 +328,14 @@ export function OrderBoard({ venueId, date, compact = false, showUnpaid = false 
   )
 
   const actionError = actions.status.error?.message || actions.gfStatus.error?.message
+  // The day's sales: GloriaFood's own test orders aren't sales.
+  const sales = orders.filter(o => !['rejected', 'cancelled', 'expired', 'pending_payment'].includes(o.status) && !o.is_test)
 
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <p className="text-sm text-muted-foreground">
-          {orders.filter(o => !['rejected', 'cancelled', 'expired', 'pending_payment'].includes(o.status)).length} orders ·{' '}
-          {money(orders.filter(o => !['rejected', 'cancelled', 'expired', 'pending_payment'].includes(o.status)).reduce((s, o) => s + o.total_pence, 0))}
+          {sales.length} orders · {money(sales.reduce((s, o) => s + o.total_pence, 0))}
         </p>
         {soundBtn}
       </div>
@@ -572,6 +590,7 @@ export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
   const delivery = o.order_type === 'delivery'
   const setStatus = to => actions.gfStatus.mutate({ id: o.id, to })
   const cancelled = o.status === 'cancelled'
+  const imported = !!o.imported
   const Line = ({ label, pence, minus }) => pence ? (
     <div className={cn('flex justify-between text-sm', minus && 'text-emerald-700')}>
       <span>{label}</span><span>{minus ? '-' : ''}{money(pence, o.currency)}</span>
@@ -589,14 +608,15 @@ export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="px-5 h-14 border-b flex items-center justify-between sticky top-0 bg-background z-10">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="px-5 min-h-14 py-1.5 border-b flex items-center justify-between gap-2 sticky top-0 bg-background z-10">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
             <h2 className="font-bold text-lg">#{o.order_number}</h2>
             <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', STATUS[o.status]?.cls)}>{STATUS[o.status]?.label}</span>
             <GloriaFoodBadge />
+            {imported && <ImportedBadge />}
           </div>
-          <div className="flex items-center gap-1">
-            <button onClick={() => printTicket(o, venue)} className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent touch-manipulation" title="Print ticket"><Printer className="w-5 h-5" /></button>
+          <div className="flex items-center gap-1 shrink-0">
+            {!imported && <button onClick={() => printTicket(o, venue)} className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent touch-manipulation" title="Print ticket"><Printer className="w-5 h-5" /></button>}
             <button onClick={onClose} className="w-11 h-11 flex items-center justify-center rounded hover:bg-accent touch-manipulation"><X className="w-5 h-5" /></button>
           </div>
         </div>
@@ -609,20 +629,28 @@ export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
           {o.is_test && (
             <div className="rounded-md bg-muted p-3 text-sm">A GloriaFood test order (placed from GloriaFood&apos;s menu preview). It isn&apos;t counted in Cash Recon.</div>
           )}
+          {imported && (
+            <div className="rounded-md bg-muted p-3 text-sm">
+              Imported from GloriaFood&apos;s order export{o.import_file ? <> ({o.import_file}{o.import_line ? `, line ${o.import_line}` : ''})</> : ''}.
+              The export has no dishes or customer details, so only the amounts are here. It can be looked at, not moved.
+            </div>
+          )}
 
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-xs text-muted-foreground">{o.type_label}{o.is_asap ? ', as soon as possible by' : delivery ? ', deliver at' : ', ready at'}</div>
+              <div className="text-xs text-muted-foreground">{o.type_label}{imported ? (delivery ? ', delivered at' : ', collected at') : o.is_asap ? ', as soon as possible by' : delivery ? ', deliver at' : ', ready at'}</div>
               <div className="text-2xl font-bold">{timeOf(o.promised_at, tz)}</div>
             </div>
             {o.table_number && <div className="text-right"><div className="text-xs text-muted-foreground">Table</div><div className="text-xl font-bold">{o.table_number}</div></div>}
           </div>
 
-          <div className="space-y-1 text-sm">
-            <div className="font-semibold text-base">{o.guest_name}</div>
-            {o.guest_phone && <a href={`tel:${o.guest_phone}`} className="flex items-center gap-2 text-primary min-h-[32px]"><Phone className="w-4 h-4" />{o.guest_phone}</a>}
-            {o.address && <div className="flex items-start gap-2 text-muted-foreground"><MapPin className="w-4 h-4 shrink-0 mt-0.5" />{o.address}</div>}
-          </div>
+          {!imported && (
+            <div className="space-y-1 text-sm">
+              <div className="font-semibold text-base">{o.guest_name}</div>
+              {o.guest_phone && <a href={`tel:${o.guest_phone}`} className="flex items-center gap-2 text-primary min-h-[32px]"><Phone className="w-4 h-4" />{o.guest_phone}</a>}
+              {o.address && <div className="flex items-start gap-2 text-muted-foreground"><MapPin className="w-4 h-4 shrink-0 mt-0.5" />{o.address}</div>}
+            </div>
+          )}
 
           {o.notes && <div className="rounded-md bg-muted p-3 text-sm"><strong>Note:</strong> {o.notes}</div>}
 
@@ -638,6 +666,7 @@ export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
               </div>
             ))}
             <div className="pt-2 space-y-0.5">
+              {!(o.items || []).length && <Line label="Food subtotal" pence={o.subtotal_pence} />}
               <Line label="Discounts" pence={o.discount_pence} minus />
               <Line label="Delivery" pence={o.delivery_fee_pence} />
               <Line label="Service fees" pence={o.service_fee_pence} />
@@ -652,7 +681,7 @@ export function GloriaFoodOrderModal({ order: o, venue, venueId, onClose }) {
             {o.used_payment_methods?.length > 1 && <span className="text-muted-foreground">Paid two ways</span>}
           </div>
 
-          {!cancelled && (
+          {!cancelled && !imported && (
             <div className="space-y-2">
               <div className="grid grid-cols-3 gap-2">
                 <Btn onClick={() => setStatus('preparing')} disabled={o.status === 'preparing'}><ChefHat className="w-4 h-4" />Preparing</Btn>
