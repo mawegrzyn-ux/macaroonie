@@ -1370,7 +1370,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET .../push-url, POST .../push-url/new, POST .../restaurant/reset, POST .../poll', 'The address (setup only), a new token, forget the learned restaurant, check GloriaFood now (cash_recon manage, poll venues only).'],
                 ['GET .../orders, GET .../seen', 'Latest stored orders (view), payment methods and order types known plus seen (setup).'],
                 ['POST .../preview, POST .../apply', 'As Loyverse (31 days max). Preview polls a poll venue first (poll_error on failure, never thrown) and returns values[key].source; apply works only from stored orders, skips submitted days, keeps notes.'],
-                ['Board', 'GET /api/orders appends boardOrders() (status accepted or canceled, fulfill_at on the board day in venue time) when show_on_board, sorted by promised_at, and returns gloriafood.show_on_board. POST /api/orders/gloriafood/:id/status { to: accepted | preparing | ready | completed } (web_orders manage) changes board_status only; a cancelled order is 422. Broadcasts order.created / order.updated with source gloriafood.'],
+                ['Board', 'GET /api/orders appends boardOrders() (status accepted or canceled, fulfill_at on the board day in venue time) when show_on_board, sorted by promised_at, and returns gloriafood.show_on_board. For a day before today (venue time) it passes includeImported, so imported orders come too, with imported: true, import_file / import_line and is_asap false. POST /api/orders/gloriafood/:id/status { to: accepted | preparing | ready | completed } (web_orders manage) changes board_status only; a cancelled or imported order is 422. Broadcasts order.created / order.updated with source gloriafood.'],
+                ['GET .../day?date=YYYY-MM-DD', 'dayOrders(): every stored order (any status, live or imported) whose fulfill_at or accepted_at (link day_basis) falls in that trading day (tradingDay() with day_starts_at, as venueDays()), up to 2,000, ordered by time. Returns { date, timezone, day_basis, day_starts_at, currency, figures, orders }: figures from summariseOrders() (orders, cancelled, test_orders, not_counted, total / subtotal / tips / delivery / service fees / tax in pence, payments and types with counts), so they match the fill preview; each order has its pence columns, status_label, counts (countsInRecon()), labels, used_payment_labels, received_via, imported + import_file / import_line and its dishes. No guest details or notes. cash_recon view; 422 when the venue isn\'t linked.'],
               ]}
             />
             <P>
@@ -1380,8 +1381,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>components/cashRecon/reconShared.jsx</Mono> (<Mono>MappingGroups</Mono>,{' '}
               <Mono>ReconFillModal</Mono> with a <Mono>source</Mono> config, <Mono>TermChip</Mono>,{' '}
               <Mono>useReconLinkPerms()</Mono>). Board: <Mono>isGloriaFood()</Mono>,{' '}
-              <Mono>GloriaFoodBadge</Mono>, <Mono>GloriaFoodOrderModal</Mono> and the{' '}
-              <Mono>gfStatus</Mono> action in <Mono>components/orders/shared.jsx</Mono>.
+              <Mono>GloriaFoodBadge</Mono>, <Mono>ImportedBadge</Mono>, <Mono>GloriaFoodOrderModal</Mono> (imported
+              orders: a note, no guest block, print or status buttons) and the <Mono>gfStatus</Mono> action in{' '}
+              <Mono>components/orders/shared.jsx</Mono>; on a past day the board opens Done by itself, and its
+              order count leaves out <Mono>is_test</Mono> orders. A day&apos;s orders:{' '}
+              <Mono>GloriaFoodOrdersButton</Mono> (day view header, and the button strip of the header-less day view
+              in <Mono>/mobile/cash-up</Mono>; shown whenever the venue has a link, also on submitted days and to
+              cash_recon view) opens <Mono>GloriaFoodDayOrders</Mono>: day arrows, figure tiles, payments, one
+              expandable row per order (<Mono>DayOrderRow</Mono>).
             </P>
             <InfoBox type="warn">
               Built from GloriaFood&apos;s published Accepted Orders API v2 and its two sample orders, and
@@ -1397,8 +1404,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>board_status = &apos;completed&apos;</Mono>, no <Mono>items</Mono> and a{' '}
               <Mono>payload</Mono> of only <Mono>{'{ imported: { file, line } }'}</Mono>, so{' '}
               <Mono>venueDays()</Mono> / <Mono>summariseOrders()</Mono> fill Cash Recon from them unchanged.
-              They are left out of the board (<Mono>boardOrders()</Mono>), the settings tab&apos;s latest
-              orders and its Orders received count. <Mono>gloriafood_venue_links.last_import_at</Mono> /{' '}
+              They are left out of today&apos;s board (<Mono>boardOrders()</Mono> takes them only with{' '}
+              <Mono>includeImported</Mono>, for past days, view only), the settings tab&apos;s latest orders and its
+              Orders received count; <Mono>GET .../day</Mono> lists them with the live ones.{' '}
+              <Mono>gloriafood_venue_links.last_import_at</Mono> /{' '}
               <Mono>_by</Mono> / <Mono>_file</Mono> record the last import.
             </P>
             <P>
@@ -3221,8 +3230,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               GloriaFood orders (migration 159) join the board list when the venue&apos;s GloriaFood link has{' '}
               <Mono>show_on_board</Mono> on: same shape with <Mono>source: &apos;gloriafood&apos;</Mono>, a
-              GloriaFood label, our own board status only (never paid, refunded or told to GloriaFood). See
-              Cash Reconciliation, GloriaFood.
+              GloriaFood label, our own board status only (never paid, refunded or told to GloriaFood). On days
+              before today, orders imported from GloriaFood&apos;s export (migration 162) come too, marked{' '}
+              <Mono>imported</Mono>, in Done and view only. See Cash Reconciliation, GloriaFood.
             </P>
             <H3>Promotions (migration 131)</H3>
             <P>

@@ -12,6 +12,8 @@
 //   POST   /venues/:venueId/restaurant/reset  forget which GloriaFood restaurant the venue is linked to
 //   POST   /venues/:venueId/poll              check GloriaFood for orders now (poll venues)
 //   GET    /venues/:venueId/orders            the latest stored orders (settings check list)
+//   GET    /venues/:venueId/day?date=         every order on one Cash Recon trading day, with the
+//                                              day's figures (Cash Recon day > GloriaFood orders)
 //   GET    /venues/:venueId/seen              payment methods / order types seen (mapping picker)
 //   POST   /venues/:venueId/preview           { from, to } GloriaFood figures next to what Cash Recon has
 //   POST   /venues/:venueId/apply             { dates } write the mapped fields for those days
@@ -37,7 +39,7 @@ import { datesBetween } from '../services/loyverseSvc.js'
 import { fillReconDay, reconFields } from '../services/reconFill.js'
 import {
   GloriaFoodError, keyHint, newPushToken, pollVenue, ingestOrders, ordersOf, venueDays, seenValues,
-  importExport, importedStats, removeImported,
+  importExport, importedStats, removeImported, dayOrders,
 } from '../services/gloriafoodSvc.js'
 import { readFile } from './deliveroo.js'
 import {
@@ -366,6 +368,28 @@ export default async function gloriafoodRoutes(app) {
         accepted_at: r.accepted_at, fulfill_at: r.fulfill_at, received_at: r.received_at,
         received_via: r.received_via, restaurant_name: r.restaurant_name,
       }))
+    })
+  })
+
+  // The orders behind one day's figures: placed on trading days exactly as a
+  // fill places them, so the list adds up to what Fill from GloriaFood writes.
+  app.get('/venues/:venueId/day', { preHandler: canView }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const q = z.object({ date: DATE }).parse(req.query || {})
+    return withTenant(req.tenantId, async tx => {
+      const venue = await ownVenue(tx, req.tenantId, venueId)
+      const link = await loadLink(tx, req.tenantId, venueId)
+      if (!link) throw httpError(422, 'This venue isn\'t linked to GloriaFood yet. Set it up in Cash reconciliation settings > GloriaFood.')
+      const day = await dayOrders(tx, { tenantId: req.tenantId, venueId, timezone: venue.timezone, link, date: q.date })
+      return {
+        date: q.date,
+        timezone: venue.timezone || 'UTC',
+        day_basis: link.day_basis,
+        day_starts_at: link.day_starts_at,
+        currency: day.currency || 'GBP',
+        figures: day.figures,
+        orders: day.orders,
+      }
     })
   })
 

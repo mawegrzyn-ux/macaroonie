@@ -23,7 +23,7 @@ import { broadcast } from '../config/ws.js'
 import { tradingDay } from './loyverseSvc.js'
 import { zonedToUtc } from './orderSvc.js'
 import {
-  orderFromPayload, summariseOrders, paymentLabel, typeLabel, isValidTerm, termLabel,
+  orderFromPayload, summariseOrders, countsInRecon, paymentLabel, typeLabel, isValidTerm, termLabel,
   matchImportColumns, importMissingFigures, importOrderFromRow, IMPORT_COLUMNS,
 } from '../../../shared/gloriafood.js'
 
@@ -314,9 +314,13 @@ export async function seenValues(tx, tenantId, venueId) {
 
 // ── The board ────────────────────────────────────────────────
 
+/** Where an imported order came from: { file, line } (payload.imported), or null. */
+const importedFrom = r => (r.received_via === 'import' ? (r.payload?.imported || {}) : null)
+
 /** A stored order in the shape the Online orders board shows. */
 export function boardOrder(r) {
   const cancelled = r.status === 'canceled' || r.status === 'cancelled'
+  const from = importedFrom(r)
   return {
     id: r.id,
     source: 'gloriafood',
@@ -324,6 +328,11 @@ export function boardOrder(r) {
     status: cancelled ? 'cancelled' : r.board_status,
     gf_status: r.status,
     is_test: r.source === 'admin',
+    // Imported from GloriaFood's order export (migration 162): view only, no
+    // dishes or guest details.
+    imported: !!from,
+    import_file: from?.file ?? null,
+    import_line: from?.line ?? null,
     guest_name: r.client_name || 'GloriaFood customer',
     guest_phone: r.client_phone,
     guest_email: null,
@@ -336,7 +345,7 @@ export function boardOrder(r) {
     type_label: typeLabel(r.order_type),
     promised_at: r.fulfill_at,
     accepted_at: r.accepted_at,
-    is_asap: !r.for_later,
+    is_asap: !r.for_later && !from,
     currency: r.currency || 'GBP',
     payment: r.payment,
     payment_label: paymentLabel(r.payment),
@@ -364,8 +373,13 @@ export function boardOrder(r) {
   }
 }
 
-/** The venue's GloriaFood orders for a board day (venue-local calendar day of the fulfil time). */
-export async function boardOrders(tx, { tenantId, venueId, date, timezone }) {
+/**
+ * The venue's GloriaFood orders for a board day (venue-local calendar day of
+ * the fulfil time). Imported orders only with `includeImported`, which the
+ * board passes for days before today: they are records of past days, never
+ * live orders.
+ */
+export async function boardOrders(tx, { tenantId, venueId, date, timezone, includeImported = false }) {
   const start = zonedToUtc(date, '00:00', timezone || 'UTC')
   const next = new Date(Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10) + 1)).toISOString().slice(0, 10)
   const end = zonedToUtc(next, '00:00', timezone || 'UTC')
@@ -374,10 +388,80 @@ export async function boardOrders(tx, { tenantId, venueId, date, timezone }) {
      WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
        AND fulfill_at >= ${start} AND fulfill_at < ${end}
        AND status IN ('accepted', 'canceled', 'cancelled')
-       AND received_via <> 'import'
+       ${includeImported ? tx`` : tx`AND received_via <> 'import'`}
      ORDER BY fulfill_at, gf_order_id
   `
   return rows.map(boardOrder)
+}
+
+const STATUS_LABELS = { accepted: 'Accepted', canceled: 'Cancelled', cancelled: 'Cancelled', rejected: 'Rejected', missed: 'Missed' }
+export const statusLabel = s => STATUS_LABELS[s] || (s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ') : 'Unknown')
+
+/**
+ * Every stored order on one trading day, the way Cash Recon places them
+ * (venueDays(): the link's day basis and trading-day start), with the day's
+ * figures from summariseOrders() so the list adds up to what a fill writes.
+ * Money in pence. No guest details: this is the money behind the figures.
+ */
+export async function dayOrders(tx, { tenantId, venueId, timezone, link, date }) {
+  const { start, end } = tradingDay(date, timezone || 'UTC', link.day_starts_at)
+  const col = link.day_basis === 'accepted' ? 'accepted_at' : 'fulfill_at'
+  const rows = await tx`
+    SELECT id, gf_order_id, status, source, order_type, payment, used_payment_methods, card_type, currency,
+           total_pence, subtotal_pence, items_pence, discount_pence, delivery_fee_pence, tip_pence,
+           service_fee_pence, tax_pence, accepted_at, fulfill_at, ${tx(col)} AS at, received_via,
+           items, payload
+      FROM gloriafood_orders
+     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+       AND ${tx(col)} >= ${start} AND ${tx(col)} < ${end}
+     ORDER BY ${tx(col)}, gf_order_id
+     LIMIT 2000
+  `
+  const day = summariseOrders(rows)
+  let currency = null
+  const orders = rows.map(r => {
+    if (!currency && r.currency) currency = r.currency
+    const from = importedFrom(r)
+    return {
+      id: r.id,
+      order_number: String(r.gf_order_id),
+      status: r.status,
+      status_label: statusLabel(r.status),
+      counts: countsInRecon(r),
+      is_test: r.source === 'admin',
+      type: r.order_type, type_label: typeLabel(r.order_type),
+      payment: r.payment, payment_label: paymentLabel(r.payment),
+      used_payment_labels: (r.used_payment_methods || []).map(paymentLabel),
+      card_type: r.card_type,
+      currency: r.currency || null,
+      total_pence: r.total_pence, subtotal_pence: r.subtotal_pence, items_pence: r.items_pence,
+      discount_pence: r.discount_pence, delivery_fee_pence: r.delivery_fee_pence, tip_pence: r.tip_pence,
+      service_fee_pence: r.service_fee_pence, tax_pence: r.tax_pence,
+      at: r.at, accepted_at: r.accepted_at, fulfill_at: r.fulfill_at,
+      received_via: r.received_via,
+      imported: !!from, import_file: from?.file ?? null, import_line: from?.line ?? null,
+      items: (r.items || []).map(d => ({
+        qty: d.qty, name: d.name, total_pence: d.total_pence,
+        options: (d.options || []).map(o => (o.qty > 1 ? o.qty + ' x ' : '') + o.name),
+      })),
+    }
+  })
+  return {
+    orders,
+    currency,
+    figures: {
+      orders: day.orders, cancelled: day.cancelled, test_orders: day.test_orders,
+      not_counted: rows.length - day.orders,
+      total_pence: day.total, subtotal_pence: day.subtotal, tips_pence: day.tips,
+      delivery_fees_pence: day.delivery_fees, service_fees_pence: day.service_fees, tax_pence: day.tax,
+      payments: Object.entries(day.payments)
+        .map(([id, p]) => ({ id, name: paymentLabel(id === 'UNKNOWN' ? null : id), amount_pence: p.amount, count: p.count }))
+        .sort((a, b) => b.amount_pence - a.amount_pence),
+      types: Object.entries(day.types)
+        .map(([id, t]) => ({ id, name: typeLabel(id === 'other' ? null : id), amount_pence: t.amount, count: t.count }))
+        .sort((a, b) => b.amount_pence - a.amount_pence),
+    },
+  }
 }
 
 

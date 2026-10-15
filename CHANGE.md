@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-15 — GloriaFood: see the orders behind the figures]
+
+- **Cash Recon day > GloriaFood orders**: every GloriaFood order on that trading day (counted the same way as Fill from GloriaFood), with the orders counted, order totals, tips and the total by payment method. Tap an order for its times and amounts (subtotal, delivery fee, service fees, tip, tax, how it was paid); orders GloriaFood sent directly also list their dishes. Cancelled, rejected and test orders are listed but crossed out. Imported orders are marked Imported, with the file and line they came from. Arrows step to the next or previous day. Shown on submitted days too, and to people who can only view Cash Recon. No customer details.
+- **Online orders board**: on past days, orders imported from GloriaFood's export now show (when "Show GloriaFood orders on the Online orders board" is on) under Done, which opens by itself on a past day. They carry an Imported label and can be looked at but not moved or printed. Today's board never shows them.
+- The board's order count and total no longer include GloriaFood test orders.
+- No migration.
+
 ## [2026-10-15 — Purchasing: tidier order lines, choose what each line shows]
 
 - The pack you're ordering (Case, Box, Bag, with its size) now sits next to the quantity, in larger type. When another supplier sells the item, tap the pack to switch.

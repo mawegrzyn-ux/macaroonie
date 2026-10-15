@@ -1358,6 +1358,18 @@ export default function Help() {
               Guest names, phone numbers and addresses from GloriaFood are only kept for 30 days (the board
               needs them); the order amounts stay for your records.
             </InfoBox>
+            <H3>See a day&apos;s GloriaFood orders</H3>
+            <P>
+              On a day, tap <strong>GloriaFood orders</strong> (next to Fill from GloriaFood; it also shows
+              after the day is submitted, and to people who can only view Cash Recon). The window lists every
+              GloriaFood order on that trading day, the same way a fill counts them (your day rule and trading
+              day start), with the orders counted, order totals, tips and the total by payment method at the
+              top. Tap an order for its times, subtotal, delivery fee, service fees, tip, tax and how it was
+              paid; orders GloriaFood sent directly also list their dishes. Cancelled, rejected and test orders
+              are listed but crossed out, because they don&apos;t count. Imported orders carry an
+              <strong> Imported</strong> label and say which file and line they came from. Use the arrows to
+              step to the day before or after. Customer names and phone numbers aren&apos;t shown here.
+            </P>
             <H3>Import past GloriaFood orders</H3>
             <P>
               For days before the venue was linked, export the order list (CSV, or the same saved as Excel)
@@ -1397,6 +1409,11 @@ export default function Help() {
               GloriaFood) shows under that name when mapping. <strong>Remove imported orders</strong> takes
               them all out again; days already filled keep their figures until you fill them again.
             </InfoBox>
+            <P>
+              To look through imported orders one by one, open a day and tap <strong>GloriaFood orders</strong>.
+              With <strong>Show GloriaFood orders on the Online orders board</strong> switched on, they also
+              show on the board&apos;s past days (never on today&apos;s).
+            </P>
           </section>
 
           {/* ── FOOD SAFETY ───────────────────────────────── */}
@@ -3333,6 +3350,15 @@ export default function Help() {
               Preparing, Ready and Collected (Sent for deliveries). Those moves only change this board:
               GloriaFood isn&apos;t told, and payments and refunds stay in GloriaFood. An order cancelled in
               GloriaFood shows as Cancelled. GloriaFood orders aren&apos;t in the Report tab.
+            </P>
+            <P>
+              Orders you imported from GloriaFood&apos;s order export show too, but only on past days (go back
+              with the arrows or pick a day): under <strong>Done</strong>, which opens by itself on a past day,
+              with a grey <strong>Imported</strong> label. They are a record, so they can be looked at but not
+              moved or printed, and they have no dishes or customer details (the export doesn&apos;t include
+              them). The count at the top leaves out GloriaFood test orders. To check orders against a Cash Recon
+              day, use <strong>GloriaFood orders</strong> on that day instead (see Cash Reconciliation): the board
+              groups orders by calendar day, Cash Recon by your trading day.
             </P>
             <H3>Promotions</H3>
             <P>
