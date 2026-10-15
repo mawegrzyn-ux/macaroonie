@@ -53,10 +53,13 @@ export default defineConfig({
         // (rollupOptions.output.manualChunks) — this just unblocks deploys.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         // Do not precache index.html — a stale HTML shell is what made
-        // hard-refresh still boot the previous deploy.
+        // hard-refresh still boot the previous deploy. With no index.html
+        // in the precache there can be no navigation fallback either:
+        // Workbox throws non-precached-url while the service worker starts,
+        // so it never installs. Page loads always come from nginx, which
+        // already sends index.html for app routes.
         globPatterns: ['**/*.{js,css,ico,png,svg,woff,woff2}'],
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/manage/, /^\/reservations/, /^\/widget-api/, /^\/uploads/, /^\/ws/],
+        navigateFallback: null,
         runtimeCaching: [
           {
             // Never cache API or webhook calls — auth-protected and always dynamic

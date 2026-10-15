@@ -2162,6 +2162,15 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               add an entry here, add the route in <Mono>main.jsx</Mono>, build the page — no
               changes to the shell or hub.
             </P>
+            <H3>Service worker</H3>
+            <P>
+              <Mono>vite-plugin-pwa</Mono> (<Mono>admin/vite.config.js</Mono>) builds <Mono>sw.js</Mono> with Workbox. It
+              precaches only the built JS, CSS, fonts and images, never <Mono>index.html</Mono>, so a new deploy can&apos;t
+              boot from an old cached page; nginx sends <Mono>index.html</Mono> for every app route with no-cache headers.
+              Because of that there is no navigation fallback (<Mono>navigateFallback: null</Mono>): a fallback to a page
+              that isn&apos;t precached makes Workbox throw <Mono>non-precached-url</Mono> each time the worker starts, which
+              showed in every console from 22 Aug to 14 Oct 2026.
+            </P>
             <H3>Scoped second PWA manifest</H3>
             <P>
               <Mono>vite-plugin-pwa</Mono> already generates the main app's manifest (
