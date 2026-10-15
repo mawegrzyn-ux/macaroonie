@@ -87,3 +87,14 @@
 .timeline-slot.checked_out    { background: var(--status-checked-out-bg,    #e5e7eb); border-left: 3px solid var(--status-checked-out-bd,    #9ca3af); }
 .timeline-slot.cancelled      { background: var(--status-cancelled-bg,      #fca5a5); border-left: 3px solid var(--status-cancelled-bd,      #ef4444); opacity: 0.45; }
 .timeline-slot.no_show        { background: var(--status-no-show-bg,        #d1d5db); border-left: 3px solid var(--status-no-show-bd,        #9ca3af); opacity: 0.45; }
+
+@layer utilities {
+  /* sr-only controls (hidden file and colour inputs, switch checkboxes) are
+     absolutely positioned. With no positioned ancestor inside the scrolling
+     page they sat where the page would be unscrolled, below the screen,
+     making the window itself scrollable; when one got focus (the browser
+     focuses the file input as its dialog closes) the window scrolled to it
+     and the whole app moved off screen, leaving a blank page. Pinning them to
+     the top left of their containing block keeps them on screen. */
+  .sr-only { top: 0; left: 0; }
+}

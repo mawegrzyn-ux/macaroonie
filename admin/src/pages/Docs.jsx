@@ -2183,6 +2183,18 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               sidebar and header stay usable, and moving to another page clears it. It doesn&apos;t catch errors in event
               handlers or promises; those still need their own try/catch and a visible message.
             </P>
+            <H3>Hidden inputs (sr-only)</H3>
+            <P>
+              A file, colour or switch input hidden with Tailwind&apos;s <Mono>sr-only</Mono> is absolutely positioned. The
+              admin&apos;s shell is a full-height box that never scrolls; pages scroll inside their own panes. An{' '}
+              <Mono>sr-only</Mono> input with no positioned parent inside such a pane was placed where it would be with the
+              pane unscrolled, below the screen. That made the window itself scrollable, and when the input got focus the
+              window scrolled to it and the whole app moved off screen. The browser focuses a file input as its dialog
+              closes, so on the GloriaFood import (at the bottom of a long settings pane) picking a file left a blank page.
+              The address didn&apos;t change, nothing was logged, and Back fixed it. <Mono>index.css</Mono> now pins{' '}
+              <Mono>.sr-only</Mono> to <Mono>top: 0; left: 0</Mono> of its containing block, so it stays on screen. Also give
+              the label or wrapper of a hidden input <Mono>relative</Mono>, so the input sits inside it.
+            </P>
             <H3>Scoped second PWA manifest</H3>
             <P>
               <Mono>vite-plugin-pwa</Mono> already generates the main app's manifest (
