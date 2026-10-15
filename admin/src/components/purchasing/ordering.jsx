@@ -21,7 +21,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Plus, Search, Printer, FileText, FileSpreadsheet, Mail, Check, AlertTriangle, Truck,
-  ClipboardList, ChevronRight, X, PackageCheck, Clock, Send, Repeat, Thermometer, Snowflake,
+  ClipboardList, ChevronRight, ChevronDown, X, PackageCheck, Clock, Send, Repeat, Thermometer, Snowflake, Eye,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -130,6 +130,28 @@ function OrderHome({ venueId, meta, onOpen }) {
 
 // ── Order form ──────────────────────────────────────────────────
 
+// What each order line shows beyond the item, pack and quantity. All off
+// until switched on with Show; remembered on this device.
+const SHOW_KEY = 'maca_purchasing_show'
+const SHOW_OPTIONS = [
+  { key: 'supplier', label: 'Supplier', hint: 'Under each item (the group heading says it when grouped by supplier).' },
+  { key: 'price', label: 'Price', hint: 'Price per pack, under each item.', prices: true },
+  { key: 'last', label: 'Last order', hint: 'How many were ordered last time and when, under each item.' },
+  { key: 'last_qty', label: 'Last quantity column', hint: 'How many were ordered last time, in a column at the end of each line.' },
+]
+
+function useShowPrefs() {
+  const [show, setShow] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(SHOW_KEY)) || {} } catch { return {} }
+  })
+  const set = useCallback((key, on) => setShow(prev => {
+    const next = { ...prev, [key]: on }
+    try { localStorage.setItem(SHOW_KEY, JSON.stringify(next)) } catch { /* private */ }
+    return next
+  }), [])
+  return [show, set]
+}
+
 function useAutosave(orderId) {
   const api = useApi()
   const pending = useRef(new Map())
@@ -173,8 +195,18 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo }) {
   const [adding, setAdding] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [result, setResult] = useState(null)
+  const [showing, setShowing] = useState(false)
+  const [show, setShow] = useShowPrefs()
   const save = useAutosave(orderId)
   const prices = !!order?.show_prices
+  const view = {
+    supplier: !!show.supplier && groupBy !== 'supplier',
+    price: prices && !!show.price,
+    last: !!show.last,
+    lastQty: !!show.last_qty,
+  }
+  const showOptions = SHOW_OPTIONS.filter(o => !o.prices || prices)
+  const showCount = showOptions.filter(o => show[o.key]).length
 
   useEffect(() => {
     if (!order) return
@@ -245,6 +277,7 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo }) {
   const lineCount = bySupplier.reduce((n, g) => n + g.lines.length, 0)
   const grand = prices ? bySupplier.reduce((s, g) => s + g.totals.total, 0) : null
   const hasPars = order.items.some(it => it.par_base != null)
+  const hasExtras = order.items.some(it => !it.on_list)
 
   return (
     <div className="flex flex-col min-h-full">
@@ -273,6 +306,9 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo }) {
           <button type="button" onClick={() => setOnlyQty(v => !v)}
             className={cn(btn.outline, onlyQty && 'bg-primary/10 border-primary')}>{onlyQty ? 'Showing ordered' : 'Only ordered'}</button>
           {hasPars && <button type="button" className={btn.outline} onClick={fillPars}>Fill to par</button>}
+          <button type="button" className={cn(btn.outline, showCount > 0 && 'bg-primary/10 border-primary')} onClick={() => setShowing(true)}>
+            <Eye className="w-4 h-4" />Show{showCount ? ` (${showCount})` : ''}
+          </button>
           <button type="button" className={btn.outline} onClick={() => setAdding(true)}><Plus className="w-4 h-4" />Add item</button>
         </div>
         <ErrorNote error={save.error} />
@@ -290,7 +326,8 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo }) {
             </div>
             <div className="divide-y">
               {g.items.map(it => (
-                <OrderRow key={it.item_id} it={it} quote={quoteOf(it)} qty={qtyOf(it)} prices={prices} groupBy={groupBy}
+                <OrderRow key={it.item_id} it={it} quote={quoteOf(it)} qty={qtyOf(it)} view={view}
+                  hasPars={hasPars} hasExtras={hasExtras}
                   onQty={v => setQty(it.item_id, v)} onSwitch={() => setSwitching(it)}
                   onRemove={!it.on_list ? () => removeExtra.mutate(it.item_id) : null} />
               ))}
@@ -312,6 +349,21 @@ function OrderForm({ orderId, meta, phone, onBack, onPlaced, onOpenPo }) {
         </div>
       )}
 
+      {showing && (
+        <Modal title="Show on each line" onClose={() => setShowing(false)}>
+          <div className="space-y-3">
+            {showOptions.map(o => (
+              <div key={o.key}>
+                <Toggle checked={!!show[o.key]} onChange={v => setShow(o.key, v)} label={o.label} />
+                <p className="text-xs text-muted-foreground pl-12">{o.hint}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Remembered on this device. To order from another supplier, tap the pack next to the quantity.
+          </p>
+        </Modal>
+      )}
       {switching && (
         <SwitchSupplierModal it={switching} current={quoteOf(switching)} prices={prices} order={order}
           onPick={qid => { setQuote(switching, qid); setSwitching(null) }} onClose={() => setSwitching(null)} />
@@ -371,36 +423,85 @@ function deliveryHint(s) {
   return parts.join(' · ')
 }
 
-function OrderRow({ it, quote, qty, prices, groupBy, onQty, onSwitch, onRemove }) {
+function OrderRow({ it, quote, qty, view, hasPars, hasExtras, onQty, onSwitch, onRemove }) {
   const problem = quote ? qtyProblem(qty, quote) : null
   const par = quote && it.par_base != null ? packsToPar(it.par_base, quote) : null
+  const details = quote ? [
+    view.supplier && quote.supplier_name,
+    view.price && quote.price != null && `${money(quote.price)} per ${(quote.pack_name || 'pack').toLowerCase()}`,
+  ].filter(Boolean).join(' · ') : ''
+  const last = it.last
+  const lastOtherPack = last && quote && last.pack_label !== quote.pack_label
+  const parBtn = par > 0 && (
+    <button type="button" onClick={() => onQty(par)} title="Set to par"
+      className={cn('h-11 px-2 rounded-lg border text-xs touch-manipulation', qty === par ? 'bg-primary/10 border-primary' : 'hover:bg-muted')}>
+      Par {fmtNum(par)}
+    </button>
+  )
+  const removeBtn = onRemove && (
+    <button type="button" onClick={onRemove} aria-label={`Remove ${it.name}`}
+      className="w-11 h-11 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation"><X className="w-4 h-4" /></button>
+  )
+  // Below sm the item text gets a line of its own, so Par and remove sit
+  // beside the name and the pack, quantity and last figure fit one line.
   return (
-    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3', qty > 0 && 'bg-primary/[0.03]')}>
-      <div className="flex-1 min-w-[180px]">
-        <p className="font-medium text-sm">{it.name} <StorageBadge storage={it.storage} /></p>
-        {quote ? (
-          <button type="button" onClick={onSwitch} disabled={it.quotes.length < 2}
-            className="text-xs text-muted-foreground text-left touch-manipulation disabled:cursor-default enabled:underline enabled:decoration-dotted min-h-[28px]">
-            {groupBy !== 'supplier' && `${quote.supplier_name} · `}{quote.pack_label}{prices && quote.price != null ? ` · ${money(quote.price)}` : ''}
-            {it.quotes.length > 1 && <span className="ml-1 text-primary">(change)</span>}
-          </button>
-        ) : <p className="text-xs text-amber-700">No supplier sells this: ask a manager</p>}
-        <p className="text-xs text-muted-foreground">
-          {it.last && <>Last {fmtNum(it.last.qty)} on {fmtDate(it.last.delivery_date)}</>}
-          {problem && <span className="ml-2 text-amber-700">{problem}: will order {fmtNum(fitQty(qty, quote))}</span>}
-        </p>
+    <div className={cn('flex flex-wrap items-center gap-x-3 gap-y-2 px-3 sm:px-4 py-3', qty > 0 && 'bg-primary/[0.03]')}>
+      <div className="flex-1 min-w-[180px] flex items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-sm">{it.name} <StorageBadge storage={it.storage} /></p>
+          {!quote && <p className="text-xs text-amber-700">No supplier sells this: ask a manager</p>}
+          {details && <p className="text-xs text-muted-foreground">{details}</p>}
+          {view.last && last && (
+            <p className="text-xs text-muted-foreground">
+              Last {fmtNum(last.qty)}{lastOtherPack ? ` (${last.pack_label})` : ''} on {fmtDate(last.delivery_date)}
+            </p>
+          )}
+          {problem && <p className="text-xs text-amber-700">{problem}: will order {fmtNum(fitQty(qty, quote))}</p>}
+        </div>
+        {(parBtn || removeBtn) && <div className="sm:hidden flex items-center gap-1 shrink-0">{parBtn}{removeBtn}</div>}
       </div>
-      {par > 0 && (
-        <button type="button" onClick={() => onQty(par)} title="Set to par"
-          className={cn('h-11 px-3 rounded-lg border text-xs touch-manipulation', qty === par ? 'bg-primary/10 border-primary' : 'hover:bg-muted')}>
-          Par {fmtNum(par)}
-        </button>
-      )}
-      <QtyStepper value={qty} onChange={onQty} step={quote?.order_multiple || 1} disabled={!quote} label={it.name} />
-      {onRemove && (
-        <button type="button" onClick={onRemove} aria-label={`Remove ${it.name}`}
-          className="w-11 h-11 flex items-center justify-center rounded-lg text-muted-foreground hover:bg-muted touch-manipulation"><X className="w-4 h-4" /></button>
-      )}
+      <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
+        {hasPars && <div className="hidden sm:flex w-16 justify-end">{parBtn}</div>}
+        <PackLabel quote={quote} canSwitch={it.quotes.length > 1} onSwitch={onSwitch} />
+        <QtyStepper value={qty} onChange={onQty} step={quote?.order_multiple || 1} disabled={!quote} label={it.name} />
+        {view.lastQty && <LastQty last={last} otherPack={lastOtherPack} />}
+        {hasExtras && <div className="hidden sm:block w-11 shrink-0">{removeBtn}</div>}
+      </div>
+    </div>
+  )
+}
+
+// The pack being ordered, big, next to the quantity. With more than one
+// supplier it is the button that switches supplier.
+function PackLabel({ quote, canSwitch, onSwitch }) {
+  const width = 'w-[84px] sm:w-28 shrink-0'
+  if (!quote) return <span className={width} aria-hidden="true" />
+  const name = quote.pack_name || quote.pack_label
+  const inner = (
+    <>
+      <span className="flex items-center justify-end gap-1 text-base font-semibold leading-tight break-words">
+        {name}{canSwitch && <ChevronDown className="w-4 h-4 text-primary shrink-0" />}
+      </span>
+      {quote.pack_size && <span className="block text-xs text-muted-foreground leading-tight">{quote.pack_size}</span>}
+    </>
+  )
+  if (!canSwitch) return <div className={cn(width, 'text-right px-1 sm:px-2')}>{inner}</div>
+  return (
+    <button type="button" onClick={onSwitch} aria-label={`${name} ${quote.pack_size || ''}: order from another supplier`}
+      className={cn(width, 'min-h-[48px] text-right rounded-lg px-1 sm:px-2 hover:bg-muted touch-manipulation')}>
+      {inner}
+    </button>
+  )
+}
+
+function LastQty({ last, otherPack }) {
+  return (
+    <div className="w-12 sm:w-14 shrink-0 text-center leading-tight"
+      title={last ? `Last ordered ${fmtNum(last.qty)} × ${last.pack_label} on ${fmtDate(last.delivery_date)}` : 'Not ordered before'}>
+      <span className="block text-base font-semibold tabular-nums">{last ? fmtNum(last.qty) : '-'}</span>
+      <span className="block text-[11px] text-muted-foreground truncate">
+        {otherPack ? last.pack_label.split(' · ')[0].toLowerCase() : 'last'}
+      </span>
     </div>
   )
 }

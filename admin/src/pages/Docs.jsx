@@ -2848,6 +2848,20 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>QtyStepper</Mono>, <Mono>DayPicker</Mono>, <Mono>DateButton</Mono>, <Mono>Drawer</Mono>,{' '}
               <Mono>printHtml()</Mono>). The test data tool's past orders are now purchase orders (see Test Data Tools).
             </P>
+            <H3>Order form lines</H3>
+            <P>
+              Each <Mono>OrderRow</Mono> shows the item, then the pack next to the quantity (<Mono>PackLabel</Mono>:
+              the quote's <Mono>pack_name</Mono> large with <Mono>pack_size</Mono> under it, both from{' '}
+              <Mono>packParts()</Mono> in <Mono>shared/procurement.js</Mono> via <Mono>quoteView()</Mono>). With more
+              than one quote the pack is the button that opens the supplier switch. Supplier, price per pack, the
+              last order line and the last quantity column (<Mono>LastQty</Mono>, from the item's <Mono>last</Mono>{' '}
+              purchase order line; another pack name under the figure when the last order was a different pack) are
+              off by default and switched on with <strong>Show</strong>, stored per device in{' '}
+              <Mono>maca_purchasing_show</Mono> (<Mono>{'{ supplier, price, last, last_qty }'}</Mono>). Price is
+              offered only when the order has <Mono>show_prices</Mono>; supplier is left out while grouped by
+              supplier. Below <Mono>sm</Mono> Par and remove move beside the item name so the pack, quantity and last
+              figure stay on one line.
+            </P>
           </section>
 
           {/* ── MENUS ─────────────────────────────────────── */}

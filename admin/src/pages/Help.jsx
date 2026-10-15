@@ -3712,8 +3712,9 @@ export default function Help() {
             <H3>4. Placing an order (Purchasing → Order)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Pick the venue at the top, then tap a list (or <strong>Something else</strong> to search the whole inventory).</li>
-              <li>Use <strong>−</strong> / <strong>+</strong> or type a quantity. <strong>Par</strong> sets the usual quantity; <strong>Fill to par</strong> does it for every empty line. Each line shows what was ordered last time.</li>
-              <li>Tap <strong>(change)</strong> under an item to order it from another supplier this time. <strong>Add item</strong> adds anything from the inventory.</li>
+              <li>Use <strong>−</strong> / <strong>+</strong> or type a quantity. The pack you are ordering (Case, Box, Bag and its size) sits next to the quantity. <strong>Par</strong> sets the usual quantity; <strong>Fill to par</strong> does it for every empty line.</li>
+              <li><strong>Show</strong> picks what else each line shows: the supplier, the price per pack, the last order (how many and when) and a <strong>Last quantity</strong> column at the end. All are off until you switch them on, and the choice is remembered on that device. Price only appears for people allowed to see prices.</li>
+              <li>To order an item from another supplier this time, tap its pack (it has a small arrow when there is another supplier). <strong>Add item</strong> adds anything from the inventory.</li>
               <li>Group by <strong>Supplier</strong> to see each supplier's next delivery date and cutoff.</li>
               <li>Tap <strong>Review &amp; place</strong>: one order per supplier, each with its delivery date and an optional note. To deliver on another day, tap one of <strong>Their delivery days</strong> (the supplier's next four) or tap the date to pick any day from the calendar. Once today's cutoff has passed, the first date offered is already the next delivery after it. Then <strong>Place</strong>.</li>
             </ol>

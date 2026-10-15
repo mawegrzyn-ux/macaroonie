@@ -8,7 +8,7 @@
 
 import * as XLSX from 'xlsx'
 import {
-  chooseQuote, quotePrice, packLabel, orderTotals, lineAmounts, fitQty, packBaseQty,
+  chooseQuote, quotePrice, packLabel, packParts, orderTotals, lineAmounts, fitQty, packBaseQty,
   supplierForVenue, nextDeliveryDate, minutesToCutoff, poNumberLabel, fmtNum, round2,
 } from '../../../shared/procurement.js'
 import { localParts } from './orderSvc.js'
@@ -99,6 +99,8 @@ export function quoteView(q, venueId, withPrice) {
     supplier_name: q.supplier_name,
     supplier_code: q.supplier_code,
     pack_label: packLabel(q),
+    pack_name: packParts(q).name,
+    pack_size: packParts(q).size,
     pack_base_qty: num(q.pack_base_qty),
     min_qty: q.min_qty,
     order_multiple: q.order_multiple,
