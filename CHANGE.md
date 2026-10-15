@@ -5,6 +5,13 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-15 — Purchasing: tidier order lines, choose what each line shows]
+
+- The pack you're ordering (Case, Box, Bag, with its size) now sits next to the quantity, in larger type. When another supplier sells the item, tap the pack to switch.
+- Supplier, price, last order and a new Last quantity column (at the end of each line) are hidden until you switch them on with **Show**. Each device remembers the choice. Price is offered only to people allowed to see prices.
+- On phones, Par and the remove button sit beside the item name, so the pack, quantity and last figure stay on one line.
+- No migration.
+
 ## [2026-10-15 — GloriaFood import: picking a file no longer blanks the screen]
 
 - Cash Recon settings > GloriaFood > Import past orders: choosing a file could leave the whole window blank (menu included) until Back was pressed. The hidden file input behind the Choose file button sat far below the screen, and when the browser put focus back on it as the file dialog closed, the window scrolled the app out of view. Hidden inputs now stay on screen, so the preview shows as it should.

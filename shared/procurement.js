@@ -109,9 +109,16 @@ function cap(s) {
 /** "Case · 6 × 2 kg", "Bag · 25 kg", "Tray · 30 each". */
 export function packLabel(q) {
   if (!q) return ''
-  const size = `${fmtNum(q.pack_qty)} ${UNITS[q.pack_unit]?.label ?? q.pack_unit}`
+  const { name, size } = packParts(q)
+  return `${name} · ${size}`
+}
+
+/** A pack's name and size apart: { name: "Case", size: "6 × 2.95 kg" }. */
+export function packParts(q) {
+  if (!q) return { name: '', size: '' }
+  const one = `${fmtNum(q.pack_qty)} ${UNITS[q.pack_unit]?.label ?? q.pack_unit}`
   const count = num(q.pack_count || 1)
-  return `${cap(q.pack_name)} · ${count !== 1 ? `${fmtNum(count)} × ${size}` : size}`
+  return { name: cap(q.pack_name), size: count !== 1 ? `${fmtNum(count)} × ${one}` : one }
 }
 
 /** A base quantity in a readable unit: 12000 g -> "12 kg". */
