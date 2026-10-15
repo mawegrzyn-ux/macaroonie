@@ -5,6 +5,12 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-15 — GloriaFood import: picking a file no longer blanks the screen]
+
+- Cash Recon settings > GloriaFood > Import past orders: choosing a file could leave the whole window blank (menu included) until Back was pressed. The hidden file input behind the Choose file button sat far below the screen, and when the browser put focus back on it as the file dialog closed, the window scrolled the app out of view. Hidden inputs now stay on screen, so the preview shows as it should.
+- The same fix covers the other hidden inputs in the admin (the colour pickers on Settings, the module switches on Access).
+- No migration.
+
 ## [2026-10-15 — Admin: a page that crashes shows a message, not a blank screen]
 
 - If something on a page fails while it is being shown, the admin (and the phone app) now shows "This page stopped working" with the error and a Reload page button. Before, the whole admin went blank. The menu stays usable, and moving to another page clears the message.

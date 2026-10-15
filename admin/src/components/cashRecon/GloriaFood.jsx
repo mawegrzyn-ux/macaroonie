@@ -505,7 +505,7 @@ function ImportPastOrders({ venueId, canSetup }) {
             <Download className="w-4 h-4" /> Template
           </button>
           {canSetup && (
-            <label className={cn(btnPrimary, 'cursor-pointer', busy && 'opacity-50 pointer-events-none')}>
+            <label className={cn(btnPrimary, 'relative cursor-pointer', busy && 'opacity-50 pointer-events-none')}>
               {busy === 'read' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
               Choose file (CSV or Excel)
               <input type="file" accept=".csv,.xlsx,.xls,text/csv" className="sr-only" onChange={pick} disabled={!!busy} />
