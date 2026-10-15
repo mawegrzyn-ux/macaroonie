@@ -1,6 +1,7 @@
 // src/components/layout/AppShell.jsx
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import PageErrorBoundary from '@/components/PageErrorBoundary'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useQuery } from '@tanstack/react-query'
 import * as LucideIcons from 'lucide-react'
@@ -602,7 +603,9 @@ export default function AppShell() {
         </div>
       )}
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <Outlet />
+        <PageErrorBoundary key={location.pathname}>
+          <Outlet />
+        </PageErrorBoundary>
       </main>
       {!open && !IS_TOUCH && (
         <button

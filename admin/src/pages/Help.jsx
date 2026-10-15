@@ -4532,6 +4532,10 @@ export default function Help() {
             <div className="space-y-4">
               {[
                 {
+                  q: 'A page shows "This page stopped working".',
+                  a: 'Something on that page failed while it was being shown. Nothing you saved before is lost. Press Reload page; moving to another page from the menu also clears it. If it happens again, send support the message in the grey box and say what you pressed just before.',
+                },
+                {
                   q: 'My venue is not showing any slots in the widget.',
                   a: 'Check that (1) the venue is active — it is easy to accidentally deactivate it in settings. (2) The venue has a schedule with sittings for the day you are testing. (3) The date is not blocked by a date override marked as Closed. (4) The booking cutoff has not passed for those slots.',
                 },

@@ -5,6 +5,14 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-15 — Admin: a page that crashes shows a message, not a blank screen]
+
+- If something on a page fails while it is being shown, the admin (and the phone app) now shows "This page stopped working" with the error and a Reload page button. Before, the whole admin went blank. The menu stays usable, and moving to another page clears the message.
+- GloriaFood > Import past orders: if the server's reply isn't what the import expects, or the browser can't read the chosen file (for example a OneDrive or iCloud file not downloaded yet), the card now says so instead of showing nothing.
+- No migration.
+
+---
+
 ## [2026-10-14 — Admin: service worker error in the console]
 
 - The admin's browser console showed "Uncaught (in promise) non-precached-url ... /index.html" on every page since 22 August. It came from the app's offline helper (service worker) and didn't affect any page, but it hid real errors. Fixed.
