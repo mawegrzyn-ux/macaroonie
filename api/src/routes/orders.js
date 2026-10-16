@@ -28,6 +28,7 @@
 // can't be moved either.
 
 import { z } from 'zod'
+import { ensureTaxDefaults, loadOrderTypes } from '../services/taxSvc.js'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
@@ -73,8 +74,11 @@ const SettingsBody = z.object({
   max_days_ahead:          z.number().int().min(0).max(14),
   min_order_pence:         z.number().int().min(0).max(1000000),
   auto_accept:             z.boolean().default(false),
-  default_vat_rate_takeaway: z.number().min(0).max(100),
-  default_vat_rate_eat_in:   z.number().min(0).max(100),
+  // Which order type each kind of online order is (migration 170): decides
+  // the dishes' tax (shared/tax.js) and the kitchen flow. Optional revenue
+  // stream the orders count under.
+  order_type_ids:          z.object({ collection: uuid.nullable().optional(), delivery: uuid.nullable().optional(), eat_in: uuid.nullable().optional() }).default({}),
+  revenue_stream_id:       uuid.nullable().optional(),
   tips_enabled:            z.boolean().default(false),
   tip_percents:            z.array(z.number().int().min(1).max(50)).max(5).default([10, 12, 15]),
   payment_methods:         z.array(z.string().max(40)).min(1).max(10),
@@ -124,7 +128,13 @@ export default async function ordersRoutes(app) {
          WHERE tenant_id = ${req.tenantId} AND (venue_id IS NULL OR venue_id = ${req.params.venueId})
          ORDER BY sort_order, name
       `
-      return { settings, menus, gateways: listGateways() }
+      // Order types and revenue streams to pick from (migration 170).
+      await ensureTaxDefaults(tx, req.tenantId)
+      const [orderTypes, streams] = await Promise.all([
+        loadOrderTypes(tx, req.tenantId),
+        tx`SELECT id, name, is_active FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${req.params.venueId} ORDER BY sort_order, name`,
+      ])
+      return { settings, menus, gateways: listGateways(), order_types: orderTypes, revenue_streams: streams }
     })
   })
 
@@ -155,16 +165,25 @@ export default async function ordersRoutes(app) {
         const problem = scheduleProblem(b.menu_ids, schedules, Object.fromEntries(menus.map(m => [m.id, m.name])), today)
         if (problem) throw httpError(422, problem)
       }
+      const typeIds = Object.fromEntries(Object.entries(b.order_type_ids || {}).filter(([, v]) => v))
+      if (Object.keys(typeIds).length) {
+        const found = await tx`SELECT id FROM order_types WHERE tenant_id = ${req.tenantId} AND id = ANY(${Object.values(typeIds)}::uuid[])`
+        if (found.length !== new Set(Object.values(typeIds)).size) throw httpError(422, 'Order type not found')
+      }
+      if (b.revenue_stream_id) {
+        const [rs] = await tx`SELECT id FROM pos_revenue_streams WHERE id = ${b.revenue_stream_id} AND tenant_id = ${req.tenantId} AND venue_id = ${venue.id}`
+        if (!rs) throw httpError(422, 'Revenue stream not found')
+      }
       const [s] = await tx`
         INSERT INTO ordering_settings (venue_id, tenant_id, is_enabled, is_paused, pause_message, hours, menu_ids, menu_schedules,
                                        allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot, max_days_ahead,
-                                       min_order_pence, auto_accept, default_vat_rate_takeaway, default_vat_rate_eat_in,
+                                       min_order_pence, auto_accept, order_type_ids, revenue_stream_id,
                                        tips_enabled, tip_percents,
                                        payment_methods, collection_instructions, confirmation_note)
         VALUES (${req.params.venueId}, ${req.tenantId}, ${b.is_enabled}, ${b.is_paused}, ${b.pause_message ?? null},
                 ${tx.json(b.hours)}, ${b.menu_ids}::uuid[], ${tx.json(schedules)},
                 ${b.allow_asap}, ${b.lead_time_mins}, ${b.slot_interval_mins}, ${b.max_orders_per_slot}, ${b.max_days_ahead},
-                ${b.min_order_pence}, ${b.auto_accept}, ${b.default_vat_rate_takeaway}, ${b.default_vat_rate_eat_in},
+                ${b.min_order_pence}, ${b.auto_accept}, ${tx.json(typeIds)}, ${b.revenue_stream_id ?? null},
                 ${b.tips_enabled}, ${b.tip_percents}::int[],
                 ${methods}::text[], ${b.collection_instructions ?? null}, ${b.confirmation_note ?? null})
         ON CONFLICT (venue_id) DO UPDATE SET
@@ -173,8 +192,8 @@ export default async function ordersRoutes(app) {
           lead_time_mins = EXCLUDED.lead_time_mins, slot_interval_mins = EXCLUDED.slot_interval_mins,
           max_orders_per_slot = EXCLUDED.max_orders_per_slot, max_days_ahead = EXCLUDED.max_days_ahead,
           min_order_pence = EXCLUDED.min_order_pence, auto_accept = EXCLUDED.auto_accept,
-          default_vat_rate_takeaway = EXCLUDED.default_vat_rate_takeaway,
-          default_vat_rate_eat_in = EXCLUDED.default_vat_rate_eat_in, tips_enabled = EXCLUDED.tips_enabled,
+          order_type_ids = EXCLUDED.order_type_ids,
+          revenue_stream_id = EXCLUDED.revenue_stream_id, tips_enabled = EXCLUDED.tips_enabled,
           tip_percents = EXCLUDED.tip_percents, payment_methods = EXCLUDED.payment_methods,
           collection_instructions = EXCLUDED.collection_instructions, confirmation_note = EXCLUDED.confirmation_note,
           updated_at = now()

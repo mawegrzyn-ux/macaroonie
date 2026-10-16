@@ -16,6 +16,8 @@
 //                         [{ kind, text }], kind one of menu | section |
 //                         added | removed | price | options | dish | notes.
 
+import { cleanTax } from './tax.js'
+
 const MENU_DROP = new Set([
   'dietary_tags', 'allergen_notice', 'design_count', 'designs', 'print_design_id',
   'created_at', 'updated_at', 'needs_first_release', 'venue_name',
@@ -57,6 +59,12 @@ const ORDERED_LISTS = new Set(['sections', 'items', 'callouts', 'variants', 'opt
 
 function canon(v, key) {
   if (v === null || v === undefined) return undefined
+  // A tax setting: {} and { rate: null, rules: [] } both mean "inherit".
+  if (key === 'tax') {
+    const t = cleanTax(v)
+    if (!t.rate && !t.rules.length) return undefined
+    return canon({ rate: t.rate, rules: t.rules.map(r => ({ ...r, venues: [...r.venues].sort(), streams: [...r.streams].sort(), types: [...r.types].sort() })) })
+  }
   if (Array.isArray(v)) {
     const rows = ORDERED_LISTS.has(key)
       ? v.map(x => (x && typeof x === 'object' && !Array.isArray(x) ? dropKeys(x, SORT_DROP) : x))
@@ -91,16 +99,17 @@ const MENU_FIELDS = {
   hide_zero_priced_variants: 'Hide £0 options', hide_unpriced_variants: 'Hide unpriced options',
   print_columns: 'Print columns', print_orientation: 'Print orientation', print_paper_size: 'Paper size',
   print_hide_variant_group_headers: 'Print option headers', print_settings: 'Print settings',
+  tax: 'Tax',
 }
 const SECTION_FIELDS = {
   subtitle: 'subtitle', highlight: 'highlight', image_url: 'image', visibility: 'where it shows',
   print_break_before: 'print break', print_keep_together: 'keep together',
-  vat_rate_takeaway: 'takeaway VAT', vat_rate_eat_in: 'eat-in VAT', pos_course_id: 'till course', pos_colour: 'till colour',
+  tax: 'tax', pos_course_id: 'till course', pos_colour: 'till colour',
 }
 const DISH_FIELDS = {
   native_name: 'second name', description: 'description', calories: 'calories', notes: 'notes',
   is_featured: 'house favourite', image_url: 'photo', is_orderable: 'online ordering',
-  vat_rate_takeaway: 'takeaway VAT', vat_rate_eat_in: 'eat-in VAT', min_order_qty: 'minimum quantity',
+  tax: 'tax', min_order_qty: 'minimum quantity',
   kind: 'meal deal', kitchen_name: 'kitchen name', pos_course_id: 'till course', pos_colour: 'till colour',
   combo: 'meal deal choices', dietary: 'allergens and dietary', allergen_levels: 'allergen levels',
 }

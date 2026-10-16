@@ -16,6 +16,7 @@
 // modifier prices) x qty.
 
 import { itemChoices, vatIncluded } from '../orderPricing.js'
+import { taxFor } from '../tax.js'
 
 export { vatIncluded }
 
@@ -181,16 +182,18 @@ export function priceItem(item, selection = {}, { itemsById = {}, groupsById = {
 }
 
 /**
- * A dish's VAT rate on the till: the dish's own rate for the revenue
- * centre's mode (eat in / takeaway), else its section's (both resolved into
- * item.vat by the API's config), else the venue default.
+ * A dish's tax on the till for a check: { vat_rate, tax_rate_id }. The till
+ * config gives each dish its settings (item.tax = [dish, section, menu]) and
+ * the tenant's rates; the check's order type and revenue stream decide
+ * (shared/tax.js). item null = an item not on the menu: the default rate.
  */
-export function posVatRate(item, mode, settings = {}) {
-  const key = mode === 'takeaway' ? 'takeaway' : 'eat_in'
-  const v = item?.vat?.[key]
-  if (v != null) return Number(v)
-  const d = key === 'takeaway' ? settings.default_vat_rate_takeaway : settings.default_vat_rate_eat_in
-  return d != null ? Number(d) : 20
+export function posTax(item, check, config) {
+  const t = taxFor(item?.tax || [], {
+    venue_id: config?.venue?.id || null,
+    order_type_id: check?.order_type_id || null,
+    revenue_stream_id: check?.revenue_stream_id || null,
+  }, config?.tax_rates || [])
+  return { vat_rate: t.vat_rate, tax_rate_id: t.tax_rate_id }
 }
 
 /** One unit of a line, everything included. */

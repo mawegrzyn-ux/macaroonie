@@ -1,19 +1,23 @@
 // The check's actions beyond adding dishes: send (holding later courses),
 // fire a course, discounts and comps, service charge, offers, move items to
-// another check (split), merge checks, move table, change server or revenue
-// centre, items not on the menu, no sale, dishes sold out.
+// another check (split), merge checks, move table, change server, order type
+// (with the name and tent number it asks for) or revenue stream, items not on
+// the menu, no sale, dishes sold out.
 
 import { useMemo, useState } from 'react'
 import {
   Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer,
-  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus,
+  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus, ShoppingBag, Flag,
 } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { heldCourses, checkLabel } from '@shared/pos/checks.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
 import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, setItemSoldOut } from '../lib/store.js'
-import { defaultHeld, sendCheck, rcOf, byId, addOpenItem, promotionsFor, refreshPromotions } from '../lib/checkOps.js'
+import {
+  defaultHeld, sendCheck, streamOf, byId, addOpenItem, promotionsFor, refreshPromotions,
+  streamTypes, typeOf, promptsFor, rerateLines, defaultTypeId,
+} from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
 
 export function ActionsMenu({ check, config, onPick, onClose }) {
@@ -22,8 +26,10 @@ export function ActionsMenu({ check, config, onPick, onClose }) {
     { key: 'covers', label: 'Guests', icon: Users, hint: check.covers ? check.covers + ' covers' : 'not set' },
     { key: 'table', label: check.table_id ? 'Move table' : 'Put on a table', icon: Table2 },
     { key: 'name', label: 'Name', icon: StickyNote, hint: check.tab_name || '' },
+    { key: 'type', label: 'Order type', icon: ShoppingBag, hint: [typeOf(config, check.order_type_id)?.name, check.tent ? 'Tent ' + check.tent : null].filter(Boolean).join(' · ') },
+    (promptsFor(config, check.revenue_stream_id, check.order_type_id).ask_tent !== 'off' || check.tent) && { key: 'tent', label: 'Tent number', icon: Flag, hint: check.tent || 'not set' },
     { key: 'server', label: 'Server', icon: UserRound, hint: (config.staff || []).find(s => s.id === check.server_id)?.name },
-    (config.revenue_centres || []).length > 1 && { key: 'rc', label: 'Revenue centre', icon: Building2, hint: rcOf(config, check.revenue_centre_id)?.name },
+    (config.revenue_streams || []).length > 1 && { key: 'stream', label: 'Revenue stream', icon: Building2, hint: streamOf(config, check.revenue_stream_id)?.name },
     held.length > 0 && { key: 'fire', label: 'Fire a course', icon: Flame, hint: held.length + ' waiting' },
     { key: 'discount', label: 'Discount', icon: Percent },
     { key: 'sc', label: 'Service charge', icon: HandCoins, hint: check.service_charge && !check.service_charge.removed ? (check.service_charge.percent != null ? check.service_charge.percent + '%' : money(check.service_charge.amount)) : 'none' },
@@ -179,7 +185,7 @@ export function ServiceChargeModal({ check, config, onClose }) {
     if (!r.ok) return toast(r.error, 'bad')
     onClose()
   }
-  const rcPct = Number(rcOf(config, check.revenue_centre_id)?.service_charge_percent) || 12.5
+  const rcPct = Number(streamOf(config, check.revenue_stream_id)?.service_charge_percent) || 12.5
   return (
     <Modal title="Service charge" onClose={onClose}>
       <div className="space-y-4">
@@ -270,7 +276,8 @@ export function MoveModal({ check, config, preselect = [], onClose, onOpen }) {
       specs.push(['check.opened', {
         mode: check.mode === 'counter' ? 'counter' : check.table_id ? 'table' : 'tab',
         table_id: check.table_id, tab_name: check.tab_name ? check.tab_name + ' (split)' : null,
-        covers: null, revenue_centre_id: check.revenue_centre_id, from_check_id: check.id,
+        covers: null, revenue_stream_id: check.revenue_stream_id, order_type_id: check.order_type_id, tent: check.tent || null,
+        from_check_id: check.id,
         service_charge: check.service_charge && !check.service_charge.removed ? { percent: check.service_charge.percent ?? 0, vat_rate: check.service_charge.vat_rate || 0 } : null,
       }, { check_id: toId }])
     }
@@ -401,31 +408,103 @@ export function ServerModal({ check, config, onClose }) {
   )
 }
 
-export function RcModal({ check, config, onClose }) {
-  const [all, setAll] = useState(true)
-  const set = rcId => {
-    const rc = rcOf(config, rcId)
-    const lines = {}
-    if (all) {
-      for (const l of check.lines) {
-        if (l.status === 'voided' || !l.item_id) continue
-        const it = config.items[l.item_id]
-        const key = rc.vat_mode === 'takeaway' ? 'takeaway' : 'eat_in'
-        lines[l.id] = it?.vat?.[key] != null ? Number(it.vat[key]) : Number(key === 'takeaway' ? config.settings.default_vat_rate_takeaway : config.settings.default_vat_rate_eat_in)
-      }
-    }
-    const r = dispatch('check.rc_set', { revenue_centre_id: rcId, lines }, { check_id: check.id })
+const PROMPT_TEXT = { ask: '', required: ' (needed)' }
+
+/** Customer name and tent number fields, as the order type asks for them. */
+export function DetailFields({ prompts, name, setName, tent, setTent, autoFocus = false }) {
+  return (
+    <div className="space-y-3">
+      {prompts.ask_name !== 'off' && (
+        <label className="block">
+          <span className="label">Customer name{PROMPT_TEXT[prompts.ask_name]}</span>
+          <input className="input mt-1" data-testid="detail-name" autoFocus={autoFocus} value={name} onChange={e => setName(e.target.value)} maxLength={80} placeholder="e.g. Sam" />
+        </label>
+      )}
+      {prompts.ask_tent !== 'off' && (
+        <label className="block">
+          <span className="label">Tent number{PROMPT_TEXT[prompts.ask_tent]}</span>
+          <input className="input mt-1" data-testid="detail-tent" inputMode="numeric" autoFocus={autoFocus && prompts.ask_name === 'off'}
+            value={tent} onChange={e => setTent(e.target.value)} maxLength={20} placeholder="e.g. 14" />
+        </label>
+      )}
+    </div>
+  )
+}
+
+/** Which required details are still empty, as words for a message. */
+export function missingText(prompts, name, tent) {
+  const out = []
+  if (prompts.ask_name === 'required' && !name.trim()) out.push('a customer name')
+  if (prompts.ask_tent === 'required' && !tent.trim()) out.push('a tent number')
+  return out.length ? 'Enter ' + out.join(' and ') : null
+}
+
+/**
+ * The check's order type (Eat in, Take out, ...): the types its revenue
+ * stream offers, then the name and tent number the chosen one asks for.
+ * Changing the type re-rates every item (tax can depend on it).
+ */
+export function OrderTypeModal({ check, config, onClose, focus = null }) {
+  const types = streamTypes(config, check.revenue_stream_id)
+  const [typeId, setTypeId] = useState(check.order_type_id || types[0]?.type.id || null)
+  const [name, setName] = useState(check.tab_name || '')
+  const [tent, setTent] = useState(check.tent || '')
+  const prompts = promptsFor(config, check.revenue_stream_id, typeId)
+  const save = () => {
+    const missing = missingText(prompts, name, tent)
+    if (missing) return toast(missing, 'bad')
+    const payload = { order_type_id: typeId }
+    if ((name.trim() || null) !== (check.tab_name || null)) payload.tab_name = name.trim() || null
+    if ((tent.trim() || null) !== (check.tent || null)) payload.tent = tent.trim() || null
+    if (typeId !== check.order_type_id) payload.lines = rerateLines(check, config, { order_type_id: typeId })
+    if (typeId === check.order_type_id && payload.tab_name === undefined && payload.tent === undefined) return onClose()
+    const r = dispatch('check.order_type_set', payload, { check_id: check.id })
     if (!r.ok) return toast(r.error, 'bad')
     onClose()
   }
   return (
-    <Modal title="Revenue centre" onClose={onClose}>
+    <Modal title={focus === 'tent' ? 'Tent number' : 'Order type'} onClose={onClose} footer={<button className="btn btn-primary h-14 min-w-[160px]" data-testid="type-save" onClick={save}>Save</button>}>
+      <div className="space-y-4">
+        {focus !== 'tent' && (
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Order type">
+            {types.map(({ type }) => (
+              <button key={type.id} className={cx('btn h-14', type.id === typeId && 'btn-primary')} onClick={() => setTypeId(type.id)}>{type.name}</button>
+            ))}
+            {!types.length && <div className="text-sm text-muted col-span-2">This revenue stream has no order types switched on (Till setup, Revenue streams).</div>}
+          </div>
+        )}
+        <DetailFields prompts={focus === 'tent' ? { ask_name: 'off', ask_tent: prompts.ask_tent === 'off' ? 'ask' : prompts.ask_tent } : prompts}
+          name={name} setName={setName} tent={tent} setTent={setTent} autoFocus={focus === 'tent'} />
+        {typeId !== check.order_type_id && check.lines.some(l => l.status !== 'voided') && (
+          <div className="text-sm text-muted">The items already on the check take this order type's tax.</div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+/** The revenue stream the check's sales count under. Items move with it and take its tax. */
+export function StreamModal({ check, config, onClose }) {
+  const set = streamId => {
+    if (streamId === check.revenue_stream_id) return onClose()
+    // A type the new stream doesn't offer becomes its default.
+    const offered = streamTypes(config, streamId).some(x => x.type.id === check.order_type_id)
+    const specs = [['check.stream_set', { revenue_stream_id: streamId, lines: rerateLines(check, config, { revenue_stream_id: streamId }) }, { check_id: check.id }]]
+    if (!offered) {
+      const typeId = defaultTypeId(config, streamId)
+      if (typeId) specs.push(['check.order_type_set', { order_type_id: typeId, lines: rerateLines(check, config, { revenue_stream_id: streamId, order_type_id: typeId }) }, { check_id: check.id }])
+    }
+    const r = dispatchMany(specs)
+    if (!r.ok) return toast(r.error, 'bad')
+    onClose()
+  }
+  return (
+    <Modal title="Revenue stream" onClose={onClose}>
       <div className="space-y-3">
-        <div className="text-sm text-muted">Sales count towards the revenue centre picked here. Takeaway centres use takeaway VAT.</div>
-        <button className={cx('chip', all && 'chip-on')} onClick={() => setAll(v => !v)}>{all ? 'Items already on the check move too' : 'Only new items'}</button>
-        {(config.revenue_centres || []).map(rc => (
-          <button key={rc.id} className={cx('btn w-full h-14 justify-between', rc.id === check.revenue_centre_id && 'btn-primary')} onClick={() => set(rc.id)}>
-            <span>{rc.name}</span><span className="text-sm font-normal">{rc.vat_mode === 'takeaway' ? 'Takeaway VAT' : 'Eat-in VAT'}</span>
+        <div className="text-sm text-muted">The check's sales count towards the stream picked here.</div>
+        {(config.revenue_streams || []).map(rs => (
+          <button key={rs.id} className={cx('btn w-full h-14 justify-between', rs.id === check.revenue_stream_id && 'btn-primary')} onClick={() => set(rs.id)}>
+            <span>{rs.name}</span>
           </button>
         ))}
       </div>
@@ -439,10 +518,10 @@ export function GuestsModal({ check, config, onClose }) {
     <CoversModal title={table ? 'Table ' + table.label : 'Check ' + checkLabel(check)} max={table?.max_covers} initial={check.covers} onClose={onClose}
       onDone={n => {
         const specs = [['check.covers_set', { covers: n }, { check_id: check.id }]]
-        // A revenue centre's service charge from N guests up starts when the party reaches N.
-        const rc = rcOf(config, check.revenue_centre_id)
-        if (rc && Number(rc.service_charge_percent) && Number(rc.service_charge_min_covers) && n >= rc.service_charge_min_covers && !check.service_charge) {
-          specs.push(['service_charge.set', { percent: Number(rc.service_charge_percent) }, { check_id: check.id }])
+        // A revenue stream's service charge from N guests up starts when the party reaches N.
+        const rs = streamOf(config, check.revenue_stream_id)
+        if (rs && Number(rs.service_charge_percent) && Number(rs.service_charge_min_covers) && n >= rs.service_charge_min_covers && !check.service_charge) {
+          specs.push(['service_charge.set', { percent: Number(rs.service_charge_percent) }, { check_id: check.id }])
         }
         const r = dispatchMany(specs)
         if (!r.ok) return toast(r.error, 'bad')

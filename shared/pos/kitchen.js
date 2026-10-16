@@ -9,19 +9,34 @@
 //   - the kitchen screen (pos/src/kitchen): applies its own taps at once
 //     (local first) and draws tickets, the pass, the on-order counts and
 //     the speed figures from the same kitchen orders
+//   - the admin flow designer (checking a dish's way through the kitchen)
 //
 // A kitchen order is one order in the kitchen: a till check (id = check id)
 // or an online order (id = 'web-<orders.id>'). Its items are the dishes sent
-// to the kitchen; each item goes to zero or more prep stations (kds_routes:
-// dish, else section, else revenue centre, else default) and is done at each
-// one separately. The pass (expo station) sees every item and marks the
-// order ready; with no expo station an order is ready once every station has
-// done its part.
+// to the kitchen.
+//
+// The kitchen is a flow (Till setup > Kitchen screens > Kitchen flow):
+// stations are prep (Grill, Fryer, ...), expo (the pass), runner, and order
+// ready boards; links go from "Orders in" (the till and online orders) to
+// stations and from station to station. A link can carry a filter (dishes,
+// sections, revenue centres, order types); from each point a dish takes the
+// links with the most specific filter it matches (dish, then section, then
+// revenue centre, then order type, then the links with no filter), so a burger
+// can go Prep 1 > Prep 2 > Expo 1 while the fries go Prep 1 > Expo 1. When the
+// dish is sent its whole way (item.route: node -> the nodes before it) is
+// worked out and kept on the item, so a flow changed during service only
+// affects dishes sent after the change.
+//
+// A dish reaches a station when every station before it on its way has done
+// it, and is done there when that station bumps it. Expo and runner stations
+// work on whole orders: their bump also finishes what is still at earlier
+// stations (when the station shows dishes before they arrive). Order ready
+// boards have nothing to bump: an order is ready on a board once every dish on
+// its way to that board has reached it.
 //
 // Pure: no I/O, no clock. Times come from events (received_at, set by the
 // sequencer, else client_at) or from the `now` the screen passes in.
 
-import { routeFor } from './printing.js'
 import { modifierText } from './pricing.js'
 import { isId } from './ids.js'
 
@@ -36,10 +51,24 @@ export const KITCHEN_EVENTS = [...KITCHEN_DEVICE_EVENTS, ...KITCHEN_SERVER_EVENT
 export const KITCHEN_CHECK_EVENTS = [
   'lines.sent', 'course.fired', 'line.voided', 'lines.moved', 'check.merged',
   'check.table_moved', 'check.renamed', 'check.covers_set', 'check.server_changed', 'check.note_set',
+  'check.order_type_set', 'check.tent_set',
 ]
 
-export const ORDER_TYPES = ['eat_in', 'takeaway', 'collection', 'delivery']
-export const TYPE_LABELS = { eat_in: 'Eat in', takeaway: 'Takeaway', collection: 'Collection', delivery: 'Delivery' }
+// Order types are the tenant's own (order_types, migration 170): a kitchen
+// order carries the type's id (type) and name (type_name) as sent.
+
+// Station kinds. prep: makes dishes; expo: checks whole orders (the pass);
+// runner: takes orders out; board: an order ready board (no bumping).
+export const STATION_KINDS = ['prep', 'expo', 'runner', 'board']
+export const KIND_LABELS = { prep: 'Prep station', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board' }
+export const BUMP_KINDS = ['prep', 'expo', 'runner']
+export const isOrderLevel = st => st?.kind === 'expo' || st?.kind === 'runner'
+
+// Where an item comes from before its first station.
+export const START = 'start'
+// What a flow link's filter can name, most specific first.
+export const FLOW_TARGET_KINDS = ['item', 'section', 'revenue_stream', 'order_type', 'default']
+const RANK = { item: 0, section: 1, revenue_stream: 2, order_type: 3, default: 4 }
 
 export const STATION_DEFAULTS = { target_mins: 8, late_mins: 12, show_held: true, summary_groups: [] }
 
@@ -53,13 +82,18 @@ const optText = (v, max) => v == null || isText(v, max)
 const isTime = v => typeof v === 'string' && v.length <= 40 && !Number.isNaN(Date.parse(v))
 const clone = v => (v == null ? v : JSON.parse(JSON.stringify(v)))
 const ms = v => (v ? Date.parse(v) : NaN)
+const later = (a, b) => (!a ? b : !b ? a : ms(b) > ms(a) ? b : a)
 
 export const isOrderId = v => isId(v) || (typeof v === 'string' && /^web-[0-9a-f-]{36}$/i.test(v))
 export const onlineOrderId = orderId => 'web-' + orderId
 
-/** A station's settings with the defaults filled in. */
+/**
+ * A station's settings with the defaults filled in. show_upcoming: show
+ * orders before their dishes reach this station (on at the pass, off
+ * elsewhere unless set).
+ */
 export function stationSettings(station) {
-  return { ...STATION_DEFAULTS, ...(station?.settings || {}) }
+  return { ...STATION_DEFAULTS, show_upcoming: station?.kind === 'expo', ...(station?.settings || {}) }
 }
 
 // ── Shape checks ───────────────────────────────────────────────
@@ -70,7 +104,8 @@ function onlineOrderProblem(o) {
   if (!isUuid(o.order_id)) return 'order.order_id'
   if (!isText(o.number || '', 20)) return 'order.number'
   if (!optText(o.guest, 80)) return 'order.guest'
-  if (!ORDER_TYPES.includes(o.type)) return 'order.type'
+  if (o.type != null && !isUuid(o.type)) return 'order.type'
+  if (!optText(o.type_name, 40)) return 'order.type_name'
   if (o.promised_at != null && !isTime(o.promised_at)) return 'order.promised_at'
   if (o.fire_at != null && !isTime(o.fire_at)) return 'order.fire_at'
   if (!optText(o.note, 500) || !optText(o.allergy, 500)) return 'order.note'
@@ -81,6 +116,7 @@ function onlineOrderProblem(o) {
     if (!(Number.isInteger(i.qty) && i.qty >= 1 && i.qty <= 999)) return 'item.qty'
     if (i.item_id != null && !isUuid(i.item_id)) return 'item.item_id'
     if (i.section_id != null && !isUuid(i.section_id)) return 'item.section_id'
+    if (i.revenue_stream_id != null && !isUuid(i.revenue_stream_id)) return 'item.revenue_stream_id'
     if (i.options != null && !(Array.isArray(i.options) && i.options.every(x => x && isText(x.label || '', 120)))) return 'item.options'
     if (!optText(i.note, 300)) return 'item.note'
   }
@@ -140,15 +176,182 @@ export function kitchenOrdersForCheckEvent(e) {
   return [...new Set(ids.filter(Boolean))]
 }
 
+// ── The flow ───────────────────────────────────────────────────
+//
+// cfg.stations  { [id]: { id, name, kind, settings } }  (stations in use)
+// cfg.flow      [{ id, from: stationId | null, to: stationId, targets: [{ kind, id }] }]
+//               from null = Orders in; targets [] = everything
+
+/** How specifically a link's filter matches a dish (lower = more), or Infinity. */
+export function linkRank(link, target) {
+  const list = link.targets && link.targets.length ? link.targets : [{ kind: 'default' }]
+  let best = Infinity
+  for (const x of list) {
+    let hit = false
+    switch (x.kind) {
+      case 'default': hit = true; break
+      case 'item': hit = !!target.item_id && x.id === target.item_id; break
+      case 'section': hit = !!target.section_id && x.id === target.section_id; break
+      case 'revenue_stream': hit = !!target.revenue_stream_id && x.id === target.revenue_stream_id; break
+      case 'order_type': hit = !!target.order_type_id && x.id === target.order_type_id; break
+      default: hit = false
+    }
+    if (hit && RANK[x.kind] < best) best = RANK[x.kind]
+  }
+  return best
+}
+
+/** The stations a dish goes on to from `from` (null = Orders in). */
+export function nextStations(from, target, cfg) {
+  const links = (cfg.flow || []).filter(l => (l.from || null) === (from || null) && cfg.stations?.[l.to])
+  let best = Infinity
+  const ranked = links.map(l => {
+    const r = linkRank(l, target)
+    if (r < best) best = r
+    return [l, r]
+  })
+  if (best === Infinity) return []
+  return [...new Set(ranked.filter(([, r]) => r === best).map(([l]) => l.to))]
+}
+
+/**
+ * A dish's way through the kitchen: { [stationId]: [the nodes before it] },
+ * START standing for Orders in. Empty when the flow sends it nowhere.
+ *   target  { item_id, section_id, revenue_stream_id, order_type_id }
+ */
+export function itemRoute(target, cfg) {
+  const route = {}
+  const seen = new Set()
+  const queue = [null]
+  while (queue.length && seen.size < 200) {
+    const node = queue.shift()
+    const key = node || START
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (node && cfg.stations?.[node]?.kind === 'board') continue
+    for (const next of nextStations(node, target, cfg)) {
+      const preds = route[next] || (route[next] = [])
+      if (!preds.includes(key)) preds.push(key)
+      if (!seen.has(next)) queue.push(next)
+    }
+  }
+  return route
+}
+
+function mergeRoutes(routes) {
+  const out = {}
+  for (const r of routes) {
+    for (const [node, preds] of Object.entries(r || {})) {
+      const list = out[node] || (out[node] = [])
+      for (const p of preds) if (!list.includes(p)) list.push(p)
+    }
+  }
+  return out
+}
+
+/** The stations on a dish's way, in the order it meets them. */
+export function routeOrder(route) {
+  const nodes = Object.keys(route || {})
+  const depth = {}
+  const d = (id, n = 0) => {
+    if (depth[id] != null) return depth[id]
+    if (n > 50) return 0
+    const preds = (route[id] || []).filter(p => p !== START)
+    depth[id] = preds.length ? Math.max(...preds.map(p => d(p, n + 1))) + 1 : 0
+    return depth[id]
+  }
+  return nodes.sort((a, b) => d(a) - d(b))
+}
+
+/** The nodes right after `node` on a dish's way. */
+export function routeNext(route, node) {
+  return Object.keys(route || {}).filter(id => (route[id] || []).includes(node))
+}
+
+function descendants(route, node) {
+  const out = new Set()
+  const queue = [node]
+  while (queue.length) {
+    for (const n of routeNext(route, queue.shift())) if (!out.has(n)) { out.add(n); queue.push(n) }
+  }
+  return [...out]
+}
+
+function ancestors(route, node) {
+  const out = new Set()
+  const queue = [node]
+  while (queue.length) {
+    for (const p of route[queue.shift()] || []) if (p !== START && !out.has(p)) { out.add(p); queue.push(p) }
+  }
+  return [...out]
+}
+
+/**
+ * What is wrong with a flow (blocks saving): [message].
+ *   stations  [{ id, name, kind }]
+ *   links     [{ from, to, targets }]
+ */
+export function flowProblems(stations, links) {
+  const byId = Object.fromEntries((stations || []).map(s => [s.id, s]))
+  const name = id => (id ? byId[id]?.name || 'a removed station' : 'Orders in')
+  const out = []
+  const pairs = new Set()
+  for (const l of links || []) {
+    if (!byId[l.to]) { out.push('A link goes to a station that isn\'t there any more'); continue }
+    if (l.from && !byId[l.from]) { out.push('A link comes from a station that isn\'t there any more'); continue }
+    if (l.from && l.from === l.to) out.push(name(l.to) + ' links to itself')
+    if (l.from && byId[l.from].kind === 'board') out.push(name(l.from) + ' is an order ready board: nothing goes on from it')
+    const key = (l.from || START) + '>' + l.to
+    if (pairs.has(key)) out.push(name(l.from) + ' links to ' + name(l.to) + ' twice')
+    pairs.add(key)
+    for (const t of l.targets || []) {
+      if (!FLOW_TARGET_KINDS.includes(t.kind)) out.push('A link has a filter the kitchen doesn\'t know')
+    }
+  }
+  // Circles: a dish could never get out of one.
+  const next = {}
+  for (const l of links || []) if (l.from && byId[l.from] && byId[l.to]) (next[l.from] = next[l.from] || []).push(l.to)
+  const state = {}
+  const path = []
+  let circle = null
+  const visit = id => {
+    if (circle) return
+    state[id] = 1
+    path.push(id)
+    for (const n of next[id] || []) {
+      if (state[n] === 1) { circle = [...path.slice(path.indexOf(n)), n]; return }
+      if (!state[n]) visit(n)
+      if (circle) return
+    }
+    path.pop()
+    state[id] = 2
+  }
+  for (const id of Object.keys(next)) if (!state[id] && !circle) visit(id)
+  if (circle) out.push(circle.map(name).join(' > ') + ' goes round in a circle')
+  return [...new Set(out)]
+}
+
+/** Things worth knowing about a flow (don't block saving): [message]. */
+export function flowWarnings(stations, links) {
+  const out = []
+  const live = (stations || []).filter(s => s.is_active !== false)
+  if (!live.length) return out
+  if (!(links || []).some(l => !l.from)) out.push('Nothing comes in yet: link Orders in to the stations that make the dishes.')
+  const reach = new Set()
+  const queue = [null]
+  while (queue.length) {
+    const n = queue.shift()
+    for (const l of links || []) {
+      if ((l.from || null) === n && !reach.has(l.to)) { reach.add(l.to); queue.push(l.to) }
+    }
+  }
+  for (const s of live) if (!reach.has(s.id)) out.push(s.name + ' isn\'t on the way of any dish.')
+  return out
+}
+
 // ── Building orders and items ──────────────────────────────────
 
 const eventTime = e => e.received_at || e.client_at || null
-
-/** Prep station ids for a dish (routing), active prep stations only. */
-export function prepStations(target, cfg) {
-  const ids = routeFor(target, cfg.routes || [], 'station_id')
-  return ids.filter(id => cfg.stations?.[id] && cfg.stations[id].kind !== 'expo')
-}
 
 function kitchenMods(mods = []) {
   return (mods || []).map(m => ({
@@ -160,7 +363,6 @@ function kitchenMods(mods = []) {
 }
 
 function headerFromCheck(check, cfg) {
-  const rc = cfg.revenue_centres?.[check.revenue_centre_id]
   const number = check.order_no != null ? String(check.order_no)
     : check.number != null ? String(check.number) : (check.provisional_no || '')
   return {
@@ -171,7 +373,9 @@ function headerFromCheck(check, cfg) {
     tab: check.table_id ? null : (check.tab_name || null),
     covers: check.covers ?? null,
     server: cfg.staff?.[check.server_id]?.name || null,
-    type: rc?.vat_mode === 'takeaway' ? 'takeaway' : 'eat_in',
+    type: check.order_type_id || null,
+    type_name: cfg.order_types?.[check.order_type_id]?.name || null,
+    tent: check.tent || null,
     note: check.note || null,
   }
 }
@@ -180,7 +384,7 @@ function newOrder(fields, at) {
   return {
     id: null, source: 'till', check_id: null, order_id: null,
     number: '', counter: false, board: false, table: null, tab: null, guest: null,
-    covers: null, server: null, type: 'eat_in', promised_at: null, note: null, allergy: null,
+    covers: null, server: null, type: null, type_name: null, tent: null, promised_at: null, note: null, allergy: null,
     priority: false, status: 'active',
     created_at: at, ready_at: null, ready_event: null, collected_at: null, cancelled_at: null, merged_into: null,
     items: [], bumps: [], changed_at: null, events: 0, updated_at: at,
@@ -188,18 +392,18 @@ function newOrder(fields, at) {
   }
 }
 
-function itemFromLine(line, check, cfg, at, held) {
-  const rc = line.revenue_centre_id ?? check.revenue_centre_id
+function itemFromLine(line, check, cfg, at, held, type) {
+  const rs = line.revenue_stream_id ?? check.revenue_stream_id
   let parts = null
-  let stations
+  let route
   if (line.combo && line.combo.length) {
     parts = line.combo.map(p => ({
       item_id: p.item_id || null, name: p.kitchen_name || p.name, mods: kitchenMods(p.modifiers),
-      stations: prepStations({ item_id: p.item_id, section_id: p.section_id, revenue_centre_id: rc }, cfg),
+      route: itemRoute({ item_id: p.item_id, section_id: p.section_id, revenue_stream_id: rs, order_type_id: type }, cfg),
     }))
-    stations = [...new Set(parts.flatMap(p => p.stations))]
+    route = mergeRoutes(parts.map(p => p.route))
   } else {
-    stations = prepStations({ item_id: line.item_id, section_id: line.section_id, revenue_centre_id: rc }, cfg)
+    route = itemRoute({ item_id: line.item_id, section_id: line.section_id, revenue_stream_id: rs, order_type_id: type }, cfg)
   }
   const course = line.course_id ? cfg.courses?.[line.course_id] : null
   return {
@@ -207,21 +411,21 @@ function itemFromLine(line, check, cfg, at, held) {
     mods: kitchenMods(line.modifiers), parts,
     note: line.note || null, allergies: line.allergies || [], seat: line.seat ?? null,
     course_id: line.course_id || null, course: course?.name || null, course_sort: course?.sort_order ?? null,
-    stations,
+    route,
     sent_at: at, fired_at: held ? null : at, fire_at: null, since: held ? null : at,
-    done: {}, voided_at: null, void_reason: null, void_seen: {}, remakes: 0, added: false,
+    done: {}, reset: {}, voided_at: null, void_reason: null, void_seen: {}, remakes: 0, added: false,
   }
 }
 
-function itemFromOnline(i, cfg, at, fireAt) {
+function itemFromOnline(i, cfg, at, fireAt, type) {
   return {
     id: String(i.id), item_id: i.item_id || null, name: i.name, qty: i.qty,
     mods: (i.options || []).map(o => ({ text: o.label, label: o.label, kind: o.mode === 'base' ? 'base' : 'add', depth: 0 })),
     parts: null, note: i.note || null, allergies: [], seat: null,
     course_id: null, course: null, course_sort: null,
-    stations: prepStations({ item_id: i.item_id, section_id: i.section_id, revenue_centre_id: null }, cfg),
+    route: itemRoute({ item_id: i.item_id, section_id: i.section_id, revenue_stream_id: i.revenue_stream_id || null, order_type_id: type }, cfg),
     sent_at: at, fired_at: fireAt ? null : at, fire_at: fireAt || null, since: fireAt ? null : at,
-    done: {}, voided_at: null, void_reason: null, void_seen: {}, remakes: 0, added: false,
+    done: {}, reset: {}, voided_at: null, void_reason: null, void_seen: {}, remakes: 0, added: false,
   }
 }
 
@@ -239,22 +443,94 @@ export function liveSince(item) {
 }
 
 /**
- * An item's state at one station:
- *   'voided' | 'held' (course not fired / order for later) | 'done' | 'active'
- * At the pass (expo) 'done' means done at every prep station it goes to.
+ * When a dish reached / was done at each node of its way.
+ *   arrived(id)  every node before it done (or Orders in: fired), else null
+ *   done(id)     bumped there; a board is done when reached; a station no
+ *                longer in the flow is passed straight through
  */
-export function itemState(item, station, at) {
+export function flowTimes(item, cfg, at) {
+  const route = item.route || {}
+  const fired = isFired(item, at) ? liveSince(item) : null
+  const gone = id => !!cfg?.stations && !cfg.stations[id]
+  const arrived = (id, n = 0) => {
+    const preds = route[id] || []
+    if (!preds.length || n > 60) return null
+    let t = null
+    for (const p of preds) {
+      const pt = p === START ? fired : done(p, n + 1)
+      if (!pt) return null
+      t = later(t, pt)
+    }
+    return later(t, item.reset?.[id] || null)
+  }
+  const done = (id, n = 0) => {
+    if (item.done?.[id]) return item.done[id]
+    if (gone(id) || cfg?.stations?.[id]?.kind === 'board') return arrived(id, n)
+    return null
+  }
+  return { arrived: id => arrived(id), done: id => done(id) }
+}
+
+/**
+ * An item's state at one node:
+ *   'voided' | 'held' (course not fired / order for later) | 'upcoming'
+ *   (still at an earlier station) | 'active' | 'done' | null (not on its way)
+ */
+export function nodeState(item, nodeId, cfg, at) {
+  if (!item.route?.[nodeId]) return null
   if (item.voided_at) return 'voided'
   if (!isFired(item, at)) return 'held'
-  if (station?.kind === 'expo') return item.stations.every(s => item.done[s]) ? 'done' : 'active'
-  return item.done[station?.id] ? 'done' : 'active'
+  const f = flowTimes(item, cfg, at)
+  if (item.done?.[nodeId]) return 'done'
+  if (f.arrived(nodeId)) return cfg?.stations?.[nodeId]?.kind === 'board' ? 'done' : 'active'
+  return 'upcoming'
+}
+
+/** An item's state at a station (nodeState for that station). */
+export function itemState(item, station, at, cfg) {
+  return nodeState(item, station?.id, cfg, at)
+}
+
+/** The stations a dish is waiting at now (reached, not done; boards left out). */
+export function itemWhere(item, cfg, at) {
+  if (item.voided_at || !isFired(item, at)) return []
+  const f = flowTimes(item, cfg, at)
+  return Object.keys(item.route || {}).filter(id =>
+    cfg?.stations?.[id] && cfg.stations[id].kind !== 'board' && f.arrived(id) && !f.done(id))
 }
 
 const liveItems = o => o.items.filter(i => !i.voided_at)
+const kindOf = (cfg, id) => cfg?.stations?.[id]?.kind
+const routeNodes = (item, cfg) => Object.keys(item.route || {}).filter(id => !cfg?.stations || cfg.stations[id])
 
-/** Work still to do in the kitchen (fired, not voided, not done at a station). */
-function pendingWork(o, at) {
-  return liveItems(o).some(i => isFired(i, at) && i.stations.some(s => !i.done[s]))
+/**
+ * Where an order stands:
+ *   ready        every dish has reached every board and runner on its way,
+ *                and dishes with neither are done everywhere
+ *   finished     every dish is done at every station on its way
+ *   handedOver   finished, and every dish's way ends at a runner (the runner
+ *                took it out, so nobody collects it from a board)
+ */
+export function orderFacts(o, cfg, at) {
+  let ready = true
+  let finished = true
+  let runnerEnds = true
+  let any = false
+  for (const i of liveItems(o)) {
+    if (!isFired(i, at)) { ready = false; finished = false; runnerEnds = false; continue }
+    const nodes = routeNodes(i, cfg)
+    if (!nodes.length) continue
+    any = true
+    const f = flowTimes(i, cfg, at)
+    const ends = nodes.filter(id => ['board', 'runner'].includes(kindOf(cfg, id)))
+    const bumpNodes = nodes.filter(id => kindOf(cfg, id) !== 'board')
+    const allDone = bumpNodes.every(id => f.done(id))
+    if (ends.length ? !ends.every(id => f.arrived(id)) : !allDone) ready = false
+    if (!allDone) finished = false
+    const endsAtRunner = nodes.some(id => kindOf(cfg, id) === 'runner' && !nodes.some(n => (i.route[n] || []).includes(id)))
+    if (!endsAtRunner) runnerEnds = false
+  }
+  return { ready, finished, handedOver: any && finished && runnerEnds }
 }
 
 function touch(o, at) {
@@ -265,8 +541,8 @@ function touch(o, at) {
 /**
  * Keep the order's status in step with its items.
  *   - everything voided: cancelled
- *   - new work after ready / collected: active again
- *   - no pass (expo) station: ready once nothing is left to do
+ *   - not ready (new work, a remake, a dish brought back): active
+ *   - ready (orderFacts): ready; handed over by a runner: collected
  */
 function refreshStatus(o, cfg, at, eventId) {
   if (o.status === 'merged') return
@@ -275,19 +551,30 @@ function refreshStatus(o, cfg, at, eventId) {
     if (o.items.length && o.status !== 'cancelled') { o.status = 'cancelled'; o.cancelled_at = at }
     return
   }
-  if (o.status === 'cancelled' && !o.cancelled_by_server) { o.status = 'active'; o.cancelled_at = null }
-  const pending = pendingWork(o, at)
-  if (pending && o.status !== 'active' && o.status !== 'cancelled') {
+  if (o.status === 'cancelled') {
+    if (o.cancelled_by_server) return
     o.status = 'active'
-    o.ready_at = null
-    o.ready_event = null
-    o.collected_at = null
+    o.cancelled_at = null
+  }
+  const f = orderFacts(o, cfg, at)
+  if (!f.ready) {
+    if (o.status !== 'active') {
+      o.status = 'active'
+      o.ready_at = null
+      o.ready_event = null
+      o.collected_at = null
+    }
     return
   }
-  if (!cfg.expo && !pending && o.status === 'active' && live.some(i => isFired(i, at))) {
+  if (o.status === 'active') {
     o.status = 'ready'
     o.ready_at = at
     o.ready_event = eventId || null
+  }
+  if (o.status === 'ready' && f.handedOver) {
+    o.status = 'collected'
+    o.collected_at = at
+    o.collected_event = eventId || null
   }
 }
 
@@ -299,7 +586,7 @@ function refreshStatus(o, cfg, at, eventId) {
  *   before  { [checkId]: check } before the event
  *   after   { [checkId]: check } the checks it changed
  *   orders  { [id]: kitchen order } the ones kitchenOrdersForCheckEvent(e) names that exist
- *   cfg     kitchen config: { enabled, stations, routes, expo, courses, tables, staff, revenue_centres }
+ *   cfg     kitchen config: { enabled, stations, flow, courses, tables, staff, order_types }
  * Returns { [id]: order } (new objects; the input is never changed).
  */
 export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cfg = {}) {
@@ -319,7 +606,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
   }
   const refreshHeader = (o, c) => {
     const h = headerFromCheck(c, cfg)
-    for (const k of ['number', 'counter', 'board', 'table', 'tab', 'covers', 'server', 'type', 'note']) o[k] = h[k]
+    for (const k of ['number', 'counter', 'board', 'table', 'tab', 'covers', 'server', 'type', 'type_name', 'tent', 'note']) o[k] = h[k]
   }
 
   switch (e.type) {
@@ -334,7 +621,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
       const hadItems = o.items.length > 0
       for (const l of lines) {
         if (o.items.some(i => i.id === l.id)) continue
-        const item = itemFromLine(l, check, cfg, at, l.held)
+        const item = itemFromLine(l, check, cfg, at, l.held, o.type)
         item.added = hadItems
         o.items.push(item)
       }
@@ -437,32 +724,59 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
 
 const fail = (error, code = 'refused') => ({ ok: false, error, code })
 
-function liveAt(o, station, at) {
-  return o.items.filter(i => i.stations.includes(station.id) && itemState(i, station, at) === 'active')
+/** Has this station had the dish in front of it (reached it, or shows dishes early)? */
+function seenAt(item, station, cfg) {
+  const preds = item.route?.[station.id]
+  if (!preds) return false
+  if (stationSettings(station).show_upcoming || preds.includes(START)) return true
+  const f = flowTimes({ ...item, voided_at: null }, cfg, item.voided_at)
+  return !!f.arrived(station.id)
 }
-function voidsToSee(o, station) {
-  return o.items.filter(i => i.voided_at && i.stations.includes(station.id) && !i.done[station.id] && !i.void_seen?.[station.id])
+
+function voidsToSee(o, station, cfg) {
+  return o.items.filter(i => i.voided_at && i.route?.[station.id] && !i.done[station.id] && !i.void_seen?.[station.id] && seenAt(i, station, cfg))
 }
 
 function qtyOf(items) {
   return items.reduce((s, i) => s + (Number(i.qty) || 0), 0)
 }
 
-function bumpRecord(e, station, at, set, items, extra = {}) {
-  const started = items.map(liveSince).filter(Boolean).map(ms).filter(Number.isFinite)
-  const startedAt = started.length ? new Date(Math.min(...started)).toISOString() : at
+/** When the station's work on these dishes started (the pass: the order's age;
+ *  elsewhere: when the dishes reached it). */
+function startedAt(items, station, cfg, at) {
+  const times = items.map(i => {
+    if (station.kind === 'expo') return liveSince(i)
+    return flowTimes(i, cfg, at).arrived(station.id) || liveSince(i)
+  }).map(ms).filter(Number.isFinite)
+  return times.length ? new Date(Math.min(...times)).toISOString() : at
+}
+
+function bumpRecord(e, station, at, set, items, cfg, extra = {}) {
+  const start = startedAt(items, station, cfg, at)
   return {
     id: e.id, station_id: station.id, kind: station.kind, at, set,
-    started_at: startedAt,
-    seconds: Math.max(0, Math.round((ms(at) - ms(startedAt)) / 1000)),
+    started_at: start,
+    seconds: Math.max(0, Math.round((ms(at) - ms(start)) / 1000)),
     items: qtyOf(items), recalled_at: null, ...extra,
   }
+}
+
+const nameOf = (cfg, id) => cfg?.stations?.[id]?.name || 'another station'
+
+/** Mark a dish done at `node` and, for a forced finish, everywhere before it. */
+function finish(item, node, at, set, force) {
+  if (force) {
+    for (const a of ancestors(item.route, node)) {
+      if (!item.done[a]) { item.done[a] = at; set.push([item.id, a]) }
+    }
+  }
+  if (!item.done[node]) { item.done[node] = at; set.push([item.id, node]) }
 }
 
 /**
  * Apply one kitchen event.
  *   orders  { [id]: kitchen order } with every order kitchenOrdersTouched(e) names that exists
- *   cfg     kitchen config (stations by id, expo, routes, ...)
+ *   cfg     kitchen config (stations by id, flow, ...)
  * Returns { ok: true, orders: { [id]: order }, log: [...] } (only what changed;
  * the input is never changed), or { ok: false, error, code }.
  * log rows: { kind: 'bump' | 'remake' | 'recall', ... } for kds_log.
@@ -480,10 +794,10 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
     const fireAt = src.fire_at && ms(src.fire_at) > ms(at) ? src.fire_at : null
     const o = newOrder({
       id: src.id, source: 'online', order_id: src.order_id, number: src.number || '',
-      counter: false, board: true, guest: src.guest || null, type: src.type,
+      counter: false, board: true, guest: src.guest || null, type: src.type || null, type_name: src.type_name || null,
       promised_at: src.promised_at || null, note: src.note || null, allergy: src.allergy || null,
     }, at)
-    o.items = src.items.map(i => itemFromOnline(i, cfg, at, fireAt))
+    o.items = src.items.map(i => itemFromOnline(i, cfg, at, fireAt, src.type))
     refreshStatus(o, cfg, at, e.id)
     touch(o, at)
     return { ok: true, orders: { [o.id]: o }, log }
@@ -494,6 +808,8 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
   const o = clone(current)
   const station = p.station_id ? cfg.stations?.[p.station_id] : null
   if (p.station_id && !station) return fail('Kitchen station not found', 'station')
+  if (station && station.kind === 'board') return fail('An order ready board has nothing to bump', 'station')
+  const st = station ? stationSettings(station) : null
 
   switch (e.type) {
     case 'kitchen.item_done': {
@@ -502,28 +818,37 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       if (!item) return fail('Dish not found on this order', 'missing')
       if (item.voided_at) return fail('This dish was voided', 'voided')
       if (!isFired(item, at)) return fail('This dish hasn\'t been fired yet', 'held')
-      const targets = station.kind === 'expo' ? item.stations : [station.id]
-      if (station.kind !== 'expo' && !item.stations.includes(station.id)) return fail('This dish isn\'t made here', 'station')
+      if (!item.route?.[station.id]) return fail('This dish doesn\'t come to ' + station.name, 'station')
+      const state = nodeState(item, station.id, cfg, at)
       if (p.done) {
+        if (state === 'done') return fail('Already done', 'nothing')
+        if (state === 'upcoming' && !(isOrderLevel(station) && st.show_upcoming)) {
+          return fail('Still at ' + itemWhere(item, cfg, at).map(id => nameOf(cfg, id)).join(', '), 'upcoming')
+        }
         const set = []
-        for (const s of targets) if (!item.done[s]) { item.done[s] = at; set.push([item.id, s]) }
-        if (!set.length && station.kind !== 'expo') return fail('Already done', 'nothing')
+        finish(item, station.id, at, set, state === 'upcoming')
         // The last dish of a ticket done one by one counts as the bump.
-        if (station.kind !== 'expo' && set.length && !liveAt(o, station, at).length) {
-          const doneHere = o.items.filter(i => i.stations.includes(station.id) && i.done[station.id] && !i.voided_at
-            && !o.bumps.some(b => b.station_id === station.id && !b.recalled_at && b.set.some(([id]) => id === i.id)))
-          const rec = bumpRecord(e, station, at, doneHere.map(i => [i.id, station.id]), doneHere, { by_items: true })
-          for (const v of voidsToSee(o, station)) v.void_seen = { ...(v.void_seen || {}), [station.id]: at }
+        const left = o.items.filter(i => {
+          const s = nodeState(i, station.id, cfg, at)
+          return s === 'active' || (s === 'upcoming' && st.show_upcoming)
+        })
+        if (!left.length) {
+          const inBump = id => o.bumps.some(b => b.station_id === station.id && !b.recalled_at && b.set.some(([x, n]) => x === id && n === station.id))
+          const doneHere = o.items.filter(i => i.route?.[station.id] && i.done[station.id] && !i.voided_at && !inBump(i.id))
+          const pairs = [...set.filter(([, n]) => n !== station.id), ...doneHere.map(i => [i.id, station.id])]
+          const rec = bumpRecord(e, station, at, pairs, doneHere, cfg, { by_items: true })
+          for (const v of voidsToSee(o, station, cfg)) v.void_seen = { ...(v.void_seen || {}), [station.id]: at }
           o.bumps.push(rec)
           log.push({ kind: 'bump', station, at, seconds: rec.seconds, items: rec.items })
         }
       } else {
-        let undone = 0
-        for (const s of targets) if (item.done[s]) { delete item.done[s]; undone++ }
-        if (!undone) return fail('Not done yet', 'nothing')
+        if (!item.done[station.id]) return fail('Not done yet', 'nothing')
+        const onward = descendants(item.route, station.id).filter(n => item.done[n])
+        if (onward.length) return fail('Already moved on to ' + onward.map(id => nameOf(cfg, id)).join(', '), 'moved_on')
+        delete item.done[station.id]
         // Undoing a dish reopens the ticket: its last bump no longer counts.
         for (const b of o.bumps) {
-          if (!b.recalled_at && targets.includes(b.station_id) && b.set.some(([id]) => id === item.id)) {
+          if (!b.recalled_at && b.station_id === station.id && b.set.some(([id, n]) => id === item.id && n === station.id)) {
             b.recalled_at = at
             log.push({ kind: 'recall', bump_event_id: b.id })
           }
@@ -534,31 +859,25 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
     }
 
     case 'kitchen.bumped': {
-      if (station.kind === 'expo') {
-        if (o.status !== 'active') return fail(o.status === 'ready' ? 'Already ready' : 'This order is no longer in the kitchen', 'closed')
-        const fired = liveItems(o).filter(i => isFired(i, at))
-        if (!fired.length) return fail('Nothing has been fired for this order yet', 'held')
-        const set = []
-        for (const i of fired) for (const s of i.stations) if (!i.done[s]) { i.done[s] = at; set.push([i.id, s]) }
-        const fromAt = o.bumps.filter(b => b.kind === 'expo' && !b.recalled_at).map(b => ms(b.at))
-        const since = fromAt.length ? Math.max(...fromAt) : 0
-        const roundItems = fired.filter(i => ms(liveSince(i)) >= since)
-        const rec = bumpRecord(e, station, at, set, roundItems.length ? roundItems : fired)
-        o.bumps.push(rec)
-        o.status = 'ready'
-        o.ready_at = at
-        o.ready_event = e.id
-        log.push({ kind: 'bump', station, at, seconds: rec.seconds, items: rec.items })
-        break
+      if (!['active', 'ready'].includes(o.status)) return fail('This order is no longer in the kitchen', 'closed')
+      const mine = liveItems(o).filter(i => i.route?.[station.id])
+      const active = mine.filter(i => nodeState(i, station.id, cfg, at) === 'active')
+      const upcoming = isOrderLevel(station) && st.show_upcoming
+        ? mine.filter(i => nodeState(i, station.id, cfg, at) === 'upcoming') : []
+      const voids = voidsToSee(o, station, cfg)
+      if (!active.length && !upcoming.length && !voids.length) {
+        const coming = mine.filter(i => nodeState(i, station.id, cfg, at) === 'upcoming')
+        if (coming.length) return fail('Still at ' + [...new Set(coming.flatMap(i => itemWhere(i, cfg, at)))].map(id => nameOf(cfg, id)).join(', '), 'upcoming')
+        return fail('Nothing to bump at ' + station.name, 'nothing')
       }
-      const todo = liveAt(o, station, at)
-      const voids = voidsToSee(o, station)
-      if (!todo.length && !voids.length) return fail('Nothing to bump at ' + station.name, 'nothing')
-      for (const i of todo) i.done[station.id] = at
+      const set = []
+      for (const i of active) finish(i, station.id, at, set, false)
+      for (const i of upcoming) finish(i, station.id, at, set, true)
       for (const v of voids) v.void_seen = { ...(v.void_seen || {}), [station.id]: at }
-      const rec = bumpRecord(e, station, at, todo.map(i => [i.id, station.id]), todo, { voids: voids.map(v => v.id) })
+      const bumped = [...active, ...upcoming]
+      const rec = bumpRecord(e, station, at, set, bumped, cfg, { voids: voids.map(v => v.id) })
       o.bumps.push(rec)
-      if (todo.length) log.push({ kind: 'bump', station, at, seconds: rec.seconds, items: rec.items })
+      if (bumped.length) log.push({ kind: 'bump', station, at, seconds: rec.seconds, items: rec.items })
       refreshStatus(o, cfg, at, e.id)
       break
     }
@@ -566,22 +885,30 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
     case 'kitchen.recalled': {
       const last = [...o.bumps].reverse().find(b => b.station_id === station.id && !b.recalled_at)
       if (!last) return fail('Nothing to bring back at ' + station.name, 'nothing')
-      for (const [itemId, s] of last.set) {
+      const inSet = new Set(last.set.map(([id, n]) => id + '|' + n))
+      const moved = new Set()
+      for (const [itemId, node] of last.set) {
         const i = o.items.find(x => x.id === itemId)
-        if (i) delete i.done[s]
+        if (!i) continue
+        const onward = descendants(i.route, node).filter(n => i.done[n] && !inSet.has(itemId + '|' + n))
+        if (onward.length) moved.add(itemId)
+      }
+      const restore = last.set.filter(([id]) => !moved.has(id))
+      if (!restore.length && last.set.length) {
+        const i = o.items.find(x => x.id === last.set[0][0])
+        const onward = i ? descendants(i.route, station.id).filter(n => i.done[n]) : []
+        return fail('Already moved on to ' + (onward.map(id => nameOf(cfg, id)).join(', ') || 'the next station'), 'moved_on')
+      }
+      for (const [itemId, node] of restore) {
+        const i = o.items.find(x => x.id === itemId)
+        if (i) delete i.done[node]
       }
       for (const id of last.voids || []) {
         const v = o.items.find(x => x.id === id)
         if (v?.void_seen) delete v.void_seen[station.id]
       }
       last.recalled_at = at
-      if (station.kind === 'expo' && ['ready', 'collected'].includes(o.status)) {
-        o.status = 'active'
-        o.ready_at = null
-        o.ready_event = null
-        o.collected_at = null
-      }
-      if (['ready', 'collected'].includes(o.status) && pendingWork(o, at)) refreshStatus(o, cfg, at, e.id)
+      refreshStatus(o, cfg, at, e.id)
       log.push({ kind: 'recall', bump_event_id: last.id })
       break
     }
@@ -592,18 +919,20 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
       if (!item) return fail('Dish not found on this order', 'missing')
       if (item.voided_at) return fail('This dish was voided', 'voided')
       if (!isFired(item, at)) return fail('This dish hasn\'t been fired yet', 'held')
-      const targets = station.kind === 'expo' ? item.stations : [station.id]
-      for (const s of targets) delete item.done[s]
-      item.remakes = (item.remakes || 0) + 1
-      item.since = at
-      item.remade_at = at
-      if (o.status !== 'active') {
-        o.status = 'active'
-        o.ready_at = null
-        o.ready_event = null
-        o.collected_at = null
+      if (!item.route?.[station.id]) return fail('This dish doesn\'t come to ' + station.name, 'station')
+      if (isOrderLevel(station)) {
+        // From the pass or a runner: made again from the start of its way.
+        item.done = {}
+        item.reset = {}
+        item.since = at
+      } else {
+        for (const n of [station.id, ...descendants(item.route, station.id)]) delete item.done[n]
+        item.reset = { ...(item.reset || {}), [station.id]: at }
       }
+      item.remakes = (item.remakes || 0) + 1
+      item.remade_at = at
       o.changed_at = at
+      refreshStatus(o, cfg, at, e.id)
       log.push({ kind: 'remake', station, at, item_name: item.name, reason: String(p.reason || '').trim() || null })
       break
     }
@@ -622,19 +951,22 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
 
     case 'kitchen.order_status': {
       if (o.status === p.status) return fail('No change', 'nothing')
+      const finishAll = () => {
+        for (const i of o.items) if (!i.fired_at && !i.voided_at) { i.fired_at = at; i.since = i.since || at }
+        for (const i of liveItems(o)) for (const n of Object.keys(i.route || {})) if (!i.done[n] && kindOf(cfg, n) !== 'board') i.done[n] = at
+      }
       if (p.status === 'cancelled') {
         o.status = 'cancelled'
         o.cancelled_at = at
         o.cancelled_by_server = true
       } else if (p.status === 'ready') {
-        for (const i of liveItems(o)) for (const s of i.stations) if (!i.done[s]) i.done[s] = at
-        for (const i of o.items) if (!i.fired_at && !i.voided_at) { i.fired_at = at; i.since = i.since || at }
+        finishAll()
         o.status = 'ready'
         o.ready_at = at
         o.ready_event = e.id
       } else if (p.status === 'collected') {
         if (o.status !== 'ready') {
-          for (const i of liveItems(o)) for (const s of i.stations) if (!i.done[s]) i.done[s] = at
+          finishAll()
           o.ready_at = o.ready_at || at
         }
         o.status = 'collected'
@@ -655,44 +987,83 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
 
 const isStale = (o, now) => o.created_at && ms(now) - ms(o.created_at) > STALE_HOURS * 3600_000
 const minTime = list => {
-  const t = list.map(ms).filter(Number.isFinite)
+  const t = list.filter(Boolean).map(ms).filter(Number.isFinite)
   return t.length ? new Date(Math.min(...t)).toISOString() : null
 }
 
 /**
  * Tickets for one station, oldest first (priority orders first).
  * A ticket = one kitchen order at this station:
- *   { order, items: [{ ...item, state, parts (only this station's) }], since, held, voids }
- * Prep: shown while it has something to make (or a void to see).
- * Expo: shown while the order is active and something has been fired.
+ *   { order, items, since, held, voids, elsewhere }
+ * items: the order's dishes that come to this station, each with
+ *   state  'active' | 'upcoming' | 'done' | 'held' | 'voided'
+ *   where  stations an upcoming dish is at now
+ *   from   stations it came from (not Orders in)
+ *   next   stations it goes on to
+ *   parts  meal deal parts made here (prep) / all parts (pass, runner)
+ * elsewhere (pass, runner): [{ station_id, count }] dishes of the order going
+ * another way (e.g. to the other expo).
+ * A ticket shows while the station has something to do: dishes here, or
+ * (show_upcoming) dishes still at earlier stations, or a void to see.
  */
-export function stationTickets(orders, station, now) {
-  const list = Object.values(orders || {})
+export function stationTickets(orders, station, now, cfg) {
+  if (!station || station.kind === 'board') return []
   const st = stationSettings(station)
+  const orderLevel = isOrderLevel(station)
   const out = []
-  for (const o of list) {
-    if (o.status !== 'active' || isStale(o, now)) continue
-    if (station.kind === 'expo') {
-      const fired = o.items.filter(i => !i.voided_at && isFired(i, now))
-      if (!fired.length) continue
-      const items = o.items
-        .map(i => ({ ...i, state: itemState(i, station, now) }))
-        .filter(i => st.show_held || i.state !== 'held')
-      out.push({ order: o, items, since: minTime(fired.map(liveSince)), held: items.filter(i => i.state === 'held').length })
-      continue
+  for (const o of Object.values(orders || {})) {
+    if (!['active', 'ready'].includes(o.status) || isStale(o, now)) continue
+    const mine = o.items.filter(i => i.route?.[station.id])
+    if (!mine.length) continue
+    const voids = voidsToSee(o, station, cfg)
+    const view = mine.map(i => {
+      const state = nodeState(i, station.id, cfg, now)
+      const entry = (i.route[station.id] || []).includes(START)
+      return {
+        ...i, state,
+        entry,
+        where: state === 'upcoming' ? itemWhere(i, cfg, now) : [],
+        from: (i.route[station.id] || []).filter(x => x !== START),
+        next: routeNext(i.route, station.id),
+        parts: i.parts ? (orderLevel ? i.parts : i.parts.filter(pt => pt.route?.[station.id])) : null,
+      }
+    })
+    const active = view.filter(i => i.state === 'active')
+    const upcoming = view.filter(i => i.state === 'upcoming')
+    if (!active.length && !voids.length && !(st.show_upcoming && upcoming.length)) continue
+    const items = view.filter(i => {
+      if (i.state === 'voided') return voids.some(v => v.id === i.id)
+      if (i.state === 'upcoming') return st.show_upcoming
+      if (i.state === 'held') return st.show_held && (i.entry || orderLevel)
+      return true
+    })
+    // The pass times the whole order; other stations from when dishes reached them.
+    const since = station.kind === 'expo'
+      ? minTime(view.filter(i => ['active', 'upcoming', 'done'].includes(i.state)).map(liveSince))
+      : minTime(active.map(i => flowTimes(i, cfg, now).arrived(station.id))) || minTime(upcoming.map(liveSince))
+    let elsewhere = []
+    if (orderLevel) {
+      const counts = new Map()
+      for (const i of liveItems(o)) {
+        if (i.route?.[station.id] || !isFired(i, now) || !Object.keys(i.route || {}).length) continue
+        const ends = Object.keys(i.route).filter(id => isOrderLevel(cfg?.stations?.[id]))
+        const key = ends[0] || Object.keys(i.route)[0]
+        counts.set(key, (counts.get(key) || 0) + (Number(i.qty) || 0))
+      }
+      elsewhere = [...counts.entries()].map(([station_id, count]) => ({ station_id, count }))
     }
-    const mine = o.items.filter(i => i.stations.includes(station.id))
-    const active = mine.filter(i => itemState(i, station, now) === 'active')
-    const voids = voidsToSee(o, station)
-    if (!active.length && !voids.length) continue
-    const items = mine
-      .map(i => ({ ...i, state: itemState(i, station, now), parts: i.parts ? i.parts.filter(pt => pt.stations.includes(station.id)) : null }))
-      .filter(i => i.state !== 'voided' || voids.some(v => v.id === i.id))
-      .filter(i => st.show_held || i.state !== 'held')
-    out.push({ order: o, items, since: minTime(active.map(liveSince)) || minTime(voids.map(v => v.voided_at)), held: items.filter(i => i.state === 'held').length, voids: voids.length })
+    out.push({
+      order: o, items,
+      since: since || minTime(voids.map(v => v.voided_at)) || o.created_at,
+      held: items.filter(i => i.state === 'held').length,
+      voids: voids.length,
+      upcoming: upcoming.length,
+      elsewhere,
+    })
   }
   return out.sort((a, b) => (b.order.priority ? 1 : 0) - (a.order.priority ? 1 : 0) || ms(a.since) - ms(b.since))
 }
+
 
 /** Orders for later (online orders with a collection time): { order, fire_at } soonest first. */
 export function laterOrders(orders, now) {
@@ -717,6 +1088,19 @@ export function recentBumps(orders, station, now, limit = 30) {
   return out.sort((a, b) => ms(b.bump.at) - ms(a.bump.at)).slice(0, limit)
 }
 
+/**
+ * Orders ready to collect that a station sees: ready, with a dish that came
+ * through this station (no station: every ready counter / online order).
+ * Newest first.
+ */
+export function readyOrders(orders, station, now) {
+  const list = Object.values(orders || {}).filter(o => o.status === 'ready' && !isStale(o, now))
+  const out = station
+    ? list.filter(o => o.items.some(i => !i.voided_at && i.route?.[station.id]))
+    : list.filter(o => o.board)
+  return out.sort((a, b) => ms(b.ready_at) - ms(a.ready_at))
+}
+
 /** Ticket colour by age: 'ok' | 'warn' | 'late'. */
 export function ageTone(since, now, station) {
   const st = stationSettings(station)
@@ -738,20 +1122,20 @@ export function clockSince(since, now) {
 
 /**
  * What is on order at a station now (the On order screen and the SUM panel):
- * dishes and options still to make, counted. With summary groups (station
- * settings) each group adds up its members (dish or option, times `qty`,
- * e.g. "8pc Boneless" counts 8 towards Boneless); without, one row per dish.
- * Returns [{ id, name, count }].
+ * dishes and options this station still has to do (here or on their way),
+ * counted. With summary groups (station settings) each group adds up its
+ * members (dish or option, times `qty`, e.g. "8pc Boneless" counts 8 towards
+ * Boneless); without, one row per dish. Returns [{ id, name, count }].
  */
-export function onOrderCounts(orders, station, now) {
+export function onOrderCounts(orders, station, now, cfg) {
   const groups = stationSettings(station).summary_groups || []
   const todo = []
   for (const o of Object.values(orders || {})) {
-    if (o.status !== 'active' || isStale(o, now)) continue
+    if (!['active', 'ready'].includes(o.status) || isStale(o, now)) continue
     for (const i of o.items) {
-      if (station.kind !== 'expo' && !i.stations.includes(station.id)) continue
-      if (itemState(i, station, now) !== 'active') continue
-      const parts = i.parts ? (station.kind === 'expo' ? i.parts : i.parts.filter(pt => pt.stations.includes(station.id))) : null
+      const s = nodeState(i, station.id, cfg, now)
+      if (s !== 'active' && s !== 'upcoming') continue
+      const parts = i.parts ? (isOrderLevel(station) ? i.parts : i.parts.filter(pt => pt.route?.[station.id])) : null
       todo.push({ item: i, parts })
     }
   }
@@ -817,21 +1201,46 @@ export function clockSecs(secs) {
   return m + ':' + String(secs % 60).padStart(2, '0')
 }
 
+/** An order on one board: { state: 'ready' | 'preparing', at } or null (not on it). */
+export function boardState(o, boardId, cfg, now) {
+  const items = liveItems(o).filter(i => i.route?.[boardId])
+  if (!items.length) return null
+  let readyAt = null
+  for (const i of items) {
+    const t = flowTimes(i, cfg, now).arrived(boardId)
+    if (!t) return items.some(x => isFired(x, now)) ? { state: 'preparing', at: o.created_at } : null
+    readyAt = later(readyAt, t)
+  }
+  return { state: 'ready', at: readyAt }
+}
+
 /**
- * The numbers for an order-ready board: counter and online orders.
+ * The numbers for an order ready board.
+ *   boardId null: every counter and online order (ready = the order is ready)
+ *   boardId:      the orders with dishes on their way to that board (ready
+ *                 once all of them have reached it)
  *   preparing  something fired, not ready yet (oldest first)
  *   ready      ready, not collected, ready less than clearMins ago (newest first)
  */
-export function boardNumbers(orders, now, { clearMins = 10, max = 30 } = {}) {
+export function boardNumbers(orders, now, { clearMins = 10, max = 30, boardId = null, cfg = null } = {}) {
   const preparing = []
   const ready = []
+  const fresh = t => !clearMins || ms(now) - ms(t) < clearMins * 60000
   for (const o of Object.values(orders || {})) {
-    if (!o.board || !o.number || isStale(o, now)) continue
-    if (o.status === 'active' && o.items.some(i => !i.voided_at && isFired(i, now))) preparing.push(o)
-    else if (o.status === 'ready' && (!clearMins || ms(now) - ms(o.ready_at) < clearMins * 60000)) ready.push(o)
+    if (!o.number || isStale(o, now) || !['active', 'ready'].includes(o.status)) continue
+    if (!boardId) {
+      if (!o.board) continue
+      if (o.status === 'active' && o.items.some(i => !i.voided_at && isFired(i, now))) preparing.push({ o, at: o.created_at })
+      else if (o.status === 'ready' && fresh(o.ready_at)) ready.push({ o, at: o.ready_at })
+      continue
+    }
+    const b = boardState(o, boardId, cfg, now)
+    if (!b) continue
+    if (b.state === 'preparing') preparing.push({ o, at: o.created_at })
+    else if (fresh(b.at)) ready.push({ o, at: b.at })
   }
-  preparing.sort((a, b) => ms(a.created_at) - ms(b.created_at))
-  ready.sort((a, b) => ms(b.ready_at) - ms(a.ready_at))
-  const view = o => ({ id: o.id, number: o.number, name: o.guest || null, source: o.source, at: o.ready_at || o.created_at })
+  preparing.sort((a, b) => ms(a.at) - ms(b.at))
+  ready.sort((a, b) => ms(b.at) - ms(a.at))
+  const view = ({ o, at }) => ({ id: o.id, number: o.number, name: o.guest || null, source: o.source, at })
   return { preparing: preparing.slice(0, max).map(view), ready: ready.slice(0, max).map(view) }
 }

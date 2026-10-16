@@ -3,11 +3,11 @@
 // bill, Pay takes payment and closes the check.
 
 import { useEffect, useState } from 'react'
-import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye } from 'lucide-react'
+import { ArrowLeft, Send, Printer, CreditCard, MoreHorizontal, Flame, Users, Eye, Flag } from 'lucide-react'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { useTill, useChecks, dispatch, toast, setPresence, othersOn } from '../lib/store.js'
-import { addItem, needsChoices, rcOf, refreshPromotions, sendCheck } from '../lib/checkOps.js'
+import { addItem, needsChoices, streamOf, typeOf, missingDetails, refreshPromotions, sendCheck } from '../lib/checkOps.js'
 import { cx, money, elapsed } from '../components/ui.jsx'
 import CheckPanel from '../components/CheckPanel.jsx'
 import MenuPanel from '../components/MenuPanel.jsx'
@@ -16,7 +16,7 @@ import LineModal from '../components/LineModal.jsx'
 import PayModal from '../components/PayModal.jsx'
 import {
   ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ServiceChargeModal, OffersModal, MoveModal,
-  MergeModal, TableModal, NameModal, ServerModal, RcModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
+  MergeModal, TableModal, NameModal, ServerModal, StreamModal, OrderTypeModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
 } from '../components/CheckActions.jsx'
 
 export default function CheckScreen({ checkId, onBack, onOpen, counter = false }) {
@@ -36,6 +36,11 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     if (check && check.status !== 'open' && modal?.kind !== 'pay') onBack()
   }, [check?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A new check whose order type needs a name or tent number asks for it first.
+  useEffect(() => {
+    if (check && !check.lines.length && missingDetails(check, config).length) setModal({ kind: 'type' })
+  }, [checkId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!check) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 text-muted">
@@ -46,8 +51,17 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   }
 
   const table = check.table_id ? (config.tables || []).find(t => t.id === check.table_id) : null
-  const rc = rcOf(config, check.revenue_centre_id)
+  const stream = streamOf(config, check.revenue_stream_id)
+  const type = typeOf(config, check.order_type_id)
   const t = checkTotals(check)
+  const missing = missingDetails(check, config)
+  // Required name / tent number: asked before the order goes to the kitchen or is paid.
+  const needDetails = () => {
+    if (!missing.length) return false
+    toast('Enter ' + missing.map(m => (m === 'name' ? 'a customer name' : 'a tent number')).join(' and ') + ' first', 'bad')
+    setModal({ kind: 'type' })
+    return true
+  }
   const unsent = check.lines.filter(l => l.status === 'new').length
   const held = heldCourses(check)
   const others = othersOn(check.id)
@@ -65,6 +79,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
   }
   const send = () => {
     if (!unsent) return toast('Nothing new to send', 'bad')
+    if (needDetails()) return
     if (needsSendChoice(check, config)) return setModal({ kind: 'send' })
     const r = sendCheck(check, [])
     if (!r.ok) return toast(r.error, 'bad')
@@ -78,6 +93,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
     toast('Bill printed', 'ok')
   }
   const pay = () => {
+    if (needDetails()) return
     refreshPromotions(check.id)
     setModal({ kind: 'pay' })
   }
@@ -98,16 +114,18 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       <button className="flex-1 min-w-0 text-left" onClick={() => setModal({ kind: 'actions' })}>
         <div className="font-bold text-lg truncate">
           {table ? 'Table ' + table.label : check.order_no != null ? 'Order #' + check.order_no : check.tab_name || 'Tab'}
-          <span className="text-muted font-normal text-sm ml-2">#{checkLabel(check)}</span>
+          {check.order_no == null && <span className="text-muted font-normal text-sm ml-2">#{checkLabel(check)}</span>}
         </div>
         <div className="text-xs text-muted truncate flex items-center gap-2">
           {check.covers ? <span className="flex items-center gap-1"><Users size={12} />{check.covers}</span> : null}
           <span>{(config.staff || []).find(s => s.id === check.server_id)?.name}</span>
-          {rc && (config.revenue_centres || []).length > 1 && <span className="font-semibold text-brand">{rc.name}</span>}
+          {type && <span className="font-semibold text-ink" data-testid="check-type">{type.name}</span>}
+          {check.tent && <span className="font-semibold text-brand flex items-center gap-0.5" data-testid="check-tent"><Flag size={12} />{check.tent}</span>}
+          {stream && (config.revenue_streams || []).length > 1 && <span className="font-semibold text-brand">{stream.name}</span>}
           <span>{elapsed(check.opened_at)}</span>
         </div>
       </button>
-      {table && check.tab_name && <div className="text-sm font-semibold truncate max-w-[100px]">{check.tab_name}</div>}
+      {check.tab_name && (table || check.order_no != null) && <div className="text-sm font-semibold truncate max-w-[140px]" data-testid="check-name">{check.tab_name}</div>}
     </div>
   )
 
@@ -133,7 +151,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         </>} footer={footer} onLine={line => setModal({ kind: 'line', line })} />
       </div>
       <div className="flex-1 min-w-0">
-        <MenuPanel config={config} menuIds={rc?.menu_ids} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+        <MenuPanel config={config} menuIds={stream?.menu_ids} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
           covers={check.covers} onOpenItem={() => setModal({ kind: 'open_item' })} />
       </div>
 
@@ -153,7 +171,9 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'table' && <TableModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'name' && <NameModal check={check} onClose={close} />}
       {modal?.kind === 'server' && <ServerModal check={check} config={config} onClose={close} />}
-      {modal?.kind === 'rc' && <RcModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'stream' && <StreamModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'type' && <OrderTypeModal check={check} config={config} onClose={close} />}
+      {modal?.kind === 'tent' && <OrderTypeModal check={check} config={config} focus="tent" onClose={close} />}
       {modal?.kind === 'covers' && <GuestsModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'open_item' && <OpenItemModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'nosale' && <NoSale onClose={close} />}

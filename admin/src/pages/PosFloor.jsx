@@ -78,11 +78,11 @@ function AreaModal({ venueId, setup, area, onClose, onSaved }) {
   const api = useApi()
   const qc = useQueryClient()
   const [form, setForm] = useState({
-    name: area?.name || '', width: area?.width ?? 24, height: area?.height ?? 16, revenue_centre_id: area?.revenue_centre_id || '',
+    name: area?.name || '', width: area?.width ?? 24, height: area?.height ?? 16, revenue_stream_id: area?.revenue_stream_id || '',
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
-  const body = () => ({ name: form.name.trim(), width: form.width || 24, height: form.height || 16, revenue_centre_id: form.revenue_centre_id || null })
+  const body = () => ({ name: form.name.trim(), width: form.width || 24, height: form.height || 16, revenue_stream_id: form.revenue_stream_id || null })
   const save = useMutation({
     mutationFn: () => area ? api.patch(`/pos/floor-areas/${area.id}`, body()) : api.post(`/pos/venues/${venueId}/floor-areas`, body()),
     onSuccess: row => { refresh(); onSaved?.(row); onClose() },
@@ -102,10 +102,10 @@ function AreaModal({ venueId, setup, area, onClose, onSaved }) {
         <Field label="Depth (units)" hint="4 to 60"><NumberBox value={form.height} min={4} max={60} onChange={v => set({ height: v })} ariaLabel="Depth" /></Field>
       </div>
       <p className="text-xs text-muted-foreground">A unit is roughly half a metre: a table for two is 2 x 2.</p>
-      <Field label="Revenue centre" hint="Checks opened on these tables start in it. Empty: the till's own.">
-        <select className={inputCls} value={form.revenue_centre_id} onChange={e => set({ revenue_centre_id: e.target.value })}>
-          <option value="">The till's revenue centre</option>
-          {setup.revenue_centres.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+      <Field label="Revenue stream" hint="Checks opened on these tables start in it. Empty: the till's own.">
+        <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>
+          <option value="">The till's revenue stream</option>
+          {setup.revenue_streams.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </Field>
       {area && <p className="text-xs text-muted-foreground">Deleting an area takes its tables off the plan; the tables themselves stay.</p>}

@@ -116,7 +116,7 @@ const listSet = text => listText(String(text ?? '').split(/[,;|]/))
 /**
  * Our values for a dish, as Deliveroo text. ctx:
  *   settings { price_uplift_pct, price_round_pence, price_round_mode, include_may_contain, include_removable,
- *              allergen_map, dietary_map, default_vat_takeaway }
+ *              allergen_map, dietary_map }
  *   tags     the tenant's tags (code, kind)
  * Returns { values: { field: text | null }, notes: { field: text }, problems: [] }. null = we have nothing for it.
  */
@@ -133,7 +133,8 @@ export function dishValues(dish, { settings = {}, tags = [] } = {}) {
     values.delivery_price = null
     values.instore_price = null
   }
-  const vat = dish?.vat_takeaway ?? settings.default_vat_takeaway
+  // dish.vat: the dish's rate for the settings' order type (shared/tax.js, worked out by the API).
+  const vat = dish?.vat
   values.tax_rate = vat == null ? null : String(Number(vat))
   values.item_description = (dish?.description || '').trim() || null
   values.item_name = (dish?.name || '').trim() || null

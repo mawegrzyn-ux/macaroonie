@@ -305,8 +305,29 @@ export async function announceDueReleases(log) {
   return rows.length
 }
 
+/**
+ * Start-up: releases whose content a migration rewrote (content_hash '',
+ * migration 170) get their hash again, so an unchanged draft still reads
+ * as published.
+ */
+export async function rehashReleases(log) {
+  const rows = await sql`SELECT id, tenant_id, snapshot FROM menu_releases WHERE content_hash = ''`
+  for (const r of rows) {
+    try {
+      await withTenant(r.tenant_id, tx => tx`
+        UPDATE menu_releases SET content_hash = ${contentHash(r.snapshot)}
+         WHERE id = ${r.id} AND tenant_id = ${r.tenant_id} AND content_hash = ''`)
+    } catch (err) {
+      log?.warn?.({ err, release: r.id }, 'Release re-hash failed')
+    }
+  }
+  if (rows.length) log?.info?.({ releases: rows.length }, 'Re-hashed menu releases')
+  return rows.length
+}
+
 /** Start-up: the first release of every menu made before publishing existed. */
 export async function backfillFirstReleases(log) {
+  await rehashReleases(log)
   const menus = await sql`SELECT id, tenant_id FROM menus WHERE needs_first_release`
   let made = 0
   for (const m of menus) {

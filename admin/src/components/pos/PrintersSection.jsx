@@ -2,7 +2,7 @@
 //
 // Till setup > Printers: the venue's network printers and what prints
 // where. A dish's kitchen ticket goes to the printers set for the dish,
-// else its menu section, else its revenue centre, else Everything
+// else its menu section, else its revenue stream, else Everything
 // (routeFor() in shared/pos/printing.js). Printing to network printers
 // goes through the venue hub, which comes later (docs/POS.md): until then
 // print jobs wait in the queue and tills print bills in their browser.
@@ -96,7 +96,7 @@ export default function PrintersSection({ venueId, setup }) {
           )}
         {editing && <PrinterModal venueId={venueId} setup={setup} printer={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       </Section>
-      <Section title="What prints where" hint="A dish prints on the printers set for it, else for its section, else for its revenue centre, else Everything.">
+      <Section title="What prints where" hint="A dish prints on the printers set for it, else for its section, else for its revenue stream, else Everything.">
         <RoutingEditor venueId={venueId} setup={setup} targets={setup.printers.filter(p => p.is_active)} routes={setup.routes}
           idKey="printer_id" path={`/pos/venues/${venueId}/routes`} noun="Printers" saveLabel="Save printing"
           emptyText="Add a printer first, then choose what prints on it."

@@ -4,7 +4,8 @@
 //
 //   tillConfig()      everything a till needs to work offline (menus, option
 //                     groups, meal deals, tables, staff with PIN hashes,
-//                     revenue centres, courses, printers, promotions)
+//                     revenue streams, order types, tax rates, courses,
+//                     printers, promotions)
 //   sequencer()       shared/pos/sequencer.js over Postgres: the cloud puts a
 //                     venue's events in order until the venue hub takes over
 //   loadDayChecks()   checks a trading day's figures are made from
@@ -27,6 +28,7 @@ import { TENDERS } from '../../../shared/pos/checks.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
 import { loadKitchenConfig } from './kitchenSvc.js'
+import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, loadStreams, taxForVenue } from './taxSvc.js'
 
 export const DEFAULT_COURSES = [
   { name: 'Drinks', short_name: 'DR', hold_by_default: false },
@@ -94,13 +96,10 @@ export function settingsView(s) {
   })
   return {
     day_starts_at: s.day_starts_at,
-    default_vat_rate_eat_in: Number(s.default_vat_rate_eat_in),
-    default_vat_rate_takeaway: Number(s.default_vat_rate_takeaway),
     vat_number: s.vat_number, receipt_name: s.receipt_name, receipt_address: s.receipt_address || [],
     receipt_footer: s.receipt_footer, bill_footer: s.bill_footer, service_charge_label: s.service_charge_label,
     tenders, tips_enabled: s.tips_enabled, require_covers: s.require_covers,
     order_no_start: s.order_no_start, auto_logout_secs: s.auto_logout_secs,
-    counter_revenue_centre_id: s.counter_revenue_centre_id,
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
     kds_online_orders: s.kds_online_orders ?? true, kds_online_ready: s.kds_online_ready ?? true,
   }
@@ -135,17 +134,12 @@ export async function loadTillStaff(tx, tenantId, venueId, { signIn = false } = 
 
 // ── Till config ──────────────────────────────────────────────────
 
-function vatOf(item, section) {
-  const pick = key => (item[key] != null ? Number(item[key]) : section?.[key] != null ? Number(section[key]) : null)
-  return { eat_in: pick('vat_rate_eat_in'), takeaway: pick('vat_rate_takeaway') }
-}
-
 /**
  * The menus a venue's till shows, live versions (migration 165): those its
- * revenue centres name, else every menu shown to guests that it can use.
+ * revenue streams name, else every menu shown to guests that it can use.
  */
-async function tillMenus(tx, tenantId, venueId, rcs) {
-  const named = [...new Set(rcs.flatMap(r => r.menu_ids || []))]
+async function tillMenus(tx, tenantId, venueId, streams) {
+  const named = [...new Set(streams.flatMap(r => r.menu_ids || []))]
   return named.length
     ? loadMenuVersions(tx, tenantId, { menuIds: named, venueId })
     : loadMenuVersions(tx, tenantId, { venueId, publishedOnly: true })
@@ -158,12 +152,14 @@ async function tillMenus(tx, tenantId, venueId, rcs) {
 export async function tillConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
   const settings = await ensureSettings(tx, tenantId, venueId)
-  const [rcs, courses, areas, tables, roles, printers, routes, groups, devices] = await Promise.all([
-    tx`SELECT id, name, vat_mode, menu_ids, service_charge_percent::float8 AS service_charge_percent, service_charge_min_covers, colour, sort_order
-         FROM pos_revenue_centres WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active ORDER BY sort_order, name`,
+  await ensureTaxDefaults(tx, tenantId)
+  const [streams, orderTypes, taxRates, courses, areas, tables, roles, printers, routes, groups, devices] = await Promise.all([
+    loadStreams(tx, tenantId, venueId, { activeOnly: true }),
+    loadOrderTypes(tx, tenantId),
+    loadTaxRates(tx, tenantId),
     tx`SELECT id, name, short_name, hold_by_default, colour, sort_order FROM pos_courses
         WHERE tenant_id = ${tenantId} AND is_active ORDER BY sort_order, name`,
-    tx`SELECT id, name, width, height, revenue_centre_id, decor, sort_order FROM floor_areas
+    tx`SELECT id, name, width, height, revenue_stream_id, decor, sort_order FROM floor_areas
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
     tx`SELECT id, label, min_covers, max_covers, section_id, floor_area_id,
               pos_x::float8 AS x, pos_y::float8 AS y, pos_w::float8 AS w, pos_h::float8 AS h, shape, rotation, sort_order
@@ -189,11 +185,17 @@ export async function tillConfig(tx, tenantId, venueId) {
   const menus = []
   const items = {}
   let dietary = []
-  for (const full of await tillMenus(tx, tenantId, venueId, rcs)) {
+  // Tax settings travel with each dish (dish, section, menu), trimmed to this
+  // venue; the till works the rate out per check (shared/tax.js), since the
+  // order type and revenue stream decide it.
+  const streamIds = new Set(streams.map(r => r.id))
+  for (const full of await tillMenus(tx, tenantId, venueId, streams)) {
+    const menuTax = taxForVenue(full.tax, venueId, streamIds)
     dietary = full.dietary_tags || dietary
     const sections = []
     for (const s of full.sections || []) {
       if ((s.visibility || 'show') === 'hidden') continue
+      const sectionTax = taxForVenue(s.tax, venueId, streamIds)
       const ids = []
       for (const it of s.items || []) {
         ids.push(it.id)
@@ -203,7 +205,7 @@ export async function tillConfig(tx, tenantId, venueId) {
           price_pence: it.price_pence ?? null, kind: it.kind || 'dish',
           course_id: it.pos_course_id || s.pos_course_id || null,
           colour: it.pos_colour || s.pos_colour || null,
-          vat: vatOf(it, s),
+          tax: [taxForVenue(it.tax, venueId, streamIds), sectionTax, menuTax],
           variants: it.variants || [], variant_groups: it.variant_groups || [],
           combo: it.combo || null,
           dietary: it.dietary || [], allergen_levels: it.allergen_levels || {},
@@ -242,7 +244,9 @@ export async function tillConfig(tx, tenantId, venueId) {
     venue: { id: venue.id, name: venue.name, timezone: tz },
     settings: settingsView(settings),
     pin_salt: settings.pin_salt,
-    revenue_centres: rcs,
+    revenue_streams: streams,
+    order_types: orderTypes,
+    tax_rates: taxRates.map(r => ({ ...r, values: r.values[venueId] != null ? { [venueId]: r.values[venueId] } : {} })),
     courses,
     floor_areas: areas.map(a => ({ ...a, decor: a.decor || [] })),
     tables,
@@ -266,13 +270,14 @@ export async function tillConfig(tx, tenantId, venueId) {
 async function printConfig(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
   const settings = settingsView(await ensureSettings(tx, tenantId, venueId))
-  const [printers, routes, tables, staff, courses, devices] = await Promise.all([
+  const [printers, routes, tables, staff, courses, devices, orderTypes] = await Promise.all([
     tx`SELECT id, name, kind, columns FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`,
     tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, settings FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+    tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId}`,
   ])
   const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
   return {
@@ -283,6 +288,7 @@ async function printConfig(tx, tenantId, venueId) {
     tables: by(tables),
     staff: by(staff),
     courses: by(courses),
+    order_types: by(orderTypes),
     devices: by(devices, d => ({ receipt_printer_id: d.settings?.receipt_printer_id || null })),
     timezone: venue.timezone || 'Europe/London',
   }
@@ -294,16 +300,18 @@ async function saveCheck(tx, tenantId, venueId, c, seq) {
   const t = checkTotals(c)
   await tx`
     INSERT INTO pos_checks (id, tenant_id, venue_id, day_id, number, order_no, mode, table_id, tab_name, covers,
-                            server_id, revenue_centre_id, status, opened_at, closed_at,
+                            server_id, revenue_stream_id, order_type_id, tent, status, opened_at, closed_at,
                             subtotal, discount, service_charge, total, vat, paid, tips, refunded, state, last_seq, updated_at)
     VALUES (${c.id}, ${tenantId}, ${venueId}, ${c.day_id}, ${c.number}, ${c.order_no}, ${c.mode}, ${c.table_id}, ${c.tab_name},
-            ${c.covers}, ${c.server_id}, ${c.revenue_centre_id}, ${c.status}, ${c.opened_at}, ${c.closed_at},
+            ${c.covers}, ${c.server_id}, ${c.revenue_stream_id ?? null}, ${c.order_type_id ?? null}, ${c.tent ?? null},
+            ${c.status}, ${c.opened_at}, ${c.closed_at},
             ${t.subtotal}, ${t.discount}, ${t.service_charge}, ${t.total}, ${t.vat_total}, ${t.paid}, ${t.tips}, ${t.refunded},
             ${tx.json(c)}, ${seq}, now())
     ON CONFLICT (id) DO UPDATE SET
       number = EXCLUDED.number, order_no = EXCLUDED.order_no, mode = EXCLUDED.mode, table_id = EXCLUDED.table_id,
       tab_name = EXCLUDED.tab_name, covers = EXCLUDED.covers, server_id = EXCLUDED.server_id,
-      revenue_centre_id = EXCLUDED.revenue_centre_id, status = EXCLUDED.status, closed_at = EXCLUDED.closed_at,
+      revenue_stream_id = EXCLUDED.revenue_stream_id, order_type_id = EXCLUDED.order_type_id, tent = EXCLUDED.tent,
+      status = EXCLUDED.status, closed_at = EXCLUDED.closed_at,
       subtotal = EXCLUDED.subtotal, discount = EXCLUDED.discount, service_charge = EXCLUDED.service_charge,
       total = EXCLUDED.total, vat = EXCLUDED.vat, paid = EXCLUDED.paid, tips = EXCLUDED.tips, refunded = EXCLUDED.refunded,
       state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, updated_at = now()
@@ -317,11 +325,11 @@ async function saveCheck(tx, tenantId, venueId, c, seq) {
     const gross = lineGross(l)
     await tx`
       INSERT INTO pos_check_lines (id, tenant_id, venue_id, check_id, day_id, item_id, section_id, name, qty, gross, discount, net,
-                                   vat_rate, vat, revenue_centre_id, course_id, seat, status, added_by, voided_by, void_reason,
-                                   void_day_id, sent_at)
+                                   vat_rate, vat, tax_rate_id, revenue_stream_id, course_id, seat, status, added_by, voided_by,
+                                   void_reason, void_day_id, sent_at)
       VALUES (${l.id}, ${tenantId}, ${venueId}, ${c.id}, ${c.day_id}, ${l.item_id}, ${l.section_id}, ${l.name}, ${l.qty},
-              ${gross}, ${lt ? lt.discount : 0}, ${lt ? lt.net : 0}, ${l.vat_rate}, ${lt ? lt.vat : 0},
-              ${l.revenue_centre_id ?? c.revenue_centre_id}, ${l.course_id}, ${l.seat}, ${l.status}, ${l.added_by},
+              ${gross}, ${lt ? lt.discount : 0}, ${lt ? lt.net : 0}, ${l.vat_rate}, ${lt ? lt.vat : 0}, ${l.tax_rate_id ?? null},
+              ${l.revenue_stream_id ?? c.revenue_stream_id ?? null}, ${l.course_id}, ${l.seat}, ${l.status}, ${l.added_by},
               ${l.voided?.by ?? null}, ${l.voided?.reason ?? null}, ${l.voided?.day_id ?? null}, ${l.sent_at})
       ON CONFLICT (id) DO NOTHING
     `
@@ -460,7 +468,7 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
                                seconds, items, item_name, reason, order_source, order_type, order_number)
           VALUES (${tenantId}, ${venueId}, ${r.kind}, ${o.id || ''}, ${e.id}, ${r.station?.id || null}, ${r.station?.name || null},
                   ${r.station?.kind || null}, ${r.at}, ${r.seconds ?? null}, ${r.items ?? null}, ${r.item_name ?? null},
-                  ${r.reason ?? null}, ${o.source || null}, ${o.type || null}, ${o.number || null})`
+                  ${r.reason ?? null}, ${o.source || null}, ${o.type_name || null}, ${o.number || null})`
       }
     },
     async saveJobs(jobs, e) {
@@ -508,7 +516,7 @@ function validTime(v) {
 
 /**
  * The Cash Recon fields a day fills (pos_settings.recon_map):
- *   income  { sourceId: [revenue centre ids | 'all' | '-refunds'] }  sales after discounts
+ *   income  { sourceId: [revenue stream ids | 'all' | '-refunds'] }  sales after discounts
  *   takings { channelId: [tender keys] }                             money in, tips included, refunds out
  *   sc      { sourceId: ['service_charge' | 'tips'] }
  * Amounts in pounds.
@@ -520,7 +528,7 @@ export function reconValues(figures, map, fields) {
     const terms = map.income?.[src.id] || []
     if (!terms.length) continue
     let p = 0
-    for (const rc of figures.revenue_centres) if (terms.includes('all') || terms.includes(rc.id)) p += rc.net
+    for (const rs of figures.revenue_streams) if (terms.includes('all') || terms.includes(rs.id)) p += rs.net
     if (terms.includes('-refunds')) p -= figures.refunds.amount
     out.push({ group: 'income', id: src.id, name: src.name, source: src, amount: pounds(p) })
   }

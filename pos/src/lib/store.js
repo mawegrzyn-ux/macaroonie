@@ -23,7 +23,8 @@ import { createTransport, OfflineError } from './transport.js'
 import { printTickets } from './print.js'
 
 const OUTBOX_KEY = 'outbox'
-const SNAPSHOT_KEY = 'snapshot'
+// v170: checks gained order types and revenue streams (migration 170); an older snapshot is dropped and pulled again.
+const SNAPSHOT_KEY = 'snapshot-170'
 const CONFIG_KEY = 'config'
 const DEVICE_KEY = 'device'
 const COUNTER_KEY = 'local_no'
@@ -114,6 +115,7 @@ export function printConfig(config = state.config, device = state.device) {
     tables: by(config.tables, t => ({ label: t.label })),
     staff: by(config.staff, s => ({ name: s.name })),
     courses: by(config.courses),
+    order_types: by(config.order_types, t => ({ name: t.name })),
     devices: device ? { [device.id]: { receipt_printer_id: config.device?.settings?.receipt_printer_id || null } } : {},
   }
 }

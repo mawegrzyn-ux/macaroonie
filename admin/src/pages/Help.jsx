@@ -30,6 +30,7 @@ const SECTIONS = [
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'website',             label: 'Website Builder' },
   { id: 'menus',               label: 'Menus' },
+  { id: 'tax',                 label: 'Tax, Order Types & Streams' },
   { id: 'screens',             label: 'Menu Screens' },
   { id: 'online-orders',       label: 'Online Orders' },
   { id: 'ai-assistant',        label: 'AI Assistant' },
@@ -2972,8 +2973,8 @@ export default function Help() {
             <P>
               Tap a dish to edit it in the panel on the right. Tap a section's heading to edit the
               section there too: its title, subtitle, small icon, <strong>Highlight</strong>, print
-              options and online ordering VAT. The section heading shows badges for what is set
-              (Highlight, VAT, New page…). Deleting a section is in its panel and asks you to confirm.
+              options and tax. The section heading shows badges for what is set
+              (Highlight, Tax, New page…). Deleting a section is in its panel and asks you to confirm.
             </P>
             <P>
               To change the order of dishes, drag a dish by its grip (the dotted handle on the left
@@ -3241,7 +3242,7 @@ export default function Help() {
               head={['Column', 'Filled with']}
               rows={[
                 ['Delivery price', 'The dish\'s menu price plus your %, rounded as set. A dish priced only by its options (e.g. Chicken, Prawn, Tofu) uses its cheapest option, and the review says which.'],
-                ['VAT rate', 'The dish\'s takeaway VAT, else its section\'s, else the venue\'s takeaway VAT in Ordering setup. Deliveroo takes 0, 5, 12.5 or 20.'],
+                ['VAT rate', 'The dish\'s tax for the order type picked under How the file is filled (Delivery to start with), and the revenue stream if you pick one: see Tax, Order Types & Streams. Deliveroo takes 0, 5, 12.5 or 20.'],
                 ['Description', 'The dish description.'],
                 ['Allergens', 'The dish\'s allergens, sent as Deliveroo\'s codes (see Allergen and dietary codes).'],
                 ['Calories', 'The dish\'s calories (kcal).'],
@@ -3277,6 +3278,95 @@ export default function Help() {
               an item id into a number like 1.23E+15, use the file Deliveroo gave you instead: the id
               can&apos;t be recovered.
             </P>
+          </section>
+
+          {/* ── TAX, ORDER TYPES & REVENUE STREAMS ───────────── */}
+          <section id="tax" data-help="">
+            <H2>Tax, Order Types &amp; Revenue Streams</H2>
+            <P>
+              Three separate things, each in one place:
+            </P>
+            <DataTable
+              head={['What', 'Where', 'What it does']}
+              rows={[
+                ['Tax rates', 'Menus → Tax rates', 'Your list of rates (Standard 20%, Zero 0%, Reduced 5%...). One is the default. A location can charge another % for a rate.'],
+                ['Order types', 'Till setup → Order types', 'How an order is served: Eat in, Take out, Delivery, Collection and any you add (Drive thru, Staff meal...). They decide how tickets behave and can change a dish\'s tax.'],
+                ['Revenue streams', 'Till setup → Revenue streams', 'Groups of tills for reporting sales by place or device (Restaurant, Bar, Kiosk). A stream picks which order types its tills offer and what each asks for. It doesn\'t decide tax.'],
+              ]}
+            />
+
+            <H3>Tax rates</H3>
+            <P>
+              <strong>Add rate</strong>: a name and a %, and optionally a different % at a location. The
+              rate marked <strong>Default</strong> is used for any dish that has no rate set anywhere;
+              <strong> Make default</strong> moves it. Drag rates into the order they appear in lists.
+              Removing a rate takes it off the lists; you can't remove the default, or a rate a menu
+              still uses (the message names the menus). Sales already made keep the rate they had.
+            </P>
+
+            <H3>Setting a dish&apos;s tax</H3>
+            <P>
+              The <strong>Tax</strong> box is in the menu&apos;s Settings, each section&apos;s panel and each
+              dish&apos;s panel. Pick a <strong>Rate</strong>, or leave it as the default wording (the same as
+              what it sits under). Then add <strong>exceptions</strong> for when a different rate applies:
+              tap the order types it is for (none picked = any), optionally a location and the revenue
+              streams there, then the rate to charge.
+            </P>
+            <DataTable
+              head={['Which wins', '']}
+              rows={[
+                ['Dish, section, menu', 'A dish\'s own setting wins over its section\'s, a section\'s over its menu\'s, and the menu\'s over the default rate. A setting with a rate or an exception that matches the sale counts; a blank one passes to the level above.'],
+                ['Within one setting', 'The exception that names the sale most closely wins: one for a revenue stream beats one for an order type, which beats one for a location only. One naming a stream and a type beats one naming just the stream. No matching exception: the setting\'s own rate.'],
+              ]}
+            />
+            <P>
+              Example: the <em>Sandwiches</em> section has rate Standard and an exception
+              <em> Take out, Delivery, Collection → Zero</em>, so cold sandwiches are 20% eaten in and 0% to
+              take away. A hot toastie in that section gets its own rate, Standard, and is 20% whichever
+              way it is sold, because the dish&apos;s setting wins over the section&apos;s exceptions.
+            </P>
+            <InfoBox type="info">
+              Two exceptions that could both apply to the same sale at different rates are flagged in red
+              and Save stays off until one changes. Under each Tax box a line shows what it gives for every
+              order type. <strong>Menus → Tax rates → Check</strong> shows every dish&apos;s rate for each
+              order type at a location and revenue stream, exactly as the till, online ordering and the
+              Deliveroo file work it out.
+            </InfoBox>
+            <P>
+              Tax settings are part of the menu: like a price change, a new rate reaches the till, online
+              ordering, menu screens and the Deliveroo file when you publish the menu. Changing the % of a
+              rate on the Tax rates page applies straight away.
+            </P>
+
+            <H3>Order types</H3>
+            <P>
+              <strong>Till setup → Order types</strong> lists them for every location: add, rename, give
+              a colour (used on the till and kitchen tickets) and drag into order. Removing one takes it
+              off every till, stream and filter (<strong>Put back</strong> brings it back); checks and
+              orders already taken keep it. Order types are used by the till&apos;s buttons, tax exceptions,
+              kitchen flow links, the kitchen screens&apos; tabs, tickets and receipts, Till reports, online
+              ordering (Ordering setup picks the type collection orders count as) and the Deliveroo file
+              (its settings pick the type, Delivery to start with).
+            </P>
+
+            <H3>Revenue streams</H3>
+            <P>
+              <strong>Till setup → Revenue streams</strong>, per location: a name, which order types its
+              tills offer and, for each one, <strong>Name</strong> and <strong>Tent</strong>: No, Ask
+              (can be skipped) or Must (the check can&apos;t go to the kitchen or be paid without it).
+              <strong> New checks start as</strong> picks the type a new check starts with. Each stream
+              also picks its menus, an optional service charge and a colour. A till belongs to one (Tills
+              tab) and a floor area can name one; staff can move a check to another on the till (More →
+              Revenue stream). Till reports show sales by stream and by order type.
+            </P>
+
+            <H3>On the till</H3>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Counter</strong>: tap the order type, then type the customer name or tent number if asked, then tap dishes.</li>
+              <li><strong>A check</strong>: More → <strong>Order type</strong> changes it (items already on the check take the new type&apos;s tax) and the name or tent number; More → <strong>Tent number</strong> sets just the tent.</li>
+              <li>A detail the type must have and the check is missing is asked for at <strong>Send</strong> and <strong>Pay</strong>.</li>
+              <li>The order type, customer name and tent number print on kitchen tickets and receipts and show on the kitchen screens.</li>
+            </ul>
           </section>
 
           {/* ── MENU SCREENS ──────────────────────────────── */}
@@ -3496,7 +3586,7 @@ export default function Help() {
                 ['Time slots / orders per slot', "Guests pick a collection time from these slots. Set a maximum per slot and full slots are greyed out."],
                 ['Order ahead', "How many days ahead guests can order. 0 = today only."],
                 ['Minimum order, tips', "A minimum basket value, and optional tip choices at checkout."],
-                ['Default VAT, takeaway / eat in', "Used for dishes with no VAT rate of their own and none on their section. Collection orders use the takeaway rate; eat-in rates are for table orders coming with the POS."],
+                ['Collection orders are / Count online sales under', "The order type online collection orders count as (Collection to start with): it decides each dish's tax (Menus, Tax rates) and how the order shows in the kitchen. Optionally, the revenue stream online sales count under (Till setup), for reports and tax exceptions that name it."],
                 ['Accept automatically', "Off: each new order waits on the board until someone taps Accept. On: it goes straight to In progress."],
                 ['Payment methods', "Pay at the counter, and online card payment once a payment provider is connected. Test payment is for trying the flow before going live: no money moves, so turn it off before real orders."],
                 ['Messages', "Collection instructions (on the ordering page and the email) and a note for the confirmation email."],
@@ -3511,10 +3601,10 @@ export default function Help() {
             <H3>Dishes and options</H3>
             <P>
               On the <strong>Menus</strong> page each dish has an <strong>Online ordering</strong>{' '}
-              box: <strong>Can be ordered online</strong>, and its VAT rates for takeaway and eat in.
-              A section can have VAT rates too (in its panel). A dish uses its own rate first, then its
-              section's, then the venue default in Setup, so you can set a whole section of cold dishes
-              to 0% once instead of dish by dish. In the UK hot takeaway food is 20% and most cold
+              box: <strong>Can be ordered online</strong>. Its VAT comes from the <strong>Tax</strong> box
+              on the dish, its section or its menu, with exceptions for order types such as Collection,
+              so you can set a whole section of cold dishes to 0% for takeaway once instead of dish by
+              dish (see Tax, Order Types &amp; Streams). In the UK hot takeaway food is 20% and most cold
               takeaway food is 0%.
             </P>
             <P>
@@ -3813,7 +3903,7 @@ export default function Help() {
                 ['Change or copy a menu', 'Menus manage', 'Rename, move to a venue, show to guests or hide, tagline, served times, intro. A copy keeps every section, dish, footer note and print design, and isn\'t live until published.'],
                 ['Add dishes', 'Menus manage', 'Into sections already on the menu or new ones. A dish already in that section is left alone unless you ask to update it.'],
                 ['Change a dish', 'Menus manage', 'Name, description, price, calories, note, online ordering on or off, house favourite, allergens and their level, dietary tags, options and their prices, which section it is in and where.'],
-                ['Change or remove a section', 'Menus manage', 'Title, subtitle, where it shows (everywhere, printed menus only, nowhere), VAT, position. Removing a section takes its dishes with it; to keep them, hide the section instead.'],
+                ['Change or remove a section', 'Menus manage', 'Title, subtitle, where it shows (everywhere, printed menus only, nowhere), tax rate, position. Removing a section takes its dishes with it; to keep them, hide the section instead.'],
                 ['Remove dishes', 'Menus manage', 'The card warns when a dish is part of a meal deal.'],
                 ['Change prices', 'Menus manage', 'Whole menu, a section or named dishes: by a %, by an amount or to one price, with rounding. Option prices go up or down with them (not when you set one price).'],
                 ['Publish a menu', 'Menus manage', 'Now or at a date and time. The card lists every change waiting to go live and warns about price changes and about another publish already scheduled.'],
@@ -4048,12 +4138,13 @@ export default function Help() {
 
             <H3>Setting up (Till setup)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Revenue centres</strong>: where sales are reported, e.g. Restaurant, Bar, Takeaway. Each picks its menus, eat-in or takeaway VAT, and an optional service charge (from a number of covers). Drag them into order.</li>
+              <li><strong>Order types</strong> (shared by every venue): Eat in, Take out, Delivery, Collection and any you add. They decide how a check is served, can change a dish's tax, and show on tickets and kitchen screens.</li>
+              <li><strong>Revenue streams</strong>: groups of tills for reporting sales by place or device, e.g. Restaurant, Bar, Kiosk. Each picks the order types its tills offer (and for each, whether to ask for a customer name and a tent number: No, Ask or Must), which type new checks start as, its menus and an optional service charge (from a number of covers). A stream doesn't decide tax. Drag them into order. See Tax, Order Types &amp; Streams.</li>
               <li><strong>Courses</strong> (shared by every venue): Starters, Mains, Desserts, in the order they go to the kitchen. A course <strong>held by default</strong> waits to be fired when it goes with an earlier course.</li>
               <li><strong>Till roles</strong> (shared by every venue): what Server, Supervisor and Manager may do: void sent items, refund, comp, discounts up to a %, open the drawer, reopen checks, take over other people's checks, change prices, move items between checks, see reports, close the day, approve for others.</li>
               <li><strong>Staff and PINs</strong>: give each person a till role and a 4 to 6 digit PIN (not 1111 or 1234, and different from everyone else's at the venue). People come from the Staff page.</li>
-              <li><strong>Printers</strong>: the venue's Epson network printers (IP address, port 9100) and <strong>What prints where</strong>: a dish prints on the printers set for it, else for its section, else for its revenue centre, else Everything. Then Save printing.</li>
-              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, bill and receipt footers, the ways to pay, tips, asking for covers, where counter orders go, and when staff are signed out.</li>
+              <li><strong>Printers</strong>: the venue's Epson network printers (IP address, port 9100) and <strong>What prints where</strong>: a dish prints on the printers set for it, else for its section, else for its revenue stream, else Everything. Then Save printing.</li>
+              <li><strong>Receipts and payments</strong>: when the trading day starts, the name, address and VAT number on receipts, bill and receipt footers, the ways to pay, tips, asking for covers, and when staff are signed out. Tax rates are set on Menus → Tax rates.</li>
               <li><strong>Cash Recon</strong>: which till figures go into which Cash Recon fields when the day is closed (see End of day).</li>
               <li><strong>Floor plan</strong> (Till setup → Floor plan): add an area (e.g. Restaurant), tap tables to put them on it, drag them where they stand, drag the round corner to resize, Turn, Square / Round, and add walls, the bar, plants and labels. Save the area. Tables themselves are added on the Tables page.</li>
               <li><strong>Tills</strong>: tap <strong>Add a till</strong>, give it a name, table service or counter, then open the till address on the tablet and type the pairing code shown. The code works once, for 30 minutes. <strong>Pair again</strong> gives a new code (the old pairing stops); removing a till signs it out for good.</li>
@@ -4082,12 +4173,15 @@ export default function Help() {
               <li>Tap dishes. Pick a <strong>seat</strong> and <strong>course</strong> at the bottom of the menu first if you want them. Dishes with choices or meal deals open a window to pick them, add a note or allergies.</li>
               <li><strong>Send</strong> sends new items to the kitchen. If a later course is held, <strong>Fire</strong> sends it when it's time.</li>
               <li>Tap an item on the check to change it: before it's sent you can change or delete it; after, <strong>Void</strong> it with a reason (the kitchen gets a VOID ticket), or <strong>Comp</strong> it.</li>
-              <li><strong>More</strong>: guests, move table, name, server, revenue centre, discount, service charge, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check.</li>
+              <li><strong>More</strong>: guests, move table, name, order type, tent number, server, revenue stream, discount, service charge, offers, split or move items to another check, merge checks, an item not on the menu, print bill, no sale, close an empty check.</li>
               <li><strong>Pay</strong>: cash (with change), card, voucher and so on, a tip if switched on, and as many payments as needed to split the bill. Then close with or without a receipt.</li>
             </ol>
             <P>
               <strong>Counter</strong> takes an order with a number (from the number set in Receipts and
-              payments, each day), pays it, and sends it to the kitchen when it's closed.{' '}
+              payments, each day), pays it, and sends it to the kitchen when it's closed. Pick the
+              order type first (Eat in, Take out...: the ones the till's revenue stream offers) and type
+              the customer name or tent number if that type asks for them; one it must have can't be
+              skipped.{' '}
               <strong>Closed</strong> lists today's closed checks: print the receipt again, <strong>Refund</strong>{' '}
               or <strong>Reopen</strong>.
             </P>
@@ -4125,7 +4219,7 @@ export default function Help() {
             <DataTable
               head={['Tab', 'What it shows']}
               rows={[
-                ['Days', 'Each trading day: sales, payments, cash expected and counted, revenue centres, VAT, staff, discounts and comps, voids, refunds, best sellers, open checks. The open day is shown as it stands now.'],
+                ['Days', 'Each trading day: sales, payments, cash expected and counted, revenue streams, order types, VAT, staff, discounts and comps, voids, refunds, best sellers, open checks. The open day is shown as it stands now.'],
                 ['Checks', 'Every check of a day with its items, totals and full history: who did what, when, and who approved it.'],
                 ['Refused changes', 'Changes a till made offline that couldn\'t be applied when it caught up. Note what was done and mark them dealt with.'],
                 ['Print queue', 'Kitchen tickets and other jobs waiting for the venue hub.'],
@@ -4141,7 +4235,9 @@ export default function Help() {
               Kitchen screens show the orders to cook on a screen instead of (or as well as) printed tickets.
               Use an Android tablet, or an Android TV box or stick with a big screen, in Chrome. Orders from
               the till and from online ordering arrive the moment they're sent; the cooks tap to say a dish or
-              order is done, and the pass marks the order ready.
+              order is done, and the expo (the pass) marks the order ready. The <strong>kitchen flow</strong> says
+              how dishes move between stations: a burger bun from Prep 1 on to Prep 2 for the meat, while the
+              fries go from Prep 1 straight to Expo 1.
             </P>
             <InfoBox type="info">
               Kitchen screens talk to Macaroonie over the internet, like the tills. If the internet drops, a
@@ -4152,18 +4248,20 @@ export default function Help() {
 
             <H3>Setting up (Till setup → Kitchen screens)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Stations</strong>: where dishes are made, e.g. Grill, Fryer, Bar, and <strong>the pass</strong> (expo), which checks orders before they go out. Each station turns a ticket amber after a number of minutes (your target time) and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6). With no pass, an order is ready when every station has finished its part.</li>
-              <li><strong>What goes where</strong>: a dish goes to the stations set for it, else for its section, else for its revenue centre, else Everything. The pass sees everything and needs nothing here. Save kitchen routing.</li>
-              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all), what it opens on (tickets or the On order counts), tickets across, text size and the beep. On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
+              <li><strong>Stations</strong>, four kinds: <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
+              <li><strong>Kitchen flow</strong> (at the top): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, revenue streams or order types (your own list: Eat in, Take out...); a link with no filter takes every dish. From each box a dish takes the links that name it most closely (the dish, then its section, its revenue stream, its order type, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
+              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size and the beep. On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
               <li><strong>Online orders</strong>: send online orders to the kitchen when they're accepted (an order for later comes on when it's time to start it), and mark them ready when the kitchen finishes (the guest gets the ready email).</li>
             </ol>
 
             <H3>Using a kitchen screen</H3>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li>Tickets run left to right, oldest first (rush orders first). The header shows the table or tab, the order number, the timer, eat in or takeaway, covers and server. Notes are yellow, allergies red, options pink and removals red.</li>
-              <li><strong>Tap a dish</strong> to mark it done (tap again to undo). <strong>Tap a ticket</strong> to pick it (blue outline), then <strong>BUMP</strong> to finish it. Bumping the last dish of a ticket bumps it too.</li>
-              <li><strong>The pass</strong> sees whole orders, ticks off each station's part ("Waiting: Fryer"), and BUMP marks the order ready. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
-              <li>Along the top: All orders, Eat in, Takeaway and Online, and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
+              <li>Tickets run left to right, oldest first (rush orders first). The header shows the table, tab or customer name, the order number, the timer, the order type and tent number, covers and server. Notes are yellow, allergies red, options pink and removals red.</li>
+              <li><strong>Tap a dish</strong> to mark it done (tap again to undo). <strong>Tap a ticket</strong> to pick it (blue outline), then <strong>BUMP</strong> to finish it here: its dishes go on to the next station in the flow ("From Grill" on the next station's ticket). Bumping the last dish of a ticket bumps it too. When dishes on one ticket go different ways, each says where it goes next ("Then Prep 2", "Then Pass").</li>
+              <li><strong>The expo</strong> sees whole orders, each dish marked where it is now ("At Fryer"), and <strong>READY</strong> marks the order ready (it also finishes dishes still at earlier stations). A line says when some of the order goes through another expo. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
+              <li><strong>A runner</strong> gets the order once the expo is done, and <strong>DONE</strong> when it's taken out. When the runner is the last step for every dish, DONE hands the order over (it leaves the order ready board).</li>
+              <li>A station can't bump a dish that hasn't reached it yet, and can't bring back one the next station has already done.</li>
+              <li>Along the top: All orders, one tab per order type, Online, and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
               <li><strong>Rush</strong> moves a ticket to the front. <strong>SUM</strong> shows how many of each dish are on order. <strong>Prev</strong> lists the last tickets bumped here: <strong>Bring back</strong> one bumped by mistake. <strong>Remake</strong> puts a dish back on with a reason (for the waste report).</li>
               <li>A dish voided on the till shows crossed out with VOID until the ticket is bumped. Dishes moved to another table or check follow it.</li>
               <li>The clock button lists orders for later (held courses and online orders with a later collection time). They come on by themselves when it's time.</li>
@@ -4179,10 +4277,14 @@ export default function Help() {
             <P>
               To show guests their order numbers, add an <strong>Order status</strong> block to a board on the{' '}
               <strong>Screens</strong> page and put the board on a screen at the counter. It lists numbers being
-              prepared and numbers ready to collect (counter orders from the till and online orders), and
-              changes as the kitchen bumps them. Ready numbers stay for the minutes you set, or until the pass
-              marks the order collected.
+              prepared and numbers ready to collect, and changes as the kitchen bumps them. Ready numbers stay
+              for the minutes you set, or until the order is collected.
             </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Which orders</strong>: every counter and online order (ready once the kitchen has finished the whole order), or one <strong>order ready board</strong> from the kitchen flow by name, e.g. ORB 1: only orders with dishes on their way to it, ready once all of them have arrived (both Expo 1 and Expo 2 done). Use the same board name at every venue and one board design works everywhere.</li>
+              <li><strong>Layout</strong>: Preparing and Ready side by side, or one above the other, with Ready first if you like. Colours for the titles, the ready box and number, and the preparing number and box.</li>
+              <li><strong>When a number changes</strong>: float over (from Preparing to Ready), fade out and in, pop out and in, or zoom out and in, taking the time you set. Press Play in the designer to see it.</li>
+            </ul>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

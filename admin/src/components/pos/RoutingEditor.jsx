@@ -1,9 +1,9 @@
 // src/components/pos/RoutingEditor.jsx
 //
-// "What goes where" for printers (pos_print_routes) and kitchen stations
-// (kds_routes): a dish goes to what is set for the dish, else its menu
-// section, else its revenue centre, else Everything (routeFor() in
-// shared/pos/printing.js). One editor for both; explicit Save.
+// "What goes where" for printers (pos_print_routes): a dish goes to what is
+// set for the dish, else its menu section, else its revenue stream, else
+// Everything (routeFor() in shared/pos/printing.js). Explicit Save. (Kitchen
+// screens use the kitchen flow instead: KitchenFlow.jsx.)
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -100,10 +100,10 @@ export default function RoutingEditor({ venueId, setup, targets, routes, idKey, 
         <p className="text-xs text-muted-foreground mb-1">{everythingHint}</p>
         {row('Everything', 'default', null)}
       </div>
-      {setup.revenue_centres.length > 0 && (
+      {setup.revenue_streams.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold mb-1">By revenue centre</h3>
-          <div className="divide-y">{setup.revenue_centres.map(rc => row(rc.name, 'revenue_centre', rc.id))}</div>
+          <h3 className="text-sm font-semibold mb-1">By revenue stream</h3>
+          <div className="divide-y">{setup.revenue_streams.map(rc => row(rc.name, 'revenue_stream', rc.id))}</div>
         </div>
       )}
       {setup.menus.map(m => {

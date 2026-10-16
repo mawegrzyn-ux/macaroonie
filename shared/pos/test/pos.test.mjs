@@ -124,7 +124,7 @@ test('priceItem: meal deal with upcharge', () => {
 
 function open(extra = {}) {
   const id = ulid()
-  const r = applyEvent({}, ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_centre_id: RC_REST, service_charge: { percent: 12.5 }, ...extra }, { check_id: id }), { staffById })
+  const r = applyEvent({}, ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_stream_id: RC_REST, service_charge: { percent: 12.5 }, ...extra }, { check_id: id }), { staffById })
   assert.ok(r.ok, r.error)
   return r.checks[id]
 }
@@ -257,12 +257,12 @@ test('routing: dish, then section, then revenue centre, then default', () => {
     { printer_id: 'K', target_kind: 'default' },
     { printer_id: 'B', target_kind: 'section', target_id: 'drinks' },
     { printer_id: 'P', target_kind: 'item', target_id: 'dessert' },
-    { printer_id: 'T', target_kind: 'revenue_centre', target_id: 'takeaway' },
+    { printer_id: 'T', target_kind: 'revenue_stream', target_id: 'takeaway' },
   ]
   assert.deepEqual(routeFor({ item_id: 'x', section_id: 'mains' }, routes), ['K'])
   assert.deepEqual(routeFor({ item_id: 'x', section_id: 'drinks' }, routes), ['B'])
   assert.deepEqual(routeFor({ item_id: 'dessert', section_id: 'drinks' }, routes), ['P'])
-  assert.deepEqual(routeFor({ item_id: 'x', section_id: 'mains', revenue_centre_id: 'takeaway' }, routes), ['T'])
+  assert.deepEqual(routeFor({ item_id: 'x', section_id: 'mains', revenue_stream_id: 'takeaway' }, routes), ['T'])
   assert.deepEqual(routeFor({ item_id: 'x' }, []), [])
 })
 
@@ -340,7 +340,7 @@ test('sequencer: numbers events and checks, duplicates get the same answer, offl
   const store = memoryStore({ settings: { day_starts_at: '04:00' } })
   const seq = createSequencer(store)
   const checkId = ulid()
-  const opened = ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_centre_id: RC_REST }, { check_id: checkId })
+  const opened = ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_stream_id: RC_REST }, { check_id: checkId })
   const r1 = await seq.submit(opened, { now: new Date('2026-10-11T18:00:00Z') })
   assert.equal(r1.seq, 1)
   assert.equal(r1.checks[checkId].number, 1)
@@ -376,8 +376,8 @@ test('sequencer: counter order numbers, day close needs closed checks, new day s
   const store = memoryStore({ settings: { order_no_start: 100 } })
   const seq = createSequencer(store)
   const a = ulid(), b = ulid()
-  const ra = await seq.submit(ev('check.opened', { mode: 'counter', revenue_centre_id: RC_TAKEAWAY }, { check_id: a }))
-  const rb = await seq.submit(ev('check.opened', { mode: 'counter', revenue_centre_id: RC_TAKEAWAY }, { check_id: b }))
+  const ra = await seq.submit(ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY }, { check_id: a }))
+  const rb = await seq.submit(ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY }, { check_id: b }))
   assert.deepEqual([ra.checks[a].order_no, rb.checks[b].order_no], [100, 101])
   assert.equal(checkLabel(rb.checks[b]), '#101')
 
@@ -403,9 +403,9 @@ test('dayFigures: sales, tenders, VAT, voids, refunds on the day they happen', a
   const store = memoryStore()
   const seq = createSequencer(store)
   const id = ulid()
-  await seq.submit(ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_centre_id: RC_REST, service_charge: { percent: 10 } }, { check_id: id }))
-  const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } }, { revenue_centre_id: RC_REST })
-  const b = line(COLA, {}, { qty: 2, revenue_centre_id: RC_REST })
+  await seq.submit(ev('check.opened', { mode: 'table', table_id: TABLE5, covers: 2, revenue_stream_id: RC_REST, service_charge: { percent: 10 } }, { check_id: id }))
+  const a = line(PAD_THAI, { choices: { [PROTEIN]: [CHICKEN] } }, { revenue_stream_id: RC_REST })
+  const b = line(COLA, {}, { qty: 2, revenue_stream_id: RC_REST })
   await seq.submit(ev('line.added', { line: a }, { check_id: id }))
   await seq.submit(ev('line.added', { line: b }, { check_id: id }))
   await seq.submit(ev('lines.sent', { send_id: ulid(), line_ids: [a.id, b.id] }, { check_id: id }))
@@ -427,7 +427,7 @@ test('dayFigures: sales, tenders, VAT, voids, refunds on the day they happen', a
   assert.equal(f.tips, 150)
   assert.equal(f.cash_expected, 705)
   assert.equal(f.takings, 1705 + 150)
-  assert.equal(f.revenue_centres[0].net, 1550)
+  assert.equal(f.revenue_streams[0].net, 1550)
   assert.equal(f.vat[0].rate, 20)
 
   await seq.submit(ev('day.closed', {}, { staff_id: MANAGER }))
@@ -459,4 +459,61 @@ test('replay: refused events are listed, the rest applied', () => {
   assert.equal(r.refused.length, 1)
   assert.equal(r.refused[0].code, 'balance')
   assert.equal(r.checks[id].lines.length, 1)
+})
+
+// ── Order types, revenue streams and tax (migration 170) ────────
+
+test('order type, stream and tent on a check; changing the type re-rates its lines', async () => {
+  const { posTax } = await import('../pricing.js')
+  const EAT = uuid(), OUT = uuid(), STD = uuid(), ZERO = uuid()
+  const config = {
+    venue: { id: VENUE },
+    tax_rates: [{ id: STD, name: 'Standard', rate: 20, is_default: true, values: {} }, { id: ZERO, name: 'Zero', rate: 0, values: {} }],
+  }
+  const sandwich = { id: uuid(), tax: [null, { rate: STD, rules: [{ types: [OUT], rate: ZERO }] }, null] }
+  let c = open({ order_type_id: EAT, tent: '7' })
+  assert.equal(c.order_type_id, EAT)
+  assert.equal(c.tent, '7')
+  const t = posTax(sandwich, c, config)
+  assert.deepEqual(t, { vat_rate: 20, tax_rate_id: STD })
+  c = ok(apply(c, 'line.added', { line: { ...line(COLA), vat_rate: t.vat_rate, tax_rate_id: t.tax_rate_id } })).checks[c.id]
+  const lineId = c.lines[0].id
+  assert.equal(c.lines[0].tax_rate_id, STD)
+
+  const takeOut = posTax(sandwich, { ...c, order_type_id: OUT }, config)
+  assert.deepEqual(takeOut, { vat_rate: 0, tax_rate_id: ZERO })
+  c = ok(apply(c, 'check.order_type_set', { order_type_id: OUT, tab_name: 'Sam', tent: null, lines: { [lineId]: takeOut } })).checks[c.id]
+  assert.equal(c.order_type_id, OUT)
+  assert.equal(c.tab_name, 'Sam')
+  assert.equal(c.tent, null)
+  assert.equal(c.lines[0].vat_rate, 0)
+  assert.equal(checkTotals(c).vat_total, 0)
+
+  c = ok(apply(c, 'check.tent_set', { tent: '12' })).checks[c.id]
+  assert.equal(c.tent, '12')
+  const other = uuid()
+  c = ok(apply(c, 'check.stream_set', { revenue_stream_id: other, lines: {} })).checks[c.id]
+  assert.equal(c.revenue_stream_id, other)
+  assert.equal(c.lines[0].revenue_stream_id, other)
+
+  assert.match(apply(c, 'check.order_type_set', { order_type_id: 'eat_in' }).error, /order_type_id/)
+  assert.match(apply(c, 'check.tent_set', { tent: 'x'.repeat(30) }).error, /tent/)
+  assert.match(apply(c, 'check.order_type_set', { order_type_id: EAT, lines: { [lineId]: 20 } }).error, /lines/)
+  // An item not on the menu takes the default rate.
+  assert.deepEqual(posTax(null, c, config), { vat_rate: 20, tax_rate_id: STD })
+})
+
+test('day figures by revenue stream and by order type', () => {
+  const EAT = uuid(), OUT = uuid()
+  const day = uuid()
+  const mk = (type, stream) => {
+    let c = open({ order_type_id: type, revenue_stream_id: stream, service_charge: null })
+    c = ok(apply(c, 'line.added', { line: line(COLA) })).checks[c.id]
+    c.day_id = day
+    c = ok(apply(c, 'payment.added', { payment: { id: ulid(), tender: 'cash', amount: 300 } })).checks[c.id]
+    return ok(apply(c, 'check.closed', {})).checks[c.id]
+  }
+  const f = dayFigures([mk(EAT, RC_REST), mk(OUT, RC_TAKEAWAY), mk(OUT, RC_TAKEAWAY)], day)
+  assert.deepEqual(f.order_types.map(x => [x.id, x.checks, x.net]).sort((a, b) => a[1] - b[1]), [[EAT, 1, 300], [OUT, 2, 600]])
+  assert.deepEqual(f.revenue_streams.map(x => x.net).sort(), [300, 600])
 })

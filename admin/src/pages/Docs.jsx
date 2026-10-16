@@ -33,6 +33,7 @@ const SECTIONS = [
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'AI Assistant & MCP' },
   { id: 'menus',        label: 'Menus' },
+  { id: 'tax',          label: 'Tax, Order Types & Streams' },
   { id: 'screens',      label: 'Menu Screens' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'media-library', label: 'Media Library' },
@@ -2942,12 +2943,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['pos_days', 'Trading days: business_date (from day_starts_at), z_number, figures jsonb at Z, declared_cash, recon_filled_at / recon_error. One open per venue.'],
                 ['pos_venue_state', 'last_seq, next_check_no, next_order_no, next_z_number.'],
                 ['pos_print_jobs', 'Print queue (ops jsonb from tickets.js), status queued | printing | printed | failed, for the hub.'],
-                ['pos_devices', 'Tills and (later) hubs: kind terminal | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at, settings jsonb (mode, revenue_centre_id, receipt_printer_id, floor_area_id), revoked_at.'],
-                ['pos_settings', 'Per venue: pin_salt, day_starts_at, VAT defaults, receipt texts, tenders jsonb, tips, require_covers, order_no_start, auto_logout_secs, counter_revenue_centre_id, recon_map, recon_auto_fill.'],
-                ['pos_revenue_centres', 'name, vat_mode (eat_in | takeaway), menu_ids, service_charge_percent + min covers, colour, sort_order.'],
+                ['pos_devices', 'Tills and (later) hubs: kind terminal | hub, short_code, secret_hash, pairing_code_hash + pairing_expires_at, settings jsonb (mode, revenue_stream_id, receipt_printer_id, floor_area_id), revoked_at.'],
+                ['pos_settings', 'Per venue: pin_salt, day_starts_at, receipt texts, tenders jsonb, tips, require_covers, order_no_start, auto_logout_secs, recon_map, recon_auto_fill. (Migration 170 dropped the VAT defaults and counter_revenue_centre_id.)'],
+                ['pos_revenue_streams', 'Migration 170 (was pos_revenue_centres): name, menu_ids, service_charge_percent + min covers, colour, sort_order, is_active, default_order_type_id. Which order types it offers and what each asks for: pos_stream_order_types (stream_id, order_type_id, enabled, ask_name / ask_tent off | ask | required; no row = off). See Tax, Order Types & Streams.'],
                 ['pos_roles / pos_courses', 'Tenant-wide. Role permissions jsonb (shared/pos/permissions.js); courses with hold_by_default.'],
-                ['pos_printers / pos_print_routes', 'Printers (host, port, columns, backup); routes target_kind item | section | revenue_centre | default.'],
-                ['floor_areas', 'name, width x height in units, revenue_centre_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
+                ['pos_printers / pos_print_routes', 'Printers (host, port, columns, backup); routes target_kind item | section | revenue_stream | default.'],
+                ['floor_areas', 'name, width x height in units, revenue_stream_id, decor jsonb. tables gains floor_area_id, pos_x/y/w/h, shape, rotation.'],
                 ['cash_staff', 'pos_pin_hash (unique per venue), pos_role_id.'],
                 ['menus', 'menu_items kind (dish | combo), kitchen_name, pos_course_id, pos_colour, combo jsonb { slots: [{ id, name, min, max, item_ids, section_ids, upcharges }] }; menu_sections pos_course_id, pos_colour; menu_variant_groups pos_prefixes; menu_variant_options child_group_id; promotions channels text[] (online | pos).'],
               ]}
@@ -2988,8 +2989,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               <Mono>shared/pos/pricing.js</Mono>: <Mono>priceItem()</Mono> (unit price + modifiers: prefixes No /
               Light free, Extra / On the side priced, nested groups always extra; meal deal slot upcharges),{' '}
-              <Mono>posVatRate()</Mono> (dish, then section, then the venue default for the revenue centre's
-              vat_mode) and <Mono>checkTotals()</Mono> (line discounts and comps, then promotions, then check
+              <Mono>posTax(item, check, config)</Mono> (the dish's tax levels resolved by{' '}
+              <Mono>taxFor()</Mono> in <Mono>shared/tax.js</Mono> for the venue, the check's order type and
+              revenue stream: <Mono>{'{ vat_rate, tax_rate_id }'}</Mono>, stored on each line) and <Mono>checkTotals()</Mono> (line discounts and comps, then promotions, then check
               discounts, then service charge; VAT inclusive per line rate). Promotions with channel{' '}
               <Mono>pos</Mono> are worked out by the till with <Mono>applyPromotions()</Mono> from{' '}
               <Mono>shared/promotions.js</Mono> and stored as a <Mono>promotions.set</Mono> event, so the server
@@ -2999,8 +3001,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <P>
               <Mono>jobsForEvent()</Mono> in <Mono>shared/pos/printing.js</Mono> turns an event into print jobs
               (kitchen tickets per printer and course on send, fire tickets, void tickets, bills, receipts,
-              drawer kicks), routed by <Mono>routeFor()</Mono>: item, then section, then revenue centre, then
-              default. The sequencer stores them in <Mono>pos_print_jobs</Mono> for the hub
+              drawer kicks), routed by <Mono>routeFor()</Mono>: item, then section, then revenue stream, then
+              default. Kitchen tickets, bills and receipts print the order type, customer name and tent number. The sequencer stores them in <Mono>pos_print_jobs</Mono> for the hub
               (<Mono>POST /pos-api/print-jobs/claim</Mono> and <Mono>/:id/status</Mono>, hub devices only).
               Until a hub exists, the till prints bills and receipts (and optionally kitchen tickets) through a
               hidden iframe and the browser's print dialog (<Mono>pos/src/lib/print.js</Mono>). Ticket layout:
@@ -3012,7 +3014,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the venue time zone) and resets order numbers. <Mono>day.closed</Mono> needs no open checks; the
               server stores <Mono>dayFigures()</Mono> (<Mono>shared/pos/reports.js</Mono>, also the till's X / Z)
               and, with <Mono>recon_auto_fill</Mono>, calls <Mono>fillReconFromDay()</Mono>:{' '}
-              <Mono>reconValues()</Mono> maps figures through <Mono>recon_map</Mono> (income: revenue centre ids
+              <Mono>reconValues()</Mono> maps figures through <Mono>recon_map</Mono> (income: revenue stream ids
               / all / -refunds; takings: tender keys, amount + tips − refunds; SC: service_charge / tips) and{' '}
               <Mono>fillReconDay()</Mono> (<Mono>services/reconFill.js</Mono>, shared with Loyverse) writes only
               mapped fields and skips a submitted Cash Recon day.
@@ -3048,7 +3050,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migration 168. Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168 and 169 (kitchen flow). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3063,17 +3065,50 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>KITCHEN_CHECK_EVENTS</Mono>: lines.sent, course.fired, line.voided, lines.moved,
               check.merged, table / name / covers / server / note changes) into kitchen orders;{' '}
               <Mono>applyKitchenEvent()</Mono> applies kitchen events and returns <Mono>{'{ ok, orders, log }'}</Mono>.
-              Each item is routed with <Mono>routeFor(target, kds_routes, 'station_id')</Mono> (dish, section,
-              revenue centre, default) to prep stations only, and is done per station. The expo station (the
-              pass) sees every item and marks the order ready; with no expo station an order is ready when every
-              station has bumped it. Held courses and online orders with a <Mono>fire_at</Mono> wait
-              (<Mono>isFired()</Mono>); orders untouched for <Mono>STALE_HOURS</Mono> (16) drop off.
+              Held courses and online orders with a <Mono>fire_at</Mono> wait (<Mono>isFired()</Mono>); orders
+              untouched for <Mono>STALE_HOURS</Mono> (16) drop off.
+            </P>
+            <H3>The kitchen flow</H3>
+            <P>
+              Station kinds (<Mono>STATION_KINDS</Mono>): <Mono>prep</Mono> makes dishes, <Mono>expo</Mono>{' '}
+              checks whole orders, <Mono>runner</Mono> takes them out, <Mono>board</Mono> is an order ready board
+              (nothing to bump, never on a kitchen screen). The flow is links{' '}
+              <Mono>{'{ from: stationId | null (Orders in), to, targets: [{ kind, id }] }'}</Mono>; targets are
+              item, section, revenue_stream, order_type (an <Mono>order_types</Mono> id, migration 170) or
+              default, and empty targets mean every dish. From each node a dish takes every link whose filter
+              names it most specifically (<Mono>linkRank()</Mono>: item 0, section 1, revenue stream 2, order
+              type 3, default 4;{' '}
+              <Mono>nextStations()</Mono>). When a dish is sent, <Mono>itemRoute()</Mono> works out its whole way
+              and stores it on the item as <Mono>{'route: { [node]: [the nodes before it, \'start\' = Orders in] }'}</Mono>{' '}
+              (meal deal parts each get their own way, merged for the item), so a flow change only affects
+              dishes sent after it. Stations left out of the config (switched off or deleted) are passed
+              straight through; links to them are ignored, so the next most specific link applies.
+            </P>
+            <P>
+              A dish <em>arrives</em> at a node when every node before it is done (<Mono>flowTimes()</Mono>;{' '}
+              <Mono>item.reset[node]</Mono> moves the arrival on after a remake) and is <em>done</em> there when
+              that station bumps it (<Mono>item.done[node]</Mono>); a board is done when reached.{' '}
+              <Mono>nodeState()</Mono> gives held | upcoming | active | done | voided. Prep stations bump only
+              arrived dishes; an expo or runner with <Mono>show_upcoming</Mono> (default on for expo) also
+              finishes dishes still at earlier stations. Undoing a dish or bringing a bump back is refused with{' '}
+              <Mono>moved_on</Mono> once a later station has done it. A remake at a prep station clears that
+              station and everything after it; at an expo or runner it starts the dish again from Orders in.
+            </P>
+            <P>
+              An order is <Mono>ready</Mono> (<Mono>orderFacts()</Mono>) when every dish has reached every board
+              and runner on its way, and dishes with neither are done everywhere; it becomes{' '}
+              <Mono>collected</Mono> by itself when everything is done and every dish's way ends at a runner
+              (the runner handed it over), else when Collected is tapped. <Mono>boardState()</Mono> and{' '}
+              <Mono>boardNumbers({'{ boardId, cfg }'})</Mono> give each board's own preparing / ready lists.{' '}
+              <Mono>flowProblems()</Mono> (blocks saving: links to missing stations, out of a board, to itself,
+              twice, unknown filters, circles) and <Mono>flowWarnings()</Mono> (nothing comes in, stations on no
+              dish's way) are shared by the API and the designer.
             </P>
             <DataTable
               head={['Event', 'Payload', 'From']}
               rows={[
                 ['kitchen.item_done', '{ order_id, station_id, item_id, done }', 'screen'],
-                ['kitchen.bumped / kitchen.recalled', '{ order_id, station_id }', 'screen (a bump at the pass makes the order ready; recall undoes the last bump)'],
+                ['kitchen.bumped / kitchen.recalled', '{ order_id, station_id }', 'screen (the dishes go on to the next station; an expo / runner bump can make the order ready; recall undoes the last bump unless a later station has done its dishes)'],
                 ['kitchen.remake', '{ order_id, station_id, item_id, reason? }', 'screen (item active again, logged)'],
                 ['kitchen.priority', '{ order_id, on }', 'screen (rush)'],
                 ['kitchen.collected', '{ order_id }', 'screen (pass, after ready)'],
@@ -3091,24 +3126,25 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'What it holds']}
               rows={[
-                ['kds_stations', 'Per venue: name, kind prep | expo, colour, settings jsonb { target_mins, late_mins, show_held, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
-                ['kds_routes', 'station_id + target_kind item | section | revenue_centre | default (+ target_id). Prep stations only.'],
+                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board, colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
+                ['kds_flow_edges', 'The kitchen flow (169): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair (unique index). Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text, source till | online, check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
                 ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound }.'],
-                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (a pass bump marks the online order ready, a collect completes it).'],
+                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (ready in the kitchen marks the online order ready, collected completes it), kds_flow_layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box).'],
               ]}
             />
             <H3>API</H3>
             <DataTable
               head={['Route', 'What it does']}
               rows={[
-                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them.'],
+                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations (active only, boards too), flow, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them.'],
                 ['GET /pos-api/kitchen/sync?since=', 'Kitchen orders changed since a seq (reset with every live order when far behind) and server_time for the screen\'s clock.'],
                 ['POST /pos-api/events', 'Takes kitchen events from kds devices (server-only types refused). The answer has kitchen (orders touched). Broadcasts pos.seq with kinds [checks | kitchen] (tills skip kitchen-only changes) and kitchen.board to screens:<venue>.'],
-                ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order, .../kds-routes', 'Setup (pos_setup manage). The pass takes no routes (422).'],
+                ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order', 'Stations (pos_setup manage). Turning a station into a board drops its links onward and takes it off kitchen screens; a kitchen screen can\'t show a board (422).'],
+                ['PUT /api/pos/venues/:id/kds-flow', '{ links: [{ from, to, targets }], layout } replaces the venue\'s flow (pos_setup manage). 422 with the first flowProblems() message; dish / section / revenue stream / order type ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns the saved links, layout and warnings. GET /api/pos/venues/:id/setup returns kds_flow { links, layout }. Deleting a revenue centre takes it out of every filter (a link left with no filter goes).'],
                 ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
-                ['GET /screen-api/orders', 'boardFor(): order numbers preparing and ready for the screen\'s venue, for the Order status block (screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
+                ['GET /screen-api/orders', 'boardFor(): { preparing, ready } for every counter and online order, and boards: { [board station name, lower case]: { preparing, ready } } per order ready board, for the Order status block (opts.board picks one by name; screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
               ]}
             />
             <H3>Online orders</H3>
@@ -3128,8 +3164,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               outbox of this screen's taps, and shows confirmed + outbox applied with{' '}
               <Mono>applyKitchenEvent()</Mono>, like the till's store. It syncs over the socket and a poll,
               keeps a clock offset from <Mono>server_time</Mono> for the timers, and goes through{' '}
-              <Mono>lib/transport.js</Mono> (hub first when one is set). <Mono>KitchenApp.jsx</Mono>: tickets in
-              columns (<Mono>stationTickets()</Mono>), the pass view, the On order counts
+              <Mono>lib/transport.js</Mono> (hub first when one is set). <Mono>kitchenCfg()</Mono> /{' '}
+              <Mono>useCfg()</Mono> give the shared rules the stations and flow. <Mono>KitchenApp.jsx</Mono>:
+              tickets in columns (<Mono>stationTickets(orders, station, now, cfg)</Mono>: each item with state,
+              where (stations it is at now), from, next, and per ticket elsewhere = dishes going through another
+              expo or runner), BUMP / READY (expo) / DONE (runner), the Ready panel at expos and runners
+              (<Mono>readyOrders()</Mono>), the On order counts
               (<Mono>onOrderCounts()</Mono>), speed figures (<Mono>stationStats()</Mono>), Prev / bring back
               (<Mono>recentBumps()</Mono>), orders for later (<Mono>laterOrders()</Mono>), bump bar keys, wake
               lock and full screen.
@@ -3139,10 +3179,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               or find other devices on the LAN, so two tablets can't talk to each other without a server they
               both reach. With the hub, tills and kitchen screens point at it (<Mono>hub_url</Mono>) and it runs
               the same sequencer and kitchen rules. Admin: <Mono>components/pos/KitchenSection.jsx</Mono> (Till
-              setup → Kitchen screens), <Mono>components/pos/RoutingEditor.jsx</Mono> (shared with printers),
-              Kitchen tab in <Mono>pages/PosReports.jsx</Mono>, Order status block in{' '}
-              <Mono>shared/screenLayout.js</Mono> + <Mono>ScreenDesigner.jsx</Mono>.
+              setup → Kitchen screens: stations, screens, online orders; <Mono>StationModal</Mono>),{' '}
+              <Mono>components/pos/KitchenFlow.jsx</Mono> (the flow designer), Kitchen tab in{' '}
+              <Mono>pages/PosReports.jsx</Mono>, Order status block in <Mono>shared/screenLayout.js</Mono> +{' '}
+              <Mono>ScreenDesigner.jsx</Mono>.
             </InfoBox>
+            <H3>Flow designer</H3>
+            <P>
+              <Mono>KitchenFlow.jsx</Mono>: a scrolling canvas of boxes (<Mono>[data-node]</Mono>, Orders in +
+              every station) and links (SVG curves with a label button at the middle, above the boxes). Drag a
+              box by its grip (pointer events with capture; the canvas scrolls when dragging near its edge),
+              drag its dot onto another box (<Mono>elementFromPoint</Mono> on release) or tap the dot then the
+              box. The panel edits a link's filter (the tenant's order types, revenue streams, a section / dish search),
+              shows a box's links, or <Mono>Check a dish</Mono> (<Mono>itemRoute()</Mono> on the draft, its
+              links and boxes highlighted). <Mono>placeMissing()</Mono> gives boxes without a saved place their{' '}
+              <Mono>tidyLayout()</Mono> place (columns by the longest way from Orders in, else by kind) so boxes
+              never jump; a flow with no saved layout re-tidies as links change until a box is moved by hand.
+              Explicit Save flow / Discard, problems block Save, Full screen (Escape leaves). View only: no
+              grips, dots or Save; links and boxes still open their panels.
+            </P>
+            <H3>Order status block</H3>
+            <P>
+              <Mono>orderStatusHtml()</Mono> in <Mono>shared/screenLayout.js</Mono>. Options: <Mono>board</Mono>{' '}
+              (a board station's name; <Mono>orderBoardData()</Mono>), <Mono>layout</Mono> side | stacked,{' '}
+              <Mono>ready_first</Mono>, <Mono>preparing_bg</Mono>, <Mono>change_anim</Mono> none | float | fade
+              | pop | zoom (<Mono>ORDER_CHANGE_ANIMS</Mono>) and <Mono>change_ms</Mono>. The player keeps the
+              changes between fetches (<Mono>orderChanges()</Mono>: numbers in and out of each column, per
+              board, kept for <Mono>ORDER_CHANGE_KEEP_MS</Mono> by <Mono>keepOrderChanges()</Mono>) and passes
+              them as <Mono>orders.changes</Mono>; the block draws numbers coming in with{' '}
+              <Mono>sl-och-in</Mono> and numbers going out in their old place with <Mono>sl-och-out</Mono>, a
+              negative animation-delay keeping a redraw mid-animation in step, then draws plain once it is over.
+              The designer's Play shows an example change.
+            </P>
           </section>
 
           <section id="web-ordering" data-doc="">
@@ -3158,14 +3226,14 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'Notes']}
               rows={[
-                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[], menu_schedules jsonb (migration 130, { menuId: { from, until, times: [{ days, start, end }] } }, see Menu schedules below), allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, default_vat_rate_takeaway + default_vat_rate_eat_in, tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note. No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
+                ['ordering_settings', "One row per venue (PK venue_id): is_enabled, is_paused + pause_message, hours jsonb [{ day 0-6 (0 = Sunday), windows: [{ open, close }] }], menu_ids uuid[], menu_schedules jsonb (migration 130, { menuId: { from, until, times: [{ days, start, end }] } }, see Menu schedules below), allow_asap, lead_time_mins, slot_interval_mins, max_orders_per_slot (NULL = no limit), max_days_ahead, min_order_pence, auto_accept, order_type_ids jsonb { collection, delivery, eat_in } + revenue_stream_id (migration 170: the sale context for tax and the kitchen; a fulfilment with no type uses the tenant's type of that name, fillOrderTypes() in loadSettings()), tips_enabled + tip_percents int[], payment_methods text[] (gateway keys, checkout order), collection_instructions, confirmation_note. No row = defaults (disabled); GET fills hours from loadOpeningHours()."],
                 ['ordering_item_availability', "Per-venue sold out: (venue_id, item_id, sold_out_until). NULL until = until turned back on. item_id has no FK because menu saves re-insert items (with the same ids since migration 121)."],
                 ['orders', "service_date (venue-local collection day) + order_number (1, 2, 3 per venue per day, UNIQUE) under pg_advisory_xact_lock on venue + day. public_token is the guest key (status page, like manage_token). status: pending_payment, placed, accepted, preparing, ready, completed, rejected, cancelled, expired. promised_at is the ready time (ASAP or the chosen slot). Money in pence: subtotal, tip, total, vat (VAT-inclusive), paid, refunded; payment_status unpaid | pending | paid | failed | partially_refunded | refunded."],
                 ['order_items', "Copies name, options [{ group, label, price_pence, mode }], unit and line totals, vat_rate and vat_pence at the time of ordering. menu_item_id is a plain uuid (no FK), for reports only."],
                 ['order_events', "Status history and audit: type status | payment | refund | time | note, from/to status, detail jsonb, actor (staff email, guest, system)."],
                 ['order_payments', "One row per payment attempt: gateway (a gateway key, or cash / card_terminal for counter payments), gateway_ref (UNIQUE per gateway), amount, refunded, status, raw jsonb."],
                 ['platform fee', "tenants.ordering_fee_percent (0-20, platform admin only: Platform page, PATCH /api/platform/tenants/:id). Each order stores platform_fee_percent and platform_fee_pence = subtotal x percent (tips excluded) when it is created. Shown in the report. The Stripe gateway will pass it as application_fee_amount on online payments; pay-at-counter fees are for invoicing."],
-                ['menu additions', "menu_items.is_orderable, vat_rate_takeaway, vat_rate_eat_in, min_order_qty (migration 133: NULL or 2-99; loaded as item.min_qty by loadOrderingMenu(); priceBasket() adds a min_qty error per dish when the qty over all its lines is below it; the guest page's openItem() starts at the shortfall and changeQty() removes a line rather than go below); menu_variant_groups.price_mode (base | extra), min_select, max_select. email_log.order_id."],
+                ['menu additions', "menu_items.is_orderable, min_order_qty (migration 133: NULL or 2-99; loaded as item.min_qty by loadOrderingMenu(); priceBasket() adds a min_qty error per dish when the qty over all its lines is below it; the guest page's openItem() starts at the shortfall and changeQty() removes a line rather than go below); menu_variant_groups.price_mode (base | extra), min_select, max_select. email_log.order_id."],
               ]}
             />
             <H3>Menu schedules (migration 130)</H3>
@@ -3207,12 +3275,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               <Mono>loadOrderingMenu()</Mono>: <Mono>hide_unpriced_variants</Mono> drops null/£0
               options from the choices (so the server rejects them too),{' '}
               <Mono>hide_zero_priced_variants</Mono> sets <Mono>hide_zero_price</Mono> on each choice
-              and <Mono>optionPriceText()</Mono> shows no price for £0 options. VAT follows the order
-              type (<Mono>vatRateFor(item, fulfilment, settings, section)</Mono>): collection and
-              delivery use the takeaway rate, table orders the eat-in rate, taken from the dish, else
-              its section (<Mono>menu_sections.vat_rate_*</Mono>, migration 127), else the venue
-              default for that type. <Mono>loadOrderingMenu()</Mono> is the only caller and passes the
-              section. Tips are a percentage from{' '}
+              and <Mono>optionPriceText()</Mono> shows no price for £0 options. VAT comes from the dish's
+              tax levels (dish, section, menu) resolved by <Mono>taxFor()</Mono> (<Mono>shared/tax.js</Mono>)
+              for the order's context, <Mono>orderContext(venueId, settings, fulfilment)</Mono>: the order
+              type Ordering setup gives that fulfilment and its revenue stream. <Mono>loadOrderingMenu()</Mono>{' '}
+              sets each item's <Mono>vat_rate</Mono>; orders store <Mono>order_type_id</Mono> and{' '}
+              <Mono>revenue_stream_id</Mono>. Tips are a percentage from{' '}
               <Mono>tip_percents</Mono>, outside VAT.
             </P>
             <H3>GDPR consent (migration 125)</H3>
@@ -3848,7 +3916,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /api/menus/public/:menuId', 'Live, 404 unless the live version is shown to guests.'],
                 ['GET /api/menus/:id/print (incl. ?view=dietary, ?design=)', 'Live; ?preview=<link> prints the draft or a release. The Menus list prints live (or a draft preview for a menu never published); the editor and the designer print the draft through preview links.'],
                 ['Online ordering (loadOrderingMenu in orderSvc.js)', 'Live, so order prices and dishes match what is published.'],
-                ['Till config (tillMenus in posSvc.js)', 'Live: the menus named by revenue centres, else the venue\'s live menus shown to guests.'],
+                ['Till config (tillMenus in posSvc.js)', 'Live: the menus named by revenue streams, else the venue\'s live menus shown to guests. Each item carries its tax levels [dish, section, menu] trimmed to the venue.'],
                 ['Deliveroo (loadDishes / loadSetup in routes/deliveroo.js)', 'Live; no menus picked = live menus shown to guests. Matches to a live dish removed from the draft still save.'],
                 ['Cooking check dish buttons (loadCookingPicker)', 'Live. POST /food-safety/cooking with a live dish gone from the draft logs its name with menu_item_id null.'],
                 ['Allergen lookup (AllergenLookup)', 'Live (menus with a live version only). The Allergen matrix editor stays on the draft.'],
@@ -3871,7 +3939,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['menu_items.calories', 'Migration 094. Nullable int (kcal), CHECK >= 0. Shown next to the price wherever price is shown — website block, print, and the page-builder canvas preview.'],
                 ['menus.print_settings', 'Migration 120. jsonb, default {}. Optional keys: font_scale (int 70-150, %), margin_mm (3-25, null = 8mm/12mm), repeat_header (first | compact | full), repeat_footer, page_numbers, keep_sections (bools), variant_columns (1-3: variant label + price pairs per row, .variants grid of .variant pairs). Zod PrintSettings in menus.js strips unknown keys; written with tx.json(). A missing key keeps the original layout.'],
                 ['menu_sections.print_break_before / print_keep_together', 'Migration 120. none | column | page (CHECK), and a boolean. Print only: the website menu_inline block and the canvas ignore them.'],
-                ['menu_sections.vat_rate_takeaway / vat_rate_eat_in', 'Migration 127. Nullable numeric(5,2), 0-100. Section VAT for web ordering, used for dishes without their own rate (see vatRateFor in the Web Ordering section). SectionBody accepts both; upsertMenuTree and /duplicate carry them. Edited in the section side panel (SectionDrawer in Menus.jsx), where section title, subtitle, image, highlight and print options also live now; the section row only shows badges.'],
+                ['menus.tax / menu_sections.tax / menu_items.tax', 'Migration 170 (replaced the dish and section vat_rate_takeaway / vat_rate_eat_in columns of migrations 122 and 127). jsonb { rate, rules: [{ venues, streams, types, rate }] }, {} = not set. Edited with TaxBox (components/menus/TaxBox.jsx) in the menu Settings, SectionDrawer and ItemDrawer; checked by checkMenuTax() on save (422 on the first problem) and by taxSettingProblems() in the page (Save off). Part of the release (menuDiff.js), so a tax change goes live on publish. See Tax, Order Types & Streams.'],
                 ['menu_dietary_tags (admin page)', 'Route /menus/dietary-tags (MenuDietaryTags.jsx, DietaryTagsManager.jsx), titled Allergens & dietary tags since migration 145 (which also renames the default nav label from Dietary tags). Two Cards, Allergens and Dietary tags, each a drag-sortable list (SortableRows, PATCH /menus/dietary/reorder { ids }). Add and edit use one modal (TagModal: type, label, glyph, code, colour) calling POST /menus/dietary and PATCH /menus/dietary/:id; merge (POST /menus/dietary/:id/merge { into_id }) and delete are in the modal with inline confirms. An amber bar offers POST /menus/dietary/standard-allergens when any of the 14 is missing.'],
                 ['menu_dietary_tags.kind / standard_key', 'Migration 145. kind dietary | allergen (default dietary). standard_key = which of the 14 UK allergens the tag is (celery, gluten, crustaceans, eggs, fish, lupin, milk, molluscs, mustard, nuts, peanuts, sesame, soya, sulphites), unique per tenant, only on allergens. The migration turns existing tags that match one by code or exact label (n / Nuts, Dairy, Soy...) into that allergen, then inserts the ones each tenant is missing. A standard allergen cannot become a dietary tag (PATCH 422).'],
                 ['menu_dietary_tags.show_on_menu', 'Migration 146. Boolean, default true. Off = staff-only: left out of every guest surface, kept in the matrix, lookup and menu editor. TagModal On menus Show / Hide; the tags page marks the row Not on menus.'],
@@ -4153,9 +4221,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['deliveroo_settings', 'One per venue: menu_ids (empty = every published menu of the venue or the company), price_uplift_pct, price_round_pence (1|5|10|50|100), price_round_mode (up|nearest), fill { column: bool } over defaultFill(), allergen_map / dietary_map { tag code: [Deliveroo codes] } over defaultMaps() (standard_key: gluten -> gluten_wheat, sesame -> sesame_seeds, soya -> soybeans, sulphites -> sulphur_dioxide_sulphites, nuts -> none), include_may_contain, include_removable.'],
                 ['deliveroo_item_links', 'One per venue per Deliveroo item_id: menu_item_id (no FK, upsertMenuTree() re-inserts dishes) or skip, keep text[] (columns where Deliveroo\'s value stays), overrides { column: text } (typed values). Only FILL_FIELDS columns can be kept or overridden.'],
                 ['Matching', 'A saved link wins (linked / skipped / missing when the dish is gone). Else rankDishes() over name, native_name, kitchen_name: 1 = same normalised name, 0.95 = same without brackets, without pack words (can, bottle, 330ml) or without spaces, else word overlap capped at 0.89 (0.75 when one name contains the other). auto when the best is >= 0.9 and not tied; else suggested (top 3) or none.'],
-                ['Filling', 'dishValues(): delivery_price = priceRule(dishPrice(dish), pct, round, mode); dishPrice() = price_pence, else the cheapest base-mode option or ad-hoc variant. tax_rate = dish vat_rate_takeaway, else section, else ordering_settings.default_vat_rate_takeaway (20 when none). allergens = the mapped codes of the dish\'s allergen tags (May contain / Can be removed per settings); an allergen tag with no code is an error, so the CSV can\'t silently drop it. buildRow(): override, then keep, then the menu value; an empty menu value never blanks Deliveroo\'s; columns outside FILL_FIELDS are never touched.'],
+                ['Filling', 'dishValues(): delivery_price = priceRule(dishPrice(dish), pct, round, mode); dishPrice() = price_pence, else the cheapest base-mode option or ad-hoc variant. tax_rate = dish.vat, worked out by the API with taxFor() for the settings\' order_type_id (default: the tenant\'s type named Delivery) and revenue_stream_id (deliveroo_settings, migration 170). allergens = the mapped codes of the dish\'s allergen tags (May contain / Can be removed per settings); an allergen tag with no code is an error, so the CSV can\'t silently drop it. buildRow(): override, then keep, then the menu value; an empty menu value never blanks Deliveroo\'s; columns outside FILL_FIELDS are never touched.'],
                 ['Checks', 'rowProblems(): errors = what Deliveroo would refuse (no item_id or one Excel turned into 1.23E+15, delivery price not a positive amount with up to 2 decimals, VAT not 0/5/12.5/20, calories not a whole number, no_allergens with others, booleans not true/false); warnings = price change over 30%, unknown allergen or dietary code. The CSV download is disabled while any error is left.'],
-                ['Routes (/api/deliveroo)', 'POST /read { file_name, data base64 } (menus view; CSV decoded as UTF-8, else Windows-1252; .xlsx/.xls via xlsx with formatted text; 8 MB file limit, bodyLimit 12 MB; 5000 rows). GET /venues/:venueId (view; settings with defaults, links, menus, menu_ids_used, dishes with dietary, allergen_levels, variant_groups, variants and vat_takeaway = dish ?? section, tags). PUT /venues/:venueId/settings and PUT /venues/:venueId/links (menus manage; links upsert the items sent, delete the ones sent with nothing to remember, leave others alone; menu ids and dish ids are checked to be the tenant\'s). POST /xlsx { columns, rows, file_name } (view; every cell a text cell so Excel keeps ids and prices as typed). Every query filters tenant_id.'],
+                ['Routes (/api/deliveroo)', 'POST /read { file_name, data base64 } (menus view; CSV decoded as UTF-8, else Windows-1252; .xlsx/.xls via xlsx with formatted text; 8 MB file limit, bodyLimit 12 MB; 5000 rows). GET /venues/:venueId (view; settings with defaults, links, menus, menu_ids_used, dishes with dietary, allergen_levels, variant_groups, variants, vat and vat_name for the settings\' order type and stream, order_types, revenue_streams, tags). PUT /venues/:venueId/settings and PUT /venues/:venueId/links (menus manage; links upsert the items sent, delete the ones sent with nothing to remember, leave others alone; menu ids and dish ids are checked to be the tenant\'s). POST /xlsx { columns, rows, file_name } (view; every cell a text cell so Excel keeps ids and prices as typed). Every query filters tenant_id.'],
                 ['Page', 'Settings draft applies to the review live and is saved with Save settings (menus picked only change the dish list after saving). Save matches sends only rows whose effective link (auto matches included, so they become stable) differs from the saved one. CSV is built in the browser with toCsv() using the file\'s own eol / trailing newline; the API test checks a file read and written back unchanged is byte for byte the same. api.postBlob() (lib/api.js) downloads the .xlsx.'],
               ]}
             />
@@ -4167,6 +4235,76 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               and the page in Chromium at 1280, 1015 and 390 px (match, skip, keep, typed prices, code
               map, save, download and reload).
             </P>
+          </section>
+
+          {/* ── TAX, ORDER TYPES & REVENUE STREAMS ───────────── */}
+          <section id="tax" data-doc="">
+            <H2>Tax, Order Types &amp; Revenue Streams</H2>
+            <P>
+              Migration 170. Tax rates are a tenant list with values per location; order types are a tenant
+              list; revenue streams (renamed from revenue centres) are per-venue till groupings that decide
+              which order types a till offers and what each asks for, never tax. A dish&apos;s tax is a setting
+              on its menu, section and dish with exceptions per order type, location and revenue stream. One
+              resolver, <Mono>shared/tax.js</Mono>, is used by the till, online ordering, the Deliveroo file,
+              the admin Tax box and the Tax rates check.
+            </P>
+            <DataTable
+              head={['Table', 'What it holds']}
+              rows={[
+                ['tax_rates', 'Tenant list: name, rate numeric(5,2), is_default (one per tenant, partial unique index), is_active (removing archives; the default or a rate a draft menu uses can\'t be removed), sort_order. Seeded Standard 20 (default) and Zero 0 by the migration and ensureTaxDefaults() (new tenants: POST /api/platform/tenants).'],
+                ['tax_rate_values', 'A location\'s own % for a rate: (tax_rate_id, venue_id, rate). ratePercent(rate, venueId) = values[venueId] ?? rate.rate.'],
+                ['order_types', 'Tenant list: name, colour, sort_order, is_active (archived, never deleted: checks, orders and kitchen orders point at them). Seeded Eat in, Take out, Delivery, Collection.'],
+                ['pos_revenue_streams', 'Renamed from pos_revenue_centres; vat_mode dropped, default_order_type_id added (from vat_mode: eat_in -> Eat in, takeaway -> Take out).'],
+                ['pos_stream_order_types', '(stream_id, order_type_id, enabled, ask_name, ask_tent), ask_* off | ask | required. No row = the stream doesn\'t offer the type. Migrated streams offer Eat in and Take out, asking for a name.'],
+                ['menus.tax, menu_sections.tax, menu_items.tax', 'jsonb { rate: tax_rate_id | null, rules: [{ venues: [], streams: [], types: [], rate }] }, {} = not set. The migration turned each eat-in % into the rate and each takeaway % into an exception for Take out, Delivery and Collection (making "VAT x%" rates for %s not in the list), rewrote published release snapshots the same way and set their content_hash to \'\' so rehashReleases() (backfillFirstReleases at API start) re-hashes them.'],
+                ['pos_checks / pos_check_lines', 'Checks: revenue_stream_id (renamed), order_type_id, tent (customer name stays tab_name). Lines: revenue_stream_id (renamed), tax_rate_id next to vat_rate.'],
+                ['orders, ordering_settings, deliveroo_settings', 'orders.order_type_id + revenue_stream_id; ordering_settings.order_type_ids { collection, delivery, eat_in } + revenue_stream_id (VAT defaults dropped); deliveroo_settings.order_type_id + revenue_stream_id.'],
+                ['kds_orders.state, kds_flow_edges.targets, pos_print_routes', 'Kitchen orders: type = order type id, type_name, tent. Flow targets kind revenue_stream / order_type (an id). Print route target_kind revenue_stream.'],
+              ]}
+            />
+            <H3>Resolving a rate (shared/tax.js)</H3>
+            <P>
+              <Mono>taxFor(levels, ctx, rates)</Mono> takes the levels <Mono>[dish, section, menu]</Mono> and the
+              sale context <Mono>{'{ venue_id, order_type_id, revenue_stream_id }'}</Mono> and returns{' '}
+              <Mono>{'{ tax_rate_id, vat_rate, name, from, rule }'}</Mono>. Level first: the first level whose
+              setting gives a rate for the context wins (a matching exception, else its own rate); a blank level
+              passes up; nothing anywhere = the default rate (<Mono>FALLBACK_PERCENT</Mono> 20 if a tenant has
+              none). Within a setting the matching exception with the highest weight wins
+              (<Mono>RULE_WEIGHTS</Mono>: streams 4, types 2, venues 1; a rule names venues or streams, not
+              both). <Mono>taxProblems(tax, lookups)</Mono> refuses unknown ids, a rule with no rate, a stream
+              of another location next to a venue, and two rules of the same weight that can match the same sale
+              at different rates, so the winner is never ambiguous. <Mono>cleanTax()</Mono> normalises before
+              saving (sorted, de-duplicated, empty = <Mono>{'{}'}</Mono>).
+            </P>
+            <H3>Where it is used</H3>
+            <DataTable
+              head={['Surface', 'How']}
+              rows={[
+                ['Till', 'tillConfig() sends revenue_streams (with order_types and prompts), order_types, tax_rates (values trimmed to the venue) and each item\'s tax levels (rules for other venues dropped by taxForVenue()). posTax(item, check, config) sets vat_rate + tax_rate_id on every line. check.order_type_set and check.stream_set carry a lines map { lineId: { vat_rate, tax_rate_id } } (rerateLines() in pos/src/lib/checkOps.js) that applyEvent() writes to the lines; check.tent_set sets the tent. Required prompts are enforced on the till at counter start, Send and Pay (missingDetails()).'],
+                ['Online ordering', 'loadOrderingMenu() resolves each dish with orderContext(venueId, settings, fulfilment); createOrder() stores order_type_id and revenue_stream_id.'],
+                ['Deliveroo file', 'loadDishes() resolves each dish for the settings\' order type (default: the type named Delivery) and stream; dishValues() writes dish.vat.'],
+                ['Kitchen', 'headerFromCheck() / onlineSnapshot() put type, type_name and tent on the kitchen order; flow links can name order types and revenue streams (linkRank()); the kitchen screen\'s filter tabs are the tenant\'s types (kdsConfig().order_types).'],
+                ['Reports', 'dayFigures() adds revenue_streams and order_types [{ id, checks, net, total }]; GET /api/pos/venues/:id/days/:dayId names them (names.revenue_streams / order_types / tax_rates); the checks list joins order_type_name and tent; GET /api/pos/checks/:id returns names for its events. Z tickets print both.'],
+                ['Admin', 'components/menus/TaxBox.jsx (menu Settings, SectionDrawer, ItemDrawer; useTaxLookups() = GET /api/tax-rates), pages/MenuTax.jsx (/menus/tax: rates + Check), components/pos/OrderTypesSection.jsx and RevenueStreamsSection.jsx (Till setup tabs types and streams), OrderingSettings.jsx and MenuDeliveroo.jsx selects, KitchenFlow.jsx chips.'],
+                ['AI menu tools', 'New sections and dishes carry tax; update_section takes tax_rate (a rate name) and sets the section\'s rate.'],
+              ]}
+            />
+            <H3>API</H3>
+            <DataTable
+              head={['Route', 'Notes']}
+              rows={[
+                ['GET /api/tax-rates', '{ rates (with values), venues, order_types, streams }: what a tax setting may name. Open to readers (menus pages, Tax box).'],
+                ['POST / PATCH / DELETE /api/tax-rates[/:id], PUT /api/tax-rates/order, PUT /api/tax-rates/:id/values', 'Menus manage. PATCH takes name, rate, is_default (moves the default), is_active. DELETE archives; refused for the default and for a rate a draft menu uses (names the menus). values: { venueId: % | null }.'],
+                ['GET /api/tax-rates/check?venue_id&stream_id&menu_id', 'Every draft dish\'s rate per active order type in that context (the Check card).'],
+                ['GET / POST / PATCH / DELETE /api/order-types[/:id], PUT /api/order-types/order', 'Changes need pos_setup or web_ordering_setup manage. DELETE archives, keeps at least one active, clears stream defaults pointing at it.'],
+                ['POST /api/pos/venues/:id/revenue-streams, PATCH / DELETE /api/pos/revenue-streams/:id, PUT /api/pos/venues/:id/revenue-streams/order', 'Body: name, menu_ids, service charge, colour, is_active, default_order_type_id, order_types [{ order_type_id, enabled, ask_name, ask_tent }]. A new stream offers every active type. The default must be an enabled type (422). DELETE archives a stream with sales.'],
+              ]}
+            />
+            <InfoBox type="info">
+              Every tax-rate, order-type and stream query filters <Mono>tenant_id</Mono>; ids in a tax setting are
+              checked to be the tenant&apos;s (<Mono>checkMenuTax()</Mono> on every menu save). Setup changes push{' '}
+              <Mono>pos.config</Mono> to the tills (<Mono>notifyTillsOnWrite</Mono> on the tax routes).
+            </InfoBox>
           </section>
 
           {/* ── WEBSITE CMS ───────────────────────────────── */}

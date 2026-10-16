@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import {
   normalizeBoard, boardMenuIds, boardContext, renderBoardHtml, renderBlockInner, boardOnAt, itemsOnAt,
   formatPrice, dishPriceText, dishOptionLabels, localParts, clockText, boardFonts, screenFontsUrl, withAlpha,
+  orderChanges, keepOrderChanges, orderBoardData, ORDER_CHANGE_KEEP_MS,
 } from '../screenLayout.js'
 
 const MENU = {
@@ -245,4 +246,39 @@ test('transitions: keyframes in board pixels, unknown means a cut', async () => 
   assert.equal(b.replay_secs, 3600)
   assert.equal(b.guide_cols, 6)
   assert.equal(b.guide_gap, 0)
+})
+
+test('order status: one board by name, changes animate in and out, layout and colours', async () => {
+  const at = Date.parse('2026-10-16T18:00:00Z')
+  const n = (id, number) => ({ id, number, at: new Date(at - 60_000).toISOString() })
+  const before = { preparing: [n('a', '41'), n('b', '42')], ready: [n('c', '40')], boards: { 'orb 1': { preparing: [n('a', '41')], ready: [] } } }
+  const after = { preparing: [n('b', '42'), n('d', '43')], ready: [n('a', '41')], boards: { 'orb 1': { preparing: [], ready: [n('a', '41')] } } }
+  assert.deepEqual(orderBoardData(after, ' ORB 1 ').ready.map(x => x.number), ['41'])
+  assert.deepEqual(orderBoardData(after, 'ORB 2'), { preparing: [], ready: [] })
+  const changes = orderChanges(before, after, at)
+  const all = changes.find(c => c.key === '')
+  assert.deepEqual([all.prep_in, all.ready_in, all.prep_out.map(x => [x.id, x.index]), all.ready_out.map(x => x.id)],
+    [['d'], ['a'], [['a', 0]], ['c']])
+  assert.deepEqual(changes.find(c => c.key === 'orb 1').ready_in, ['a'])
+  assert.deepEqual(orderChanges(null, after, at), [], 'nothing to compare on the first fetch')
+  assert.equal(keepOrderChanges(changes, at + ORDER_CHANGE_KEEP_MS + 1).length, 0)
+
+  const block = opts => ({ id: 'o1', type: 'order_status', x: 0, y: 0, w: 1, h: 1, opts })
+  const layout = opts => normalizeBoard({ width: 1920, height: 1080, blocks: [block(opts)] }, 1920, 1080)
+  const draw = (opts, t) => renderBlockInner(layout(opts).blocks[0], boardContext(layout(opts), {
+    width: 1920, height: 1080, now: new Date(at + t), orders: { ...after, changes },
+  }))
+  const html = draw({ board: 'ORB 1', change_anim: 'float', change_ms: 1000, layout: 'stacked', ready_first: true, preparing_bg: '#123456' }, 300)
+  assert.match(html, /sl-orders[^"]*is-stacked[^"]*sl-och-float/)
+  assert.match(html, /--opb:\s*#123456/)
+  assert.ok(html.indexOf('is-ready') < html.indexOf('is-prep'), 'ready first')
+  assert.match(html, /sl-onum is-ready sl-och-in" style="animation-delay:-300ms"><span>41/)
+  assert.match(html, /sl-onum is-prep sl-och-out" style="animation-delay:-300ms"><span>41/, '41 fades out of preparing')
+  const later = draw({ board: 'ORB 1', change_anim: 'float', change_ms: 1000 }, 1200)
+  assert.doesNotMatch(later, /sl-och-(in|out)"/, 'over once the animation has played')
+  assert.doesNotMatch(draw({ board: 'ORB 1' }, 300), /sl-och-in/, 'no animation unless chosen')
+  const sameMs = renderBlockInner(layout({ board: 'ORB 1', change_anim: 'fade' }).blocks[0], boardContext(layout({ board: 'ORB 1', change_anim: 'fade' }), {
+    width: 1920, height: 1080, now: new Date(at), orders: { ...after, changes: changes.map(c => ({ ...c, at: at + 0.6 })) },
+  }))
+  assert.match(sameMs, /sl-onum is-ready sl-och-in"><span>41/, 'a draw in the same millisecond still animates')
 })

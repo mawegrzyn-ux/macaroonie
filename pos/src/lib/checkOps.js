@@ -2,41 +2,92 @@
 // function builds events; the check rules (shared/pos/checks.js) decide.
 
 import { ulid } from '@shared/pos/ids.js'
-import { priceItem, posVatRate, promoLines, spread, isActiveLine, lineGross, posChoices } from '@shared/pos/pricing.js'
+import { priceItem, posTax, promoLines, spread, isActiveLine, lineGross, posChoices } from '@shared/pos/pricing.js'
 import { applyPromotions, venueNow } from '@shared/promotions.js'
 import { dispatch, dispatchMany, getState, currentChecks } from './store.js'
 
 export const byId = list => Object.fromEntries((list || []).map(x => [x.id, x]))
 
-export function rcOf(config, id) {
-  return (config?.revenue_centres || []).find(r => r.id === id) || null
+export function streamOf(config, id) {
+  return (config?.revenue_streams || []).find(r => r.id === id) || null
 }
 
-/** The revenue centre a new check starts in. */
-export function defaultRcId(config, { areaId = null, counter = false } = {}) {
+/** The revenue stream a new check starts in: the room's, else the till's, else the first. */
+export function defaultStreamId(config, { areaId = null } = {}) {
   const dev = config?.device?.settings || {}
   const area = (config?.floor_areas || []).find(a => a.id === areaId)
-  const pick = counter
-    ? (config?.settings?.counter_revenue_centre_id || (config?.revenue_centres || []).find(r => r.vat_mode === 'takeaway')?.id || dev.revenue_centre_id)
-    : (area?.revenue_centre_id || dev.revenue_centre_id)
-  return pick || config?.revenue_centres?.[0]?.id || null
+  return area?.revenue_stream_id || dev.revenue_stream_id || config?.revenue_streams?.[0]?.id || null
 }
 
-function serviceChargeFor(rc, covers) {
-  const pct = Number(rc?.service_charge_percent) || 0
+export function typeOf(config, id) {
+  return (config?.order_types || []).find(t => t.id === id) || null
+}
+
+/**
+ * The order types a stream offers, in the tenant's order, each with what to
+ * ask for: [{ type, ask_name, ask_tent }] (off | ask | required). With no
+ * stream (a venue without any) every active type, asking for nothing.
+ */
+export function streamTypes(config, streamId) {
+  const stream = streamOf(config, streamId)
+  const active = (config?.order_types || []).filter(t => t.is_active !== false)
+  if (!stream) return active.map(type => ({ type, ask_name: 'off', ask_tent: 'off' }))
+  const set = Object.fromEntries((stream.order_types || []).filter(x => x.enabled).map(x => [x.order_type_id, x]))
+  return active.filter(t => set[t.id]).map(type => ({ type, ask_name: set[type.id].ask_name || 'off', ask_tent: set[type.id].ask_tent || 'off' }))
+}
+
+/** The type a new check in a stream starts as: the stream's default, else its first. */
+export function defaultTypeId(config, streamId) {
+  const list = streamTypes(config, streamId)
+  const def = streamOf(config, streamId)?.default_order_type_id
+  return (list.find(x => x.type.id === def) || list[0])?.type.id || null
+}
+
+/** What a check's order type asks for in its stream: { ask_name, ask_tent }. */
+export function promptsFor(config, streamId, typeId) {
+  const hit = streamTypes(config, streamId).find(x => x.type.id === typeId)
+  return { ask_name: hit?.ask_name || 'off', ask_tent: hit?.ask_tent || 'off' }
+}
+
+/** Required details a check is still missing: ['name', 'tent']. */
+export function missingDetails(check, config) {
+  const p = promptsFor(config, check.revenue_stream_id, check.order_type_id)
+  const out = []
+  if (p.ask_name === 'required' && !String(check.tab_name || '').trim()) out.push('name')
+  if (p.ask_tent === 'required' && !String(check.tent || '').trim()) out.push('tent')
+  return out
+}
+
+/**
+ * New tax for every line of a check if its order type or stream changed
+ * (shared/tax.js via posTax): { [lineId]: { vat_rate, tax_rate_id } }.
+ */
+export function rerateLines(check, config, changes) {
+  const next = { ...check, ...changes }
+  const out = {}
+  for (const l of check.lines) {
+    if (l.status === 'voided') continue
+    out[l.id] = posTax(l.item_id ? config.items?.[l.item_id] : null, next, config)
+  }
+  return out
+}
+
+function serviceChargeFor(stream, covers) {
+  const pct = Number(stream?.service_charge_percent) || 0
   if (!pct) return null
-  if ((Number(rc.service_charge_min_covers) || 0) > (Number(covers) || 0)) return null
+  if ((Number(stream.service_charge_min_covers) || 0) > (Number(covers) || 0)) return null
   return { percent: pct, vat_rate: 0 }
 }
 
 /** Open a check. Returns { ok, checkId } or { ok: false, error }. */
-export function openCheck({ mode, table_id = null, tab_name = null, covers = null, revenue_centre_id = null }) {
+export function openCheck({ mode, table_id = null, tab_name = null, covers = null, revenue_stream_id = null, order_type_id = null, tent = null }) {
   const { config } = getState()
-  const rcId = revenue_centre_id || defaultRcId(config, { counter: mode === 'counter' })
+  const streamId = revenue_stream_id || defaultStreamId(config)
+  const typeId = order_type_id || defaultTypeId(config, streamId)
   const checkId = ulid()
   const r = dispatch('check.opened', {
-    mode, table_id, tab_name, covers, revenue_centre_id: rcId,
-    service_charge: mode === 'counter' ? null : serviceChargeFor(rcOf(config, rcId), covers),
+    mode, table_id, tab_name, covers, revenue_stream_id: streamId, order_type_id: typeId, tent: tent || null,
+    service_charge: mode === 'counter' ? null : serviceChargeFor(streamOf(config, streamId), covers),
   }, { check_id: checkId })
   return r.ok ? { ok: true, checkId } : r
 }
@@ -78,7 +129,7 @@ export function addItem(check, item, selection = {}, opts = {}) {
   const it = tillItem(config, item.id)
   const priced = priceItem(it, selection, { itemsById: config.items, groupsById: config.groups || {} })
   if (!priced.ok) return priced
-  const rc = rcOf(config, check.revenue_centre_id)
+  const tax = posTax(it, check, config)
   const override = opts.unit_price != null && opts.unit_price !== priced.unit_price
   const line = {
     id: ulid(), item_id: it.id, section_id: it.section_id, name: it.name, kitchen_name: it.kitchen_name || null,
@@ -87,8 +138,8 @@ export function addItem(check, item, selection = {}, opts = {}) {
     modifiers: priced.modifiers, combo: priced.combo,
     seat: opts.seat ?? null, course_id: courseFor(it, opts.course),
     note: opts.note || null, allergies: opts.allergies || [],
-    vat_rate: posVatRate(it, rc?.vat_mode || 'eat_in', config.settings),
-    revenue_centre_id: check.revenue_centre_id,
+    vat_rate: tax.vat_rate, tax_rate_id: tax.tax_rate_id,
+    revenue_stream_id: check.revenue_stream_id,
     price_override: override || undefined,
   }
   const twin = !override && check.lines.find(l => sameLine(l, line))
@@ -101,13 +152,13 @@ export function addItem(check, item, selection = {}, opts = {}) {
 /** An item not on the menu: name and price typed in. */
 export function addOpenItem(check, { name, unit_price, qty = 1, course = null, approved_by = null }) {
   const { config } = getState()
-  const rc = rcOf(config, check.revenue_centre_id)
+  const tax = posTax(null, check, config)
   const line = {
     id: ulid(), item_id: null, section_id: null, name: name.trim().slice(0, 200), qty, unit_price,
     modifiers: [], combo: null, seat: null, course_id: course && course !== 'none' ? course : null,
     note: null, allergies: [],
-    vat_rate: rc?.vat_mode === 'takeaway' ? Number(config.settings.default_vat_rate_takeaway) : Number(config.settings.default_vat_rate_eat_in),
-    revenue_centre_id: check.revenue_centre_id, open_item: true, price_override: true,
+    vat_rate: tax.vat_rate, tax_rate_id: tax.tax_rate_id,
+    revenue_stream_id: check.revenue_stream_id, open_item: true, price_override: true,
   }
   return dispatch('line.added', { line }, { check_id: check.id, approved_by })
 }

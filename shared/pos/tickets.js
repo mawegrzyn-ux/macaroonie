@@ -32,7 +32,7 @@ function dateLabel(at) {
 
 /**
  * Kitchen / bar ticket for one send.
- * send: { station, table, tab, covers, server, checkNo, sentAt, reprint, void,
+ * send: { station, table, tab, name, type, tent, covers, server, checkNo, sentAt, reprint, void,
  *         courses: [{ name, hold, lines: [{ qty, name, seat, modifiers: [{ kind: 'add'|'remove'|'note', text }], note, allergies }] }] }
  */
 export function kitchenTicket(send) {
@@ -41,6 +41,10 @@ export function kitchenTicket(send) {
   if (send.reprint) ops.push({ t: 'text', text: '** REPRINT **', align: 'center', bold: true })
   ops.push({ t: 'text', text: (send.station || 'KITCHEN').toUpperCase(), align: 'center', bold: true })
   ops.push({ t: 'text', text: send.table ? 'TABLE ' + send.table : (send.tab || 'TAB'), align: 'center', bold: true, tall: true, wide: true })
+  if (send.name) ops.push({ t: 'text', text: send.name, align: 'center', bold: true, tall: true })
+  if (send.type || send.tent) {
+    ops.push({ t: 'text', text: ' ' + [send.type, send.tent ? 'TENT ' + send.tent : null].filter(Boolean).join('  ').toUpperCase() + ' ', align: 'center', bold: true, tall: true, invert: true })
+  }
   const info = [send.covers ? send.covers + ' covers' : null, send.server, send.checkNo ? '#' + send.checkNo : null].filter(Boolean).join('  ')
   if (info) ops.push({ t: 'text', text: info, align: 'center' })
   ops.push({ t: 'text', text: (send.void ? 'Voided ' : 'Sent ') + hhmm(send.sentAt || new Date()), align: 'center' })
@@ -70,7 +74,7 @@ export function kitchenTicket(send) {
 
 /**
  * Customer receipt (or pre-bill with bill.preBill).
- * bill: { venue: { name, address: [], vatNumber }, table, tab, checkNo, server, covers, at, preBill,
+ * bill: { venue: { name, address: [], vatNumber }, table, tab, name, type, tent, checkNo, server, covers, at, preBill,
  *         lines: [{ qty, name, total, modifiers: [{ text, price }] }],   total = dish x qty, add-ons priced separately
  *         discounts: [{ name, amount }], serviceCharge: { label, amount },
  *         vat: [{ rate, net, vat }], total, payments: [{ tender, amount }], change, footer, drawer }
@@ -86,6 +90,9 @@ export function receipt(bill) {
   const where = bill.table ? 'Table ' + bill.table : (bill.tab || '')
   ops.push({ t: 'pair', left: where, right: bill.checkNo ? 'Check ' + bill.checkNo : '' })
   ops.push({ t: 'pair', left: bill.server ? 'Served by ' + bill.server : '', right: bill.covers ? bill.covers + ' covers' : '' })
+  if (bill.name || bill.type || bill.tent) {
+    ops.push({ t: 'pair', left: [bill.type, bill.name].filter(Boolean).join(' - '), right: bill.tent ? 'Tent ' + bill.tent : '' })
+  }
   ops.push({ t: 'pair', left: dateLabel(bill.at || new Date()), right: hhmm(bill.at || new Date()) })
   ops.push({ t: 'rule', char: '-' })
   for (const l of bill.lines || []) {
@@ -182,7 +189,7 @@ export function toText(ops, cols = DEFAULT_COLS) {
 
 /**
  * X or Z report (shared/pos/reports.js dayFigures) as a ticket.
- * meta: { venue, kind: 'X' | 'Z', number, date, printedAt, declaredCash, names: { staff, revenue_centres } }
+ * meta: { venue, kind: 'X' | 'Z', number, date, printedAt, declaredCash, names: { staff, revenue_streams, order_types } }
  */
 export function dayReportTicket(f, meta = {}) {
   const ops = []
@@ -203,10 +210,15 @@ export function dayReportTicket(f, meta = {}) {
   ops.push({ t: 'rule' })
   ops.push({ t: 'text', text: 'VAT', bold: true })
   for (const v of f.vat || []) pair(v.rate + '% on ' + money(v.net), money(v.vat))
-  if ((f.revenue_centres || []).length) {
+  if ((f.revenue_streams || []).length) {
     ops.push({ t: 'rule' })
-    ops.push({ t: 'text', text: 'REVENUE CENTRES', bold: true })
-    for (const r of f.revenue_centres) pair(names.revenue_centres?.[r.id] || 'Other', money(r.net))
+    ops.push({ t: 'text', text: 'REVENUE STREAMS', bold: true })
+    for (const r of f.revenue_streams) pair(names.revenue_streams?.[r.id] || 'Other', money(r.net))
+  }
+  if ((f.order_types || []).length) {
+    ops.push({ t: 'rule' })
+    ops.push({ t: 'text', text: 'ORDER TYPES', bold: true })
+    for (const r of f.order_types) pair((names.order_types?.[r.id] || 'Other') + ' (' + r.checks + ')', money(r.net))
   }
   ops.push({ t: 'rule' })
   ops.push({ t: 'text', text: 'TAKINGS', bold: true })

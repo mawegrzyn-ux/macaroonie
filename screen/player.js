@@ -25,9 +25,10 @@
 import {
   boardContext, renderBoardHtml, SCREEN_LAYOUT_CSS, boardFontsUrl, boardImageUrls, boardVideoUrls, itemsOnAt, localParts,
   clockText, playlistPosition, replayStart, wallRegion, transitionFrames, startBoardMotion, DEFAULT_TRANSITION_MS,
+  orderChanges, keepOrderChanges, ORDER_CHANGE_KEEP_MS,
 } from '/lib/screenLayout.js'
 
-const APP_VERSION = '1.1.0'
+const APP_VERSION = '1.2.0'
 const PLAYER_VERSION = document.querySelector('meta[name="player-version"]')?.content || ''
 const KEYS = { device: 'mcrn_screen_device', config: 'mcrn_screen_config', pairing: 'mcrn_screen_pairing', reloaded: 'mcrn_screen_reloaded_at' }
 const POLL_MS = 60_000
@@ -217,6 +218,8 @@ let wsTimer = null
 // Order numbers for Order status blocks (config.needs_orders): fetched on
 // start, on a kitchen.board push and every ORDERS_MS as a check.
 let orders = null
+let orderMoves = []
+let movesTimer = null
 let ordersTimer = null
 let ordersSoon = null
 const ORDERS_MS = 15_000
@@ -374,9 +377,15 @@ async function fetchOrders() {
     setServerTime(r.server_time)
     const next = r.orders || { preparing: [], ready: [] }
     const changed = JSON.stringify(next) !== JSON.stringify(orders)
+    // Numbers that changed status, for the blocks' change animation; drawn
+    // again once the animations are over (the leaving numbers go).
+    const t = Math.floor(nowMs())
+    orderMoves = keepOrderChanges([...orderMoves, ...orderChanges(orders, next, t)], t)
     orders = next
+    if (orderMoves.length) { clearTimeout(movesTimer); movesTimer = setTimeout(redraw, ORDER_CHANGE_KEEP_MS + 50) }
     // Ready numbers also leave the board by time (clear_mins): draw again.
-    if (changed || orders.ready.length) redraw()
+    const anyReady = (orders.ready || []).length || Object.values(orders.boards || {}).some(b => (b.ready || []).length)
+    if (changed || anyReady) redraw()
   } catch { /* offline: keep the last numbers */ }
 }
 
@@ -449,7 +458,7 @@ function buildLayer(item, { hidden = false } = {}) {
     menus: config.menus, sold_out: config.sold_out, tags: config.tags, allergen_notice: config.allergen_notice,
     now: now(), tz: config.venue?.timezone, width: design.width, height: design.height,
     // A real screen never shows the designer's example numbers.
-    orders: orders || { preparing: [], ready: [] },
+    orders: { ...(orders || { preparing: [], ready: [] }), changes: keepOrderChanges(orderMoves, nowMs()) },
   })
   const html = renderBoardHtml(ctx)
   const layer = document.createElement('div')

@@ -3,8 +3,11 @@
 //
 // Tickets in columns, oldest first (rush orders first), with a timer that
 // turns amber at the station's target time and red when late. Tap a dish to
-// mark it done, tap a ticket to pick it, BUMP to finish it (the pass marks
-// the whole order ready). Bump bars and keyboards work too: 1-9 / 0 pick a
+// mark it done, tap a ticket to pick it, BUMP to finish it here: the dishes
+// go on to the next station in the kitchen flow (Prep 1 > Prep 2 > Expo 1),
+// and the expo (READY) or a runner (DONE) finishes the whole order. A
+// station that shows dishes before they arrive marks them with where they
+// are now ("At Prep 1"). Bump bars and keyboards work too: 1-9 / 0 pick a
 // ticket, Enter or Space bumps, arrows page, R brings the last ticket back,
 // S shows what is on order, P makes a ticket a rush.
 
@@ -15,10 +18,10 @@ import {
 } from 'lucide-react'
 import {
   stationTickets, recentBumps, laterOrders, onOrderCounts, stationStats, ageTone, clockSince, clockSecs,
-  itemState, TYPE_LABELS, stationSettings,
+  itemState, readyOrders, isOrderLevel, stationSettings,
 } from '@shared/pos/kitchen.js'
 import {
-  useKitchen, useOrders, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
+  useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
   remake, priority, collected, unlockAudio, chime, loadConfig, toast,
 } from './store.js'
 
@@ -53,12 +56,16 @@ const TEXT = {
   xl:     { item: 'text-[22px]', mod: 'text-[19px]', head: 'text-[20px]' },
 }
 
-const FILTERS = [
-  { key: 'all', label: 'All orders', test: () => true },
-  { key: 'eat_in', label: 'Eat in', short: 'E/I', test: o => o.type === 'eat_in' },
-  { key: 'takeaway', label: 'Takeaway', short: 'T/A', test: o => o.type !== 'eat_in' },
-  { key: 'online', label: 'Online', test: o => o.source === 'online' },
-]
+// Filters: all, one per order type (the tenant's own, migration 170), online.
+function filtersFor(types) {
+  return [
+    { key: 'all', label: 'All orders', test: () => true },
+    ...(types || []).map(t => ({ key: t.id, label: t.name, test: o => o.type === t.id })),
+    { key: 'online', label: 'Online', test: o => o.source === 'online' },
+  ]
+}
+// Ticket badge colours by order type position (a type's own colour wins).
+const TYPE_COLOURS = ['bg-[#9be7a1] text-black', 'bg-[#25a7a7] text-white', 'bg-[#7c5cd6] text-white', 'bg-[#e0a33a] text-black', 'bg-[#d6577c] text-white']
 
 const REMAKE_REASONS = ['Dropped', 'Wrong dish', 'Undercooked', 'Cold', 'Sent back', 'Other']
 
@@ -74,7 +81,7 @@ export default function KitchenApp({ device }) {
   let body
   if (s.phase === 'loading') body = <div className="h-full bg-black" />
   else if (!s.config) body = <NoConfig />
-  else if (!s.config.stations?.length) body = <NoStations />
+  else if (!myStations(s).length) body = <NoStations />
   else body = <Kitchen />
   return <div className="h-full bg-black text-white select-none">{body}<Toasts /></div>
 }
@@ -122,6 +129,7 @@ function Kitchen() {
   useTick(1000)
   const s = useKitchen()
   const orders = useOrders()
+  const cfg = useCfg()
   const width = useWidth()
   const now = nowIso()
   const stations = myStations(s)
@@ -137,7 +145,8 @@ function Kitchen() {
   const [panel, setPanel] = useState(null)   // 'recall' | 'sum' | 'later' | 'ready' | 'settings' | 'keys' | { remake }
   const [full, setFull] = useState(!!document.fullscreenElement)
 
-  const all = useMemo(() => stationTickets(orders, station, now), [orders, station, now])
+  const all = useMemo(() => stationTickets(orders, station, now, cfg), [orders, station, now, cfg])
+  const FILTERS = useMemo(() => filtersFor(s.config.order_types), [s.config.order_types])
   const filter = FILTERS.find(f => f.key === filterKey) || FILTERS[0]
   const tickets = all.filter(t => filter.test(t.order))
   const pages = Math.max(1, Math.ceil(tickets.length / cols))
@@ -147,7 +156,8 @@ function Kitchen() {
   const right = Math.max(0, tickets.length - left - shown.length)
   const sel = shown.find(t => t.order.id === selected) || shown[0] || null
   const later = laterOrders(orders, now)
-  const ready = Object.values(orders).filter(o => o.status === 'ready' && o.board).sort((a, b) => Date.parse(b.ready_at) - Date.parse(a.ready_at))
+  const orderLevel = isOrderLevel(station)
+  const ready = orderLevel ? readyOrders(orders, station, now) : []
 
   // The trading day starts at day_starts_at (04:00): the speed figures count from then.
   const dayFrom = useMemo(() => {
@@ -232,7 +242,7 @@ function Kitchen() {
             <button key={f.key} onClick={() => { setPrefs({ filter: f.key }); setPage(0) }}
               className={cx('px-4 sm:px-6 font-bold whitespace-nowrap text-[15px] touch-manipulation',
                 filterKey === f.key ? 'bg-[#0b6b35] text-white' : 'text-[#d8c58a]')}>
-              {f.key === 'all' ? f.label : (f.short ? '(' + f.short + ')' : f.label)} ({counts[f.key]})
+              <span className="inline-block max-w-[11rem] truncate align-bottom">{f.label}</span> ({counts[f.key]})
             </button>
           ))}
           {stations.length > 1 && <div className="w-px bg-white/20 my-2 mx-1" />}
@@ -268,11 +278,11 @@ function Kitchen() {
 
       {/* Tickets */}
       {view === 'on_order'
-        ? <OnOrderBoard orders={orders} station={station} now={now} />
+        ? <OnOrderBoard orders={orders} station={station} now={now} cfg={cfg} />
         : (
           <div className="relative flex-1 min-h-0 grid gap-1.5 p-1.5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
             {shown.map((t, i) => (
-              <Ticket key={t.order.id} t={t} n={left + i + 1} station={station} now={now} text={text} names={names}
+              <Ticket key={t.order.id} t={t} n={left + i + 1} station={station} now={now} text={text} names={names} types={s.config.order_types}
                 selected={sel?.order.id === t.order.id} alert={s.alerts[t.order.id]}
                 onSelect={() => setSelected(t.order.id)} />
             ))}
@@ -290,7 +300,7 @@ function Kitchen() {
       {/* Bottom bar: bump bar on screen */}
       <div className="h-[68px] shrink-0 bg-[#0b3d22] flex items-stretch gap-1 p-1">
         <BarBtn onClick={() => doBump()} disabled={!sel} className="bg-[#1f7a43] min-w-[88px] text-lg">
-          {station.kind === 'expo' ? 'READY' : 'BUMP'}
+          {station.kind === 'expo' ? 'READY' : station.kind === 'runner' ? 'DONE' : 'BUMP'}
         </BarBtn>
         <div className="flex gap-1 flex-1 min-w-0 overflow-x-auto no-scrollbar">
           {Array.from({ length: cols }).map((_, i) => (
@@ -306,7 +316,7 @@ function Kitchen() {
           <Flame size={20} /><span className="text-[11px]">Rush</span>
         </BarBtn>
         <BarBtn onClick={() => setPanel(view === 'on_order' ? null : 'sum')} className="bg-[#1f7a43] w-16 text-sm">SUM</BarBtn>
-        {station.kind === 'expo' && (
+        {orderLevel && (
           <BarBtn onClick={() => setPanel('ready')} className="bg-[#1f7a43] w-20" title="Ready to collect">
             <PackageCheck size={20} /><span className="text-[11px]">Ready ({ready.length})</span>
           </BarBtn>
@@ -320,11 +330,11 @@ function Kitchen() {
         <BarBtn onClick={() => setPanel('settings')} className="bg-zinc-700 w-14" title="Screen settings"><Settings size={22} /></BarBtn>
       </div>
 
-      {panel === 'sum' && <SumPanel orders={orders} station={station} now={now} onClose={() => setPanel(null)} />}
+      {panel === 'sum' && <SumPanel orders={orders} station={station} now={now} cfg={cfg} onClose={() => setPanel(null)} />}
       {panel === 'recall' && <RecallPanel orders={orders} station={station} now={now} onClose={() => setPanel(null)} />}
       {panel === 'ready' && <ReadyPanel ready={ready} now={now} onClose={() => setPanel(null)} />}
       {panel === 'later' && <LaterPanel later={later} now={now} onClose={() => setPanel(null)} />}
-      {panel?.remake !== undefined && <RemakePanel orders={orders} station={station} now={now} orderId={panel.remake} onClose={() => setPanel(null)} />}
+      {panel?.remake !== undefined && <RemakePanel orders={orders} station={station} now={now} cfg={cfg} orderId={panel.remake} onClose={() => setPanel(null)} />}
       {panel === 'settings' && (
         <SettingsPanel stations={stations} station={station} view={view} full={full} onFull={toggleFull}
           onKeys={() => setPanel('keys')} onClose={() => setPanel(null)} />
@@ -356,13 +366,20 @@ const label = o => o.table ? 'Table ' + o.table : o.tab ? o.tab : o.guest ? o.gu
 
 // ── A ticket ─────────────────────────────────────────────────────
 
-function Ticket({ t, n, station, now, text, selected, alert, onSelect, names }) {
+function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, types }) {
   const o = t.order
   const tone = ageTone(t.since, now, station)
   const fresh = alert && Date.now() - alert < 30000
-  const allDone = station.kind === 'expo' && t.items.filter(i => i.state !== 'voided' && i.state !== 'held').every(i => i.state === 'done')
+  // At the expo / a runner: every dish has reached it, nothing still on its way.
+  const live = t.items.filter(i => i.state !== 'voided' && i.state !== 'held')
+  const allDone = isOrderLevel(station) && live.length > 0 && live.every(i => i.state === 'active' || i.state === 'done')
+  // Dishes on this ticket go on different ways: label each one.
+  const nextKeys = new Set(live.map(i => (i.next || []).join(',')))
+  const showNext = !isOrderLevel(station) && nextKeys.size > 1
   const headBg = o.priority ? 'bg-[#b45309]' : fresh ? 'bg-[#8f8a4b]' : allDone ? 'bg-[#1d9a52]' : 'bg-[#2b7a4b]'
-  const typeCls = o.type === 'eat_in' ? 'bg-[#9be7a1] text-black' : o.type === 'takeaway' ? 'bg-[#25a7a7] text-white' : 'bg-[#7c5cd6] text-white'
+  const typeIndex = (types || []).findIndex(x => x.id === o.type)
+  const typeColour = (types || [])[typeIndex]?.colour
+  const typeCls = typeColour ? 'text-white' : TYPE_COLOURS[(typeIndex < 0 ? 2 : typeIndex) % TYPE_COLOURS.length]
   const groups = groupByCourse(t.items)
   return (
     <div onClick={onSelect} data-testid="kds-ticket" data-order={o.id}
@@ -381,7 +398,11 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names }) 
           {o.priority && <span className="bg-white text-[#b45309] font-black px-1.5 rounded">RUSH</span>}
           {fresh && !o.priority && <span className="font-black">NEW</span>}
           {allDone && <span className="font-black">PREPARED</span>}
-          <span className={cx('px-1.5 rounded font-bold whitespace-nowrap shrink-0', typeCls)}>{TYPE_LABELS[o.type] || o.type}</span>
+          {(o.type_name || o.tent) && (
+            <span className={cx('px-1.5 rounded font-bold whitespace-nowrap shrink-0', typeCls)} style={typeColour ? { background: typeColour } : undefined} data-testid="kds-type">
+              {[o.type_name, o.tent ? 'Tent ' + o.tent : null].filter(Boolean).join(' · ')}
+            </span>
+          )}
           {o.promised_at && <span className="font-semibold">for {new Date(o.promised_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>}
           <span className="ml-auto min-w-0 text-white/80 truncate">{o.covers ? o.covers + ' cvr' : ''}{o.server ? ' · ' + o.server : ''}</span>
         </div>
@@ -389,6 +410,11 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names }) 
       <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
         {o.allergy && <div className="bg-red-600 px-2 py-1 font-bold text-[13px]"><AlertTriangle size={14} className="inline -mt-0.5 mr-1" />Allergy: {o.allergy}</div>}
         {o.note && <div className="bg-yellow-300 text-black px-2 py-1 font-semibold text-[13px]">{o.note}</div>}
+        {t.elsewhere?.length > 0 && (
+          <div className="bg-zinc-800 text-white/80 px-2 py-0.5 text-[12px] font-semibold" data-testid="kds-elsewhere">
+            Also on this order: {t.elsewhere.map(x => x.count + ' via ' + (names[x.station_id] || 'another station')).join(', ')}
+          </div>
+        )}
         {groups.map(g => (
           <div key={g.key}>
             {g.title && (
@@ -396,7 +422,7 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names }) 
                 {g.held ? 'Hold · ' : ''}{g.title}
               </div>
             )}
-            {g.items.map(i => <ItemRow key={i.id} item={i} order={o} station={station} text={text} names={names} />)}
+            {g.items.map(i => <ItemRow key={i.id} item={i} order={o} station={station} text={text} names={names} showNext={showNext} />)}
           </div>
         ))}
       </div>
@@ -414,7 +440,7 @@ function groupByCourse(items) {
   return [...map.values()].sort((a, b) => (a.held ? 1 : 0) - (b.held ? 1 : 0) || a.sort - b.sort)
 }
 
-function ItemRow({ item, order, station, text, names }) {
+function ItemRow({ item, order, station, text, names, showNext }) {
   const st = item.state
   const tap = e => {
     e.stopPropagation()
@@ -423,11 +449,11 @@ function ItemRow({ item, order, station, text, names }) {
     if (!r.ok) toast(r.error, 'bad')
   }
   const parts = item.parts && item.parts.length ? item.parts : null
-  const atPass = station.kind === 'expo'
+  const from = (item.from || []).map(id => names[id]).filter(Boolean)
   return (
     <div onClick={tap} data-testid="kds-item" data-state={st}
       className={cx('border-b border-black/60 touch-manipulation',
-        st === 'voided' ? 'bg-[#3b0d0d]' : st === 'held' ? 'bg-zinc-800 text-zinc-400' : 'bg-[#0e6b33]',
+        st === 'voided' ? 'bg-[#3b0d0d]' : st === 'held' ? 'bg-zinc-800 text-zinc-400' : st === 'upcoming' ? 'bg-[#163d27] text-white/75' : 'bg-[#0e6b33]',
         st === 'done' && 'opacity-45')}>
       <div className={cx('flex items-start gap-1.5 px-2 py-1 font-bold', text.item, st === 'voided' && 'line-through text-red-300')}>
         <span className="tabular-nums shrink-0">{item.qty}</span>
@@ -438,8 +464,14 @@ function ItemRow({ item, order, station, text, names }) {
         {item.remakes > 0 && <span className="text-[11px] bg-orange-500 text-black px-1 rounded shrink-0">REMAKE</span>}
         {item.seat != null && <span className="text-[11px] bg-black/40 px-1 rounded shrink-0">S{item.seat}</span>}
       </div>
-      {atPass && st !== 'voided' && item.stations?.length > 0 && st !== 'done' && (
-        <div className="px-2 pb-0.5 text-[11px] text-amber-200 font-semibold">{stationNames(item, names)}</div>
+      {st === 'upcoming' && item.where?.length > 0 && (
+        <div className="px-2 pb-0.5 text-[11px] text-amber-200 font-semibold" data-testid="kds-where">At {item.where.map(id => names[id] || 'another station').join(', ')}</div>
+      )}
+      {st === 'active' && !isOrderLevel(station) && from.length > 0 && (
+        <div className="px-2 pb-0.5 text-[11px] text-sky-200 font-semibold" data-testid="kds-from">From {from.join(', ')}</div>
+      )}
+      {showNext && st !== 'voided' && item.next?.length > 0 && (
+        <div className="px-2 pb-0.5 text-[11px] text-white/70 font-semibold" data-testid="kds-next">Then {item.next.map(id => names[id] || 'another station').join(', ')}</div>
       )}
       <Mods mods={item.mods} text={text} depth={1} />
       {parts && parts.map((p, idx) => (
@@ -452,11 +484,6 @@ function ItemRow({ item, order, station, text, names }) {
       {item.allergies?.length > 0 && <div className={cx('pl-5 pr-2 py-0.5 bg-red-600 font-bold', text.mod)}>Allergy: {item.allergies.join(', ')}</div>}
     </div>
   )
-}
-
-function stationNames(item, names) {
-  const waiting = item.stations.filter(s => !item.done?.[s])
-  return 'Waiting: ' + waiting.map(s => names[s] || 'station').join(', ')
 }
 
 function Mods({ mods, text, depth }) {
@@ -472,8 +499,8 @@ function Mods({ mods, text, depth }) {
 
 // ── The On order board (a station's view, or the SUM panel) ──────
 
-function OnOrderBoard({ orders, station, now }) {
-  const counts = onOrderCounts(orders, station, now)
+function OnOrderBoard({ orders, station, now, cfg }) {
+  const counts = onOrderCounts(orders, station, now, cfg)
   return (
     <div className="flex-1 min-h-0 bg-[#eef0ee] text-black flex flex-col">
       <div className="bg-[#0b6b35] border-b-[6px] border-[#a29a59] text-white text-center font-black text-4xl py-3 tracking-wide">ON ORDER</div>
@@ -507,8 +534,8 @@ function Panel({ title, onClose, children, wide }) {
   )
 }
 
-function SumPanel({ orders, station, now, onClose }) {
-  const counts = onOrderCounts(orders, station, now)
+function SumPanel({ orders, station, now, cfg, onClose }) {
+  const counts = onOrderCounts(orders, station, now, cfg)
   return (
     <Panel title={'On order · ' + station.name} onClose={onClose}>
       {!counts.length && <div className="text-white/50 p-4">Nothing on order.</div>}
@@ -585,7 +612,7 @@ function LaterPanel({ later, onClose }) {
   )
 }
 
-function RemakePanel({ orders, station, now, orderId, onClose }) {
+function RemakePanel({ orders, station, now, cfg, orderId, onClose }) {
   const candidates = useMemo(() => {
     const list = []
     const add = o => { if (o && !list.includes(o)) list.push(o) }
@@ -595,7 +622,7 @@ function RemakePanel({ orders, station, now, orderId, onClose }) {
   }, [orders, station, now, orderId])
   const [pick, setPick] = useState(null)
   const [reason, setReason] = useState(null)
-  const mine = o => o.items.filter(i => !i.voided_at && (station.kind === 'expo' || i.stations.includes(station.id)) && itemState(i, station, now) !== 'held')
+  const mine = o => o.items.filter(i => !i.voided_at && i.route?.[station.id] && itemState(i, station, now, cfg) !== 'held')
   return (
     <Panel title="Remake a dish" onClose={onClose} wide>
       {!candidates.length && <div className="text-white/50 p-4">Pick a ticket first, or bump one: remakes come from what is on screen or just bumped.</div>}
@@ -671,7 +698,7 @@ function SettingsPanel({ stations, station, view, full, onFull, onKeys, onClose 
         <Keyboard size={20} /> Bump bar and keyboard keys
       </button>
       <div className="text-sm text-white/60 px-1 pt-2">
-        Tickets turn amber after {st.target_mins} min and red after {st.late_mins} min. Stations, timings and what goes where are set in Macaroonie: Till setup, Kitchen screens.
+        Tickets turn amber after {st.target_mins} min and red after {st.late_mins} min. Stations, timings and the kitchen flow (what goes where) are set in Macaroonie: Till setup, Kitchen screens.
       </div>
     </Panel>
   )
@@ -680,7 +707,7 @@ function SettingsPanel({ stations, station, view, full, onFull, onKeys, onClose 
 function KeysPanel({ onClose }) {
   const rows = [
     ['1 to 9, 0', 'Pick ticket 1 to 10 on the screen'],
-    ['Enter, Space or B', 'Bump the picked ticket (at the pass: ready)'],
+    ['Enter, Space or B', 'Bump the picked ticket (expo: ready; runner: done)'],
     ['Left / Right, Page Up / Down', 'More tickets'],
     ['Up / Down', 'Pick the previous / next ticket'],
     ['R', 'Bring back the last ticket bumped here'],

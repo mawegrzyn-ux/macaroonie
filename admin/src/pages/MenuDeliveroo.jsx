@@ -36,7 +36,7 @@ const store = {
 const lsGet = k => { try { return localStorage.getItem(k) || '' } catch { return '' } }
 const lsSet = (k, v) => { try { localStorage.setItem(k, v) } catch { /* private */ } }
 
-const SETTINGS_KEYS = ['menu_ids', 'price_uplift_pct', 'price_round_pence', 'price_round_mode', 'fill', 'allergen_map', 'dietary_map', 'include_may_contain', 'include_removable']
+const SETTINGS_KEYS = ['menu_ids', 'price_uplift_pct', 'price_round_pence', 'price_round_mode', 'fill', 'allergen_map', 'dietary_map', 'include_may_contain', 'include_removable', 'order_type_id', 'revenue_stream_id']
 const pickSettings = s => Object.fromEntries(SETTINGS_KEYS.map(k => [k, s?.[k]]))
 const linkKey = l => JSON.stringify([l?.menu_item_id || null, !!l?.skip, [...(l?.keep || [])].sort(), Object.entries(l?.overrides || {}).sort()])
 
@@ -278,6 +278,31 @@ export default function MenuDeliveroo() {
                       {draft.menu_ids.length ? 'Only the menus picked.' : 'None picked: every published menu of this venue and the company.'}
                       {' '}Dishes and prices come from the live (published) version of each menu.
                       {settingsDirty && ' Save to load the dishes of a new pick.'}
+                    </p>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-3" data-testid="deliveroo-tax">
+                    <label className="block">
+                      <span className="text-xs font-medium text-muted-foreground">VAT rate as order type</span>
+                      <select value={draft.order_type_id || ''} disabled={!canEdit} aria-label="Order type for VAT"
+                        onChange={e => patch({ order_type_id: e.target.value || null })}
+                        className="mt-1 w-full border rounded-md px-3 min-h-[44px] bg-background text-sm touch-manipulation">
+                        {!draft.order_type_id && <option value="">No order type</option>}
+                        {(setup.order_types || []).filter(t => t.is_active || t.id === draft.order_type_id).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </label>
+                    {(setup.revenue_streams || []).length > 0 && (
+                      <label className="block">
+                        <span className="text-xs font-medium text-muted-foreground">Revenue stream</span>
+                        <select value={draft.revenue_stream_id || ''} disabled={!canEdit} aria-label="Revenue stream for VAT"
+                          onChange={e => patch({ revenue_stream_id: e.target.value || null })}
+                          className="mt-1 w-full border rounded-md px-3 min-h-[44px] bg-background text-sm touch-manipulation">
+                          <option value="">None</option>
+                          {setup.revenue_streams.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    <p className="sm:col-span-2 text-[11px] text-muted-foreground">
+                      Each dish's VAT rate is its tax setting (Menus, Tax rates) for this order type.{settingsDirty && ' Save to see the new rates.'}
                     </p>
                   </div>
                   <div>

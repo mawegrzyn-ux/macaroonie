@@ -121,8 +121,8 @@ test('defaultMaps', () => {
 
 test('dishValues: price rule, VAT, allergens and levels', () => {
   const maps = defaultMaps(tags)
-  const settings = { price_uplift_pct: 15, price_round_pence: 10, price_round_mode: 'up', allergen_map: maps.allergen, dietary_map: maps.dietary, default_vat_takeaway: 20 }
-  const dish = { name: 'Pad Thai', description: ' Rice noodles ', price_pence: 1295, calories: 640.4, vat_takeaway: null,
+  const settings = { price_uplift_pct: 15, price_round_pence: 10, price_round_mode: 'up', allergen_map: maps.allergen, dietary_map: maps.dietary }
+  const dish = { name: 'Pad Thai', description: ' Rice noodles ', price_pence: 1295, calories: 640.4, vat: 20,
     dietary: ['eggs', 'gluten', 'v', 'spicy'], allergen_levels: { gluten: 'may_contain' } }
   const { values, problems } = dishValues(dish, { settings, tags })
   assert.equal(values.delivery_price, '14.9')
@@ -138,13 +138,13 @@ test('dishValues: price rule, VAT, allergens and levels', () => {
   const nuts = dishValues({ ...dish, dietary: ['nuts'] }, { settings, tags })
   assert.equal(nuts.problems[0].level, 'error')
   assert.match(nuts.problems[0].text, /Nuts has no Deliveroo code/)
-  assert.equal(dishValues({ ...dish, vat_takeaway: 0 }, { settings, tags }).values.tax_rate, '0')
+  assert.equal(dishValues({ ...dish, vat: 0 }, { settings, tags }).values.tax_rate, '0')
 })
 
 test('buildRow: fills chosen fields, keeps, edits, never blanks', () => {
   const { columns, rows } = readSheet(parseCsv(FILE).cells)
   const maps = defaultMaps(tags)
-  const ctx = { tags, settings: { price_uplift_pct: 0, price_round_pence: 1, allergen_map: maps.allergen, dietary_map: maps.dietary, default_vat_takeaway: 20 } }
+  const ctx = { tags, settings: { price_uplift_pct: 0, price_round_pence: 1, allergen_map: maps.allergen, dietary_map: maps.dietary } }
   const dish = { id: 'd1', name: 'Egg Fried Rice', description: 'Jasmine rice with egg', price_pence: 450, calories: null, dietary: ['eggs'], allergen_levels: {} }
   const row = rows[2]
   const out = buildRow(row, { columns, match: { dish }, ctx })

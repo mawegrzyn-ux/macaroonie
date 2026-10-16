@@ -177,9 +177,10 @@ export const BLOCK_DEFAULTS = {
   order_status: {
     w: 0.6, h: 0.8,
     opts: {
-      show_preparing: true, preparing_title: 'Preparing', ready_title: 'Ready', title_size: 56, number_size: 72,
-      columns: 1, max: 12, clear_mins: 10, show_names: false,
-      title_color: '', ready_bg: '#2e8b57', ready_color: '#ffffff', preparing_color: '',
+      board: '', show_preparing: true, preparing_title: 'Preparing', ready_title: 'Ready', title_size: 56, number_size: 72,
+      columns: 1, max: 12, clear_mins: 10, show_names: false, layout: 'side', ready_first: false,
+      change_anim: 'none', change_ms: 900,
+      title_color: '', ready_bg: '#2e8b57', ready_color: '#ffffff', preparing_color: '', preparing_bg: '',
     },
   },
 }
@@ -376,9 +377,10 @@ export function boardContext(layout, data = {}) {
     tz: data.tz || 'Europe/London',
     // still: thumbnails (videos show a frame, nothing plays)
     still: !!data.still,
-    // Order status block: { preparing: [{ number, name }], ready: [{ number, name, at }] }
-    // from the kitchen screens (services/kitchenSvc.js boardFor()); null in
-    // the designer, which shows example numbers.
+    // Order status block: { preparing: [{ number, name }], ready: [{ number, name, at }],
+    // boards: { [board name, lower case]: { preparing, ready } } } from the
+    // kitchen screens (services/kitchenSvc.js boardFor()); null in the
+    // designer, which shows example numbers.
     orders: data.orders || null,
     board: normalizeBoard(layout, data.width, data.height),
   }
@@ -794,36 +796,136 @@ export function renderBlockInner(block, ctx) {
 }
 
 const SAMPLE_ORDERS = {
-  preparing: [{ number: '57' }, { number: '58', name: 'Sam' }, { number: '61' }],
-  ready: [{ number: '54', name: 'Alex' }, { number: '55' }],
+  preparing: [{ id: 's57', number: '57' }, { id: 's58', number: '58', name: 'Sam' }, { id: 's61', number: '61' }],
+  ready: [{ id: 's54', number: '54', name: 'Alex' }, { id: 's55', number: '55' }],
+}
+
+// Order status block: how a number moves when its status changes.
+export const ORDER_CHANGE_ANIMS = [
+  { key: 'none', label: 'No animation' },
+  { key: 'float', label: 'Float over' },
+  { key: 'fade', label: 'Fade out and in' },
+  { key: 'pop', label: 'Pop out and in' },
+  { key: 'zoom', label: 'Zoom out and in' },
+]
+const CHANGE_KEYS = new Set(ORDER_CHANGE_ANIMS.map(a => a.key))
+// How long the player keeps a change (longer than the longest animation).
+export const ORDER_CHANGE_KEEP_MS = 3500
+
+/** The numbers for one Order status block: its board (opts.board, a board
+ *  station's name in the kitchen flow) or every counter and online order. */
+export function orderBoardData(orders, boardName) {
+  if (!orders) return null
+  const key = String(boardName || '').trim().toLowerCase()
+  if (!key) return orders
+  return orders.boards?.[key] || { preparing: [], ready: [] }
+}
+
+const boardKeys = orders => ['', ...Object.keys(orders?.boards || {})]
+
+/**
+ * What changed between two fetches of the order numbers, per board ('' =
+ * every counter and online order): numbers that came onto a column (in) and
+ * that left it, with where they were (out, drawn fading in place). The player
+ * keeps these for ORDER_CHANGE_KEEP_MS and passes them as orders.changes.
+ *   -> [{ key, at, prep_in: [id], ready_in: [id], prep_out: [{ ...number, index }], ready_out: [...] }]
+ */
+export function orderChanges(prev, next, atMs) {
+  if (!prev || !next) return []
+  const out = []
+  for (const key of boardKeys(next)) {
+    const a = orderBoardData(prev, key) || { preparing: [], ready: [] }
+    const b = orderBoardData(next, key)
+    const ids = list => new Set((list || []).map(x => x.id))
+    const diff = (from, to) => (to || []).filter(x => x.id && !ids(from).has(x.id)).map(x => x.id)
+    const gone = (from, to) => (from || []).map((x, index) => ({ ...x, index })).filter(x => x.id && !ids(to).has(x.id))
+    const c = {
+      key, at: atMs,
+      prep_in: diff(a.preparing, b.preparing), ready_in: diff(a.ready, b.ready),
+      prep_out: gone(a.preparing, b.preparing), ready_out: gone(a.ready, b.ready),
+    }
+    if (c.prep_in.length || c.ready_in.length || c.prep_out.length || c.ready_out.length) out.push(c)
+  }
+  return out
+}
+
+/** Keep the changes still worth animating. */
+export function keepOrderChanges(list, nowMs) {
+  return (list || []).filter(c => nowMs - c.at < ORDER_CHANGE_KEEP_MS)
 }
 
 /**
- * The order-ready board: order numbers being prepared and ready to collect.
- * Ready numbers drop off after clear_mins (or when collected at the pass).
+ * The order ready board: order numbers being prepared and ready to collect,
+ * side by side or one above the other. Ready numbers drop off after
+ * clear_mins (or when collected). change_anim moves a number that changes
+ * status (orders.changes from the player; in the designer, Play shows one).
  */
 function orderStatusHtml(o, ctx) {
-  const data = ctx.orders || SAMPLE_ORDERS
+  const data = orderBoardData(ctx.orders, o.board) || SAMPLE_ORDERS
   const max = Math.round(num(o.max, 1, 60, 12))
   const clear = num(o.clear_mins, 0, 120, 10)
   const nowMs = (ctx.now instanceof Date ? ctx.now : new Date(ctx.now || Date.now())).getTime()
-  const ready = (data.ready || []).filter(x => !ctx.orders || !clear || !x.at || nowMs - Date.parse(x.at) < clear * 60000).slice(0, max)
-  const preparing = (data.preparing || []).slice(0, max)
+  let ready = (data.ready || []).filter(x => !ctx.orders || !clear || !x.at || nowMs - Date.parse(x.at) < clear * 60000).slice(0, max)
+  let preparing = (data.preparing || []).slice(0, max)
   const cols = Math.round(num(o.columns, 1, 6, 1))
+  const stacked = o.layout === 'stacked'
+  const readyFirst = !!o.ready_first
+  const anim = CHANGE_KEYS.has(o.change_anim) ? o.change_anim : 'none'
+  const animMs = num(o.change_ms, 200, 3000, 900)
+
+  // Numbers that changed in the last animMs: coming in (with how far along)
+  // and going out (drawn where they were, fading away).
+  const into = new Map()
+  const outOf = { prep: [], ready: [] }
+  if (anim !== 'none') {
+    let changes = (ctx.orders?.changes || []).filter(c => c.key === String(o.board || '').trim().toLowerCase())
+    if (!ctx.orders && !ctx.still) {
+      // Designer Play: 58 is ready, and a new 62 comes in.
+      changes = [{ at: nowMs, prep_in: ['s62'], ready_in: ['s58'], prep_out: [{ ...SAMPLE_ORDERS.preparing[1], index: 1 }], ready_out: [] }]
+      preparing = [SAMPLE_ORDERS.preparing[0], SAMPLE_ORDERS.preparing[2], { id: 's62', number: '62' }]
+      ready = [{ id: 's58', number: '58', name: 'Sam' }, ...SAMPLE_ORDERS.ready]
+    }
+    for (const c of changes) {
+      // A draw in the same millisecond as the change can read a hair earlier
+      // (Date drops the fraction of the screen's clock offset): count as 0.
+      const t = Math.max(0, nowMs - c.at)
+      if (nowMs - c.at < -1000 || t >= animMs) continue
+      for (const id of c.prep_in || []) into.set('prep:' + id, t)
+      for (const id of c.ready_in || []) into.set('ready:' + id, t)
+      for (const x of c.prep_out || []) outOf.prep.push({ ...x, t })
+      for (const x of c.ready_out || []) outOf.ready.push({ ...x, t })
+    }
+  }
+  const delay = t => (t ? ' style="animation-delay:-' + Math.round(t) + 'ms"' : '')
+  const tile = (x, cls, extra = '', t = 0) => '<div class="sl-onum ' + cls + extra + '"' + delay(t) + '><span>' + esc(x.number) + '</span>' +
+    (o.show_names && x.name ? '<span class="sl-oname">' + esc(x.name) + '</span>' : '') + '</div>'
+  const column = (title, list, cls, side) => {
+    const tiles = list.map(x => {
+      const t = into.get(side + ':' + x.id)
+      return t == null ? tile(x, cls) : tile(x, cls, ' sl-och-in', t)
+    })
+    // Leaving numbers stay where they were while they fade (not past the most shown).
+    for (const x of outOf[side].sort((p, q) => p.index - q.index)) {
+      if (tiles.length >= max + outOf[side].length) break
+      tiles.splice(Math.min(x.index, tiles.length), 0, tile(x, cls, ' sl-och-out', x.t))
+    }
+    return '<div class="sl-ocol ' + cls + '"><div class="sl-otitle">' + esc(title) + '</div><div class="sl-olist">' + tiles.join('') + '</div></div>'
+  }
+  // Float over: numbers move from the preparing column towards ready.
+  const dir = readyFirst ? -1 : 1
   const vars = styleString({
     '--ot': num(o.title_size, 6, 400, 56) + 'px', '--on': num(o.number_size, 6, 600, 72) + 'px', '--oc': cols,
     '--otc': o.title_color ? colour(o.title_color, null) : null,
     '--orb': colour(o.ready_bg, '#2e8b57'), '--orc': colour(o.ready_color, '#ffffff'),
     '--opc': o.preparing_color ? colour(o.preparing_color, null) : null,
+    '--opb': o.preparing_bg ? colour(o.preparing_bg, null) : null,
+    '--och': animMs + 'ms',
+    '--ofx': stacked ? '0px' : (dir * 140) + '%', '--ofy': stacked ? (dir * 140) + '%' : '0px',
   })
-  const tile = (x, cls) => '<div class="sl-onum ' + cls + '"><span>' + esc(x.number) + '</span>' +
-    (o.show_names && x.name ? '<span class="sl-oname">' + esc(x.name) + '</span>' : '') + '</div>'
-  const column = (title, list, cls) => '<div class="sl-ocol ' + cls + '"><div class="sl-otitle">' + esc(title) + '</div>' +
-    '<div class="sl-olist">' + list.map(x => tile(x, cls)).join('') + '</div></div>'
-  let h = '<div class="sl-orders' + (ctx.orders ? '' : ' is-sample') + '" style="' + vars + '">'
-  if (o.show_preparing !== false) h += column(o.preparing_title ?? 'Preparing', preparing, 'is-prep')
-  h += column(o.ready_title ?? 'Ready', ready, 'is-ready')
-  return h + '</div>'
+  const cls = 'sl-orders' + (ctx.orders ? '' : ' is-sample') + (stacked ? ' is-stacked' : '') + (anim !== 'none' ? ' sl-och-' + anim : '')
+  const prep = o.show_preparing !== false ? column(o.preparing_title ?? 'Preparing', preparing, 'is-prep', 'prep') : ''
+  const rdy = column(o.ready_title ?? 'Ready', ready, 'is-ready', 'ready')
+  return '<div class="' + cls + '" style="' + vars + '">' + (readyFirst ? rdy + prep : prep + rdy) + '</div>'
 }
 
 /** The board's own style: size, colours, fonts, background. */
@@ -979,7 +1081,29 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-olist { display: grid; grid-template-columns: repeat(var(--oc), minmax(0, 1fr)); gap: calc(var(--on) * 0.18); align-content: start; }
 .sl-onum { display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: var(--sl-heading);
   font-size: var(--on); font-weight: 800; line-height: 1.1; padding: 0.08em 0.2em; font-variant-numeric: tabular-nums; }
-.sl-onum.is-prep { color: var(--opc, var(--sl-muted)); }
+.sl-onum.is-prep { color: var(--opc, var(--sl-muted)); background: var(--opb, transparent); border-radius: 0.08em; }
+.sl-orders.is-stacked { flex-direction: column; gap: calc(var(--on) * 0.4); }
+.sl-orders.is-stacked .sl-ocol { min-height: 0; overflow: hidden; }
+.sl-och-in, .sl-och-out { animation-duration: var(--och, 900ms); animation-timing-function: cubic-bezier(.2,.7,.3,1); animation-fill-mode: both; }
+.sl-och-out { pointer-events: none; }
+.sl-och-fade .sl-och-in { animation-name: sl-och-fade-in; }
+.sl-och-fade .sl-och-out { animation-name: sl-och-fade-out; }
+.sl-och-pop .sl-och-in { animation-name: sl-och-pop-in; }
+.sl-och-pop .sl-och-out { animation-name: sl-och-pop-out; }
+.sl-och-zoom .sl-och-in { animation-name: sl-och-zoom-in; }
+.sl-och-zoom .sl-och-out { animation-name: sl-och-zoom-out; }
+.sl-och-float .sl-ocol.is-ready .sl-och-in { animation-name: sl-och-float-in; position: relative; z-index: 2; }
+.sl-och-float .sl-ocol.is-prep .sl-och-in { animation-name: sl-och-fade-in; }
+.sl-och-float .sl-ocol.is-prep .sl-och-out { animation-name: sl-och-float-out; position: relative; z-index: 2; }
+.sl-och-float .sl-ocol.is-ready .sl-och-out { animation-name: sl-och-fade-out; }
+@keyframes sl-och-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sl-och-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes sl-och-pop-in { 0% { opacity: 0; transform: scale(0.2); } 65% { opacity: 1; transform: scale(1.15); } 100% { opacity: 1; transform: none; } }
+@keyframes sl-och-pop-out { 0% { opacity: 1; transform: none; } 35% { opacity: 1; transform: scale(1.15); } 100% { opacity: 0; transform: scale(0.2); } }
+@keyframes sl-och-zoom-in { from { opacity: 0; transform: scale(2.2); } to { opacity: 1; transform: none; } }
+@keyframes sl-och-zoom-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: scale(2.2); } }
+@keyframes sl-och-float-in { from { opacity: 0.2; transform: translate(calc(var(--ofx) * -1), calc(var(--ofy) * -1)); } to { opacity: 1; transform: none; } }
+@keyframes sl-och-float-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translate(var(--ofx), var(--ofy)); } }
 .sl-onum.is-ready { background: var(--orb); color: var(--orc); border-radius: 0.08em; }
 .sl-oname { font-size: 0.35em; font-weight: 600; }
 .sl-t-video { display: block; }

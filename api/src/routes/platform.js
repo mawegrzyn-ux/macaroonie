@@ -25,6 +25,7 @@ import { listMemberships } from '../services/membershipSvc.js'
 import { seedDefaultNav } from '../config/defaultNav.js'
 import { seedDefaultDashboardTiles } from '../config/defaultDashboardTiles.js'
 import { ensureStandardAllergens } from '../services/menuSeeds.js'
+import { ensureTaxDefaults } from '../services/taxSvc.js'
 import { seedPosDefaults } from '../services/posSvc.js'
 import { seedInventoryCategories } from '../services/purchasingSvc.js'
 
@@ -360,6 +361,8 @@ export default async function platformRoutes(app) {
       .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to seed default dashboard tiles for new tenant'))
     await withTenant(tenant.id, tx => ensureStandardAllergens(tx, tenant.id))
       .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to add standard allergens for new tenant'))
+    await withTenant(tenant.id, tx => ensureTaxDefaults(tx, tenant.id))
+      .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to add tax rates and order types for new tenant'))
     await withTenant(tenant.id, tx => seedInventoryCategories(tx, tenant.id))
       .catch(err => req.log.warn({ err: err.message, tenantId: tenant.id }, 'Failed to add inventory categories for new tenant'))
     await withTenant(tenant.id, tx => seedPosDefaults(tx, tenant.id))

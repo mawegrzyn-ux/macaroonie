@@ -1,22 +1,27 @@
-// Counter service: tap a dish to start an order (numbered #1, #2, ... each
-// trading day), take payment, and the order goes to the kitchen as it is
-// paid. Orders waiting (sent, not yet paid) are listed on the left.
+// Counter service: pick the order type (Eat in, Take out, ... as the till's
+// revenue stream offers them, with the name / tent number the type asks
+// for), tap a dish to start an order (numbered #1, #2, ... each trading day),
+// take payment, and the order goes to the kitchen as it is paid. Orders
+// waiting (sent, not yet paid) are listed on the left.
 
 import { useState } from 'react'
 import { ShoppingBag } from 'lucide-react'
 import { useTill, useChecks, toast, currentChecks } from '../lib/store.js'
-import { openCheck, addItem, needsChoices, defaultRcId, rcOf } from '../lib/checkOps.js'
+import { openCheck, addItem, needsChoices, defaultStreamId, streamOf, streamTypes, defaultTypeId, promptsFor } from '../lib/checkOps.js'
+import { cx } from '../components/ui.jsx'
 import MenuPanel from '../components/MenuPanel.jsx'
 import ItemModal from '../components/ItemModal.jsx'
 import CheckScreen from './Check.jsx'
 import { CheckRow } from './Floor.jsx'
-import { SoldOutModal } from '../components/CheckActions.jsx'
+import { SoldOutModal, DetailFields, missingText } from '../components/CheckActions.jsx'
 
 export default function Counter() {
   const { config } = useTill()
   const checks = useChecks()
   const [current, setCurrent] = useState(null)
   const [name, setName] = useState('')
+  const [tent, setTent] = useState('')
+  const [typeId, setTypeId] = useState(null)
   const [item, setItem] = useState(null)
   const [seat, setSeat] = useState(null)
   const [course, setCourse] = useState(null)
@@ -28,15 +33,26 @@ export default function Counter() {
 
   const waiting = Object.values(checks).filter(c => c.status === 'open' && c.mode === 'counter')
     .sort((a, b) => (a.opened_at || '').localeCompare(b.opened_at || ''))
-  const rcId = defaultRcId(config, { counter: true })
+  const streamId = defaultStreamId(config)
+  const types = streamTypes(config, streamId)
+  const currentType = types.some(x => x.type.id === typeId) ? typeId : defaultTypeId(config, streamId)
+  const prompts = promptsFor(config, streamId, currentType)
 
   const start = (it, opts = {}) => {
-    const o = openCheck({ mode: 'counter', tab_name: name.trim() || null, revenue_centre_id: rcId })
+    const missing = missingText(prompts, name, tent)
+    if (missing) { setItem(null); return toast(missing + ' first', 'bad') }
+    const o = openCheck({
+      mode: 'counter', revenue_stream_id: streamId, order_type_id: currentType,
+      tab_name: prompts.ask_name !== 'off' ? (name.trim() || null) : null,
+      tent: prompts.ask_tent !== 'off' ? (tent.trim() || null) : null,
+    })
     if (!o.ok) return toast(o.error, 'bad')
     const check = currentChecks()[o.checkId]
     const r = addItem(check, it, opts.selection || {}, { qty: opts.qty, seat: opts.seat, course: opts.course, note: opts.note, allergies: opts.allergies, unit_price: opts.unit_price })
     if (!r.ok) toast(r.error, 'bad')
     setName('')
+    setTent('')
+    setTypeId(null)
     setItem(null)
     setCurrent(o.checkId)
   }
@@ -46,8 +62,15 @@ export default function Counter() {
       <aside className="w-[300px] xl:w-[340px] shrink-0 border-r border-line bg-white flex flex-col">
         <div className="p-3 border-b border-line space-y-2">
           <div className="flex items-center gap-2 font-bold"><ShoppingBag size={20} className="text-brand" /> New order</div>
-          <input className="input" placeholder="Name for the order (optional)" value={name} onChange={e => setName(e.target.value)} maxLength={80} />
-          <div className="text-xs text-muted">Tap a dish to start. {rcOf(config, rcId)?.name || ''}</div>
+          {types.length > 1 && (
+            <div className="grid grid-cols-2 gap-2" role="group" aria-label="Order type">
+              {types.map(({ type }) => (
+                <button key={type.id} className={cx('btn h-12', type.id === currentType && 'btn-primary')} onClick={() => setTypeId(type.id)}>{type.name}</button>
+              ))}
+            </div>
+          )}
+          <DetailFields prompts={prompts} name={name} setName={setName} tent={tent} setTent={setTent} />
+          <div className="text-xs text-muted">Tap a dish to start. {[types.length === 1 ? types[0].type.name : null, streamOf(config, streamId)?.name].filter(Boolean).join(' · ')}</div>
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           <div className="label px-1">Waiting to pay or collect</div>
@@ -56,7 +79,7 @@ export default function Counter() {
         </div>
       </aside>
       <div className="flex-1 min-w-0">
-        <MenuPanel config={config} menuIds={rcOf(config, rcId)?.menu_ids} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+        <MenuPanel config={config} menuIds={streamOf(config, streamId)?.menu_ids} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
           onPick={it => (needsChoices(config, it) ? setItem(it) : start(it, { seat, course }))}
           onHold={it => setSoldOutItem(it)}
           onOpenItem={() => toast('Start the order with a dish first, then add an item not on the menu from More', 'info')} />

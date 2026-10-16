@@ -180,6 +180,10 @@ export async function designerData(tx, tenantId, { version = 'live', venueId = n
     tags: slimTags(tags),
     allergen_notice: menus[0]?.allergen_notice || await loadAllergenNotice(tx, tenantId),
     sold_out: venueId ? await soldOutItemIds(tx, tenantId, venueId) : [],
+    // Order ready boards in the kitchen flows (Order status block: which board).
+    order_boards: (await tx`
+      SELECT DISTINCT trim(name) AS name FROM kds_stations
+       WHERE tenant_id = ${tenantId} AND kind = 'board' AND is_active ORDER BY 1`).map(r => r.name),
   }
 }
 

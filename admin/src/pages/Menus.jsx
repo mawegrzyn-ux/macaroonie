@@ -46,6 +46,8 @@ import { levelOf, LEVEL_LABELS } from '@shared/menuTags.js'
 import { LevelChip } from '@/components/menus/AllergenMatrix'
 import { SectionTillFields, ItemTillFields, useTillCourses, comboPayload } from '@/components/menus/TillFields'
 import { PublishPanel, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
+import { TaxBox, useTaxLookups, taxSettingProblems } from '@/components/menus/TaxBox'
+import { normTax, cleanTax } from '@shared/tax.js'
 
 const SEEDS = [
   { slug: 'onethai-dinner', label: 'One Thai Dinner sample' },
@@ -360,14 +362,14 @@ function MenuEditor({ id, onBack }) {
         print_settings: draft.print_settings || {},
         hide_zero_priced_variants: !!draft.hide_zero_priced_variants,
         hide_unpriced_variants: !!draft.hide_unpriced_variants,
+        tax: cleanTax(draft.tax),
         sections: (draft.sections || []).map((s, si) => ({
           id: s.id,
           title: s.title, subtitle: s.subtitle || null, highlight: !!s.highlight,
           image_url: s.image_url || null,
           print_break_before: s.print_break_before || 'none',
           print_keep_together: !!s.print_keep_together,
-          vat_rate_takeaway: s.vat_rate_takeaway ?? null,
-          vat_rate_eat_in: s.vat_rate_eat_in ?? null,
+          tax: cleanTax(s.tax),
           visibility: s.visibility || 'show',
           pos_course_id: s.pos_course_id || null,
           pos_colour: s.pos_colour || null,
@@ -384,8 +386,7 @@ function MenuEditor({ id, onBack }) {
             image_url: it.image_url || null,
             sort_order: ii,
             is_orderable: it.is_orderable !== false,
-            vat_rate_takeaway: it.vat_rate_takeaway ?? null,
-            vat_rate_eat_in: it.vat_rate_eat_in ?? null,
+            tax: cleanTax(it.tax),
             min_order_qty: it.min_order_qty > 1 ? it.min_order_qty : null,
             kind: it.kind === 'combo' ? 'combo' : 'dish',
             kitchen_name: it.kitchen_name || null,
@@ -419,6 +420,17 @@ function MenuEditor({ id, onBack }) {
 
   const tillCourses = useTillCourses()
   const openPreview = useOpenPreview()
+  const taxLk = useTaxLookups()
+  // Every tax setting on the menu checked before saving (the API refuses the same).
+  const taxIssues = useMemo(() => {
+    if (!draft || !taxLk.loaded) return []
+    const out = taxSettingProblems(draft.tax, taxLk).map(p => 'Menu: ' + p)
+    for (const sec of draft.sections || []) {
+      out.push(...taxSettingProblems(sec.tax, taxLk).map(p => sec.title + ': ' + p))
+      for (const it of sec.items || []) out.push(...taxSettingProblems(it.tax, taxLk).map(p => it.name + ': ' + p))
+    }
+    return out
+  }, [draft, taxLk])
 
   if (isLoading || !draft) {
     return (
@@ -521,13 +533,18 @@ function MenuEditor({ id, onBack }) {
               </button>
             </>
           )}
-          {canManage && <Btn disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+          {canManage && <Btn disabled={!dirty || save.isPending || taxIssues.length > 0} onClick={() => save.mutate()}>
             {save.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {dirty ? 'Save changes' : 'Saved'}
           </Btn>}
         </div>
       </div>
 
+      {canManage && taxIssues.length > 0 && (
+        <div className="bg-destructive/10 border border-destructive/30 text-destructive text-sm rounded-md px-4 py-3" data-testid="tax-issues">
+          <strong>Fix the tax settings before saving:</strong> {taxIssues[0]}
+        </div>
+      )}
       {save.isError && (
         <div className="bg-destructive/10 border border-destructive/30 text-destructive text-sm rounded-md px-4 py-3">
           <strong>Save failed:</strong> {save.error?.body?.error || save.error?.message || 'Unknown error'}
@@ -552,6 +569,7 @@ function MenuEditor({ id, onBack }) {
         {selectedSection && (
           <SectionDrawer key={selectedSection.id}
             section={selectedSection}
+            menuTax={draft.tax}
             courses={tillCourses}
             onChange={(patch) => patchSection(selectedSectionIndex, patch)}
             onRemove={() => { removeSectionAt(selectedSectionIndex); setSelectedSectionId(null) }}
@@ -562,6 +580,7 @@ function MenuEditor({ id, onBack }) {
           <ItemDrawer
             item={selectedItem.item}
             section={draft.sections[selectedItem.si]}
+            menuTax={draft.tax}
             dietaryTags={draft.dietary_tags || []}
             variantGroups={variantGroups}
             sections={draft.sections || []}
@@ -583,7 +602,7 @@ function MenuEditor({ id, onBack }) {
         <div className="fixed bottom-0 left-0 right-0 bg-background border-t shadow-lg z-20">
           <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-end gap-2">
             <span className="text-xs text-muted-foreground">Unsaved changes.</span>
-            <Btn disabled={save.isPending} onClick={() => save.mutate()}>
+            <Btn disabled={save.isPending || taxIssues.length > 0} onClick={() => save.mutate()}>
               {save.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               Save changes
             </Btn>
@@ -657,6 +676,11 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
                 placeholder="Looking for starters? Our dinner menu is available all day…"
               />
             </Field>
+          </div>
+          <div className="sm:col-span-2">
+            <TaxBox value={draft.tax} onChange={tax => onChange('tax', tax)} under={t => [null, null, t]}
+              inheritLabel="The default rate (Menus, Tax rates)"
+              title="Tax for this menu (a section's or a dish's own setting wins)" />
           </div>
           <div className="sm:col-span-2 space-y-2 pt-1 border-t">
             <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
@@ -769,7 +793,7 @@ function SectionsPanel({ sections, selectedItemId, onSelectItem, selectedSection
     const section = {
       id: crypto.randomUUID(), title: 'New section', subtitle: '', highlight: false, image_url: null,
       print_break_before: 'none', print_keep_together: false,
-      vat_rate_takeaway: null, vat_rate_eat_in: null, visibility: 'show', items: [],
+      tax: { rate: null, rules: [] }, visibility: 'show', items: [],
     }
     onChange([...sections, section])
     onSelectSection(section.id)
@@ -809,7 +833,8 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
   const readOnly = useContext(MenuReadOnly)
   const [open, setOpen] = useState(true)
   const items = section.items || []
-  const vat = sectionVatLabel(section)
+  const lk = useTaxLookups()
+  const vat = sectionTaxLabel(section, lk)
   const breakLabel = section.print_break_before === 'page' ? 'New page'
     : section.print_break_before === 'column' ? 'New column' : null
 
@@ -817,7 +842,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
     const item = {
       id: crypto.randomUUID(), name: 'New dish', native_name: '', description: '',
       price_pence: null, calories: null, notes: '', is_featured: false, image_url: null,
-      is_orderable: true, vat_rate_takeaway: null, vat_rate_eat_in: null, min_order_qty: null,
+      is_orderable: true, tax: { rate: null, rules: [] }, min_order_qty: null,
       variants: [], variant_groups: [], dietary: [], allergen_levels: {},
     }
     onItemsChange([...items, item])
@@ -871,7 +896,7 @@ function SectionEditor({ section, index, total, selectedItemId, onSelectItem, se
         </div>
         <div className="hidden sm:flex items-center gap-1 shrink-0">
           {section.highlight && <Badge>Highlight</Badge>}
-          {vat && <Badge title="Section VAT (used by dishes without their own rate)">VAT {vat}</Badge>}
+          {vat && <Badge title="Section tax (used by dishes without their own)">Tax {vat}</Badge>}
           {breakLabel && <Badge title="Print">{breakLabel}</Badge>}
           {section.print_keep_together && <Badge title="Print">Keep together</Badge>}
         </div>
@@ -919,14 +944,14 @@ function Badge({ children, title }) {
   )
 }
 
-// "20% / 0% eat in" style summary of a section's own VAT, or null when it
-// uses the venue default for both.
-function sectionVatLabel(section) {
-  const t = section.vat_rate_takeaway, e = section.vat_rate_eat_in
-  if (t == null && e == null) return null
-  if (e == null) return `${Number(t)}%`
-  if (t == null) return `${Number(e)}% eat in`
-  return Number(t) === Number(e) ? `${Number(t)}%` : `${Number(t)}% / ${Number(e)}% eat in`
+// "Zero + 1 exception" style summary of a section's own tax, or null when it
+// uses the menu's.
+function sectionTaxLabel(section, lk) {
+  const t = normTax(section.tax)
+  if (!t.rate && !t.rules.length) return null
+  const rate = t.rate ? lk.rates.find(r => r.id === t.rate)?.name || 'rate' : null
+  const n = t.rules.length
+  return [rate, n ? n + (n === 1 ? ' exception' : ' exceptions') : null].filter(Boolean).join(' + ')
 }
 
 // Minimum order quantity stepper for online ordering (migration 133):
@@ -947,44 +972,13 @@ function MinQtyInput({ value, onChange }) {
   )
 }
 
-// Percentage input that keeps what is typed while focused (so "0." or an
-// emptied box don't snap back), passing a number or null (blank) up.
-function RateInput({ value, onChange, placeholder }) {
-  const [text, setText] = useState(value == null ? '' : String(value))
-  const [focused, setFocused] = useState(false)
-  useEffect(() => { if (!focused) setText(value == null ? '' : String(value)) }, [value, focused])
-  const parse = (t) => {
-    if (t.trim() === '') return null
-    const n = parseFloat(t)
-    return Number.isNaN(n) ? undefined : Math.min(100, Math.max(0, n))
-  }
-  return (
-    <Input type="text" inputMode="decimal" value={text} placeholder={placeholder} className="font-mono"
-      onFocus={() => setFocused(true)}
-      onChange={e => {
-        setText(e.target.value)
-        const v = parse(e.target.value)
-        if (v !== undefined) onChange(v)
-      }}
-      onBlur={() => {
-        setFocused(false)
-        const v = parse(text)
-        setText(v == null ? '' : String(v))
-        if (v !== undefined && v !== value) onChange(v)
-      }} />
-  )
-}
-
-// ── Section drawer — the section's settings, opened by tapping its header ──
-
-// menu_sections.visibility (migration 136). Online ordering counts as the website.
 const SECTION_VISIBILITY = [
   { key: 'show',           label: 'Everywhere',        hint: 'Printed menus, the website and online ordering.' },
   { key: 'website_hidden', label: 'Hide on website',   hint: 'Printed menus only. Left out of the website and online ordering.' },
   { key: 'hidden',         label: 'Hide everywhere',   hint: 'Not printed, not on the website, not orderable. It stays here so you can show it again.' },
 ]
 
-function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
+function SectionDrawer({ section, menuTax, courses, onChange, onRemove, onClose }) {
   const readOnly = useContext(MenuReadOnly)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const count = (section.items || []).length
@@ -1015,7 +1009,8 @@ function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
           </div>
         </div>
       )}
-      <ReadOnlyFieldset disabled={readOnly} className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto">
+      <ReadOnlyFieldset disabled={readOnly} className="px-4 pt-4 pb-24 space-y-4">
         <div className="flex items-start gap-3">
           <SectionImagePicker url={section.image_url || null} onChange={(image_url) => onChange({ image_url })} disabled={readOnly} />
           <div className="flex-1 space-y-2">
@@ -1070,26 +1065,13 @@ function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
           </label>
         </div>
 
-        <div className="rounded-md border p-3 space-y-2">
-          <p className="text-xs font-medium">Online ordering VAT</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="Takeaway %" hint="Blank = venue default">
-              <RateInput value={section.vat_rate_takeaway ?? null} placeholder="e.g. 20"
-                onChange={v => onChange({ vat_rate_takeaway: v })} />
-            </Field>
-            <Field label="Eat in %" hint="Blank = venue default">
-              <RateInput value={section.vat_rate_eat_in ?? null} placeholder="e.g. 20"
-                onChange={v => onChange({ vat_rate_eat_in: v })} />
-            </Field>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Applies to every dish in this section that has no rate of its own. The venue default is set in
-            Online orders, Setup. UK: hot takeaway food is 20%, most cold takeaway food is 0%.
-          </p>
-        </div>
+        <TaxBox value={section.tax} onChange={tax => onChange({ tax })} under={t => [null, t, menuTax]}
+          inheritLabel="Same as the menu" readOnly={readOnly}
+          title="Tax for the dishes in this section (a dish's own setting wins)" />
 
         <SectionTillFields section={section} courses={courses} onChange={onChange} />
       </ReadOnlyFieldset>
+      </div>
     </aside>
   )
 }
@@ -1338,10 +1320,8 @@ function AllergenPicker({ tags, item, onSet }) {
 
 // ── Item drawer — full dish editor, opened from a row in the middle list ──
 
-function ItemDrawer({ item, section, sections = [], courses, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
+function ItemDrawer({ item, section, menuTax, sections = [], courses, dietaryTags, variantGroups = [], onChange, onRemove, onClose }) {
   const readOnly = useContext(MenuReadOnly)
-  const vatHint = (key) => section?.[key] != null
-    ? `Blank = section (${Number(section[key])}%)` : 'Blank = venue default'
   const toggleDietary = (code) => {
     const set = new Set(item.dietary || [])
     if (set.has(code)) set.delete(code); else set.add(code)
@@ -1394,7 +1374,8 @@ function ItemDrawer({ item, section, sections = [], courses, dietaryTags, varian
           <X className="w-4 h-4" />
         </button>
       </div>
-      <ReadOnlyFieldset disabled={readOnly} className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto">
+      <ReadOnlyFieldset disabled={readOnly} className="px-4 pt-4 pb-24 space-y-4">
         <div className="flex items-start gap-3">
           <ItemImagePicker url={item.image_url || null} onChange={(image_url) => onChange({ image_url })} disabled={readOnly} />
           <div className="flex-1 space-y-2">
@@ -1442,18 +1423,11 @@ function ItemDrawer({ item, section, sections = [], courses, dietaryTags, varian
           <Field label="Minimum order quantity" hint="Guests must order at least this many (all options together). Leave empty for no minimum. Shown on the ordering page.">
             <MinQtyInput value={item.min_order_qty ?? null} onChange={v => onChange({ min_order_qty: v })} />
           </Field>
-          <div className="grid grid-cols-2 gap-2">
-            <Field label="VAT takeaway %" hint={vatHint('vat_rate_takeaway')}>
-              <RateInput value={item.vat_rate_takeaway ?? null} placeholder="e.g. 20"
-                onChange={v => onChange({ vat_rate_takeaway: v })} />
-            </Field>
-            <Field label="VAT eat in %" hint={vatHint('vat_rate_eat_in')}>
-              <RateInput value={item.vat_rate_eat_in ?? null} placeholder="e.g. 20"
-                onChange={v => onChange({ vat_rate_eat_in: v })} />
-            </Field>
-          </div>
-          <p className="text-[11px] text-muted-foreground">UK: hot takeaway food is 20%, most cold takeaway food is 0%.</p>
         </div>
+
+        <TaxBox value={item.tax} onChange={tax => onChange({ tax })} under={t => [t, section?.tax, menuTax]}
+          inheritLabel="Same as the section" readOnly={readOnly}
+          title="Tax (till, online ordering, Deliveroo)" />
 
         <div>
           <p className="text-xs font-medium mb-1.5">Dietary tags</p>
@@ -1545,6 +1519,7 @@ function ItemDrawer({ item, section, sections = [], courses, dietaryTags, varian
           })}
         </div>
       </ReadOnlyFieldset>
+      </div>
     </aside>
   )
 }

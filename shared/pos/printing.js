@@ -21,17 +21,17 @@ import { kitchenTicket, receipt } from './tickets.js'
 import { checkTotals, isActiveLine, modifierText } from './pricing.js'
 import { TENDERS, checkLabel } from './checks.js'
 
-const LEVELS = ['item', 'section', 'revenue_centre', 'default']
+const LEVELS = ['item', 'section', 'revenue_stream', 'default']
 
 /**
- * Printer ids for something with { item_id, section_id, revenue_centre_id }.
- * Kitchen screens route the same way with key 'station_id' (kds_routes).
+ * Printer ids for something with { item_id, section_id, revenue_stream_id }.
+ * (Kitchen screens use the kitchen flow instead: itemRoute() in kitchen.js.)
  */
 export function routeFor(target, routes = [], key = 'printer_id') {
   for (const level of LEVELS) {
     const id = level === 'item' ? target.item_id
       : level === 'section' ? target.section_id
-        : level === 'revenue_centre' ? target.revenue_centre_id : null
+        : level === 'revenue_stream' ? target.revenue_stream_id : null
     const hits = routes.filter(r => r.target_kind === level && (level === 'default' || (id && r.target_id === id)))
     if (hits.length) return [...new Set(hits.map(r => r[key]))]
   }
@@ -55,7 +55,7 @@ function linesByPrinter(lines, check, cfg) {
     out.set(printerId, byCourse)
   }
   for (const l of lines) {
-    const rc = l.revenue_centre_id ?? check.revenue_centre_id
+    const rs = l.revenue_stream_id ?? check.revenue_stream_id
     const base = {
       seat: l.seat || null, note: l.note || null, allergies: l.allergies || [],
     }
@@ -63,7 +63,7 @@ function linesByPrinter(lines, check, cfg) {
       // Each part goes to its own printers; the deal's name heads the parts.
       const parts = new Map()
       for (const part of l.combo) {
-        for (const pid of routeFor({ item_id: part.item_id, section_id: part.section_id, revenue_centre_id: rc }, cfg.routes)) {
+        for (const pid of routeFor({ item_id: part.item_id, section_id: part.section_id, revenue_stream_id: rs }, cfg.routes)) {
           const list = parts.get(pid) || []
           list.push(part)
           parts.set(pid, list)
@@ -83,7 +83,7 @@ function linesByPrinter(lines, check, cfg) {
       }
       continue
     }
-    for (const pid of routeFor({ item_id: l.item_id, section_id: l.section_id, revenue_centre_id: rc }, cfg.routes)) {
+    for (const pid of routeFor({ item_id: l.item_id, section_id: l.section_id, revenue_stream_id: rs }, cfg.routes)) {
       add(pid, l.course_id, { ...base, qty: l.qty, name: l.kitchen_name || l.name, modifiers: kitchenModifiers(l.modifiers) })
     }
   }
@@ -95,6 +95,10 @@ function header(check, cfg, at) {
   return {
     table,
     tab: table ? null : (check.order_no != null ? 'ORDER ' + check.order_no : (check.tab_name || 'TAB ' + checkLabel(check))),
+    // Counter orders show their number big; the name taken goes under it.
+    name: table || check.order_no == null ? null : (check.tab_name || null),
+    type: cfg.order_types?.[check.order_type_id]?.name || null,
+    tent: check.tent || null,
     covers: check.covers || null,
     server: cfg.staff?.[check.server_id]?.name || null,
     checkNo: checkLabel(check),
@@ -143,7 +147,8 @@ export function billOps(check, cfg, { preBill = false, at = null, drawer = false
   const h = header(check, cfg, at || check.closed_at || check.updated_at)
   return receipt({
     venue: { name: s.receipt_name || cfg.venue?.name || '', address: s.receipt_address || [], vatNumber: s.vat_number || null },
-    table: h.table, tab: h.tab, checkNo: h.checkNo, server: h.server, covers: h.covers, at: h.sentAt, preBill,
+    table: h.table, tab: h.tab, name: h.name, type: h.type, tent: h.tent,
+    checkNo: h.checkNo, server: h.server, covers: h.covers, at: h.sentAt, preBill,
     lines,
     discounts: t.discounts.filter(d => d.amount > 0).map(d => ({ name: d.name, amount: d.amount })),
     serviceCharge: t.service_charge ? { label: s.service_charge_label || ('Service charge' + (check.service_charge?.percent ? ' ' + check.service_charge.percent + '%' : '')), amount: t.service_charge } : null,
