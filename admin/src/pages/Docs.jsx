@@ -32,6 +32,7 @@ const SECTIONS = [
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'AI Assistant & MCP' },
   { id: 'menus',        label: 'Menus' },
+  { id: 'screens',      label: 'Menu Screens' },
   { id: 'website-cms',  label: 'Website CMS' },
   { id: 'media-library', label: 'Media Library' },
   { id: 'services',     label: 'Services & Jobs' },
@@ -4067,6 +4068,125 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           </section>
 
           {/* ── WEBSITE CMS ───────────────────────────────── */}
+          <section id="screens" data-doc="">
+            <H2>Menu Screens</H2>
+            <P>
+              Digital menu boards (migration 166, module <Mono>screens</Mono>, page{' '}
+              <Mono>/screens</Mono>). A <strong>board</strong> (<Mono>screen_designs</Mono>) is a canvas
+              of a fixed size in pixels with positioned blocks; a <strong>playlist</strong> rotates boards
+              with optional times of day; a <strong>screen</strong> is a paired device showing a board or
+              a playlist. The player is a plain-files PWA on <Mono>screens.&lt;root&gt;</Mono>; boards are
+              drawn by one renderer, <Mono>shared/screenLayout.js</Mono>, in the player and in the admin
+              designer. Prices are the <strong>live</strong> menus (<Mono>menu_releases</Mono>), so a
+              publish changes every screen; sold out comes from <Mono>ordering_item_availability</Mono>.
+            </P>
+            <DataTable
+              head={['Table', 'Purpose']}
+              rows={[
+                ['screen_designs', 'tenant_id, name, width / height (240-8192 px), layout jsonb (board settings + blocks), created_by / updated_by. RLS.'],
+                ['screen_playlists / screen_playlist_items', 'A playlist and its boards in order: design_id (cascade), duration_secs (3-3600), schedule jsonb (the menuSchedule.js shape { from, until, times: [{ days, start, end }] }, null = always), sort_order. RLS.'],
+                ['screens', 'venue_id, name, short_code (S1, S2 ... unique per tenant), width / height, rotation (0 / 90 / 180 / 270), fit (contain / cover / stretch), playlist_id or design_id (CHECK not both; SET NULL on delete), secret_hash, paired_at, last_seen_at, app_version, device_info and status jsonb (from heartbeats). RLS.'],
+                ['screen_pairings', 'Global, no RLS: code_hash (sha256 of the normalised code), secret_hash, device_info, expires_at (15 min), then claimed_at / screen_id / tenant_id. Never holds the code or the secret. Rows expired over a day are deleted when a new code is asked for.'],
+                ['pos_roles.permissions.sold_out', 'Till permission "Mark dishes sold out" (shared/pos/permissions.js); the migration sets it on existing Supervisor and Manager roles.'],
+              ]}
+            />
+            <H3>Pairing and device auth</H3>
+            <P>
+              The screen asks for a code (<Mono>POST /screen-api/pairings</Mono>, no auth, 10 a minute):
+              the API makes a six-character code (no 0/O/1/I/L) and a 32-byte secret, stores their
+              hashes and returns both. The screen shows the code and polls{' '}
+              <Mono>GET /screen-api/pairings/:id</Mono> with <Mono>Authorization: Pairing &lt;secret&gt;</Mono>.
+              Someone types the code into Screens (<Mono>POST /api/screens/screens/claim</Mono>, manage):
+              the pairing&apos;s secret hash becomes the screen&apos;s <Mono>secret_hash</Mono> (a new
+              screen, or <Mono>screen_id</Mono> for a new device on an existing one, which locks the old
+              device out). The poll then answers <Mono>paired</Mono> with the screen id, and the device
+              signs in with <Mono>Authorization: Screen &lt;id&gt;.&lt;secret&gt;</Mono> from then on: the
+              secret never travels again and the API never stores it. <Mono>services/screenAuth.js</Mono>{' '}
+              (<Mono>verifyScreen()</Mono>, 15 s cache, <Mono>forgetScreen()</Mono>) checks it for the
+              screen API and the WebSocket; a switched-off module answers 403 <Mono>screens_off</Mono>.
+            </P>
+            <H3>Screen API (/screen-api) and live updates</H3>
+            <DataTable
+              head={['Route', 'What it does']}
+              rows={[
+                ['GET /config?version=', 'screenConfig() in services/screenSvc.js: player_version, screen (size, rotation, fit), venue (timezone), playlist (items with schedules) or design_id, designs { id: { width, height, layout } }, the LIVE versions of the menus the boards point at (boardMenuIds(), slimmed by slimMenu(), sections hidden everywhere left out), tags shown on menus, the allergen notice, sold_out item ids, version (sha256 of all of it). { unchanged: true } when the version matches.'],
+                ['POST /heartbeat', 'Every minute: app_version, showing { design_id, name, playlist_item_id }, viewport, error, config_version, offline_secs. Written at most once per 50 s per screen; the admin shows a screen online when last_seen_at is under 150 s old.'],
+                ['/ws?screen=<id>&secret=<secret>', 'Joins screen:<id> (screens.changed, screen.identify, screen.reload, screen.removed), screens:<venueId> (screens.sold_out with the item ids), screens-t:<tenantId> (screens.changed after a board or playlist save) and menus:<tenantId> (menus.live from publishing and the minute sweep). Everything except identify / reload / sold out makes the player fetch the config again; it also polls every 60 s.'],
+              ]}
+            />
+            <H3>Admin API (/api/screens)</H3>
+            <P>
+              Reads need <Mono>screens</Mono> view, changes manage; identify is allowed with view. Every
+              query filters <Mono>tenant_id</Mono>; a screen can only point at the tenant&apos;s own
+              venue, board and playlist, and a playlist only holds the tenant&apos;s boards.
+            </P>
+            <DataTable
+              head={['Route', 'Notes']}
+              rows={[
+                ['GET /screens', '{ screens, player_url } (screensOrigin()); each screen with online, shows { kind, name }, status.'],
+                ['POST /screens/claim', '{ code, name, venue_id, design_id | playlist_id, width?, height?, rotation? } or { code, screen_id }. Size defaults to the device report (CSS px x devicePixelRatio). 20 a minute.'],
+                ['PATCH /screens/:id, PATCH /screens/reorder, DELETE /screens/:id, POST /screens/:id/identify | reload', 'Showing a board clears the playlist and the other way round; both at once is a 422.'],
+                ['GET / POST /designs, GET / PUT / DELETE /designs/:id', 'POST takes copy_from. PUT stores normalizeBoard(layout) (unknown block types dropped, positions clamped), at most 500 KB. Delete removes the board from playlists and screens.'],
+                ['GET / POST /playlists, PUT / DELETE /playlists/:id', 'PUT replaces the items; a time must end after it starts and have days (no overnight times).'],
+                ['GET /menu-data?version=live|draft&venue_id=', 'designerData(): every menu (live, or the drafts), unpublished (menus with no live version), tags, notice, and the venue\'s sold out ids.'],
+              ]}
+            />
+            <H3>Renderer (shared/screenLayout.js)</H3>
+            <P>
+              Blocks: heading, text, menu (a section or picked dishes), dish (featured), price (one dish
+              or one option), image, box, clock, allergen_key. Positions are board pixels; later blocks
+              sit on top. <Mono>boardContext(layout, data)</Mono> indexes the menus (sections hidden
+              everywhere skipped, tags through <Mono>menuTags()</Mono>), the sold out set and the dishes
+              shown on the board (for the allergen key); <Mono>renderBlockInner()</Mono> returns HTML,
+              <Mono> null</Mono> when the block points at a menu, section or dish that isn&apos;t live
+              (the designer explains, the player leaves the space empty), or <Mono>&apos;&apos;</Mono>{' '}
+              for nothing to show. Prices go through <Mono>shared/orderPricing.js</Mono>{' '}
+              (<Mono>itemChoices()</Mono> with the menu&apos;s variant rules, <Mono>fromPrice()</Mono>),
+              so &quot;from&quot; prices match online ordering. <Mono>boardOnAt()</Mono> is{' '}
+              <Mono>menuOnAt()</Mono> with the end NOT included (11:00-15:00 hands over at 15:00) and
+              23:59 meaning midnight. Fonts: the website list plus Oswald, Bebas Neue, Anton, Barlow
+              Condensed, Archivo Black, Pacifico and Permanent Marker (<Mono>SCREEN_FONT_WEIGHTS</Mono>,
+              kept apart so the website pickers don&apos;t change). Tests:{' '}
+              <Mono>node --test shared/test/screenLayout.test.mjs</Mono>.
+            </P>
+            <H3>Player (screen/, routes/screenSite.js)</H3>
+            <P>
+              Plain files, no build: <Mono>index.html</Mono>, <Mono>player.js</Mono> (ES module),{' '}
+              <Mono>sw.js</Mono>, <Mono>manifest.webmanifest</Mono> (display fullscreen), icons.{' '}
+              <Mono>routes/screenSite.js</Mono> serves them on host kind <Mono>screens</Mono> (a global
+              onRequest hook like posSite), the shared files the player imports as{' '}
+              <Mono>/lib/&lt;name&gt;</Mono> (allow-list <Mono>PLAYER_LIBS</Mono>), redirects http to
+              https, and writes <Mono>playerVersion()</Mono> (a hash of the player and library files)
+              into the page and the service worker. The player keeps its device id and secret and the
+              last config in localStorage, so it starts offline; the service worker serves the player
+              network-first (cached copy offline) and images and Google Fonts cache-first. It rotates
+              the playlist&apos;s boards that are on now (venue time, clock corrected by the server
+              time), preloads a board&apos;s images before showing it, scales the board to the screen
+              (rotation and fit from the screen), updates clocks every 5 s, asks for a wake lock, hides
+              the cursor, and reloads itself when a config names a newer player version (at most once
+              in 5 minutes). Works installed from Chrome or in Fully Kiosk (detected by{' '}
+              <Mono>window.fully</Mono>, reported in the device info).
+            </P>
+            <H3>Sold out</H3>
+            <P>
+              <Mono>services/soldOut.js</Mono> is the one writer: <Mono>setSoldOut()</Mono> (today =
+              next venue-local midnight, indefinite = null, false = delete) and{' '}
+              <Mono>announceSoldOut()</Mono> (ordering.availability to the venue room, pos.config to the
+              tills, screens.sold_out with the ids to the screens). Used by the orders board route and
+              the new till route <Mono>PUT /pos-api/sold-out/:itemId</Mono>{' '}
+              (<Mono>{'{ sold_out, staff_id, approved_by? }'}</Mono>, checked with{' '}
+              <Mono>permissionProblem(..., &apos;sold_out&apos;)</Mono>). <Mono>tillConfig()</Mono>{' '}
+              includes <Mono>sold_out: [{'{ item_id, until }'}]</Mono>; the till greys the dish, holding
+              a dish (550 ms) or tapping a sold out one opens <Mono>SoldOutModal</Mono>{' '}
+              (CheckActions.jsx).
+            </P>
+            <InfoBox type="warn">
+              A new place that marks dishes sold out must go through <Mono>setSoldOut()</Mono> and{' '}
+              <Mono>announceSoldOut()</Mono>, or tills and screens keep showing the dish until their
+              next config refresh (up to 10 minutes on a till, a minute on a screen).
+            </InfoBox>
+          </section>
+
           <section id="website-cms" data-doc="">
             <H2>Website CMS</H2>
             <P>
@@ -4869,7 +4989,8 @@ allTables sorted by sort_order → target at index i
                 ['office.macaroonie.com', 'The admin portal (admin/dist) plus the API paths', 'nginx: scripts/nginx-office-ops.sh'],
                 ['ops.macaroonie.com', 'The same admin build; / goes to /mobile/, the SPA sends any non-/mobile route to /mobile (IS_OPS_HOST in lib/hosts.js), and the page links /ops.webmanifest (scope /) so Android installs it as its own app', 'nginx: scripts/nginx-office-ops.sh'],
                 ['macaroonie.com (and www.)', 'The platform page: features, franchises, who it is for, roadmap (EPOS, kitchen screens, kiosks, loyalty; AI insights, AI assistant, MCP), how we build, team and the register-interest form (routes/platformSite.js, views/platform/landing.eta, plain HTML, edit the copy there). Other GETs 301 to the same path on office.; API paths (/api, /manage, /reservations, /widget-api, /ws, /webhooks, /uploads, /order-api) pass through; /sw.js is a service worker that removes itself so an admin installed on the apex stops showing', 'nginx: scripts/nginx-apex-landing.sh'],
-                ['{slug}.macaroonie.com', 'Tenant sites (routes/siteRenderer.js). office and ops are in RESERVED_SUBDOMAINS', 'wildcard server block'],
+                ['screens.macaroonie.com', 'The menu screens\' player (screen/, routes/screenSite.js), /screen-api and /ws', 'wildcard server block (nothing to set up)'],
+                ['{slug}.macaroonie.com', 'Tenant sites (routes/siteRenderer.js). office, ops, pos and screens are in RESERVED_SUBDOMAINS', 'wildcard server block'],
                 ['Custom domains (www.yourrestaurant.com)', 'Tenant sites, matched by tenant_site.custom_domain', 'nginx: the domain sync (scripts/custom-domains-sync.sh, systemd timer installed by the deploy) runs scripts/nginx-custom-domain.sh per verified domain (Website CMS → Custom domain lifecycle)'],
               ]}
             />

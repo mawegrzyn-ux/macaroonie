@@ -328,6 +328,35 @@ export async function approverFor(pin, key, amount = null) {
   return { ok: true, staff: s }
 }
 
+// ── Sold out ─────────────────────────────────────────────────────
+
+/** Dishes sold out now: Map(item id -> until ISO | null). From the config (services/soldOut.js). */
+export function soldOutMap(config = state.config) {
+  const out = new Map()
+  const t = Date.now()
+  for (const s of config?.sold_out || []) {
+    if (!s.until || Date.parse(s.until) > t) out.set(s.item_id, s.until || null)
+  }
+  return out
+}
+
+/**
+ * Mark a dish sold out ('today' | 'indefinite') or back on (false). Online
+ * only: the website, the orders board and the menu screens change at once.
+ * approvedBy = a manager's staff id when the person's role doesn't allow it.
+ */
+export async function setItemSoldOut(itemId, mode, approvedBy = null) {
+  if (!state.staff) return { ok: false, error: 'Sign in first' }
+  try {
+    await api.put('/pos-api/sold-out/' + itemId, { sold_out: mode, staff_id: state.staff.id, approved_by: approvedBy || null })
+    await loadConfig()
+    return { ok: true }
+  } catch (err) {
+    if (err instanceof OfflineError || err?.offline) return { ok: false, error: 'Needs a connection: try again when the till is online' }
+    return { ok: false, error: err.message || 'Couldn\'t change it' }
+  }
+}
+
 export function can(key, amount = null) {
   if (!state.staff) return false
   return !permissionProblem(staffById(), { staff_id: state.staff.id }, key, amount)

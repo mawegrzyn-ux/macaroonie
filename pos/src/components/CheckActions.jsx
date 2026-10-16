@@ -1,18 +1,18 @@
 // The check's actions beyond adding dishes: send (holding later courses),
 // fire a course, discounts and comps, service charge, offers, move items to
 // another check (split), merge checks, move table, change server or revenue
-// centre, items not on the menu, no sale.
+// centre, items not on the menu, no sale, dishes sold out.
 
 import { useMemo, useState } from 'react'
 import {
   Users, Table2, UserRound, Building2, Percent, HandCoins, Gift, Split, Merge, Flame, StickyNote, Printer,
-  Vault, PenLine, Check, Hourglass, Send, XCircle,
+  Vault, PenLine, Check, Hourglass, Send, XCircle, Ban, RotateCcw, Plus,
 } from 'lucide-react'
 import { ulid } from '@shared/pos/ids.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { heldCourses, checkLabel } from '@shared/pos/checks.js'
 import { Modal, Keypad, ReasonPicker, cx, money, poundsToPence, useApproval } from './ui.jsx'
-import { dispatch, dispatchMany, toast, useChecks, getState, can } from '../lib/store.js'
+import { dispatch, dispatchMany, toast, useChecks, getState, can, soldOutMap, setItemSoldOut } from '../lib/store.js'
 import { defaultHeld, sendCheck, rcOf, byId, addOpenItem, promotionsFor, refreshPromotions } from '../lib/checkOps.js'
 import { CoversModal, CheckRow } from '../screens/Floor.jsx'
 
@@ -495,6 +495,57 @@ export function NoSale({ onClose }) {
   return (
     <Modal title="No sale" onClose={onClose} footer={<button className="btn btn-primary" disabled={!reason.trim()} onClick={go}><Vault size={18} /> Open drawer</button>}>
       <ReasonPicker options={['Change for the float', 'Wrong change given', 'Count the drawer']} value={reason} onChange={setReason} />
+    </Modal>
+  )
+}
+
+// A dish sold out (or back on). Changes the website, online orders and the
+// menu screens too, so it needs a connection.
+export function SoldOutModal({ item, config, onClose, onAdd }) {
+  const approve = useApproval()
+  const [busy, setBusy] = useState(null)
+  const sold = soldOutMap(config)
+  const isSold = sold.has(item.id)
+  const until = sold.get(item.id)
+  const set = async mode => {
+    const approver = await approve('sold_out', null, 'Marking dishes sold out needs a manager.')
+    if (approver === false) return
+    setBusy(String(mode))
+    const r = await setItemSoldOut(item.id, mode, approver)
+    setBusy(null)
+    if (!r.ok) return toast(r.error, 'bad')
+    toast(mode === false ? item.name + ' is back on' : item.name + ' is sold out', 'ok')
+    onClose()
+  }
+  return (
+    <Modal title={item.name} onClose={onClose}>
+      <div className="space-y-3">
+        {isSold && (
+          <div className="rounded-xl bg-bad-soft text-bad p-3 text-sm font-semibold">
+            Sold out {until ? 'until the end of today' : 'until someone puts it back on'}.
+          </div>
+        )}
+        <p className="text-sm text-muted">Sold out shows on the website, online orders and the menu screens straight away.</p>
+        {isSold ? (
+          <button className="btn btn-ok w-full h-14" disabled={!!busy} onClick={() => set(false)}>
+            <RotateCcw size={18} /> {busy === 'false' ? 'Saving…' : 'Back on sale'}
+          </button>
+        ) : (
+          <>
+            <button className="btn w-full h-14" disabled={!!busy} onClick={() => set('today')}>
+              <Ban size={18} /> {busy === 'today' ? 'Saving…' : 'Sold out for today'}
+            </button>
+            <button className="btn w-full h-14" disabled={!!busy} onClick={() => set('indefinite')}>
+              <Ban size={18} /> {busy === 'indefinite' ? 'Saving…' : 'Sold out until I put it back'}
+            </button>
+          </>
+        )}
+        {isSold && onAdd && (
+          <button className="btn w-full h-14" onClick={() => { onClose(); onAdd(item) }}>
+            <Plus size={18} /> Add it to the check anyway
+          </button>
+        )}
+      </div>
     </Modal>
   )
 }

@@ -66,6 +66,9 @@ import aiApiRoutes           from './routes/aiApi.js'
 import posSite               from './routes/posSite.js'
 import posSetupRoutes        from './routes/posSetup.js'
 import posApiRoutes          from './routes/posApi.js'
+import screenSite            from './routes/screenSite.js'
+import screensRoutes         from './routes/screens.js'
+import screenApiRoutes       from './routes/screenApi.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -180,6 +183,8 @@ export async function buildApp() {
   await app.register(platformSite)
   // The till app on pos.{root} (routes/posSite.js); global hook like platformSite.
   await app.register(posSite)
+  // Menu screens' player on screens.{root} (routes/screenSite.js).
+  await app.register(screenSite)
 
   // Stripe webhook first — must bypass JSON body parser
   await app.register(webhookRoutes)
@@ -251,6 +256,8 @@ export async function buildApp() {
   // Till (POS): admin setup + reports, and the tills' own API (device auth).
   await app.register(posSetupRoutes, { prefix: '/api/pos' })
   await app.register(posApiRoutes,   { prefix: '/pos-api' })
+  await app.register(screensRoutes,   { prefix: '/api/screens' })
+  await app.register(screenApiRoutes, { prefix: '/screen-api' })
 
   // ── Health check ─────────────────────────────────────────
   app.get('/api/health', async () => ({ ok: true, env: env.NODE_ENV }))

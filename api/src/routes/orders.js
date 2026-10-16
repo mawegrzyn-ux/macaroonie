@@ -33,11 +33,12 @@ import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { listGateways, COUNTER_METHODS } from '../services/paymentGateways/index.js'
 import {
-  loadSettings, loadOrderingMenu, loadAdminOrder, adminOrder, localParts, addDays,
+  loadSettings, loadOrderingMenu, loadAdminOrder, adminOrder, localParts,
   changeStatus, changePromisedTime, markPaid, refundOrder,
 } from '../services/orderSvc.js'
 import { broadcast } from '../config/ws.js'
 import { boardOrders, boardOrder } from '../services/gloriafoodSvc.js'
+import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
 import { isScheduled, scheduleProblem } from '../../../shared/menuSchedule.js'
 
 const uuid = z.string().uuid()
@@ -232,27 +233,13 @@ export default async function ordersRoutes(app) {
   app.put('/availability/:venueId/:itemId', { preHandler: manage }, async (req) => {
     if (!uuid.safeParse(req.params.itemId).success) throw httpError(404, 'Dish not found')
     const b = z.object({ sold_out: z.union([z.literal('today'), z.literal('indefinite'), z.literal(false)]) }).parse(req.body)
-    const res = await withTenant(req.tenantId, async tx => {
+    const { venue, res, ids } = await withTenant(req.tenantId, async tx => {
       const venue = await venueOf(tx, req.params.venueId)
-      if (b.sold_out === false) {
-        await tx`DELETE FROM ordering_item_availability WHERE venue_id = ${venue.id} AND item_id = ${req.params.itemId}`
-        return { sold_out: false, sold_out_until: null }
-      }
-      // "Today" = until the next local midnight.
-      let until = null
-      if (b.sold_out === 'today') {
-        const today = localParts(new Date(), venue.timezone).date
-        const [{ ts }] = await tx`SELECT ((${addDays(today, 1)}::date)::timestamp AT TIME ZONE ${venue.timezone}) AS ts`
-        until = ts
-      }
-      await tx`
-        INSERT INTO ordering_item_availability (venue_id, item_id, tenant_id, sold_out_until)
-        VALUES (${venue.id}, ${req.params.itemId}, ${req.tenantId}, ${until})
-        ON CONFLICT (venue_id, item_id) DO UPDATE SET sold_out_until = EXCLUDED.sold_out_until, updated_at = now()
-      `
-      return { sold_out: true, sold_out_until: until }
+      const res = await setSoldOut(tx, venue, req.params.itemId, b.sold_out)
+      return { venue, res, ids: await soldOutItemIds(tx, req.tenantId, venue.id) }
     })
-    broadcast(req.params.venueId, { type: 'ordering.availability', data: { item_id: req.params.itemId, ...res } })
+    // Online orders board, tills and menu screens (services/soldOut.js).
+    announceSoldOut(venue.id, req.params.itemId, res, ids)
     return res
   })
 

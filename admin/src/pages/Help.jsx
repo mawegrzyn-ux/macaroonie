@@ -30,6 +30,7 @@ const SECTIONS = [
   { id: 'widget',              label: 'Booking Widget' },
   { id: 'website',             label: 'Website Builder' },
   { id: 'menus',               label: 'Menus' },
+  { id: 'screens',             label: 'Menu Screens' },
   { id: 'online-orders',       label: 'Online Orders' },
   { id: 'ai-assistant',        label: 'AI Assistant' },
   { id: 'purchasing',          label: 'Purchasing' },
@@ -3262,6 +3263,105 @@ export default function Help() {
             </P>
           </section>
 
+          {/* ── MENU SCREENS ──────────────────────────────── */}
+          <section id="screens" data-help="">
+            <H2>Menu Screens</H2>
+            <P>
+              Show your menus on screens in the restaurant (digital menu boards). You design each
+              board on <strong>Screens</strong> (Website in the menu), and every screen shows a board,
+              or a playlist of boards that take turns. Prices come from your <strong>published</strong>{' '}
+              menus, so a price change appears on every screen when you publish the menu (now or at the
+              time you scheduled). Dishes marked sold out (on the till or the Online orders board) show
+              as sold out within seconds.
+            </P>
+
+            <H3>What you need</H3>
+            <P>
+              Any screen that can run Chrome: an Android TV box or stick, a smart TV with Chrome, an
+              Android tablet, or a PC. Fully Kiosk Browser (Android) works too. The screen needs the
+              internet to get started and for changes; if the internet drops, it keeps showing its
+              boards, photos and fonts.
+            </P>
+
+            <H3>Adding a screen</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>On the screen, open the screens address shown on <strong>Screens → Add a screen</strong> (screens.your-domain) in Chrome.</li>
+              <li>In Chrome&apos;s menu choose <strong>Install app</strong> (or <strong>Add to Home screen</strong>): it then opens full screen with no address bar. In Fully Kiosk, set the address as the Start URL.</li>
+              <li>The screen shows a six-letter code (it changes every 15 minutes until it&apos;s used).</li>
+              <li>In the admin press <strong>Add screen</strong>, type the code, give the screen a name (e.g. Counter left), pick the venue and what it shows. The screen shows it within a few seconds.</li>
+            </ol>
+            <P>
+              Each screen gets an ID (S1, S2 ...). <strong>Identify</strong> shows the name and ID on the
+              screen for 20 seconds, so you can tell which is which. <strong>Edit</strong> changes what it
+              shows, its size, and <strong>Mounted</strong>: turn the picture for a screen hung on its side
+              (for TVs that can&apos;t turn it themselves). <strong>New device for this screen</strong>{' '}
+              moves the screen to a new box or TV by its code; the old one stops. Removing a screen sends
+              it back to showing a code.
+            </P>
+            <P>
+              The list shows which screens are online (a green dot), what each is showing now, and
+              when an offline screen was last seen.
+            </P>
+
+            <H3>Designing a board</H3>
+            <P>
+              <strong>Boards → New board</strong>: give it a name and the screen&apos;s size (Full HD
+              landscape or portrait, 4K, HD, or your own). The designer opens. Add blocks from the left
+              (tap +, or drag onto the board), drag them to move, drag the corner to resize; they snap
+              to a grid (hold Alt to place freely, arrow keys nudge). The panel on the right has the
+              selected block&apos;s options; with nothing selected it has the board&apos;s background,
+              colours, fonts and price style. Save when you&apos;re done.
+            </P>
+            <DataTable
+              head={['Block', 'What it shows']}
+              rows={[
+                ['Menu list', 'A section of a menu (or dishes you pick), with prices, descriptions, options (Small £3 · Large £4), allergen tags and calories. 1 to 4 columns, sizes and colours, dotted line to the price. Menu sections in the left column add one in a tap.'],
+                ['Featured dish', 'One dish, large, with its photo from the menu, description and price.'],
+                ['Price', 'Just a dish\'s price (or one option\'s), to put on a photo or a designed background, so the price still updates.'],
+                ['Heading / Text', 'Your own words, any font and size.'],
+                ['Image', 'A photo, logo or picture from Media.'],
+                ['Box or line', 'A coloured panel behind other blocks, or a line (make it thin).'],
+                ['Clock', 'The venue\'s time, with the date if you like.'],
+                ['Allergen key', 'What the tags on this board\'s dishes mean, from your allergen notice.'],
+              ]}
+            />
+            <P>
+              The designer shows the live prices. <strong>Draft prices</strong> shows the menus as saved
+              but not yet published, and <strong>Sold out at</strong> shows a venue&apos;s sold out
+              dishes, so you can check how the board will look. A menu that has never been published
+              shows nothing on a board until you publish it. Sections set to <strong>Hide
+              everywhere</strong> never show.
+            </P>
+            <P>
+              Sold out dishes are crossed out with <strong>Sold out</strong> (wording in the board
+              settings), or left out if you pick <strong>Leave out</strong> on the block.
+            </P>
+
+            <H3>Playlists and times of day</H3>
+            <P>
+              <strong>Playlists</strong>: a list of boards that take turns, each for the seconds you
+              set (drag to reorder). <strong>Set times and dates</strong> on a board to show it only
+              then, for example a breakfast board 07:00 to 11:00 and a lunch board 11:00 to 15:00. A time
+              ends just before its end time, so the lunch board takes over at exactly 11:00. Boards with
+              no times show all the time. When nothing is on, the screen goes black. Times are the
+              venue&apos;s time. Save the playlist, then pick it for a screen.
+            </P>
+
+            <H3>Sold out from the till</H3>
+            <P>
+              On the till, <strong>hold a dish down</strong> (or tap one that&apos;s sold out) and choose{' '}
+              <strong>Sold out for today</strong> (back on at midnight), <strong>Sold out until I put it
+              back</strong>, or <strong>Back on sale</strong>. It changes the till, online ordering, the
+              Online orders board and the screens at once. Till roles need <strong>Mark dishes sold
+              out</strong> (Supervisor and Manager have it), or a manager types their PIN. It needs the
+              till to be online.
+            </P>
+            <InfoBox type="tip">
+              Changing a board or playlist reaches the screens within seconds. If a screen seems stuck,
+              <strong> Reload</strong> it from the list, or check it&apos;s online.
+            </InfoBox>
+          </section>
+
           {/* ── ONLINE ORDERS ─────────────────────────────── */}
           <section id="online-orders" data-help="">
             <H2>Online Orders</H2>
@@ -3404,7 +3504,7 @@ export default function Help() {
                 ['Refund', "Refund, enter the amount, then Yes. Online payments go back to the card; cash or card-terminal payments are only recorded, so hand the money back."],
                 ['Reject or cancel', "Reject (new orders) or Cancel order, with an optional reason for the guest. Anything paid online is refunded automatically."],
                 ['Print a ticket', "The printer icon in the order prints an 80mm ticket through the browser."],
-                ['Run out of a dish', "Sold out on the board: Today (back on at midnight) or Until back on."],
+                ['Run out of a dish', "Sold out on the board: Today (back on at midnight) or Until back on. The till and the menu screens show it too (and the till can set it: hold a dish down)."],
                 ['Stop orders for a while', "Pause orders, with an optional message. Guests can still see the menu. Resume orders when you are ready."],
               ]}
             />
@@ -3925,6 +4025,11 @@ export default function Help() {
               payments, each day), pays it, and sends it to the kitchen when it's closed.{' '}
               <strong>Closed</strong> lists today's closed checks: print the receipt again, <strong>Refund</strong>{' '}
               or <strong>Reopen</strong>.
+            </P>
+            <P>
+              A dish has run out: <strong>hold it down</strong> on the menu and pick <strong>Sold out for
+              today</strong> or <strong>until I put it back</strong>. It shows as sold out on every till,
+              online ordering and the menu screens. Tap it to put it back on, or to add it anyway.
             </P>
             <InfoBox type="tip">
               Something your role doesn't allow (a void, a big discount, a refund) asks for a manager: someone

@@ -20,6 +20,7 @@ import { sql } from './db.js'
 import { env } from './env.js'
 import { isMember } from '../services/membershipSvc.js'
 import { verifyDevice } from '../routes/posApi.js'
+import { verifyScreen } from '../services/screenAuth.js'
 
 const CLAIM_NS = 'https://macaroonie.com/claims/'
 
@@ -78,6 +79,19 @@ export function attachWss(httpServer, jwtVerify) {
       return
     }
 
+    // A paired menu screen (migration 166): /ws?screen=<id>&secret=<secret>.
+    // Its own room (identify, reload, removed, its settings changed), its
+    // venue's screens (sold out), the tenant's screens (boards, playlists)
+    // and the tenant's menus (published: menus.live).
+    const screenId = url.searchParams.get('screen')
+    if (screenId) {
+      const screen = await verifyScreen(screenId, url.searchParams.get('secret')).catch(() => null)
+      if (!screen) { ws.close(4003, 'Forbidden'); return }
+      joinRooms(ws, ['screen:' + screen.id, 'screens:' + screen.venue_id, 'screens-t:' + screen.tenant_id, 'menus:' + screen.tenant_id])
+      ws.send(JSON.stringify({ type: 'connected', screenId: screen.id }))
+      return
+    }
+
     const token  = url.searchParams.get('token')
     const venueId = url.searchParams.get('venue')
 
@@ -120,12 +134,20 @@ export function attachWss(httpServer, jwtVerify) {
 }
 
 function joinRoom(ws, room) {
-  if (!rooms.has(room)) rooms.set(room, new Set())
-  rooms.get(room).add(ws)
+  joinRooms(ws, [room])
+}
+
+function joinRooms(ws, list) {
+  for (const room of list) {
+    if (!rooms.has(room)) rooms.set(room, new Set())
+    rooms.get(room).add(ws)
+  }
 
   ws.on('close', () => {
-    rooms.get(room)?.delete(ws)
-    if (rooms.get(room)?.size === 0) rooms.delete(room)
+    for (const room of list) {
+      rooms.get(room)?.delete(ws)
+      if (rooms.get(room)?.size === 0) rooms.delete(room)
+    }
   })
 
   // Keepalive ping every 30s

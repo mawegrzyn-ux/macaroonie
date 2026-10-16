@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-16 — Menu screens: digital menu boards]
+
+- New **Screens** page (Website in the menu, module Menu screens): put your menus on screens in the restaurant. Any Android TV box or stick, smart TV with Chrome, tablet or PC works, installed from Chrome (full screen) or in Fully Kiosk Browser.
+- **Adding a screen**: open screens.your-domain on it, it shows a six-letter code; press **Add screen** and type the code. Each screen has a name, an ID (S1, S2 ...), a venue, its own size, how it's mounted (turned for a screen on its side) and what it shows. **Identify** shows its name on the screen; **Reload**; **New device for this screen**; online / last seen and what it is showing now.
+- **Board designer**: boards of any size (Full HD, 4K, portrait or landscape, or your own). Blocks: menu list (a section or picked dishes, with prices, options, tags, calories, 1 to 4 columns), featured dish with its photo, a lone price for photo designs, heading, text, image, box or line, clock, allergen key. Drag to move, corner to resize, snap grid, layer order, colours and fonts (website fonts plus bold menu-board fonts), £ sign and whole-pound prices. Live or draft prices and a venue's sold out dishes in the preview.
+- **Playlists**: boards take turns for the seconds you set, with times of day and dates per board (breakfast, lunch, dinner); nothing on = a black screen.
+- Prices on screens are the published menus: publishing (now or scheduled) changes every screen within seconds. Sold out dishes are crossed out (or left out) as soon as they are marked.
+- Screens keep showing their boards, photos and fonts when the internet drops, and pick up changes when it is back.
+- **Till: sold out**: hold a dish down (or tap a sold out one) to mark it sold out for today or until put back, or back on. It shows on every till, online ordering, the Online orders board and the screens. New till role permission **Mark dishes sold out** (on for Supervisor and Manager); others need a manager's PIN.
+- Fixed: the times-and-dates editor (Ordering setup, Promotions) showed "{datesLabel}" and "{resetLabel}" instead of its labels.
+- Migration 166.
+
 ## [2026-10-16 — Menus: publish changes now or at a set time]
 
 - Saving a menu now saves a draft. The website, online ordering, the till, the Deliveroo menu file, cooking check dish buttons and the allergen lookup keep showing the live menu until you publish.

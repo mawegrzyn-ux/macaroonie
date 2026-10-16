@@ -7,7 +7,7 @@
 // A role (pos_roles.permissions):
 //   { void: bool, refund: bool, discount_max_pct: 0-100, comp: bool,
 //     open_drawer: bool, reopen: bool, take_over: bool, price_override: bool,
-//     transfer: bool, reports: bool, close_day: bool, manager: bool }
+//     transfer: bool, sold_out: bool, reports: bool, close_day: bool, manager: bool }
 //
 // Something a person's role doesn't allow can still be done with a manager's
 // approval: a person whose role allows it types their PIN, and the event
@@ -22,6 +22,7 @@ export const POS_PERMISSIONS = [
   { key: 'take_over',      label: 'Take over checks',        hint: 'Work on and transfer other people\'s checks.' },
   { key: 'price_override', label: 'Change prices',           hint: 'Type a different price for an item.' },
   { key: 'transfer',       label: 'Move items between checks', hint: 'Split checks, merge checks and move items.' },
+  { key: 'sold_out',       label: 'Mark dishes sold out',    hint: 'Hold a dish down to mark it sold out (till, website, online orders and screens).' },
   { key: 'reports',        label: 'See reports',             hint: 'X report and today\'s figures on the till.' },
   { key: 'close_day',      label: 'Close the day',           hint: 'Run the Z report and end the trading day.' },
   { key: 'manager',        label: 'Approve for others',      hint: 'Type their PIN to allow what someone else\'s role doesn\'t.' },
@@ -36,14 +37,14 @@ export const DEFAULT_POS_ROLES = [
     name: 'Supervisor',
     permissions: {
       void: true, comp: true, discount_max_pct: 25, open_drawer: true, reopen: true,
-      take_over: true, transfer: true, reports: true, manager: true,
+      take_over: true, transfer: true, sold_out: true, reports: true, manager: true,
     },
   },
   {
     name: 'Manager',
     permissions: {
       void: true, refund: true, comp: true, discount_max_pct: 100, open_drawer: true, reopen: true,
-      take_over: true, price_override: true, transfer: true, reports: true, close_day: true, manager: true,
+      take_over: true, price_override: true, transfer: true, sold_out: true, reports: true, close_day: true, manager: true,
     },
   },
 ]

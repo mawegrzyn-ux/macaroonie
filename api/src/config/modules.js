@@ -101,6 +101,13 @@ export const MODULES = [
     default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'view' },
   },
   {
+    key:    'screens',
+    label:  'Menu screens',
+    group:  'screens',
+    description: 'Digital menu boards: screens and their pairing, board designer, playlists with times of day. Prices come from published menus.',
+    default: { owner: 'manage', admin: 'manage', operator: 'view', viewer: 'none' },
+  },
+  {
     key:    'email_templates',
     label:  'Booking emails',
     group:  'email_templates',
@@ -363,6 +370,12 @@ export const MODULE_GROUPS = [
     label:  'Menus',
     description: 'Structured menu manager — sections, dishes, variants, dietary tags, printable PDFs.',
     moduleKeys: ['menus'],
+  },
+  {
+    key:    'screens',
+    label:  'Menu screens',
+    description: 'Digital menu boards in the restaurant, showing live menu prices and sold out dishes.',
+    moduleKeys: ['screens'],
   },
   {
     key:    'cash_recon',

@@ -79,6 +79,7 @@ export const DEFAULT_NAV_TREE = [
           { label: 'Deliveroo menu', icon: 'Bike', route: '/menus/deliveroo', module: 'menus' },
         ],
       },
+      { label: 'Screens', icon: 'Monitor', route: '/screens', module: 'screens' },
       { label: 'Media', icon: 'FolderOpen', route: '/media', module: 'website' },
       { label: 'Reviews', icon: 'MessageSquare', route: '/reviews', module: 'website' },
     ],

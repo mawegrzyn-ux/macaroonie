@@ -16,7 +16,7 @@ import LineModal from '../components/LineModal.jsx'
 import PayModal from '../components/PayModal.jsx'
 import {
   ActionsMenu, SendModal, needsSendChoice, FireModal, DiscountModal, ServiceChargeModal, OffersModal, MoveModal,
-  MergeModal, TableModal, NameModal, ServerModal, RcModal, GuestsModal, OpenItemModal, NoSale,
+  MergeModal, TableModal, NameModal, ServerModal, RcModal, GuestsModal, OpenItemModal, NoSale, SoldOutModal,
 } from '../components/CheckActions.jsx'
 
 export default function CheckScreen({ checkId, onBack, onOpen, counter = false }) {
@@ -133,7 +133,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
         </>} footer={footer} onLine={line => setModal({ kind: 'line', line })} />
       </div>
       <div className="flex-1 min-w-0">
-        <MenuPanel config={config} menuIds={rc?.menu_ids} onPick={pick} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
+        <MenuPanel config={config} menuIds={rc?.menu_ids} onPick={pick} onHold={item => setModal({ kind: 'sold_out', item })} seat={seat} setSeat={setSeat} course={course} setCourse={setCourse}
           covers={check.covers} onOpenItem={() => setModal({ kind: 'open_item' })} />
       </div>
 
@@ -157,6 +157,7 @@ export default function CheckScreen({ checkId, onBack, onOpen, counter = false }
       {modal?.kind === 'covers' && <GuestsModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'open_item' && <OpenItemModal check={check} config={config} onClose={close} />}
       {modal?.kind === 'nosale' && <NoSale onClose={close} />}
+      {modal?.kind === 'sold_out' && <SoldOutModal item={modal.item} config={config} onClose={close} onAdd={pick} />}
       {modal?.kind === 'pay' && <PayModal check={check} counter={counter || check.mode === 'counter'} onClose={close} onClosed={() => { close(); onBack() }} />}
     </div>
   )

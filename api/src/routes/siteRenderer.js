@@ -45,6 +45,8 @@ export const RESERVED_SUBDOMAINS = new Set([
   'office', 'ops',
   // Kept for the POS till app and venue hubs (docs/POS.md).
   'pos', 'hub',
+  // The menu screens' player (routes/screenSite.js).
+  'screens',
 ])
 
 // The staging environment for a tenant always lives at

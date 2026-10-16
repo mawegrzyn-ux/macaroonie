@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="player-version" content="__PLAYER_VERSION__">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Macaroonie Screens</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: #fff; -webkit-font-smoothing: antialiased; }
+  body.idle { cursor: none; }
+  #stage { position: fixed; inset: 0; overflow: hidden; background: #000; }
+  .layer { position: absolute; left: 50%; top: 50%; transform-origin: 50% 50%; }
+  .panel { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2.2vmin; text-align: center; padding: 4vmin; background: #111; z-index: 10; }
+  .panel .logo { width: 12vmin; height: 12vmin; }
+  .panel h1 { margin: 0; font-size: 4.2vmin; font-weight: 600; letter-spacing: 0.01em; }
+  .panel p { margin: 0; font-size: 2.6vmin; color: #bdbdbd; max-width: 70ch; line-height: 1.4; }
+  .code { font-size: 15vmin; font-weight: 800; letter-spacing: 0.08em; color: #f5b301; font-variant-numeric: tabular-nums; line-height: 1; }
+  .small { font-size: 2vmin !important; color: #8a8a8a !important; }
+  #identify { position: fixed; inset: 0; z-index: 20; display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, 0.72); }
+  #identify.on { display: flex; }
+  #identify .box { background: #f5b301; color: #111; border-radius: 3vmin; padding: 4vmin 7vmin; text-align: center; box-shadow: 0 2vmin 8vmin rgba(0,0,0,.5); }
+  #identify .id { font-size: 16vmin; font-weight: 800; line-height: 1; }
+  #identify .name { font-size: 6vmin; font-weight: 700; margin-top: 1.5vmin; }
+  #identify .meta { font-size: 2.8vmin; margin-top: 1.5vmin; opacity: 0.8; }
+  #hint { position: fixed; bottom: 3vmin; left: 50%; transform: translateX(-50%); z-index: 15; display: none;
+    background: rgba(0,0,0,.75); color: #fff; border-radius: 999px; padding: 1.4vmin 3vmin; font-size: 2.2vmin; }
+  #hint.on { display: block; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="identify"><div class="box"><div class="id"></div><div class="name"></div><div class="meta"></div></div></div>
+<div id="hint">Tap the screen for full screen</div>
+<noscript><div class="panel"><h1>This screen needs JavaScript switched on.</h1></div></noscript>
+<script type="module" src="/player.js"></script>
+</body>
+</html>
