@@ -3,10 +3,12 @@
 // Till setup > Kitchen screens (docs/POS.md section 9):
 //   - the kitchen screens: tablets or TVs paired like a till (one-time code at
 //     the till address); each shows one or more stations
-//   - stations: prep stations (Grill, Fryer, Bar ...) show the dishes routed
-//     to them; the pass (expo) shows whole orders and marks them ready.
-//     Timings (amber / red), held courses, and the On order counts groups
-//   - what goes where (kds_routes, same rules as printers)
+//   - stations: prep stations (Grill, Fryer, Bar ...) make dishes; the expo
+//     (the pass) checks whole orders and marks them ready; runners take them
+//     out; order ready boards show the numbers on menu screens. Timings
+//     (amber / red), held courses, showing dishes before they arrive, and the
+//     On order counts groups
+//   - the kitchen flow: how dishes move between them (KitchenFlow.jsx)
 //   - online orders: into the kitchen when accepted, ready when finished
 
 import { useEffect, useState } from 'react'
@@ -17,13 +19,17 @@ import { cn } from '@/lib/utils'
 import {
   Section, Modal, Field, inputCls, ErrorNote, ConfirmDelete, Segmented, Btn, NumberBox, Toggle, SortableRows, ColourPick, ago,
 } from './shared'
-import RoutingEditor from './RoutingEditor'
+import KitchenFlow from './KitchenFlow'
 import { PairingCode } from './TillsSection'
+import { STATION_KINDS, KIND_LABELS } from '@shared/pos/kitchen.js'
 
-const KINDS = [
-  { value: 'prep', label: 'Prep station' },
-  { value: 'expo', label: 'The pass (expo)' },
-]
+const KINDS = STATION_KINDS.map(k => ({ value: k, label: { prep: 'Prep', expo: 'Expo (pass)', runner: 'Runner', board: 'Order ready board' }[k] }))
+const KIND_HINTS = {
+  prep: 'Makes dishes (Grill, Fryer, Bar...). Its bump sends them on to the next station in the kitchen flow.',
+  expo: 'Checks whole orders before they go out (the pass). Its bump marks the order ready, and finishes dishes still at earlier stations.',
+  runner: 'Takes orders out to tables or the counter. Last on a dish\'s way, its bump hands the order over.',
+  board: 'An order ready board: shows order numbers on menu screens (Order status block). An order is ready there once every dish on its way to the board has arrived. Nothing to bump, no kitchen screen.',
+}
 const VIEWS = [
   { value: 'tickets', label: 'Tickets' },
   { value: 'on_order', label: 'On order counts' },
@@ -51,7 +57,7 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
     sound: s.sound !== false,
   })
   const set = patch => setForm(f => ({ ...f, ...patch }))
-  const stations = setup.kds_stations.filter(x => x.is_active)
+  const stations = setup.kds_stations.filter(x => x.is_active && x.kind !== 'board')
   const body = () => ({
     name: form.name.trim(),
     settings: { station_ids: form.station_ids, view: form.view, columns: form.columns || undefined, text_size: form.text_size, sound: form.sound },
@@ -85,7 +91,7 @@ function ScreenModal({ venueId, setup, device, onClose, onPaired }) {
                 <button key={st.id} type="button" onClick={() => toggle(st.id)} aria-pressed={form.station_ids.includes(st.id)}
                   className={cn('min-h-[44px] px-3 rounded-lg border text-sm touch-manipulation',
                     form.station_ids.includes(st.id) ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
-                  {st.name}{st.kind === 'expo' ? ' (pass)' : ''}
+                  {st.name}{st.kind === 'expo' ? ' (expo)' : st.kind === 'runner' ? ' (runner)' : ''}
                 </button>
               ))}
             </div>
@@ -111,6 +117,7 @@ function statusOf(d) {
 }
 
 function ScreensCard({ venueId, setup }) {
+  const screenStations = setup.kds_stations.filter(x => x.kind !== 'board')
   const api = useApi()
   const qc = useQueryClient()
   const [editing, setEditing] = useState(null)
@@ -123,11 +130,11 @@ function ScreensCard({ venueId, setup }) {
   const stationName = id => setup.kds_stations.find(s => s.id === id)?.name
   return (
     <Section title="Kitchen screens" hint="Android tablets or TVs in the kitchen. Open the till address on the screen in Chrome, install it, and type the pairing code: it opens as a kitchen screen."
-      actions={<Btn variant="primary" onClick={() => setEditing('new')} disabled={!setup.kds_stations.length}><Plus className="w-4 h-4" /> Add a screen</Btn>}>
+      actions={<Btn variant="primary" onClick={() => setEditing('new')} disabled={!screenStations.length}><Plus className="w-4 h-4" /> Add a screen</Btn>}>
       {!screens.length && (
         <div className="text-sm text-muted-foreground flex items-start gap-3">
           <ChefHat className="w-5 h-5 shrink-0 mt-0.5" />
-          <p>{setup.kds_stations.length ? 'No kitchen screens yet.' : 'Add your stations first (below), then add a screen for each.'}</p>
+          <p>{screenStations.length ? 'No kitchen screens yet.' : 'Add your stations first (above), then add a screen for each.'}</p>
         </div>
       )}
       {!!screens.length && (
@@ -225,21 +232,28 @@ function OptionAdd({ onAdd }) {
   )
 }
 
-function StationModal({ venueId, setup, station, onClose }) {
+export function StationModal({ venueId, setup, station, kind: newKind, onClose }) {
   const api = useApi()
   const qc = useQueryClient()
   const s = station?.settings || {}
+  const startKind = station?.kind || newKind || 'prep'
   const [form, setForm] = useState({
-    name: station?.name || '', kind: station?.kind || 'prep', colour: station?.colour || null,
+    name: station?.name || '', kind: startKind, colour: station?.colour || null,
     target_mins: s.target_mins ?? 8, late_mins: s.late_mins ?? 12, show_held: s.show_held !== false,
+    show_upcoming: s.show_upcoming ?? startKind === 'expo',
     summary_groups: s.summary_groups || [], is_active: station ? station.is_active : true,
   })
+  const [upcomingSet, setUpcomingSet] = useState(!!station)
   const set = patch => setForm(f => ({ ...f, ...patch }))
+  const setKind = k => set({ kind: k, ...(upcomingSet ? {} : { show_upcoming: k === 'expo' }) })
+  const board = form.kind === 'board'
+  const orderLevel = form.kind === 'expo' || form.kind === 'runner'
   const refresh = () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] })
   const body = () => ({
     name: form.name.trim(), kind: form.kind, colour: form.colour, is_active: form.is_active,
     settings: {
       target_mins: form.target_mins || 8, late_mins: Math.max(form.late_mins || 12, form.target_mins || 8), show_held: form.show_held,
+      show_upcoming: !!form.show_upcoming,
       summary_groups: form.summary_groups.filter(g => g.name.trim()).map(g => ({ ...g, name: g.name.trim() })),
     },
   })
@@ -249,19 +263,21 @@ function StationModal({ venueId, setup, station, onClose }) {
   })
   const remove = useMutation({ mutationFn: () => api.delete(`/pos/kds-stations/${station.id}`), onSuccess: () => { refresh(); onClose() } })
   return (
-    <Modal title={station ? 'Edit ' + station.name : 'Add a station'} onClose={onClose}
+    <Modal title={station ? 'Edit ' + station.name : 'Add ' + (form.kind === 'expo' ? 'an expo' : form.kind === 'board' ? 'an order ready board' : 'a ' + KIND_LABELS[form.kind].toLowerCase())} onClose={onClose}
       footer={<>
         <Btn variant="primary" className="flex-1" disabled={!form.name.trim() || save.isPending} onClick={() => save.mutate()}>
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
         </Btn>
         {station && <ConfirmDelete label="Delete station" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
-      <Field label="Name"><input className={inputCls} value={form.name} maxLength={40} onChange={e => set({ name: e.target.value })} placeholder="e.g. Grill, Fryer, Bar, Pass" /></Field>
-      <Field group label="Kind" hint={form.kind === 'expo'
-        ? 'The pass sees every dish of an order, ticks off what each station has done, and marks the order ready (online orders too). It needs no routing.'
-        : 'Shows the dishes sent to it (What goes where, below).'}>
-        <Segmented value={form.kind} options={KINDS} onChange={v => set({ kind: v })} />
+      <Field label="Name" hint={board ? 'Menu screens pick a board by this name, so call it the same at every venue (e.g. ORB 1).' : undefined}>
+        <input className={inputCls} value={form.name} maxLength={40} onChange={e => set({ name: e.target.value })}
+          placeholder={board ? 'e.g. ORB 1' : form.kind === 'expo' ? 'e.g. Expo 1, Pass' : form.kind === 'runner' ? 'e.g. Runner' : 'e.g. Grill, Fryer, Prep 1'} />
       </Field>
+      <Field group label="Kind" hint={KIND_HINTS[form.kind]}>
+        <Segmented value={form.kind} options={KINDS} onChange={setKind} className="flex-wrap" />
+      </Field>
+      {!board && <>
       <div className="flex flex-wrap gap-4">
         <Field label="Amber after (minutes)" hint="And the on-time target.">
           <NumberBox value={form.target_mins} min={1} max={120} onChange={v => set({ target_mins: v })} ariaLabel="Amber after minutes" />
@@ -274,9 +290,15 @@ function StationModal({ venueId, setup, station, onClose }) {
         <p className="text-xs text-amber-700">Red comes after amber: it will be saved as {form.target_mins} minutes.</p>
       )}
       <Toggle label="Show held courses" hint="Dishes waiting for their course to be fired show greyed out at the bottom of the ticket." checked={form.show_held} onChange={v => set({ show_held: v })} />
+      <Toggle label="Show orders before their dishes get here"
+        hint={orderLevel
+          ? 'Tickets come on as soon as the order is sent, with each dish marked where it is now (At Grill). Bumping finishes dishes still at earlier stations.'
+          : 'Dishes still at an earlier station show greyed out (At Prep 1) so the station can get ready. They can only be bumped once they arrive.'}
+        checked={form.show_upcoming} onChange={v => { setUpcomingSet(true); set({ show_upcoming: v }) }} />
       <Field group label="On order counts" hint="Groups to count on the On order screen and the SUM panel, e.g. Wings: the 8pc Wings dish counts 8, the 6 Wings option counts 6. Without groups each dish is counted on its own.">
         <GroupsEditor setup={setup} groups={form.summary_groups} onChange={g => set({ summary_groups: g })} />
       </Field>
+      </>}
       <Field group label="Colour"><ColourPick value={form.colour} onChange={v => set({ colour: v })} /></Field>
       {station && <Toggle label="In use" checked={form.is_active} onChange={v => set({ is_active: v })} />}
       <ErrorNote error={save.error || remove.error} />
@@ -284,17 +306,16 @@ function StationModal({ venueId, setup, station, onClose }) {
   )
 }
 
-function StationsCard({ venueId, setup }) {
+function StationsCard({ venueId, setup, onEdit }) {
   const api = useApi()
   const qc = useQueryClient()
-  const [editing, setEditing] = useState(null)
   const reorder = useMutation({
     mutationFn: ids => api.put(`/pos/venues/${venueId}/kds-stations/order`, { ids }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }),
   })
   return (
-    <Section title="Stations" hint="Where dishes are made (Grill, Fryer, Bar...) and the pass that checks orders before they go out. With no pass, an order is ready once every station has bumped it."
-      actions={<Btn variant="primary" onClick={() => setEditing('new')}><Plus className="w-4 h-4" /> Add a station</Btn>}>
+    <Section title="Stations" hint="Prep stations make dishes, the expo checks orders before they go out, runners take them out, order ready boards show the numbers. The order here is the order of the tabs on a kitchen screen. With no expo, an order is ready once every station on its dishes' way has bumped it."
+      actions={<Btn variant="primary" onClick={() => onEdit({ kind: 'prep' })}><Plus className="w-4 h-4" /> Add a station</Btn>}>
       {!setup.kds_stations.length
         ? <p className="text-sm text-muted-foreground">No stations yet. Kitchen screens start working once there is one.</p>
         : (
@@ -305,16 +326,16 @@ function StationsCard({ venueId, setup }) {
                 <div className="flex-1 min-w-0">
                   <p className={cn('text-sm font-medium', !st.is_active && 'text-muted-foreground line-through')}>{st.name}</p>
                   <p className="text-xs text-muted-foreground truncate">
-                    {st.kind === 'expo' ? 'The pass' : 'Prep station'} · amber {st.settings.target_mins} min, red {st.settings.late_mins} min
+                    {KIND_LABELS[st.kind]}
+                    {st.kind !== 'board' && <> · amber {st.settings.target_mins} min, red {st.settings.late_mins} min</>}
                     {st.settings.summary_groups?.length ? ' · counts ' + st.settings.summary_groups.map(g => g.name).join(', ') : ''}
                   </p>
                 </div>
-                <Btn onClick={() => setEditing(st)} title={'Edit ' + st.name}><Pencil className="w-4 h-4" /></Btn>
+                <Btn onClick={() => onEdit(st)} title={'Edit ' + st.name}><Pencil className="w-4 h-4" /></Btn>
               </div>
             )} />
         )}
       <ErrorNote error={reorder.error} />
-      {editing && <StationModal venueId={venueId} setup={setup} station={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </Section>
   )
 }
@@ -348,19 +369,19 @@ function OnlineCard({ venueId, setup }) {
   )
 }
 
-export default function KitchenSection({ venueId, setup }) {
-  const prep = setup.kds_stations.filter(s => s.is_active && s.kind === 'prep')
+export default function KitchenSection({ venueId, setup, canManage = true }) {
+  // { kind } = a new station of that kind, a station row = edit it
+  const [editing, setEditing] = useState(null)
   return (
     <>
-      <StationsCard venueId={venueId} setup={setup} />
+      <KitchenFlow venueId={venueId} setup={setup} canManage={canManage} onStation={setEditing} />
+      <StationsCard venueId={venueId} setup={setup} onEdit={setEditing} />
       <ScreensCard venueId={venueId} setup={setup} />
-      <Section title="What goes where" hint="A dish goes to the stations set for it, else for its section, else for its revenue centre, else Everything. Meal deal parts go to their own stations. The pass sees everything.">
-        <RoutingEditor venueId={venueId} setup={setup} targets={prep} routes={setup.kds_routes}
-          idKey="station_id" path={`/pos/venues/${venueId}/kds-routes`} noun="Stations" saveLabel="Save kitchen routing"
-          emptyText="Add a prep station first, then choose what goes to it."
-          everythingHint="Dishes with nothing set below go here." findHint="Find a dish to set its own station" />
-      </Section>
       <OnlineCard venueId={venueId} setup={setup} />
+      {editing && (
+        <StationModal venueId={venueId} setup={setup} station={editing.id ? editing : null} kind={editing.kind}
+          onClose={() => setEditing(null)} />
+      )}
     </>
   )
 }

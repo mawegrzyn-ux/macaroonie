@@ -25,7 +25,7 @@ const LEVELS = ['item', 'section', 'revenue_centre', 'default']
 
 /**
  * Printer ids for something with { item_id, section_id, revenue_centre_id }.
- * Kitchen screens route the same way with key 'station_id' (kds_routes).
+ * (Kitchen screens use the kitchen flow instead: itemRoute() in kitchen.js.)
  */
 export function routeFor(target, routes = [], key = 'printer_id') {
   for (const level of LEVELS) {

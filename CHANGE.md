@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-16 — Kitchen flow designer, runners and order ready boards per expo]
+
+- New **Kitchen flow** in **Till setup → Kitchen screens**: draw how dishes move through the kitchen. Boxes for Orders in and every station; drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it, and tap a link to choose which dishes take it (dishes, sections, revenue centres, order types). From each station a dish takes the links that name it most closely, so a burger bun can go Prep 1 → Prep 2 for the meat while the fries go Prep 1 → Expo 1, and Prep 3's dishes go to Expo 2. **Check a dish** shows a dish's way; a way round in a circle can't be saved; **Tidy**, full screen, explicit Save.
+- Four kinds of station: **Prep**, **Expo** (the pass), **Runner** (takes orders out) and **Order ready board** (shows numbers on menu screens). An expo can send to a board and a runner at once, or to a runner that then sends to the board; a runner can be for eat in only.
+- Kitchen screens follow the flow: a dish comes onto the next station when the one before bumps it ("From Grill"), dishes going different ways say where they go next, the expo shows each dish where it is now ("At Fryer") and its READY finishes dishes still at earlier stations, a line shows when some of the order goes through another expo, and a runner gets the order once the expo is done (**DONE**; when the runner is the last step it hands the order over). A station can't bump what hasn't reached it, or bring back what the next station has already done. Prep timers start when the dish reaches the station.
+- New station option **Show orders before their dishes get here** (on for expos).
+- **Order status block** (menu screens): pick an order ready board by name (e.g. ORB 1: ready once both expos are done), Preparing and Ready side by side or one above the other (Ready first if you like), a colour for the preparing box, and an animation when a number changes: float over, fade, pop or zoom.
+- Fixed: an Order status animation could be skipped when the screen drew the board in the same millisecond as the change.
+- Existing routing became the flow: each station's dishes come in from Orders in as before, and every prep station sends on to every expo. Kitchen orders in progress are cleared.
+- Migration 169.
+
 ## [2026-10-16 — Kitchen screens (KDS) and an order ready board]
 
 - New **kitchen screens**: Android tablets or TV boxes in Chrome show the orders to cook. Set up in **Till setup → Kitchen screens**: stations (Grill, Fryer, Bar ...) and the pass, amber / red times per station, what goes where (like printers), the screens (paired with a code at the till address, each showing one or more stations), and online orders.

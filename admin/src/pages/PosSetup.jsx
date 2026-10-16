@@ -25,7 +25,7 @@ const TABS = [
   { key: 'tills', label: 'Tills', render: p => <TillsSection {...p} /> },
   { key: 'revenue', label: 'Revenue centres', render: p => <RevenueCentresSection {...p} /> },
   { key: 'printers', label: 'Printers', render: p => <PrintersSection {...p} /> },
-  { key: 'kitchen', label: 'Kitchen screens', render: p => <KitchenSection {...p} /> },
+  { key: 'kitchen', label: 'Kitchen screens', wide: true, render: p => <KitchenSection {...p} /> },
   { key: 'staff', label: 'Staff and PINs', render: p => <StaffSection {...p} /> },
   { key: 'roles', label: 'Till roles', render: p => <RolesSection {...p} /> },
   { key: 'courses', label: 'Courses', render: p => <CoursesSection {...p} /> },
@@ -52,7 +52,7 @@ export default function PosSetup() {
         </Link>
       </PageHeader>
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto p-4 space-y-4">
+        <div className={cn('mx-auto p-4 space-y-4', tab.wide ? 'max-w-6xl' : 'max-w-3xl')}>
           <nav className="flex flex-wrap gap-1.5" aria-label="Till setup sections">
             {TABS.map(t => (
               <button key={t.key} type="button" onClick={() => setParams({ tab: t.key }, { replace: true })}
@@ -69,7 +69,7 @@ export default function PosSetup() {
           {setup && !canManage && <ReadOnlyNotice what="the till setup" />}
           {setup && (
             <ReadOnlyFieldset disabled={!canManage}>
-              {tab.render({ venueId, setup })}
+              {tab.render({ venueId, setup, canManage })}
             </ReadOnlyFieldset>
           )}
         </div>

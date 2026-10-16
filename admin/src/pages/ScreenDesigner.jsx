@@ -37,7 +37,7 @@ import {
 import {
   BLOCK_TYPES, BLOCK_LABELS, BLOCK_HINTS, BLOCK_DEFAULTS, BOARD_SIZES, SCREEN_FONT_OPTIONS, ANIM_IN, ANIM_LOOP,
   normalizeBoard, boardContext, renderBlockInner, blockStyle, boardStyle, toReactStyle, dishOptionLabels,
-  wrapMotion, startBoardMotion, wallRegion,
+  wrapMotion, startBoardMotion, wallRegion, ORDER_CHANGE_ANIMS,
 } from '@shared/screenLayout.js'
 
 const ICONS = {
@@ -996,7 +996,18 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
       {block.type === 'order_status' && (
         <>
           <Section title="Order status">
-            <p className="text-xs text-muted-foreground">Order numbers from the kitchen screens (Till setup &gt; Kitchen screens): till counter orders and online orders. The designer shows example numbers.</p>
+            <p className="text-xs text-muted-foreground">Order numbers from the kitchen screens (Till setup &gt; Kitchen screens). The designer shows example numbers.</p>
+            <Sel label="Which orders" value={o.board || ''} onChange={v => onOpts({ board: v })}>
+              <option value="">Every counter and online order</option>
+              {[...new Set([...(data?.order_boards || []), ...(o.board ? [o.board] : [])])].map(n => (
+                <option key={n} value={n}>Order ready board: {n}</option>
+              ))}
+            </Sel>
+            <p className="text-[11px] text-muted-foreground">
+              {o.board
+                ? <>Orders on their way to the board station named &ldquo;{o.board}&rdquo; in the kitchen flow, ready once every dish has reached it. A screen at a venue without a board of that name shows none.</>
+                : <>Ready once the kitchen has finished the whole order. Add an order ready board to the kitchen flow (Till setup &gt; Kitchen screens) to show only the orders that come to it.</>}
+            </p>
             <Check label="Show orders being prepared" checked={o.show_preparing !== false} onChange={v => onOpts({ show_preparing: v })} />
             {o.show_preparing !== false && (
               <label className="block text-xs font-medium">Preparing title
@@ -1008,6 +1019,13 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
               <input value={o.ready_title ?? 'Ready'} maxLength={40} onChange={e => onOpts({ ready_title: e.target.value })}
                 className="mt-1 w-full h-11 text-sm border rounded-md px-2 bg-background" />
             </label>
+            <Sel label="Layout" value={o.layout === 'stacked' ? 'stacked' : 'side'} onChange={v => onOpts({ layout: v })}>
+              <option value="side">Side by side</option>
+              <option value="stacked">One above the other</option>
+            </Sel>
+            {o.show_preparing !== false && (
+              <Check label={o.layout === 'stacked' ? 'Ready at the top' : 'Ready on the left'} checked={!!o.ready_first} onChange={v => onOpts({ ready_first: v })} />
+            )}
             <Check label="Show the guest's first name under online orders" checked={!!o.show_names} onChange={v => onOpts({ show_names: v })} />
             <div className="grid grid-cols-2 gap-2">
               <PxBox label="Numbers per row" suffix="" value={o.columns ?? 1} min={1} max={6} onChange={v => onOpts({ columns: v })} />
@@ -1024,7 +1042,17 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
             <ColourField label="Titles" value={o.title_color || null} optional onChange={v => onOpts({ title_color: v })} />
             <ColourField label="Ready box" value={o.ready_bg || '#2e8b57'} onChange={v => onOpts({ ready_bg: v })} />
             <ColourField label="Ready number" value={o.ready_color || '#ffffff'} onChange={v => onOpts({ ready_color: v })} />
-            <ColourField label="Preparing numbers" value={o.preparing_color || null} optional onChange={v => onOpts({ preparing_color: v })} />
+            <ColourField label="Preparing number" value={o.preparing_color || null} optional onChange={v => onOpts({ preparing_color: v })} />
+            <ColourField label="Preparing box" value={o.preparing_bg || null} optional onChange={v => onOpts({ preparing_bg: v })} />
+          </Section>
+          <Section title="When a number changes">
+            <Sel label="Animation" value={o.change_anim || 'none'} onChange={v => onOpts({ change_anim: v })}>
+              {ORDER_CHANGE_ANIMS.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+            </Sel>
+            {o.change_anim && o.change_anim !== 'none' && (
+              <PxBox label="Taking" suffix="ms" value={o.change_ms ?? 900} min={200} max={3000} onChange={v => onOpts({ change_ms: v })} />
+            )}
+            <p className="text-[11px] text-muted-foreground">Plays on the screens when an order moves to Ready, comes in or is collected. Press Play to see it here.</p>
           </Section>
         </>
       )}

@@ -11,7 +11,7 @@
 // the socket (pos.seq with kinds ['kitchen']) or the poll.
 
 import { useSyncExternalStore } from 'react'
-import { applyKitchenEvent, stationSettings, STALE_HOURS } from '@shared/pos/kitchen.js'
+import { applyKitchenEvent, stationSettings, nodeState, STALE_HOURS } from '@shared/pos/kitchen.js'
 import { ulid } from '@shared/pos/ids.js'
 import * as idb from '../lib/idb.js'
 import { createTransport, OfflineError } from '../lib/transport.js'
@@ -68,9 +68,10 @@ export function toast(text, kind = 'info', ms = 3500) {
 
 // ── Config ───────────────────────────────────────────────────────
 
-/** Stations this screen may show (device settings), in setup order. */
+/** Stations this screen may show (device settings), in setup order. Order
+ *  ready boards have nothing to bump: they show on menu screens instead. */
 export function myStations(s = state) {
-  const all = s.config?.stations || []
+  const all = (s.config?.stations || []).filter(x => x.kind !== 'board')
   const ids = s.config?.device?.settings?.station_ids || []
   const mine = ids.length ? all.filter(x => ids.includes(x.id)) : all
   return mine.length ? mine : all
@@ -82,10 +83,21 @@ export function currentStation(s = state) {
   return list.find(x => x.id === s.prefs.station_id) || list[0] || null
 }
 
-/** The kitchen config the shared rules need for this screen's own taps. */
-function kitchenCfg(config) {
+/**
+ * The kitchen config the shared rules need on this screen: the stations (a
+ * dish's way through the kitchen is worked out when it is sent and kept on
+ * the dish, item.route) and the flow (for showing where dishes go).
+ */
+let cfgCache = { config: null, cfg: null }
+export function kitchenCfg(config = state.config) {
+  if (cfgCache.config === config && cfgCache.cfg) return cfgCache.cfg
   const stations = Object.fromEntries((config?.stations || []).map(x => [x.id, { ...x, settings: stationSettings(x) }]))
-  return { enabled: true, expo: (config?.stations || []).some(x => x.kind === 'expo'), stations, routes: [] }
+  const cfg = { enabled: true, stations, flow: config?.flow || [] }
+  cfgCache = { config, cfg }
+  return cfg
+}
+export function useCfg() {
+  return kitchenCfg(useKitchen().config)
 }
 
 let derived = { confirmed: null, outbox: null, config: null, orders: {} }
@@ -220,19 +232,27 @@ export async function flush() {
 
 const isFresh = (o, now) => o.status === 'active' || (Date.parse(now) - Date.parse(o.updated_at || o.created_at || 0) < STALE_HOURS * 3600_000)
 
-/** Keys of tickets this station hasn't seen yet (for the beep and flash). */
+/**
+ * Orders with dishes new to this station (for the beep and flash): sent
+ * straight here, passed on from an earlier station, or (when it shows them)
+ * newly on their way.
+ */
 function newArrivals(before, after) {
-  const st = currentStation()
-  if (!st) return []
-  const key = o => o.id + ':' + o.items.filter(i => st.kind === 'expo' || i.stations.includes(st.id)).length + ':' + (o.items.filter(i => i.fired_at).length)
+  const cur = currentStation()
+  if (!cur) return []
+  const cfg = kitchenCfg()
+  const st = cfg.stations[cur.id] || cur
+  const early = stationSettings(st).show_upcoming
+  const now = nowIso()
+  const here = o => new Set((o?.items || []).filter(i => {
+    const s = nodeState(i, st.id, cfg, now)
+    return s === 'active' || (early && s === 'upcoming')
+  }).map(i => i.id))
   const out = []
   for (const o of Object.values(after)) {
     if (o.status !== 'active') continue
-    const was = before[o.id]
-    if (!was || key(was) !== key(o)) {
-      const mine = o.items.some(i => st.kind === 'expo' || i.stations.includes(st.id))
-      if (mine) out.push(o.id)
-    }
+    const was = here(before[o.id])
+    if ([...here(o)].some(id => !was.has(id))) out.push(o.id)
   }
   return out
 }

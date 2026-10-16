@@ -306,10 +306,21 @@ Chrome, as an installed PWA.
 - **Online orders** enter as server-made events (`kitchen.order_in` / `kitchen.order_status`)
   when accepted on the orders board; the pass marking one ready marks the online order ready
   (the guest's email), if switched on.
-- **Routing** works like printers (dish, section, revenue centre, default) to prep stations;
-  the pass sees everything.
-- **Order-ready board**: the menu screens' `order_status` block shows numbers preparing and
-  ready (`/screen-api/orders`), pushed on `kitchen.board`.
+- **The kitchen flow** (migration 169, 16 Oct 2026) replaced printer-style routing. Stations are
+  prep, expo, runner or order ready board; links go from Orders in (the till and online orders)
+  to stations and on from station to station, each with an optional filter (dishes, sections,
+  revenue centres, order types). From each point a dish takes the links that name it most closely
+  (dish, section, revenue centre, order type, then links for every dish), so a burger bun goes
+  Prep 1 > Prep 2 (meat) > Expo 1 while the fries go Prep 1 > Expo 1, Prep 3's dishes go to
+  Expo 2, and ORB 1 shows an order ready once both expos are done. Links that tie all apply:
+  an expo can send to a board and a runner at once, or to a runner that then sends to the board.
+  A dish's whole way is worked out when it is sent and kept on the dish (`item.route`), so a flow
+  change during service only affects dishes sent after it. Designer: Till setup → Kitchen
+  screens → Kitchen flow.
+- **Order-ready boards**: the menu screens' `order_status` block shows numbers preparing and
+  ready (`/screen-api/orders`), pushed on `kitchen.board`: every counter and online order, or one
+  board station of the flow by name (`boards[name]`, ready once every dish on its way there has
+  arrived). Side by side or stacked, with an optional animation when a number changes column.
 - **Speed of service**: every bump and remake is a `kds_log` row (station, seconds, items,
   order type and source); Till reports → Kitchen shows it per station and hour, and the CSV
   export is the raw rows for spreadsheets or a BI warehouse.
@@ -353,6 +364,11 @@ nothing changes for the devices.
 - Ready / bumped shown on the till (the till doesn't show what the kitchen has done).
 - Item-level cook times and "start this now" timing across stations (all dishes of an order
   start together; held courses and later online orders wait).
+- Flow filters by order type use the fixed types (eat in, takeaway, collection, delivery); the
+  planned configurable order types (with revenue streams) will need the filters to name them.
+- No "split one dish into two jobs" (e.g. the burger's bun and meat as separate items on two
+  stations at once): a dish moves through stations one after another, or a meal deal's parts go
+  their own ways.
 - Tested in Chromium on desktop sizes (tablet, TV, portrait) only; not yet on a real Android
   tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser
   autoplay rule).

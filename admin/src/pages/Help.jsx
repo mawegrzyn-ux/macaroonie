@@ -4141,7 +4141,9 @@ export default function Help() {
               Kitchen screens show the orders to cook on a screen instead of (or as well as) printed tickets.
               Use an Android tablet, or an Android TV box or stick with a big screen, in Chrome. Orders from
               the till and from online ordering arrive the moment they're sent; the cooks tap to say a dish or
-              order is done, and the pass marks the order ready.
+              order is done, and the expo (the pass) marks the order ready. The <strong>kitchen flow</strong> says
+              how dishes move between stations: a burger bun from Prep 1 on to Prep 2 for the meat, while the
+              fries go from Prep 1 straight to Expo 1.
             </P>
             <InfoBox type="info">
               Kitchen screens talk to Macaroonie over the internet, like the tills. If the internet drops, a
@@ -4152,17 +4154,19 @@ export default function Help() {
 
             <H3>Setting up (Till setup → Kitchen screens)</H3>
             <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
-              <li><strong>Stations</strong>: where dishes are made, e.g. Grill, Fryer, Bar, and <strong>the pass</strong> (expo), which checks orders before they go out. Each station turns a ticket amber after a number of minutes (your target time) and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6). With no pass, an order is ready when every station has finished its part.</li>
-              <li><strong>What goes where</strong>: a dish goes to the stations set for it, else for its section, else for its revenue centre, else Everything. The pass sees everything and needs nothing here. Save kitchen routing.</li>
-              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all), what it opens on (tickets or the On order counts), tickets across, text size and the beep. On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
+              <li><strong>Stations</strong>, four kinds: <strong>Prep</strong> (Grill, Fryer, Bar, Prep 1...) makes dishes; <strong>Expo</strong> (the pass) checks whole orders before they go out; <strong>Runner</strong> takes orders out to tables or the counter; <strong>Order ready board</strong> shows order numbers on menu screens (nothing to bump, no kitchen screen). Each station turns a ticket amber after your target minutes and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>Show orders before their dishes get here</strong> (on for an expo) puts a ticket up as soon as the order is sent, each dish marked where it is now (At Grill). <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6).</li>
+              <li><strong>Kitchen flow</strong> (at the top): boxes for <strong>Orders in</strong> (the till and online orders) and every station, joined by links. Drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link's label to choose which dishes take it: dishes, sections, revenue centres or order types (Eat in, Takeaway...); a link with no filter takes every dish. From each box a dish takes the links that name it most closely (the dish, then its section, its revenue centre, its order type, then links for every dish), so Prep 1 to Prep 2 for burgers and Prep 1 to Expo 1 for everything else sends the bun on and the fries straight to the expo. Links that tie all apply: Expo 1 to ORB 1 and to a Runner at once, or for eat in only. <strong>Check a dish</strong> shows a dish's way. A new flow arranges itself; drag boxes by their grip, or press <strong>Tidy</strong>. A way round in a circle can't be saved. <strong>Save flow</strong>: dishes sent from then on follow it (dishes already in the kitchen keep their way).</li>
+              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all; order ready boards aren't shown on kitchen screens), what it opens on (tickets or the On order counts), tickets across, text size and the beep. On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
               <li><strong>Online orders</strong>: send online orders to the kitchen when they're accepted (an order for later comes on when it's time to start it), and mark them ready when the kitchen finishes (the guest gets the ready email).</li>
             </ol>
 
             <H3>Using a kitchen screen</H3>
             <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
               <li>Tickets run left to right, oldest first (rush orders first). The header shows the table or tab, the order number, the timer, eat in or takeaway, covers and server. Notes are yellow, allergies red, options pink and removals red.</li>
-              <li><strong>Tap a dish</strong> to mark it done (tap again to undo). <strong>Tap a ticket</strong> to pick it (blue outline), then <strong>BUMP</strong> to finish it. Bumping the last dish of a ticket bumps it too.</li>
-              <li><strong>The pass</strong> sees whole orders, ticks off each station's part ("Waiting: Fryer"), and BUMP marks the order ready. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
+              <li><strong>Tap a dish</strong> to mark it done (tap again to undo). <strong>Tap a ticket</strong> to pick it (blue outline), then <strong>BUMP</strong> to finish it here: its dishes go on to the next station in the flow ("From Grill" on the next station's ticket). Bumping the last dish of a ticket bumps it too. When dishes on one ticket go different ways, each says where it goes next ("Then Prep 2", "Then Pass").</li>
+              <li><strong>The expo</strong> sees whole orders, each dish marked where it is now ("At Fryer"), and <strong>READY</strong> marks the order ready (it also finishes dishes still at earlier stations). A line says when some of the order goes through another expo. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
+              <li><strong>A runner</strong> gets the order once the expo is done, and <strong>DONE</strong> when it's taken out. When the runner is the last step for every dish, DONE hands the order over (it leaves the order ready board).</li>
+              <li>A station can't bump a dish that hasn't reached it yet, and can't bring back one the next station has already done.</li>
               <li>Along the top: All orders, Eat in, Takeaway and Online, and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
               <li><strong>Rush</strong> moves a ticket to the front. <strong>SUM</strong> shows how many of each dish are on order. <strong>Prev</strong> lists the last tickets bumped here: <strong>Bring back</strong> one bumped by mistake. <strong>Remake</strong> puts a dish back on with a reason (for the waste report).</li>
               <li>A dish voided on the till shows crossed out with VOID until the ticket is bumped. Dishes moved to another table or check follow it.</li>
@@ -4179,10 +4183,14 @@ export default function Help() {
             <P>
               To show guests their order numbers, add an <strong>Order status</strong> block to a board on the{' '}
               <strong>Screens</strong> page and put the board on a screen at the counter. It lists numbers being
-              prepared and numbers ready to collect (counter orders from the till and online orders), and
-              changes as the kitchen bumps them. Ready numbers stay for the minutes you set, or until the pass
-              marks the order collected.
+              prepared and numbers ready to collect, and changes as the kitchen bumps them. Ready numbers stay
+              for the minutes you set, or until the order is collected.
             </P>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Which orders</strong>: every counter and online order (ready once the kitchen has finished the whole order), or one <strong>order ready board</strong> from the kitchen flow by name, e.g. ORB 1: only orders with dishes on their way to it, ready once all of them have arrived (both Expo 1 and Expo 2 done). Use the same board name at every venue and one board design works everywhere.</li>
+              <li><strong>Layout</strong>: Preparing and Ready side by side, or one above the other, with Ready first if you like. Colours for the titles, the ready box and number, and the preparing number and box.</li>
+              <li><strong>When a number changes</strong>: float over (from Preparing to Ready), fade out and in, pop out and in, or zoom out and in, taking the time you set. Press Play in the designer to see it.</li>
+            </ul>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

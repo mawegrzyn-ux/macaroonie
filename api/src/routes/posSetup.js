@@ -27,7 +27,7 @@
 //   GET    /venues/:venueId/print-jobs            the print queue
 //   Kitchen screens (docs/POS.md section 9; shared/pos/kitchen.js):
 //   POST   /venues/:venueId/kds-stations          + PATCH/DELETE /kds-stations/:id, PUT /venues/:venueId/kds-stations/order
-//   PUT    /venues/:venueId/kds-routes            the whole kitchen routing list
+//   PUT    /venues/:venueId/kds-flow              the kitchen flow: every link + where the designer draws each box
 //   GET    /venues/:venueId/kitchen-report?from=&to=   speed of service per station, by hour, remakes
 //   GET    /venues/:venueId/kitchen-report.csv?from=&to=  every bump and remake, for spreadsheets / BI
 //   (kitchen screens themselves are devices: POST /venues/:venueId/devices with kind 'kds')
@@ -45,7 +45,7 @@ import {
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
-import { stationSettings } from '../../../shared/pos/kitchen.js'
+import { stationSettings, flowProblems, flowWarnings, STATION_KINDS, FLOW_TARGET_KINDS } from '../../../shared/pos/kitchen.js'
 import { posOrigin } from '../services/platformHost.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
@@ -151,6 +151,9 @@ const StationSettings = z.object({
   target_mins:    z.number().int().min(1).max(120).default(8),
   late_mins:      z.number().int().min(1).max(240).default(12),
   show_held:      z.boolean().default(true),
+  // Show orders before their dishes reach this station (default: the pass
+  // only; stationSettings()). Expo / runner: their bump finishes them.
+  show_upcoming:  z.boolean().optional(),
   summary_groups: z.array(z.object({
     id:      z.string().min(1).max(40),
     name:    z.string().trim().min(1).max(40),
@@ -160,18 +163,29 @@ const StationSettings = z.object({
 
 const StationBody = z.object({
   name:      z.string().trim().min(1).max(40),
-  kind:      z.enum(['prep', 'expo']).default('prep'),
+  kind:      z.enum(STATION_KINDS).default('prep'),
   colour:    COLOUR,
   settings:  StationSettings.default({}),
   is_active: z.boolean().default(true),
 })
 
-const KdsRoutesBody = z.object({
-  routes: z.array(z.object({
-    station_id:  UUID,
-    target_kind: z.enum(['item', 'section', 'revenue_centre', 'default']),
-    target_id:   UUID.nullable().optional(),
-  })).max(2000),
+// The kitchen flow: links from Orders in (from null) or a station to a
+// station, each with an optional filter (shared/pos/kitchen.js itemRoute()),
+// and where the designer draws each box ('start' = Orders in).
+const FlowTarget = z.object({
+  kind: z.enum(FLOW_TARGET_KINDS),
+  id:   z.string().max(40).nullable().optional(),
+})
+const KdsFlowBody = z.object({
+  links: z.array(z.object({
+    from:    UUID.nullable(),
+    to:      UUID,
+    targets: z.array(FlowTarget).max(300).default([]),
+  })).max(400),
+  layout: z.record(z.string().max(40), z.object({
+    x: z.number().min(-2000).max(20000),
+    y: z.number().min(-2000).max(20000),
+  })).default({}),
 })
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
@@ -229,6 +243,39 @@ async function ownRow(tx, table, tenantId, id, what) {
   return row
 }
 
+/** A venue's kitchen flow links, in the shape shared/pos/kitchen.js uses. */
+export async function loadFlowLinks(tx, tenantId, venueId) {
+  return tx`
+    SELECT id, from_station_id AS "from", to_station_id AS "to", targets
+      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+     ORDER BY sort_order, created_at`
+}
+
+/** Something a flow filter names is gone: take it out of every filter. A link
+ *  left with no filter at all named only that, so it goes too (an empty
+ *  filter would mean every dish). */
+async function dropFlowTarget(tx, tenantId, kind, id) {
+  const rows = await tx`
+    SELECT id, targets FROM kds_flow_edges
+     WHERE tenant_id = ${tenantId} AND targets @> ${tx.json([{ kind, id }])}`
+  for (const r of rows) {
+    const left = r.targets.filter(t => !(t.kind === kind && t.id === id))
+    if (left.length) await tx`UPDATE kds_flow_edges SET targets = ${tx.json(left)} WHERE id = ${r.id} AND tenant_id = ${tenantId}`
+    else await tx`DELETE FROM kds_flow_edges WHERE id = ${r.id} AND tenant_id = ${tenantId}`
+  }
+}
+
+/** Kitchen screens that showed a station: take it off their list. */
+async function dropDeviceStation(tx, tenantId, venueId, stationId) {
+  const devices = await tx`SELECT id, settings FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind = 'kds'`
+  for (const d of devices) {
+    const ids = (d.settings?.station_ids || []).filter(x => x !== stationId)
+    if (ids.length !== (d.settings?.station_ids || []).length) {
+      await tx`UPDATE pos_devices SET settings = ${tx.json({ ...d.settings, station_ids: ids })} WHERE id = ${d.id} AND tenant_id = ${tenantId}`
+    }
+  }
+}
+
 function deviceView(d) {
   return {
     id: d.id, name: d.name, kind: d.kind, short_code: d.short_code, settings: d.settings || {},
@@ -273,7 +320,7 @@ export default async function posSetupRoutes(app) {
     return withTenant(tenantId, async tx => {
       const venue = await ownVenue(tx, tenantId, venueId)
       const settings = await ensureSettings(tx, tenantId, venueId)
-      const [rcs, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsRoutes] = await Promise.all([
+      const [rcs, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsLinks] = await Promise.all([
         tx`SELECT id, name, vat_mode, menu_ids, service_charge_percent::float8 AS service_charge_percent,
                   service_charge_min_covers, colour, sort_order, is_active
              FROM pos_revenue_centres WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
@@ -296,7 +343,7 @@ export default async function posSetupRoutes(app) {
             ORDER BY sort_order, name`,
         tx`SELECT id, name, kind, colour, settings, sort_order, is_active FROM kds_stations
             WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
-        tx`SELECT station_id, target_kind, target_id FROM kds_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+        loadFlowLinks(tx, tenantId, venueId),
       ])
       // Sections and dishes, for printer routing.
       const menuIds = menus.map(m => m.id)
@@ -317,7 +364,7 @@ export default async function posSetupRoutes(app) {
         roles: roles.map(r => ({ ...r, permissions: normalisePermissions(r.permissions || {}) })),
         courses, menus, sections, items,
         kds_stations: kdsStations.map(s => ({ ...s, settings: stationSettings(s) })),
-        kds_routes: kdsRoutes,
+        kds_flow: { links: kdsLinks, layout: settings.kds_flow_layout || {} },
         recon_fields: await reconFields(tx, tenantId, venueId),
         till_url: posOrigin(),
       }
@@ -399,7 +446,7 @@ export default async function posSetupRoutes(app) {
       if (n) await tx`UPDATE pos_revenue_centres SET is_active = false WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       else await tx`DELETE FROM pos_revenue_centres WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       await tx`DELETE FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND target_kind = 'revenue_centre' AND target_id = ${id}`
-      await tx`DELETE FROM kds_routes WHERE tenant_id = ${req.tenantId} AND target_kind = 'revenue_centre' AND target_id = ${id}`
+      await dropFlowTarget(tx, req.tenantId, 'revenue_centre', id)
       return { ...row, switched_off: n > 0 }
     })
     configChanged(rc.venue_id)
@@ -530,8 +577,8 @@ export default async function posSetupRoutes(app) {
     }
     if (s.station_ids?.length) {
       const ids = [...new Set(s.station_ids)]
-      const found = await tx`SELECT id FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ANY(${ids}::uuid[])`
-      if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found')
+      const found = await tx`SELECT id FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND kind <> 'board' AND id = ANY(${ids}::uuid[])`
+      if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found (an order ready board isn\'t shown on a kitchen screen)')
     }
   }
 
@@ -624,8 +671,11 @@ export default async function posSetupRoutes(app) {
                settings = ${tx.json(body.settings)}, is_active = ${body.is_active}
          WHERE id = ${id} AND tenant_id = ${req.tenantId}
          RETURNING *`
-      // The pass (expo) sees everything: routes to it mean nothing.
-      if (body.kind === 'expo') await tx`DELETE FROM kds_routes WHERE tenant_id = ${req.tenantId} AND station_id = ${id}`
+      // An order ready board passes nothing on and isn't on any kitchen screen.
+      if (body.kind === 'board') {
+        await tx`DELETE FROM kds_flow_edges WHERE tenant_id = ${req.tenantId} AND from_station_id = ${id}`
+        await dropDeviceStation(tx, req.tenantId, s.venue_id, id)
+      }
       return s
     })
     configChanged(row.venue_id)
@@ -636,15 +686,9 @@ export default async function posSetupRoutes(app) {
     const id = UUID.parse(req.params.id)
     const s = await withTenant(req.tenantId, async tx => {
       const row = await ownRow(tx, 'kds_stations', req.tenantId, id, 'Kitchen station')
+      // Its links go with it (ON DELETE CASCADE).
       await tx`DELETE FROM kds_stations WHERE id = ${id} AND tenant_id = ${req.tenantId}`
-      // Kitchen screens that showed it: take it off their list.
-      const devices = await tx`SELECT id, settings FROM pos_devices WHERE tenant_id = ${req.tenantId} AND venue_id = ${row.venue_id} AND kind = 'kds'`
-      for (const d of devices) {
-        const ids = (d.settings?.station_ids || []).filter(x => x !== id)
-        if (ids.length !== (d.settings?.station_ids || []).length) {
-          await tx`UPDATE pos_devices SET settings = ${tx.json({ ...d.settings, station_ids: ids })} WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`
-        }
-      }
+      await dropDeviceStation(tx, req.tenantId, row.venue_id, id)
       return row
     })
     configChanged(s.venue_id)
@@ -664,42 +708,56 @@ export default async function posSetupRoutes(app) {
     return { ok: true }
   })
 
-  app.put('/venues/:venueId/kds-routes', { preHandler: canSetup }, async req => {
+  app.put('/venues/:venueId/kds-flow', { preHandler: canSetup }, async req => {
     const venueId = UUID.parse(req.params.venueId)
-    const { routes } = KdsRoutesBody.parse(req.body)
+    const body = KdsFlowBody.parse(req.body)
     const out = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
-      const prep = new Set((await tx`SELECT id FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND kind = 'prep'`).map(r => r.id))
+      const stations = await tx`SELECT id, name, kind, is_active FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const rcs = new Set((await tx`SELECT id FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
-      const clean = []
-      const seen = new Set()
-      for (const r of routes) {
-        if (!prep.has(r.station_id)) throw httpError(422, 'Kitchen station not found (the pass sees everything, so it has no routes)')
-        const target = r.target_kind === 'default' ? null : (r.target_id || null)
-        if (r.target_kind !== 'default' && !target) throw httpError(422, 'A route needs a dish, section or revenue centre')
-        if (r.target_kind === 'revenue_centre' && !rcs.has(target)) throw httpError(422, 'Revenue centre not found')
-        const key = r.station_id + r.target_kind + target
-        if (seen.has(key)) continue
-        seen.add(key)
-        clean.push({ ...r, target_id: target })
-      }
-      const menuIds = clean.filter(r => r.target_kind === 'item' || r.target_kind === 'section').map(r => r.target_id)
+      const isUuid = v => typeof v === 'string' && UUID.safeParse(v).success
+      const links = body.links.map(l => ({
+        from: l.from || null,
+        to: l.to,
+        targets: (() => {
+          const seen = new Set()
+          const list = []
+          for (const t of l.targets) {
+            const target = t.kind === 'default' ? { kind: 'default' } : { kind: t.kind, id: t.id || null }
+            if (t.kind !== 'default' && !target.id) throw httpError(422, 'A link filter needs a dish, section, revenue centre or order type')
+            if (['item', 'section', 'revenue_centre'].includes(t.kind) && !isUuid(target.id)) throw httpError(422, 'A link filter wasn\'t found')
+            if (t.kind === 'revenue_centre' && !rcs.has(target.id)) throw httpError(422, 'Revenue centre not found')
+            const key = target.kind + ':' + (target.id || '')
+            if (!seen.has(key)) { seen.add(key); list.push(target) }
+          }
+          return list
+        })(),
+      }))
+      const problems = flowProblems(stations, links)
+      if (problems.length) throw httpError(422, problems[0])
+      const menuIds = [...new Set(links.flatMap(l => l.targets.filter(t => t.kind === 'item' || t.kind === 'section').map(t => t.id)))]
       if (menuIds.length) {
         const found = await tx`
           SELECT id FROM menu_items WHERE tenant_id = ${req.tenantId} AND id = ANY(${menuIds}::uuid[])
           UNION SELECT id FROM menu_sections WHERE tenant_id = ${req.tenantId} AND id = ANY(${menuIds}::uuid[])`
-        if (found.length !== new Set(menuIds).size) throw httpError(422, 'A dish or section wasn\'t found')
+        if (found.length !== menuIds.length) throw httpError(422, 'A dish or section wasn\'t found')
       }
-      await tx`DELETE FROM kds_routes WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
-      for (const r of clean) {
+      const known = new Set(['start', ...stations.map(s => s.id)])
+      const layout = Object.fromEntries(Object.entries(body.layout).filter(([k]) => known.has(k))
+        .map(([k, p]) => [k, { x: Math.round(p.x), y: Math.round(p.y) }]))
+      await ensureSettings(tx, req.tenantId, venueId)
+      await tx`DELETE FROM kds_flow_edges WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      for (const [i, l] of links.entries()) {
         await tx`
-          INSERT INTO kds_routes (tenant_id, venue_id, station_id, target_kind, target_id)
-          VALUES (${req.tenantId}, ${venueId}, ${r.station_id}, ${r.target_kind}, ${r.target_id})`
+          INSERT INTO kds_flow_edges (tenant_id, venue_id, from_station_id, to_station_id, targets, sort_order)
+          VALUES (${req.tenantId}, ${venueId}, ${l.from}, ${l.to}, ${tx.json(l.targets)}, ${i})`
       }
-      return tx`SELECT station_id, target_kind, target_id FROM kds_routes WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      await tx`UPDATE pos_settings SET kds_flow_layout = ${tx.json(layout)} WHERE venue_id = ${venueId} AND tenant_id = ${req.tenantId}`
+      const saved = await loadFlowLinks(tx, req.tenantId, venueId)
+      return { links: saved, layout, warnings: flowWarnings(stations, saved) }
     })
     configChanged(venueId)
-    return { routes: out }
+    return out
   })
 
   // ── Kitchen report (speed of service) ───────────────────────────

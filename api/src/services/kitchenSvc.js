@@ -4,7 +4,7 @@
 // shared/pos/kitchen.js and run inside the sequencer (services/posSvc.js).
 //
 //   loadKitchenConfig()     what the sequencer's kitchen rules need (stations,
-//                           routes, courses, tables, staff, revenue centres)
+//                           the flow, courses, tables, staff, revenue centres)
 //   kdsConfig()             what a kitchen screen downloads (/pos-api/config)
 //   kitchenSync()           kitchen orders since a sequence number
 //   submitServerEvent()     a kitchen event made by the server (online orders)
@@ -12,14 +12,15 @@
 //                           accepted -> into the kitchen, ready / completed /
 //                           cancelled -> the kitchen follows
 //   announceKitchen()       tell the venue's screens to sync
-//   boardFor()              order-ready board numbers for a venue
+//   boardFor()              order ready board numbers for a venue (all
+//                           counter / online orders, and per board station)
 //
 // Every query filters tenant_id itself.
 
 import { withTenant } from '../config/db.js'
 import { broadcast } from '../config/ws.js'
 import { ulid } from '../../../shared/pos/ids.js'
-import { onlineOrderId, stationSettings, boardNumbers, STALE_HOURS, ORDER_TYPES } from '../../../shared/pos/kitchen.js'
+import { onlineOrderId, stationSettings, boardNumbers, STALE_HOURS, ORDER_TYPES, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
 import { createHash } from 'node:crypto'
 
 const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
@@ -31,12 +32,28 @@ export async function loadStations(tx, tenantId, venueId, { activeOnly = true } 
      ORDER BY sort_order, name`
 }
 
-/** The sequencer's kitchen config. enabled = the venue has an active station. */
+/** The flow between the active stations: [{ id, from, to, targets }]. */
+export async function loadFlow(tx, tenantId, venueId, stations) {
+  const live = new Set(stations.map(s => s.id))
+  const rows = await tx`
+    SELECT id, from_station_id AS "from", to_station_id AS "to", targets
+      FROM kds_flow_edges WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+     ORDER BY sort_order, created_at`
+  return rows.filter(l => live.has(l.to) && (!l.from || live.has(l.from)))
+}
+
+const stationView = s => ({ id: s.id, name: s.name, kind: s.kind, colour: s.colour, settings: stationSettings(s) })
+
+/**
+ * The sequencer's kitchen config. enabled = the venue has an active station
+ * with something to bump (prep, expo or runner). A station switched off is
+ * left out, so dishes pass straight through it.
+ */
 export async function loadKitchenConfig(tx, tenantId, venueId) {
   const stations = await loadStations(tx, tenantId, venueId)
-  if (!stations.length) return { enabled: false, stations: {}, routes: [] }
-  const [routes, courses, tables, staff, rcs] = await Promise.all([
-    tx`SELECT station_id, target_kind, target_id FROM kds_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+  if (!stations.some(s => BUMP_KINDS.includes(s.kind))) return { enabled: false, stations: {}, flow: [] }
+  const [flow, courses, tables, staff, rcs] = await Promise.all([
+    loadFlow(tx, tenantId, venueId, stations),
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
@@ -44,9 +61,8 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
   ])
   return {
     enabled: true,
-    expo: stations.some(s => s.kind === 'expo'),
-    stations: by(stations, s => ({ id: s.id, name: s.name, kind: s.kind, settings: stationSettings(s) })),
-    routes,
+    stations: by(stations, stationView),
+    flow,
     courses: by(courses, c => ({ name: c.name, sort_order: c.sort_order })),
     tables: by(tables, t => ({ label: t.label })),
     staff: by(staff, s => ({ name: s.name })),
@@ -70,7 +86,10 @@ export async function kdsConfig(tx, tenantId, venueId) {
       kds_online_orders: settings?.kds_online_orders ?? true,
       kds_online_ready: settings?.kds_online_ready ?? true,
     },
-    stations: stations.map(s => ({ id: s.id, name: s.name, kind: s.kind, colour: s.colour, settings: stationSettings(s) })),
+    stations: stations.map(stationView),
+    // The screen draws where dishes come from and go to; their ways are
+    // worked out when they are sent (item.route), not on the screen.
+    flow: await loadFlow(tx, tenantId, venueId, stations),
     courses,
   }
   config.version = createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 16)
@@ -167,7 +186,7 @@ export async function kitchenOnOnlineOrder(order) {
     const venueId = order.venue_id
     const kid = onlineOrderId(order.id)
     const plan = await withTenant(tenantId, async tx => {
-      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active`
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active AND kind <> 'board'`
       if (!n) return null
       const [s] = await tx`SELECT kds_online_orders FROM pos_settings WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
       const [existing] = await tx`SELECT status FROM kds_orders WHERE id = ${kid} AND tenant_id = ${tenantId}`
@@ -207,13 +226,31 @@ export function onlineMoves(results) {
   return out
 }
 
-/** Order-ready board numbers for a venue (menu screens' Order status block). */
+/**
+ * Order ready board numbers for a venue (menu screens' Order status block):
+ *   { preparing, ready }   every counter and online order
+ *   boards: { [board station name, lower case]: { preparing, ready } }
+ *                          per order ready board in the kitchen flow (the
+ *                          block picks one by name, so one board design can
+ *                          serve "ORB 1" at every venue)
+ */
 export async function boardFor(tenantId, venueId, { clearMins = 10 } = {}) {
-  const rows = await withTenant(tenantId, tx => tx`
-    SELECT state FROM kds_orders
-     WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
-       AND status IN ('active', 'ready') AND updated_at > now() - make_interval(hours => ${STALE_HOURS})
-     ORDER BY created_at DESC LIMIT 300`)
+  const { rows, cfg } = await withTenant(tenantId, async tx => {
+    const stations = await loadStations(tx, tenantId, venueId)
+    const rows = await tx`
+      SELECT state FROM kds_orders
+       WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}
+         AND status IN ('active', 'ready') AND updated_at > now() - make_interval(hours => ${STALE_HOURS})
+       ORDER BY created_at DESC LIMIT 300`
+    return { rows, cfg: { stations: by(stations, stationView) } }
+  })
   const orders = Object.fromEntries(rows.map(r => [r.state.id, r.state]))
-  return boardNumbers(orders, new Date().toISOString(), { clearMins, max: 40 })
+  const now = new Date().toISOString()
+  const out = boardNumbers(orders, now, { clearMins, max: 40 })
+  out.boards = {}
+  for (const s of Object.values(cfg.stations)) {
+    if (s.kind !== 'board') continue
+    out.boards[s.name.trim().toLowerCase()] = boardNumbers(orders, now, { clearMins, max: 40, boardId: s.id, cfg })
+  }
+  return out
 }

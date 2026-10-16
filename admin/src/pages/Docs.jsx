@@ -3048,7 +3048,7 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
           <section id="kds" data-doc="">
             <H2>Kitchen screens (KDS)</H2>
             <P>
-              Migration 168. Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              Migrations 168 and 169 (kitchen flow). Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
               kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
               code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
               <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
@@ -3063,17 +3063,49 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               (<Mono>KITCHEN_CHECK_EVENTS</Mono>: lines.sent, course.fired, line.voided, lines.moved,
               check.merged, table / name / covers / server / note changes) into kitchen orders;{' '}
               <Mono>applyKitchenEvent()</Mono> applies kitchen events and returns <Mono>{'{ ok, orders, log }'}</Mono>.
-              Each item is routed with <Mono>routeFor(target, kds_routes, 'station_id')</Mono> (dish, section,
-              revenue centre, default) to prep stations only, and is done per station. The expo station (the
-              pass) sees every item and marks the order ready; with no expo station an order is ready when every
-              station has bumped it. Held courses and online orders with a <Mono>fire_at</Mono> wait
-              (<Mono>isFired()</Mono>); orders untouched for <Mono>STALE_HOURS</Mono> (16) drop off.
+              Held courses and online orders with a <Mono>fire_at</Mono> wait (<Mono>isFired()</Mono>); orders
+              untouched for <Mono>STALE_HOURS</Mono> (16) drop off.
+            </P>
+            <H3>The kitchen flow</H3>
+            <P>
+              Station kinds (<Mono>STATION_KINDS</Mono>): <Mono>prep</Mono> makes dishes, <Mono>expo</Mono>{' '}
+              checks whole orders, <Mono>runner</Mono> takes them out, <Mono>board</Mono> is an order ready board
+              (nothing to bump, never on a kitchen screen). The flow is links{' '}
+              <Mono>{'{ from: stationId | null (Orders in), to, targets: [{ kind, id }] }'}</Mono>; targets are
+              item, section, revenue_centre, order_type (<Mono>ORDER_TYPES</Mono>) or default, and empty targets
+              mean every dish. From each node a dish takes every link whose filter names it most specifically
+              (<Mono>linkRank()</Mono>: item 0, section 1, revenue centre 2, order type 3, default 4;{' '}
+              <Mono>nextStations()</Mono>). When a dish is sent, <Mono>itemRoute()</Mono> works out its whole way
+              and stores it on the item as <Mono>{'route: { [node]: [the nodes before it, \'start\' = Orders in] }'}</Mono>{' '}
+              (meal deal parts each get their own way, merged for the item), so a flow change only affects
+              dishes sent after it. Stations left out of the config (switched off or deleted) are passed
+              straight through; links to them are ignored, so the next most specific link applies.
+            </P>
+            <P>
+              A dish <em>arrives</em> at a node when every node before it is done (<Mono>flowTimes()</Mono>;{' '}
+              <Mono>item.reset[node]</Mono> moves the arrival on after a remake) and is <em>done</em> there when
+              that station bumps it (<Mono>item.done[node]</Mono>); a board is done when reached.{' '}
+              <Mono>nodeState()</Mono> gives held | upcoming | active | done | voided. Prep stations bump only
+              arrived dishes; an expo or runner with <Mono>show_upcoming</Mono> (default on for expo) also
+              finishes dishes still at earlier stations. Undoing a dish or bringing a bump back is refused with{' '}
+              <Mono>moved_on</Mono> once a later station has done it. A remake at a prep station clears that
+              station and everything after it; at an expo or runner it starts the dish again from Orders in.
+            </P>
+            <P>
+              An order is <Mono>ready</Mono> (<Mono>orderFacts()</Mono>) when every dish has reached every board
+              and runner on its way, and dishes with neither are done everywhere; it becomes{' '}
+              <Mono>collected</Mono> by itself when everything is done and every dish's way ends at a runner
+              (the runner handed it over), else when Collected is tapped. <Mono>boardState()</Mono> and{' '}
+              <Mono>boardNumbers({'{ boardId, cfg }'})</Mono> give each board's own preparing / ready lists.{' '}
+              <Mono>flowProblems()</Mono> (blocks saving: links to missing stations, out of a board, to itself,
+              twice, unknown filters, circles) and <Mono>flowWarnings()</Mono> (nothing comes in, stations on no
+              dish's way) are shared by the API and the designer.
             </P>
             <DataTable
               head={['Event', 'Payload', 'From']}
               rows={[
                 ['kitchen.item_done', '{ order_id, station_id, item_id, done }', 'screen'],
-                ['kitchen.bumped / kitchen.recalled', '{ order_id, station_id }', 'screen (a bump at the pass makes the order ready; recall undoes the last bump)'],
+                ['kitchen.bumped / kitchen.recalled', '{ order_id, station_id }', 'screen (the dishes go on to the next station; an expo / runner bump can make the order ready; recall undoes the last bump unless a later station has done its dishes)'],
                 ['kitchen.remake', '{ order_id, station_id, item_id, reason? }', 'screen (item active again, logged)'],
                 ['kitchen.priority', '{ order_id, on }', 'screen (rush)'],
                 ['kitchen.collected', '{ order_id }', 'screen (pass, after ready)'],
@@ -3091,24 +3123,25 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Table', 'What it holds']}
               rows={[
-                ['kds_stations', 'Per venue: name, kind prep | expo, colour, settings jsonb { target_mins, late_mins, show_held, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
-                ['kds_routes', 'station_id + target_kind item | section | revenue_centre | default (+ target_id). Prep stations only.'],
+                ['kds_stations', 'Per venue: name, kind prep | expo | runner | board, colour, settings jsonb { target_mins, late_mins, show_held, show_upcoming, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
+                ['kds_flow_edges', 'The kitchen flow (169): from_station_id (NULL = Orders in), to_station_id (both ON DELETE CASCADE), targets jsonb, sort_order. One link per pair (unique index). Replaced kds_routes: each station\'s routes became one link from Orders in, every prep station got a link to every expo.'],
                 ['kds_orders', 'Projection (like pos_checks): id text, source till | online, check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
                 ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
                 ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound }.'],
-                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (a pass bump marks the online order ready, a collect completes it).'],
+                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (ready in the kitchen marks the online order ready, collected completes it), kds_flow_layout jsonb { [stationId | start]: { x, y } } (where the designer draws each box).'],
               ]}
             />
             <H3>API</H3>
             <DataTable
               head={['Route', 'What it does']}
               rows={[
-                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them.'],
+                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations (active only, boards too), flow, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them.'],
                 ['GET /pos-api/kitchen/sync?since=', 'Kitchen orders changed since a seq (reset with every live order when far behind) and server_time for the screen\'s clock.'],
                 ['POST /pos-api/events', 'Takes kitchen events from kds devices (server-only types refused). The answer has kitchen (orders touched). Broadcasts pos.seq with kinds [checks | kitchen] (tills skip kitchen-only changes) and kitchen.board to screens:<venue>.'],
-                ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order, .../kds-routes', 'Setup (pos_setup manage). The pass takes no routes (422).'],
+                ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order', 'Stations (pos_setup manage). Turning a station into a board drops its links onward and takes it off kitchen screens; a kitchen screen can\'t show a board (422).'],
+                ['PUT /api/pos/venues/:id/kds-flow', '{ links: [{ from, to, targets }], layout } replaces the venue\'s flow (pos_setup manage). 422 with the first flowProblems() message; dish / section / revenue centre ids must be the tenant\'s; layout keys that aren\'t start or a station are dropped. Returns the saved links, layout and warnings. GET /api/pos/venues/:id/setup returns kds_flow { links, layout }. Deleting a revenue centre takes it out of every filter (a link left with no filter goes).'],
                 ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
-                ['GET /screen-api/orders', 'boardFor(): order numbers preparing and ready for the screen\'s venue, for the Order status block (screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
+                ['GET /screen-api/orders', 'boardFor(): { preparing, ready } for every counter and online order, and boards: { [board station name, lower case]: { preparing, ready } } per order ready board, for the Order status block (opts.board picks one by name; screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
               ]}
             />
             <H3>Online orders</H3>
@@ -3128,8 +3161,12 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               outbox of this screen's taps, and shows confirmed + outbox applied with{' '}
               <Mono>applyKitchenEvent()</Mono>, like the till's store. It syncs over the socket and a poll,
               keeps a clock offset from <Mono>server_time</Mono> for the timers, and goes through{' '}
-              <Mono>lib/transport.js</Mono> (hub first when one is set). <Mono>KitchenApp.jsx</Mono>: tickets in
-              columns (<Mono>stationTickets()</Mono>), the pass view, the On order counts
+              <Mono>lib/transport.js</Mono> (hub first when one is set). <Mono>kitchenCfg()</Mono> /{' '}
+              <Mono>useCfg()</Mono> give the shared rules the stations and flow. <Mono>KitchenApp.jsx</Mono>:
+              tickets in columns (<Mono>stationTickets(orders, station, now, cfg)</Mono>: each item with state,
+              where (stations it is at now), from, next, and per ticket elsewhere = dishes going through another
+              expo or runner), BUMP / READY (expo) / DONE (runner), the Ready panel at expos and runners
+              (<Mono>readyOrders()</Mono>), the On order counts
               (<Mono>onOrderCounts()</Mono>), speed figures (<Mono>stationStats()</Mono>), Prev / bring back
               (<Mono>recentBumps()</Mono>), orders for later (<Mono>laterOrders()</Mono>), bump bar keys, wake
               lock and full screen.
@@ -3139,10 +3176,38 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               or find other devices on the LAN, so two tablets can't talk to each other without a server they
               both reach. With the hub, tills and kitchen screens point at it (<Mono>hub_url</Mono>) and it runs
               the same sequencer and kitchen rules. Admin: <Mono>components/pos/KitchenSection.jsx</Mono> (Till
-              setup → Kitchen screens), <Mono>components/pos/RoutingEditor.jsx</Mono> (shared with printers),
-              Kitchen tab in <Mono>pages/PosReports.jsx</Mono>, Order status block in{' '}
-              <Mono>shared/screenLayout.js</Mono> + <Mono>ScreenDesigner.jsx</Mono>.
+              setup → Kitchen screens: stations, screens, online orders; <Mono>StationModal</Mono>),{' '}
+              <Mono>components/pos/KitchenFlow.jsx</Mono> (the flow designer), Kitchen tab in{' '}
+              <Mono>pages/PosReports.jsx</Mono>, Order status block in <Mono>shared/screenLayout.js</Mono> +{' '}
+              <Mono>ScreenDesigner.jsx</Mono>.
             </InfoBox>
+            <H3>Flow designer</H3>
+            <P>
+              <Mono>KitchenFlow.jsx</Mono>: a scrolling canvas of boxes (<Mono>[data-node]</Mono>, Orders in +
+              every station) and links (SVG curves with a label button at the middle, above the boxes). Drag a
+              box by its grip (pointer events with capture; the canvas scrolls when dragging near its edge),
+              drag its dot onto another box (<Mono>elementFromPoint</Mono> on release) or tap the dot then the
+              box. The panel edits a link's filter (order types, revenue centres, a section / dish search),
+              shows a box's links, or <Mono>Check a dish</Mono> (<Mono>itemRoute()</Mono> on the draft, its
+              links and boxes highlighted). <Mono>placeMissing()</Mono> gives boxes without a saved place their{' '}
+              <Mono>tidyLayout()</Mono> place (columns by the longest way from Orders in, else by kind) so boxes
+              never jump; a flow with no saved layout re-tidies as links change until a box is moved by hand.
+              Explicit Save flow / Discard, problems block Save, Full screen (Escape leaves). View only: no
+              grips, dots or Save; links and boxes still open their panels.
+            </P>
+            <H3>Order status block</H3>
+            <P>
+              <Mono>orderStatusHtml()</Mono> in <Mono>shared/screenLayout.js</Mono>. Options: <Mono>board</Mono>{' '}
+              (a board station's name; <Mono>orderBoardData()</Mono>), <Mono>layout</Mono> side | stacked,{' '}
+              <Mono>ready_first</Mono>, <Mono>preparing_bg</Mono>, <Mono>change_anim</Mono> none | float | fade
+              | pop | zoom (<Mono>ORDER_CHANGE_ANIMS</Mono>) and <Mono>change_ms</Mono>. The player keeps the
+              changes between fetches (<Mono>orderChanges()</Mono>: numbers in and out of each column, per
+              board, kept for <Mono>ORDER_CHANGE_KEEP_MS</Mono> by <Mono>keepOrderChanges()</Mono>) and passes
+              them as <Mono>orders.changes</Mono>; the block draws numbers coming in with{' '}
+              <Mono>sl-och-in</Mono> and numbers going out in their old place with <Mono>sl-och-out</Mono>, a
+              negative animation-delay keeping a redraw mid-animation in step, then draws plain once it is over.
+              The designer's Play shows an example change.
+            </P>
           </section>
 
           <section id="web-ordering" data-doc="">

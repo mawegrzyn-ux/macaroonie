@@ -1,9 +1,9 @@
 // src/components/pos/RoutingEditor.jsx
 //
-// "What goes where" for printers (pos_print_routes) and kitchen stations
-// (kds_routes): a dish goes to what is set for the dish, else its menu
-// section, else its revenue centre, else Everything (routeFor() in
-// shared/pos/printing.js). One editor for both; explicit Save.
+// "What goes where" for printers (pos_print_routes): a dish goes to what is
+// set for the dish, else its menu section, else its revenue centre, else
+// Everything (routeFor() in shared/pos/printing.js). Explicit Save. (Kitchen
+// screens use the kitchen flow instead: KitchenFlow.jsx.)
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
