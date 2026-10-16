@@ -3515,11 +3515,11 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             </P>
             <H3>Staff: menu tools</H3>
             <P>
-              <Mono>tools/menus.js</Mono>. Reads need <Mono>menus</Mono> view; changes need{' '}
-              <Mono>menus</Mono> manage and an owner or admin login (<Mono>requireEdit()</Mono> looks
-              the role up in <Mono>users</Mono>; platform admins pass), because the menu write routes
-              are <Mono>requireRole('admin', 'owner')</Mono> and a card the route then refuses would be
-              misleading. Every menu read goes through <Mono>GET /api/menus</Mono> /{' '}
+              <Mono>tools/menus.js</Mono>. Reads need <Mono>menus</Mono> view; changes and publishing
+              need <Mono>menus</Mono> manage (<Mono>requireEdit()</Mono>, the menu write routes&apos;
+              own rule since the View / Manage rollout). Change tools write the draft and say so
+              (<Mono>SAVED</Mono> / <Mono>REMOVED</Mono> messages); <Mono>publish_menu</Mono> makes
+              it live (migration 165, see Menus &rarr; Publishing). Every menu read goes through <Mono>GET /api/menus</Mono> /{' '}
               <Mono>GET /api/menus/:id</Mono> (<Mono>loadMenuFull()</Mono>), tags through{' '}
               <Mono>GET /menus/dietary/all</Mono>, option groups through{' '}
               <Mono>GET /menus/variant-groups</Mono>; <Mono>list_menus</Mono> counts dishes with SQL
@@ -3542,9 +3542,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Tool', 'Route(s)', 'Notes']}
               rows={[
-                ['list_menus', 'GET /menus + SQL counts', 'Venue, published, sections, dishes'],
-                ['get_menu', 'GET /menus/:id, /menus/variant-groups', 'Dishes with price or option prices (the dish\'s own, from loadMenuFull options[]), allergens with level, dietary, calories, online off, meal deal; descriptions with details or one section; lists tags and option groups'],
-                ['find_dishes', 'GET /menus, /menus/:id, /menus/dietary/all', 'search words, has (all tags), free_from (allergens; removable listed as ask_for_it_without, may_contain blocks); published menus unless include_unpublished; 60 shown'],
+                ['list_menus', 'GET /menus?status=1 + SQL counts', 'Venue, shown_to_guests, publish (live / draft changes not published / never published, scheduled publish), sections, dishes'],
+                ['get_menu', 'GET /menus/:id[?version=live], /menus/variant-groups', 'The draft unless version live (404 text when never published); dishes with price or option prices (the dish\'s own, from loadMenuFull options[]), allergens with level, dietary, calories, online off, meal deal; descriptions with details or one section; lists tags and option groups; publish status'],
+                ['find_dishes', 'GET /menus, /menus/:id?version=live, /menus/dietary/all', 'search words, has (all tags), free_from (allergens; removable listed as ask_for_it_without, may_contain blocks); live versions shown to guests unless include_unpublished (adds hidden menus, and drafts of menus never published, marked not_published) or version draft; 60 shown'],
                 ['create_menu', 'POST /menus, PATCH /menus/:id (DELETE on failure)', 'Sections and up to 400 dishes in one call; unpublished unless published: true'],
                 ['update_menu', 'PATCH /menus/:id', 'Name, venue / all venues, published, tagline, service times, intro'],
                 ['duplicate_menu', 'POST /menus/:id/duplicate (+ PATCH to rename)', 'Copy is unpublished; designs remapped by the route'],
@@ -3554,6 +3554,8 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['update_section', 'PATCH /menus/:id', 'Title, subtitle, visibility, VAT takeaway / eat in, position or after_section'],
                 ['remove_section', 'PATCH /menus/:id', 'Destructive; its dishes go too'],
                 ['change_prices', 'PATCH /menus/:id', 'Whole menu, sections or dishes; percent / amount / set; round_to 1/5/10/50/100p up, nearest or down; include_options (default on) writes per-dish option overrides'],
+                ['publish_menu', 'GET /menus/:id/publish, POST /menus/:id/publish', 'Now, or date + time (venue local via zonedInstant(), menuTz() = the menu\'s venue else the first); card lists diffMenus() changes, warns on price changes, a later scheduled publish and shown_to_guests off; 422 nothing to publish, past time or over 400 days'],
+                ['cancel_menu_publish', 'GET /menus/:id/publish, DELETE /menus/:id/releases/:id', 'The one scheduled publish, or the one on date when there are several (409 lists them)'],
               ]}
             />
             <P>
@@ -3711,6 +3713,54 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               Renders on the website via the <Mono>menu_inline</Mono> block, and standalone as a
               printable page at <Mono>GET /api/menus/:id/print</Mono>.
             </P>
+            <H3>Publishing: draft and live (migration 165)</H3>
+            <P>
+              The menu tables are the <strong>draft</strong>: the Menus page, the allergen matrix, the
+              menu designer and the AI change tools read and write them as before. What guests and
+              devices see is the <strong>live</strong> version: the newest row of{' '}
+              <Mono>menu_releases</Mono> for the menu whose <Mono>goes_live_at</Mono> has passed and
+              that wasn&apos;t cancelled. A release is a frozen copy made by{' '}
+              <Mono>releaseContent(loadMenuFull())</Mono> (<Mono>shared/menuDiff.js</Mono>) and never
+              changes after insert, so <Mono>services/menuReleases.js</Mono> caches release content
+              in memory by id.
+            </P>
+            <DataTable
+              head={['Piece', 'What it does']}
+              rows={[
+                ['menu_releases', 'tenant_id, menu_id (cascade), snapshot jsonb, content_hash, goes_live_at, note, published_by, created_at, cancelled_at / cancelled_by, announced_at. A future goes_live_at = scheduled. Live = DISTINCT ON (menu_id) ... ORDER BY goes_live_at DESC, created_at DESC among non-cancelled rows with goes_live_at <= now(). RLS.'],
+                ['menu_preview_links', 'An hour-long link (id) to print the draft (release_id null) or a given release on the public print page, which has no login. POST /api/menus/:id/preview-link returns the path; GET /:id/print?preview=<id> prints it (410 once expired, Cache-Control private).'],
+                ['menus.needs_first_release', 'Set by the migration for every menu that existed. backfillFirstReleases() (server.js, at start-up) publishes their current draft once, so nothing disappears on deploy. New menus start without a release: not live anywhere until published.'],
+                ['releaseContent() / contentKey()', 'What a release keeps (sections, dishes, prices, option prices with variant_groups resolved, dietary codes, allergen_levels, till fields, footer notes, menu settings incl. is_published and venue_id) and a stable string to compare two versions. Left out (tenant-wide, always current): the tag list, the allergen notice, print designs and print_design_id, timestamps. contentKey ignores one-off option ids (re-made on every save), nested sort_order numbers (the array order says it), key order, null vs missing and numeric strings.'],
+                ['diffMenus(live, draft)', 'The change list the editor and the AI publish card show: [{ kind, text }], kind menu | section | added | removed | price | options | dish | notes.'],
+                ['loadMenuVersion() / loadMenuVersions()', 'The one way to read what guests see: loadMenuFull()-shaped, version live (default), draft, or a releaseId; with the tenant\'s current tags, notice and print design attached. loadMenuVersions() filters on the version\'s own venue_id and is_published (publishedOnly).'],
+                ['publishMenu()', 'Snapshot the draft. at empty or within 30 seconds = now; at most 400 days ahead. 422 when the hash equals the live one. Immediate publishes set announced_at and the route calls announceMenus().'],
+                ['announceDueReleases()', 'Run every minute by the hold sweep (jobs/queues.js): marks releases that went live since the last run as announced and calls announceMenus(): tillsMayNeedConfig() plus a menus.live broadcast on the menus:<tenantId> room for screens.'],
+                ['Routes', 'GET /api/menus?status=1 (publish per menu: live_at, scheduled_at, scheduled_count, changed); GET /:id?version=live; GET /:id/publish (live, scheduled, in_sync, changes, history); POST /:id/publish { at?, note? } (manage); DELETE /:id/releases/:releaseId (cancel a future one, manage); POST /:id/releases/:releaseId/restore (copy a release into the draft with restorableBody() + writeMenu(), manage); POST /:id/preview-link { release_id? }; GET /:id/allergens?version=live.'],
+              ]}
+            />
+            <DataTable
+              head={['Reader', 'Version']}
+              rows={[
+                ['Website menu_inline block (loadInlineMenus in siteDataSvc.js)', 'Live; a staging host passes draft: true. Shown-to-guests and section visibility come from the version.'],
+                ['GET /api/menus/public/:menuId', 'Live, 404 unless the live version is shown to guests.'],
+                ['GET /api/menus/:id/print (incl. ?view=dietary, ?design=)', 'Live; ?preview=<link> prints the draft or a release. The Menus list prints live (or a draft preview for a menu never published); the editor and the designer print the draft through preview links.'],
+                ['Online ordering (loadOrderingMenu in orderSvc.js)', 'Live, so order prices and dishes match what is published.'],
+                ['Till config (tillMenus in posSvc.js)', 'Live: the menus named by revenue centres, else the venue\'s live menus shown to guests.'],
+                ['Deliveroo (loadDishes / loadSetup in routes/deliveroo.js)', 'Live; no menus picked = live menus shown to guests. Matches to a live dish removed from the draft still save.'],
+                ['Cooking check dish buttons (loadCookingPicker)', 'Live. POST /food-safety/cooking with a live dish gone from the draft logs its name with menu_item_id null.'],
+                ['Allergen lookup (AllergenLookup)', 'Live (menus with a live version only). The Allergen matrix editor stays on the draft.'],
+                ['AI menu tools', 'get_menu draft unless version live; find_dishes live (draft with include_unpublished for menus never published); change tools write the draft; publish_menu and cancel_menu_publish publish.'],
+                ['Draft readers (unchanged)', 'Menus page, allergen matrix editor, menu designer (GET /:id/design), Promotions and Till setup dish pickers, Ordering setup and sold-out lists.'],
+              ]}
+            />
+            <InfoBox type="warn">
+              A new place that shows a menu to guests or devices must read it through{' '}
+              <Mono>loadMenuVersion()</Mono> / <Mono>loadMenuVersions()</Mono>, never{' '}
+              <Mono>loadMenuFull()</Mono> or its own SQL on the menu tables, or it shows unpublished
+              changes. Option groups (the Variant groups library), tags, the allergen notice and print
+              designs are tenant-wide and stay live: a dish&apos;s own option prices are in the
+              release, but the till reads nested option groups from the library.
+            </InfoBox>
             <H3>Schema (relevant to this section)</H3>
             <DataTable
               head={['Table / column', 'Purpose']}
@@ -3919,6 +3969,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               so it stays visible inside a dashboard in full screen. Both live in <Mono>components/menus/AllergenMatrix.jsx</Mono> and share{' '}
               <Mono>useMenuChoice()</Mono> (menu choice in localStorage) and{' '}
               <Mono>useAllergenMatrix()</Mono> (query key <Mono>['allergen-matrix', menuId]</Mono>).
+              The lookup passes <Mono>live: true</Mono> to both (migration 165): it lists only menus
+              with a live version (<Mono>GET /menus?status=1</Mono>) and reads{' '}
+              <Mono>GET /menus/:id/allergens?version=live</Mono> (key{' '}
+              <Mono>['allergen-matrix', menuId, 'live']</Mono>); the matrix editor stays on the draft.
               Migration 141 adds <Mono>allergen_lookup</Mono> to the{' '}
               <Mono>hs_dashboard_widgets.widget_type</Mono> CHECK (any dashboard since migration
               152; the widget remembers its menu as{' '}

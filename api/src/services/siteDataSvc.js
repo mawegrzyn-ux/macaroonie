@@ -22,7 +22,7 @@
 //   3. website_config (when rendering a location, or the sole venue on home)
 
 import { sql, withTenant } from '../config/db.js'
-import { attachVariantGroupsToItems, loadAllergenNotice } from '../routes/menus.js'
+import { loadMenuVersions } from './menuReleases.js'
 
 // A venue with website_config.use_brand_override = true replaces the
 // tenant's Brand & theme with its own values for these fields — wholesale,
@@ -326,7 +326,7 @@ async function buildLiveTenantBundle(ts, { includeUnpublished, isStaging }) {
   // Extra pages and modals render through the same bundle, so their
   // blocks are hydrated too, not only the home page's.
   const pageBlocks = (bundle.pages || []).map(p => p.blocks)
-  const menusById = await loadInlineMenus(ts.tenant_id, ts.home_blocks, ...pageBlocks)
+  const menusById = await loadInlineMenus(ts.tenant_id, { draft: isStaging }, ts.home_blocks, ...pageBlocks)
 
   // Same pattern for `gallery` blocks — pre-resolve each block's image
   // set (by category or hand-picked item ids) so the partial can render
@@ -413,7 +413,7 @@ async function buildPublishedTenantBundle(ts) {
   const pages = snap.tenant_pages || []
 
   const pageBlocks     = pages.map(p => p.blocks)
-  const menusById      = await loadInlineMenus(ts.tenant_id, tenantSiteFrozen.home_blocks, ...pageBlocks)
+  const menusById      = await loadInlineMenus(ts.tenant_id, {}, tenantSiteFrozen.home_blocks, ...pageBlocks)
   const galleryByBlock = await loadGalleryItemsForBlocks(ts.tenant_id, tenantSiteFrozen.home_blocks, ...pageBlocks)
   const reviewsByBlock = await loadReviewsForBlocks(ts.tenant_id, tenantSiteFrozen.home_blocks, ...pageBlocks)
 
@@ -520,10 +520,15 @@ function buildGoogleFontsUrl(fontNames) {
 
 /* ── Inline-menu hydration ────────────────────────────────────
  * Walks blocks looking for `type: 'menu_inline'` with a `menu_id`,
- * batch-loads each unique menu (with sections + items + variants +
- * dietary tags), and returns an id → menu map for the renderer.
- * Also scans nested blocks inside the `columns` container. */
-async function loadInlineMenus(tenantId, ...blockArrays) {
+ * loads each unique menu and returns an id → menu map for the renderer.
+ * Also scans nested blocks inside the Columns and Tabs containers.
+ *
+ * The live version of each menu (migration 165, services/menuReleases.js):
+ * what has been published. The staging site passes { draft: true } and
+ * shows the menu tables as they are, so new prices can be checked before
+ * publishing. Either way: only menus shown to guests, only sections shown
+ * everywhere (migration 136), only tags shown on menus (migration 146). */
+export async function loadInlineMenus(tenantId, { draft = false } = {}, ...blockArrays) {
   const menuIds = new Set()
   function walk(blocks) {
     if (!Array.isArray(blocks)) return
@@ -536,69 +541,33 @@ async function loadInlineMenus(tenantId, ...blockArrays) {
     }
   }
   for (const arr of blockArrays) walk(arr)
-  if (menuIds.size === 0) return {}
+  const ids = Array.from(menuIds).filter(id => /^[0-9a-f-]{36}$/i.test(id))
+  if (ids.length === 0) return {}
 
   return withTenant(tenantId, async tx => {
-    const ids = Array.from(menuIds)
-    const menus = await tx`
-      SELECT m.*,
-             COALESCE((
-               SELECT json_agg(jsonb_build_object('id', t.id, 'code', t.code, 'label', t.label, 'glyph', t.glyph,
-                                                  'colour', t.colour, 'kind', t.kind, 'in_key', t.in_key)
-                               ORDER BY t.kind = 'allergen', t.sort_order, t.label)
-                 FROM menu_dietary_tags t WHERE t.tenant_id = m.tenant_id
-                  AND t.show_on_menu   -- tags hidden on menus stay staff-only (migration 146)
-             ), '[]'::json) AS dietary_tags
-        FROM menus m
-       WHERE m.id = ANY(${ids}::uuid[])
-         AND m.tenant_id = ${tenantId}
-         AND m.is_published = true
-    `
-    if (!menus.length) return {}
-
-    const menuIdsArr = menus.map(m => m.id)
-    const sections = await tx`
-      SELECT s.*,
-             COALESCE((
-               SELECT json_agg(jsonb_build_object(
-                 'id', i.id, 'name', i.name, 'native_name', i.native_name,
-                 'description', i.description, 'price_pence', i.price_pence,
-                 'notes', i.notes, 'is_featured', i.is_featured, 'image_url', i.image_url,
-                 'sort_order', i.sort_order,
-                 'variants', COALESCE((
-                   SELECT json_agg(jsonb_build_object('label', v.label, 'price_pence', v.price_pence) ORDER BY v.sort_order)
-                     FROM menu_item_variants v WHERE v.item_id = i.id
-                 ), '[]'::json),
-                 'dietary', COALESCE((
-                   SELECT json_agg(t.code ORDER BY t.kind = 'allergen', t.sort_order, t.label)
-                     FROM menu_item_dietary mid
-                     JOIN menu_dietary_tags t ON t.id = mid.tag_id
-                    WHERE mid.item_id = i.id AND t.show_on_menu
-                 ), '[]'::json),
-                 -- Allergen levels other than 'contains' (migration 145)
-                 'allergen_levels', COALESCE((
-                   SELECT json_object_agg(t.code, mid.level)
-                     FROM menu_item_dietary mid
-                     JOIN menu_dietary_tags t ON t.id = mid.tag_id
-                    WHERE mid.item_id = i.id AND mid.level <> 'contains' AND t.show_on_menu
-                 ), '{}'::json)
-               ) ORDER BY i.sort_order)
-                 FROM menu_items i WHERE i.section_id = s.id
-             ), '[]'::json) AS items
-        FROM menu_sections s
-       WHERE s.menu_id = ANY(${menuIdsArr}::uuid[])
-         AND s.visibility = 'show'   -- website_hidden / hidden sections stay off the site (migration 136)
-       ORDER BY s.sort_order
-    `
-
-    const allergen_notice = await loadAllergenNotice(tx, tenantId)   // migration 147
+    const menus = await loadMenuVersions(tx, tenantId, {
+      menuIds: ids, publishedOnly: true, version: draft ? 'draft' : 'live',
+    })
     const byMenu = {}
     for (const m of menus) {
-      byMenu[m.id] = { ...m, sections: [], allergen_notice, intro_fonts_url: buildGoogleFontsUrl(extractRichTextFonts(m.intro_line)) }
+      const tags = (m.dietary_tags || []).filter(t => t.show_on_menu !== false)
+      const shown = new Set(tags.map(t => t.code))
+      byMenu[m.id] = {
+        ...m,
+        dietary_tags: tags.map(t => ({ id: t.id, code: t.code, label: t.label, glyph: t.glyph, colour: t.colour, kind: t.kind, in_key: t.in_key })),
+        sections: (m.sections || [])
+          .filter(s => (s.visibility || 'show') === 'show')
+          .map(s => ({
+            ...s,
+            items: (s.items || []).map(i => ({
+              ...i,
+              dietary: (i.dietary || []).filter(c => shown.has(c)),
+              allergen_levels: Object.fromEntries(Object.entries(i.allergen_levels || {}).filter(([c]) => shown.has(c))),
+            })),
+          })),
+        intro_fonts_url: buildGoogleFontsUrl(extractRichTextFonts(m.intro_line)),
+      }
     }
-    for (const s of sections) byMenu[s.menu_id]?.sections.push(s)
-    const allItems = sections.flatMap(s => s.items || [])
-    await attachVariantGroupsToItems(tx, allItems)
     return byMenu
   })
 }
@@ -767,7 +736,7 @@ export async function loadLocationBundle(tenantBundle, venueSlug) {
   // page's blocks) or home_blocks (header/footer if shared).
   const menusById = {
     ...(tenantBundle.menus_by_id || {}),
-    ...(await loadInlineMenus(tenantId, result.mergedConfig.page_blocks, ...venuePageBlocks)),
+    ...(await loadInlineMenus(tenantId, { draft: isStaging }, result.mergedConfig.page_blocks, ...venuePageBlocks)),
   }
 
   // Same merge for gallery hydration — page-level gallery blocks can

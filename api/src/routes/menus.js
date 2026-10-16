@@ -10,6 +10,12 @@
 // shape but unauthenticated and only when the menu's tenant_site is
 // published — used by the website menu_inline block + the /menus/:id/print
 // printable page.
+//
+// Publishing (migration 165, services/menuReleases.js): the menu tables are
+// the draft that every editor here reads and writes. The public routes (the
+// public JSON and the print page) show the live version, the newest
+// published release; the print page shows the draft or a scheduled release
+// only through a short-lived preview link (POST /:id/preview-link).
 
 import { z } from 'zod'
 import { withTenant, sql } from '../config/db.js'
@@ -18,6 +24,9 @@ import { httpError } from '../middleware/error.js'
 import { SEED_BY_SLUG, ONETHAI_DIETARY_TAGS, ensureStandardAllergens } from '../services/menuSeeds.js'
 import { randomUUID } from 'node:crypto'
 import { notifyTillsOnWrite } from '../services/posNotify.js'
+import {
+  loadMenuVersion, publishMenu, cancelRelease, publishStatus, menuStatuses, announceMenus,
+} from '../services/menuReleases.js'
 import {
   BLOCK_TYPES, MAX_PAGES, MAX_BLOCKS, MENU_LAYOUT_CSS,
   normalizeLayout, layoutGeometry, buildContext, renderPageHtml, layoutFontsUrl,
@@ -350,7 +359,8 @@ const AllergenMatrixBody = z.object({
 // plus every tag of the tenant, allergens first.
 // Hidden sections are included (marked by visibility) so staff can still
 // answer allergen questions about them.
-export async function loadAllergenMatrix(tx, menuId, tenantId) {
+export async function loadAllergenMatrix(tx, menuId, tenantId, { version = 'draft' } = {}) {
+  if (version === 'live') return liveAllergenMatrix(tx, menuId, tenantId)
   const [menu] = await tx`
     SELECT m.id, m.name, m.updated_at, v.name AS venue_name
       FROM menus m LEFT JOIN venues v ON v.id = m.venue_id
@@ -385,6 +395,35 @@ export async function loadAllergenMatrix(tx, menuId, tenantId) {
     tags,
     sections: sections.map(s => ({
       id: s.id, title: s.title, visibility: s.visibility || 'show', items: bySection[s.id] || [],
+    })),
+  }
+}
+
+// The allergen matrix of the live version (migration 165): what guests are
+// served, for the Allergen lookup. Same shape as the draft matrix.
+async function liveAllergenMatrix(tx, menuId, tenantId) {
+  const full = await loadMenuVersion(tx, menuId, tenantId)
+  if (!full) return null
+  const [meta] = await tx`
+    SELECT m.updated_at, v.name AS venue_name FROM menus m LEFT JOIN venues v ON v.id = ${full.venue_id ?? null}
+     WHERE m.id = ${menuId} AND m.tenant_id = ${tenantId}`
+  const tags = await tx`SELECT id, code, label, glyph, colour, sort_order, kind, standard_key, show_on_menu FROM menu_dietary_tags
+                         WHERE tenant_id = ${tenantId} ORDER BY kind, sort_order, label`
+  const idByCode = Object.fromEntries(tags.map(t => [t.code, t.id]))
+  return {
+    menu: { id: full.id, name: full.name, updated_at: meta?.updated_at ?? null, venue_name: meta?.venue_name ?? null,
+            version: 'live', goes_live_at: full.release_goes_live_at },
+    tags,
+    sections: (full.sections || []).map(s => ({
+      id: s.id, title: s.title, visibility: s.visibility || 'show',
+      items: (s.items || []).map(i => {
+        const levels = {}
+        for (const code of i.dietary || []) {
+          const id = idByCode[code]
+          if (id) levels[id] = (i.allergen_levels || {})[code] || 'contains'
+        }
+        return { id: i.id, name: i.name, native_name: i.native_name, description: i.description, levels }
+      }),
     })),
   }
 }
@@ -504,8 +543,8 @@ function remapLayout(layout, newId) {
 // The menu plus what the printed header shows: tenant name, logo and brand
 // colour, and for a venue-scoped menu the venue's address and phone.
 // Used by the print page and by the menu designer, so both show the same.
-async function loadPrintMenu(tx, menuId, tenantId) {
-  const menu = await loadMenuFull(tx, menuId, tenantId)
+async function loadPrintMenu(tx, menuId, tenantId, { version = 'draft', releaseId = null } = {}) {
+  const menu = await loadMenuVersion(tx, menuId, tenantId, { version, releaseId })
   if (!menu) return null
   const [meta] = await tx`
     SELECT t.name AS tenant_name, ts.logo_url, ts.primary_colour,
@@ -696,6 +735,29 @@ export function menuSaveBody(full) {
   }
 }
 
+/**
+ * A release as a PATCH body for the draft (restore / discard changes).
+ * Option groups, options and tags deleted since it was published are left
+ * out, so the write can't fail on them.
+ */
+async function restorableBody(tx, tenantId, version) {
+  const body = MenuFullBody.parse(menuSaveBody(version))
+  const [groups, options] = await Promise.all([
+    tx`SELECT id FROM menu_variant_groups WHERE tenant_id = ${tenantId}`,
+    tx`SELECT o.id FROM menu_variant_options o JOIN menu_variant_groups g ON g.id = o.group_id WHERE g.tenant_id = ${tenantId}`,
+  ])
+  const g = new Set(groups.map(r => r.id))
+  const o = new Set(options.map(r => r.id))
+  for (const s of body.sections) {
+    for (const it of s.items) {
+      it.variant_groups = it.variant_groups
+        .filter(vg => g.has(vg.group_id))
+        .map(vg => ({ ...vg, overrides: vg.overrides.filter(ov => o.has(ov.option_id)) }))
+    }
+  }
+  return body
+}
+
 // Only allergens have levels; a dietary tag is on a dish or not.
 function tagLevel(tag, level) {
   return tag.kind === 'allergen' && ALLERGEN_LEVELS.includes(level) ? level : 'contains'
@@ -723,18 +785,18 @@ export default async function menusRoutes(app) {
     // Resolve the tenant via the menu's own row, then re-load with
     // RLS context. Only return when the tenant_site is published OR
     // the menu's own venue page is live (gate matches the public site).
+    if (!z.string().uuid().safeParse(req.params.menuId).success) throw httpError(404, 'Menu not found')
     const [meta] = await sql`
-      SELECT m.tenant_id, m.is_published, ts.is_published AS site_published
+      SELECT m.tenant_id, ts.is_published AS site_published
         FROM menus m
         LEFT JOIN tenant_site ts ON ts.tenant_id = m.tenant_id
        WHERE m.id = ${req.params.menuId}
        LIMIT 1
     `
-    if (!meta || !meta.is_published || !meta.site_published) {
-      throw httpError(404, 'Menu not found or not published')
-    }
-    const data = await withTenant(meta.tenant_id, tx => loadMenuFull(tx, req.params.menuId, meta.tenant_id))
-    if (!data) throw httpError(404, 'Menu not found')
+    if (!meta || !meta.site_published) throw httpError(404, 'Menu not found or not published')
+    // The live version (migration 165): its own "shown to guests" setting decides.
+    const data = await withTenant(meta.tenant_id, tx => loadMenuVersion(tx, req.params.menuId, meta.tenant_id))
+    if (!data || !data.is_published) throw httpError(404, 'Menu not found or not published')
     // Website only shows sections set to show everywhere (migration 136)
     // and tags shown on menus (migration 146).
     data.sections = (data.sections || []).filter(s => (s.visibility || 'show') === 'show')
@@ -754,10 +816,27 @@ export default async function menusRoutes(app) {
     if (!z.string().uuid().safeParse(req.params.id).success) return notFound()
     const [meta] = await sql`SELECT tenant_id FROM menus WHERE id = ${req.params.id} LIMIT 1`
     if (!meta) return notFound()
-    const menu = await withTenant(meta.tenant_id, tx => loadPrintMenu(tx, req.params.id, meta.tenant_id))
+    // The live version, or with ?preview=<link id> (POST /:id/preview-link,
+    // an hour) the draft or a scheduled release, for the admin's Print button.
+    let version = { version: 'live' }
+    let preview = false
+    if (req.query?.preview) {
+      if (!z.string().uuid().safeParse(req.query.preview).success) return notFound()
+      const [link] = await sql`
+        SELECT release_id FROM menu_preview_links
+         WHERE id = ${req.query.preview} AND menu_id = ${req.params.id} AND tenant_id = ${meta.tenant_id}
+           AND expires_at > now()`
+      if (!link) {
+        reply.code(410)
+        return reply.view('site/not-found.eta', { message: 'This preview link has run out. Press Print again in Menus.', rootDomain: 'macaroonie.com' })
+      }
+      version = link.release_id ? { releaseId: link.release_id } : { version: 'draft' }
+      preview = true
+    }
+    const menu = await withTenant(meta.tenant_id, tx => loadPrintMenu(tx, req.params.id, meta.tenant_id, version))
     if (!menu) return notFound()
 
-    reply.header('Cache-Control', 'public, max-age=60, stale-while-revalidate=300')
+    reply.header('Cache-Control', preview ? 'private, no-store' : 'public, max-age=60, stale-while-revalidate=300')
 
     // ?view=dietary: dish names and their dietary tags (icons only) as a
     // two-column list, whatever print design the menu uses.
@@ -819,15 +898,87 @@ export default async function menusRoutes(app) {
                     (SELECT count(*)::int FROM menu_print_designs d WHERE d.menu_id = m.id) AS design_count
                FROM menus m LEFT JOIN venues v ON v.id = m.venue_id
               WHERE m.tenant_id = ${req.tenantId} ORDER BY m.sort_order, m.name`)
+      // ?status=1 (Menus page): live / scheduled / changes waiting per menu (migration 165).
+      if (req.query?.status) {
+        const st = await menuStatuses(tx, req.tenantId, rows.map(r => r.id))
+        for (const r of rows) r.publish = st[r.id] || null
+      }
       return rows
     })
   })
 
+  // The draft (what the Menus page edits); ?version=live = what guests see.
   app.get('/:id', async (req) => {
     if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
-    const data = await withTenant(req.tenantId, tx => loadMenuFull(tx, req.params.id, req.tenantId))
-    if (!data) throw httpError(404, 'Menu not found')
+    const version = req.query?.version === 'live' ? 'live' : 'draft'
+    const data = await withTenant(req.tenantId, tx => loadMenuVersion(tx, req.params.id, req.tenantId, { version }))
+    if (!data) throw httpError(404, version === 'live' ? 'This menu has not been published yet' : 'Menu not found')
     return data
+  })
+
+  // ── Publishing (migration 165) ─────────────────────────────
+  // What is live, what is scheduled, and what the draft changes.
+  app.get('/:id/publish', async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
+    return withTenant(req.tenantId, tx => publishStatus(tx, req.tenantId, req.params.id))
+  })
+
+  // { at?: ISO time (empty or past = now), note? }
+  app.post('/:id/publish', { preHandler: PERM.manage }, async (req, reply) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
+    const body = z.object({
+      at:   z.string().datetime({ offset: true }).nullable().optional(),
+      note: z.string().trim().max(200).nullable().optional(),
+    }).parse(req.body || {})
+    const result = await withTenant(req.tenantId, tx =>
+      publishMenu(tx, req.tenantId, req.params.id, { at: body.at || null, note: body.note || null, by: req.user?.email ?? null }))
+    if (result.immediate) announceMenus(req.tenantId, [req.params.id], req.log)
+    return reply.code(201).send(result)
+  })
+
+  // Cancel a scheduled publish before it goes live.
+  app.delete('/:id/releases/:releaseId', { preHandler: PERM.manage }, async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success || !z.string().uuid().safeParse(req.params.releaseId).success) {
+      throw httpError(404, 'Publish not found')
+    }
+    return withTenant(req.tenantId, tx =>
+      cancelRelease(tx, req.tenantId, req.params.id, req.params.releaseId, req.user?.email ?? null))
+  })
+
+  // Copy a release (the live one = Discard changes, or an older one) into
+  // the draft. Nothing goes live until it is published again.
+  app.post('/:id/releases/:releaseId/restore', { preHandler: PERM.manage }, async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success || !z.string().uuid().safeParse(req.params.releaseId).success) {
+      throw httpError(404, 'Publish not found')
+    }
+    return withTenant(req.tenantId, async tx => {
+      const version = await loadMenuVersion(tx, req.params.id, req.tenantId, { releaseId: req.params.releaseId })
+      if (!version) throw httpError(404, 'Publish not found')
+      const body = await restorableBody(tx, req.tenantId, version)
+      await writeMenu(tx, req.tenantId, req.params.id, body)
+      return loadMenuFull(tx, req.params.id, req.tenantId)
+    })
+  })
+
+  // { release_id?: null = the draft } -> a print page link that works for an hour.
+  app.post('/:id/preview-link', async (req) => {
+    if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
+    const { release_id } = z.object({ release_id: z.string().uuid().nullable().optional() }).parse(req.body || {})
+    return withTenant(req.tenantId, async tx => {
+      const [m] = await tx`SELECT id FROM menus WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}`
+      if (!m) throw httpError(404, 'Menu not found')
+      if (release_id) {
+        const [r] = await tx`SELECT id FROM menu_releases WHERE id = ${release_id} AND menu_id = ${m.id}
+                              AND tenant_id = ${req.tenantId} AND cancelled_at IS NULL`
+        if (!r) throw httpError(404, 'Publish not found')
+      }
+      await tx`DELETE FROM menu_preview_links WHERE tenant_id = ${req.tenantId} AND expires_at < now() - interval '1 day'`
+      const [link] = await tx`
+        INSERT INTO menu_preview_links (tenant_id, menu_id, release_id, expires_at, created_by)
+        VALUES (${req.tenantId}, ${m.id}, ${release_id ?? null}, now() + interval '1 hour', ${req.user?.email ?? null})
+        RETURNING id, expires_at`
+      return { id: link.id, expires_at: link.expires_at, path: `/api/menus/${m.id}/print?preview=${link.id}` }
+    })
   })
 
   // Menu designer: the menu with its print header details, and saving the
@@ -1028,6 +1179,13 @@ export default async function menusRoutes(app) {
   app.patch('/:id', { preHandler: PERM.manage}, async (req) => {
     const body = MenuFullBody.parse(req.body)
     return withTenant(req.tenantId, async tx => {
+      await writeMenu(tx, req.tenantId, req.params.id, body)
+      return loadMenuFull(tx, req.params.id, req.tenantId)
+    })
+  })
+
+  // (The whole-tree write, shared by PATCH and restore.)
+  async function writeMenu(tx, tenantId, menuId, body) {
       const [updated] = await tx`
         UPDATE menus
            SET name = ${body.name},
@@ -1046,14 +1204,12 @@ export default async function menusRoutes(app) {
                hide_zero_priced_variants = ${body.hide_zero_priced_variants},
                hide_unpriced_variants = ${body.hide_unpriced_variants},
                updated_at = now()
-         WHERE id = ${req.params.id} AND tenant_id = ${req.tenantId}
+         WHERE id = ${menuId} AND tenant_id = ${tenantId}
          RETURNING *
       `
       if (!updated) throw httpError(404, 'Menu not found')
-      await upsertMenuTree(tx, req.tenantId, req.params.id, body)
-      return loadMenuFull(tx, req.params.id, req.tenantId)
-    })
-  })
+      await upsertMenuTree(tx, tenantId, menuId, body)
+  }
 
   app.delete('/:id', { preHandler: PERM.manage}, async (req) => {
     const [row] = await withTenant(req.tenantId, tx => tx`
@@ -1072,10 +1228,12 @@ export default async function menusRoutes(app) {
   // Saving writes only menu_item_dietary for the dishes sent, so it never
   // touches the rest of the menu tree (no whole-tree PATCH).
 
+  // The draft (Allergen matrix page); ?version=live = what guests are served (Allergen lookup).
   app.get('/:id/allergens', async (req) => {
     if (!z.string().uuid().safeParse(req.params.id).success) throw httpError(404, 'Menu not found')
-    const data = await withTenant(req.tenantId, tx => loadAllergenMatrix(tx, req.params.id, req.tenantId))
-    if (!data) throw httpError(404, 'Menu not found')
+    const version = req.query?.version === 'live' ? 'live' : 'draft'
+    const data = await withTenant(req.tenantId, tx => loadAllergenMatrix(tx, req.params.id, req.tenantId, { version }))
+    if (!data) throw httpError(404, version === 'live' ? 'This menu has not been published yet' : 'Menu not found')
     return data
   })
 

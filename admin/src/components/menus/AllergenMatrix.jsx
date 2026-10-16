@@ -33,13 +33,18 @@ function matchesSearch(item, q) {
   return norm(item.name).includes(q) || norm(item.native_name).includes(q)
 }
 
-/** The tenant's menus plus the chosen one, remembered under storeKey. */
-export function useMenuChoice(storeKey) {
+/**
+ * The tenant's menus plus the chosen one, remembered under storeKey.
+ * live: only menus with a live version (published, migration 165), for
+ * the read-only lookup; the matrix editor works on every draft.
+ */
+export function useMenuChoice(storeKey, { live = false } = {}) {
   const api = useApi()
-  const { data: menus = [], isLoading } = useQuery({
-    queryKey: ['menus'],
-    queryFn:  () => api.get('/menus'),
+  const { data: all = [], isLoading } = useQuery({
+    queryKey: live ? ['menus', 'status'] : ['menus'],
+    queryFn:  () => api.get(live ? '/menus?status=1' : '/menus'),
   })
+  const menus = live ? all.filter(m => m.publish?.live_at) : all
   const [picked, setPicked] = useState(() => readStore(storeKey))
   const menuId = menus.some(m => m.id === picked) ? picked : (menus[0]?.id || '')
   function setMenuId(id) {
@@ -49,11 +54,12 @@ export function useMenuChoice(storeKey) {
   return { menus, menuId, setMenuId, isLoading }
 }
 
-export function useAllergenMatrix(menuId) {
+/** A menu's dishes with tag levels: the draft, or with live the version guests see. */
+export function useAllergenMatrix(menuId, { live = false } = {}) {
   const api = useApi()
   return useQuery({
-    queryKey: ['allergen-matrix', menuId],
-    queryFn:  () => api.get(`/menus/${menuId}/allergens`),
+    queryKey: live ? ['allergen-matrix', menuId, 'live'] : ['allergen-matrix', menuId],
+    queryFn:  () => api.get(`/menus/${menuId}/allergens${live ? '?version=live' : ''}`),
     enabled:  !!menuId,
   })
 }
@@ -344,8 +350,9 @@ const LEVEL_ORDER = ['contains', 'may_contain', 'removable']
 // chips that remove themselves when tapped. `phone` (the /mobile page): menu,
 // search and that button stick to the top while the list scrolls.
 export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone = false }) {
-  const { menus, menuId, setMenuId, isLoading: menusLoading } = useMenuChoice(storeKey)
-  const { data, isLoading } = useAllergenMatrix(menuId)
+  // What guests are served: the live versions (migration 165).
+  const { menus, menuId, setMenuId, isLoading: menusLoading } = useMenuChoice(storeKey, { live: true })
+  const { data, isLoading } = useAllergenMatrix(menuId, { live: true })
   const [search, setSearch] = useState('')
   const [modes, setModes] = useState({})   // tag id -> 'has' | 'not'
   const [openId, setOpenId] = useState(null)   // dish shown with full tag names
@@ -386,7 +393,7 @@ export function AllergenLookup({ storeKey = 'maca_allergen_lookup_menu', phone =
     return <div className="flex items-center justify-center py-8 text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /></div>
   }
   if (!menus.length) {
-    return <p className="text-sm text-muted-foreground p-4 text-center">No menus yet.</p>
+    return <p className="text-sm text-muted-foreground p-4 text-center">No published menus yet. Publish a menu on the Menus page to look up its allergens here.</p>
   }
 
   const controls = (

@@ -2903,6 +2903,49 @@ export default function Help() {
               price, add an allergen or put a section up 5%. See <strong>AI Assistant → Menus by
               chat</strong>.
             </P>
+            <H3>Publishing menu changes</H3>
+            <P>
+              Saving a menu saves a <strong>draft</strong>. Guests and staff keep seeing the{' '}
+              <strong>live</strong> menu until you publish: the website, online ordering, the till,
+              the Deliveroo menu file, cooking check dish buttons and the allergen lookup all use the
+              live menu. So you can change several prices over a few days, check them, and put them
+              all out at once.
+            </P>
+            <P>
+              The <strong>Publishing</strong> card at the top of a menu shows what is live and lists
+              every change waiting to go live (prices in amber, dishes added in green, removed in
+              red). Then:
+            </P>
+            <DataTable
+              head={['Button', 'What it does']}
+              rows={[
+                ['Publish now', 'Asks you to confirm, then the changes go live straight away. Open tills update within a few seconds.'],
+                ['Schedule', 'Pick a date and time. The live menu stays as it is until then, and switches by itself at that time (within a minute). Use it for a planned price rise or a new season\'s menu. Changes you save after scheduling are not included: publish again for those.'],
+                ['Preview print', 'Prints the draft, so you can check it before guests see it. The link works for an hour.'],
+                ['Discard changes', 'Puts the live menu back into the editor and throws the unpublished changes away. Asks you to confirm first.'],
+                ['Cancel (scheduled)', 'Withdraws a scheduled publish before it goes live. The draft is not changed.'],
+                ['Publish history', 'Every publish, newest first. Preview prints an earlier version; Copy into editor puts it back into the draft (nothing goes live until you publish it).'],
+              ]}
+            />
+            <P>
+              Save your changes before publishing: the Publishing card asks you to while the menu has
+              unsaved changes. A brand-new menu isn&apos;t on the website, online ordering or the till
+              until its first publish. <strong>Shown to guests</strong> (in the menu&apos;s Settings)
+              is part of the draft too, so hiding a menu also takes effect when you publish.
+            </P>
+            <P>
+              On the Menus list, each menu shows <strong>LIVE</strong>,{' '}
+              <strong>LIVE · CHANGES NOT PUBLISHED</strong>, <strong>NOT PUBLISHED</strong> or{' '}
+              <strong>GOES LIVE</strong> with the time of a scheduled publish. Print and Dietary list
+              on the list print the live menu; in the menu editor they print the saved draft. Staging
+              websites show the draft too, so you can check a website change before publishing.
+            </P>
+            <P>
+              Some things are not part of a menu&apos;s publish and change straight away: the
+              allergen and dietary tag list (names, colours, badges), the allergen notice, option
+              groups themselves (Menus &rarr; Variant groups), print designs and which one prints,
+              and dishes marked sold out for online ordering.
+            </P>
             <H3>Sections and dishes</H3>
             <P>
               Click <strong>Add section</strong> to create a category, then <strong>Add
@@ -3591,7 +3634,8 @@ export default function Help() {
               <em>"Make a new lunch menu from this photo"</em> (with the photo or PDF attached),{' '}
               <em>"Pad Thai is £11.75 now"</em>,{' '}
               <em>"Add sesame to the Pad See Ew"</em> or{' '}
-              <em>"Put all the starters up 5%, rounded up to 5p"</em>. Menus, sections, dishes,
+              <em>"Put all the starters up 5%, rounded up to 5p"</em> and then{' '}
+              <em>"Publish it on Monday at 9am"</em>. Menus, sections, dishes,
               option groups and allergens can be named the way you'd say them; if a name could
               mean more than one, the assistant asks which.
             </P>
@@ -3599,14 +3643,16 @@ export default function Help() {
               head={['You can', 'Who', 'Notes']}
               rows={[
                 ['See the menus and what is on them', 'Menus view', 'Sections, dishes, prices, options, calories, allergens with their level, dietary tags, where each section shows.'],
-                ['Find dishes', 'Menus view', 'By name, by tag ("vegan"), or free from allergens. A dish where the allergen can be removed on request is listed separately, so the guest can ask for it without.'],
-                ['Make a menu', 'Owner or admin', 'Name, venue or all venues, tagline, served times, intro, and its sections and dishes in one go. New menus aren\'t published until you say so.'],
-                ['Change or copy a menu', 'Owner or admin', 'Rename, move to a venue, publish or unpublish, tagline, served times, intro. A copy keeps every section, dish, footer note and print design, and isn\'t published.'],
-                ['Add dishes', 'Owner or admin', 'Into sections already on the menu or new ones. A dish already in that section is left alone unless you ask to update it.'],
-                ['Change a dish', 'Owner or admin', 'Name, description, price, calories, note, online ordering on or off, house favourite, allergens and their level, dietary tags, options and their prices, which section it is in and where.'],
-                ['Change or remove a section', 'Owner or admin', 'Title, subtitle, where it shows (everywhere, printed menus only, nowhere), VAT, position. Removing a section takes its dishes with it; to keep them, hide the section instead.'],
-                ['Remove dishes', 'Owner or admin', 'The card warns when a dish is part of a meal deal.'],
-                ['Change prices', 'Owner or admin', 'Whole menu, a section or named dishes: by a %, by an amount or to one price, with rounding. Option prices go up or down with them (not when you set one price).'],
+                ['Find dishes', 'Menus view', 'By name, by tag ("vegan"), or free from allergens, on the live menus (what guests are served). A dish where the allergen can be removed on request is listed separately, so the guest can ask for it without.'],
+                ['Make a menu', 'Menus manage', 'Name, venue or all venues, tagline, served times, intro, and its sections and dishes in one go. A new menu isn\'t live anywhere until it is published.'],
+                ['Change or copy a menu', 'Menus manage', 'Rename, move to a venue, show to guests or hide, tagline, served times, intro. A copy keeps every section, dish, footer note and print design, and isn\'t live until published.'],
+                ['Add dishes', 'Menus manage', 'Into sections already on the menu or new ones. A dish already in that section is left alone unless you ask to update it.'],
+                ['Change a dish', 'Menus manage', 'Name, description, price, calories, note, online ordering on or off, house favourite, allergens and their level, dietary tags, options and their prices, which section it is in and where.'],
+                ['Change or remove a section', 'Menus manage', 'Title, subtitle, where it shows (everywhere, printed menus only, nowhere), VAT, position. Removing a section takes its dishes with it; to keep them, hide the section instead.'],
+                ['Remove dishes', 'Menus manage', 'The card warns when a dish is part of a meal deal.'],
+                ['Change prices', 'Menus manage', 'Whole menu, a section or named dishes: by a %, by an amount or to one price, with rounding. Option prices go up or down with them (not when you set one price).'],
+                ['Publish a menu', 'Menus manage', 'Now or at a date and time. The card lists every change waiting to go live and warns about price changes and about another publish already scheduled.'],
+                ['Cancel a scheduled publish', 'Menus manage', 'Before it goes live. The draft isn\'t changed.'],
               ]}
             />
             <P>
@@ -3614,6 +3660,10 @@ export default function Help() {
               changes by more than half, shows a <strong>Check</strong> box on the card: allergens
               show on the website, printed menus, online ordering, the allergen lookup and the till,
               so read them through before pressing Save.
+            </P>
+            <P>
+              Changes made by chat are saved to the draft, the same as on the Menus page: the
+              assistant says so and offers to publish. It only publishes when you ask.
             </P>
             <InfoBox type="info">
               Options use your option groups (Menus → Variant groups): a dish gets its own price per

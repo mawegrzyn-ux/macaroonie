@@ -16,7 +16,7 @@
 import crypto from 'node:crypto'
 import { withTenant } from '../config/db.js'
 import { httpError } from '../middleware/error.js'
-import { loadMenuFull } from '../routes/menus.js'
+import { loadMenuVersions } from './menuReleases.js'
 import { venuePromotions, publicPromotion } from './promoSvc.js'
 import { fillReconDay, reconFields } from './reconFill.js'
 import { createSequencer } from '../../../shared/pos/sequencer.js'
@@ -137,13 +137,15 @@ function vatOf(item, section) {
   return { eat_in: pick('vat_rate_eat_in'), takeaway: pick('vat_rate_takeaway') }
 }
 
-/** The menus a venue's till shows: those its revenue centres name, else every published menu it can use. */
-async function tillMenuIds(tx, tenantId, venueId, rcs) {
+/**
+ * The menus a venue's till shows, live versions (migration 165): those its
+ * revenue centres name, else every menu shown to guests that it can use.
+ */
+async function tillMenus(tx, tenantId, venueId, rcs) {
   const named = [...new Set(rcs.flatMap(r => r.menu_ids || []))]
-  const rows = named.length
-    ? await tx`SELECT id FROM menus WHERE tenant_id = ${tenantId} AND id = ANY(${named}::uuid[]) AND (venue_id IS NULL OR venue_id = ${venueId}) ORDER BY sort_order, name`
-    : await tx`SELECT id FROM menus WHERE tenant_id = ${tenantId} AND is_published AND (venue_id IS NULL OR venue_id = ${venueId}) ORDER BY sort_order, name`
-  return rows.map(r => r.id)
+  return named.length
+    ? loadMenuVersions(tx, tenantId, { menuIds: named, venueId })
+    : loadMenuVersions(tx, tenantId, { venueId, publishedOnly: true })
 }
 
 /**
@@ -184,9 +186,7 @@ export async function tillConfig(tx, tenantId, venueId) {
   const menus = []
   const items = {}
   let dietary = []
-  for (const id of await tillMenuIds(tx, tenantId, venueId, rcs)) {
-    const full = await loadMenuFull(tx, id, tenantId)
-    if (!full) continue
+  for (const full of await tillMenus(tx, tenantId, venueId, rcs)) {
     dietary = full.dietary_tags || dietary
     const sections = []
     for (const s of full.sections || []) {

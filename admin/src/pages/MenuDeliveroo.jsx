@@ -269,13 +269,14 @@ export default function MenuDeliveroo() {
                           <button key={m.id} type="button" disabled={!canEdit}
                             onClick={() => patch({ menu_ids: on ? draft.menu_ids.filter(x => x !== m.id) : [...draft.menu_ids, m.id] })}
                             className={cn('h-10 px-3 rounded-full border text-sm touch-manipulation', on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background hover:bg-muted')}>
-                            {m.name}{!m.is_published && ' (not published)'}
+                            {m.name}{!m.is_live ? ' (never published)' : !m.live_published && ' (hidden from guests)'}
                           </button>
                         )
                       })}
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-1">
                       {draft.menu_ids.length ? 'Only the menus picked.' : 'None picked: every published menu of this venue and the company.'}
+                      {' '}Dishes and prices come from the live (published) version of each menu.
                       {settingsDirty && ' Save to load the dishes of a new pick.'}
                     </p>
                   </div>

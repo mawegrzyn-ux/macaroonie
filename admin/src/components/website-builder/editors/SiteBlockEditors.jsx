@@ -552,7 +552,7 @@ export function MenuInlineEditor({ data, onChange }) {
 
           <a href={`/api/menus/${data.menu_id}/print`} target="_blank" rel="noopener"
             className="text-xs text-primary hover:underline block">
-            Preview printable version →
+            Printable version (live) →
           </a>
         </>
       )}

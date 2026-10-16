@@ -56,6 +56,10 @@ try {
   attachWss(app.server, verifyWsToken)
   app.log.info('WebSocket server attached at /ws')
 
+  // Menus made before menu publishing get their first release (migration 165).
+  const { backfillFirstReleases } = await import('./services/menuReleases.js')
+  backfillFirstReleases(app.log).catch(err => app.log.warn({ err }, 'First menu releases failed'))
+
 } catch (err) {
   app.log.error(err)
   process.exit(1)
