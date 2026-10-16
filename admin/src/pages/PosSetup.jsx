@@ -1,7 +1,8 @@
 // src/pages/PosSetup.jsx
 //
 // Till setup (/pos, pos_setup module). Per venue: tills and pairing,
-// revenue centres, printers and what prints where, staff PINs, receipts
+// revenue centres, printers and what prints where, kitchen screens (stations,
+// routing, pairing), staff PINs, receipts
 // and payments, the Cash Recon link. Company-wide: till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.
 
@@ -14,6 +15,7 @@ import { PageHeader, VenueSelect, usePosVenue, usePosSetup, ErrorNote } from '@/
 import TillsSection from '@/components/pos/TillsSection'
 import RevenueCentresSection from '@/components/pos/RevenueCentresSection'
 import PrintersSection from '@/components/pos/PrintersSection'
+import KitchenSection from '@/components/pos/KitchenSection'
 import StaffSection from '@/components/pos/StaffSection'
 import RolesSection from '@/components/pos/RolesSection'
 import CoursesSection from '@/components/pos/CoursesSection'
@@ -23,6 +25,7 @@ const TABS = [
   { key: 'tills', label: 'Tills', render: p => <TillsSection {...p} /> },
   { key: 'revenue', label: 'Revenue centres', render: p => <RevenueCentresSection {...p} /> },
   { key: 'printers', label: 'Printers', render: p => <PrintersSection {...p} /> },
+  { key: 'kitchen', label: 'Kitchen screens', render: p => <KitchenSection {...p} /> },
   { key: 'staff', label: 'Staff and PINs', render: p => <StaffSection {...p} /> },
   { key: 'roles', label: 'Till roles', render: p => <RolesSection {...p} /> },
   { key: 'courses', label: 'Courses', render: p => <CoursesSection {...p} /> },

@@ -35,6 +35,7 @@ const SECTIONS = [
   { id: 'ai-assistant',        label: 'AI Assistant' },
   { id: 'purchasing',          label: 'Purchasing' },
   { id: 'till',                label: 'Till (POS)' },
+  { id: 'kitchen',             label: 'Kitchen screens' },
   { id: 'emails',              label: 'Booking Emails' },
   { id: 'team',                label: 'Team Management' },
   { id: 'access',              label: 'Modules & Roles' },
@@ -4128,8 +4129,60 @@ export default function Help() {
                 ['Checks', 'Every check of a day with its items, totals and full history: who did what, when, and who approved it.'],
                 ['Refused changes', 'Changes a till made offline that couldn\'t be applied when it caught up. Note what was done and mark them dealt with.'],
                 ['Print queue', 'Kitchen tickets and other jobs waiting for the venue hub.'],
+                ['Kitchen', 'Speed of service from the kitchen screens: per station, tickets, dishes, average, middle and slowest times, how many were on time and late, the average by hour, and every remake with its reason. Download CSV for every bump and remake.'],
               ]}
             />
+          </section>
+
+          {/* ── KITCHEN SCREENS ─────────────────────────────── */}
+          <section id="kitchen" data-help="">
+            <H2>Kitchen screens</H2>
+            <P>
+              Kitchen screens show the orders to cook on a screen instead of (or as well as) printed tickets.
+              Use an Android tablet, or an Android TV box or stick with a big screen, in Chrome. Orders from
+              the till and from online ordering arrive the moment they're sent; the cooks tap to say a dish or
+              order is done, and the pass marks the order ready.
+            </P>
+            <InfoBox type="info">
+              Kitchen screens talk to Macaroonie over the internet, like the tills. If the internet drops, a
+              screen keeps what it has and saves its taps, then catches up when it's back; new orders reach it
+              once the till can send them. Working between the till and the kitchen with the internet down
+              needs the venue hub, which comes later.
+            </InfoBox>
+
+            <H3>Setting up (Till setup → Kitchen screens)</H3>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li><strong>Stations</strong>: where dishes are made, e.g. Grill, Fryer, Bar, and <strong>the pass</strong> (expo), which checks orders before they go out. Each station turns a ticket amber after a number of minutes (your target time) and red after more. <strong>Show held courses</strong> shows dishes waiting to be fired, greyed out. <strong>On order counts</strong>: groups such as Wings, counting how many pieces are on order (the 8pc dish counts 8, the 6 Wings option counts 6). With no pass, an order is ready when every station has finished its part.</li>
+              <li><strong>What goes where</strong>: a dish goes to the stations set for it, else for its section, else for its revenue centre, else Everything. The pass sees everything and needs nothing here. Save kitchen routing.</li>
+              <li><strong>Kitchen screens</strong>: <strong>Add a screen</strong>, name it, tick the stations it shows (none ticked: all), what it opens on (tickets or the On order counts), tickets across, text size and the beep. On the screen, open the till address in Chrome, install it, and type the pairing code. It opens as a kitchen screen.</li>
+              <li><strong>Online orders</strong>: send online orders to the kitchen when they're accepted (an order for later comes on when it's time to start it), and mark them ready when the kitchen finishes (the guest gets the ready email).</li>
+            </ol>
+
+            <H3>Using a kitchen screen</H3>
+            <ul className="list-disc ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Tickets run left to right, oldest first (rush orders first). The header shows the table or tab, the order number, the timer, eat in or takeaway, covers and server. Notes are yellow, allergies red, options pink and removals red.</li>
+              <li><strong>Tap a dish</strong> to mark it done (tap again to undo). <strong>Tap a ticket</strong> to pick it (blue outline), then <strong>BUMP</strong> to finish it. Bumping the last dish of a ticket bumps it too.</li>
+              <li><strong>The pass</strong> sees whole orders, ticks off each station's part ("Waiting: Fryer"), and BUMP marks the order ready. Ready orders wait under the tick button until <strong>Collected</strong>.</li>
+              <li>Along the top: All orders, Eat in, Takeaway and Online, and the stations this screen shows. The green bar shows the average bump time today, the last 10, how many are done, the share on time, Live or Offline, and the time.</li>
+              <li><strong>Rush</strong> moves a ticket to the front. <strong>SUM</strong> shows how many of each dish are on order. <strong>Prev</strong> lists the last tickets bumped here: <strong>Bring back</strong> one bumped by mistake. <strong>Remake</strong> puts a dish back on with a reason (for the waste report).</li>
+              <li>A dish voided on the till shows crossed out with VOID until the ticket is bumped. Dishes moved to another table or check follow it.</li>
+              <li>The clock button lists orders for later (held courses and online orders with a later collection time). They come on by themselves when it's time.</li>
+              <li>The gear button: pick the station, Tickets or On order counts, text size, beep, full screen, and the bump bar keys.</li>
+            </ul>
+            <InfoBox type="tip">
+              Bump bars and keyboards work: 1 to 9 and 0 pick a ticket, Enter or Space bumps, the arrows page
+              through tickets, R brings the last ticket back, S shows what's on order, P makes a ticket a rush.
+              Set a USB or Bluetooth bump bar to send those keys.
+            </InfoBox>
+
+            <H3>Order ready board</H3>
+            <P>
+              To show guests their order numbers, add an <strong>Order status</strong> block to a board on the{' '}
+              <strong>Screens</strong> page and put the board on a screen at the counter. It lists numbers being
+              prepared and numbers ready to collect (counter orders from the till and online orders), and
+              changes as the kitchen bumps them. Ready numbers stay for the minutes you set, or until the pass
+              marks the order collected.
+            </P>
           </section>
 
           {/* ── BOOKING EMAILS ──────────────────────────────── */}

@@ -13,13 +13,16 @@
 //                               { unchanged: true } when the version matches
 //   POST /heartbeat             { app_version, showing, viewport, error, clock } every
 //                               minute: Screens shows online / what's on
+//   GET  /orders                order numbers for the Order status block (kitchen
+//                               screens: services/kitchenSvc.js boardFor())
 //   GET  /time                  (no auth) { now } in ms: screens set their clock
 //                               from a few of these (lowest round trip wins), so
 //                               a wall's screens change boards together
 //
 // Live changes come over the WebSocket (/ws?screen=<id>&secret=<secret>):
 // screens.changed, screens.sold_out, menus.live (all: fetch the config
-// again), screen.identify, screen.reload, screen.removed.
+// again), kitchen.board (fetch /orders), screen.identify, screen.reload,
+// screen.removed.
 
 import { z } from 'zod'
 import { sql, withTenant } from '../config/db.js'
@@ -28,6 +31,7 @@ import {
   sha256, newSecret, newScreenCode, normaliseScreenCode, sameHash, verifyScreen, PAIRING_MINUTES,
 } from '../services/screenAuth.js'
 import { screenConfig } from '../services/screenSvc.js'
+import { boardFor } from '../services/kitchenSvc.js'
 
 const UUID = z.string().uuid()
 
@@ -97,6 +101,13 @@ export default async function screenApiRoutes(app) {
       const server_time = new Date().toISOString()
       if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version, server_time }
       return { ...config, server_time }
+    })
+
+    // Order numbers for the Order status block (kitchen screens; services/kitchenSvc.js).
+    scoped.get('/orders', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
+      const s = req.screen
+      reply.header('Cache-Control', 'no-store')
+      return { orders: await boardFor(s.tenant_id, s.venue_id, { clearMins: 120 }), server_time: new Date().toISOString() }
     })
 
     scoped.post('/heartbeat', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async req => {

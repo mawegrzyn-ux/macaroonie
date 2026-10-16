@@ -32,7 +32,7 @@ const PREFS_KEY = 'maca_till_prefs'
 // ── State ────────────────────────────────────────────────────────
 
 let state = {
-  phase: 'loading',        // 'loading' | 'pair' | 'ready'
+  phase: 'loading',        // 'loading' | 'pair' | 'ready' | 'kitchen' (a kitchen screen: src/kitchen)
   device: null,            // { id, secret, name, short_code, venue_id, venue_name }
   config: null,
   confirmed: {},
@@ -123,6 +123,8 @@ export function printConfig(config = state.config, device = state.device) {
 export async function boot() {
   const device = await idb.get(DEVICE_KEY)
   if (!device?.id) { setState({ phase: 'pair' }); return }
+  // Paired as a kitchen screen: the kitchen app (src/kitchen) takes over.
+  if (device.kind === 'kds') { setState({ device, phase: 'kitchen' }); return }
   api = createTransport(device)
   const [config, snapshot, outbox] = await Promise.all([idb.get(CONFIG_KEY), idb.get(SNAPSHOT_KEY), idb.get(OUTBOX_KEY)])
   setState({
@@ -143,7 +145,7 @@ export async function boot() {
 export async function pair(code) {
   const t = createTransport(null)
   const res = await t.post('/pos-api/pair', { code, app_version: '1.0.0', user_agent: navigator.userAgent.slice(0, 280) })
-  const device = { id: res.device_id, secret: res.secret, name: res.name, short_code: res.short_code, venue_id: res.venue_id, venue_name: res.venue_name }
+  const device = { id: res.device_id, secret: res.secret, name: res.name, kind: res.kind || 'terminal', short_code: res.short_code, venue_id: res.venue_id, venue_name: res.venue_name }
   await Promise.all([idb.set(DEVICE_KEY, device), idb.del(SNAPSHOT_KEY), idb.del(CONFIG_KEY), idb.set(OUTBOX_KEY, [])])
   setState({ device, confirmed: {}, outbox: [], seq: 0, config: null, phase: 'loading' })
   await boot()
@@ -449,7 +451,8 @@ function connectSocket() {
   socket.onmessage = msg => {
     let m
     try { m = JSON.parse(msg.data) } catch { return }
-    if (m.type === 'pos.seq' && m.from !== state.device?.id) pull()
+    // Kitchen-only changes (a bump on a kitchen screen) don't change checks.
+    if (m.type === 'pos.seq' && m.from !== state.device?.id && (!m.kinds || m.kinds.includes('checks'))) pull()
     else if (m.type === 'pos.presence') pull()
     else if (m.type === 'pos.config') loadConfig()
     else if (m.type === 'pos.revoked' && m.device_id === state.device?.id) { toast('This till was removed in Till setup.', 'bad', 8000); unpair() }

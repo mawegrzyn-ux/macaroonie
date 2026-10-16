@@ -54,11 +54,12 @@ export const MIN_SIZE = 240
 export const MAX_SIZE = 8192
 export const MAX_BLOCKS = 300
 
-export const BLOCK_TYPES = ['heading', 'text', 'menu', 'dish', 'price', 'image', 'video', 'ticker', 'box', 'clock', 'allergen_key']
+export const BLOCK_TYPES = ['heading', 'text', 'menu', 'dish', 'price', 'image', 'video', 'ticker', 'box', 'clock', 'allergen_key', 'order_status']
 
 export const BLOCK_LABELS = {
   heading: 'Heading', text: 'Text', menu: 'Menu list', dish: 'Featured dish', price: 'Price',
   image: 'Image', video: 'Video', ticker: 'Scrolling text', box: 'Box or line', clock: 'Clock', allergen_key: 'Allergen key',
+  order_status: 'Order status',
 }
 
 export const BLOCK_HINTS = {
@@ -73,6 +74,7 @@ export const BLOCK_HINTS = {
   box: 'A coloured panel or a line.',
   clock: 'The time (and date) at the venue.',
   allergen_key: 'What the tags on this board\'s dishes mean.',
+  order_status: 'Order numbers being prepared and ready to collect, from the kitchen screens.',
 }
 
 // How a block comes on (opts.anim_in) and moves while on (opts.anim_loop).
@@ -172,6 +174,14 @@ export const BLOCK_DEFAULTS = {
   box: { w: 0.3, h: 0.3, opts: { color: '#000000', alpha: 50, radius: 12, border_width: 0, border_color: '#ffffff' } },
   clock: { w: 0.18, h: 0.08, opts: { format: '24', show_date: false, size: 48, font: 'body', weight: 600, align: 'right', valign: 'middle' } },
   allergen_key: { w: 0.5, h: 0.08, opts: { size: 22, show_notice: false, align: 'left' } },
+  order_status: {
+    w: 0.6, h: 0.8,
+    opts: {
+      show_preparing: true, preparing_title: 'Preparing', ready_title: 'Ready', title_size: 56, number_size: 72,
+      columns: 1, max: 12, clear_mins: 10, show_names: false,
+      title_color: '', ready_bg: '#2e8b57', ready_color: '#ffffff', preparing_color: '',
+    },
+  },
 }
 
 // ── Small helpers ───────────────────────────────────────────
@@ -366,6 +376,10 @@ export function boardContext(layout, data = {}) {
     tz: data.tz || 'Europe/London',
     // still: thumbnails (videos show a frame, nothing plays)
     still: !!data.still,
+    // Order status block: { preparing: [{ number, name }], ready: [{ number, name, at }] }
+    // from the kitchen screens (services/kitchenSvc.js boardFor()); null in
+    // the designer, which shows example numbers.
+    orders: data.orders || null,
     board: normalizeBoard(layout, data.width, data.height),
   }
   ctx.shownItems = shownItems(ctx.board, ctx)
@@ -772,9 +786,44 @@ export function renderBlockInner(block, ctx) {
       if (k.removable) h += '<span class="sl-pair">* ' + esc(k.removable_note) + '</span>'
       return h + '</div>'
     }
+    case 'order_status':
+      return orderStatusHtml(o, ctx)
     default:
       return ''
   }
+}
+
+const SAMPLE_ORDERS = {
+  preparing: [{ number: '57' }, { number: '58', name: 'Sam' }, { number: '61' }],
+  ready: [{ number: '54', name: 'Alex' }, { number: '55' }],
+}
+
+/**
+ * The order-ready board: order numbers being prepared and ready to collect.
+ * Ready numbers drop off after clear_mins (or when collected at the pass).
+ */
+function orderStatusHtml(o, ctx) {
+  const data = ctx.orders || SAMPLE_ORDERS
+  const max = Math.round(num(o.max, 1, 60, 12))
+  const clear = num(o.clear_mins, 0, 120, 10)
+  const nowMs = (ctx.now instanceof Date ? ctx.now : new Date(ctx.now || Date.now())).getTime()
+  const ready = (data.ready || []).filter(x => !ctx.orders || !clear || !x.at || nowMs - Date.parse(x.at) < clear * 60000).slice(0, max)
+  const preparing = (data.preparing || []).slice(0, max)
+  const cols = Math.round(num(o.columns, 1, 6, 1))
+  const vars = styleString({
+    '--ot': num(o.title_size, 6, 400, 56) + 'px', '--on': num(o.number_size, 6, 600, 72) + 'px', '--oc': cols,
+    '--otc': o.title_color ? colour(o.title_color, null) : null,
+    '--orb': colour(o.ready_bg, '#2e8b57'), '--orc': colour(o.ready_color, '#ffffff'),
+    '--opc': o.preparing_color ? colour(o.preparing_color, null) : null,
+  })
+  const tile = (x, cls) => '<div class="sl-onum ' + cls + '"><span>' + esc(x.number) + '</span>' +
+    (o.show_names && x.name ? '<span class="sl-oname">' + esc(x.name) + '</span>' : '') + '</div>'
+  const column = (title, list, cls) => '<div class="sl-ocol ' + cls + '"><div class="sl-otitle">' + esc(title) + '</div>' +
+    '<div class="sl-olist">' + list.map(x => tile(x, cls)).join('') + '</div></div>'
+  let h = '<div class="sl-orders' + (ctx.orders ? '' : ' is-sample') + '" style="' + vars + '">'
+  if (o.show_preparing !== false) h += column(o.preparing_title ?? 'Preparing', preparing, 'is-prep')
+  h += column(o.ready_title ?? 'Ready', ready, 'is-ready')
+  return h + '</div>'
 }
 
 /** The board's own style: size, colours, fonts, background. */
@@ -923,6 +972,16 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-pair { display: inline-flex; align-items: center; gap: 8px; }
 .sl-key .sl-tag { font-size: 0.8em; }
 
+.sl-orders { display: flex; gap: 4%; width: 100%; height: 100%; }
+.sl-ocol { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sl-otitle { font-family: var(--sl-heading); font-size: var(--ot); font-weight: 700; text-transform: uppercase; text-align: center;
+  color: var(--otc, var(--sl-text)); line-height: 1.1; margin-bottom: calc(var(--on) * 0.25); }
+.sl-olist { display: grid; grid-template-columns: repeat(var(--oc), minmax(0, 1fr)); gap: calc(var(--on) * 0.18); align-content: start; }
+.sl-onum { display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: var(--sl-heading);
+  font-size: var(--on); font-weight: 800; line-height: 1.1; padding: 0.08em 0.2em; font-variant-numeric: tabular-nums; }
+.sl-onum.is-prep { color: var(--opc, var(--sl-muted)); }
+.sl-onum.is-ready { background: var(--orb); color: var(--orc); border-radius: 0.08em; }
+.sl-oname { font-size: 0.35em; font-weight: 600; }
 .sl-t-video { display: block; }
 .sl-video { display: block; width: 100%; height: 100%; max-width: none; background: transparent; }
 .sl-ticker { width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; white-space: nowrap; }

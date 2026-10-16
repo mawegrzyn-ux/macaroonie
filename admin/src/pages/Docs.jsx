@@ -29,6 +29,7 @@ const SECTIONS = [
   { id: 'overview-tiles', label: 'Overview Tiles' },
   { id: 'purchasing', label: 'Purchasing' },
   { id: 'pos', label: 'Till (POS)' },
+  { id: 'kds', label: 'Kitchen screens (KDS)' },
   { id: 'web-ordering', label: 'Web Ordering' },
   { id: 'ai-assistant', label: 'AI Assistant & MCP' },
   { id: 'menus',        label: 'Menus' },
@@ -3037,9 +3038,110 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <InfoBox type="info">
               Provisioned for later, not built: the venue hub (a <Mono>hub</Mono> device kind, the print-job claim
               routes, <Mono>device.hub_url</Mono> in <Mono>pos/src/lib/transport.js</Mono>, which tries the hub
-              before the cloud), card payment adapters (tenders are external for now), and KDS. Tests:{' '}
-              <Mono>node --test shared/pos/test/*.test.mjs</Mono> (rules, pricing, printing, reports, the sequencer
-              against an in-memory store).
+              before the cloud) and card payment adapters (tenders are external for now). Kitchen screens: next
+              section. Tests: <Mono>node --test shared/pos/test/*.test.mjs</Mono> (rules, pricing, printing,
+              reports, kitchen, the sequencer against an in-memory store).
+            </InfoBox>
+          </section>
+
+          {/* ── KITCHEN SCREENS ──────────────────────────────── */}
+          <section id="kds" data-doc="">
+            <H2>Kitchen screens (KDS)</H2>
+            <P>
+              Migration 168. Design in <Mono>docs/POS.md</Mono> section 9. A kitchen screen is a till device of
+              kind <Mono>kds</Mono> (<Mono>pos_devices</Mono>, short code K1, K2 ...), paired with a one-time
+              code like a till. The same app at <Mono>pos.&lt;domain&gt;</Mono> boots{' '}
+              <Mono>pos/src/kitchen/KitchenApp.jsx</Mono> (lazy) when the device's kind is <Mono>kds</Mono>.
+              Kitchen events live in the venue's <Mono>pos_events</Mono> log and go through the same sequencer,
+              so the venue hub can run them later with no change.
+            </P>
+            <H3>Kitchen orders</H3>
+            <P>
+              <Mono>shared/pos/kitchen.js</Mono> is the one implementation of the kitchen's rules, run by the
+              sequencer and by the screen. A kitchen order is a till check (id = check id) or an online order
+              (id <Mono>web-&lt;orders.id&gt;</Mono>). <Mono>kitchenForCheckEvent()</Mono> turns till events
+              (<Mono>KITCHEN_CHECK_EVENTS</Mono>: lines.sent, course.fired, line.voided, lines.moved,
+              check.merged, table / name / covers / server / note changes) into kitchen orders;{' '}
+              <Mono>applyKitchenEvent()</Mono> applies kitchen events and returns <Mono>{'{ ok, orders, log }'}</Mono>.
+              Each item is routed with <Mono>routeFor(target, kds_routes, 'station_id')</Mono> (dish, section,
+              revenue centre, default) to prep stations only, and is done per station. The expo station (the
+              pass) sees every item and marks the order ready; with no expo station an order is ready when every
+              station has bumped it. Held courses and online orders with a <Mono>fire_at</Mono> wait
+              (<Mono>isFired()</Mono>); orders untouched for <Mono>STALE_HOURS</Mono> (16) drop off.
+            </P>
+            <DataTable
+              head={['Event', 'Payload', 'From']}
+              rows={[
+                ['kitchen.item_done', '{ order_id, station_id, item_id, done }', 'screen'],
+                ['kitchen.bumped / kitchen.recalled', '{ order_id, station_id }', 'screen (a bump at the pass makes the order ready; recall undoes the last bump)'],
+                ['kitchen.remake', '{ order_id, station_id, item_id, reason? }', 'screen (item active again, logged)'],
+                ['kitchen.priority', '{ order_id, on }', 'screen (rush)'],
+                ['kitchen.collected', '{ order_id }', 'screen (pass, after ready)'],
+                ['kitchen.order_in', '{ order }', 'server only: an online order (refused from devices)'],
+                ['kitchen.order_status', '{ order_id, status: ready | collected | cancelled }', 'server only: the online order changed on the orders board'],
+              ]}
+            />
+            <P>
+              Kitchen events need no staff member, don't open a trading day, and are refused with code{' '}
+              <Mono>kitchen_off</Mono> at a venue with no stations. Refusals stay out of Till reports' Refused
+              changes. The sequencer's store gains <Mono>loadKitchenOrders()</Mono>,{' '}
+              <Mono>saveKitchenOrders()</Mono> and <Mono>saveKitchenLog()</Mono> (Postgres in{' '}
+              <Mono>services/posSvc.js</Mono>; the in-memory test store and the future SQLite one do the same).
+            </P>
+            <DataTable
+              head={['Table', 'What it holds']}
+              rows={[
+                ['kds_stations', 'Per venue: name, kind prep | expo, colour, settings jsonb { target_mins, late_mins, show_held, summary_groups: [{ id, name, members: [{ kind dish | option, id | label, qty }] }] }, sort_order, is_active.'],
+                ['kds_routes', 'station_id + target_kind item | section | revenue_centre | default (+ target_id). Prep stations only.'],
+                ['kds_orders', 'Projection (like pos_checks): id text, source till | online, check_id / order_id, status active | ready | collected | cancelled, state jsonb (the whole kitchen order), last_seq.'],
+                ['kds_log', 'One row per bump and remake: station (id, name, kind), seconds since the dishes arrived or were fired, items, order source / type / number, reason, recalled_at (a recalled bump is left out of the report). Feeds the Kitchen report and its CSV.'],
+                ['pos_devices', 'kind kds; settings { station_ids, view tickets | on_order, columns, text_size, sound }.'],
+                ['pos_settings', 'kds_online_orders (send accepted online orders), kds_online_ready (a pass bump marks the online order ready, a collect completes it).'],
+              ]}
+            />
+            <H3>API</H3>
+            <DataTable
+              head={['Route', 'What it does']}
+              rows={[
+                ['GET /pos-api/config (kds device)', 'kdsConfig(): stations, the device\'s settings, courses, venue name and time zone. No staff, PINs or menus. version changes with any of them.'],
+                ['GET /pos-api/kitchen/sync?since=', 'Kitchen orders changed since a seq (reset with every live order when far behind) and server_time for the screen\'s clock.'],
+                ['POST /pos-api/events', 'Takes kitchen events from kds devices (server-only types refused). The answer has kitchen (orders touched). Broadcasts pos.seq with kinds [checks | kitchen] (tills skip kitchen-only changes) and kitchen.board to screens:<venue>.'],
+                ['/api/pos/venues/:id/kds-stations, /kds-stations/:id, .../kds-stations/order, .../kds-routes', 'Setup (pos_setup manage). The pass takes no routes (422).'],
+                ['GET /api/pos/venues/:id/kitchen-report[.csv]?from=&to=', 'Per station: tickets, items, average, median, p90, max, on time (within target_mins), late; by hour; remakes. CSV: every bump and remake (pos_reports view).'],
+                ['GET /screen-api/orders', 'boardFor(): order numbers preparing and ready for the screen\'s venue, for the Order status block (screens with one get needs_orders in their config, poll every 15 s and refetch on kitchen.board).'],
+              ]}
+            />
+            <H3>Online orders</H3>
+            <P>
+              <Mono>orderSvc.js</Mono> calls <Mono>kitchenOnOnlineOrder()</Mono> (<Mono>services/kitchenSvc.js</Mono>)
+              after an order is placed or changes status. Accepted (or auto-accepted) orders go in through{' '}
+              <Mono>submitServerEvent('kitchen.order_in')</Mono> with <Mono>onlineSnapshot()</Mono> (items routed
+              like till dishes; <Mono>fire_at</Mono> = collection time minus the ordering lead time for later
+              orders); ready / completed / rejected / cancelled on the orders board follow as{' '}
+              <Mono>kitchen.order_status</Mono>. The other way, a pass bump or collect calls{' '}
+              <Mono>changeStatus()</Mono> (actor "Kitchen screen &lt;name&gt;") when{' '}
+              <Mono>kds_online_ready</Mono> is on, so the guest gets the ready email.
+            </P>
+            <H3>The screen</H3>
+            <P>
+              <Mono>pos/src/kitchen/store.js</Mono> keeps confirmed kitchen orders (last sync), an IndexedDB
+              outbox of this screen's taps, and shows confirmed + outbox applied with{' '}
+              <Mono>applyKitchenEvent()</Mono>, like the till's store. It syncs over the socket and a poll,
+              keeps a clock offset from <Mono>server_time</Mono> for the timers, and goes through{' '}
+              <Mono>lib/transport.js</Mono> (hub first when one is set). <Mono>KitchenApp.jsx</Mono>: tickets in
+              columns (<Mono>stationTickets()</Mono>), the pass view, the On order counts
+              (<Mono>onOrderCounts()</Mono>), speed figures (<Mono>stationStats()</Mono>), Prev / bring back
+              (<Mono>recentBumps()</Mono>), orders for later (<Mono>laterOrders()</Mono>), bump bar keys, wake
+              lock and full screen.
+            </P>
+            <InfoBox type="info">
+              Offline between the till and the kitchen needs the venue hub: a web app can't accept connections
+              or find other devices on the LAN, so two tablets can't talk to each other without a server they
+              both reach. With the hub, tills and kitchen screens point at it (<Mono>hub_url</Mono>) and it runs
+              the same sequencer and kitchen rules. Admin: <Mono>components/pos/KitchenSection.jsx</Mono> (Till
+              setup → Kitchen screens), <Mono>components/pos/RoutingEditor.jsx</Mono> (shared with printers),
+              Kitchen tab in <Mono>pages/PosReports.jsx</Mono>, Order status block in{' '}
+              <Mono>shared/screenLayout.js</Mono> + <Mono>ScreenDesigner.jsx</Mono>.
             </InfoBox>
           </section>
 

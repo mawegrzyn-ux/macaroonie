@@ -51,10 +51,10 @@ function RcModal({ venueId, setup, rc, onClose }) {
         {rc && <ConfirmDelete label="Delete revenue centre" onConfirm={() => remove.mutate()} disabled={remove.isPending} />}
       </>}>
       <Field label="Name"><input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Restaurant" /></Field>
-      <Field label="VAT" hint="Which VAT rate dishes use here: a dish or section rate first, else the venue default for eat in or takeaway.">
+      <Field group label="VAT" hint="Which VAT rate dishes use here: a dish or section rate first, else the venue default for eat in or takeaway.">
         <Segmented value={form.vat_mode} options={VAT_MODES} onChange={v => set({ vat_mode: v })} />
       </Field>
-      <Field label="Menus on the till" hint="None picked: every published menu.">
+      <Field group label="Menus on the till" hint="None picked: every published menu.">
         <div className="flex flex-wrap gap-2">
           {setup.menus.map(m => {
             const on = form.menu_ids.includes(m.id)
@@ -76,7 +76,7 @@ function RcModal({ venueId, setup, rc, onClose }) {
           <NumberBox value={form.service_charge_min_covers} max={100} onChange={v => set({ service_charge_min_covers: v ?? 0 })} ariaLabel="Service charge from covers" />
         </Field>
       </div>
-      <Field label="Colour on the till"><ColourPick value={form.colour} onChange={v => set({ colour: v })} /></Field>
+      <Field group label="Colour on the till"><ColourPick value={form.colour} onChange={v => set({ colour: v })} /></Field>
       {rc && <Toggle label="In use" hint="Off: the till doesn't offer it. Sales already in it stay in reports." checked={form.is_active} onChange={v => set({ is_active: v })} />}
       <ErrorNote error={save.error || remove.error} />
     </Modal>

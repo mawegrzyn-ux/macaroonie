@@ -25,6 +25,12 @@
 //   GET    /venues/:venueId/conflicts             refused till events
 //   PATCH  /conflicts/:id                         mark resolved with a note
 //   GET    /venues/:venueId/print-jobs            the print queue
+//   Kitchen screens (docs/POS.md section 9; shared/pos/kitchen.js):
+//   POST   /venues/:venueId/kds-stations          + PATCH/DELETE /kds-stations/:id, PUT /venues/:venueId/kds-stations/order
+//   PUT    /venues/:venueId/kds-routes            the whole kitchen routing list
+//   GET    /venues/:venueId/kitchen-report?from=&to=   speed of service per station, by hour, remakes
+//   GET    /venues/:venueId/kitchen-report.csv?from=&to=  every bump and remake, for spreadsheets / BI
+//   (kitchen screens themselves are devices: POST /venues/:venueId/devices with kind 'kds')
 //
 // Setup needs pos_setup (view to read, manage to change); reports need
 // pos_reports. Every query filters tenant_id itself.
@@ -39,6 +45,7 @@ import {
   dayReport, fillReconFromDay, DEFAULT_COURSES,
 } from '../services/posSvc.js'
 import { reconFields } from '../services/reconFill.js'
+import { stationSettings } from '../../../shared/pos/kitchen.js'
 import { posOrigin } from '../services/platformHost.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
@@ -81,6 +88,8 @@ const SettingsBody = z.object({
     sc:      z.record(UUID, z.array(z.enum(['service_charge', 'tips'])).max(2)).default({}),
   }).optional(),
   recon_auto_fill:           z.boolean().optional(),
+  kds_online_orders:         z.boolean().optional(),
+  kds_online_ready:          z.boolean().optional(),
 })
 
 const RcBody = z.object({
@@ -116,13 +125,56 @@ const DeviceSettings = z.object({
   revenue_centre_id:  UUID.nullable().optional(),
   receipt_printer_id: UUID.nullable().optional(),
   floor_area_id:      UUID.nullable().optional(),
+  // Kitchen screens (kind 'kds'): which stations it shows (it can switch
+  // between them), the view it opens on, tickets across, text size, beep.
+  station_ids:        z.array(UUID).max(12).optional(),
+  view:               z.enum(['tickets', 'on_order']).optional(),
+  columns:            z.number().int().min(3).max(10).optional(),
+  text_size:          z.enum(['normal', 'large', 'xl']).optional(),
+  sound:              z.boolean().optional(),
 }).default({})
 
 const DeviceBody = z.object({
   name:     z.string().trim().min(1).max(60),
-  kind:     z.enum(['terminal', 'hub']).default('terminal'),
+  kind:     z.enum(['terminal', 'hub', 'kds']).default('terminal'),
   settings: DeviceSettings,
 })
+
+const SummaryMember = z.object({
+  kind:  z.enum(['dish', 'option']),
+  id:    UUID.nullable().optional(),
+  label: z.string().trim().min(1).max(120),
+  qty:   z.number().int().min(1).max(100).default(1),
+})
+
+const StationSettings = z.object({
+  target_mins:    z.number().int().min(1).max(120).default(8),
+  late_mins:      z.number().int().min(1).max(240).default(12),
+  show_held:      z.boolean().default(true),
+  summary_groups: z.array(z.object({
+    id:      z.string().min(1).max(40),
+    name:    z.string().trim().min(1).max(40),
+    members: z.array(SummaryMember).max(60).default([]),
+  })).max(12).default([]),
+}).refine(s => s.late_mins >= s.target_mins, { message: 'Late must be the same as or after the target time', path: ['late_mins'] })
+
+const StationBody = z.object({
+  name:      z.string().trim().min(1).max(40),
+  kind:      z.enum(['prep', 'expo']).default('prep'),
+  colour:    COLOUR,
+  settings:  StationSettings.default({}),
+  is_active: z.boolean().default(true),
+})
+
+const KdsRoutesBody = z.object({
+  routes: z.array(z.object({
+    station_id:  UUID,
+    target_kind: z.enum(['item', 'section', 'revenue_centre', 'default']),
+    target_id:   UUID.nullable().optional(),
+  })).max(2000),
+})
+
+const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
 const AreaBody = z.object({
   name:              z.string().trim().min(1).max(60),
@@ -190,7 +242,7 @@ function deviceView(d) {
 async function nextShortCode(tx, tenantId, venueId, kind) {
   const rows = await tx`SELECT short_code FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`
   const used = new Set(rows.map(r => r.short_code))
-  const prefix = kind === 'hub' ? 'H' : 'T'
+  const prefix = kind === 'hub' ? 'H' : kind === 'kds' ? 'K' : 'T'
   for (let n = 1; n < 1000; n++) if (!used.has(prefix + n)) return prefix + n
   return prefix + rows.length + 1
 }
@@ -221,7 +273,7 @@ export default async function posSetupRoutes(app) {
     return withTenant(tenantId, async tx => {
       const venue = await ownVenue(tx, tenantId, venueId)
       const settings = await ensureSettings(tx, tenantId, venueId)
-      const [rcs, printers, routes, devices, areas, tables, staff, roles, courses, menus] = await Promise.all([
+      const [rcs, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsRoutes] = await Promise.all([
         tx`SELECT id, name, vat_mode, menu_ids, service_charge_percent::float8 AS service_charge_percent,
                   service_charge_min_covers, colour, sort_order, is_active
              FROM pos_revenue_centres WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
@@ -242,6 +294,9 @@ export default async function posSetupRoutes(app) {
             WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`,
         tx`SELECT id, name, venue_id, is_published FROM menus WHERE tenant_id = ${tenantId} AND (venue_id IS NULL OR venue_id = ${venueId})
             ORDER BY sort_order, name`,
+        tx`SELECT id, name, kind, colour, settings, sort_order, is_active FROM kds_stations
+            WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
+        tx`SELECT station_id, target_kind, target_id FROM kds_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
       ])
       // Sections and dishes, for printer routing.
       const menuIds = menus.map(m => m.id)
@@ -261,6 +316,8 @@ export default async function posSetupRoutes(app) {
         tables, staff,
         roles: roles.map(r => ({ ...r, permissions: normalisePermissions(r.permissions || {}) })),
         courses, menus, sections, items,
+        kds_stations: kdsStations.map(s => ({ ...s, settings: stationSettings(s) })),
+        kds_routes: kdsRoutes,
         recon_fields: await reconFields(tx, tenantId, venueId),
         till_url: posOrigin(),
       }
@@ -342,6 +399,7 @@ export default async function posSetupRoutes(app) {
       if (n) await tx`UPDATE pos_revenue_centres SET is_active = false WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       else await tx`DELETE FROM pos_revenue_centres WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       await tx`DELETE FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND target_kind = 'revenue_centre' AND target_id = ${id}`
+      await tx`DELETE FROM kds_routes WHERE tenant_id = ${req.tenantId} AND target_kind = 'revenue_centre' AND target_id = ${id}`
       return { ...row, switched_off: n > 0 }
     })
     configChanged(rc.venue_id)
@@ -470,6 +528,11 @@ export default async function posSetupRoutes(app) {
       const [a] = await tx`SELECT id FROM floor_areas WHERE id = ${s.floor_area_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
       if (!a) throw httpError(422, 'Floor area not found')
     }
+    if (s.station_ids?.length) {
+      const ids = [...new Set(s.station_ids)]
+      const found = await tx`SELECT id FROM kds_stations WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ANY(${ids}::uuid[])`
+      if (found.length !== ids.length) throw httpError(422, 'Kitchen station not found')
+    }
   }
 
   app.post('/venues/:venueId/devices', { preHandler: canSetup }, async (req, reply) => {
@@ -529,6 +592,196 @@ export default async function posSetupRoutes(app) {
     })
     broadcast('pos:' + d.venue_id, { type: 'pos.revoked', device_id: id })
     return { ok: true }
+  })
+
+  // ── Kitchen screens: stations and routing ───────────────────────
+  // A change reaches the sequencer straight away (it reads the stations per
+  // event) and the kitchen screens through pos.config.
+  app.post('/venues/:venueId/kds-stations', { preHandler: canSetup }, async (req, reply) => {
+    const venueId = UUID.parse(req.params.venueId)
+    const body = StationBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      const [s] = await tx`
+        INSERT INTO kds_stations (tenant_id, venue_id, name, kind, colour, settings, sort_order, is_active)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.kind}, ${body.colour || null}, ${tx.json(body.settings)}, ${n}, ${body.is_active})
+        RETURNING *`
+      return s
+    })
+    configChanged(venueId)
+    return reply.code(201).send({ ...row, settings: stationSettings(row) })
+  })
+
+  app.patch('/kds-stations/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const body = StationBody.parse(req.body)
+    const row = await withTenant(req.tenantId, async tx => {
+      await ownRow(tx, 'kds_stations', req.tenantId, id, 'Kitchen station')
+      const [s] = await tx`
+        UPDATE kds_stations
+           SET name = ${body.name}, kind = ${body.kind}, colour = ${body.colour || null},
+               settings = ${tx.json(body.settings)}, is_active = ${body.is_active}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}
+         RETURNING *`
+      // The pass (expo) sees everything: routes to it mean nothing.
+      if (body.kind === 'expo') await tx`DELETE FROM kds_routes WHERE tenant_id = ${req.tenantId} AND station_id = ${id}`
+      return s
+    })
+    configChanged(row.venue_id)
+    return { ...row, settings: stationSettings(row) }
+  })
+
+  app.delete('/kds-stations/:id', { preHandler: canSetup }, async req => {
+    const id = UUID.parse(req.params.id)
+    const s = await withTenant(req.tenantId, async tx => {
+      const row = await ownRow(tx, 'kds_stations', req.tenantId, id, 'Kitchen station')
+      await tx`DELETE FROM kds_stations WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      // Kitchen screens that showed it: take it off their list.
+      const devices = await tx`SELECT id, settings FROM pos_devices WHERE tenant_id = ${req.tenantId} AND venue_id = ${row.venue_id} AND kind = 'kds'`
+      for (const d of devices) {
+        const ids = (d.settings?.station_ids || []).filter(x => x !== id)
+        if (ids.length !== (d.settings?.station_ids || []).length) {
+          await tx`UPDATE pos_devices SET settings = ${tx.json({ ...d.settings, station_ids: ids })} WHERE id = ${d.id} AND tenant_id = ${req.tenantId}`
+        }
+      }
+      return row
+    })
+    configChanged(s.venue_id)
+    return { ok: true }
+  })
+
+  app.put('/venues/:venueId/kds-stations/order', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const { ids } = OrderBody.parse(req.body)
+    await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      for (const [i, id] of ids.entries()) {
+        await tx`UPDATE kds_stations SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      }
+    })
+    configChanged(venueId)
+    return { ok: true }
+  })
+
+  app.put('/venues/:venueId/kds-routes', { preHandler: canSetup }, async req => {
+    const venueId = UUID.parse(req.params.venueId)
+    const { routes } = KdsRoutesBody.parse(req.body)
+    const out = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, venueId)
+      const prep = new Set((await tx`SELECT id FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId} AND kind = 'prep'`).map(r => r.id))
+      const rcs = new Set((await tx`SELECT id FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
+      const clean = []
+      const seen = new Set()
+      for (const r of routes) {
+        if (!prep.has(r.station_id)) throw httpError(422, 'Kitchen station not found (the pass sees everything, so it has no routes)')
+        const target = r.target_kind === 'default' ? null : (r.target_id || null)
+        if (r.target_kind !== 'default' && !target) throw httpError(422, 'A route needs a dish, section or revenue centre')
+        if (r.target_kind === 'revenue_centre' && !rcs.has(target)) throw httpError(422, 'Revenue centre not found')
+        const key = r.station_id + r.target_kind + target
+        if (seen.has(key)) continue
+        seen.add(key)
+        clean.push({ ...r, target_id: target })
+      }
+      const menuIds = clean.filter(r => r.target_kind === 'item' || r.target_kind === 'section').map(r => r.target_id)
+      if (menuIds.length) {
+        const found = await tx`
+          SELECT id FROM menu_items WHERE tenant_id = ${req.tenantId} AND id = ANY(${menuIds}::uuid[])
+          UNION SELECT id FROM menu_sections WHERE tenant_id = ${req.tenantId} AND id = ANY(${menuIds}::uuid[])`
+        if (found.length !== new Set(menuIds).size) throw httpError(422, 'A dish or section wasn\'t found')
+      }
+      await tx`DELETE FROM kds_routes WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      for (const r of clean) {
+        await tx`
+          INSERT INTO kds_routes (tenant_id, venue_id, station_id, target_kind, target_id)
+          VALUES (${req.tenantId}, ${venueId}, ${r.station_id}, ${r.target_kind}, ${r.target_id})`
+      }
+      return tx`SELECT station_id, target_kind, target_id FROM kds_routes WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+    })
+    configChanged(venueId)
+    return { routes: out }
+  })
+
+  // ── Kitchen report (speed of service) ───────────────────────────
+  async function kitchenRange(tx, req) {
+    const venueId = UUID.parse(req.params.venueId)
+    const q = z.object({ from: DATE, to: DATE }).parse(req.query)
+    if (q.to < q.from) throw httpError(422, 'The end date is before the start date')
+    const venue = await ownVenue(tx, req.tenantId, venueId)
+    const tz = venue.timezone || 'Europe/London'
+    return { venueId, tz, from: q.from, to: q.to }
+  }
+
+  app.get('/venues/:venueId/kitchen-report', { preHandler: canReports }, async req => {
+    return withTenant(req.tenantId, async tx => {
+      const { venueId, tz, from, to } = await kitchenRange(tx, req)
+      const range = tx`l.at >= (${from}::date)::timestamp AT TIME ZONE ${tz} AND l.at < ((${to}::date) + 1)::timestamp AT TIME ZONE ${tz}`
+      const [stations, hours, remakes, days] = await Promise.all([
+        tx`
+          SELECT l.station_id, COALESCE(s.name, l.station_name) AS name, COALESCE(s.kind, l.station_kind) AS kind,
+                 COALESCE((s.settings->>'target_mins')::int, 8) AS target_mins,
+                 count(*)::int AS tickets, COALESCE(sum(l.items), 0)::int AS items,
+                 round(avg(l.seconds))::int AS avg_secs,
+                 percentile_cont(0.5) WITHIN GROUP (ORDER BY l.seconds)::int AS median_secs,
+                 percentile_cont(0.9) WITHIN GROUP (ORDER BY l.seconds)::int AS p90_secs,
+                 max(l.seconds)::int AS max_secs,
+                 count(*) FILTER (WHERE l.seconds <= COALESCE((s.settings->>'target_mins')::int, 8) * 60)::int AS on_time,
+                 count(*) FILTER (WHERE l.seconds > COALESCE((s.settings->>'late_mins')::int, 12) * 60)::int AS late
+            FROM kds_log l
+            LEFT JOIN kds_stations s ON s.id = l.station_id AND s.tenant_id = l.tenant_id
+           WHERE l.tenant_id = ${req.tenantId} AND l.venue_id = ${venueId} AND l.kind = 'bump' AND l.recalled_at IS NULL AND ${range}
+           GROUP BY 1, 2, 3, 4
+           ORDER BY min(COALESCE(s.sort_order, 999)), 2`,
+        tx`
+          SELECT l.station_id, extract(hour FROM l.at AT TIME ZONE ${tz})::int AS hour,
+                 count(*)::int AS tickets, round(avg(l.seconds))::int AS avg_secs
+            FROM kds_log l
+           WHERE l.tenant_id = ${req.tenantId} AND l.venue_id = ${venueId} AND l.kind = 'bump' AND l.recalled_at IS NULL AND ${range}
+           GROUP BY 1, 2 ORDER BY 2`,
+        tx`
+          SELECT l.item_name, COALESCE(s.name, l.station_name) AS station, l.reason, l.at, l.order_number
+            FROM kds_log l
+            LEFT JOIN kds_stations s ON s.id = l.station_id AND s.tenant_id = l.tenant_id
+           WHERE l.tenant_id = ${req.tenantId} AND l.venue_id = ${venueId} AND l.kind = 'remake' AND ${range}
+           ORDER BY l.at DESC LIMIT 200`,
+        tx`
+          SELECT (l.at AT TIME ZONE ${tz})::date::text AS date, l.station_id,
+                 count(*)::int AS tickets, round(avg(l.seconds))::int AS avg_secs
+            FROM kds_log l
+           WHERE l.tenant_id = ${req.tenantId} AND l.venue_id = ${venueId} AND l.kind = 'bump' AND l.recalled_at IS NULL AND ${range}
+           GROUP BY 1, 2 ORDER BY 1`,
+      ])
+      return { from, to, timezone: tz, stations, hours, days, remakes }
+    })
+  })
+
+  app.get('/venues/:venueId/kitchen-report.csv', { preHandler: canReports }, async (req, reply) => {
+    const { rows, from, to } = await withTenant(req.tenantId, async tx => {
+      const { venueId, tz, from, to } = await kitchenRange(tx, req)
+      const rows = await tx`
+        SELECT to_char(l.at AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS date, to_char(l.at AT TIME ZONE ${tz}, 'HH24:MI:SS') AS time,
+               l.kind, COALESCE(s.name, l.station_name) AS station, l.station_kind, l.order_number, l.order_source, l.order_type,
+               l.seconds, l.items, l.item_name, l.reason, (l.recalled_at IS NOT NULL) AS recalled
+          FROM kds_log l
+          LEFT JOIN kds_stations s ON s.id = l.station_id AND s.tenant_id = l.tenant_id
+         WHERE l.tenant_id = ${req.tenantId} AND l.venue_id = ${venueId}
+           AND l.at >= (${from}::date)::timestamp AT TIME ZONE ${tz} AND l.at < ((${to}::date) + 1)::timestamp AT TIME ZONE ${tz}
+         ORDER BY l.at
+         LIMIT 100000`
+      return { rows, from, to }
+    })
+    const cell = v => {
+      const s = v == null ? '' : String(v)
+      return /[",\r\n]/.test(s) || /^[=+\-@]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
+    }
+    const head = ['date', 'time', 'kind', 'station', 'station_kind', 'order_number', 'order_source', 'order_type', 'seconds', 'items', 'item', 'reason', 'recalled']
+    const lines = [head.join(',')]
+    for (const r of rows) {
+      lines.push([r.date, r.time, r.kind, r.station, r.station_kind, r.order_number, r.order_source, r.order_type, r.seconds, r.items, r.item_name, r.reason, r.recalled ? 'yes' : ''].map(cell).join(','))
+    }
+    reply.header('content-type', 'text/csv; charset=utf-8')
+    reply.header('content-disposition', `attachment; filename="kitchen-${from}-to-${to}.csv"`)
+    return lines.join('\r\n') + '\r\n'
   })
 
   // ── Floor plan ──────────────────────────────────────────────────
@@ -865,6 +1118,7 @@ export default async function posSetupRoutes(app) {
           LEFT JOIN cash_staff s ON s.id = r.staff_id AND s.tenant_id = r.tenant_id
           LEFT JOIN pos_checks c ON c.id = r.check_id AND c.tenant_id = r.tenant_id
          WHERE r.tenant_id = ${req.tenantId} AND r.venue_id = ${venueId}
+           AND r.type NOT LIKE 'kitchen.%'
            ${open ? tx`AND r.resolved_at IS NULL` : tx``}
          ORDER BY r.created_at DESC
          LIMIT 300`

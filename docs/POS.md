@@ -2,7 +2,7 @@
 
 Status: **Phases 1-5 built cloud-first; the hub and printer trials are parked** (11 Oct 2026).
 Decisions agreed 11 Oct 2026. What runs today, and what's provisioned for the hub, is in
-section 8.
+section 8. Kitchen screens (KDS, 16 Oct 2026): section 9.
 
 A restaurant till with table service and counter service, built into Macaroonie:
 table service first, counter mode later. This file is the design; CLAUDE.md links here.
@@ -18,7 +18,7 @@ table service first, counter mode later. This file is the design; CLAUDE.md link
 | Local hub | One per venue. Prints, keeps terminals in sync, keeps the venue trading with the internet down. |
 | Printers | Epson network printers (ePOS-capable models). The hub prints raw ESC/POS on port 9100. |
 | Payments | Launch: card on a separate machine, tender recorded. Later: integrated Dojo, SumUp, Zettle, Stripe Terminal, Adyen behind one adapter. |
-| Kitchen | Printers only. Kitchen display (KDS) later. |
+| Kitchen | Printers, and kitchen screens (KDS) on Android tablets / TV boxes since 16 Oct 2026 (section 9). |
 | Order | Table service first, then counter mode. |
 
 ---
@@ -266,5 +266,94 @@ Provisioned for the hub (no other change needed when it comes):
 - `pos/src/lib/transport.js` tries `device.hub_url` before the cloud.
 - The sequencer takes a store object; the hub supplies a SQLite one.
 
-Still to do: Trials 1-3 on real hardware, the hub service, card terminal adapters, KDS, the
+Still to do: Trials 1-3 on real hardware, the hub service, card terminal adapters, the
 till layout designer (Phase 7), online orders into the till, bookings on the floor plan.
+Kitchen screens: section 9.
+
+---
+
+## 9. Kitchen screens (KDS)
+
+Built 16 Oct 2026, migration 168. Modelled on what a kitchen display such as ConnectSmart
+Kitchen does, not a copy of it: tickets by station, a pass (expo) that checks orders before
+they go out, timers, bump / recall / remake / rush, "on order" counts, bump bars, speed of
+service reporting, and an order-ready board for guests. Android tablets and TV boxes in
+Chrome, as an installed PWA.
+
+### 9.1 How it fits
+
+```
+  Till ──events──►  sequencer (cloud now, hub later)  ◄──events── Kitchen screen
+                    │ shared/pos/checks.js   (checks)
+                    │ shared/pos/kitchen.js  (kitchen orders)
+                    ▼
+             pos_events ─► pos_checks, kds_orders, kds_log
+                    │
+                    └─► pos.seq { kinds } ─► tills / kitchen screens     kitchen.board ─► menu screens
+```
+
+- **A kitchen screen is a device** (`pos_devices.kind = 'kds'`), paired with a one-time code at
+  the till address like a till; the same `pos/` app opens the kitchen UI for it. No PIN: a
+  kitchen screen belongs to a station, not a person.
+- **Kitchen events are POS events.** Bump, done, recall, remake, rush and collected are events
+  in the venue's `pos_events` log, sequenced like check events. The kitchen's state
+  (`kds_orders`) is a projection, like `pos_checks`. The rules live once, in
+  `shared/pos/kitchen.js`, and run in the sequencer and on the screen (local first: a tap shows
+  at once and is kept in the screen's outbox until the sequencer accepts it).
+- **Till to kitchen**: sending dishes, firing a course, voids, moves and merges on the till
+  change the kitchen orders in the same sequencer step, so the kitchen and the till never
+  disagree about what was sent.
+- **Online orders** enter as server-made events (`kitchen.order_in` / `kitchen.order_status`)
+  when accepted on the orders board; the pass marking one ready marks the online order ready
+  (the guest's email), if switched on.
+- **Routing** works like printers (dish, section, revenue centre, default) to prep stations;
+  the pass sees everything.
+- **Order-ready board**: the menu screens' `order_status` block shows numbers preparing and
+  ready (`/screen-api/orders`), pushed on `kitchen.board`.
+- **Speed of service**: every bump and remake is a `kds_log` row (station, seconds, items,
+  order type and source); Till reports → Kitchen shows it per station and hour, and the CSV
+  export is the raw rows for spreadsheets or a BI warehouse.
+
+### 9.2 Offline: do we need the hub?
+
+Yes, for till-to-kitchen without the internet. A web app (PWA) can only make outgoing
+connections: it can't listen for connections, and it can't discover other devices on the LAN
+(no mDNS, no raw sockets). WebRTC between two tablets would work over the LAN, but setting up a
+WebRTC connection needs a signalling server both can reach, which is the cloud. So two browsers
+can't find each other with the internet down unless something on the LAN listens for them:
+that is the hub.
+
+What happens today without the hub:
+
+- Internet up: tills and kitchen screens talk to the cloud; a dish sent on the till is on the
+  kitchen screen within a second (socket push, else the poll).
+- Internet down: each device carries on alone. The kitchen screen keeps its tickets and saves
+  its taps; the till keeps trading and saves its sends. Nothing new reaches the kitchen until
+  the till's sends reach the cloud. Printed kitchen tickets (when the hub prints) or a till
+  printing kitchen tickets in its browser are the fallback.
+
+What the hub changes, with no change to the rules: tills and kitchen screens get
+`device.hub_url` (`pos/src/lib/transport.js` already tries it first); the hub runs
+`createSequencer()` with a SQLite store, which already handles kitchen events through
+`loadKitchenOrders()` / `saveKitchenOrders()` / `saveKitchenLog()`; it pushes `pos.seq` over its
+own WebSocket and forwards everything to the cloud through its outbox. Section 2.1 (https, the
+venue certificate, Chrome's Local Network Access prompt) applies to kitchen screens the same as
+tills.
+
+Network note (from the Wingstop technology guideline): sites that split the network into VLANs
+(POS, KDS, menu boards, order-ready boards) must allow the POS and KDS VLANs to reach the hub on
+its port, and the menu-board VLAN to reach the cloud (the order-ready board reads
+`/screen-api/orders` from the cloud). With 4G / 5G failover the cloud path keeps working and
+nothing changes for the devices.
+
+### 9.3 Not built yet
+
+- The hub itself (above), so no till-to-kitchen with the internet down.
+- GloriaFood orders on the kitchen screens (they reach the orders board, not the kitchen).
+- Ready / bumped shown on the till (the till doesn't show what the kitchen has done).
+- Item-level cook times and "start this now" timing across stations (all dishes of an order
+  start together; held courses and later online orders wait).
+- Tested in Chromium on desktop sizes (tablet, TV, portrait) only; not yet on a real Android
+  tablet, a TV box, or with a real bump bar. Sound needs one tap on the screen first (browser
+  autoplay rule).
+

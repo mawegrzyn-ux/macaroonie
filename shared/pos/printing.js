@@ -23,14 +23,17 @@ import { TENDERS, checkLabel } from './checks.js'
 
 const LEVELS = ['item', 'section', 'revenue_centre', 'default']
 
-/** Printer ids for something with { item_id, section_id, revenue_centre_id }. */
-export function routeFor(target, routes = []) {
+/**
+ * Printer ids for something with { item_id, section_id, revenue_centre_id }.
+ * Kitchen screens route the same way with key 'station_id' (kds_routes).
+ */
+export function routeFor(target, routes = [], key = 'printer_id') {
   for (const level of LEVELS) {
     const id = level === 'item' ? target.item_id
       : level === 'section' ? target.section_id
         : level === 'revenue_centre' ? target.revenue_centre_id : null
     const hits = routes.filter(r => r.target_kind === level && (level === 'default' || (id && r.target_id === id)))
-    if (hits.length) return [...new Set(hits.map(r => r.printer_id))]
+    if (hits.length) return [...new Set(hits.map(r => r[key]))]
   }
   return []
 }

@@ -3,14 +3,16 @@
 // Till reports (/pos/reports, pos_reports): trading days with their X / Z
 // figures and the Cash Recon fill, every check with its full history
 // (event by event), changes the till made that the server refused
-// (conflicts), and the print queue. Figures come from dayFigures() in
-// shared/pos/reports.js, the same code the till's X / Z report uses.
+// (conflicts), the print queue, and the kitchen's speed of service (kds_log:
+// every bump and remake from the kitchen screens). Figures come from
+// dayFigures() in shared/pos/reports.js, the same code the till's X / Z
+// report uses.
 
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { BarChart3, Loader2, ChevronLeft, AlertTriangle, CheckCircle2 } from 'lucide-react'
+import { BarChart3, Loader2, ChevronLeft, AlertTriangle, CheckCircle2, Download, CalendarDays } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, openPicker } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { checkTotals, modifierText } from '@shared/pos/pricing.js'
 import { TENDERS } from '@shared/pos/checks.js'
@@ -21,6 +23,7 @@ const TABS = [
   { value: 'checks', label: 'Checks' },
   { value: 'conflicts', label: 'Refused changes' },
   { value: 'print', label: 'Print queue' },
+  { value: 'kitchen', label: 'Kitchen' },
 ]
 const tenderLabel = k => TENDERS.find(t => t.key === k)?.label || k
 const when = iso => (iso ? new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '')
@@ -439,6 +442,132 @@ function PrintTab({ venueId }) {
   )
 }
 
+// ── Kitchen (speed of service) ──────────────────────────────────
+
+const isoDate = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+const mmss = secs => (secs == null ? '-' : Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'))
+
+function DateBox({ label, value, onChange }) {
+  return (
+    <label className="relative inline-flex items-center gap-2 h-11 px-3 rounded-lg border bg-background text-sm touch-manipulation cursor-pointer">
+      <CalendarDays className="w-4 h-4 text-muted-foreground" />
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium">{dayLabel(value)}</span>
+      <input type="date" value={value} onChange={e => e.target.value && onChange(e.target.value)} onClick={openPicker}
+        className="absolute inset-0 opacity-0 cursor-pointer" aria-label={label} />
+    </label>
+  )
+}
+
+function KitchenTab({ venueId }) {
+  const api = useApi()
+  const today = new Date()
+  const [from, setFrom] = useState(isoDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)))
+  const [to, setTo] = useState(isoDate(today))
+  const [downloading, setDownloading] = useState(false)
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['kitchen-report', venueId, from, to],
+    queryFn: () => api.get(`/pos/venues/${venueId}/kitchen-report?from=${from}&to=${to}`),
+  })
+  const stations = data?.stations || []
+  const hours = data?.hours || []
+  const hourList = [...new Set(hours.map(h => h.hour))].sort((a, b) => a - b)
+  const maxAvg = Math.max(1, ...hours.map(h => h.avg_secs || 0))
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <DateBox label="From" value={from} onChange={v => { setFrom(v); if (v > to) setTo(v) }} />
+        <DateBox label="To" value={to} onChange={v => { setTo(v); if (v < from) setFrom(v) }} />
+        <Btn disabled={downloading} onClick={async () => {
+          setDownloading(true)
+          try { await api.download(`/pos/venues/${venueId}/kitchen-report.csv?from=${from}&to=${to}`, `kitchen-${from}-to-${to}.csv`) } finally { setDownloading(false) }
+        }}>
+          {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} Download CSV
+        </Btn>
+      </div>
+      <ErrorNote error={error} />
+      {isLoading && <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto my-10" />}
+      {data && (
+        <>
+          <Card title="Speed of service by station">
+            {!stations.length
+              ? <p className="text-sm text-muted-foreground">No tickets bumped on the kitchen screens in these days.</p>
+              : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm" data-testid="kitchen-report-table">
+                    <thead>
+                      <tr className="text-left text-xs text-muted-foreground">
+                        <th className="py-2 pr-3">Station</th><th className="py-2 pr-3 text-right">Tickets</th><th className="py-2 pr-3 text-right">Dishes</th>
+                        <th className="py-2 pr-3 text-right">Average</th><th className="py-2 pr-3 text-right">Middle</th><th className="py-2 pr-3 text-right">9 in 10 within</th>
+                        <th className="py-2 pr-3 text-right">Slowest</th><th className="py-2 pr-3 text-right">On time</th><th className="py-2 text-right">Late</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {stations.map(st => (
+                        <tr key={st.station_id || st.name}>
+                          <td className="py-2 pr-3 font-medium">{st.name || 'Removed station'}{st.kind === 'expo' ? ' (pass)' : ''}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{st.tickets}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{st.items}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums font-semibold">{mmss(st.avg_secs)}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{mmss(st.median_secs)}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{mmss(st.p90_secs)}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{mmss(st.max_secs)}</td>
+                          <td className="py-2 pr-3 text-right tabular-nums">{st.tickets ? Math.round(st.on_time * 100 / st.tickets) + '%' : '-'} <span className="text-xs text-muted-foreground">({st.target_mins} min)</span></td>
+                          <td className={cn('py-2 text-right tabular-nums', st.late > 0 && 'text-red-700 font-semibold')}>{st.late}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            <p className="text-xs text-muted-foreground mt-3">A ticket's time runs from its dishes reaching the screen (or their course being fired) to the bump. Tickets brought back don't count. At the pass it is the whole order.</p>
+          </Card>
+          {hourList.length > 0 && (
+            <Card title="Average time by hour">
+              <div className="space-y-3">
+                {stations.map(st => (
+                  <div key={st.station_id || st.name}>
+                    <p className="text-xs font-semibold mb-1">{st.name}</p>
+                    <div className="flex items-end gap-1 h-28">
+                      {hourList.map(h => {
+                        const row = hours.find(x => x.hour === h && x.station_id === st.station_id)
+                        const pctH = row ? Math.max(4, Math.round((row.avg_secs / maxAvg) * 100)) : 0
+                        return (
+                          <div key={h} className="flex-1 min-w-[18px] flex flex-col items-center justify-end h-full" title={row ? `${h}:00 · ${row.tickets} tickets · ${mmss(row.avg_secs)}` : `${h}:00`}>
+                            <span className="text-[10px] tabular-nums text-muted-foreground">{row ? mmss(row.avg_secs) : ''}</span>
+                            <div className={cn('w-full rounded-t', row && row.avg_secs > st.target_mins * 60 ? 'bg-amber-500' : 'bg-primary')} style={{ height: pctH + '%' }} />
+                            <span className="text-[10px] text-muted-foreground mt-0.5">{h}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+          <Card title={'Remakes (' + data.remakes.length + ')'}>
+            {!data.remakes.length
+              ? <p className="text-sm text-muted-foreground">No remakes.</p>
+              : (
+                <div className="divide-y text-sm">
+                  {data.remakes.map((r, i) => (
+                    <div key={i} className="flex flex-wrap gap-x-3 py-1.5">
+                      <span className="tabular-nums text-muted-foreground w-28">{when(r.at)}</span>
+                      <span className="font-medium flex-1">{r.item_name}</span>
+                      <span className="text-muted-foreground">{r.station}{r.order_number ? ' · order ' + r.order_number : ''}</span>
+                      <span>{r.reason || ''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+          </Card>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function PosReports() {
   const { venues, venueId, setVenueId, isLoading } = usePosVenue()
   const [tab, setTab] = useState('days')
@@ -457,6 +586,7 @@ export default function PosReports() {
           {venueId && tab === 'checks' && <ChecksTab key={venueId} venueId={venueId} dayId={dayId} setDayId={setDayId} />}
           {venueId && tab === 'conflicts' && <ConflictsTab venueId={venueId} />}
           {venueId && tab === 'print' && <PrintTab venueId={venueId} />}
+          {venueId && tab === 'kitchen' && <KitchenTab key={venueId} venueId={venueId} />}
         </div>
       </div>
     </div>

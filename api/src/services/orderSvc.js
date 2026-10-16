@@ -429,10 +429,19 @@ function queueEmail(order, type) {
 function afterPlaced(order) {
   notify(order, 'created')
   queueEmail(order, 'order_confirmation')
+  toKitchen(order)
+}
+
+// Kitchen screens (services/kitchenSvc.js): an accepted order goes to the
+// kitchen; ready / completed / cancelled are copied there. Loaded on demand
+// (kitchenSvc -> posSvc -> soldOut -> this file) and best effort.
+function toKitchen(order) {
+  import('./kitchenSvc.js').then(m => m.kitchenOnOnlineOrder(order)).catch(() => {})
 }
 
 function afterStatus(order, from) {
   notify(order, 'updated')
+  toKitchen(order)
   if (order.status === 'ready' && from !== 'ready') queueEmail(order, 'order_ready')
   if ((order.status === 'rejected' || order.status === 'cancelled') && order.placed_at) {
     queueEmail(order, 'order_cancelled')

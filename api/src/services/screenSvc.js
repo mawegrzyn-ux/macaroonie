@@ -150,6 +150,9 @@ export async function screenConfig(tx, tenantId, screenId) {
     tags: slimTags(menus[0]?.dietary_tags),
     allergen_notice: menus[0]?.allergen_notice || null,
     sold_out: soldOut,
+    // A board with an Order status block: the player fetches the order
+    // numbers (/screen-api/orders) and refreshes them on kitchen.board.
+    needs_orders: designs.some(d => (d.layout?.blocks || []).some(b => b?.type === 'order_status')),
   }
   config.version = sha256(JSON.stringify(config)).slice(0, 16)
   return config

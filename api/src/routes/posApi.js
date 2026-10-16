@@ -8,9 +8,12 @@
 //
 //   POST /pair                  { code } -> { device_id, secret, ... }   (no auth)
 //   GET  /me                    this till and its venue
-//   GET  /config?version=       everything the till needs offline (unchanged: true when version matches)
+//   GET  /config?version=       everything the till needs offline (unchanged: true when version matches);
+//                               a kitchen screen (kind 'kds') gets the kitchen's config instead
 //   GET  /sync?since=<seq>      events and changed checks since seq; reset: true with all open checks
-//   POST /events                { events: [...] } -> per-event results, in order
+//   GET  /kitchen/sync?since=   kitchen orders since seq (shared/pos/kitchen.js; services/kitchenSvc.js)
+//   POST /events                { events: [...] } -> per-event results, in order (till and kitchen
+//                               events; kitchen.order_in / order_status are refused from devices)
 //   GET  /checks?status=closed  recent closed checks (reopen, refund, reprint)
 //   GET  /checks/:id            one check
 //   GET  /reports/day?day_id=   X report (the open day) or a past day's Z
@@ -36,7 +39,10 @@ import {
 } from '../services/posSvc.js'
 import { dayFigures } from '../../../shared/pos/reports.js'
 import { permissionProblem } from '../../../shared/pos/permissions.js'
+import { KITCHEN_SERVER_EVENTS } from '../../../shared/pos/kitchen.js'
 import { setSoldOut, soldOutItemIds, announceSoldOut } from '../services/soldOut.js'
+import { kdsConfig, kitchenSync, onlineMoves } from '../services/kitchenSvc.js'
+import { changeStatus } from '../services/orderSvc.js'
 
 const UUID = z.string().uuid()
 const CHECK_ID = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{26}$/)
@@ -157,10 +163,27 @@ export default async function posApiRoutes(app) {
 
     scoped.get('/config', async req => {
       const d = req.posDevice
-      const config = await withTenant(d.tenant_id, tx => tillConfig(tx, d.tenant_id, d.venue_id))
-      if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version }
       const [own] = await sql`SELECT name, short_code, settings FROM pos_devices WHERE id = ${d.id} AND tenant_id = ${d.tenant_id}`
-      return { ...config, device: { id: d.id, name: own?.name, short_code: own?.short_code, settings: own?.settings || {} } }
+      const device = { id: d.id, kind: d.kind, name: own?.name, short_code: own?.short_code, settings: own?.settings || {} }
+      // A kitchen screen gets the kitchen's config (no menus, no PINs). Its
+      // own settings count towards the version, so a change made in Till
+      // setup reaches it.
+      const config = d.kind === 'kds'
+        ? await withTenant(d.tenant_id, async tx => {
+          const c = await kdsConfig(tx, d.tenant_id, d.venue_id)
+          return { ...c, version: c.version + '.' + sha256(JSON.stringify(device)).slice(0, 8) }
+        })
+        : await withTenant(d.tenant_id, tx => tillConfig(tx, d.tenant_id, d.venue_id))
+      if (req.query.version && req.query.version === config.version) return { unchanged: true, version: config.version }
+      return { ...config, device }
+    })
+
+    // Kitchen orders since a sequence number (a kitchen screen, or a till
+    // showing what is ready). shared/pos/kitchen.js has their shape.
+    scoped.get('/kitchen/sync', async req => {
+      const d = req.posDevice
+      const since = Math.max(0, Number(req.query.since) || 0)
+      return withTenant(d.tenant_id, tx => kitchenSync(tx, d.tenant_id, d.venue_id, since))
     })
 
     // Sold out: the signed-in person's role needs sold_out (or approved_by
@@ -222,17 +245,28 @@ export default async function posApiRoutes(app) {
       const { events } = z.object({ events: z.array(z.record(z.any())).min(1).max(MAX_BATCH) }).parse(req.body)
       const seqr = sequencer(d.tenant_id, d.venue_id, { deviceId: d.id })
       const results = []
+      const raw_results = []
       const changed = {}
+      const kitchen = {}
+      const kinds = new Set()
       let accepted = 0
       for (const raw of events) {
         // The till names itself and its venue by its pairing, not by the event.
         const e = { ...raw, venue_id: d.venue_id, device_id: d.id }
         delete e.seq
         delete e.assigned
+        delete e.received_at
+        // Online orders reach the kitchen from the server only.
+        if (KITCHEN_SERVER_EVENTS.includes(e.type)) {
+          results.push({ id: e.id, ok: false, error: 'Not allowed from a device', code: 'invalid' })
+          continue
+        }
         const r = await seqr.submit(e)
+        raw_results.push(r)
         if (r.ok) {
           if (!r.duplicate) accepted++
-          for (const [id, c] of Object.entries(r.checks || {})) changed[id] = c
+          for (const [id, c] of Object.entries(r.checks || {})) { changed[id] = c; kinds.add('checks') }
+          for (const [id, o] of Object.entries(r.kitchen || {})) { kitchen[id] = o; kinds.add('kitchen') }
           results.push({ id: e.id, ok: true, seq: r.seq, duplicate: !!r.duplicate, assigned: r.event?.assigned || null })
           if (e.type === 'day.closed' && !r.duplicate) afterZ(req, d, r.event.assigned?.day_id)
         } else {
@@ -241,8 +275,12 @@ export default async function posApiRoutes(app) {
       }
       const [st] = await withTenant(d.tenant_id, tx => tx`SELECT last_seq FROM pos_venue_state WHERE venue_id = ${d.venue_id} AND tenant_id = ${d.tenant_id}`)
       const seq = Number(st?.last_seq || 0)
-      if (accepted) broadcast('pos:' + d.venue_id, { type: 'pos.seq', seq, from: d.id })
-      return { results, seq, checks: Object.values(changed) }
+      if (accepted) {
+        broadcast('pos:' + d.venue_id, { type: 'pos.seq', seq, from: d.id, kinds: kinds.size ? [...kinds] : ['checks'] })
+        if (kinds.has('kitchen')) broadcast('screens:' + d.venue_id, { type: 'kitchen.board' })
+      }
+      afterKitchen(req, d, raw_results)
+      return { results, seq, checks: Object.values(changed), kitchen: Object.values(kitchen) }
     })
 
     scoped.get('/checks', async req => {
@@ -335,6 +373,35 @@ export default async function posApiRoutes(app) {
       return row
     })
   })
+}
+
+/**
+ * After kitchen events: an online order the kitchen finished becomes ready
+ * (the guest's "ready" email goes out), one handed over becomes collected,
+ * when the venue wants it (pos_settings.kds_online_ready). Never fails the
+ * events.
+ */
+function afterKitchen(req, device, results) {
+  const moves = onlineMoves(results)
+  if (!moves.length) return
+  ;(async () => {
+    const [s] = await withTenant(device.tenant_id, tx => tx`
+      SELECT kds_online_ready FROM pos_settings WHERE venue_id = ${device.venue_id} AND tenant_id = ${device.tenant_id}`)
+    if (s && s.kds_online_ready === false) return
+    for (const m of moves) {
+      try {
+        const [o] = await withTenant(device.tenant_id, tx => tx`
+          SELECT status FROM orders WHERE id = ${m.order_id} AND tenant_id = ${device.tenant_id} AND venue_id = ${device.venue_id}`)
+        if (!o) continue
+        const from = o.status
+        if (m.status === 'ready' && !['accepted', 'preparing'].includes(from)) continue
+        if (m.status === 'completed' && from !== 'ready') continue
+        await changeStatus(device.tenant_id, m.order_id, m.status, { actor: 'Kitchen screen ' + device.name })
+      } catch (err) {
+        req.log.warn({ err, order: m.order_id }, 'kitchen: online order status change failed')
+      }
+    }
+  })().catch(err => req.log.warn({ err }, 'kitchen: online order moves failed'))
 }
 
 /** After a Z report: fill Cash Recon when the venue wants it. Never fails the Z. */
