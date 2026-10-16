@@ -1735,6 +1735,36 @@ export default function Help() {
               Someone who already has wages or rota history is made inactive rather than deleted, so
               past weeks keep their figures.
             </P>
+            <P>
+              <strong>Leaving.</strong> When someone resigns or is let go, open them and use{' '}
+              <strong>Set a leaving date</strong>: pick their last working day and, if you like, a reason.
+              From the day after, they are not on the rota: later weeks don't show them, and in the week
+              they leave their remaining days show as LEFT. Earlier weeks still show them with their
+              shifts, pay and tips. If they were already on the rota after that day, the app says how many
+              entries that is before taking them off; tap <strong>Yes, set leaving date</strong> to go
+              ahead. After their last day they move to the <strong>Left</strong> group at the bottom of the
+              Staff list, they aren't offered for new wage weeks or the wages Add person list, and they
+              can no longer sign in on the till. <strong>Clear leaving date</strong> puts them back on the
+              rota (entries taken off earlier are not put back). Use this rather than turning Active off,
+              which hides someone from every week, past ones included.
+            </P>
+            <P>
+              <strong>Off the rota.</strong> For a stretch when someone can't be rostered (long leave, a
+              season back home, a suspension), use <strong>Add a period off the rota</strong> with a from
+              and to date (both days included, up to two years) and an optional reason. Those days show as
+              AWAY on the rota and can't be tapped; a week entirely inside the period lists them under the
+              grid in <strong>Off the rota all week</strong> instead of a row. Their rota entries inside the
+              period are taken off when you add it (again, the app says how many first). A person's periods
+              can't overlap. The bin next to a period removes it (entries it took off are not put back).
+              Paid holiday still goes on the rota as PTO, so it is paid: a period off the rota is unpaid
+              unless you add a pay adjustment.
+            </P>
+            <P>
+              The Staff list shows <strong>Last day</strong>, <strong>Off rota until</strong> and{' '}
+              <strong>Off rota from</strong> badges, so you can see at a glance who is leaving or away.
+              Leaving dates and periods save straight away with their own buttons; they don't need the
+              editor's Save.
+            </P>
             <H3>Rota setup</H3>
             <P>
               Rota, then <strong>Rota setup</strong>. Choose how the rota is entered:
@@ -1823,6 +1853,15 @@ export default function Help() {
               in hours and pay and tips, unless they have money that week (a pay adjustment, wages
               owed from last week, a tip move or a tip pot paid to them). Copy from week leaves them
               off. For paid holiday, keep them on and mark their days PTO instead, so they are paid.
+            </P>
+            <P>
+              <strong>Leavers and people away.</strong> Days after someone's leaving date show as LEFT,
+              and days in a period off the rota show as AWAY, both hatched; they can't be tapped, and the
+              name has a line saying why (for example "Last day Wed 4 Nov"). Someone away the whole week is
+              listed under the grid in <strong>Off the rota all week</strong>; someone who left before the
+              week doesn't show at all. Both are set on the Staff page, not here. Copy from week skips
+              shifts that would land on those days, and the printout and image show them as Left or Off
+              rota.
             </P>
             <P>
               <strong>Print / PDF</strong> opens your device's print dialog with the week laid out on

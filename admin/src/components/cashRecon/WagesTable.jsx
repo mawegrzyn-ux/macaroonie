@@ -33,7 +33,7 @@ import { cn } from '@/lib/utils'
 import { ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { splitPay } from '@shared/payMethod.js'
 import {
-  fmt, parseNum, getMonday, isoWeekDates, staffRateLabel, wageEntryForStaff, defaultWageEntries, PaidDaySelect,
+  fmt, parseNum, getMonday, isoWeekDates, staffRateLabel, wageEntryForStaff, defaultWageEntries, leftBeforeWeek, PaidDaySelect,
 } from '@/pages/CashRecon'
 
 const WIDE_MIN = 640
@@ -185,8 +185,8 @@ export function WeekWagesEditor({
   const savedEntries = wagesData?.entries
   const isNew = !savedEntries || savedEntries.length === 0
   const baseRows = useMemo(
-    () => (isNew ? defaultWageEntries(config) : savedEntries).map(toRow),
-    [isNew, config, savedEntries],
+    () => (isNew ? defaultWageEntries(config, weekStart) : savedEntries).map(toRow),
+    [isNew, config, savedEntries, weekStart],
   )
   const rows = draft ?? baseRows
   const weekNotes = notesDraft ?? (wagesData?.notes ?? '')
@@ -314,7 +314,8 @@ export function WeekWagesEditor({
   }
 
   const onList = new Set(rows.map(r => r.staff_id).filter(Boolean))
-  const addable = (config.staff ?? []).filter(s => s.is_active && !onList.has(s.id))
+  // Nobody who left before this week (migration 164).
+  const addable = (config.staff ?? []).filter(s => s.is_active && !onList.has(s.id) && !leftBeforeWeek(s, weekStart))
   const total = round2(rows.reduce((s, r) => s + parseNum(r.total), 0))
   const bank = round2(rows.reduce((s, r) => s + parseNum(r.bank_amount), 0))
   const paid = round2(rows.reduce((s, r) => s + parseNum(r.cash_amount), 0))

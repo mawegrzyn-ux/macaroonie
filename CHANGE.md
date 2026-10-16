@@ -5,6 +5,16 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-15 — Staff: leaving dates and periods off the rota]
+
+- **Staff > a person > Leaving**: set their last working day (and a reason if you like). From the day after they are off the rota: later weeks don't show them, and the week they leave in shows their remaining days as LEFT. Earlier weeks still show them, with their shifts, pay and tips. If they were already on the rota after that day, the app says how many entries that is and asks before taking them off. Clear leaving date puts them back (entries already taken off aren't restored).
+- **Staff > a person > Off the rota**: add periods (from and to date, reason) when someone can't be rostered, such as long leave or a season away. Those days show as AWAY on the rota and can't be tapped; someone away the whole week is listed under the grid in "Off the rota all week". Their entries in the period are taken off when it is added (the app asks first). Periods can't overlap. Paid holiday still goes on the rota as PTO.
+- Staff list: Last day / Off rota badges, and people past their last day move to a Left group at the bottom.
+- Rota: Copy from week skips shifts that would land on those days; the printout and image show them as Left or Off rota. Hours, pay and tips leave out someone off the rota all week unless they have money that week.
+- Wages: people who left before a week aren't put on its new wage list or offered in Add person.
+- Till: someone past their last working day can no longer sign in.
+- Migration 164.
+
 ## [2026-10-15 — GloriaFood: see the orders behind the figures]
 
 - **Cash Recon day > GloriaFood orders**: every GloriaFood order on that trading day (counted the same way as Fill from GloriaFood), with the orders counted, order totals, tips and the total by payment method. Tap an order for its times and amounts (subtotal, delivery fee, service fees, tip, tax, how it was paid); orders GloriaFood sent directly also list their dishes. Cancelled, rejected and test orders are listed but crossed out. Imported orders are marked Imported, with the file and line they came from. Arrows step to the next or previous day. Shown on submitted days too, and to people who can only view Cash Recon. No customer details.

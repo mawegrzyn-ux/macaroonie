@@ -184,19 +184,32 @@ export function wageEntryForStaff(staff, entryType = staff.pay_type ?? 'fixed') 
 }
 
 /**
- * Entries for a week with nothing saved yet: the venue's default wage list
- * if one has been set, otherwise every active staff member.
+ * True when the person's last working day (cash_staff.left_on, migration
+ * 164) is before the week starting `weekStart`: they aren't offered for it.
+ * left_on comes from `SELECT *`, so it may be a full timestamp string.
  */
-export function defaultWageEntries(config) {
+export function leftBeforeWeek(staff, weekStart) {
+  const leftOn = staff?.left_on ? String(staff.left_on).slice(0, 10) : null
+  return !!leftOn && !!weekStart && leftOn < weekStart
+}
+
+/**
+ * Entries for a week with nothing saved yet: the venue's default wage list
+ * if one has been set, otherwise every active staff member. People who left
+ * before the week are left out of both.
+ */
+export function defaultWageEntries(config, weekStart) {
   const defaults = config?.wage_defaults ?? []
   if (defaults.length > 0) {
     const staffById = Object.fromEntries((config?.staff ?? []).map(s => [s.id, s]))
-    return defaults.map(d => wageEntryForStaff(
-      staffById[d.staff_id] ?? { id: d.staff_id, name: d.staff_name, default_rate: d.staff_default_rate },
-      d.entry_type ?? 'fixed',
-    ))
+    return defaults
+      .filter(d => !leftBeforeWeek(staffById[d.staff_id], weekStart))
+      .map(d => wageEntryForStaff(
+        staffById[d.staff_id] ?? { id: d.staff_id, name: d.staff_name, default_rate: d.staff_default_rate },
+        d.entry_type ?? 'fixed',
+      ))
   }
-  return (config?.staff ?? []).filter(s => s.is_active).map(s => wageEntryForStaff(s))
+  return (config?.staff ?? []).filter(s => s.is_active && !leftBeforeWeek(s, weekStart)).map(s => wageEntryForStaff(s))
 }
 
 // ── Shared UI primitives ─────────────────────────────────────────────────────

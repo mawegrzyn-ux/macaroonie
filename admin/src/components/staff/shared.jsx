@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { format, parseISO } from 'date-fns'
 import {
   DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
@@ -12,9 +13,9 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical, Trash2 } from 'lucide-react'
+import { GripVertical, Trash2, CalendarDays } from 'lucide-react'
 import { useApi } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, openPicker } from '@/lib/utils'
 
 // ── Data ──────────────────────────────────────────────────────
 
@@ -72,6 +73,43 @@ export function rangeMinutes(start, end) {
 export function fmtHours(h) {
   const n = Number(h) || 0
   return `${Math.round(n * 100) / 100}h`
+}
+
+/** "Wed 4 Nov" from "YYYY-MM-DD" (no time zone shifts). */
+export function fmtDay(d, withYear = false) {
+  if (!d) return ''
+  return format(parseISO(String(d).slice(0, 10)), withYear ? 'EEE d MMM yyyy' : 'EEE d MMM')
+}
+
+/** "YYYY-MM-DD" n days after `d`. */
+export function addDay(d, n = 1) {
+  const x = new Date(String(d).slice(0, 10) + 'T12:00:00Z')
+  x.setUTCDate(x.getUTCDate() + n)
+  return x.toISOString().slice(0, 10)
+}
+
+/**
+ * Where a person stands on `today` (migration 164): left (past their last
+ * working day), leaving (last working day today or later), and their
+ * current / next off-rota period. Dates are "YYYY-MM-DD".
+ */
+export function staffStanding(s, today) {
+  const leftOn = s.left_on ? String(s.left_on).slice(0, 10) : null
+  const periods = s.off_periods ?? []
+  return {
+    leftOn,
+    left:    !!leftOn && leftOn < today,
+    leaving: !!leftOn && leftOn >= today,
+    offNow:  periods.find(p => p.from_date <= today && p.to_date >= today) ?? null,
+    offNext: periods.filter(p => p.from_date > today).sort((a, b) => a.from_date.localeCompare(b.from_date))[0] ?? null,
+  }
+}
+
+/** One-line reason a rota day is blocked: left, or an off-rota period. */
+export function offDayText(off) {
+  if (!off) return ''
+  if (off.kind === 'left') return `Left. Last working day ${fmtDay(off.left_on)}${off.note ? ` (${off.note})` : ''}`
+  return `Off the rota ${fmtDay(off.from)} to ${fmtDay(off.until)}${off.note ? ` (${off.note})` : ''}`
 }
 
 export const PAY_BASES = [
@@ -232,7 +270,20 @@ export function Field({ label, hint, children }) {
   )
 }
 
-export const inputCls = 'h-11 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40'
+/** Date as a styled button over an invisible date input (design rule 10). */
+export function DateButton({ value, onChange, min, label = 'Date', placeholder = 'Pick a date', className }) {
+  return (
+    <span className={cn('relative inline-flex items-center gap-2 h-11 px-3 rounded-lg border bg-background text-sm touch-manipulation', className)}>
+      <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
+      <span className={cn('tabular-nums truncate', !value && 'text-muted-foreground')}>{value ? fmtDay(value, true) : placeholder}</span>
+      <input type="date" value={value || ''} min={min} aria-label={label} onClick={openPicker}
+        onChange={e => e.target.value && onChange(e.target.value)}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+    </span>
+  )
+}
+
+export const inputCls ='h-11 w-full rounded-lg border bg-background px-3 text-sm touch-manipulation focus:outline-none focus:ring-2 focus:ring-primary/40'
 
 export function ErrorNote({ error }) {
   if (!error) return null

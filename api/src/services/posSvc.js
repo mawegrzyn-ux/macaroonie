@@ -111,13 +111,17 @@ export async function ownVenue(tx, tenantId, venueId) {
 
 // ── Staff ────────────────────────────────────────────────────────
 
-/** Active staff of a venue with their till permissions. */
-export async function loadTillStaff(tx, tenantId, venueId) {
+/** Active staff of a venue with their till permissions. `signIn` leaves out
+ *  people past their last working day (cash_staff.left_on, migration 164), so
+ *  the till's sign-in list drops them; the sequencer still knows them, so
+ *  orders taken on their last day and synced later aren't refused. */
+export async function loadTillStaff(tx, tenantId, venueId, { signIn = false } = {}) {
   const rows = await tx`
     SELECT s.id, s.name, s.is_active, s.pos_pin_hash, s.pos_role_id, r.name AS role_name, r.permissions
       FROM cash_staff s
       LEFT JOIN pos_roles r ON r.id = s.pos_role_id AND r.tenant_id = s.tenant_id
      WHERE s.tenant_id = ${tenantId} AND s.venue_id = ${venueId} AND s.is_active = true
+       AND (${!signIn} OR s.left_on IS NULL OR s.left_on >= CURRENT_DATE)
      ORDER BY s.sort_order, s.name
   `
   return rows.map(r => ({
@@ -174,7 +178,7 @@ export async function tillConfig(tx, tenantId, venueId) {
     tx`SELECT id, name, short_code, settings FROM pos_devices
         WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND revoked_at IS NULL`,
   ])
-  const staff = await loadTillStaff(tx, tenantId, venueId)
+  const staff = await loadTillStaff(tx, tenantId, venueId, { signIn: true })
 
   // Menus: sections and dishes. Sections hidden everywhere stay off the till.
   const menus = []
