@@ -37,6 +37,7 @@ import {
   LayoutTemplate, Repeat,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { useOpenPreview } from '@/components/menus/MenuPublish'
 import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
@@ -550,6 +551,9 @@ export default function MenuDesigner() {
     return () => window.removeEventListener('keydown', onKey)
   })
 
+  // The designer shows the saved menu (draft); preview prints that, not the live version.
+  const openPreview = useOpenPreview()
+
   // ── Render ───────────────────────────────────────────────
   if (isLoading) {
     return <div className="flex items-center justify-center h-full text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin" /></div>
@@ -561,8 +565,6 @@ export default function MenuDesigner() {
   const selected = sel && layout ? findBlock(layout, sel.id) : null
   const curPage = layout ? (layout.pages.find(p => p.id === curPageId) || layout.pages[0]) : null
   const curPageIndex = layout && curPage ? layout.pages.indexOf(curPage) : 0
-  const printUrl = `/api/menus/${id}/print${designId ? `?design=${designId}` : ''}`
-
   return (
     <div className="h-full flex flex-col bg-muted/30">
       {/* Top bar */}
@@ -597,10 +599,11 @@ export default function MenuDesigner() {
             <Printer className="w-4 h-4" /> <span className="hidden lg:inline">Preview</span>
           </span>
         ) : (
-          <a href={printUrl} target="_blank" rel="noopener"
+          <button type="button" onClick={() => openPreview(id, { design: designId })}
+            title="Print this design with the menu as saved (the draft)"
             className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 min-h-[44px] touch-manipulation">
             <Printer className="w-4 h-4" /> <span className="hidden lg:inline">Preview</span>
-          </a>
+          </button>
         )}
         {canManage ? (
           <button disabled={!dirty || save.isPending || !layout} onClick={() => save.mutate()}

@@ -20,6 +20,14 @@
 //   update_section   rename, subtitle, where it shows, VAT, move
 //   remove_section   a section and its dishes
 //   change_prices    raise / lower / set prices by % or an amount, rounded
+//   publish_menu     put the draft live now or at a set time                  menus, manage
+//   cancel_menu_publish  withdraw a scheduled publish                          menus, manage
+//
+// Publishing (migration 165): the change tools edit the DRAFT, the same as
+// the Menus page. Guests, the till, Deliveroo and cooking checks see the
+// live version, which only changes when the menu is published. get_menu
+// shows the draft unless asked for the live version; find_dishes (allergy
+// questions) searches the live versions, which is what guests are served.
 //
 // A change edits the menu's whole tree: the tool loads the menu with
 // GET /api/menus/:id, turns it into the save body with menuSaveBody()
@@ -41,7 +49,7 @@ import { randomUUID } from 'node:crypto'
 import { withTenant } from '../../config/db.js'
 import { ToolError, callApi, audit, requireStaffPermission } from '../context.js'
 import { menuSaveBody } from '../../routes/menus.js'
-import { pickByName } from './util.js'
+import { pickByName, DateStr, TimeStr, localParts, whenText, zonedInstant } from './util.js'
 
 const Name = z.string().min(1).max(200)
 const Price = z.number().min(0).max(10000).describe('Pounds, e.g. 12.5')
@@ -136,7 +144,38 @@ async function tenantVenues(ctx) {
 
 const menuLabel = m => m.name + (m.venue_name ? ' (' + m.venue_name + ')' : '')
 const loadMenus = ctx => callApi(ctx, 'GET', '/api/menus')
-const loadMenu = (ctx, id) => callApi(ctx, 'GET', '/api/menus/' + id)
+const loadMenu = (ctx, id, version = 'draft') => callApi(ctx, 'GET', '/api/menus/' + id + (version === 'live' ? '?version=live' : ''))
+
+/** The live version of a menu, or null when it has never been published. */
+async function loadLive(ctx, id) {
+  try {
+    return await loadMenu(ctx, id, 'live')
+  } catch (err) {
+    if (err.status === 404 || err.statusCode === 404) return null
+    throw err
+  }
+}
+
+const SAVED = 'Saved to the draft. Guests, the till and Deliveroo see it once the menu is published (publish_menu, or Publish on the Menus page).'
+const REMOVED = 'Removed from the draft. It stays on the live menu until the menu is published (publish_menu, or Publish on the Menus page).'
+
+/** The time zone menus are published in: the menu's venue, else the first venue's. */
+async function menuTz(ctx, venueId = null) {
+  const rows = await withTenant(ctx.tenantId, tx => tx`
+    SELECT id, timezone FROM venues WHERE tenant_id = ${ctx.tenantId} AND is_active = true ORDER BY name
+  `)
+  return (rows.find(v => v.id === venueId) || rows[0])?.timezone || 'Europe/London'
+}
+
+/** "live, matches the draft" etc. from GET /api/menus?status=1's publish field. */
+function publishText(st, tz) {
+  if (!st) return 'unknown'
+  const parts = []
+  if (!st.live_at) parts.push('never published: not live anywhere')
+  else parts.push(st.changed ? 'live, with draft changes not published yet' : 'live, matches the draft')
+  if (st.scheduled_at) parts.push('a publish is scheduled for ' + whenText(st.scheduled_at, tz))
+  return parts.join('; ')
+}
 
 /** A menu by id or name; "Dinner (Ware)" picks between menus of the same name. */
 function pickMenu(menus, text) {
@@ -532,8 +571,9 @@ export const menuTools = [
     name: 'list_menus',
     title: 'List menus',
     description:
-      'Lists the menus (from the Menus page) with the venue they belong to (or all venues), whether they are published ' +
-      '(on the website and online ordering) and how many sections and dishes they have.',
+      'Lists the menus (from the Menus page) with the venue they belong to (or all venues), whether they are shown to ' +
+      'guests, whether their latest changes are published (live) or still in the draft, any scheduled publish, and ' +
+      'how many sections and dishes the draft has.',
     input: z.object({ venue: z.string().max(200).optional().describe('Venue name or id; leave out for all') }),
     readOnly: true,
     async run(ctx, input) {
@@ -549,11 +589,13 @@ export const menuTools = [
          GROUP BY m.id
       `)
       const byId = new Map(counts.map(c => [c.id, c]))
-      const menus = (await loadMenus(ctx)).filter(m => !venue || !m.venue_id || m.venue_id === venue.id)
+      const menus = (await callApi(ctx, 'GET', '/api/menus?status=1')).filter(m => !venue || !m.venue_id || m.venue_id === venue.id)
+      const tz = await menuTz(ctx, venue?.id)
       return {
         menus: menus.map(m => ({
           menu_id: m.id, name: m.name, venue: m.venue_name || 'all venues',
-          published: !!m.is_published, sections: byId.get(m.id)?.sections ?? 0, dishes: byId.get(m.id)?.dishes ?? 0,
+          shown_to_guests: !!m.is_published, publish: publishText(m.publish, tz),
+          sections: byId.get(m.id)?.sections ?? 0, dishes: byId.get(m.id)?.dishes ?? 0,
           ...(m.tagline ? { tagline: m.tagline } : {}), ...(m.service_times ? { service_times: m.service_times } : {}),
         })),
       }
@@ -567,18 +609,23 @@ export const menuTools = [
       'One menu in full: its sections (and where each shows) and dishes with price or option prices, allergens with ' +
       'their level (contains, may contain, can be removed), dietary tags, calories, and whether they can be ordered ' +
       'online. Descriptions come with details: true or when one section is asked for. Also lists the tags and option ' +
-      'groups that exist, to use with the change tools.',
+      'groups that exist, to use with the change tools. Shows the draft (what the change tools edit) unless ' +
+      'version: "live" (what guests and the till see now).',
     input: z.object({
       menu:    z.string().min(1).max(200).describe('Menu name or id'),
       section: z.string().max(120).optional().describe('Only this section'),
       details: z.boolean().optional().describe('Include descriptions and notes'),
+      version: z.enum(['draft', 'live']).optional().describe('draft (default) or live'),
     }),
     readOnly: true,
     async run(ctx, input) {
       await requireRead(ctx)
-      const [menus, groups] = await Promise.all([loadMenus(ctx), callApi(ctx, 'GET', '/api/menus/variant-groups')])
+      const [menus, groups] = await Promise.all([callApi(ctx, 'GET', '/api/menus?status=1'), callApi(ctx, 'GET', '/api/menus/variant-groups')])
       const m = pickMenu(menus, input.menu)
-      const full = await loadMenu(ctx, m.id)
+      const live = input.version === 'live'
+      const full = live ? await loadLive(ctx, m.id) : await loadMenu(ctx, m.id)
+      if (!full) throw new ToolError(menuLabel(m) + ' has never been published, so nothing is live. Leave version out to see the draft.', 404)
+      const tz = await menuTz(ctx, m.venue_id)
       const tags = full.dietary_tags || []
       let sections = full.sections || []
       if (input.section) {
@@ -587,7 +634,9 @@ export const menuTools = [
       }
       const details = input.details || !!input.section
       return {
-        menu_id: full.id, name: full.name, venue: m.venue_name || 'all venues', published: !!full.is_published,
+        menu_id: full.id, name: full.name, venue: m.venue_name || 'all venues',
+        version: live ? 'live (what guests see)' : 'draft (what the change tools edit)',
+        publish: publishText(m.publish, tz), shown_to_guests: !!full.is_published,
         ...(full.tagline ? { tagline: full.tagline } : {}), ...(full.service_times ? { service_times: full.service_times } : {}),
         sections: sections.map(s => ({
           section: s.title, ...(s.subtitle ? { subtitle: s.subtitle } : {}),
@@ -625,14 +674,16 @@ export const menuTools = [
     description:
       'Finds dishes across menus by name (search), and/or by tags: has (dishes with all of these allergens or dietary ' +
       'tags) and free_from (dishes without these allergens; a dish where the allergen can be removed on request is ' +
-      'included, marked "ask for it without"; "may contain" counts as having it). Only published menus unless ' +
-      'include_unpublished. Use it for allergy questions.',
+      'included, marked "ask for it without"; "may contain" counts as having it). Searches the live menus (what ' +
+      'guests are served) shown to guests, unless include_unpublished (also menus hidden from guests, and drafts of ' +
+      'menus never published) or version: "draft". Use it for allergy questions.',
     input: z.object({
       search:    z.string().max(200).optional(),
       has:       z.array(z.string().min(1).max(60)).max(10).optional(),
       free_from: z.array(z.string().min(1).max(60)).max(14).optional(),
       menu:      z.string().max(200).optional().describe('Only this menu'),
       include_unpublished: z.boolean().optional(),
+      version:   z.enum(['live', 'draft']).optional().describe('live (default) or draft'),
     }),
     readOnly: true,
     async run(ctx, input) {
@@ -641,7 +692,8 @@ export const menuTools = [
         throw new ToolError('Give a search, has or free_from.', 400)
       }
       const [menus, tags] = await Promise.all([loadMenus(ctx), callApi(ctx, 'GET', '/api/menus/dietary/all')])
-      let pool = input.menu ? [pickMenu(menus, input.menu)] : menus.filter(m => input.include_unpublished || m.is_published)
+      const pool = input.menu ? [pickMenu(menus, input.menu)] : menus
+      const useDraft = input.version === 'draft'
       const want = name => findTag(tags, name, 'allergen') ?? findTag(tags, name, 'dietary')
       const unknown = []
       const has = (input.has || []).map(n => want(n) ?? (unknown.push(n), null)).filter(Boolean)
@@ -651,8 +703,14 @@ export const menuTools = [
       }
       const words = norm(input.search || '').split(' ').filter(Boolean)
       const hits = []
-      for (const m of pool.slice(0, 20)) {
-        const full = await loadMenu(ctx, m.id)
+      let looked = 0
+      for (const m of pool) {
+        if (looked >= 20) break
+        let full = useDraft ? await loadMenu(ctx, m.id) : await loadLive(ctx, m.id)
+        if (!full && (input.menu || input.include_unpublished)) full = await loadMenu(ctx, m.id)
+        if (!full) continue
+        if (!full.is_published && !input.menu && !input.include_unpublished) continue
+        looked++
         for (const s of full.sections || []) {
           for (const it of s.items || []) {
             const hay = norm(it.name + ' ' + (it.native_name || '') + ' ' + (it.description || ''))
@@ -674,6 +732,7 @@ export const menuTools = [
               ...(tg.dietary.length ? { dietary: tg.dietary } : {}),
               ...(ask.length ? { ask_for_it_without: ask } : {}),
               ...(s.visibility === 'hidden' ? { section_hidden: true } : {}),
+              ...(full.version === 'draft' && !useDraft ? { not_published: true } : {}),
             })
           }
         }
@@ -682,7 +741,8 @@ export const menuTools = [
         matched: hits.length,
         ...(hits.length > 60 ? { showing: 60, note: 'Narrow the search to see the rest.' } : {}),
         dishes: hits.slice(0, 60),
-        note_on_allergens: 'From the allergen tags on the Menus page. Always check with the kitchen for a serious allergy.',
+        searched: useDraft ? 'drafts' : 'live menus',
+        note_on_allergens: 'From the allergen tags on the ' + (useDraft ? 'draft' : 'live') + ' menus. Always check with the kitchen for a serious allergy.',
       }
     },
   },
@@ -695,7 +755,8 @@ export const menuTools = [
       'Makes a new menu, for one venue or all venues, optionally with its sections and dishes in the same call: use ' +
       'this to build a menu from a photo, PDF or list the staff member gives you (up to 400 dishes). Dishes take a ' +
       'price, or options (an option group with a price per choice), allergens with their level, dietary tags, ' +
-      'calories and a description. Not published unless published: true.',
+      'calories and a description. The new menu is a draft: not live anywhere until published with publish_menu. ' +
+      'shown_to_guests (default off) is whether it shows to guests once published.',
     input: z.object({
       name:          z.string().min(1).max(120),
       venue:         z.string().max(200).optional().describe('Venue name or id; leave out for all venues'),
@@ -712,7 +773,7 @@ export const menuTools = [
       return {
         title: 'Create the menu ' + input.name + '?',
         lines: cut([
-          (p.venue ? p.venue.name : 'All venues') + ', ' + (input.published ? 'published (on the website and online ordering)' : 'not published yet'),
+          (p.venue ? p.venue.name : 'All venues') + ', ' + (input.published ? 'shown to guests once published' : 'hidden from guests') + '; not live until published',
           ...(input.tagline ? ['Tagline: ' + input.tagline] : []),
           ...(input.service_times ? ['Served: ' + input.service_times] : []),
           ...(p.add ? [plural(p.add.added, 'dish', 'dishes') + ' in ' + plural(p.body.sections.length, 'section'), ...p.add.lines] : ['No sections yet']),
@@ -734,10 +795,10 @@ export const menuTools = [
           throw err
         }
         return {
-          menu_id: row.id, name: row.name, venue: p.venue?.name ?? 'all venues', published: !!row.is_published,
+          menu_id: row.id, name: row.name, venue: p.venue?.name ?? 'all venues', shown_to_guests: !!row.is_published, live: false,
           sections: p.body.sections.length, dishes: p.add?.added ?? 0,
           ...(groups.length ? { new_option_groups: groups } : {}),
-          message: 'Menu made.' + (row.is_published ? '' : ' It isn\'t published yet: check it on the Menus page, then publish it.'),
+          message: 'Menu made as a draft. It isn\'t live anywhere until it is published: check it on the Menus page, then publish it (publish_menu, or Publish on the Menus page).',
         }
       })
     },
@@ -746,12 +807,13 @@ export const menuTools = [
   {
     name: 'update_menu',
     title: 'Change a menu',
-    description: 'Renames a menu, moves it to a venue (or all venues), publishes or unpublishes it, or changes its tagline, service times or intro line.',
+    description: 'Renames a menu, moves it to a venue (or all venues), shows it to guests or hides it (published), or ' +
+      'changes its tagline, service times or intro line. Saved to the draft: it reaches guests when the menu is published (publish_menu).',
     input: z.object({
       menu:          z.string().min(1).max(200),
       name:          z.string().min(1).max(120).optional(),
       venue:         z.string().max(200).optional().describe('Venue name, or "all venues"'),
-      published:     z.boolean().optional(),
+      published:     z.boolean().optional().describe('Shown to guests (website, online ordering, the till) once published'),
       tagline:       z.string().max(200).nullable().optional(),
       service_times: z.string().max(200).nullable().optional(),
       intro_line:    z.string().max(2000).nullable().optional(),
@@ -763,7 +825,7 @@ export const menuTools = [
       return {
         title: 'Change the menu ' + menuLabel(p.menu) + '?',
         lines: p.lines,
-        ...(input.published === false ? warn(['It comes off the website and online ordering.']) : {}),
+        ...(input.published === false ? warn(['Once published, it comes off the website, online ordering and the till.']) : {}),
         confirmLabel: 'Save',
       }
     },
@@ -772,7 +834,7 @@ export const menuTools = [
       const p = await planUpdateMenu(ctx, input)
       return audited(ctx, 'update_menu', input, async () => {
         const saved = await saveBody(ctx, p.menu.id, p.body)
-        return { menu_id: saved.id, name: saved.name, published: !!saved.is_published, changes: p.lines, message: 'Saved.' }
+        return { menu_id: saved.id, name: saved.name, shown_to_guests: !!saved.is_published, changes: p.lines, message: SAVED }
       })
     },
   },
@@ -780,7 +842,7 @@ export const menuTools = [
   {
     name: 'duplicate_menu',
     title: 'Copy a menu',
-    description: 'Copies a menu with all its sections, dishes, footer notes and print designs. The copy isn\'t published.',
+    description: 'Copies a menu (its draft) with all its sections, dishes, footer notes and print designs. The copy is hidden from guests and not live until published.',
     input: z.object({
       menu: z.string().min(1).max(200),
       name: z.string().min(1).max(120).optional().describe('Name for the copy (default "<name> (copy)")'),
@@ -791,7 +853,7 @@ export const menuTools = [
       const m = pickMenu(await loadMenus(ctx), input.menu)
       return {
         title: 'Copy ' + menuLabel(m) + '?',
-        lines: ['The copy: ' + (input.name || m.name + ' (copy)') + ', not published'],
+        lines: ['The copy: ' + (input.name || m.name + ' (copy)') + ', hidden from guests, not live until published'],
         confirmLabel: 'Copy',
       }
     },
@@ -804,7 +866,7 @@ export const menuTools = [
           const full = await loadMenu(ctx, copy.id)
           copy = await saveBody(ctx, copy.id, { ...menuSaveBody(full), name: input.name })
         }
-        return { menu_id: copy.id, name: copy.name, published: false, message: 'Copied. The copy isn\'t published yet.' }
+        return { menu_id: copy.id, name: copy.name, shown_to_guests: false, live: false, message: 'Copied. The copy is a draft, not live until published.' }
       })
     },
   },
@@ -845,7 +907,7 @@ export const menuTools = [
         await saveBody(ctx, p.menu.id, p.body)
         return {
           menu: menuLabel(p.menu), added: p.add.added, changed: p.add.updated, skipped: p.add.skipped, new_sections: p.add.newSections,
-          ...(groups.length ? { new_option_groups: groups } : {}), message: 'Saved.',
+          ...(groups.length ? { new_option_groups: groups } : {}), message: SAVED,
         }
       })
     },
@@ -900,7 +962,7 @@ export const menuTools = [
       return audited(ctx, 'update_dish', input, async () => {
         const groups = await makeGroups(ctx, p.book, p.body)
         await saveBody(ctx, p.menu.id, p.body)
-        return { menu: menuLabel(p.menu), dish: p.item.name, changes: p.lines, ...(groups.length ? { new_option_groups: groups } : {}), message: 'Saved.' }
+        return { menu: menuLabel(p.menu), dish: p.item.name, changes: p.lines, ...(groups.length ? { new_option_groups: groups } : {}), message: SAVED }
       })
     },
   },
@@ -934,7 +996,7 @@ export const menuTools = [
       const p = await planRemoveDishes(ctx, input)
       return audited(ctx, 'remove_dishes', input, async () => {
         await saveBody(ctx, p.menu.id, p.body)
-        return { menu: menuLabel(p.menu), removed: p.gone.map(x => x.it.name), message: 'Removed.' }
+        return { menu: menuLabel(p.menu), removed: p.gone.map(x => x.it.name), message: REMOVED }
       })
     },
   },
@@ -974,7 +1036,7 @@ export const menuTools = [
       const p = await planUpdateSection(ctx, input)
       return audited(ctx, 'update_section', input, async () => {
         await saveBody(ctx, p.menu.id, p.body)
-        return { menu: menuLabel(p.menu), section: p.sec.title, changes: p.lines, message: 'Saved.' }
+        return { menu: menuLabel(p.menu), section: p.sec.title, changes: p.lines, message: SAVED }
       })
     },
   },
@@ -1004,7 +1066,7 @@ export const menuTools = [
       const p = await planRemoveSection(ctx, input)
       return audited(ctx, 'remove_section', input, async () => {
         await saveBody(ctx, p.menu.id, p.body)
-        return { menu: menuLabel(p.menu), removed_section: p.sec.title, removed_dishes: p.sec.items.length, message: 'Removed.' }
+        return { menu: menuLabel(p.menu), removed_section: p.sec.title, removed_dishes: p.sec.items.length, message: REMOVED }
       })
     },
   },
@@ -1042,11 +1104,129 @@ export const menuTools = [
       const p = await planPrices(ctx, input)
       return audited(ctx, 'change_prices', input, async () => {
         await saveBody(ctx, p.menu.id, p.body)
-        return { menu: menuLabel(p.menu), prices_changed: p.changes.length, message: 'Saved.' }
+        return { menu: menuLabel(p.menu), prices_changed: p.changes.length, message: SAVED }
+      })
+    },
+  },
+
+  // ── Publishing ──
+  {
+    name: 'publish_menu',
+    title: 'Publish a menu',
+    description:
+      'Puts a menu\'s draft live: the website, online ordering, the till, Deliveroo and cooking checks switch to it. ' +
+      'Now, or at a set date and time (venue local) for a planned price or menu change. The card lists what changes ' +
+      'compared with the live menu. Ask before publishing: changes are only published when the staff member wants.',
+    input: z.object({
+      menu: z.string().min(1).max(200).describe('Menu name or id'),
+      date: DateStr.optional().describe('Go live on this date (YYYY-MM-DD); leave date and time out for now'),
+      time: TimeStr.optional().describe('Go live at this time (HH:MM); with no date, today'),
+      note: z.string().max(200).optional().describe('What this publish is, e.g. "New prices from April"'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireEdit(ctx)
+      const p = await planPublish(ctx, input)
+      return {
+        title: 'Publish ' + menuLabel(p.menu) + (p.at ? ' on ' + whenText(p.at, p.tz) : ' now') + '?',
+        lines: cut([
+          p.status.live ? 'Changes from the live menu:' : 'Not published before: the whole menu goes live.',
+          ...(p.status.live ? p.status.changes.map(c => c.text) : []),
+          ...(input.note ? ['Note: ' + input.note] : []),
+        ]),
+        ...warn(p.warnings),
+        confirmLabel: p.at ? 'Schedule' : 'Publish now',
+      }
+    },
+    async run(ctx, input) {
+      await requireEdit(ctx)
+      const p = await planPublish(ctx, input)
+      return audited(ctx, 'publish_menu', input, async () => {
+        const r = await callApi(ctx, 'POST', '/api/menus/' + p.menu.id + '/publish', {
+          body: { at: p.at ? new Date(p.at).toISOString() : null, note: input.note || null },
+        })
+        const when = whenText(r.release.goes_live_at, p.tz)
+        return {
+          menu: menuLabel(p.menu), goes_live: r.immediate ? 'now' : when, changes: p.status.live ? p.status.changes.length : null,
+          message: r.immediate
+            ? 'Published. Guests, the till and Deliveroo now get this version (open tills update within a few seconds).'
+            : 'Scheduled for ' + when + '. Until then the live menu stays as it is; later draft changes are not included unless published again.',
+        }
+      })
+    },
+  },
+
+  {
+    name: 'cancel_menu_publish',
+    title: 'Cancel a scheduled publish',
+    description: 'Withdraws a menu publish scheduled for later, before it goes live. The draft is not changed.',
+    input: z.object({
+      menu: z.string().min(1).max(200),
+      date: DateStr.optional().describe('The date of the scheduled publish, when there is more than one'),
+    }),
+    confirm: true,
+    async describe(ctx, input) {
+      await requireEdit(ctx)
+      const p = await planCancelPublish(ctx, input)
+      return {
+        title: 'Cancel the publish of ' + menuLabel(p.menu) + ' on ' + whenText(p.release.goes_live_at, p.tz) + '?',
+        lines: [p.release.note ? 'Note: ' + p.release.note : 'The live menu stays as it is.'],
+        confirmLabel: 'Cancel publish',
+      }
+    },
+    async run(ctx, input) {
+      await requireEdit(ctx)
+      const p = await planCancelPublish(ctx, input)
+      return audited(ctx, 'cancel_menu_publish', input, async () => {
+        await callApi(ctx, 'DELETE', '/api/menus/' + p.menu.id + '/releases/' + p.release.id)
+        return { menu: menuLabel(p.menu), cancelled: whenText(p.release.goes_live_at, p.tz), message: 'Cancelled. The live menu stays as it is.' }
       })
     },
   },
 ]
+
+async function planPublish(ctx, input) {
+  if (input.date && !input.time) throw new ToolError('Give a time to go live as well as the date.', 400)
+  const m = pickMenu(await loadMenus(ctx), input.menu)
+  const tz = await menuTz(ctx, m.venue_id)
+  let at = null
+  if (input.time) {
+    const date = input.date || localParts(new Date(), tz).date
+    at = await zonedInstant(date, input.time, tz)
+    if (new Date(at) <= new Date(Date.now() + 30_000)) {
+      if (input.date) throw new ToolError(whenText(at, tz) + ' has passed. Leave date and time out to publish now.', 422)
+      throw new ToolError(input.time + ' today has passed. Give a date, or leave the time out to publish now.', 422)
+    }
+    if (new Date(at) - Date.now() > 400 * 86_400_000) throw new ToolError('Pick a time within the next year.', 422)
+  }
+  const status = await callApi(ctx, 'GET', '/api/menus/' + m.id + '/publish')
+  if (status.in_sync) throw new ToolError('Nothing to publish: the live menu already matches the draft.', 422)
+  const warnings = []
+  const full = await loadMenu(ctx, m.id)
+  if (!full.is_published) warnings.push('Shown to guests is off, so it stays hidden from guests (the till and the website); turn it on with update_menu first if it should show.')
+  for (const s of status.scheduled || []) {
+    if (!at || new Date(s.goes_live_at) > new Date(at)) {
+      warnings.push('A publish is already scheduled for ' + whenText(s.goes_live_at, tz) + '. It still goes live then and replaces this one (cancel it with cancel_menu_publish if it is out of date).')
+    }
+  }
+  const prices = status.changes.filter(c => c.kind === 'price' || c.kind === 'options').length
+  if (prices) warnings.push(plural(prices, 'price change') + ': check them before guests see them.')
+  return { menu: m, tz, at, status, warnings }
+}
+
+async function planCancelPublish(ctx, input) {
+  const m = pickMenu(await loadMenus(ctx), input.menu)
+  const tz = await menuTz(ctx, m.venue_id)
+  const status = await callApi(ctx, 'GET', '/api/menus/' + m.id + '/publish')
+  let list = status.scheduled || []
+  if (!list.length) throw new ToolError(menuLabel(m) + ' has no scheduled publish.', 404)
+  if (input.date) list = list.filter(r => localParts(r.goes_live_at, tz).date === input.date)
+  if (!list.length) throw new ToolError('No publish of ' + menuLabel(m) + ' is scheduled on ' + input.date + '.', 404)
+  if (list.length > 1) {
+    throw new ToolError('Several publishes are scheduled: ' + list.map(r => whenText(r.goes_live_at, tz)).join('; ') + '. Say which date.', 409)
+  }
+  return { menu: m, tz, release: list[0] }
+}
 
 const warn = list => (list.length ? { warningTitle: 'Check', warnings: list } : {})
 
@@ -1100,7 +1280,7 @@ async function planUpdateMenu(ctx, input) {
   set('service_times', 'Served', input.service_times)
   set('intro_line', 'Intro line', input.intro_line)
   if (input.published !== undefined && input.published !== body.is_published) {
-    lines.push(input.published ? 'Publish it (on the website and online ordering)' : 'Unpublish it')
+    lines.push(input.published ? 'Show it to guests (website, online ordering, the till) once published' : 'Hide it from guests once published')
     body.is_published = input.published
   }
   if (input.venue !== undefined) {

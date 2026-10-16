@@ -14,6 +14,8 @@
 // rather than inline here — this page only ATTACHES them to dishes.
 //
 // Single Save button PATCHes the whole tree (server delete-and-reinserts).
+// That saves the DRAFT: guests, tills and Deliveroo see the live version,
+// which changes when the menu is published (PublishPanel, migration 165).
 
 import { useState, useEffect, useMemo, createContext, useContext } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
@@ -41,6 +43,7 @@ import { Card, Field, Input, TextArea, Btn, formatPrice, PriceInput } from '@/co
 import { levelOf, LEVEL_LABELS } from '@shared/menuTags.js'
 import { LevelChip } from '@/components/menus/AllergenMatrix'
 import { SectionTillFields, ItemTillFields, useTillCourses, comboPayload } from '@/components/menus/TillFields'
+import { PublishPanel, PublishBadges, useOpenPreview } from '@/components/menus/MenuPublish'
 
 const SEEDS = [
   { slug: 'onethai-dinner', label: 'One Thai Dinner sample' },
@@ -74,14 +77,17 @@ function MenuList({ onEdit }) {
   const { canManage } = usePermission('menus')
   const [creating, setCreating] = useState(false)
 
+  // ?status=1: live / changes waiting / scheduled per menu (migration 165).
   const { data: menus = [], isLoading } = useQuery({
-    queryKey: ['menus'],
-    queryFn:  () => api.get('/menus'),
+    queryKey: ['menus', 'status'],
+    queryFn:  () => api.get('/menus?status=1'),
   })
   const { data: venues = [] } = useQuery({
     queryKey: ['venues'],
     queryFn:  () => api.get('/venues'),
   })
+  const openPreview = useOpenPreview()
+  const [deleting, setDeleting] = useState(null)
 
   const seed = useMutation({
     mutationFn: ({ slug, venue_id }) => api.post(`/menus/seed/${slug}`, { venue_id: venue_id || null }),
@@ -92,7 +98,7 @@ function MenuList({ onEdit }) {
   })
   const del = useMutation({
     mutationFn: (id) => api.delete(`/menus/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['menus'] }),
+    onSuccess: () => { setDeleting(null); qc.invalidateQueries({ queryKey: ['menus'] }) },
   })
   const duplicate = useMutation({
     mutationFn: (id) => api.post(`/menus/${id}/duplicate`),
@@ -148,15 +154,21 @@ function MenuList({ onEdit }) {
             {menus.map(m => {
               const venue = m.venue_name || (m.venue_id ? '— unknown —' : 'All venues (tenant)')
               const liveUrl = `/api/menus/${m.id}/print`
+              // Print shows the live version; a menu never published prints its draft.
+              const isLive = !!m.publish?.live_at
+              const printLink = (view, children, title) => isLive
+                ? <a href={view ? `${liveUrl}?view=${view}` : liveUrl} target="_blank" rel="noopener" title={title}
+                    className="text-xs inline-flex items-center gap-1 text-muted-foreground hover:text-foreground px-2 min-h-[44px] touch-manipulation">{children}</a>
+                : <button type="button" onClick={() => openPreview(m.id, { view })} title={(title ? title + ' ' : '') + '(draft: not published yet)'}
+                    className="text-xs inline-flex items-center gap-1 text-muted-foreground hover:text-foreground px-2 min-h-[44px] touch-manipulation">{children}</button>
               return (
-                <div key={m.id} className="flex items-center justify-between py-3 first:pt-0 gap-3">
+                <div key={m.id} className="py-3 first:pt-0 space-y-2">
+                <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <BookOpen className="w-4 h-4 text-primary shrink-0" />
                       <p className="text-sm font-medium truncate">{m.name}</p>
-                      {m.is_published
-                        ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-medium">PUBLISHED</span>
-                        : <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">DRAFT</span>}
+                      <PublishBadges menu={m} />
                       {m.print_design_id && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">DESIGNED PRINT</span>}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
@@ -165,15 +177,8 @@ function MenuList({ onEdit }) {
                     </p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <a href={liveUrl} target="_blank" rel="noopener"
-                      className="text-xs inline-flex items-center gap-1 text-muted-foreground hover:text-foreground px-2 py-1.5">
-                      <Printer className="w-3.5 h-3.5" /> Print
-                    </a>
-                    <a href={`${liveUrl}?view=dietary`} target="_blank" rel="noopener"
-                      title="Print a list of dishes with their dietary icons"
-                      className="text-xs inline-flex items-center gap-1 text-muted-foreground hover:text-foreground px-2 py-1.5">
-                      <Leaf className="w-3.5 h-3.5" /> Dietary list
-                    </a>
+                    {printLink(null, <><Printer className="w-3.5 h-3.5" /> Print</>)}
+                    {printLink('dietary', <><Leaf className="w-3.5 h-3.5" /> Dietary list</>, 'Print a list of dishes with their dietary icons')}
                     <button onClick={() => onEdit(m.id)}
                       className="text-xs text-primary hover:underline px-2 py-1.5">{canManage ? 'Edit' : 'Open'}</button>
                     {canManage && <>
@@ -184,12 +189,26 @@ function MenuList({ onEdit }) {
                         ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         : <Copy className="w-3.5 h-3.5" />}
                     </button>
-                    <button onClick={() => { if (window.confirm(`Delete menu "${m.name}"?`)) del.mutate(m.id) }}
-                      className="text-destructive hover:bg-destructive/10 p-1.5 rounded">
+                    <button onClick={() => setDeleting(m.id)} title="Delete menu"
+                      className="text-destructive hover:bg-destructive/10 p-1.5 rounded min-h-[44px] min-w-[44px] inline-flex items-center justify-center touch-manipulation">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                     </>}
                   </div>
+                </div>
+                {deleting === m.id && (
+                  <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 flex flex-wrap items-center gap-2">
+                    <p className="text-sm flex-1 min-w-[12rem]">
+                      Delete {m.name}? It comes off the website, online ordering and the till straight away, with its publish history.
+                    </p>
+                    <button type="button" onClick={() => del.mutate(m.id)} disabled={del.isPending}
+                      className="rounded-md px-4 min-h-[44px] text-sm font-medium bg-destructive text-white touch-manipulation disabled:opacity-50">
+                      {del.isPending ? 'Deleting...' : 'Yes, delete'}
+                    </button>
+                    <button type="button" onClick={() => setDeleting(null)}
+                      className="rounded-md px-4 min-h-[44px] text-sm border bg-background touch-manipulation">Cancel</button>
+                  </div>
+                )}
                 </div>
               )
             })}
@@ -392,10 +411,12 @@ function MenuEditor({ id, onBack }) {
       qc.setQueryData(['menu', id], m)
       qc.invalidateQueries({ queryKey: ['menus'] })
       qc.invalidateQueries({ queryKey: ['allergen-matrix', id] })
+      qc.invalidateQueries({ queryKey: ['menu-publish', id] })
     },
   })
 
   const tillCourses = useTillCourses()
+  const openPreview = useOpenPreview()
 
   if (isLoading || !draft) {
     return (
@@ -406,7 +427,6 @@ function MenuEditor({ id, onBack }) {
   }
 
   const set = (k, v) => setDraft(d => ({ ...d, [k]: v }))
-  const printUrl = `/api/menus/${id}/print`
 
   // ── Selected item lookup + mutators (by stable id, across sections) ──
   let selectedItem = null
@@ -487,15 +507,16 @@ function MenuEditor({ id, onBack }) {
             </>
           ) : (
             <>
-              <a href={printUrl} target="_blank" rel="noopener"
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2">
+              {/* The saved menu (draft), so changes can be checked before publishing. */}
+              <button type="button" onClick={() => openPreview(id)} title="Print this menu as saved (may differ from the live menu)"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 min-h-[44px] touch-manipulation">
                 <Printer className="w-3.5 h-3.5" /> Print
-              </a>
-              <a href={`${printUrl}?view=dietary`} target="_blank" rel="noopener"
-                title="Print a list of dishes with their dietary icons"
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 py-2">
+              </button>
+              <button type="button" onClick={() => openPreview(id, { view: 'dietary' })}
+                title="Print a list of dishes with their dietary icons, as saved"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground px-3 min-h-[44px] touch-manipulation">
                 <Leaf className="w-3.5 h-3.5" /> Dietary list
-              </a>
+              </button>
             </>
           )}
           {canManage && <Btn disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
@@ -512,6 +533,7 @@ function MenuEditor({ id, onBack }) {
       )}
 
       {!canManage && <ReadOnlyNotice what="this menu" />}
+      <PublishPanel menuId={id} dirty={!!dirty} canManage={canManage} />
       <MenuReadOnly.Provider value={!canManage}>
       {/* Sections + dish list, with a right-hand drawer for the selected dish or section */}
       <div className="flex gap-4 items-start">
@@ -638,7 +660,7 @@ function MenuDetailsModal({ draft, venues, onChange, onClose }) {
             <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
               <input type="checkbox" checked={!!draft.is_published}
                 onChange={e => onChange('is_published', e.target.checked)} />
-              Published — make this menu visible on the website + printable
+              Shown to guests: on the website, online ordering and the till once the menu is published
             </label>
             <label className="flex items-center gap-2 text-sm min-h-[44px] touch-manipulation">
               <input type="checkbox" checked={!!draft.print_hide_variant_group_headers}

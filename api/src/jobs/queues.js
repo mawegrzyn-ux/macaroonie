@@ -51,6 +51,10 @@ export function startHoldSweepWorker(sql, log) {
     const { expireStaleOrders } = await import('../services/orderSvc.js')
     const expired = await expireStaleOrders(log)
     if (expired) log.info({ expired }, 'Expired unpaid orders')
+    // Scheduled menu publishes that went live: tell tills and screens (migration 165).
+    const { announceDueReleases } = await import('../services/menuReleases.js')
+    const announced = await announceDueReleases(log)
+    if (announced) log.info({ announced }, 'Menu publishes went live')
     log.debug('Hold sweep complete')
   }, { connection })
 

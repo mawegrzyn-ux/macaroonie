@@ -368,6 +368,7 @@ const TOOL_LABELS = {
   create_menu: 'Made a menu', update_menu: 'Changed a menu', duplicate_menu: 'Copied a menu',
   add_dishes: 'Added dishes', update_dish: 'Changed a dish', remove_dishes: 'Removed dishes',
   update_section: 'Changed a menu section', remove_section: 'Removed a menu section', change_prices: 'Changed menu prices',
+  publish_menu: 'Published a menu', cancel_menu_publish: 'Cancelled a menu publish',
 }
 
 /** What an H&S, purchasing or menu change was about, from its stored result. */
@@ -408,6 +409,8 @@ function changeDetail(r) {
     case 'update_section':        return [x.section, x.menu].filter(Boolean).join(', ')
     case 'remove_section':        return [x.removed_section, x.menu].filter(Boolean).join(' from ')
     case 'change_prices':         return [x.menu, x.prices_changed != null ? x.prices_changed + ' dishes' : null].filter(Boolean).join(', ')
+    case 'publish_menu':          return [x.menu, x.goes_live === 'now' ? 'live now' : x.goes_live ? 'from ' + x.goes_live : null].filter(Boolean).join(', ')
+    case 'cancel_menu_publish':   return [x.menu, x.cancelled].filter(Boolean).join(', ')
     default:                      return null
   }
 }

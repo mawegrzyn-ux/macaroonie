@@ -14,7 +14,7 @@ import { httpError } from '../middleware/error.js'
 import { broadcast } from '../config/ws.js'
 import { notificationQueue } from '../jobs/queues.js'
 import { upsertCustomer } from '../routes/customers.js'
-import { loadMenuFull } from '../routes/menus.js'
+import { loadMenuVersions } from './menuReleases.js'
 import { loadOpeningHours } from './siteDataSvc.js'
 import { getGateway, checkoutGateways, COUNTER_METHODS } from './paymentGateways/index.js'
 import { itemChoices, variantRules, fromPrice, isPriced, priceBasket } from '../../../shared/orderPricing.js'
@@ -157,12 +157,10 @@ async function soldOutIds(tx, venueId) {
 // label and whether it is on at `now`.
 export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'collection', dates = null, now = null } = {}) {
   const ids = settings.menu_ids || []
-  const menuRows = ids.length ? await tx`
-    SELECT id FROM menus
-     WHERE id = ANY(${ids}::uuid[]) AND tenant_id = ${venue.tenant_id}
-       AND (venue_id IS NULL OR venue_id = ${venue.id})
-  ` : []
-  const allowed = new Set(menuRows.map(r => r.id))
+  // The live version of each chosen menu (migration 165): what has been
+  // published, for this venue or all venues.
+  const live = ids.length ? await loadMenuVersions(tx, venue.tenant_id, { menuIds: ids, venueId: venue.id }) : []
+  const liveById = new Map(live.map(m => [m.id, m]))
   const soldOut = await soldOutIds(tx, venue.id)
   const menus = []
   const itemsById = {}
@@ -171,11 +169,10 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
   const schedules = settings.menu_schedules || {}
   const nowParts = now ? localParts(now, venue.timezone) : null
   for (const id of ids) {
-    if (!allowed.has(id)) continue
+    const full = liveById.get(id)
+    if (!full) continue
     const sched = schedules[id]
     if (dates && !dates.some(d => menuOnDate(sched, d, new Date(d + 'T00:00:00Z').getUTCDay()))) continue
-    const full = await loadMenuFull(tx, id, venue.tenant_id)
-    if (!full) continue
     // Guests only see tags shown on menus (migration 146).
     dietaryTags = menuTags(full.dietary_tags || dietaryTags)
     const shownCodes = new Set(dietaryTags.map(t => t.code))

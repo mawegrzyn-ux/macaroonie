@@ -5,6 +5,17 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-16 — Menus: publish changes now or at a set time]
+
+- Saving a menu now saves a draft. The website, online ordering, the till, the Deliveroo menu file, cooking check dish buttons and the allergen lookup keep showing the live menu until you publish.
+- **Publishing** card at the top of every menu: what is live, every change waiting to go live (price changes, dishes added and removed, sections, notes), then **Publish now** (asks first), **Schedule** (a date and time; it switches by itself within a minute of that time), **Preview print** (the draft), **Discard changes** (puts the live menu back into the editor) and **Publish history** (preview or copy back an earlier version). Scheduled publishes can be cancelled before they go live.
+- Menus list: LIVE, LIVE · CHANGES NOT PUBLISHED, NOT PUBLISHED, GOES LIVE (with the time) and HIDDEN FROM GUESTS chips. Print on the list prints the live menu; Print in the editor and Preview in the menu designer print the saved draft. Deleting a menu now asks on the page instead of in a browser pop-up.
+- Staging websites show the draft, so menu changes can be checked on staging first.
+- Every menu that existed is published as it is when this goes out, so nothing disappears. A new menu isn't live anywhere until its first publish.
+- Ask AI: menu changes say they are in the draft; new **publish** (now or at a time) and **cancel a scheduled publish** with a confirm card listing the changes. Allergy questions read the live menus.
+- Fixed: the website menu block now shows calories (they were dropped on the way to the page).
+- Migration 165.
+
 ## [2026-10-15 — Staff: leaving dates and periods off the rota]
 
 - **Staff > a person > Leaving**: set their last working day (and a reason if you like). From the day after they are off the rota: later weeks don't show them, and the week they leave in shows their remaining days as LEFT. Earlier weeks still show them, with their shifts, pay and tips. If they were already on the rota after that day, the app says how many entries that is and asks before taking them off. Clear leaving date puts them back (entries already taken off aren't restored).

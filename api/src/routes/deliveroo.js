@@ -23,7 +23,7 @@ import * as XLSX      from 'xlsx'
 import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
-import { attachVariantGroupsToItems } from './menus.js'
+import { loadMenuVersions } from '../services/menuReleases.js'
 import {
   parseCsv, readSheet, defaultMaps, defaultFill, FIELD_KEYS,
 } from '../../../shared/deliveroo.js'
@@ -120,43 +120,36 @@ function settingsView(row, tags, venueVat) {
   }
 }
 
-/** Dishes from the given menus, with codes, levels, options and their takeaway VAT. */
+/**
+ * Dishes from the live versions of the given menus (migration 165), with
+ * codes, levels, options and their takeaway VAT. A menu never published
+ * gives no dishes: Deliveroo gets what guests see, not the draft.
+ */
 async function loadDishes(tx, tenantId, menuIds) {
   if (!menuIds.length) return []
-  const items = await tx`
-    SELECT i.id, i.name, i.native_name, i.kitchen_name, i.description, i.price_pence, i.calories,
-           i.kind, COALESCE(i.vat_rate_takeaway, s.vat_rate_takeaway)::float8 AS vat_takeaway,
-           s.title AS section_title, s.visibility AS section_visibility,
-           m.id AS menu_id, m.name AS menu_name,
-           COALESCE((
-             SELECT json_agg(jsonb_build_object('label', v.label, 'price_pence', v.price_pence) ORDER BY v.sort_order)
-               FROM menu_item_variants v WHERE v.item_id = i.id
-           ), '[]'::json) AS variants
-      FROM menu_items i
-      JOIN menu_sections s ON s.id = i.section_id
-      JOIN menus m ON m.id = s.menu_id
-     WHERE m.tenant_id = ${tenantId} AND m.id = ANY(${menuIds}::uuid[])
-     ORDER BY array_position(${menuIds}::uuid[], m.id), s.sort_order, i.sort_order, i.name
-  `
-  if (!items.length) return []
-  const tags = await tx`
-    SELECT mid.item_id, t.code, mid.level
-      FROM menu_item_dietary mid
-      JOIN menu_dietary_tags t ON t.id = mid.tag_id
-     WHERE mid.tenant_id = ${tenantId} AND mid.item_id = ANY(${items.map(i => i.id)}::uuid[])
-     ORDER BY t.kind = 'allergen', t.sort_order, t.label
-  `
-  const codes = {}, levels = {}
-  for (const r of tags) {
-    (codes[r.item_id] ||= []).push(r.code)
-    if (r.level !== 'contains') (levels[r.item_id] ||= {})[r.code] = r.level
+  const menus = await loadMenuVersions(tx, tenantId, { menuIds })
+  menus.sort((a, b) => menuIds.indexOf(a.id) - menuIds.indexOf(b.id))
+  const out = []
+  for (const m of menus) {
+    for (const s of m.sections || []) {
+      const items = [...(s.items || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name).localeCompare(String(b.name)))
+      for (const i of items) {
+        const vat = i.vat_rate_takeaway ?? s.vat_rate_takeaway
+        out.push({
+          id: i.id, name: i.name, native_name: i.native_name ?? null, kitchen_name: i.kitchen_name ?? null,
+          description: i.description ?? null, price_pence: i.price_pence ?? null, calories: i.calories ?? null,
+          kind: i.kind || 'dish', vat_takeaway: vat != null ? Number(vat) : null,
+          section_title: s.title, section_visibility: s.visibility || 'show',
+          menu_id: m.id, menu_name: m.name,
+          variants: (i.variants || []).map(v => ({ label: v.label, price_pence: v.price_pence })),
+          dietary: i.dietary || [],
+          allergen_levels: i.allergen_levels || {},
+          variant_groups: i.variant_groups || [],
+        })
+      }
+    }
   }
-  for (const i of items) {
-    i.dietary = codes[i.id] || []
-    i.allergen_levels = levels[i.id] || {}
-  }
-  await attachVariantGroupsToItems(tx, items)
-  return items
+  return out
 }
 
 async function loadSetup(tx, tenantId, venueId) {
@@ -174,9 +167,17 @@ async function loadSetup(tx, tenantId, venueId) {
         WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`,
   ])
   const settings = settingsView(row, tags, ordering?.vat ?? 20)
+  // Which menus have a live version, and is it shown to guests (the
+  // default when none are picked follows the live setting, not the draft).
+  const live = await loadMenuVersions(tx, tenantId, { menuIds: menus.map(m => m.id) })
+  const liveById = new Map(live.map(m => [m.id, m]))
+  for (const m of menus) {
+    m.is_live = liveById.has(m.id)
+    m.live_published = !!liveById.get(m.id)?.is_published
+  }
   const known = new Set(menus.map(m => m.id))
   const chosen = settings.menu_ids.filter(id => known.has(id))
-  const menuIds = chosen.length ? chosen : menus.filter(m => m.is_published).map(m => m.id)
+  const menuIds = chosen.length ? chosen : menus.filter(m => m.live_published).map(m => m.id)
   const dishes = await loadDishes(tx, tenantId, menuIds)
   return { venue, settings, tags, menus, menu_ids_used: menuIds, dishes, links }
 }
@@ -247,7 +248,14 @@ export default async function deliverooRoutes(app) {
           SELECT i.id FROM menu_items i JOIN menu_sections s ON s.id = i.section_id JOIN menus m ON m.id = s.menu_id
            WHERE m.tenant_id = ${req.tenantId} AND i.id = ANY(${dishIds}::uuid[])
         `
-        if (own.length !== dishIds.length) throw httpError(422, 'A matched dish wasn\'t found. Reload the page and try again.')
+        // A live dish already removed from the draft is still a valid match.
+        const found = new Set(own.map(r => r.id))
+        if (found.size !== dishIds.length) {
+          for (const m of await loadMenuVersions(tx, req.tenantId)) {
+            for (const s of m.sections || []) for (const i of s.items || []) found.add(i.id)
+          }
+        }
+        if (dishIds.some(id => !found.has(id))) throw httpError(422, 'A matched dish wasn\'t found. Reload the page and try again.')
       }
       let saved = 0, cleared = 0
       for (const l of links) {

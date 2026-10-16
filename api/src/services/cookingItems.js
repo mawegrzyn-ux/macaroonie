@@ -4,14 +4,17 @@
 // loader, used by GET /food-safety/cooking/items (the picker) and the H&S
 // test data generator, so both always offer the same dishes.
 //
-//   item_source  'menus' — dishes on the venue's published menus (venue
-//                          menus plus tenant-wide ones), one tab per section
+//   item_source  'menus' — dishes on the live versions of the venue's
+//                          published menus (venue menus plus tenant-wide
+//                          ones), one tab per section
 //                'own'   — the venue's own list (fs_cooking_items), one tab
 //                          per category, uncategorised under OWN_TAB
 //                'both'  — menu tabs first, then own-list tabs
 //
 // Every item is { id, name, kind: 'menu' | 'own' }; a reading logs it as
 // menu_item_id or cooking_item_id respectively.
+
+import { loadMenuVersions } from './menuReleases.js'
 
 export const ITEM_SOURCES = ['menus', 'own', 'both']
 export const OWN_TAB = 'Our items'
@@ -29,25 +32,17 @@ export async function loadCookingPicker(tx, tenantId, venueId) {
   const sections = []
 
   if (source !== 'own') {
-    const rows = await tx`
-      SELECT s.id AS section_id, s.title AS section_title, i.id AS item_id, i.name AS item_name
-        FROM menu_items i
-        JOIN menu_sections s ON s.id = i.section_id
-        JOIN menus m ON m.id = s.menu_id
-       WHERE i.tenant_id = ${tenantId}
-         AND m.tenant_id = ${tenantId}
-         AND m.is_published = true
-         AND (m.venue_id = ${venueId} OR m.venue_id IS NULL)
-       ORDER BY m.sort_order, s.sort_order, i.sort_order
-    `
-    const byId = new Map()
-    for (const r of rows) {
-      if (!byId.has(r.section_id)) {
-        const sec = { id: r.section_id, title: r.section_title, kind: 'menu', items: [] }
-        byId.set(r.section_id, sec)
-        sections.push(sec)
+    // The live menus (migration 165): a dish added to a draft shows up here
+    // once its menu is published, the same moment guests see it.
+    const menus = await loadMenuVersions(tx, tenantId, { venueId, publishedOnly: true })
+    for (const m of menus) {
+      for (const s of m.sections || []) {
+        if (!(s.items || []).length) continue
+        sections.push({
+          id: s.id, title: s.title, kind: 'menu',
+          items: s.items.map(i => ({ id: i.id, name: i.name, kind: 'menu' })),
+        })
       }
-      byId.get(r.section_id).items.push({ id: r.item_id, name: r.item_name, kind: 'menu' })
     }
   }
 

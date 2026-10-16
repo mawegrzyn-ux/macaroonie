@@ -8,6 +8,7 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError } from '../middleware/error.js'
 import { ITEM_SOURCES, loadCookingPicker } from '../services/cookingItems.js'
+import { loadMenuVersions } from '../services/menuReleases.js'
 
 const EQUIPMENT_TYPES = ['fridge', 'freezer', 'hot_hold', 'cold_hold', 'other']
 
@@ -1031,13 +1032,27 @@ export default async function foodSafetyRoutes(app) {
     // if the menu item is later renamed/removed, so dish_name is captured
     // now rather than looked up live via menu_item_id on every read.
     let dishName = body.dish_name?.trim() || null
-    if (body.menu_item_id) {
-      const [item] = await withTenant(req.tenantId, tx => tx`
-        SELECT i.name FROM menu_items i
-         WHERE i.id = ${body.menu_item_id} AND i.tenant_id = ${req.tenantId}
-      `)
+    let menuItemId = body.menu_item_id ?? null
+    if (menuItemId) {
+      // The picker offers the live menus (migration 165), so a dish already
+      // removed from the draft but still live has no menu_items row: keep its
+      // name from the live version and log it without the link.
+      const item = await withTenant(req.tenantId, async tx => {
+        const [row] = await tx`
+          SELECT i.name FROM menu_items i
+           WHERE i.id = ${menuItemId} AND i.tenant_id = ${req.tenantId}
+        `
+        if (row) return row
+        const live = await loadMenuVersions(tx, req.tenantId, { venueId: body.venue_id, publishedOnly: true })
+        for (const m of live) for (const s of m.sections || []) {
+          const found = (s.items || []).find(i => i.id === menuItemId)
+          if (found) return { name: found.name, gone: true }
+        }
+        return null
+      })
       if (!item) throw httpError(404, 'Menu item not found')
       dishName = item.name
+      if (item.gone) menuItemId = null
     } else if (body.cooking_item_id) {
       const [item] = await withTenant(req.tenantId, tx => tx`
         SELECT name FROM fs_cooking_items
@@ -1063,7 +1078,7 @@ export default async function foodSafetyRoutes(app) {
         (tenant_id, venue_id, check_date, session_id, menu_item_id, cooking_item_id, dish_name, core_temp_c, hold_seconds,
          is_within_range, corrective_action, notes, recorded_by)
       VALUES
-        (${req.tenantId}, ${body.venue_id}, ${checkDate}, ${body.session_id ?? null}, ${body.menu_item_id ?? null},
+        (${req.tenantId}, ${body.venue_id}, ${checkDate}, ${body.session_id ?? null}, ${menuItemId},
          ${body.menu_item_id ? null : body.cooking_item_id ?? null}, ${dishName}, ${body.core_temp_c}, ${body.hold_seconds ?? null}, ${inRange},
          ${body.corrective_action ?? null}, ${body.notes ?? null},
          ${body.recorded_by ?? req.user?.email ?? null})
