@@ -11,8 +11,11 @@
 //                               `Screen <screen_id>.<the same secret>`.
 //   GET  /config?version=       everything the screen shows (services/screenSvc.js);
 //                               { unchanged: true } when the version matches
-//   POST /heartbeat             { app_version, showing, viewport, error } every
+//   POST /heartbeat             { app_version, showing, viewport, error, clock } every
 //                               minute: Screens shows online / what's on
+//   GET  /time                  (no auth) { now } in ms: screens set their clock
+//                               from a few of these (lowest round trip wins), so
+//                               a wall's screens change boards together
 //
 // Live changes come over the WebSocket (/ws?screen=<id>&secret=<secret>):
 // screens.changed, screens.sold_out, menus.live (all: fetch the config
@@ -68,6 +71,12 @@ export default async function screenApiRoutes(app) {
     throw httpError(503, 'Couldn\'t make a code, try again')
   })
 
+  // The server's clock, as close to the answer as possible (no database).
+  app.get('/time', { config: { rateLimit: { max: 120, timeWindow: '1 minute' } } }, async (req, reply) => {
+    reply.header('Cache-Control', 'no-store')
+    return { now: Date.now() }
+  })
+
   app.get('/pairings/:id', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req, reply) => {
     if (!UUID.safeParse(req.params.id).success) throw httpError(404, 'Not found')
     const m = /^Pairing ([A-Za-z0-9_-]{20,})$/.exec(req.headers.authorization || '')
@@ -103,6 +112,10 @@ export default async function screenApiRoutes(app) {
         error: z.string().max(300).nullable().optional(),
         config_version: z.string().max(40).nullable().optional(),
         offline_secs: z.number().int().min(0).max(10_000_000).optional(),
+        clock: z.object({
+          offset_ms: z.number().int().min(-1e10).max(1e10),
+          rtt_ms: z.number().int().min(0).max(600_000),
+        }).nullable().optional(),
       }).parse(req.body || {})
       // At most one write a minute per screen (several processes may each allow one).
       const seen = lastSeen.get(s.id) || 0
@@ -110,7 +123,8 @@ export default async function screenApiRoutes(app) {
         lastSeen.set(s.id, Date.now())
         const status = {
           showing: b.showing || null, viewport: b.viewport || null, error: b.error || null,
-          config_version: b.config_version || null, offline_secs: b.offline_secs ?? 0, at: new Date().toISOString(),
+          config_version: b.config_version || null, offline_secs: b.offline_secs ?? 0, clock: b.clock || null,
+          at: new Date().toISOString(),
         }
         await sql`
           UPDATE screens SET last_seen_at = now(), app_version = COALESCE(${b.app_version ?? null}, app_version),

@@ -4088,6 +4088,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['screens', 'venue_id, name, short_code (S1, S2 ... unique per tenant), width / height, rotation (0 / 90 / 180 / 270), fit (contain / cover / stretch), playlist_id or design_id (CHECK not both; SET NULL on delete), secret_hash, paired_at, last_seen_at, app_version, device_info and status jsonb (from heartbeats). RLS.'],
                 ['screen_pairings', 'Global, no RLS: code_hash (sha256 of the normalised code), secret_hash, device_info, expires_at (15 min), then claimed_at / screen_id / tenant_id. Never holds the code or the secret. Rows expired over a day are deleted when a new code is asked for.'],
                 ['pos_roles.permissions.sold_out', 'Till permission "Mark dishes sold out" (shared/pos/permissions.js); the migration sets it on existing Supervisor and Manager roles.'],
+                ['screen_walls (migration 167)', 'venue_id, name, cols / rows (1-6), gap (0-400 board px hidden behind the frames), design_id or playlist_id (CHECK not both; SET NULL on delete). RLS.'],
+                ['screens.wall_id / wall_col / wall_row (167)', 'A screen\'s place on a wall (FK ON DELETE SET NULL, col / row 0-5, unique partial index on (wall_id, wall_col, wall_row)). A screen on a wall shows the wall\'s board or playlist, not its own.'],
+                ['screen_playlist_items.transition / transition_ms (167)', 'How the board comes on: none | fade | slide_left | slide_right | slide_up | slide_down | zoom | wipe (default fade), 0-5000 ms (default 800).'],
               ]}
             />
             <H3>Pairing and device auth</H3>
@@ -4109,9 +4112,10 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
             <DataTable
               head={['Route', 'What it does']}
               rows={[
-                ['GET /config?version=', 'screenConfig() in services/screenSvc.js: player_version, screen (size, rotation, fit), venue (timezone), playlist (items with schedules) or design_id, designs { id: { width, height, layout } }, the LIVE versions of the menus the boards point at (boardMenuIds(), slimmed by slimMenu(), sections hidden everywhere left out), tags shown on menus, the allergen notice, sold_out item ids, version (sha256 of all of it). { unchanged: true } when the version matches.'],
-                ['POST /heartbeat', 'Every minute: app_version, showing { design_id, name, playlist_item_id }, viewport, error, config_version, offline_secs. Written at most once per 50 s per screen; the admin shows a screen online when last_seen_at is under 150 s old.'],
-                ['/ws?screen=<id>&secret=<secret>', 'Joins screen:<id> (screens.changed, screen.identify, screen.reload, screen.removed), screens:<venueId> (screens.sold_out with the item ids), screens-t:<tenantId> (screens.changed after a board or playlist save) and menus:<tenantId> (menus.live from publishing and the minute sweep). Everything except identify / reload / sold out makes the player fetch the config again; it also polls every 60 s.'],
+                ['GET /config?version=', 'screenConfig() in services/screenSvc.js: player_version, screen (size, rotation, fit), venue (timezone), wall { id, name, cols, rows, col, row, gap } when the screen is on one (its board / playlist then comes from the wall), playlist (items with schedules and transitions) or design_id, designs { id: { width, height, layout } }, the LIVE versions of the menus the boards point at (boardMenuIds(), slimmed by slimMenu(), sections hidden everywhere left out), tags shown on menus, the allergen notice, sold_out item ids, version (sha256 of all of it). { unchanged: true } when the version matches.'],
+                ['POST /heartbeat', 'Every minute: app_version, showing { design_id, name, playlist_item_id }, viewport, error, config_version, offline_secs, clock { offset_ms, rtt_ms }. Written at most once per 50 s per screen; the admin shows a screen online when last_seen_at is under 150 s old.'],
+                ['GET /time', '{ now } (server ms), no-store, no auth, 120 a minute. The player takes five samples and keeps the quickest round trip (offset = now + rtt / 2 - received), again every 10 minutes; a jump over 250 ms reschedules the boards.'],
+                ['/ws?screen=<id>&secret=<secret>', 'Joins screen:<id> (screens.changed, screen.identify, screen.reload, screen.removed), screens:<venueId> (screens.sold_out with the item ids), screens-t:<tenantId> (screens.changed after a board or playlist save) and menus:<tenantId> (menus.live from publishing and the minute sweep). Everything except identify / reload / sold out makes the player fetch the config again; so does the socket reopening after a drop (changes meanwhile were pushed to nobody) and the browser coming back online; it also polls every 60 s. A wall change tells each screen it touched.'],
               ]}
             />
             <H3>Admin API (/api/screens)</H3>
@@ -4126,8 +4130,9 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
                 ['GET /screens', '{ screens, player_url } (screensOrigin()); each screen with online, shows { kind, name }, status.'],
                 ['POST /screens/claim', '{ code, name, venue_id, design_id | playlist_id, width?, height?, rotation? } or { code, screen_id }. Size defaults to the device report (CSS px x devicePixelRatio). 20 a minute.'],
                 ['PATCH /screens/:id, PATCH /screens/reorder, DELETE /screens/:id, POST /screens/:id/identify | reload', 'Showing a board clears the playlist and the other way round; both at once is a 422.'],
-                ['GET / POST /designs, GET / PUT / DELETE /designs/:id', 'POST takes copy_from. PUT stores normalizeBoard(layout) (unknown block types dropped, positions clamped), at most 500 KB. Delete removes the board from playlists and screens.'],
-                ['GET / POST /playlists, PUT / DELETE /playlists/:id', 'PUT replaces the items; a time must end after it starts and have days (no overnight times).'],
+                ['GET / POST /designs, GET / PUT / DELETE /designs/:id', 'POST takes copy_from, or layout (normalised: the Walls tab sends the guide lines). PUT stores normalizeBoard(layout) (unknown block types dropped, positions clamped), at most 500 KB. The list adds wall_count and video_secs (longest video block, from opts.duration). Delete removes the board from playlists, screens and walls.'],
+                ['GET / POST /playlists, PUT / DELETE /playlists/:id', 'PUT replaces the items (transition from TRANSITION_KEYS, transition_ms 0-5000); a time must end after it starts and have days (no overnight times). The list adds wall_count.'],
+                ['GET / POST /walls, PUT / DELETE /walls/:id', 'PUT { name, venue_id, cols, rows, gap, design_id | playlist_id, places: [{ col, row, screen_id }] }: refuses a screen twice, two screens in one place, a screen at another venue or another tenant\'s; places outside the grid are dropped; screens taken off are cleared. Moving a screen to another venue (PATCH /screens/:id) takes it off its wall. Delete clears its screens\' places.'],
                 ['GET /menu-data?version=live|draft&venue_id=', 'designerData(): every menu (live, or the drafts), unpublished (menus with no live version), tags, notice, and the venue\'s sold out ids.'],
               ]}
             />
@@ -4149,6 +4154,27 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               kept apart so the website pickers don&apos;t change). Tests:{' '}
               <Mono>node --test shared/test/screenLayout.test.mjs</Mono>.
             </P>
+            <P>
+              Migration 167 adds: <strong>video</strong> (a muted, playsinline video, <Mono>data-sl-video</Mono>{' '}
+              with loop / sound; with <Mono>still: true</Mono> in the context it is a frame at 0.5 s and
+              plays nothing: admin thumbnails and the designer until Play) and <strong>ticker</strong>{' '}
+              (scrolling text: copies of the text in a track moved by the <Mono>sl-loop-ticker</Mono>{' '}
+              keyframes). Any block can have <Mono>opts.anim_in</Mono> (ANIM_IN: fade, rise, drop, left,
+              right, zoom, pop, wipe; <Mono>anim_in_ms</Mono>, <Mono>anim_in_delay</Mono>) and{' '}
+              <Mono>opts.anim_loop</Mono> (ANIM_LOOP: pulse, float, swing, zoom, blink;{' '}
+              <Mono>anim_loop_ms</Mono>); <Mono>wrapMotion()</Mono> wraps the block&apos;s HTML in{' '}
+              <Mono>.sl-in</Mono> / <Mono>.sl-loop</Mono>, whose CSS animations run only under{' '}
+              <Mono>.sl-board.sl-play</Mono>. <Mono>startBoardMotion(board, {'{ startMs, nowMs }'})</Mono>{' '}
+              sizes the tickers, adds <Mono>sl-play</Mono> and sets each animation&apos;s clock: entrances
+              from <Mono>startMs</Mono> (<Mono>replayStart()</Mono> with the board&apos;s{' '}
+              <Mono>replay_secs</Mono>), movements from 1 January 1970, so every screen of a wall is at the
+              same point. <Mono>playlistPosition(list, nowMs)</Mono> works out which board is on from the
+              clock alone (rotation from the epoch, at least 3 s per board); <Mono>wallRegion()</Mono>{' '}
+              is the part of a board one wall screen shows, <Mono>wallBoardSize()</Mono> the board size
+              for a wall, <Mono>transitionFrames(kind, W, H)</Mono> the Web Animations keyframes in board
+              pixels (a slide crosses the whole wall). The board&apos;s <Mono>guide_cols</Mono> /{' '}
+              <Mono>guide_rows</Mono> / <Mono>guide_gap</Mono> only draw the designer&apos;s dashed lines.
+            </P>
             <H3>Player (screen/, routes/screenSite.js)</H3>
             <P>
               Plain files, no build: <Mono>index.html</Mono>, <Mono>player.js</Mono> (ES module),{' '}
@@ -4166,6 +4192,22 @@ const rows = await sql\`SELECT * FROM venues WHERE id = \${venueId}\``}</Code>
               the cursor, and reloads itself when a config names a newer player version (at most once
               in 5 minutes). Works installed from Chrome or in Fully Kiosk (detected by{' '}
               <Mono>window.fully</Mono>, reported in the device info).
+            </P>
+            <P>
+              Since migration 167 screens keep in step without talking to each other: the clock comes
+              from <Mono>/screen-api/time</Mono>, the board on now from <Mono>playlistPosition()</Mono>,
+              and the next board is drawn hidden (<Mono>.layer.prep</Mono>) 3 s early so its images and
+              videos load and its transition starts on time; a late timer jumps into the transition at
+              the elapsed point. A screen on a wall crops its part in <Mono>fit()</Mono> (translate,
+              then scale and turn). <Mono>syncVideos()</Mono> runs every second: elapsed time from the
+              board&apos;s start in a playlist, else from the epoch; small drift is caught up with
+              playbackRate 0.9-1.1, big drift (0.5 s on a wall, 1.5 s otherwise) by seeking. A sold out
+              push redraws in place (<Mono>redraw()</Mono>, skipped when the HTML is unchanged); a new
+              config also re-fits what is on screen (rotation, fit, wall place). The service worker keeps
+              every video the boards play in <Mono>screen-video-v1</Mono> (the player posts{' '}
+              <Mono>{'{ type: \'videos\', urls }'}</Mono>; one download at a time, videos no board plays
+              are deleted) and answers the video element&apos;s byte ranges by slicing the cached file
+              (206, or 416), from the network until the copy is there.
             </P>
             <H3>Sold out</H3>
             <P>
@@ -4710,6 +4752,39 @@ GET /robots.txt`}</Code>
               panel is <Mono>relative</Mono> in page and fullscreen modes. The image editor is its own{' '}
               <Mono>fixed</Mono> overlay in every mode. API routes live in{' '}
               <Mono>routes/media.js</Mono> (<Mono>/api/media</Mono>).
+            </P>
+            <P>
+              Uploads need website, menus or screens manage. Pictures up to 12 MB; MP4 / WebM videos up
+              to 150 MB (migration 167, for menu screens): <Mono>req.parts()</Mono> gets a 150 MB limit
+              per call and each part is checked against its own type&apos;s limit, and sharp only reads
+              pictures. <Mono>GET /items?kind=image|video</Mono> filters; the picker takes a{' '}
+              <Mono>kind</Mono> prop (picker default image, manager all). nginx caps request bodies at
+              30 MB, so every deploy runs <Mono>scripts/ensure-nginx-media-upload.sh</Mono>: a regex
+              location for the two upload routes (160 MB, request buffering off, 300 s timeouts) before
+              each <Mono>location /api/</Mono> block, with that block&apos;s proxy_pass and limit_req;
+              idempotent, <Mono>nginx -t</Mono> or restore. <Mono>POST /items/check-duplicate</Mono>{' '}
+              returns <Mono>hash</Mono> too.
+            </P>
+            <H3>Files dropped onto the editors</H3>
+            <P>
+              <Mono>lib/fileDrop.js</Mono>: <Mono>useFileDrop()</Mono> (handlers that react only to file
+              drags; the innermost area takes the drop), <Mono>uploadMedia()</Mono> (sha-256 in the
+              browser, reuses the item with the same hash in that scope through check-duplicate, else
+              uploads), <Mono>mediaSize()</Mono> (a picture&apos;s or video&apos;s size, a video&apos;s
+              length), <Mono>noImageDrag</Mono> and <Mono>installDropGuard()</Mono> (main.jsx: a drop
+              nothing takes is cancelled with dropEffect none, so the browser never opens the file over
+              the admin; inputs and contenteditable keep their own drops).{' '}
+              <Mono>components/FileDropArea.jsx</Mono> wraps a picture field. Where it is used: the board
+              designer canvas (onto an image / video block replaces its url, else a new block at the drop
+              point the file&apos;s shape; videos get <Mono>opts.duration</Mono>), the menu designer pages
+              (onto an image block, else a new image block at the grid cell), the page builder canvas
+              (onto image / hero / story_with_stamp, <Mono>PICTURE_FIELD</Mono> in PageBuilder.jsx, else
+              a new Image block after the block dropped on; uploads through <Mono>/website/upload</Mono>),
+              both website <Mono>ImageField</Mono>s, the designers&apos; picture panels and the Menus
+              page dish / section pictures. In both designers the canvas cancels <Mono>dragstart</Mono>{' '}
+              and the blocks are <Mono>user-select: none</Mono> / <Mono>-webkit-touch-callout: none</Mono>:
+              the browser&apos;s own picture drag used to start on a mouse press on a picture, cancel the
+              pointer move (pointercancel) and leave the block where it was.
             </P>
           </section>
 

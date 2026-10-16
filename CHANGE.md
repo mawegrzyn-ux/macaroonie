@@ -5,6 +5,23 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-16 — Menu screens: video, walls, transitions and animation; dropping photos into the editors]
+
+- **Video on boards**: a Video block plays a video from Media on a loop (sound off unless ticked). Media now takes MP4 and WebM videos up to 150 MB. Each screen keeps a copy, so videos play without the internet. In a playlist, **Video length** shows a board for exactly as long as its video.
+- **Scrolling text** block: a line of text moving across the board, with speed, gap and direction.
+- **Animation**: any block can come on with a movement (fade, rise up, drop down, from the left or right, zoom, pop, wipe) after a delay, and keep moving while on (pulse, float, swing, slow zoom, blink). **Play** in the designer shows the board as the screens will; the board can replay its entrances every so many seconds.
+- **Transitions**: each board in a playlist comes on with a cut, fade, slide, zoom or wipe at the speed you pick. The playlist **Preview** plays the boards with their transitions.
+- **Walls**: several screens side by side (or stacked) show one board between them, as one picture, with a gap for the frames. **Walls** tab: grid size, which screen goes where, the gap, **Make a board this size** (the designer then shows where the screens meet), and a preview of each screen's part.
+- Screens now keep in step: they set their clocks from Macaroonie, so screens with the same playlist (and every screen of a wall) change boards, play videos, move scrolling text and run transitions at the same moment.
+- A screen that has been offline picks up changes as soon as it is back, instead of within a minute.
+- **Dropping photos from your computer**: onto a board (onto a picture or video block to replace it, anywhere else to add one, the photo's own shape), onto a menu print design page, onto the website page builder (onto an Image, Hero or Story block to use it there, onto any other block to add an Image block after it), and onto any picture field (website settings, block settings, dish and section photos on the Menus page). Dropped files go into Media; the same file dropped twice is kept once. A file dropped anywhere else no longer opens in the browser over the admin.
+- Fixed: in the board designer and the menu print designer, pressing on a photo and dragging didn't move the block (the browser started dragging the picture instead). On iPads, pressing on a photo no longer brings up the picture menu.
+- Fixed: the website page builder's grip handle (drag to reorder blocks) never appeared. It now shows when you point at a block, on the selected block, and always on touch screens.
+- Fixed: turning a screen (Mounted) or changing its fit didn't reach the screen until the board changed.
+- People who manage Screens (but not the website or menus) can now upload to Media.
+- Deploy: a new nginx step lets the two Media upload addresses take files up to 160 MB.
+- Migration 167.
+
 ## [2026-10-16 — Menu screens: digital menu boards]
 
 - New **Screens** page (Website in the menu, module Menu screens): put your menus on screens in the restaurant. Any Android TV box or stick, smart TV with Chrome, tablet or PC works, installed from Chrome (full screen) or in Fully Kiosk Browser.

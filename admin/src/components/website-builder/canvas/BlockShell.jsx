@@ -3,7 +3,8 @@
 // Wraps every block on the canvas with the editor chrome:
 //   - Click anywhere in the block to select it
 //   - Hover/selected outline
-//   - Drag handle on the left edge (always visible)
+//   - Drag handle on the left edge (on hover, on the selected block, and
+//     always on touch screens, which have no hover)
 //   - Floating toolbar above the block (only when selected): duplicate,
 //     delete, settings, move up/down
 //
@@ -55,6 +56,7 @@ export function BlockShell({
       id={anchorId || undefined}
       style={wrapperStyle}
       data-selected={selected ? 'true' : 'false'}
+      data-block-id={blockId}
       className="pcf-block group"
       onClick={(e) => { e.stopPropagation(); onSelect?.() }}
     >
@@ -78,8 +80,9 @@ export function BlockShell({
           boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
           cursor: 'grab',
           zIndex: 20,
-          opacity: 0,
-          transition: 'opacity .12s',
+          // Shown by ThemeFrame's CSS (hover, selected, touch screens): an
+          // inline opacity here would win over those rules and hide it for good.
+          touchAction: 'none',
         }}
         className="pcf-drag-handle"
       >

@@ -138,7 +138,11 @@ export function ThemeFrame({ config, children, className = '' }) {
       color: var(--c-muted);
       opacity: 0.6;
     }
+    .${scopeId} .pcf-drag-handle { opacity: 0; transition: opacity .12s; }
     .${scopeId} .pcf-block:hover .pcf-drag-handle { opacity: 1; }
+    .${scopeId} .pcf-block[data-selected="true"] > .pcf-drag-handle { opacity: 1; }
+    @media (hover: none) { .${scopeId} .pcf-drag-handle { opacity: 0.85 !important; } }
+    .${scopeId} .pcf-block img { -webkit-touch-callout: none; }
     .${scopeId} .pcf-block:not([data-selected="true"]):hover {
       outline-color: rgba(99, 8, 18, 0.35) !important;
     }

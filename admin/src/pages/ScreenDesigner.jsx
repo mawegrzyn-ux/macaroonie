@@ -11,35 +11,43 @@
 // What the canvas draws comes from shared/screenLayout.js, the renderer the
 // screens' player runs, with the same menu data (the LIVE menus by default,
 // or the drafts with "Draft prices"); the designer only adds the selection
-// box, the handles and placeholders for empty blocks.
+// box, the handles, placeholders for empty blocks and a wall's guide lines.
+// Videos play, scrolling text and block animations move only on Play
+// (startBoardMotion(), the player's own code), so blocks can be placed
+// where they end up.
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Save, Plus, Minus, Maximize2, Trash2, Copy, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown,
-  Image as ImageIcon, Type, Heading, ListOrdered, Star, PoundSterling, Square, Clock, Tag, X, Grid3x3,
+  Image as ImageIcon, Type, Heading, ListOrdered, Star, PoundSterling, Square, Clock, Tag, X, Grid3x3, Film, ScrollText,
+  Play, Pause,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { usePermission } from '@/hooks/usePermission'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
+import { FileDropArea } from '@/components/FileDropArea'
+import { useFileDrop, uploadMedia, mediaSize, isVideoFile, noImageDrag } from '@/lib/fileDrop'
 import { FontPicker } from '@/components/website-builder/FontPicker'
 import {
   useScreenCss, useBoardFonts, useScreenData, ColourField, PxBox, errorText, useTick,
 } from '@/components/screens/shared'
 import {
-  BLOCK_TYPES, BLOCK_LABELS, BLOCK_HINTS, BLOCK_DEFAULTS, BOARD_SIZES, SCREEN_FONT_OPTIONS,
+  BLOCK_TYPES, BLOCK_LABELS, BLOCK_HINTS, BLOCK_DEFAULTS, BOARD_SIZES, SCREEN_FONT_OPTIONS, ANIM_IN, ANIM_LOOP,
   normalizeBoard, boardContext, renderBlockInner, blockStyle, boardStyle, toReactStyle, dishOptionLabels,
+  wrapMotion, startBoardMotion, wallRegion,
 } from '@shared/screenLayout.js'
 
 const ICONS = {
   heading: Heading, text: Type, menu: ListOrdered, dish: Star, price: PoundSterling,
-  image: ImageIcon, box: Square, clock: Clock, allergen_key: Tag,
+  image: ImageIcon, video: Film, ticker: ScrollText, box: Square, clock: Clock, allergen_key: Tag,
 }
 
 const DESIGNER_CSS = `
-.sd-board .sl-block { cursor: move; touch-action: none; }
+.sd-board .sl-block { cursor: move; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.sd-board img, .sd-board video { -webkit-user-drag: none; }
 .sd-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
   border: calc(2px / var(--sd-scale, 1)) dashed rgba(255,255,255,0.45); background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.75);
   font-family: system-ui, sans-serif; font-size: calc(13px / var(--sd-scale, 1)); line-height: 1.3; padding: calc(6px / var(--sd-scale, 1)); }
@@ -63,6 +71,34 @@ function freeSpot(blocks, w, h, W, H, grid) {
   return { x: margin + n * grid * 3, y: margin + n * grid * 3 }
 }
 const snapTo = (v, g) => (g > 1 ? Math.round(v / g) * g : Math.round(v))
+
+// A dropped picture's block: its own shape, at most 40% of the board wide and half of it high.
+function fitSize(iw, ih, W, H) {
+  if (!(iw > 0) || !(ih > 0)) return null
+  const s = Math.min((W * 0.4) / iw, (H * 0.5) / ih)
+  return { w: Math.max(40, Math.round(iw * s)), h: Math.max(40, Math.round(ih * s)) }
+}
+
+// A video's length in seconds (to offer "show it for the video's length" in playlists).
+function readVideoSeconds(url) {
+  return new Promise(resolve => {
+    const v = document.createElement('video')
+    let done = false
+    const finish = d => {
+      if (done) return
+      done = true
+      v.removeAttribute('src')
+      try { v.load() } catch { /* gone */ }
+      resolve(d)
+    }
+    v.preload = 'metadata'
+    v.muted = true
+    v.onloadedmetadata = () => finish(Number.isFinite(v.duration) ? Math.round(v.duration * 10) / 10 : null)
+    v.onerror = () => finish(null)
+    setTimeout(() => finish(null), 15000)
+    v.src = url
+  })
+}
 
 function useVenues() {
   const api = useApi()
@@ -94,6 +130,7 @@ export default function ScreenDesigner() {
   const [fitZoom, setFitZoom] = useState(0.5)
   const [drag, setDrag] = useState(null)
   const [showGrid, setShowGrid] = useState(false)
+  const [playing, setPlaying] = useState(false)
   const [, setFontsTick] = useState(0)
 
   const canvasRef = useRef(null)
@@ -140,10 +177,20 @@ export default function ScreenDesigner() {
     return () => ro.disconnect()
   }, [W, H, !!layout])
 
+  // Videos show a still frame while you edit and play only after Play is pressed.
   const ctx = useMemo(() => {
     if (!layout) return null
-    return boardContext(layout, { ...(menuData || {}), width: W, height: H, now: new Date() })
-  }, [layout, menuData, W, H])
+    return boardContext(layout, { ...(menuData || {}), width: W, height: H, now: new Date(), still: !playing })
+  }, [layout, menuData, W, H, playing])
+
+  // Play: the board moves as on a screen (from the start each time it is pressed).
+  const playStart = useRef(0)
+  useEffect(() => {
+    if (!playing || !boardRef.current) return
+    const t = Date.now()
+    playStart.current = t
+    startBoardMotion(boardRef.current, { startMs: t, nowMs: t })
+  }, [playing])
 
   const save = useMutation({
     mutationFn: () => api.put(`/screens/designs/${id}`, { name: name.trim() || 'Board', width: W, height: H, layout }),
@@ -168,11 +215,11 @@ export default function ScreenDesigner() {
   }))
   const removeBlock = bid => { mutate(l => ({ ...l, blocks: l.blocks.filter(b => b.id !== bid) })); setSel(null) }
 
-  function addBlock(type, at = null, opts = {}) {
+  function addBlock(type, at = null, opts = {}, size = null) {
     if (!layout) return
     const d = BLOCK_DEFAULTS[type]
-    const w = snapTo(Math.round(W * d.w), grid)
-    const h = snapTo(Math.round(H * d.h), grid)
+    const w = Math.max(grid, snapTo(size?.w ?? Math.round(W * d.w), grid))
+    const h = Math.max(grid, snapTo(size?.h ?? Math.round(H * d.h), grid))
     const spot = at ? { x: at.x - w / 2, y: at.y - h / 2 } : freeSpot(layout.blocks, w, h, W, H, grid)
     const { x, y } = spot
     const block = {
@@ -274,6 +321,41 @@ export default function ScreenDesigner() {
     startDrag({ kind: 'new', type, label, opts }, e)
   }
 
+  // Pictures and videos dropped from the computer: into Media, then onto
+  // the picture (or video) block they were dropped on, else a new block
+  // there, the file's own shape.
+  const [dropNote, setDropNote] = useState(null)   // { busy } | { error }
+  async function dropFiles(files, e) {
+    if (!layout) return
+    const p = boardPoint(e.clientX, e.clientY)
+    const at = p?.inside ? { x: p.x, y: p.y } : null
+    const hit = at ? [...layout.blocks].reverse().find(b => at.x >= b.x && at.x <= b.x + b.w && at.y >= b.y && at.y <= b.y + b.h) : null
+    const list = files.slice(0, 10)
+    setDropNote({ busy: list.length > 1 ? `Adding ${list.length} files…` : 'Adding…' })
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const file = list[i]
+        const type = isVideoFile(file) ? 'video' : 'image'
+        const [item, size] = await Promise.all([uploadMedia(api, file, 'screens'), mediaSize(file)])
+        const extra = type === 'video' ? { duration: size.duration ?? null } : {}
+        if (i === 0 && hit && hit.type === type) {
+          updateOpts(hit.id, { url: item.url, ...extra })
+          setSel(hit.id)
+        } else {
+          const spot = at ? { x: at.x + i * grid * 4, y: at.y + i * grid * 4 } : null
+          addBlock(type, spot, { url: item.url, ...extra }, fitSize(size.width, size.height, W, H))
+        }
+      }
+      setDropNote(null)
+    } catch (err) {
+      setDropNote({ error: 'Couldn\'t add that file: ' + errorText(err) })
+    }
+  }
+  const fileDrop = useFileDrop({
+    kinds: ['image', 'video'], disabled: !canManage || !!dropNote?.busy,
+    onFiles: dropFiles, onRefused: msg => setDropNote({ error: msg }),
+  })
+
   // Keys: arrows nudge (Shift: one grid step), Delete removes, Escape lets go.
   useEffect(() => {
     const onKey = e => {
@@ -324,6 +406,13 @@ export default function ScreenDesigner() {
             {venues.map(v => <option key={v.id} value={v.id}>Sold out at {v.name}</option>)}
           </select>
         )}
+        <button onClick={() => setPlaying(p => !p)} data-testid="board-play"
+          title={playing ? 'Stop: show blocks where they end up' : 'Play the animations and scrolling text'}
+          className={cn('inline-flex items-center gap-1.5 h-10 px-3 rounded-md border text-xs font-medium touch-manipulation',
+            playing ? 'bg-primary text-primary-foreground border-primary' : 'hover:bg-accent')}>
+          {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          <span className="hidden sm:inline">{playing ? 'Stop' : 'Play'}</span>
+        </button>
         <div className="hidden md:flex items-center border rounded-md">
           <button onClick={() => setZoom(Math.max(0.05, +(scale * 0.8).toFixed(3)))} className="w-10 h-10 flex items-center justify-center touch-manipulation" title="Zoom out"><Minus className="w-4 h-4" /></button>
           <span className="text-xs w-12 text-center tabular-nums">{Math.round(scale * 100)}%</span>
@@ -340,13 +429,25 @@ export default function ScreenDesigner() {
         ) : <span className="text-xs text-muted-foreground px-2">View only</span>}
       </div>
       {save.isError && <div className="shrink-0 bg-destructive/10 text-destructive text-sm px-4 py-2 border-b">Save failed: {errorText(save.error)}</div>}
+      {(fileDrop.over || dropNote) && (
+        <div role="status" data-testid="drop-note"
+          className={cn('fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[90vw] rounded-lg shadow-lg px-4 py-2.5 text-sm flex items-center gap-2',
+            dropNote?.error ? 'bg-destructive text-destructive-foreground' : 'bg-foreground text-background')}>
+          {dropNote?.busy && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
+          <span>{dropNote?.error || dropNote?.busy || 'Drop onto a picture or video to replace it, anywhere else to add it.'}</span>
+          {dropNote?.error && (
+            <button type="button" onClick={() => setDropNote(null)} aria-label="Close" className="w-8 h-8 -mr-2 flex items-center justify-center rounded touch-manipulation"><X className="w-4 h-4" /></button>
+          )}
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 flex">
         {canManage && <Tray menus={menuData?.menus || []} onAdd={addBlock} onDragStart={onTrayPointerDown} />}
 
-        <div ref={canvasRef} className="flex-1 min-w-0 overflow-auto p-6 flex" onPointerDown={() => setSel(null)}>
+        <div ref={canvasRef} className={cn('flex-1 min-w-0 overflow-auto p-6 flex', fileDrop.over && 'ring-4 ring-inset ring-primary/50 bg-primary/5')}
+          onPointerDown={() => setSel(null)} onDragStart={noImageDrag} {...fileDrop.dropProps} data-testid="board-canvas">
           <div className="relative m-auto shrink-0" style={{ width: W * scale, height: H * scale }}>
-            <div ref={boardRef} className="sl-board sd-board absolute left-0 top-0 shadow-lg"
+            <div ref={boardRef} className={'sl-board sd-board absolute left-0 top-0 shadow-lg' + (playing ? ' sl-play' : '')}
               style={{ ...toReactStyle(boardStyle(layout)), transform: `scale(${scale})`, transformOrigin: '0 0', '--sd-scale': scale }}>
               {showGrid && grid >= 4 && (
                 <div className="absolute inset-0 pointer-events-none" style={{
@@ -365,11 +466,28 @@ export default function ScreenDesigner() {
                     onPointerDown={e => onBlockPointerDown(e, b)}>
                     {empty
                       ? <div className="sd-empty">{placeholder(b, inner, menuData)}</div>
-                      : <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: inner }} />}
+                      : <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: wrapMotion(b, inner) }} />}
                   </div>
                 )
               })}
             </div>
+            {/* Where a wall's screens meet (looks only): each screen's part, the gaps shaded. */}
+            {(layout.guide_cols > 1 || layout.guide_rows > 1) && (
+              <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 4 }} data-testid="wall-guides">
+                {Array.from({ length: layout.guide_rows }).flatMap((_, row) => Array.from({ length: layout.guide_cols }).map((__, col) => {
+                  const r = wallRegion(W, H, { cols: layout.guide_cols, rows: layout.guide_rows, col, row, gap: layout.guide_gap })
+                  return (
+                    <div key={col + ':' + row} className="absolute" style={{
+                      left: r.x * scale, top: r.y * scale, width: r.w * scale, height: r.h * scale,
+                      outline: '2px dashed rgba(255, 196, 0, 0.85)', outlineOffset: -1,
+                      boxShadow: layout.guide_gap ? '0 0 0 ' + Math.max(1, layout.guide_gap * scale / 2) + 'px rgba(0,0,0,0.45)' : undefined,
+                    }}>
+                      <span className="absolute left-1 top-1 rounded bg-black/70 text-[10px] text-amber-300 px-1">Screen {row * layout.guide_cols + col + 1}</span>
+                    </div>
+                  )
+                }))}
+              </div>
+            )}
             {/* Selection box and resize handle, on top of the board (not clipped by it). */}
             {selected && (() => {
               const b = shown(selected)
@@ -431,6 +549,8 @@ function placeholder(b, inner, data) {
     return 'Sold out: hidden on the screen'
   }
   if (b.type === 'image') return 'Pick an image'
+  if (b.type === 'video') return 'Pick a video'
+  if (b.type === 'ticker') return 'Scrolling text: type some text'
   if (b.type === 'allergen_key') return 'Allergen key: no tags on this board\'s dishes'
   if (b.type === 'heading' || b.type === 'text') return 'Type some text'
   return BLOCK_LABELS[b.type]
@@ -469,7 +589,7 @@ function Tray({ menus, onAdd, onDragStart }) {
           ))}
         </div>
       )}
-      <p className="px-4 pb-4 text-[11px] text-muted-foreground">Tap + to add, or drag onto the board.</p>
+      <p className="px-4 pb-4 text-[11px] text-muted-foreground">Tap + to add, or drag onto the board. Pictures and videos from your computer can be dropped straight onto the board.</p>
     </aside>
   )
 }
@@ -597,9 +717,39 @@ function DishPick({ menu, value, onChange, label = 'Dish', exclude }) {
   )
 }
 
+// The picture / video part of a block's panel: a file dropped on it goes
+// into Media and onto the block.
+function PanelDrop({ kind, disabled, onUploaded, children }) {
+  const api = useApi()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  async function onFiles(files) {
+    setBusy(true); setError(null)
+    try {
+      const [item, size] = await Promise.all([uploadMedia(api, files[0], 'screens'), mediaSize(files[0])])
+      onUploaded(item, size)
+    } catch (e) {
+      setError(errorText(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <FileDropArea kinds={[kind]} disabled={disabled || busy} onFiles={onFiles} onRefused={setError}
+      label={kind === 'video' ? 'Drop to use this video' : 'Drop to use this picture'} className="space-y-2.5">
+      {children}
+      <p className="text-[11px] text-muted-foreground">
+        {busy ? 'Adding…' : `Or drop ${kind === 'video' ? 'a video' : 'a picture'} from your computer here, or onto the board.`}
+      </p>
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+    </FileDropArea>
+  )
+}
+
 function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplicate, onRemove, onRestack, onClose }) {
   const o = block.opts || {}
   const [mediaOpen, setMediaOpen] = useState(false)
+  const [videoOpen, setVideoOpen] = useState(false)
   const menu = (data?.menus || []).find(m => m.id === o.menu_id)
   const itemsById = Object.fromEntries((menu?.sections || []).flatMap(s => s.items).map(i => [i.id, i]))
   const W = board.width, H = board.height
@@ -753,11 +903,13 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
 
       {block.type === 'image' && (
         <Section title="Image">
-          {o.url && <img src={o.url} alt="" className="w-full max-h-40 object-contain rounded-md border bg-muted" />}
-          <button type="button" onClick={() => setMediaOpen(true)}
-            className="w-full inline-flex items-center justify-center gap-1.5 text-sm border rounded-md min-h-[44px] hover:bg-accent touch-manipulation">
-            <ImageIcon className="w-4 h-4" /> {o.url ? 'Change image' : 'Pick from Media'}
-          </button>
+          <PanelDrop kind="image" disabled={!canManage} onUploaded={item => onOpts({ url: item.url })}>
+            {o.url && <img src={o.url} alt="" draggable={false} className="w-full max-h-40 object-contain rounded-md border bg-muted" />}
+            <button type="button" onClick={() => setMediaOpen(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 text-sm border rounded-md min-h-[44px] hover:bg-accent touch-manipulation">
+              <ImageIcon className="w-4 h-4" /> {o.url ? 'Change image' : 'Pick from Media'}
+            </button>
+          </PanelDrop>
           <Sel label="Fit" value={o.fit || 'cover'} onChange={v => onOpts({ fit: v })}>
             <option value="cover">Fill the block (crop)</option>
             <option value="contain">Whole image</option>
@@ -765,6 +917,48 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
           </Sel>
           <PxBox label="Rounded corners" value={o.radius ?? 0} min={0} max={2000} onChange={v => onOpts({ radius: v })} />
         </Section>
+      )}
+
+      {block.type === 'video' && (
+        <Section title="Video">
+          <PanelDrop kind="video" disabled={!canManage} onUploaded={(item, size) => onOpts({ url: item.url, duration: size.duration ?? null })}>
+            {o.url && <video src={o.url} muted playsInline controls preload="metadata" className="w-full max-h-40 rounded-md border bg-black" />}
+            <button type="button" onClick={() => setVideoOpen(true)}
+              className="w-full inline-flex items-center justify-center gap-1.5 text-sm border rounded-md min-h-[44px] hover:bg-accent touch-manipulation">
+              <Film className="w-4 h-4" /> {o.url ? 'Change video' : 'Pick from Media'}
+            </button>
+          </PanelDrop>
+          {o.duration > 0 && <p className="text-[11px] text-muted-foreground">{o.duration} seconds long.</p>}
+          <Sel label="Fit" value={o.fit || 'cover'} onChange={v => onOpts({ fit: v })}>
+            <option value="cover">Fill the block (crop)</option>
+            <option value="contain">Whole video</option>
+            <option value="fill">Stretch</option>
+          </Sel>
+          <PxBox label="Rounded corners" value={o.radius ?? 0} min={0} max={2000} onChange={v => onOpts({ radius: v })} />
+          <Check label="Play again from the start when it ends" checked={o.loop !== false} onChange={v => onOpts({ loop: v })} />
+          <Check label="With sound (where the screen allows it)" checked={!!o.sound} onChange={v => onOpts({ sound: v })} />
+          <p className="text-[11px] text-muted-foreground">MP4 (H.264) plays on every screen. Videos are kept on each screen, so they play without the internet once loaded. On a wall, every screen plays the same moment of the video.</p>
+        </Section>
+      )}
+
+      {block.type === 'ticker' && (
+        <>
+          <Section title="Scrolling text">
+            <textarea value={o.text || ''} onChange={e => onOpts({ text: e.target.value })} rows={2}
+              className="w-full text-sm border rounded-md px-2 py-2 bg-background" aria-label="Text" />
+            <div className="grid grid-cols-2 gap-2">
+              <PxBox label="Speed" suffix="px/s" value={o.speed ?? 120} min={10} max={2000} onChange={v => onOpts({ speed: v })} />
+              <PxBox label="Space between" value={o.gap ?? 160} min={0} max={4000} onChange={v => onOpts({ gap: v })} />
+            </div>
+            <Seg value={o.direction === 'right' ? 'right' : 'left'} options={[['left', 'Moves left'], ['right', 'Moves right']]} onChange={v => onOpts({ direction: v })} />
+            <ColourField label="Background" value={o.bg || null} optional placeholder="None" onChange={v => onOpts({ bg: v })} />
+            {o.bg && <PxBox label="Background solid" suffix="%" value={o.bg_alpha ?? 100} min={0} max={100} onChange={v => onOpts({ bg_alpha: v })} />}
+            <p className="text-[11px] text-muted-foreground">It moves on the screens and when you press Play. Across a wall it runs from one screen onto the next.</p>
+          </Section>
+          <Section title="Style">
+            <TextStyle o={o} onOpts={onOpts} dflt={{ font: 'heading', size: 48, weight: 600 }} />
+          </Section>
+        </>
       )}
 
       {block.type === 'box' && (
@@ -798,6 +992,26 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
         </Section>
       )}
 
+      <Section title="Animation">
+        <Sel label="Comes on" value={o.anim_in || 'none'} onChange={v => onOpts({ anim_in: v })}>
+          {ANIM_IN.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+        </Sel>
+        {o.anim_in && o.anim_in !== 'none' && (
+          <div className="grid grid-cols-2 gap-2">
+            <PxBox label="Taking" suffix="ms" value={o.anim_in_ms ?? 800} min={100} max={10000} onChange={v => onOpts({ anim_in_ms: v })} />
+            <PxBox label="After" suffix="ms" value={o.anim_in_delay ?? 0} min={0} max={60000} onChange={v => onOpts({ anim_in_delay: v })} />
+          </div>
+        )}
+        <Sel label="While on" value={o.anim_loop || 'none'} onChange={v => onOpts({ anim_loop: v, anim_loop_ms: undefined })}>
+          {ANIM_LOOP.map(a => <option key={a.key} value={a.key}>{a.label}</option>)}
+        </Sel>
+        {o.anim_loop && o.anim_loop !== 'none' && (
+          <PxBox label="Each round takes" suffix="ms" value={o.anim_loop_ms ?? (ANIM_LOOP.find(a => a.key === o.anim_loop)?.ms || 3000)}
+            min={300} max={120000} onChange={v => onOpts({ anim_loop_ms: v })} />
+        )}
+        <p className="text-[11px] text-muted-foreground">"Comes on" plays each time the board comes on (stagger blocks with After). Press Play to see it.</p>
+      </Section>
+
       <Section title="Position">
         <div className="grid grid-cols-2 gap-2">
           <PxBox label="Left" value={block.x} min={-W} max={W} onChange={v => onUpdate({ x: v })} />
@@ -827,6 +1041,12 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
       </Section>
       <MediaLibraryModal open={mediaOpen} mode="picker" onClose={() => setMediaOpen(false)}
         onPick={url => { onOpts({ url }); setMediaOpen(false) }} />
+      <MediaLibraryModal open={videoOpen} mode="picker" kind="video" scope="screens" onClose={() => setVideoOpen(false)}
+        onPick={url => {
+          onOpts({ url, duration: null })
+          setVideoOpen(false)
+          readVideoSeconds(url).then(d => { if (d) onOpts({ url, duration: d }) })
+        }} />
     </fieldset>
   )
 }
@@ -889,6 +1109,23 @@ function BoardPanel({ board, name, setName, canManage, onPatch, venues, version,
             <input value={board.sold_out_text} onChange={e => onPatch({ sold_out_text: e.target.value })} maxLength={40}
               className="w-full h-10 text-sm border rounded-md px-2 bg-background" />
           </label>
+        </Section>
+        <Section title="Animations">
+          <PxBox label="Play the blocks' animations again every" suffix="s" value={board.replay_secs || 0} min={0} max={3600}
+            onChange={v => onPatch({ replay_secs: v })} />
+          <p className="text-[11px] text-muted-foreground">0: once, when the board comes on. On a wall (or several screens) they replay together.</p>
+        </Section>
+        <Section title="Wall guides">
+          <div className="grid grid-cols-3 gap-2">
+            <Sel label="Screens across" value={String(board.guide_cols || 1)} onChange={v => onPatch({ guide_cols: Number(v) })}>
+              {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
+            </Sel>
+            <Sel label="Down" value={String(board.guide_rows || 1)} onChange={v => onPatch({ guide_rows: Number(v) })}>
+              {[1, 2, 3, 4, 5, 6].map(n => <option key={n} value={n}>{n}</option>)}
+            </Sel>
+            <PxBox label="Gap" value={board.guide_gap || 0} min={0} max={400} onChange={v => onPatch({ guide_gap: v })} />
+          </div>
+          <p className="text-[11px] text-muted-foreground">For a board shown across several screens (Screens &gt; Walls): dashed lines show each screen's part, so nothing important sits where two screens meet. The gap is hidden behind the screens' frames.</p>
         </Section>
         <Section title="Snap">
           <PxBox label="Snap blocks to every" value={board.grid} min={1} max={200} onChange={v => onPatch({ grid: v })} />

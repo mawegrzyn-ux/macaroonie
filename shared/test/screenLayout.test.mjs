@@ -161,3 +161,88 @@ test('fonts: one stylesheet with each font\'s own weights', () => {
   assert.match(url, /family=Inter:wght@300;400;500;600;700;800/)
   assert.equal(withAlpha('#ff0000', 50), 'rgba(255,0,0,0.5)')
 })
+
+test('video block: muted, plays on a loop; thumbnails show a frame only', async () => {
+  const { renderBlockInner: r, boardContext: bc, boardVideoUrls, boardVideoSeconds } = await import('../screenLayout.js')
+  const layout = { blocks: [block('video', { url: '/uploads/t/media/a.mp4', fit: 'contain', duration: 12.4 })] }
+  const live = bc(layout, {})
+  const html = r(live.board.blocks[0], live)
+  assert.match(html, /<video class="sl-video" muted playsinline/)
+  assert.match(html, / autoplay preload="auto" loop/)
+  assert.match(html, /object-fit:contain/)
+  const still = bc(layout, { still: true })
+  const thumb = r(still.board.blocks[0], still)
+  assert.doesNotMatch(thumb, /autoplay/)
+  assert.match(thumb, /a\.mp4#t=0\.5/)
+  assert.deepEqual(boardVideoUrls(layout), ['/uploads/t/media/a.mp4'])
+  assert.equal(boardVideoSeconds(layout), 13)
+  const noLoop = bc({ blocks: [block('video', { url: '/uploads/a.webm', loop: false })] }, {})
+  assert.doesNotMatch(r(noLoop.board.blocks[0], noLoop), / loop/)
+  const bad = bc({ blocks: [block('video', { url: 'javascript:x' })] }, {})
+  assert.equal(r(bad.board.blocks[0], bad), '')
+})
+
+test('scrolling text repeats enough to cover the block and is escaped', async () => {
+  const { renderBlockInner: r, boardContext: bc } = await import('../screenLayout.js')
+  const ctx = bc({ blocks: [block('ticker', { text: '<b>Hot</b>  deals', size: 40, speed: 100, gap: 100 }, { w: 1920 })] }, {})
+  const html = r(ctx.board.blocks[0], ctx)
+  assert.doesNotMatch(html, /<b>/)
+  const copies = (html.match(/sl-tk-item/g) || []).length
+  assert.ok(copies >= 2 && copies <= 40, String(copies))
+  assert.match(html, /data-sl-ticker="100"/)
+  assert.match(html, new RegExp('--sl-tks:' + (-100 / copies).toString().replace('.', '\\.') + '%'))
+  const right = bc({ blocks: [block('ticker', { text: 'x', direction: 'right' })] }, {})
+  assert.match(r(right.board.blocks[0], right), /sl-tk-right/)
+})
+
+test('animations wrap the block content only when set', async () => {
+  const { wrapMotion, renderBoardHtml: rb, boardContext: bc } = await import('../screenLayout.js')
+  assert.equal(wrapMotion({ opts: {} }, 'X'), 'X')
+  assert.equal(wrapMotion({ opts: { anim_in: 'nonsense', anim_loop: 'nope' } }, 'X'), 'X')
+  const both = wrapMotion({ opts: { anim_in: 'rise', anim_in_ms: 500, anim_in_delay: 300, anim_loop: 'pulse' } }, 'X')
+  assert.equal(both, '<div class="sl-in sl-in-rise" style="--sl-id:500ms;--sl-idl:300ms"><div class="sl-loop sl-loop-pulse" style="--sl-ld:2000ms">X</div></div>')
+  const html = rb(bc({ blocks: [block('heading', { text: 'Hi', anim_in: 'fade' })] }, {}))
+  assert.match(html, /<div class="sl-block sl-t-heading"[^>]*><div class="sl-in sl-in-fade"/)
+})
+
+test('playlist position comes from the clock, the same on every screen', async () => {
+  const { playlistPosition, replayStart } = await import('../screenLayout.js')
+  const list = [{ id: 'a', duration_secs: 10 }, { id: 'b', duration_secs: 20 }, { id: 'c', duration_secs: 5 }]
+  // a cycle is 35 s; at 35 s x 1000 cycles + 12 s we are 2 s into b
+  const t = 35_000 * 1000 + 12_000
+  const p = playlistPosition(list, t)
+  assert.equal(p.index, 1)
+  assert.equal(p.startMs, t - 2_000)
+  assert.equal(p.endMs, t + 18_000)
+  assert.equal(playlistPosition(list, t + 18_000).index, 2)        // c starts exactly at b's end
+  assert.equal(playlistPosition(list, t + 23_000).index, 0)
+  assert.equal(playlistPosition([], t), null)
+  assert.equal(playlistPosition([{ duration_secs: 1 }], 1_000).endMs - playlistPosition([{ duration_secs: 1 }], 1_000).startMs, 3_000) // 3 s minimum
+  assert.equal(replayStart({ replay_secs: 0 }, 500, 99_999), 500)
+  assert.equal(replayStart({ replay_secs: 30 }, 500, 95_000), 90_000)
+  assert.equal(replayStart({ replay_secs: 30 }, 92_000, 95_000), 92_000)
+})
+
+test('wall regions split the board with the bezel gap between screens', async () => {
+  const { wallRegion, wallBoardSize } = await import('../screenLayout.js')
+  assert.deepEqual(wallRegion(1920, 1080, null), { x: 0, y: 0, w: 1920, h: 1080 })
+  const size = wallBoardSize(1920, 1080, 2, 1, 40)
+  assert.deepEqual(size, { width: 3880, height: 1080 })
+  assert.deepEqual(wallRegion(3880, 1080, { cols: 2, rows: 1, col: 1, row: 0, gap: 40 }), { x: 1960, y: 0, w: 1920, h: 1080 })
+  assert.deepEqual(wallRegion(3840, 2160, { cols: 2, rows: 2, col: 1, row: 1 }), { x: 1920, y: 1080, w: 1920, h: 1080 })
+  // out of range cells are clamped
+  assert.deepEqual(wallRegion(3840, 1080, { cols: 2, rows: 1, col: 9, row: 0 }), { x: 1920, y: 0, w: 1920, h: 1080 })
+})
+
+test('transitions: keyframes in board pixels, unknown means a cut', async () => {
+  const { transitionFrames, TRANSITION_KEYS, normalizeBoard: nb } = await import('../screenLayout.js')
+  assert.equal(transitionFrames('none', 100, 50), null)
+  assert.equal(transitionFrames('bogus', 100, 50), null)
+  assert.deepEqual(transitionFrames('slide_left', 1920, 1080).in[0], { transform: 'translateX(1920px)' })
+  assert.deepEqual(transitionFrames('slide_up', 1920, 1080).out[1], { transform: 'translateY(-1080px)' })
+  for (const k of TRANSITION_KEYS) if (k !== 'none') assert.ok(transitionFrames(k, 10, 10).in.length === 2, k)
+  const b = nb({ replay_secs: 99999, guide_cols: 9, guide_gap: -4 }, 1920, 1080)
+  assert.equal(b.replay_secs, 3600)
+  assert.equal(b.guide_cols, 6)
+  assert.equal(b.guide_gap, 0)
+})

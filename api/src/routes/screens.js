@@ -20,8 +20,13 @@
 //   DELETE /designs/:id
 //   GET    /playlists                  with their items
 //   POST   /playlists                  { name }
-//   PUT    /playlists/:id              { name, items: [{ design_id, duration_secs, schedule }] }
+//   PUT    /playlists/:id              { name, items: [{ design_id, duration_secs, schedule,
+//                                        transition, transition_ms }] }
 //   DELETE /playlists/:id
+//   GET    /walls                      walls (migration 167) with their screens' places
+//   POST   /walls                      { name, venue_id, cols, rows, gap, design_id | playlist_id }
+//   PUT    /walls/:id                  the same plus places: [{ col, row, screen_id }] (the whole list)
+//   DELETE /walls/:id                  (its screens go back to their own boards)
 //   GET    /menu-data?version=&venue_id=   menus, tags and sold out for the designer
 //
 // Every change that a screen shows is announced to the tenant's screens
@@ -35,7 +40,7 @@ import { broadcast } from '../config/ws.js'
 import { sha256, normaliseScreenCode, forgetScreen } from '../services/screenAuth.js'
 import { designerData, tenantRoom, screenRoom } from '../services/screenSvc.js'
 import { screensOrigin } from '../services/platformHost.js'
-import { normalizeBoard, MIN_SIZE, MAX_SIZE } from '../../../shared/screenLayout.js'
+import { normalizeBoard, MIN_SIZE, MAX_SIZE, TRANSITION_KEYS, DEFAULT_TRANSITION_MS } from '../../../shared/screenLayout.js'
 
 const PERM = {
   view:   [requirePermission('screens', 'view')],
@@ -97,14 +102,21 @@ async function checkContent(tx, tenantId, { design_id, playlist_id }) {
   }
 }
 
+function showsOf(row, names) {
+  return row.playlist_id ? { kind: 'playlist', name: names.playlists.get(row.playlist_id) || null }
+    : row.design_id ? { kind: 'board', name: names.designs.get(row.design_id) || null } : null
+}
+
 function screenView(s, names) {
   const online = !!s.last_seen_at && Date.now() - new Date(s.last_seen_at).getTime() < ONLINE_MS
+  const wall = s.wall_id ? names.walls.get(s.wall_id) : null
   return {
     id: s.id, name: s.name, short_code: s.short_code, venue_id: s.venue_id, venue_name: s.venue_name,
     width: s.width, height: s.height, rotation: s.rotation, fit: s.fit,
     design_id: s.design_id, playlist_id: s.playlist_id,
-    shows: s.playlist_id ? { kind: 'playlist', name: names.playlists.get(s.playlist_id) || null }
-      : s.design_id ? { kind: 'board', name: names.designs.get(s.design_id) || null } : null,
+    // In a wall, the wall's boards show (its own design / playlist wait).
+    wall: wall ? { id: wall.id, name: wall.name, cols: wall.cols, rows: wall.rows, col: s.wall_col, row: s.wall_row } : null,
+    shows: wall ? showsOf(wall, names) : showsOf(s, names),
     paired: !!s.secret_hash, paired_at: s.paired_at, last_seen_at: s.last_seen_at, online,
     app_version: s.app_version, device_info: s.device_info || {}, status: s.status || {},
     sort_order: s.sort_order,
@@ -118,18 +130,61 @@ async function nextShortCode(tx, tenantId) {
   throw httpError(422, 'Too many screens')
 }
 
+async function loadNames(tx, tenantId) {
+  const [designs, playlists, walls] = await Promise.all([
+    tx`SELECT id, name FROM screen_designs WHERE tenant_id = ${tenantId}`,
+    tx`SELECT id, name FROM screen_playlists WHERE tenant_id = ${tenantId}`,
+    tx`SELECT id, name, cols, rows, design_id, playlist_id FROM screen_walls WHERE tenant_id = ${tenantId}`,
+  ])
+  return {
+    designs: new Map(designs.map(d => [d.id, d.name])),
+    playlists: new Map(playlists.map(p => [p.id, p.name])),
+    walls: new Map(walls.map(w => [w.id, w])),
+  }
+}
+
 async function loadScreens(tx, tenantId) {
-  const [rows, designs, playlists] = await Promise.all([
+  const [rows, names] = await Promise.all([
     tx`SELECT s.*, v.name AS venue_name FROM screens s
          JOIN venues v ON v.id = s.venue_id AND v.tenant_id = s.tenant_id
         WHERE s.tenant_id = ${tenantId}
         ORDER BY s.sort_order, s.created_at`,
-    tx`SELECT id, name FROM screen_designs WHERE tenant_id = ${tenantId}`,
-    tx`SELECT id, name FROM screen_playlists WHERE tenant_id = ${tenantId}`,
+    loadNames(tx, tenantId),
   ])
-  const names = { designs: new Map(designs.map(d => [d.id, d.name])), playlists: new Map(playlists.map(p => [p.id, p.name])) }
   return rows.map(s => screenView(s, names))
 }
+
+async function loadWalls(tx, tenantId, id = null) {
+  const [walls, screens, names] = await Promise.all([
+    tx`SELECT w.*, v.name AS venue_name FROM screen_walls w
+         JOIN venues v ON v.id = w.venue_id AND v.tenant_id = w.tenant_id
+        WHERE w.tenant_id = ${tenantId} ${id ? tx`AND w.id = ${id}` : tx``}
+        ORDER BY w.sort_order, w.created_at`,
+    tx`SELECT id, name, short_code, width, height, wall_id, wall_col, wall_row, last_seen_at FROM screens
+        WHERE tenant_id = ${tenantId} AND wall_id IS NOT NULL`,
+    loadNames(tx, tenantId),
+  ])
+  return walls.map(w => ({
+    id: w.id, name: w.name, venue_id: w.venue_id, venue_name: w.venue_name,
+    cols: w.cols, rows: w.rows, gap: w.gap, design_id: w.design_id, playlist_id: w.playlist_id,
+    shows: showsOf(w, names), updated_at: w.updated_at,
+    places: screens.filter(s => s.wall_id === w.id && s.wall_col < w.cols && s.wall_row < w.rows).map(s => ({
+      col: s.wall_col, row: s.wall_row, screen_id: s.id, name: s.name, short_code: s.short_code,
+      width: s.width, height: s.height,
+      online: !!s.last_seen_at && Date.now() - new Date(s.last_seen_at).getTime() < ONLINE_MS,
+    })),
+  }))
+}
+
+const WallBody = z.object({
+  name: z.string().trim().min(1).max(80),
+  venue_id: UUID,
+  cols: z.number().int().min(1).max(6),
+  rows: z.number().int().min(1).max(6),
+  gap: z.number().int().min(0).max(400).default(0),
+  design_id: UUID.nullable().optional(),
+  playlist_id: UUID.nullable().optional(),
+})
 
 const LayoutBody = z.record(z.any())
 
@@ -242,6 +297,12 @@ export default async function screensRoutes(app) {
         await tx`UPDATE screens SET design_id = ${content.design_id}, playlist_id = ${content.playlist_id}
                   WHERE id = ${id} AND tenant_id = ${req.tenantId}`
       }
+      // A wall is one venue's: moving the screen to another venue takes it out.
+      if (b.venue_id) {
+        await tx`UPDATE screens SET wall_id = NULL, wall_col = NULL, wall_row = NULL
+                  WHERE id = ${id} AND tenant_id = ${req.tenantId} AND wall_id IS NOT NULL
+                    AND wall_id NOT IN (SELECT w.id FROM screen_walls w WHERE w.tenant_id = ${req.tenantId} AND w.venue_id = ${b.venue_id})`
+      }
       return (await loadScreens(tx, req.tenantId)).find(s => s.id === id)
     })
     tell(screenRoom(id), { type: 'screens.changed' })
@@ -283,7 +344,12 @@ export default async function screensRoutes(app) {
       SELECT d.id, d.name, d.width, d.height, d.updated_at, d.updated_by,
              jsonb_array_length(COALESCE(d.layout -> 'blocks', '[]'::jsonb)) AS block_count,
              (SELECT count(*)::int FROM screens s WHERE s.design_id = d.id AND s.tenant_id = d.tenant_id) AS screen_count,
-             (SELECT count(DISTINCT i.playlist_id)::int FROM screen_playlist_items i WHERE i.design_id = d.id AND i.tenant_id = d.tenant_id) AS playlist_count
+             (SELECT count(DISTINCT i.playlist_id)::int FROM screen_playlist_items i WHERE i.design_id = d.id AND i.tenant_id = d.tenant_id) AS playlist_count,
+             (SELECT count(*)::int FROM screen_walls w WHERE w.design_id = d.id AND w.tenant_id = d.tenant_id) AS wall_count,
+             -- The longest video on the board (seconds, read by the designer), for "show it for the video's length".
+             (SELECT ceil(max((b -> 'opts' ->> 'duration')::numeric))::int
+                FROM jsonb_array_elements(CASE WHEN jsonb_typeof(d.layout -> 'blocks') = 'array' THEN d.layout -> 'blocks' ELSE '[]'::jsonb END) b
+               WHERE b ->> 'type' = 'video' AND (b -> 'opts' ->> 'duration') ~ '^[0-9]+([.][0-9]+)?$') AS video_secs
         FROM screen_designs d
        WHERE d.tenant_id = ${req.tenantId}
        ORDER BY d.name, d.created_at`
@@ -295,6 +361,7 @@ export default async function screensRoutes(app) {
       name: z.string().trim().min(1).max(120),
       width: SIZE.optional(), height: SIZE.optional(),
       copy_from: UUID.nullable().optional(),
+      layout: LayoutBody.optional(),           // e.g. a wall's guide lines for a new board
     }).parse(req.body)
     return withTenant(req.tenantId, async tx => {
       let width = b.width ?? 1920, height = b.height ?? 1080, layout = {}
@@ -302,6 +369,10 @@ export default async function screensRoutes(app) {
         const [src] = await tx`SELECT width, height, layout FROM screen_designs WHERE id = ${b.copy_from} AND tenant_id = ${req.tenantId}`
         if (!src) throw httpError(404, 'Board not found')
         width = b.width ?? src.width; height = b.height ?? src.height; layout = src.layout || {}
+      } else if (b.layout) {
+        if (JSON.stringify(b.layout).length > MAX_LAYOUT_BYTES) throw httpError(413, 'This board is too big to save')
+        const { width: _w, height: _h, ...clean } = normalizeBoard(b.layout, width, height)
+        layout = clean
       }
       const [row] = await tx`
         INSERT INTO screen_designs (tenant_id, name, width, height, layout, created_by, updated_by)
@@ -354,18 +425,22 @@ export default async function screensRoutes(app) {
   // ── Playlists ────────────────────────────────────────────────────
 
   async function loadPlaylists(tx, tenantId, id = null) {
-    const [lists, items, screens] = await Promise.all([
+    const [lists, items, screens, walls] = await Promise.all([
       tx`SELECT id, name, updated_at FROM screen_playlists WHERE tenant_id = ${tenantId} ${id ? tx`AND id = ${id}` : tx``} ORDER BY name, created_at`,
-      tx`SELECT i.id, i.playlist_id, i.design_id, i.duration_secs, i.schedule, i.sort_order, d.name AS design_name
+      tx`SELECT i.id, i.playlist_id, i.design_id, i.duration_secs, i.schedule, i.transition, i.transition_ms, i.sort_order,
+                d.name AS design_name
            FROM screen_playlist_items i JOIN screen_designs d ON d.id = i.design_id AND d.tenant_id = i.tenant_id
           WHERE i.tenant_id = ${tenantId} ${id ? tx`AND i.playlist_id = ${id}` : tx``}
           ORDER BY i.sort_order, i.id`,
       tx`SELECT playlist_id, count(*)::int AS n FROM screens WHERE tenant_id = ${tenantId} AND playlist_id IS NOT NULL GROUP BY playlist_id`,
+      tx`SELECT playlist_id, count(*)::int AS n FROM screen_walls WHERE tenant_id = ${tenantId} AND playlist_id IS NOT NULL GROUP BY playlist_id`,
     ])
     const used = new Map(screens.map(s => [s.playlist_id, s.n]))
+    const onWalls = new Map(walls.map(w => [w.playlist_id, w.n]))
     return lists.map(l => ({
       ...l,
       screen_count: used.get(l.id) || 0,
+      wall_count: onWalls.get(l.id) || 0,
       items: items.filter(i => i.playlist_id === l.id).map(({ playlist_id, ...i }) => ({ ...i, schedule: i.schedule || null })),
     }))
   }
@@ -389,6 +464,8 @@ export default async function screensRoutes(app) {
         design_id: UUID,
         duration_secs: z.number().int().min(3).max(3600).default(15),
         schedule: Schedule,
+        transition: z.enum(TRANSITION_KEYS).default('fade'),
+        transition_ms: z.number().int().min(0).max(5000).default(DEFAULT_TRANSITION_MS),
       })).max(100),
     }).parse(req.body)
     for (const [i, it] of b.items.entries()) {
@@ -408,8 +485,9 @@ export default async function screensRoutes(app) {
       for (const [i, it] of b.items.entries()) {
         const sched = cleanSchedule(it.schedule)
         await tx`
-          INSERT INTO screen_playlist_items (tenant_id, playlist_id, design_id, duration_secs, schedule, sort_order)
-          VALUES (${req.tenantId}, ${id}, ${it.design_id}, ${it.duration_secs}, ${sched ? tx.json(sched) : null}, ${i})`
+          INSERT INTO screen_playlist_items (tenant_id, playlist_id, design_id, duration_secs, schedule, transition, transition_ms, sort_order)
+          VALUES (${req.tenantId}, ${id}, ${it.design_id}, ${it.duration_secs}, ${sched ? tx.json(sched) : null},
+                  ${it.transition}, ${it.transition_ms}, ${i})`
       }
       return (await loadPlaylists(tx, req.tenantId, id))[0]
     })
@@ -423,6 +501,85 @@ export default async function screensRoutes(app) {
       tx`DELETE FROM screen_playlists WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING id`)
     if (!row) throw httpError(404, 'Playlist not found')
     tell(tenantRoom(req.tenantId), { type: 'screens.changed' })
+    return { ok: true }
+  })
+
+  // ── Walls ────────────────────────────────────────────────────────
+  // Several screens showing one board between them. A screen's place in a
+  // wall lives on the screen (screens.wall_id / wall_col / wall_row); a PUT
+  // sends the whole list of places, so screens left out leave the wall.
+
+  app.get('/walls', { preHandler: PERM.view }, async req =>
+    withTenant(req.tenantId, tx => loadWalls(tx, req.tenantId)))
+
+  app.post('/walls', { preHandler: PERM.manage }, async req => {
+    const b = WallBody.parse(req.body)
+    const wall = await withTenant(req.tenantId, async tx => {
+      await ownVenue(tx, req.tenantId, b.venue_id)
+      await checkContent(tx, req.tenantId, b)
+      const [{ next }] = await tx`SELECT COALESCE(MAX(sort_order) + 1, 0) AS next FROM screen_walls WHERE tenant_id = ${req.tenantId}`
+      const [row] = await tx`
+        INSERT INTO screen_walls (tenant_id, venue_id, name, cols, rows, gap, design_id, playlist_id, sort_order)
+        VALUES (${req.tenantId}, ${b.venue_id}, ${b.name}, ${b.cols}, ${b.rows}, ${b.gap},
+                ${b.design_id ?? null}, ${b.playlist_id ?? null}, ${next})
+        RETURNING id`
+      return (await loadWalls(tx, req.tenantId, row.id))[0]
+    })
+    return wall
+  })
+
+  app.put('/walls/:id', { preHandler: PERM.manage }, async req => {
+    const id = UUID.parse(req.params.id)
+    const b = WallBody.extend({
+      places: z.array(z.object({
+        col: z.number().int().min(0).max(5),
+        row: z.number().int().min(0).max(5),
+        screen_id: UUID,
+      })).max(36).default([]),
+    }).parse(req.body)
+    const places = b.places.filter(p => p.col < b.cols && p.row < b.rows)
+    if (new Set(places.map(p => p.screen_id)).size !== places.length) throw httpError(422, 'A screen can only be in one place on the wall')
+    if (new Set(places.map(p => p.col + ':' + p.row)).size !== places.length) throw httpError(422, 'Two screens in the same place')
+    const result = await withTenant(req.tenantId, async tx => {
+      const [cur] = await tx`SELECT id FROM screen_walls WHERE id = ${id} AND tenant_id = ${req.tenantId} FOR UPDATE`
+      if (!cur) throw httpError(404, 'Wall not found')
+      await ownVenue(tx, req.tenantId, b.venue_id)
+      await checkContent(tx, req.tenantId, b)
+      const ids = places.map(p => p.screen_id)
+      if (ids.length) {
+        const found = await tx`SELECT id, venue_id, wall_id FROM screens WHERE tenant_id = ${req.tenantId} AND id = ANY(${ids}::uuid[])`
+        if (found.length !== ids.length) throw httpError(422, 'A screen on the wall doesn\'t exist')
+        if (found.some(s => s.venue_id !== b.venue_id)) throw httpError(422, 'Every screen on a wall must be at the wall\'s venue')
+      }
+      // Screens that change: everyone leaving this wall, everyone joining it
+      // (a screen moved from another wall leaves that one).
+      const before = await tx`SELECT id FROM screens WHERE tenant_id = ${req.tenantId} AND wall_id = ${id}`
+      await tx`
+        UPDATE screen_walls SET name = ${b.name}, venue_id = ${b.venue_id}, cols = ${b.cols}, rows = ${b.rows}, gap = ${b.gap},
+               design_id = ${b.design_id ?? null}, playlist_id = ${b.playlist_id ?? null}
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      await tx`UPDATE screens SET wall_id = NULL, wall_col = NULL, wall_row = NULL
+                WHERE tenant_id = ${req.tenantId} AND (wall_id = ${id} OR id = ANY(${ids}::uuid[]))`
+      for (const p of places) {
+        await tx`UPDATE screens SET wall_id = ${id}, wall_col = ${p.col}, wall_row = ${p.row}
+                  WHERE id = ${p.screen_id} AND tenant_id = ${req.tenantId}`
+      }
+      return { wall: (await loadWalls(tx, req.tenantId, id))[0], touched: [...new Set([...before.map(s => s.id), ...ids])] }
+    })
+    for (const sid of result.touched) tell(screenRoom(sid), { type: 'screens.changed' })
+    return result.wall
+  })
+
+  app.delete('/walls/:id', { preHandler: PERM.manage }, async req => {
+    const id = UUID.parse(req.params.id)
+    const touched = await withTenant(req.tenantId, async tx => {
+      const screens = await tx`SELECT id FROM screens WHERE tenant_id = ${req.tenantId} AND wall_id = ${id}`
+      const [row] = await tx`DELETE FROM screen_walls WHERE id = ${id} AND tenant_id = ${req.tenantId} RETURNING id`
+      if (!row) throw httpError(404, 'Wall not found')
+      await tx`UPDATE screens SET wall_col = NULL, wall_row = NULL WHERE tenant_id = ${req.tenantId} AND id = ANY(${screens.map(s => s.id)}::uuid[])`
+      return screens.map(s => s.id)
+    })
+    for (const sid of touched) tell(screenRoom(sid), { type: 'screens.changed' })
     return { ok: true }
   })
 

@@ -9,10 +9,11 @@
 //     DELETE /categories/:id
 //
 //   Items:
-//     GET    /items                     — list with filters
+//     GET    /items                     — list with filters (kind=image|video)
 //     GET    /items/scopes              — distinct scope values seen in this tenant (drives form filter)
 //     GET    /items/check-duplicate     — pre-upload check (filename + hash within scope)
-//     POST   /items/upload              — multipart upload, creates item
+//     POST   /items/upload              — multipart upload, creates item (images 12 MB,
+//                                          MP4 / WebM videos 150 MB for menu screens)
 //     PATCH  /items/:id                 — rename / change category / change scope
 //     DELETE /items/:id                 — delete file + record
 //     POST   /items/bulk                — bulk move / delete
@@ -41,12 +42,22 @@ import { getStorage } from '../services/storageSvc.js'
 
 // The media library serves the website and menus: changes need manage on
 // either. Browsing stays open to every member of the tenant.
-const PERM = { manage: requireAnyPermission(['website', 'menus'], 'manage') }
+// Website, menus and menu screens all build with Media pictures (and videos).
+const PERM = { manage: requireAnyPermission(['website', 'menus', 'screens'], 'manage') }
 
-const ALLOWED_MIMES = new Set([
+const IMAGE_MIMES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml',
 ])
-const MAX_BYTES = 12 * 1024 * 1024  // 12 MB per file
+// Videos for menu screens (migration 167). MP4 (H.264) plays everywhere;
+// WebM too on Chrome / Android. Larger, and nginx lets uploads to this
+// route through up to 160 MB (scripts/ensure-nginx-media-upload.sh).
+const VIDEO_MIMES = new Set(['video/mp4', 'video/webm'])
+const ALLOWED_MIMES = new Set([...IMAGE_MIMES, ...VIDEO_MIMES])
+const MAX_BYTES = 12 * 1024 * 1024        // 12 MB per image
+const MAX_VIDEO_BYTES = 150 * 1024 * 1024 // 150 MB per video
+const maxBytesFor = mime => (VIDEO_MIMES.has(mime) ? MAX_VIDEO_BYTES : MAX_BYTES)
+// The plugin's own limit (app.js) is 30 MB; these routes raise it for videos.
+const UPLOAD_PARTS = { limits: { fileSize: MAX_VIDEO_BYTES } }
 
 const CategoryBody = z.object({
   name: z.string().min(1).max(100).trim(),
@@ -72,6 +83,8 @@ function extFromMime(mime) {
     case 'image/webp':    return 'webp'
     case 'image/gif':     return 'gif'
     case 'image/svg+xml': return 'svg'
+    case 'video/mp4':     return 'mp4'
+    case 'video/webm':    return 'webm'
     default:              return 'bin'
   }
 }
@@ -153,6 +166,7 @@ export default async function mediaRoutes(app) {
     const search = (req.query.search || '').trim().toLowerCase()
     const scope  = req.query.scope || null            // 'shared' | '<form_key>' | null (all)
     const categoryId = req.query.category_id || null  // uuid | 'none' | null (all)
+    const kind = req.query.kind || null               // 'image' | 'video' | null (all)
 
     return withTenant(req.tenantId, tx => tx`
       SELECT mi.*, mc.name AS category_name
@@ -160,6 +174,7 @@ export default async function mediaRoutes(app) {
    LEFT JOIN media_categories mc ON mc.id = mi.category_id
        WHERE mi.tenant_id = ${req.tenantId}
          ${scope ? tx`AND mi.scope = ${scope}` : tx``}
+         ${kind === 'video' ? tx`AND mi.mimetype LIKE 'video/%'` : kind === 'image' ? tx`AND mi.mimetype NOT LIKE 'video/%'` : tx``}
          ${categoryId === 'none'
             ? tx`AND mi.category_id IS NULL`
             : categoryId
@@ -182,7 +197,7 @@ export default async function mediaRoutes(app) {
     }).parse(req.body)
 
     return withTenant(req.tenantId, tx => tx`
-      SELECT id, filename, url, scope, created_at
+      SELECT id, filename, url, scope, mimetype, width, height, hash, created_at
         FROM media_items
        WHERE tenant_id = ${req.tenantId}
          AND scope = ${scope}
@@ -201,7 +216,7 @@ export default async function mediaRoutes(app) {
     let categoryId = null
     let fileData = null
 
-    for await (const part of req.parts()) {
+    for await (const part of req.parts(UPLOAD_PARTS)) {
       if (part.type === 'field') {
         if (part.fieldname === 'scope')       scope = String(part.value || 'shared').slice(0, 100)
         if (part.fieldname === 'category_id') categoryId = part.value && part.value !== 'null' ? String(part.value) : null
@@ -209,11 +224,12 @@ export default async function mediaRoutes(app) {
         if (!ALLOWED_MIMES.has(part.mimetype)) {
           throw httpError(422, `Unsupported file type: ${part.mimetype}`)
         }
+        const limit = maxBytesFor(part.mimetype)
         const chunks = []
         let total = 0
         for await (const chunk of part.file) {
           total += chunk.length
-          if (total > MAX_BYTES) throw httpError(413, `File exceeds ${Math.round(MAX_BYTES / 1024 / 1024)}MB limit`)
+          if (total > limit) throw httpError(413, `File exceeds ${Math.round(limit / 1024 / 1024)}MB limit`)
           chunks.push(chunk)
         }
         fileData = {
@@ -236,7 +252,7 @@ export default async function mediaRoutes(app) {
     // Hash + dimensions
     const hash = crypto.createHash('sha256').update(fileData.buffer).digest('hex')
     let width = null, height = null
-    const sharp = await loadSharp()
+    const sharp = IMAGE_MIMES.has(fileData.mimetype) ? await loadSharp() : null
     if (sharp) {
       try {
         const meta = await sharp(fileData.buffer).metadata()
@@ -279,16 +295,17 @@ export default async function mediaRoutes(app) {
     if (!existing) throw httpError(404, 'Item not found')
 
     let fileData = null
-    for await (const part of req.parts()) {
+    for await (const part of req.parts(UPLOAD_PARTS)) {
       if (part.type === 'file' && part.fieldname === 'file') {
         if (!ALLOWED_MIMES.has(part.mimetype)) {
           throw httpError(422, `Unsupported file type: ${part.mimetype}`)
         }
+        const limit = maxBytesFor(part.mimetype)
         const chunks = []
         let total = 0
         for await (const chunk of part.file) {
           total += chunk.length
-          if (total > MAX_BYTES) throw httpError(413, `File exceeds ${Math.round(MAX_BYTES / 1024 / 1024)}MB limit`)
+          if (total > limit) throw httpError(413, `File exceeds ${Math.round(limit / 1024 / 1024)}MB limit`)
           chunks.push(chunk)
         }
         fileData = { buffer: Buffer.concat(chunks), mimetype: part.mimetype, filename: part.filename || existing.filename }
@@ -298,7 +315,7 @@ export default async function mediaRoutes(app) {
 
     const hash = crypto.createHash('sha256').update(fileData.buffer).digest('hex')
     let width = null, height = null
-    const sharp = await loadSharp()
+    const sharp = IMAGE_MIMES.has(fileData.mimetype) ? await loadSharp() : null
     if (sharp) {
       try {
         const meta = await sharp(fileData.buffer).metadata()

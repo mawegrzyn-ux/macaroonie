@@ -3,7 +3,9 @@
 // What a menu screen shows (migration 166, docs: Docs.jsx > Menu screens).
 //
 //   screenConfig(tx, tenantId, screenId)   everything the player needs, one
-//       snapshot: the screen's settings, its playlist (or single board),
+//       snapshot: the screen's settings, its wall and place in it (a wall's
+//       board or playlist replaces the screen's own), its playlist (or
+//       single board, with each board's transition),
 //       the boards, the LIVE versions of the menus those boards point at
 //       (menu_releases, so prices change when a menu is published), the
 //       tags, the allergen notice and the venue's sold out dishes.
@@ -86,30 +88,47 @@ function slimTags(tags) {
   }))
 }
 
-/** The player's whole config for a screen, or null when it doesn't exist. */
+/**
+ * The player's whole config for a screen, or null when it doesn't exist.
+ * A screen in a wall (migration 167) shows the wall's board or playlist and
+ * gets `wall` (its place in it) so it can show its own part.
+ */
 export async function screenConfig(tx, tenantId, screenId) {
   const [s] = await tx`
     SELECT s.id, s.name, s.short_code, s.width, s.height, s.rotation, s.fit, s.playlist_id, s.design_id, s.venue_id,
+           s.wall_id, s.wall_col, s.wall_row,
            v.name AS venue_name, v.timezone
       FROM screens s
       JOIN venues v ON v.id = s.venue_id AND v.tenant_id = s.tenant_id
      WHERE s.id = ${screenId} AND s.tenant_id = ${tenantId}`
   if (!s) return null
 
+  let wall = null
+  let source = s
+  if (s.wall_id) {
+    const [w] = await tx`
+      SELECT id, name, cols, rows, gap, playlist_id, design_id FROM screen_walls
+       WHERE id = ${s.wall_id} AND tenant_id = ${tenantId}`
+    if (w) {
+      wall = { id: w.id, name: w.name, cols: w.cols, rows: w.rows, col: s.wall_col ?? 0, row: s.wall_row ?? 0, gap: w.gap }
+      source = w
+    }
+  }
+
   let playlist = null
   let designIds = []
-  if (s.playlist_id) {
-    const [p] = await tx`SELECT id, name FROM screen_playlists WHERE id = ${s.playlist_id} AND tenant_id = ${tenantId}`
+  if (source.playlist_id) {
+    const [p] = await tx`SELECT id, name FROM screen_playlists WHERE id = ${source.playlist_id} AND tenant_id = ${tenantId}`
     if (p) {
       const items = await tx`
-        SELECT id, design_id, duration_secs, schedule FROM screen_playlist_items
+        SELECT id, design_id, duration_secs, schedule, transition, transition_ms FROM screen_playlist_items
          WHERE playlist_id = ${p.id} AND tenant_id = ${tenantId}
          ORDER BY sort_order, id`
       playlist = { id: p.id, name: p.name, items: items.map(i => ({ ...i, schedule: i.schedule || null })) }
       designIds = [...new Set(items.map(i => i.design_id))]
     }
-  } else if (s.design_id) {
-    designIds = [s.design_id]
+  } else if (source.design_id) {
+    designIds = [source.design_id]
   }
 
   const designs = designIds.length ? await tx`
@@ -123,6 +142,7 @@ export async function screenConfig(tx, tenantId, screenId) {
     player_version: playerVersion(),
     screen: { id: s.id, name: s.name, short_code: s.short_code, width: s.width, height: s.height, rotation: s.rotation, fit: s.fit },
     venue: { id: s.venue_id, name: s.venue_name, timezone: s.timezone || 'Europe/London' },
+    wall,
     playlist,
     design_id: playlist ? null : (designs[0]?.id ?? null),
     designs: Object.fromEntries(designs.map(d => [d.id, { id: d.id, name: d.name, width: d.width, height: d.height, layout: d.layout || {} }])),

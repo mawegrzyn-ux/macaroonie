@@ -32,6 +32,7 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
+import { FileDropArea } from '@/components/FileDropArea'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { PageBuilder } from '@/components/website-builder/PageBuilder'
 import { FontPicker } from '@/components/website-builder/FontPicker'
@@ -296,12 +297,27 @@ function FileUpload({ kind = 'images', scope = 'shared', accept, onUploaded, lab
 }
 
 function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) {
+  const api = useApi()
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [dropping, setDropping] = useState(false)
+  const [dropError, setDropError] = useState(null)
+  // A picture dropped on the field uploads like Upload image does.
+  async function onDropFiles(files) {
+    setDropping(true); setDropError(null)
+    try {
+      const res = await api.upload('/website/upload', files[0], { kind, scope })
+      onChange(res.url)
+    } catch (e) {
+      setDropError(e?.body?.error || e.message || 'Upload failed')
+    } finally {
+      setDropping(false)
+    }
+  }
   return (
-    <div>
+    <FileDropArea onFiles={onDropFiles} onRefused={setDropError} disabled={dropping}>
       {url ? (
         <div className="flex items-center gap-3">
-          <img src={url} alt="" className="w-20 h-20 object-cover rounded border" />
+          <img src={url} alt="" draggable={false} className="w-20 h-20 object-cover rounded border" />
           <div className="flex flex-col gap-1.5">
             <FileUpload kind={kind} scope={scope} accept="image/*"
               onUploaded={r => onChange(r.url)}
@@ -317,7 +333,7 @@ function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) 
           </div>
         </div>
       ) : (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <FileUpload kind={kind} scope={scope} accept="image/*"
             onUploaded={r => onChange(r.url)}
             label="Upload image" />
@@ -326,8 +342,11 @@ function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) 
             className="inline-flex items-center gap-1.5 border rounded-md px-3 py-2 text-sm hover:bg-accent min-h-[40px]">
             <ImageIcon className="w-4 h-4" /> Choose from library
           </button>
+          <span className="text-xs text-muted-foreground">or drop a picture here</span>
         </div>
       )}
+      {dropping && <p className="text-xs text-muted-foreground mt-1.5 inline-flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Uploading…</p>}
+      {dropError && <p className="text-xs text-destructive mt-1.5">{dropError}</p>}
       {hint && <p className="text-xs text-muted-foreground mt-1.5">{hint}</p>}
       <MediaLibraryModal
         open={pickerOpen}
@@ -336,7 +355,7 @@ function ImageField({ url, kind = 'images', onChange, hint, scope = 'shared' }) 
         scope={scope}
         onPick={(pickedUrl) => onChange(pickedUrl)}
       />
-    </div>
+    </FileDropArea>
   )
 }
 

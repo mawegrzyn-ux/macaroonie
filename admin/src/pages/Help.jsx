@@ -2459,6 +2459,16 @@ export default function Help() {
               Columns and Tabs can't be put inside a tab or a column.
             </P>
 
+            <H3>Photos from your computer</H3>
+            <P>
+              Drag a photo from your computer onto the page: dropped on an <strong>Image</strong>,{' '}
+              <strong>Hero</strong> or <strong>Story</strong> block it becomes that block&apos;s picture;
+              dropped on any other block, a new Image block with it goes after that block. Every picture
+              field in the block settings (and on the Website pages) takes a dropped photo too. They go
+              into Media like an upload. Blocks move by the grip handle on their left edge: it shows when
+              you point at a block, on the selected block, and always on a touch screen.
+            </P>
+
             <H3>Full screen editing</H3>
             <P>
               The <strong>Full screen</strong> button at the top of the page builder hides the app menu and the
@@ -2899,6 +2909,10 @@ export default function Help() {
               menu block and can be opened as a printable PDF at any time.
             </P>
             <P>
+              To give a dish (or a section) its photo, tap the picture box and pick one from Media, or
+              drag a photo from your computer straight onto the box.
+            </P>
+            <P>
               Owners and admins can also build and change menus by chat: attach a photo or PDF of a
               menu to <strong>Ask AI</strong> and ask it to make the menu, or ask it to change a
               price, add an allergen or put a section up 5%. See <strong>AI Assistant → Menus by
@@ -3154,7 +3168,8 @@ export default function Help() {
               head={['To', 'Do this']}
               rows={[
                 ['Add something', 'Drag it from the list on the left onto a page, or tap + to add it to the page marked "adding here".'],
-                ['Move it', 'Tap it to select it (blue outline), then drag. It snaps to the grid, and can be dragged onto another page.'],
+                ['Move it', 'Tap it to select it (blue outline), then drag (a mouse can drag straight away, photos included). It snaps to the grid, and can be dragged onto another page.'],
+                ['Add a photo from your computer', 'Drag it onto a page: onto an image block to replace its picture, anywhere else to add an image block there. It goes into Media too.'],
                 ['Resize it', 'Drag the blue corner of the selected block, or use the Across / Down / Width / Height buttons on the right.'],
                 ['Make it the right height', 'Tap "Fit height to content". New blocks size themselves when you drop them.'],
                 ['Place a whole section', 'Use "Title and dishes". Its dishes flow inside the block (choose 1 to 4 columns). A dish you place on its own is left out of it, so you can pull a dish out and put it somewhere else.'],
@@ -3280,7 +3295,7 @@ export default function Help() {
               Any screen that can run Chrome: an Android TV box or stick, a smart TV with Chrome, an
               Android tablet, or a PC. Fully Kiosk Browser (Android) works too. The screen needs the
               internet to get started and for changes; if the internet drops, it keeps showing its
-              boards, photos and fonts.
+              boards, photos, videos and fonts, and catches up as soon as it is back online.
             </P>
 
             <H3>Adding a screen</H3>
@@ -3307,10 +3322,17 @@ export default function Help() {
             <P>
               <strong>Boards → New board</strong>: give it a name and the screen&apos;s size (Full HD
               landscape or portrait, 4K, HD, or your own). The designer opens. Add blocks from the left
-              (tap +, or drag onto the board), drag them to move, drag the corner to resize; they snap
-              to a grid (hold Alt to place freely, arrow keys nudge). The panel on the right has the
-              selected block&apos;s options; with nothing selected it has the board&apos;s background,
-              colours, fonts and price style. Save when you&apos;re done.
+              (tap +, or drag onto the board), drag them to move (press anywhere on a block, photos
+              included), drag the corner to resize; they snap to a grid (hold Alt to place freely,
+              arrow keys nudge). On a tablet, tap a block first, then drag it. The panel on the right
+              has the selected block&apos;s options; with nothing selected it has the board&apos;s
+              background, colours, fonts and price style. Save when you&apos;re done.
+            </P>
+            <P>
+              <strong>Photos and videos from your computer</strong>: drag them straight onto the board.
+              Dropped on a picture (or video) block, they replace its picture; dropped anywhere else,
+              they become a new block there, the photo&apos;s own shape. They go into Media too, and the
+              same file dropped twice is only kept once.
             </P>
             <DataTable
               head={['Block', 'What it shows']}
@@ -3320,6 +3342,8 @@ export default function Help() {
                 ['Price', 'Just a dish\'s price (or one option\'s), to put on a photo or a designed background, so the price still updates.'],
                 ['Heading / Text', 'Your own words, any font and size.'],
                 ['Image', 'A photo, logo or picture from Media.'],
+                ['Video', 'A video from Media (MP4 or WebM, up to 150 MB), playing on a loop, sound off unless you tick With sound. Each screen keeps a copy, so it plays without the internet. Use MP4 (H.264): it plays on every screen.'],
+                ['Scrolling text', 'A line of text moving across the board, like a news ticker. Set its speed, gap and direction.'],
                 ['Box or line', 'A coloured panel behind other blocks, or a line (make it thin).'],
                 ['Clock', 'The venue\'s time, with the date if you like.'],
                 ['Allergen key', 'What the tags on this board\'s dishes mean, from your allergen notice.'],
@@ -3337,6 +3361,18 @@ export default function Help() {
               settings), or left out if you pick <strong>Leave out</strong> on the block.
             </P>
 
+            <H3>Animation</H3>
+            <P>
+              Any block can <strong>come on</strong> with a movement (fade, rise up, drop down, from the
+              left or right, zoom, pop, wipe), taking the time you set and starting after a delay, so
+              blocks can arrive one after another. A block can also keep moving <strong>while on</strong>{' '}
+              (pulse, float, swing, slow zoom, blink). Press <strong>Play</strong> at the top of the
+              designer to watch the board as the screens will show it (videos play and scrolling text
+              moves too); press Stop to place blocks where they end up. In the board settings,{' '}
+              <strong>Play the animations again every</strong> replays the entrances, for a board that
+              stays on for a long time.
+            </P>
+
             <H3>Playlists and times of day</H3>
             <P>
               <strong>Playlists</strong>: a list of boards that take turns, each for the seconds you
@@ -3346,6 +3382,34 @@ export default function Help() {
               no times show all the time. When nothing is on, the screen goes black. Times are the
               venue&apos;s time. Save the playlist, then pick it for a screen.
             </P>
+            <P>
+              Each board <strong>comes on with</strong> a transition (cut, fade, slide in from either
+              side, slide up or down, zoom, wipe) at the speed you pick. A board with a video offers{' '}
+              <strong>Video length</strong> to show it for exactly as long as its video. The{' '}
+              <strong>Preview</strong> under the list plays the boards with their transitions (up to 5
+              seconds each, so you can check quickly). Screens with the same playlist change boards at
+              the same moment.
+            </P>
+
+            <H3>Walls: several screens, one picture</H3>
+            <P>
+              Screens side by side (or stacked) can show one board between them: one picture across all
+              of them, changing boards, playing videos and scrolling text together.
+            </P>
+            <ol className="list-decimal ml-5 space-y-2 text-sm text-muted-foreground mb-4">
+              <li>Add each screen as usual (Screens tab).</li>
+              <li><strong>Walls → New wall</strong>: name it and pick how many screens across and down.</li>
+              <li>Under <strong>Which screen goes where</strong>, pick each screen as you look at the wall (left, right, top left ...).</li>
+              <li><strong>Gap between screens</strong>: how much of the picture hides behind the frames where two screens meet, so lines and text stay straight across (0 for frameless screens).</li>
+              <li>Press <strong>Make a board this size</strong> (the wall&apos;s size: two Full HD screens side by side make 3840 x 1080, plus the gap), then <strong>Design</strong> it. The designer shows dashed lines where the screens meet, so nothing important sits on a join.</li>
+              <li>Pick the board (or a playlist of wall-sized boards) under <strong>Shows</strong> and save the wall. The preview shows which part each screen gets.</li>
+            </ol>
+            <P>
+              A screen on a wall shows the wall&apos;s board instead of its own; take it off the wall
+              (pick No screen) to give it its own board again. The screens keep in step on their own
+              (each sets its clock from Macaroonie), so they don&apos;t need to see each other.
+            </P>
+
 
             <H3>Sold out from the till</H3>
             <P>

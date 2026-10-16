@@ -38,6 +38,8 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
+import { FileDropArea } from '@/components/FileDropArea'
+import { uploadMedia } from '@/lib/fileDrop'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { Card, Field, Input, TextArea, Btn, formatPrice, PriceInput } from '@/components/menus/shared'
 import { levelOf, LEVEL_LABELS } from '@shared/menuTags.js'
@@ -1015,7 +1017,7 @@ function SectionDrawer({ section, courses, onChange, onRemove, onClose }) {
       )}
       <ReadOnlyFieldset disabled={readOnly} className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex items-start gap-3">
-          <SectionImagePicker url={section.image_url || null} onChange={(image_url) => onChange({ image_url })} />
+          <SectionImagePicker url={section.image_url || null} onChange={(image_url) => onChange({ image_url })} disabled={readOnly} />
           <div className="flex-1 space-y-2">
             <Input value={section.title} onChange={e => onChange({ title: e.target.value })}
               placeholder="Section title (e.g. Starters)" className="font-medium" />
@@ -1151,16 +1153,39 @@ function ItemRow({ item, index, total, selected, onSelect, onRemove, onMoveUp, o
 // small (fits inline in the section header bar) since the image is meant
 // to render no bigger than the heading font next to it on the live site,
 // not as a hero-sized photo like a dish's ItemImagePicker.
-function SectionImagePicker({ url, onChange }) {
+// A picture dropped from the computer onto a dish or section picture:
+// uploaded to the Media library (same scope as the picker) and used.
+function useDroppedPicture(scope, onChange) {
+  const api = useApi()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  async function onFiles(files) {
+    setBusy(true); setError(null)
+    try {
+      const item = await uploadMedia(api, files[0], scope)
+      onChange(item.url)
+    } catch (e) {
+      setError(e?.body?.error || e.message || 'Upload failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return { busy, error, onFiles, onRefused: setError }
+}
+
+function SectionImagePicker({ url, onChange, disabled }) {
   const [open, setOpen] = useState(false)
+  const drop = useDroppedPicture('menu:section', onChange)
   return (
     <>
-      <div className="relative shrink-0">
-        <button type="button" onClick={() => setOpen(true)} title="Category icon/image (optional)"
+      <FileDropArea onFiles={drop.onFiles} onRefused={drop.onRefused} disabled={disabled || drop.busy} label={null} className="shrink-0">
+        <button type="button" onClick={() => setOpen(true)} title="Category icon/image (optional): pick one, or drop a picture here"
           className="w-9 h-9 rounded-md border overflow-hidden bg-white flex items-center justify-center hover:border-primary">
-          {url
-            ? <img src={url} alt="" className="w-full h-full object-cover" />
-            : <ImageIcon className="w-4 h-4 text-muted-foreground" />}
+          {drop.busy
+            ? <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+            : url
+              ? <img src={url} alt="" draggable={false} className="w-full h-full object-cover" />
+              : <ImageIcon className="w-4 h-4 text-muted-foreground" />}
         </button>
         {url && (
           <button type="button" onClick={() => onChange(null)}
@@ -1169,7 +1194,8 @@ function SectionImagePicker({ url, onChange }) {
             <X className="w-2.5 h-2.5" />
           </button>
         )}
-      </div>
+        {drop.error && <p className="absolute left-0 top-full mt-1 w-48 z-10 text-[11px] leading-tight text-destructive bg-background">{drop.error}</p>}
+      </FileDropArea>
       <MediaLibraryModal
         open={open}
         onClose={() => setOpen(false)}
@@ -1181,16 +1207,19 @@ function SectionImagePicker({ url, onChange }) {
   )
 }
 
-function ItemImagePicker({ url, onChange }) {
+function ItemImagePicker({ url, onChange, disabled }) {
   const [open, setOpen] = useState(false)
+  const drop = useDroppedPicture('menu:item', onChange)
   return (
     <>
-      <div className="relative shrink-0">
-        <button type="button" onClick={() => setOpen(true)}
+      <FileDropArea onFiles={drop.onFiles} onRefused={drop.onRefused} disabled={disabled || drop.busy} label="Drop" className="shrink-0">
+        <button type="button" onClick={() => setOpen(true)} title="Pick a photo, or drop one here"
           className="w-16 h-16 rounded-md border overflow-hidden bg-muted/30 flex items-center justify-center hover:border-primary">
-          {url
-            ? <img src={url} alt="" className="w-full h-full object-cover" />
-            : <ImageIcon className="w-5 h-5 text-muted-foreground" />}
+          {drop.busy
+            ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            : url
+              ? <img src={url} alt="" draggable={false} className="w-full h-full object-cover" />
+              : <ImageIcon className="w-5 h-5 text-muted-foreground" />}
         </button>
         {url && (
           <button type="button" onClick={() => onChange(null)}
@@ -1199,7 +1228,8 @@ function ItemImagePicker({ url, onChange }) {
             <X className="w-3 h-3" />
           </button>
         )}
-      </div>
+        {drop.error && <p className="text-[11px] text-destructive w-16 mt-1 leading-tight">{drop.error}</p>}
+      </FileDropArea>
       <MediaLibraryModal
         open={open}
         onClose={() => setOpen(false)}
@@ -1366,7 +1396,7 @@ function ItemDrawer({ item, section, sections = [], courses, dietaryTags, varian
       </div>
       <ReadOnlyFieldset disabled={readOnly} className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="flex items-start gap-3">
-          <ItemImagePicker url={item.image_url || null} onChange={(image_url) => onChange({ image_url })} />
+          <ItemImagePicker url={item.image_url || null} onChange={(image_url) => onChange({ image_url })} disabled={readOnly} />
           <div className="flex-1 space-y-2">
             <Input value={item.name} onChange={e => onChange({ name: e.target.value })} placeholder="Dish name" className="font-medium" />
             <Input value={item.native_name || ''} onChange={e => onChange({ native_name: e.target.value })} placeholder="Native script (optional)" />

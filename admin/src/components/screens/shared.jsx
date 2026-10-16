@@ -73,7 +73,8 @@ export function BoardPreview({ design, data, width = 240, className }) {
   const html = useMemo(() => {
     if (!design) return ''
     try {
-      const ctx = boardContext(design.layout || {}, { ...(data || {}), width: W, height: H })
+      // still: thumbnails show a frame of each video and nothing moves.
+      const ctx = boardContext(design.layout || {}, { ...(data || {}), width: W, height: H, still: true })
       return renderBoardHtml(ctx)
     } catch { return '' }
   }, [design, data, W, H])

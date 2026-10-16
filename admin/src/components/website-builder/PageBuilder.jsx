@@ -18,6 +18,7 @@ import {
   Maximize2, Minimize2,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { newBlock, PAGE_TEMPLATES, BLOCK_BY_KEY } from './blockRegistry'
 import { ThemeFrame }     from './canvas/ThemeFrame'
 import { resolveTheme }   from './canvas/themeResolver'
@@ -25,6 +26,8 @@ import { BlockInserter, BlockAvailabilityContext } from './canvas/BlockInserter'
 import { BlockInspector } from './canvas/BlockInspector'
 import { BlockNode }      from './canvas/BlockNode'
 import { LinkCatalogProvider } from './LinkPicker'
+import { uploadSiteImage } from './shared'
+import { useFileDrop, noImageDrag } from '@/lib/fileDrop'
 
 // Mirrors BRAND_OVERRIDE_FIELDS in api/src/services/siteDataSvc.js.
 const BRAND_OVERRIDE_FIELDS = [
@@ -32,6 +35,9 @@ const BRAND_OVERRIDE_FIELDS = [
   'primary_colour', 'secondary_colour', 'font_family', 'template_key',
   'theme', 'og_image_url',
 ]
+// The picture a file dropped onto a block of this type replaces.
+const PICTURE_FIELD = { image: 'url', hero: 'image_url', story_with_stamp: 'image_url' }
+
 // Header + footer + showpiece are now real block types in the canvas
 // (see canvas/siteBlocks.jsx). No separate preview components needed.
 import {
@@ -358,6 +364,56 @@ export function PageBuilder({
     setInspectorOpen(true)
   }
 
+  // ── Pictures dropped from the computer ─────────────────────
+  // Onto an Image, Hero or Story block: that block's picture. Onto any
+  // other block: a new Image block after it (at the end of the page when
+  // dropped outside every block). Uploaded like an Upload button
+  // (/website/upload, so they land in the Media library too).
+  const [dropNote, setDropNote] = useState(null)   // { busy } | { error }
+  async function dropFiles(files, e) {
+    const el = document.elementsFromPoint(e.clientX, e.clientY).find(x => x.dataset?.blockId)
+    const info = el ? findBlock(blocks, el.dataset.blockId) : null
+    const field = info ? PICTURE_FIELD[info.block.type] : null
+    const list = files.slice(0, 10)
+    setDropNote({ busy: list.length > 1 ? `Adding ${list.length} pictures…` : 'Adding the picture…' })
+    try {
+      let after = info?.block.id || null
+      for (let i = 0; i < list.length; i++) {
+        if (i === 0 && field) {
+          const res = await uploadSiteImage(api, list[i], `website:${info.block.type === 'image' ? 'content' : info.block.type}`)
+          const id = info.block.id
+          setBlocks(arr => {
+            const cur = findBlock(arr, id)
+            return cur ? patchBlockData(arr, id, { ...cur.block.data, [field]: res.url }) : arr
+          })
+          setSelectedId(id)
+          continue
+        }
+        const res = await uploadSiteImage(api, list[i], 'website:content')
+        const block = newBlock('image')
+        block.data = { ...block.data, url: res.url }
+        const prevId = after
+        setBlocks(arr => {
+          const where = prevId ? findBlock(arr, prevId) : null
+          // No new Columns / Tabs inside a column; an image is fine anywhere.
+          if (!where) return insertAt(arr, { kind: 'top' }, arr.length, block)
+          const list = listForParent(arr, where.parent)
+          const idx = list.findIndex(b => b.id === prevId)
+          return insertAt(arr, where.parent, idx === -1 ? list.length : idx + 1, block)
+        })
+        after = block.id
+        setSelectedId(block.id)
+      }
+      setDropNote(null)
+    } catch (err) {
+      setDropNote({ error: 'Couldn\'t add that picture: ' + (err?.body?.error || err?.message || 'upload failed') })
+    }
+  }
+  const fileDrop = useFileDrop({
+    disabled: !!dropNote?.busy,
+    onFiles: dropFiles, onRefused: msg => setDropNote({ error: msg }),
+  })
+
   // ── Templates ───────────────────────────────────────────────
   //
   // Applying a template is a SINGLE action that swaps both:
@@ -549,7 +605,9 @@ export function PageBuilder({
         <div className={`flex-1 min-w-0 border rounded-lg ${fullScreen ? 'bg-background overflow-y-auto' : 'bg-muted/30'}`}>
           <div
             onClick={() => { setSelectedId(null); setInspectorOpen(false) }}
-            className={previewMode === 'mobile' ? 'px-4 py-6 flex justify-center' : 'px-12 py-6'}
+            onDragStart={noImageDrag} {...fileDrop.dropProps} data-testid="page-canvas"
+            className={cn(previewMode === 'mobile' ? 'px-4 py-6 flex justify-center' : 'px-12 py-6',
+              fileDrop.over && 'ring-4 ring-inset ring-primary/50 bg-primary/5 rounded-lg')}
           >
             <div className={previewMode === 'mobile'
               ? 'w-[390px] max-w-full bg-background rounded-[24px] border shadow-sm overflow-hidden'
@@ -605,6 +663,18 @@ export function PageBuilder({
           />
         )}
       </div>
+
+      {(fileDrop.over || dropNote) && (
+        <div role="status" data-testid="drop-note"
+          className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-50 max-w-[90vw] rounded-lg shadow-lg px-4 py-2.5 text-sm flex items-center gap-2 ${
+            dropNote?.error ? 'bg-destructive text-destructive-foreground' : 'bg-foreground text-background'}`}>
+          {dropNote?.busy && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
+          <span>{dropNote?.error || dropNote?.busy || 'Drop onto an Image, Hero or Story block to use it there, onto any other block to add an Image block after it.'}</span>
+          {dropNote?.error && (
+            <button type="button" onClick={() => setDropNote(null)} aria-label="Close" className="w-8 h-8 -mr-2 flex items-center justify-center rounded touch-manipulation"><X className="w-4 h-4" /></button>
+          )}
+        </div>
+      )}
 
       {selectedBlock && !inspectorOpen && (
         <div className="fixed bottom-6 right-6 z-40">
