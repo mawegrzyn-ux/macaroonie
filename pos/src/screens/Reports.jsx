@@ -20,7 +20,8 @@ export default function Reports() {
   const [lastZ, setLastZ] = useState(null)
   const names = useMemo(() => ({
     staff: Object.fromEntries((config.staff || []).map(s => [s.id, s.name])),
-    revenue_centres: Object.fromEntries((config.revenue_centres || []).map(r => [r.id, r.name])),
+    revenue_streams: Object.fromEntries((config.revenue_streams || []).map(r => [r.id, r.name])),
+    order_types: Object.fromEntries((config.order_types || []).map(r => [r.id, r.name])),
   }), [config])
 
   useEffect(() => {
@@ -109,7 +110,8 @@ function Figures({ f, names }) {
       </div>
       <div className="grid md:grid-cols-2 gap-4">
         <Table title="Takings" rows={f.tenders.map(t => [t.label + ' (' + t.count + ')', money(t.amount + t.tips - t.refunds)])} total={['Total', money(f.takings)]} />
-        <Table title="Revenue centres" rows={f.revenue_centres.map(r => [names.revenue_centres[r.id] || 'Other', money(r.net)])} />
+        <Table title="Revenue streams" rows={(f.revenue_streams || []).map(r => [names.revenue_streams[r.id] || 'Other', money(r.net)])} />
+        <Table title="Order types" rows={(f.order_types || []).map(r => [(names.order_types[r.id] || 'Other') + ' (' + r.checks + ')', money(r.net)])} />
         <Table title="Sales" rows={[
           ['Before discounts', money(f.sales.gross)], ['Discounts', '−' + money(f.sales.discounts)],
           ['Service charge', money(f.sales.service_charge)], ['Tips', money(f.tips)], ['Average check', money(f.sales.average_check)],

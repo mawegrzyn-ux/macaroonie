@@ -21,6 +21,8 @@ import { itemChoices, variantRules, fromPrice, isPriced, priceBasket } from '../
 import { menuOnAt, menuOnDate, scheduleLabel, isScheduled } from '../../../shared/menuSchedule.js'
 import { venuePromotions, findByCode, lockUses } from './promoSvc.js'
 import { menuTags } from '../../../shared/menuTags.js'
+import { taxFor } from '../../../shared/tax.js'
+import { loadTaxRates, saleContext } from './taxSvc.js'
 
 // An unpaid online order holds its slot this long, then expires.
 export const PENDING_TTL_MINS = 30
@@ -90,15 +92,14 @@ const SETTINGS_DEFAULTS = {
   is_enabled: false, is_paused: false, pause_message: null, hours: [], menu_ids: [], menu_schedules: {},
   allow_asap: true, lead_time_mins: 20, slot_interval_mins: 15, max_orders_per_slot: null,
   max_days_ahead: 0, min_order_pence: 0, auto_accept: false,
-  default_vat_rate_takeaway: 20, default_vat_rate_eat_in: 20,
+  order_type_ids: {}, revenue_stream_id: null,
   tips_enabled: false, tip_percents: [10, 12, 15], payment_methods: ['pay_at_venue'],
   collection_instructions: null, confirmation_note: null,
 }
 
 function normaliseSettings(row, venueId) {
   const s = { ...SETTINGS_DEFAULTS, ...(row || {}), venue_id: venueId }
-  s.default_vat_rate_takeaway = Number(s.default_vat_rate_takeaway)
-  s.default_vat_rate_eat_in = Number(s.default_vat_rate_eat_in)
+  s.order_type_ids = s.order_type_ids && typeof s.order_type_ids === 'object' ? s.order_type_ids : {}
   s.hours = Array.isArray(s.hours) ? s.hours : []
   s.menu_schedules = s.menu_schedules && typeof s.menu_schedules === 'object' ? s.menu_schedules : {}
   return s
@@ -125,19 +126,37 @@ export async function loadSettings(tx, venueId, { withDefaultHours = false } = {
   const s = normaliseSettings(row, venueId)
   s.exists = !!row
   if (withDefaultHours && !s.hours.length) s.hours = await defaultHours(tx, venueId)
+  await fillOrderTypes(tx, venueId, s)
   return s
+}
+
+// A fulfilment Ordering setup hasn't given an order type uses the tenant's
+// type of the same name (Collection, Delivery, Eat in), so tax exceptions
+// for takeaway apply before anyone opens the settings.
+const FULFILMENT_TYPE_NAMES = { collection: 'collection', delivery: 'delivery', eat_in: 'eat in' }
+async function fillOrderTypes(tx, venueId, s) {
+  const missing = Object.keys(FULFILMENT_TYPE_NAMES).filter(k => !s.order_type_ids[k])
+  if (!missing.length) return
+  const rows = await tx`
+    SELECT o.id, lower(o.name) AS name FROM order_types o
+      JOIN venues v ON v.tenant_id = o.tenant_id
+     WHERE v.id = ${venueId} AND o.is_active
+       AND lower(o.name) = ANY(${missing.map(k => FULFILMENT_TYPE_NAMES[k])}::text[])
+     ORDER BY o.sort_order`
+  s.order_type_ids = { ...s.order_type_ids }
+  for (const k of missing) {
+    const hit = rows.find(r => r.name === FULFILMENT_TYPE_NAMES[k])
+    if (hit) s.order_type_ids[k] = hit.id
+  }
 }
 
 // ── Menu for ordering ──────────────────────────────────────────
 
-// VAT by order type: collection and delivery are takeaway, table orders
-// are eat in. The dish's own rate wins, then its section's (migration 127),
-// then the venue default for that type.
-export function vatRateFor(item, fulfilment, settings, section = null) {
-  const key = fulfilment === 'eat_in' ? 'vat_rate_eat_in' : 'vat_rate_takeaway'
-  if (item?.[key] != null) return Number(item[key])
-  if (section?.[key] != null) return Number(section[key])
-  return fulfilment === 'eat_in' ? settings.default_vat_rate_eat_in : settings.default_vat_rate_takeaway
+// An online order's sale context (shared/tax.js): the order type Ordering
+// setup picked for its fulfilment (collection, delivery, table) and the
+// revenue stream online orders count under, if any.
+export function orderContext(venueId, settings, fulfilment = 'collection') {
+  return saleContext(venueId, settings.order_type_ids?.[fulfilment] || null, settings.revenue_stream_id || null)
 }
 
 async function soldOutIds(tx, venueId) {
@@ -162,6 +181,9 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
   const live = ids.length ? await loadMenuVersions(tx, venue.tenant_id, { menuIds: ids, venueId: venue.id }) : []
   const liveById = new Map(live.map(m => [m.id, m]))
   const soldOut = await soldOutIds(tx, venue.id)
+  // Tax per dish for this order type (migration 170): dish, section, menu.
+  const rates = await loadTaxRates(tx, venue.tenant_id)
+  const ctx = orderContext(venue.id, settings, fulfilment)
   const menus = []
   const itemsById = {}
   const itemMenus = {}
@@ -198,7 +220,7 @@ export async function loadOrderingMenu(tx, venue, settings, { fulfilment = 'coll
           choices, from_pence: fromPrice(it, choices),
           sold_out: soldOut.has(it.id),
           min_qty: it.min_order_qty > 1 ? it.min_order_qty : null,   // migration 133
-          vat_rate: vatRateFor(it, fulfilment, settings, s),
+          vat_rate: taxFor([it.tax, s.tax, full.tax], ctx, rates).vat_rate,
           variants: it.variants || [], variant_groups: it.variant_groups || [],
         }
         if (!itemsById[it.id]) itemsById[it.id] = item
@@ -594,7 +616,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
                           data_consent_at, consent,
                           currency, subtotal_pence, discount_pence, tip_pence, total_pence, vat_pence,
                           platform_fee_percent, platform_fee_pence,
-                          payment_method, payment_status)
+                          payment_method, payment_status, order_type_id, revenue_stream_id)
       VALUES (${venue.tenant_id}, ${venue.id}, 'web', 'collection', ${serviceDate}, ${Number(next)},
               'pending_payment', ${isAsap}, ${requestedFor}, ${promisedAt}, ${customerId},
               ${body.customer.name}, ${body.customer.email || null}, ${body.customer.phone || null},
@@ -602,7 +624,7 @@ export async function createOrder({ venue, body, gatewayCtx = {} }) {
               ${consentAt}, ${tx.json(consent)},
               ${venue.currency || 'GBP'}, ${priced.subtotal_pence}, ${priced.discount_pence}, ${priced.tip_pence}, ${priced.total_pence}, ${priced.vat_pence},
               ${feePercent}, ${feePence},
-              ${gateway.key}, 'unpaid')
+              ${gateway.key}, 'unpaid', ${settings.order_type_ids?.collection || null}, ${settings.revenue_stream_id || null})
       RETURNING ${ORDER_COLS}
     `
     for (const [i, l] of priced.lines.entries()) {

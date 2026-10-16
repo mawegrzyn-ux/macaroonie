@@ -38,7 +38,8 @@ export function dayFigures(checks, dayId) {
   let covers = 0
   const sales = { gross: 0, discounts: 0, net: 0, service_charge: 0, total: 0, vat_total: 0 }
   const vat = new Map()
-  const byRc = new Map()
+  const byStream = new Map()
+  const byType = new Map()
   const byTender = new Map()
   const byStaff = new Map()
   const discounts = new Map()
@@ -73,8 +74,9 @@ export function dayFigures(checks, dayId) {
       const lineById = Object.fromEntries(c.lines.map(l => [l.id, l]))
       for (const lt of t.lines) {
         const l = lineById[lt.id]
-        const rc = add(byRc, l.revenue_centre_id || c.revenue_centre_id || null, () => ({ id: l.revenue_centre_id || c.revenue_centre_id || null, net: 0, vat: 0, gross: 0, discount: 0, items: 0 }))
-        rc.net += lt.net; rc.vat += lt.vat; rc.gross += lt.gross; rc.discount += lt.discount; rc.items += l.qty
+        const sid = l.revenue_stream_id || c.revenue_stream_id || null
+        const rs = add(byStream, sid, () => ({ id: sid, net: 0, vat: 0, gross: 0, discount: 0, items: 0 }))
+        rs.net += lt.net; rs.vat += lt.vat; rs.gross += lt.gross; rs.discount += lt.discount; rs.items += l.qty
         const it = add(items, l.item_id || l.name, () => ({ item_id: l.item_id || null, name: l.name, qty: 0, net: 0 }))
         it.qty += l.qty; it.net += lt.net
       }
@@ -83,6 +85,8 @@ export function dayFigures(checks, dayId) {
         const row = add(discounts, (d.promotion ? 'promo:' : d.comp ? 'comp:' : 'disc:') + d.name, () => ({ name: d.name, comp: !!d.comp, promotion: !!d.promotion, count: 0, amount: 0 }))
         row.count++; row.amount += d.amount
       }
+      const ot = add(byType, c.order_type_id || null, () => ({ id: c.order_type_id || null, checks: 0, net: 0, total: 0 }))
+      ot.checks++; ot.net += t.net; ot.total += t.total
       const s = add(byStaff, c.server_id, () => ({ id: c.server_id, checks: 0, net: 0, total: 0, tips: 0, covers: 0 }))
       s.checks++; s.net += t.net; s.total += t.total; s.covers += Number(c.covers) || 0
     }
@@ -118,7 +122,8 @@ export function dayFigures(checks, dayId) {
     counts, covers,
     sales: { ...sales, average_check: counts.closed ? Math.round(sales.total / counts.closed) : 0, per_cover: covers ? Math.round(sales.total / covers) : 0 },
     vat: [...vat.values()].sort((a, b) => a.rate - b.rate),
-    revenue_centres: [...byRc.values()],
+    revenue_streams: [...byStream.values()],
+    order_types: [...byType.values()],
     tenders,
     takings: tenders.reduce((s, t) => s + t.amount + t.tips - t.refunds, 0),
     tips,

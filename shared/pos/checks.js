@@ -24,7 +24,8 @@ import { permissionProblem } from './permissions.js'
 import { checkTotals, isActiveLine, lineGross } from './pricing.js'
 
 export const CHECK_EVENTS = [
-  'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed', 'check.rc_set',
+  'check.opened', 'check.covers_set', 'check.table_moved', 'check.server_changed',
+  'check.stream_set', 'check.order_type_set', 'check.tent_set',
   'check.renamed', 'check.note_set',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
   'discount.applied', 'discount.removed', 'promotions.set', 'service_charge.set',
@@ -70,7 +71,20 @@ function lineProblem(l) {
   if (!optText(l.note, 300)) return 'line.note'
   if (l.allergies != null && !(Array.isArray(l.allergies) && l.allergies.every(a => isText(a, 60)))) return 'line.allergies'
   if (typeof l.vat_rate !== 'number' || l.vat_rate < 0 || l.vat_rate > 100) return 'line.vat_rate'
-  if (l.revenue_centre_id != null && !isUuid(l.revenue_centre_id)) return 'line.revenue_centre_id'
+  if (l.revenue_stream_id != null && !isUuid(l.revenue_stream_id)) return 'line.revenue_stream_id'
+  if (l.tax_rate_id != null && !isUuid(l.tax_rate_id)) return 'line.tax_rate_id'
+  return null
+}
+
+// New rates for lines when the order type or stream changes: { [lineId]: { vat_rate, tax_rate_id } }.
+function ratesProblem(lines) {
+  if (lines == null) return null
+  if (typeof lines !== 'object' || Array.isArray(lines)) return 'lines'
+  for (const [k, v] of Object.entries(lines)) {
+    if (!isId(k) || !v || typeof v !== 'object') return 'lines'
+    if (typeof v.vat_rate !== 'number' || v.vat_rate < 0 || v.vat_rate > 100) return 'lines.vat_rate'
+    if (v.tax_rate_id != null && !isUuid(v.tax_rate_id)) return 'lines.tax_rate_id'
+  }
   return null
 }
 
@@ -90,7 +104,9 @@ export function eventProblem(e) {
       if (p.table_id != null && !isUuid(p.table_id)) return bad('table_id')
       if (!optText(p.tab_name, 80)) return bad('tab_name')
       if (p.covers != null && !(Number.isInteger(p.covers) && p.covers >= 0 && p.covers <= 500)) return bad('covers')
-      if (p.revenue_centre_id != null && !isUuid(p.revenue_centre_id)) return bad('revenue_centre_id')
+      if (p.revenue_stream_id != null && !isUuid(p.revenue_stream_id)) return bad('revenue_stream_id')
+      if (p.order_type_id != null && !isUuid(p.order_type_id)) return bad('order_type_id')
+      if (!optText(p.tent, 20)) return bad('tent')
       if (p.server_id != null && !isUuid(p.server_id)) return bad('server_id')
       return null
     case 'check.covers_set':
@@ -100,10 +116,20 @@ export function eventProblem(e) {
       return optText(p.tab_name, 80) ? null : bad('tab_name')
     case 'check.server_changed':
       return isUuid(p.server_id) ? null : bad('server_id')
-    case 'check.rc_set':
-      if (!isUuid(p.revenue_centre_id)) return bad('revenue_centre_id')
-      if (p.lines != null && (typeof p.lines !== 'object' || Object.entries(p.lines).some(([k, v]) => !isId(k) || typeof v !== 'number'))) return bad('lines')
-      return null
+    case 'check.stream_set': {
+      if (!isUuid(p.revenue_stream_id)) return bad('revenue_stream_id')
+      const r = ratesProblem(p.lines)
+      return r ? bad(r) : null
+    }
+    case 'check.order_type_set': {
+      if (!isUuid(p.order_type_id)) return bad('order_type_id')
+      if (p.tab_name !== undefined && !optText(p.tab_name, 80)) return bad('tab_name')
+      if (p.tent !== undefined && !optText(p.tent, 20)) return bad('tent')
+      const r = ratesProblem(p.lines)
+      return r ? bad(r) : null
+    }
+    case 'check.tent_set':
+      return optText(p.tent, 20) ? null : bad('tent')
     case 'check.renamed':
       return optText(p.tab_name, 80) ? null : bad('tab_name')
     case 'check.note_set':
@@ -234,7 +260,9 @@ function newCheck(e) {
     tab_name: p.tab_name ?? null,
     covers: p.covers ?? null,
     server_id: p.server_id || e.staff_id,
-    revenue_centre_id: p.revenue_centre_id ?? null,
+    revenue_stream_id: p.revenue_stream_id ?? null,
+    order_type_id: p.order_type_id ?? null,
+    tent: p.tent || null,
     status: 'open',
     opened_at: e.client_at ?? null,
     opened_by: e.staff_id,
@@ -261,7 +289,8 @@ function newCheck(e) {
 }
 
 const OPEN_ONLY = new Set([
-  'check.covers_set', 'check.table_moved', 'check.server_changed', 'check.rc_set', 'check.renamed',
+  'check.covers_set', 'check.table_moved', 'check.server_changed', 'check.stream_set',
+  'check.order_type_set', 'check.tent_set', 'check.renamed',
   'line.added', 'line.changed', 'line.deleted', 'lines.sent', 'course.fired', 'line.voided',
   'discount.applied', 'discount.removed', 'promotions.set', 'service_charge.set',
   'lines.moved', 'check.merged', 'payment.added', 'payment.voided', 'check.closed',
@@ -297,6 +326,16 @@ export function applyEvent(checks, e, ctx = {}) {
   if (OPEN_ONLY.has(e.type) && current.status !== 'open') return fail('This check is closed', 'closed')
   const c = clone(current)
   const findLine = id => c.lines.find(l => l.id === id)
+  // New tax for lines (order type or stream changed). Paid-for lines keep
+  // their rate only if the till sent none for them.
+  const rerate = rates => {
+    for (const [lineId, r] of Object.entries(rates || {})) {
+      const l = findLine(lineId)
+      if (!l || l.status === 'voided') continue
+      l.vat_rate = r.vat_rate
+      l.tax_rate_id = r.tax_rate_id ?? null
+    }
+  }
 
   switch (e.type) {
     case 'check.covers_set':
@@ -317,14 +356,21 @@ export function applyEvent(checks, e, ctx = {}) {
       break
     }
 
-    case 'check.rc_set':
-      c.revenue_centre_id = p.revenue_centre_id
-      for (const [lineId, rate] of Object.entries(p.lines || {})) {
-        const l = findLine(lineId)
-        if (!l || l.status === 'voided') continue
-        l.revenue_centre_id = p.revenue_centre_id
-        l.vat_rate = rate
-      }
+    case 'check.stream_set':
+      c.revenue_stream_id = p.revenue_stream_id
+      for (const l of c.lines) if (l.status !== 'voided') l.revenue_stream_id = p.revenue_stream_id
+      rerate(p.lines)
+      break
+
+    case 'check.order_type_set':
+      c.order_type_id = p.order_type_id
+      if (p.tab_name !== undefined) c.tab_name = p.tab_name || null
+      if (p.tent !== undefined) c.tent = p.tent || null
+      rerate(p.lines)
+      break
+
+    case 'check.tent_set':
+      c.tent = p.tent || null
       break
 
     case 'check.renamed':
@@ -345,7 +391,8 @@ export function applyEvent(checks, e, ctx = {}) {
         modifiers: p.line.modifiers || [], combo: p.line.combo || null,
         seat: p.line.seat ?? null, course_id: p.line.course_id ?? null,
         note: p.line.note || null, allergies: p.line.allergies || [],
-        vat_rate: p.line.vat_rate, revenue_centre_id: p.line.revenue_centre_id ?? c.revenue_centre_id,
+        vat_rate: p.line.vat_rate, tax_rate_id: p.line.tax_rate_id ?? null,
+        revenue_stream_id: p.line.revenue_stream_id ?? c.revenue_stream_id,
         price_override: !!p.line.price_override, open_item: !!p.line.open_item,
         status: 'new', held: false, send_id: null, sent_at: null,
         added_by: e.staff_id, added_at: e.client_at ?? null, voided: null,

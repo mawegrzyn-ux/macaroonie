@@ -24,6 +24,7 @@ const staffById = { [ANNA]: { id: ANNA, name: 'Anna', permissions: { void: true,
 const FOOD = uuid(), DRINKS = uuid(), SIDES = uuid(), BURGERS = uuid(), WINGSEC = uuid()
 const STARTERS = uuid(), MAINS = uuid()
 const RC_REST = uuid(), RC_TAKEAWAY = uuid()
+const EAT = uuid(), OUT = uuid(), DEL = uuid(), COL = uuid()
 const TABLE5 = uuid()
 const WINGS = uuid(), BONELESS = uuid(), FRIES = uuid(), COLA = uuid(), MEAL = uuid(), BURGER = uuid()
 const LEMON = uuid()
@@ -35,7 +36,7 @@ const common = {
   courses: { [STARTERS]: { name: 'Starters', sort_order: 1 }, [MAINS]: { name: 'Mains', sort_order: 2 } },
   tables: { [TABLE5]: { label: '5' } },
   staff: { [ANNA]: { name: 'Anna' } },
-  revenue_centres: { [RC_REST]: { name: 'Restaurant', vat_mode: 'eat_in' }, [RC_TAKEAWAY]: { name: 'Takeaway', vat_mode: 'takeaway' } },
+  order_types: { [EAT]: { name: 'Eat in' }, [OUT]: { name: 'Take out' }, [DEL]: { name: 'Delivery' }, [COL]: { name: 'Collection' } },
 }
 
 // A simple kitchen: grill, fryer and bar, with or without a pass.
@@ -124,12 +125,12 @@ function till(cfg) {
 
 function openTable(t, extra = {}) {
   const id = ulid()
-  t.send({ ...ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_centre_id: RC_REST, ...extra }, { check_id: id }), assigned: { number: 12 } })
+  t.send({ ...ev('check.opened', { mode: 'table', table_id: TABLE5, revenue_stream_id: RC_REST, order_type_id: EAT, ...extra }, { check_id: id }), assigned: { number: 12 } })
   return id
 }
 function openCounter(t, orderNo = 57) {
   const id = ulid()
-  t.send({ ...ev('check.opened', { mode: 'counter', revenue_centre_id: RC_TAKEAWAY }, { check_id: id }), assigned: { number: 3, order_no: orderNo } })
+  t.send({ ...ev('check.opened', { mode: 'counter', revenue_stream_id: RC_TAKEAWAY, order_type_id: OUT, tent: '14' }, { check_id: id }), assigned: { number: 3, order_no: orderNo } })
   return id
 }
 function addAndSend(t, checkId, lines, held = []) {
@@ -157,10 +158,10 @@ test('flow: each dish takes the most specific links from each station', () => {
   const plain = kitchen([link(E1, ORB), link(P1, E1, ['item', BURGER])])
   assert.deepEqual(Object.keys(itemRoute({ item_id: BURGER, section_id: BURGERS }, plain)).sort(), [P1, E1, ORB].sort())
   // Order type: eat in to the runner, everything else to the board.
-  const byType = kitchen([link(E1, RUN, ['order_type', 'eat_in']), link(E1, ORB)])
-  assert.ok(itemRoute({ section_id: SIDES, order_type: 'eat_in' }, byType)[RUN])
-  assert.equal(itemRoute({ section_id: SIDES, order_type: 'eat_in' }, byType)[ORB], undefined)
-  assert.ok(itemRoute({ section_id: SIDES, order_type: 'takeaway' }, byType)[ORB])
+  const byType = kitchen([link(E1, RUN, ['order_type', EAT]), link(E1, ORB)])
+  assert.ok(itemRoute({ section_id: SIDES, order_type_id: EAT }, byType)[RUN])
+  assert.equal(itemRoute({ section_id: SIDES, order_type_id: EAT }, byType)[ORB], undefined)
+  assert.ok(itemRoute({ section_id: SIDES, order_type_id: OUT }, byType)[ORB])
   // Links with the same filter both apply: expo to the board and the runner at once.
   const both = kitchen([link(E1, ORB), link(E1, RUN)])
   const r = itemRoute({ section_id: SIDES }, both)
@@ -176,7 +177,6 @@ test('flow problems block saving; warnings point out loose ends', () => {
   assert.match(flowProblems(list, [link(P1, E1), link(P1, E1)]).join(), /twice/)
   assert.match(flowProblems(list, [link(P1, P2), link(P2, E1), link(E1, P1)]).join(), /Prep 1 > Prep 2 > Expo 1 > Prep 1 goes round in a circle/)
   assert.match(flowProblems(list, [link(P1, uuid())]).join(), /isn't there/)
-  assert.match(flowProblems(list, [link(null, P1, ['order_type', 'brunch'])]).join(), /unknown order type/)
   const w = flowWarnings(list, [link(P1, E1)])
   assert.ok(w.some(x => /Nothing comes in/.test(x)))
   assert.ok(w.includes('Prep 3 isn\'t on the way of any dish.'))
@@ -189,7 +189,9 @@ test('the brief: preps pass dishes on, two expos, ORB 1 ready once both expos ar
   const b = burger(), f = fries(), w = wings(), cola = lineOf('Cola', COLA, DRINKS)
   addAndSend(t, c, [b, f, w, cola])
   const o = t.orders[c]
-  assert.equal(o.type, 'takeaway')
+  assert.equal(o.type, OUT)
+  assert.equal(o.type_name, 'Take out')
+  assert.equal(o.tent, '14')
 
   // Prep 1 makes the bun and the fries; Prep 2 has nothing yet.
   const p1 = t.tickets(kit.P1)
@@ -337,7 +339,7 @@ test('runner: beside the board, between the expo and the board, or for eat in on
   ok(t.kitchen(kev('kitchen.collected', { order_id: c })))
 
   // By order type: eat in to the runner, takeaway to the board.
-  const byType = kitchen([link(E1, RUN, ['order_type', 'eat_in']), link(E1, ORB)])
+  const byType = kitchen([link(E1, RUN, ['order_type', EAT]), link(E1, ORB)])
   t = till(byType)
   const table = openTable(t)
   const counter = openCounter(t, 48)
@@ -391,7 +393,7 @@ test('sending dishes makes a kitchen order: meal deal parts split by station, he
   assert.equal(o.source, 'till')
   assert.equal(o.table, '5')
   assert.equal(o.number, '12')
-  assert.equal(o.type, 'eat_in')
+  assert.equal(o.type, EAT)
   assert.equal(o.items.length, 3)
   const item = id => o.items.find(i => i.id === id)
   assert.deepEqual(Object.keys(item(deal.id).route).sort(), [GRILL, FRYER, PASS].sort())
@@ -503,7 +505,7 @@ test('remake puts a dish back, priority, collected, the all-orders board', () =>
   addAndSend(t, id, [w])
   assert.equal(t.orders[id].number, '57')
   assert.equal(t.orders[id].board, true)
-  assert.equal(t.orders[id].type, 'takeaway')
+  assert.equal(t.orders[id].type, OUT)
   assert.deepEqual(boardNumbers(t.orders, at()).preparing.map(x => x.number), ['57'])
   ok(t.kitchen(kev('kitchen.priority', { order_id: id, on: true })))
   ok(t.bump(id, simple.GRILL))
@@ -537,7 +539,7 @@ test('online orders: in the kitchen at once, or held until their time; the order
   const orderId = uuid()
   const now = Date.parse(at())
   const mk = (oid, fire) => kev('kitchen.order_in', { order: {
-    id: onlineOrderId(oid), order_id: oid, number: 'W12', guest: 'Sam', type: 'collection',
+    id: onlineOrderId(oid), order_id: oid, number: 'W12', guest: 'Sam', type: COL, type_name: 'Collection',
     promised_at: new Date(now + 3600_000).toISOString(), fire_at: fire, note: null, allergy: 'Peanuts',
     items: [{ id: uuid(), item_id: WINGS, section_id: FOOD, name: 'Wings', qty: 2, options: [{ label: 'Lemon Pepper', mode: 'base' }] },
             { id: uuid(), item_id: COLA, section_id: DRINKS, name: 'Cola', qty: 1, options: [] }],
@@ -565,11 +567,11 @@ test('online orders: in the kitchen at once, or held until their time; the order
 })
 
 test('online orders follow the flow by order type', () => {
-  const byType = kitchen([link(E1, RUN, ['order_type', 'eat_in']), link(E1, ORB)])
+  const byType = kitchen([link(E1, RUN, ['order_type', EAT]), link(E1, ORB)])
   const t = till(byType)
   const oid = uuid()
   ok(t.kitchen(kev('kitchen.order_in', { order: {
-    id: onlineOrderId(oid), order_id: oid, number: 'W13', guest: 'Jo', type: 'delivery',
+    id: onlineOrderId(oid), order_id: oid, number: 'W13', guest: 'Jo', type: DEL, type_name: 'Delivery',
     items: [{ id: uuid(), item_id: BURGER, section_id: BURGERS, name: 'Burger', qty: 1, options: [] }],
   } })))
   const item = t.orders[onlineOrderId(oid)].items[0]

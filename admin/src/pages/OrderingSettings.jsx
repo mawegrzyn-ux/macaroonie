@@ -97,6 +97,8 @@ export default function OrderingSettings() {
   const windowsOf = day => ((f?.hours || []).find(h => h.day === day)?.windows) || []
 
   const gateways = q.data?.gateways || []
+  const orderTypes = (q.data?.order_types || []).filter(t => t.is_active || Object.values(f?.order_type_ids || {}).includes(t.id))
+  const streams = (q.data?.revenue_streams || []).filter(r => r.is_active || r.id === f?.revenue_stream_id)
   const menuNames = Object.fromEntries((q.data?.menus || []).map(m => [m.id, m.name]))
   const todayIso = new Date().toLocaleDateString('en-CA', { timeZone: venue?.timezone || undefined })
   const schedProblem = f ? scheduleProblem(f.menu_ids, f.menu_schedules || {}, menuNames, todayIso) : null
@@ -223,10 +225,30 @@ export default function OrderingSettings() {
                         className="w-28 border rounded-md px-3 min-h-[44px] bg-background" />
                     </div>
                   </label>
-                  <Num label="Default VAT, takeaway" suffix="%" max={100} value={f.default_vat_rate_takeaway} onChange={v => set('default_vat_rate_takeaway', v)}
-                    hint="Collection orders, for dishes without their own takeaway rate (Menus page)." />
-                  <Num label="Default VAT, eat in" suffix="%" max={100} value={f.default_vat_rate_eat_in} onChange={v => set('default_vat_rate_eat_in', v)}
-                    hint="Table orders (coming with the POS), for dishes without their own eat-in rate." />
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4" data-testid="ordering-tax">
+                  <label className="block text-sm">
+                    <span className="font-medium">Collection orders are</span>
+                    <select value={f.order_type_ids?.collection || ''} aria-label="Order type for collection"
+                      onChange={e => set('order_type_ids', { ...(f.order_type_ids || {}), collection: e.target.value || null })}
+                      className="block mt-1 w-full border rounded-md px-3 min-h-[44px] bg-background">
+                      {!f.order_type_ids?.collection && <option value="">No order type</option>}
+                      {orderTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                    <span className="block text-xs text-muted-foreground mt-1">Decides the tax (Menus, Tax rates) and how the order shows in the kitchen.</span>
+                  </label>
+                  {streams.length > 0 && (
+                    <label className="block text-sm">
+                      <span className="font-medium">Count online sales under</span>
+                      <select value={f.revenue_stream_id || ''} aria-label="Revenue stream for online orders"
+                        onChange={e => set('revenue_stream_id', e.target.value || null)}
+                        className="block mt-1 w-full border rounded-md px-3 min-h-[44px] bg-background">
+                        <option value="">No revenue stream</option>
+                        {streams.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                      <span className="block text-xs text-muted-foreground mt-1">A revenue stream from Till setup, for reports and stream tax exceptions.</span>
+                    </label>
+                  )}
                 </div>
                 <Toggle label="Ask guests for a tip" checked={f.tips_enabled} onChange={v => set('tips_enabled', v)} />
                 {f.tips_enabled && (

@@ -1,9 +1,10 @@
 // src/pages/PosSetup.jsx
 //
 // Till setup (/pos, pos_setup module). Per venue: tills and pairing,
-// revenue centres, printers and what prints where, kitchen screens (stations,
-// routing, pairing), staff PINs, receipts
-// and payments, the Cash Recon link. Company-wide: till roles and courses.
+// revenue streams (with the order types each offers), printers and what
+// prints where, kitchen screens (stations, the kitchen flow, pairing), staff
+// PINs, receipts and payments, the Cash Recon link. Company-wide: order
+// types, till roles and courses.
 // The floor plan has its own page (/pos/floor). docs/POS.md.
 
 import { useSearchParams, Link } from 'react-router-dom'
@@ -13,7 +14,8 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice, ReadOnlyFieldset } from '@/components/ReadOnlyNotice'
 import { PageHeader, VenueSelect, usePosVenue, usePosSetup, ErrorNote } from '@/components/pos/shared'
 import TillsSection from '@/components/pos/TillsSection'
-import RevenueCentresSection from '@/components/pos/RevenueCentresSection'
+import RevenueStreamsSection from '@/components/pos/RevenueStreamsSection'
+import OrderTypesSection from '@/components/pos/OrderTypesSection'
 import PrintersSection from '@/components/pos/PrintersSection'
 import KitchenSection from '@/components/pos/KitchenSection'
 import StaffSection from '@/components/pos/StaffSection'
@@ -23,7 +25,8 @@ import { ReceiptSettingsSection, ReconSection } from '@/components/pos/SettingsS
 
 const TABS = [
   { key: 'tills', label: 'Tills', render: p => <TillsSection {...p} /> },
-  { key: 'revenue', label: 'Revenue centres', render: p => <RevenueCentresSection {...p} /> },
+  { key: 'streams', label: 'Revenue streams', render: p => <RevenueStreamsSection {...p} /> },
+  { key: 'types', label: 'Order types', render: p => <OrderTypesSection {...p} /> },
   { key: 'printers', label: 'Printers', render: p => <PrintersSection {...p} /> },
   { key: 'kitchen', label: 'Kitchen screens', wide: true, render: p => <KitchenSection {...p} /> },
   { key: 'staff', label: 'Staff and PINs', render: p => <StaffSection {...p} /> },

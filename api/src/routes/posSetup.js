@@ -3,13 +3,15 @@
 // Till (POS) setup and reports for the admin portal, /api/pos. docs/POS.md.
 //
 //   GET    /venues/:venueId/setup                 everything the setup page shows
-//   PATCH  /venues/:venueId/settings              till settings (receipt, VAT, tenders, Cash Recon map, ...)
-//   POST   /venues/:venueId/revenue-centres       + PATCH/DELETE /revenue-centres/:id, PUT /venues/:venueId/revenue-centres/order
+//   PATCH  /venues/:venueId/settings              till settings (receipt, VAT number, tenders, Cash Recon map, ...)
+//   POST   /venues/:venueId/revenue-streams       + PATCH/DELETE /revenue-streams/:id, PUT /venues/:venueId/revenue-streams/order
+//                                                 (a stream's order types: on/off, ask for a name / tent number;
+//                                                 the order types themselves are tenant-wide, routes/taxSetup.js)
 //   POST   /venues/:venueId/printers              + PATCH/DELETE /printers/:id
 //   PUT    /venues/:venueId/routes                the whole printer routing list
 //   POST   /venues/:venueId/devices               add a till: returns a one-time pairing code
 //   POST   /devices/:id/pairing-code              a new code (pairs again, the old secret stops working)
-//   PATCH  /devices/:id                           name, settings (mode, revenue centre, receipt printer, floor area)
+//   PATCH  /devices/:id                           name, settings (mode, revenue stream, receipt printer, floor area)
 //   DELETE /devices/:id                           revoke
 //   POST   /venues/:venueId/floor-areas           + PATCH/DELETE /floor-areas/:id
 //   PUT    /floor-areas/:id/layout                tables' positions + decor in one save
@@ -50,6 +52,7 @@ import { posOrigin } from '../services/platformHost.js'
 import { DEFAULT_POS_ROLES, PERMISSION_KEYS, normalisePermissions } from '../../../shared/pos/permissions.js'
 import { hashPin, PIN_PATTERN, weakPin } from '../../../shared/pos/pin.js'
 import { TENDER_KEYS } from '../../../shared/pos/checks.js'
+import { ensureTaxDefaults, loadOrderTypes, loadStreams } from '../services/taxSvc.js'
 
 const UUID = z.string().uuid()
 const TIME = z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)
@@ -68,8 +71,6 @@ function configChanged(venueId) {
 
 const SettingsBody = z.object({
   day_starts_at:             TIME.optional(),
-  default_vat_rate_eat_in:   z.number().min(0).max(100).optional(),
-  default_vat_rate_takeaway: z.number().min(0).max(100).optional(),
   vat_number:                z.string().max(40).nullable().optional(),
   receipt_name:              z.string().max(80).nullable().optional(),
   receipt_address:           z.array(z.string().max(80)).max(6).optional(),
@@ -81,7 +82,6 @@ const SettingsBody = z.object({
   require_covers:            z.boolean().optional(),
   order_no_start:            z.number().int().min(1).max(900).optional(),
   auto_logout_secs:          z.number().int().min(0).max(3600).optional(),
-  counter_revenue_centre_id: UUID.nullable().optional(),
   recon_map:                 z.object({
     income:  z.record(UUID, z.array(z.string().max(40)).max(20)).default({}),
     takings: z.record(UUID, z.array(z.enum(TENDER_KEYS)).max(10)).default({}),
@@ -92,14 +92,24 @@ const SettingsBody = z.object({
   kds_online_ready:          z.boolean().optional(),
 })
 
-const RcBody = z.object({
+// Ask for a customer name / tent number when the order type is picked:
+// off, ask (can be skipped) or required.
+const PROMPTS = ['off', 'ask', 'required']
+const StreamOrderType = z.object({
+  order_type_id: UUID,
+  enabled:       z.boolean(),
+  ask_name:      z.enum(PROMPTS).default('off'),
+  ask_tent:      z.enum(PROMPTS).default('off'),
+})
+const StreamBody = z.object({
   name:                      z.string().trim().min(1).max(60),
-  vat_mode:                  z.enum(['eat_in', 'takeaway']).default('eat_in'),
   menu_ids:                  z.array(UUID).max(20).default([]),
   service_charge_percent:    z.number().min(0).max(50).default(0),
   service_charge_min_covers: z.number().int().min(0).max(100).default(0),
   colour:                    COLOUR,
   is_active:                 z.boolean().default(true),
+  default_order_type_id:     UUID.nullable().optional(),
+  order_types:               z.array(StreamOrderType).max(50).optional(),
 })
 
 const PrinterBody = z.object({
@@ -115,14 +125,14 @@ const PrinterBody = z.object({
 const RoutesBody = z.object({
   routes: z.array(z.object({
     printer_id:  UUID,
-    target_kind: z.enum(['item', 'section', 'revenue_centre', 'default']),
+    target_kind: z.enum(['item', 'section', 'revenue_stream', 'default']),
     target_id:   UUID.nullable().optional(),
   })).max(2000),
 })
 
 const DeviceSettings = z.object({
   mode:               z.enum(['table', 'counter']).default('table'),
-  revenue_centre_id:  UUID.nullable().optional(),
+  revenue_stream_id:  UUID.nullable().optional(),
   receipt_printer_id: UUID.nullable().optional(),
   floor_area_id:      UUID.nullable().optional(),
   // Kitchen screens (kind 'kds'): which stations it shows (it can switch
@@ -194,7 +204,7 @@ const AreaBody = z.object({
   name:              z.string().trim().min(1).max(60),
   width:             z.number().int().min(6).max(80).default(24),
   height:            z.number().int().min(4).max(60).default(16),
-  revenue_centre_id: UUID.nullable().optional(),
+  revenue_stream_id: UUID.nullable().optional(),
   sort_order:        z.number().int().optional(),
 })
 
@@ -320,15 +330,15 @@ export default async function posSetupRoutes(app) {
     return withTenant(tenantId, async tx => {
       const venue = await ownVenue(tx, tenantId, venueId)
       const settings = await ensureSettings(tx, tenantId, venueId)
-      const [rcs, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsLinks] = await Promise.all([
-        tx`SELECT id, name, vat_mode, menu_ids, service_charge_percent::float8 AS service_charge_percent,
-                  service_charge_min_covers, colour, sort_order, is_active
-             FROM pos_revenue_centres WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
+      await ensureTaxDefaults(tx, tenantId)
+      const [streams, orderTypes, printers, routes, devices, areas, tables, staff, roles, courses, menus, kdsStations, kdsLinks] = await Promise.all([
+        loadStreams(tx, tenantId, venueId),
+        loadOrderTypes(tx, tenantId),
         tx`SELECT id, name, kind, host, port, columns, backup_printer_id, sort_order, is_active
              FROM pos_printers WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
         tx`SELECT printer_id, target_kind, target_id FROM pos_print_routes WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
         tx`SELECT * FROM pos_devices WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY revoked_at NULLS FIRST, created_at`,
-        tx`SELECT id, name, width, height, revenue_centre_id, decor, sort_order FROM floor_areas
+        tx`SELECT id, name, width, height, revenue_stream_id, decor, sort_order FROM floor_areas
             WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} ORDER BY sort_order, name`,
         tx`SELECT id, label, min_covers, max_covers, section_id, floor_area_id, pos_x::float8 AS x, pos_y::float8 AS y,
                   pos_w::float8 AS w, pos_h::float8 AS h, shape, rotation, sort_order
@@ -357,7 +367,7 @@ export default async function posSetupRoutes(app) {
       return {
         venue: { id: venue.id, name: venue.name },
         settings: settingsView(settings),
-        revenue_centres: rcs, printers, routes,
+        revenue_streams: streams, order_types: orderTypes, printers, routes,
         devices: devices.map(deviceView),
         floor_areas: areas.map(a => ({ ...a, decor: a.decor || [] })),
         tables, staff,
@@ -378,7 +388,6 @@ export default async function posSetupRoutes(app) {
     const out = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       await ensureSettings(tx, req.tenantId, venueId)
-      if (body.counter_revenue_centre_id) await ownRow(tx, 'pos_revenue_centres', req.tenantId, body.counter_revenue_centre_id, 'Revenue centre')
       const set = { ...body, updated_at: new Date() }
       if (body.tenders) set.tenders = tx.json(body.tenders)
       if (body.recon_map) set.recon_map = tx.json(body.recon_map)
@@ -393,73 +402,108 @@ export default async function posSetupRoutes(app) {
     return out
   })
 
-  // ── Revenue centres ─────────────────────────────────────────────
+  // ── Revenue streams ─────────────────────────────────────────────
   async function checkMenus(tx, tenantId, venueId, ids) {
     if (!ids.length) return
     const rows = await tx`SELECT id FROM menus WHERE tenant_id = ${tenantId} AND id = ANY(${ids}::uuid[]) AND (venue_id IS NULL OR venue_id = ${venueId})`
     if (rows.length !== new Set(ids).size) throw httpError(422, 'A chosen menu isn\'t available at this venue')
   }
 
-  app.post('/venues/:venueId/revenue-centres', { preHandler: canSetup }, async (req, reply) => {
+  // A stream's order types: the list sent (else, for a new stream, every
+  // active type on with nothing asked) and a default that is one of them.
+  async function writeStreamTypes(tx, tenantId, streamId, body, isNew) {
+    const types = await tx`SELECT id, is_active FROM order_types WHERE tenant_id = ${tenantId} ORDER BY sort_order, name`
+    const known = new Set(types.map(t => t.id))
+    let list = body.order_types
+    if (!list && isNew) list = types.filter(t => t.is_active).map(t => ({ order_type_id: t.id, enabled: true, ask_name: 'off', ask_tent: 'off' }))
+    if (list) {
+      if (list.some(x => !known.has(x.order_type_id))) throw httpError(422, 'Order type not found')
+      await tx`DELETE FROM pos_stream_order_types WHERE stream_id = ${streamId} AND tenant_id = ${tenantId}`
+      for (const x of list) {
+        await tx`
+          INSERT INTO pos_stream_order_types (stream_id, order_type_id, tenant_id, enabled, ask_name, ask_tent)
+          VALUES (${streamId}, ${x.order_type_id}, ${tenantId}, ${x.enabled}, ${x.ask_name}, ${x.ask_tent})
+          ON CONFLICT (stream_id, order_type_id) DO UPDATE SET enabled = EXCLUDED.enabled, ask_name = EXCLUDED.ask_name, ask_tent = EXCLUDED.ask_tent`
+      }
+    }
+    const on = (await tx`SELECT order_type_id FROM pos_stream_order_types WHERE stream_id = ${streamId} AND tenant_id = ${tenantId} AND enabled`)
+      .map(r => r.order_type_id)
+    let def = body.default_order_type_id !== undefined ? body.default_order_type_id
+      : (await tx`SELECT default_order_type_id FROM pos_revenue_streams WHERE id = ${streamId} AND tenant_id = ${tenantId}`)[0]?.default_order_type_id
+    if (def && !on.includes(def)) {
+      if (body.default_order_type_id) throw httpError(422, 'The default order type must be one the stream offers')
+      def = null
+    }
+    if (!def) def = types.find(t => on.includes(t.id))?.id ?? null
+    await tx`UPDATE pos_revenue_streams SET default_order_type_id = ${def} WHERE id = ${streamId} AND tenant_id = ${tenantId}`
+  }
+
+  async function streamOut(tx, tenantId, venueId, id) {
+    return (await loadStreams(tx, tenantId, venueId)).find(x => x.id === id)
+  }
+
+  app.post('/venues/:venueId/revenue-streams', { preHandler: canSetup }, async (req, reply) => {
     const venueId = UUID.parse(req.params.venueId)
-    const body = RcBody.parse(req.body)
+    const body = StreamBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
+      await ensureTaxDefaults(tx, req.tenantId)
       await checkMenus(tx, req.tenantId, venueId, body.menu_ids)
-      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
-      const [rc] = await tx`
-        INSERT INTO pos_revenue_centres (tenant_id, venue_id, name, vat_mode, menu_ids, service_charge_percent, service_charge_min_covers, colour, sort_order, is_active)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.vat_mode}, ${body.menu_ids}, ${body.service_charge_percent},
+      const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+      const [rs] = await tx`
+        INSERT INTO pos_revenue_streams (tenant_id, venue_id, name, menu_ids, service_charge_percent, service_charge_min_covers, colour, sort_order, is_active)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.menu_ids}, ${body.service_charge_percent},
                 ${body.service_charge_min_covers}, ${body.colour ?? null}, ${n}, ${body.is_active})
-        RETURNING *`
-      return rc
+        RETURNING id`
+      await writeStreamTypes(tx, req.tenantId, rs.id, body, true)
+      return streamOut(tx, req.tenantId, venueId, rs.id)
     })
     configChanged(venueId)
     return reply.code(201).send(row)
   })
 
-  app.patch('/revenue-centres/:id', { preHandler: canSetup }, async req => {
+  app.patch('/revenue-streams/:id', { preHandler: canSetup }, async req => {
     const id = UUID.parse(req.params.id)
-    const body = RcBody.parse(req.body)
+    const body = StreamBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
-      const rc = await ownRow(tx, 'pos_revenue_centres', req.tenantId, id, 'Revenue centre')
-      await checkMenus(tx, req.tenantId, rc.venue_id, body.menu_ids)
-      const [out] = await tx`
-        UPDATE pos_revenue_centres
-           SET name = ${body.name}, vat_mode = ${body.vat_mode}, menu_ids = ${body.menu_ids},
+      const rs = await ownRow(tx, 'pos_revenue_streams', req.tenantId, id, 'Revenue stream')
+      await checkMenus(tx, req.tenantId, rs.venue_id, body.menu_ids)
+      await tx`
+        UPDATE pos_revenue_streams
+           SET name = ${body.name}, menu_ids = ${body.menu_ids},
                service_charge_percent = ${body.service_charge_percent}, service_charge_min_covers = ${body.service_charge_min_covers},
                colour = ${body.colour ?? null}, is_active = ${body.is_active}
-         WHERE id = ${id} AND tenant_id = ${req.tenantId}
-         RETURNING *`
-      return out
+         WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      await writeStreamTypes(tx, req.tenantId, id, body, false)
+      return { ...(await streamOut(tx, req.tenantId, rs.venue_id, id)), venue_id: rs.venue_id }
     })
     configChanged(row.venue_id)
     return row
   })
 
-  app.delete('/revenue-centres/:id', { preHandler: canSetup }, async req => {
+  app.delete('/revenue-streams/:id', { preHandler: canSetup }, async req => {
     const id = UUID.parse(req.params.id)
-    const rc = await withTenant(req.tenantId, async tx => {
-      const row = await ownRow(tx, 'pos_revenue_centres', req.tenantId, id, 'Revenue centre')
-      const [{ n }] = await tx`SELECT count(*)::int AS n FROM pos_check_lines WHERE tenant_id = ${req.tenantId} AND revenue_centre_id = ${id}`
+    const rs = await withTenant(req.tenantId, async tx => {
+      const row = await ownRow(tx, 'pos_revenue_streams', req.tenantId, id, 'Revenue stream')
+      const [{ n }] = await tx`SELECT count(*)::int AS n FROM pos_check_lines WHERE tenant_id = ${req.tenantId} AND revenue_stream_id = ${id}`
       // Sales already posted to it keep pointing at it: switch it off instead.
-      if (n) await tx`UPDATE pos_revenue_centres SET is_active = false WHERE id = ${id} AND tenant_id = ${req.tenantId}`
-      else await tx`DELETE FROM pos_revenue_centres WHERE id = ${id} AND tenant_id = ${req.tenantId}`
-      await tx`DELETE FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND target_kind = 'revenue_centre' AND target_id = ${id}`
-      await dropFlowTarget(tx, req.tenantId, 'revenue_centre', id)
+      if (n) await tx`UPDATE pos_revenue_streams SET is_active = false WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      else await tx`DELETE FROM pos_revenue_streams WHERE id = ${id} AND tenant_id = ${req.tenantId}`
+      await tx`DELETE FROM pos_print_routes WHERE tenant_id = ${req.tenantId} AND target_kind = 'revenue_stream' AND target_id = ${id}`
+      await dropFlowTarget(tx, req.tenantId, 'revenue_stream', id)
       return { ...row, switched_off: n > 0 }
     })
-    configChanged(rc.venue_id)
-    return { ok: true, switched_off: rc.switched_off }
+    configChanged(rs.venue_id)
+    return { ok: true, switched_off: rs.switched_off }
   })
 
-  app.put('/venues/:venueId/revenue-centres/order', { preHandler: canSetup }, async req => {
+  app.put('/venues/:venueId/revenue-streams/order', { preHandler: canSetup }, async req => {
     const venueId = UUID.parse(req.params.venueId)
     const { ids } = OrderBody.parse(req.body)
     await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       for (const [i, id] of ids.entries()) {
-        await tx`UPDATE pos_revenue_centres SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+        await tx`UPDATE pos_revenue_streams SET sort_order = ${i} WHERE id = ${id} AND tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       }
     })
     configChanged(venueId)
@@ -528,14 +572,14 @@ export default async function posSetupRoutes(app) {
     const out = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       const printers = new Set((await tx`SELECT id FROM pos_printers WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
-      const rcs = new Set((await tx`SELECT id FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
+      const streams = new Set((await tx`SELECT id FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
       const clean = []
       const seen = new Set()
       for (const r of routes) {
         if (!printers.has(r.printer_id)) throw httpError(422, 'Printer not found')
         const target = r.target_kind === 'default' ? null : (r.target_id || null)
-        if (r.target_kind !== 'default' && !target) throw httpError(422, 'A route needs a dish, section or revenue centre')
-        if (r.target_kind === 'revenue_centre' && !rcs.has(target)) throw httpError(422, 'Revenue centre not found')
+        if (r.target_kind !== 'default' && !target) throw httpError(422, 'A route needs a dish, section or revenue stream')
+        if (r.target_kind === 'revenue_stream' && !streams.has(target)) throw httpError(422, 'Revenue stream not found')
         const key = r.printer_id + r.target_kind + target
         if (seen.has(key)) continue
         seen.add(key)
@@ -563,9 +607,9 @@ export default async function posSetupRoutes(app) {
 
   // ── Devices ─────────────────────────────────────────────────────
   async function checkDeviceSettings(tx, tenantId, venueId, s) {
-    if (s.revenue_centre_id) {
-      const [r] = await tx`SELECT id FROM pos_revenue_centres WHERE id = ${s.revenue_centre_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
-      if (!r) throw httpError(422, 'Revenue centre not found')
+    if (s.revenue_stream_id) {
+      const [r] = await tx`SELECT id FROM pos_revenue_streams WHERE id = ${s.revenue_stream_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
+      if (!r) throw httpError(422, 'Revenue stream not found')
     }
     if (s.receipt_printer_id) {
       const [p] = await tx`SELECT id FROM pos_printers WHERE id = ${s.receipt_printer_id} AND tenant_id = ${tenantId} AND venue_id = ${venueId}`
@@ -714,7 +758,8 @@ export default async function posSetupRoutes(app) {
     const out = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       const stations = await tx`SELECT id, name, kind, is_active FROM kds_stations WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
-      const rcs = new Set((await tx`SELECT id FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
+      const streams = new Set((await tx`SELECT id FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`).map(r => r.id))
+      const orderTypes = new Set((await tx`SELECT id FROM order_types WHERE tenant_id = ${req.tenantId}`).map(r => r.id))
       const isUuid = v => typeof v === 'string' && UUID.safeParse(v).success
       const links = body.links.map(l => ({
         from: l.from || null,
@@ -724,9 +769,10 @@ export default async function posSetupRoutes(app) {
           const list = []
           for (const t of l.targets) {
             const target = t.kind === 'default' ? { kind: 'default' } : { kind: t.kind, id: t.id || null }
-            if (t.kind !== 'default' && !target.id) throw httpError(422, 'A link filter needs a dish, section, revenue centre or order type')
-            if (['item', 'section', 'revenue_centre'].includes(t.kind) && !isUuid(target.id)) throw httpError(422, 'A link filter wasn\'t found')
-            if (t.kind === 'revenue_centre' && !rcs.has(target.id)) throw httpError(422, 'Revenue centre not found')
+            if (t.kind !== 'default' && !target.id) throw httpError(422, 'A link filter needs a dish, section, revenue stream or order type')
+            if (t.kind !== 'default' && !isUuid(target.id)) throw httpError(422, 'A link filter wasn\'t found')
+            if (t.kind === 'revenue_stream' && !streams.has(target.id)) throw httpError(422, 'Revenue stream not found')
+            if (t.kind === 'order_type' && !orderTypes.has(target.id)) throw httpError(422, 'Order type not found')
             const key = target.kind + ':' + (target.id || '')
             if (!seen.has(key)) { seen.add(key); list.push(target) }
           }
@@ -848,11 +894,11 @@ export default async function posSetupRoutes(app) {
     const body = AreaBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
-      if (body.revenue_centre_id) await ownRow(tx, 'pos_revenue_centres', req.tenantId, body.revenue_centre_id, 'Revenue centre')
+      if (body.revenue_stream_id) await ownRow(tx, 'pos_revenue_streams', req.tenantId, body.revenue_stream_id, 'Revenue stream')
       const [{ n }] = await tx`SELECT COALESCE(MAX(sort_order), -1)::int + 1 AS n FROM floor_areas WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
       const [a] = await tx`
-        INSERT INTO floor_areas (tenant_id, venue_id, name, width, height, revenue_centre_id, sort_order)
-        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.width}, ${body.height}, ${body.revenue_centre_id ?? null}, ${body.sort_order ?? n})
+        INSERT INTO floor_areas (tenant_id, venue_id, name, width, height, revenue_stream_id, sort_order)
+        VALUES (${req.tenantId}, ${venueId}, ${body.name}, ${body.width}, ${body.height}, ${body.revenue_stream_id ?? null}, ${body.sort_order ?? n})
         RETURNING *`
       return a
     })
@@ -865,11 +911,11 @@ export default async function posSetupRoutes(app) {
     const body = AreaBody.parse(req.body)
     const row = await withTenant(req.tenantId, async tx => {
       const a = await ownRow(tx, 'floor_areas', req.tenantId, id, 'Floor area')
-      if (body.revenue_centre_id) await ownRow(tx, 'pos_revenue_centres', req.tenantId, body.revenue_centre_id, 'Revenue centre')
+      if (body.revenue_stream_id) await ownRow(tx, 'pos_revenue_streams', req.tenantId, body.revenue_stream_id, 'Revenue stream')
       const [out] = await tx`
         UPDATE floor_areas
            SET name = ${body.name}, width = ${body.width}, height = ${body.height},
-               revenue_centre_id = ${body.revenue_centre_id ?? null}, sort_order = ${body.sort_order ?? a.sort_order}
+               revenue_stream_id = ${body.revenue_stream_id ?? null}, sort_order = ${body.sort_order ?? a.sort_order}
          WHERE id = ${id} AND tenant_id = ${req.tenantId}
          RETURNING *`
       return out
@@ -1102,13 +1148,16 @@ export default async function posSetupRoutes(app) {
     return withTenant(req.tenantId, async tx => {
       await ownVenue(tx, req.tenantId, venueId)
       const day = await dayReport(tx, req.tenantId, venueId, dayId)
-      const [staff, rcs] = await Promise.all([
+      const [staff, streams, types, rates] = await Promise.all([
         tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`,
-        tx`SELECT id, name FROM pos_revenue_centres WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`,
+        tx`SELECT id, name FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${venueId}`,
+        tx`SELECT id, name FROM order_types WHERE tenant_id = ${req.tenantId}`,
+        tx`SELECT id, name FROM tax_rates WHERE tenant_id = ${req.tenantId}`,
       ])
+      const names = rows => Object.fromEntries(rows.map(r => [r.id, r.name]))
       return {
         ...day,
-        names: { staff: Object.fromEntries(staff.map(s => [s.id, s.name])), revenue_centres: Object.fromEntries(rcs.map(r => [r.id, r.name])) },
+        names: { staff: names(staff), revenue_streams: names(streams), order_types: names(types), tax_rates: names(rates) },
       }
     })
   })
@@ -1132,11 +1181,12 @@ export default async function posSetupRoutes(app) {
       await ownVenue(tx, req.tenantId, venueId)
       return tx`
         SELECT c.id, c.number, c.order_no, c.mode, c.table_id, t.label AS table_label, c.tab_name, c.covers,
-               c.server_id, s.name AS server_name, c.revenue_centre_id, c.status, c.opened_at, c.closed_at,
+               c.server_id, s.name AS server_name, c.revenue_stream_id, c.order_type_id, o.name AS order_type_name, c.tent, c.status, c.opened_at, c.closed_at,
                c.subtotal, c.discount, c.service_charge, c.total, c.paid, c.tips, c.refunded, c.day_id
           FROM pos_checks c
           LEFT JOIN tables t ON t.id = c.table_id AND t.tenant_id = c.tenant_id
           LEFT JOIN cash_staff s ON s.id = c.server_id AND s.tenant_id = c.tenant_id
+          LEFT JOIN order_types o ON o.id = c.order_type_id AND o.tenant_id = c.tenant_id
          WHERE c.tenant_id = ${req.tenantId} AND c.venue_id = ${venueId}
            ${q.day_id ? tx`AND c.day_id = ${q.day_id}` : tx``}
            ${q.status ? tx`AND c.status = ${q.status}` : tx``}
@@ -1159,7 +1209,16 @@ export default async function posSetupRoutes(app) {
          WHERE e.tenant_id = ${req.tenantId}
            AND (e.check_id = ${id} OR e.payload->>'to_check_id' = ${id} OR e.payload->>'into_check_id' = ${id})
          ORDER BY e.seq`
-      return { check: c.state, events: events.map(e => ({ ...e, seq: Number(e.seq) })) }
+      const [streams, types] = await Promise.all([
+        tx`SELECT id, name FROM pos_revenue_streams WHERE tenant_id = ${req.tenantId} AND venue_id = ${c.venue_id}`,
+        tx`SELECT id, name FROM order_types WHERE tenant_id = ${req.tenantId}`,
+      ])
+      const names = rows => Object.fromEntries(rows.map(r => [r.id, r.name]))
+      return {
+        check: c.state,
+        events: events.map(e => ({ ...e, seq: Number(e.seq) })),
+        names: { revenue_streams: names(streams), order_types: names(types) },
+      }
     })
   })
 

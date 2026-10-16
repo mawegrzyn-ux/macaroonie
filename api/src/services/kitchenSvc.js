@@ -20,7 +20,7 @@
 import { withTenant } from '../config/db.js'
 import { broadcast } from '../config/ws.js'
 import { ulid } from '../../../shared/pos/ids.js'
-import { onlineOrderId, stationSettings, boardNumbers, STALE_HOURS, ORDER_TYPES, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
+import { onlineOrderId, stationSettings, boardNumbers, STALE_HOURS, BUMP_KINDS } from '../../../shared/pos/kitchen.js'
 import { createHash } from 'node:crypto'
 
 const by = (rows, f = r => r) => Object.fromEntries(rows.map(r => [r.id, f(r)]))
@@ -52,12 +52,12 @@ const stationView = s => ({ id: s.id, name: s.name, kind: s.kind, colour: s.colo
 export async function loadKitchenConfig(tx, tenantId, venueId) {
   const stations = await loadStations(tx, tenantId, venueId)
   if (!stations.some(s => BUMP_KINDS.includes(s.kind))) return { enabled: false, stations: {}, flow: [] }
-  const [flow, courses, tables, staff, rcs] = await Promise.all([
+  const [flow, courses, tables, staff, types] = await Promise.all([
     loadFlow(tx, tenantId, venueId, stations),
     tx`SELECT id, name, sort_order FROM pos_courses WHERE tenant_id = ${tenantId}`,
     tx`SELECT id, label FROM tables WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
     tx`SELECT id, name FROM cash_staff WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
-    tx`SELECT id, name, vat_mode FROM pos_revenue_centres WHERE tenant_id = ${tenantId} AND venue_id = ${venueId}`,
+    tx`SELECT id, name FROM order_types WHERE tenant_id = ${tenantId}`,
   ])
   return {
     enabled: true,
@@ -66,7 +66,7 @@ export async function loadKitchenConfig(tx, tenantId, venueId) {
     courses: by(courses, c => ({ name: c.name, sort_order: c.sort_order })),
     tables: by(tables, t => ({ label: t.label })),
     staff: by(staff, s => ({ name: s.name })),
-    revenue_centres: by(rcs, r => ({ name: r.name, vat_mode: r.vat_mode })),
+    order_types: by(types, t => ({ name: t.name })),
   }
 }
 
@@ -78,6 +78,8 @@ export async function kdsConfig(tx, tenantId, venueId) {
      WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`
   const stations = await loadStations(tx, tenantId, venueId)
   const courses = await tx`SELECT id, name, short_name, colour, sort_order FROM pos_courses WHERE tenant_id = ${tenantId} AND is_active ORDER BY sort_order, name`
+  // The tenant's order types (migration 170): the screen's filters and ticket badges.
+  const orderTypes = await tx`SELECT id, name, colour, sort_order FROM order_types WHERE tenant_id = ${tenantId} AND is_active ORDER BY sort_order, name`
   const config = {
     kind: 'kds',
     venue: { id: venue?.id, name: venue?.name, timezone: venue?.timezone || 'Europe/London' },
@@ -91,6 +93,7 @@ export async function kdsConfig(tx, tenantId, venueId) {
     // worked out when they are sent (item.route), not on the screen.
     flow: await loadFlow(tx, tenantId, venueId, stations),
     courses,
+    order_types: orderTypes,
   }
   config.version = createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 16)
   return config
@@ -155,17 +158,22 @@ async function onlineSnapshot(tx, order) {
     const t = new Date(order.promised_at).getTime() - lead * 60000
     if (t > Date.now()) fireAt = new Date(t).toISOString()
   }
+  const [type] = order.order_type_id
+    ? await tx`SELECT id, name FROM order_types WHERE id = ${order.order_type_id} AND tenant_id = ${order.tenant_id}`
+    : []
   return {
     id: onlineOrderId(order.id), order_id: order.id,
     number: String(order.order_number ?? ''),
     guest: firstName(order.guest_name),
-    type: ORDER_TYPES.includes(order.fulfilment) ? order.fulfilment : 'collection',
+    type: type?.id || null,
+    type_name: type ? String(type.name).slice(0, 40) : null,
     promised_at: order.promised_at ? new Date(order.promised_at).toISOString() : null,
     fire_at: fireAt,
     note: order.notes ? String(order.notes).slice(0, 500) : null,
     allergy: order.allergy_note ? String(order.allergy_note).slice(0, 500) : null,
     items: items.map(i => ({
       id: String(i.id), item_id: i.menu_item_id || null, section_id: sectionOf[i.menu_item_id] || null,
+      revenue_stream_id: order.revenue_stream_id || null,
       name: String(i.name).slice(0, 200), qty: Number(i.qty) || 1,
       options: (Array.isArray(i.options) ? i.options : []).map(o => ({ label: String(o.label || '').slice(0, 120), mode: o.mode || null })),
       note: i.note ? String(i.note).slice(0, 300) : null,

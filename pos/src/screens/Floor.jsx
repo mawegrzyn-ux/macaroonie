@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Users, Hourglass, ReceiptText } from 'lucide-react'
 import { useTill, useChecks, toast } from '../lib/store.js'
-import { openCheck, defaultRcId } from '../lib/checkOps.js'
+import { openCheck, defaultStreamId, typeOf } from '../lib/checkOps.js'
 import { checkTotals } from '@shared/pos/pricing.js'
 import { checkLabel, heldCourses } from '@shared/pos/checks.js'
 import { Modal, Keypad, cx, money, elapsed, useTick } from '../components/ui.jsx'
@@ -33,7 +33,7 @@ export default function Floor({ onOpen }) {
   }, [open])
 
   const startTable = (table, covers) => {
-    const r = openCheck({ mode: 'table', table_id: table.id, covers, revenue_centre_id: defaultRcId(config, { areaId: table.floor_area_id }) })
+    const r = openCheck({ mode: 'table', table_id: table.id, covers, revenue_stream_id: defaultStreamId(config, { areaId: table.floor_area_id }) })
     if (!r.ok) return toast(r.error, 'bad')
     setAsk(null)
     onOpen(r.checkId)
@@ -194,7 +194,7 @@ export function CheckRow({ check, config, onClick, active = false }) {
       <div className="flex-1 min-w-0">
         <div className="font-semibold truncate">{table ? 'Table ' + table.label : check.tab_name || (check.order_no != null ? 'Order #' + check.order_no : 'Tab ' + checkLabel(check))}</div>
         <div className="text-xs text-muted truncate">
-          {server?.name || ''}{check.covers ? ' · ' + check.covers + ' covers' : ''} · {elapsed(check.opened_at)}
+          {[typeOf(config, check.order_type_id)?.name, check.tent ? 'Tent ' + check.tent : null, server?.name, check.covers ? check.covers + ' covers' : null, elapsed(check.opened_at)].filter(Boolean).join(' · ')}
           {held ? <span className="text-held font-semibold"> · <Hourglass size={11} className="inline" /> waiting</span> : null}
         </div>
       </div>
@@ -236,7 +236,7 @@ function NewTabModal({ onClose, onOpen }) {
         <input className="input mt-1" autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Smith, bar stool 3" maxLength={80} />
       </label>
       <div className="text-sm text-muted mt-3">A tab is a check without a table: bar tabs, people waiting, collections.</div>
-      {(config.revenue_centres || []).length > 1 && <div className="text-xs text-muted mt-2">It starts in this till's revenue centre; change it on the check.</div>}
+      {(config.revenue_streams || []).length > 1 && <div className="text-xs text-muted mt-2">It starts in this till's revenue stream; change it on the check.</div>}
     </Modal>
   )
 }

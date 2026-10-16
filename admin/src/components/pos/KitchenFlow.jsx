@@ -6,7 +6,7 @@
 //
 // Boxes are Orders in (the till and online orders) and the venue's stations:
 // prep, expo, runner and order ready boards. A link says dishes go on from
-// one box to the next; its filter (dishes, sections, revenue centres, order
+// one box to the next; its filter (dishes, sections, revenue streams, order
 // types) says which dishes take it. From each box a dish takes the links
 // whose filter names it most closely, so a burger can go Prep 1 > Prep 2 >
 // Expo 1 while the fries go Prep 1 > Expo 1.
@@ -24,7 +24,7 @@ import {
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import {
-  flowProblems, flowWarnings, itemRoute, KIND_LABELS, ORDER_TYPES, TYPE_LABELS, START,
+  flowProblems, flowWarnings, itemRoute, KIND_LABELS, START,
 } from '@shared/pos/kitchen.js'
 import { Section, Btn, ErrorNote, ConfirmDelete, inputCls } from './shared'
 
@@ -117,21 +117,22 @@ function useLookups(setup) {
     const menus = Object.fromEntries((setup.menus || []).map(m => [m.id, m]))
     const sections = Object.fromEntries((setup.sections || []).map(s => [s.id, { ...s, menu: menus[s.menu_id]?.name || '' }]))
     const items = Object.fromEntries((setup.items || []).map(i => [i.id, i]))
-    const rcs = Object.fromEntries((setup.revenue_centres || []).map(r => [r.id, r]))
-    return { sections, items, rcs }
-  }, [setup.menus, setup.sections, setup.items, setup.revenue_centres])
+    const streams = Object.fromEntries((setup.revenue_streams || []).map(r => [r.id, r]))
+    const types = Object.fromEntries((setup.order_types || []).map(t => [t.id, t]))
+    return { sections, items, streams, types }
+  }, [setup.menus, setup.sections, setup.items, setup.revenue_streams, setup.order_types])
 }
 
 function targetName(t, lk) {
   switch (t.kind) {
     case 'item': return lk.items[t.id]?.name || 'A removed dish'
     case 'section': return lk.sections[t.id]?.title || 'A removed section'
-    case 'revenue_centre': return lk.rcs[t.id]?.name || 'A removed revenue centre'
-    case 'order_type': return TYPE_LABELS[t.id] || t.id
+    case 'revenue_stream': return lk.streams[t.id]?.name || 'A removed revenue stream'
+    case 'order_type': return lk.types[t.id]?.name || 'A removed order type'
     default: return 'Any dish'
   }
 }
-const KIND_WORD = { item: 'Dish', section: 'Section', revenue_centre: 'Revenue centre', order_type: 'Order type', default: '' }
+const KIND_WORD = { item: 'Dish', section: 'Section', revenue_stream: 'Revenue stream', order_type: 'Order type', default: '' }
 
 function linkSummary(link, lk) {
   if (!link.targets.length) return 'Every dish'
@@ -153,7 +154,7 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
   const [connectFrom, setConnectFrom] = useState(null)
   const [wire, setWire] = useState(null)              // { from, x, y } while dragging a new link
   const [checking, setChecking] = useState(false)
-  const [check, setCheck] = useState({ item_id: '', order_type: 'eat_in', revenue_centre_id: '' })
+  const [check, setCheck] = useState(() => ({ item_id: '', order_type_id: (setup.order_types || []).find(t => t.is_active)?.id || '', revenue_stream_id: '' }))
   const [full, setFull] = useState(false)
   const [saved, setSaved] = useState(null)            // warnings after the last save
   // A flow that has never been laid out arranges itself as links are added,
@@ -279,9 +280,9 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
     const live = Object.fromEntries(stations.filter(s => s.is_active).map(s => [s.id, s]))
     return itemRoute({
       item_id: checkItem.id, section_id: checkItem.section_id,
-      revenue_centre_id: check.revenue_centre_id || null, order_type: check.order_type,
+      revenue_stream_id: check.revenue_stream_id || null, order_type_id: check.order_type_id || null,
     }, { stations: live, flow: draft.links })
-  }, [checking, checkItem, check.order_type, check.revenue_centre_id, stations, draft.links])
+  }, [checking, checkItem, check.order_type_id, check.revenue_stream_id, stations, draft.links])
   const onRoute = (from, to) => !!route?.[to]?.includes(nodeKey(from))
   const inRoute = id => !!route && (id === START ? Object.keys(route).length > 0 : !!route[id])
 
@@ -427,7 +428,7 @@ export default function KitchenFlow({ venueId, setup, canManage, onStation }) {
               ? 'Drag a box by its grip to move it. Drag its dot onto another box (or tap the dot, then the box) to send dishes on to it. Tap a link to choose which dishes take it.'
               : 'Tap a link to see which dishes take it, or a box to see its links.'}</span>
           </p>
-          <p>From each box a dish takes the links that name it most closely: the dish itself, then its section, its revenue centre, its order type, then links for every dish. Links that tie all apply: e.g. from the expo to the board and to a runner at once.</p>
+          <p>From each box a dish takes the links that name it most closely: the dish itself, then its section, its revenue stream, its order type, then links for every dish. Links that tie all apply: e.g. from the expo to the board and to a runner at once.</p>
         </div>
       )}
     </div>
@@ -542,7 +543,8 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, siblings, onChange, onR
     ...(setup.sections || []).filter(s => s.title.toLowerCase().includes(term) && !has('section', s.id)).slice(0, 6).map(s => ({ kind: 'section', id: s.id, label: s.title, sub: lk.sections[s.id]?.menu })),
     ...(setup.items || []).filter(i => i.name.toLowerCase().includes(term) && !has('item', i.id)).slice(0, 8).map(i => ({ kind: 'item', id: i.id, label: i.name, sub: lk.sections[i.section_id]?.title })),
   ] : []
-  const rcs = (setup.revenue_centres || []).filter(r => r.is_active !== false)
+  const streams = (setup.revenue_streams || []).filter(r => r.is_active !== false)
+  const types = (setup.order_types || []).filter(t => t.is_active !== false)
   return (
     <PanelBox title={nameOf(link.from) + ' to ' + nameOf(link.to)} onClose={onClose} testid="flow-link-panel">
       <div>
@@ -568,14 +570,14 @@ function LinkPanel({ link, lk, setup, canManage, nameOf, siblings, onChange, onR
           <div className="space-y-1.5">
             <p className="text-xs font-medium text-muted-foreground">Order type</p>
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Order type">
-              {ORDER_TYPES.map(t => <Chip key={t} on={has('order_type', t)} onClick={() => toggle('order_type', t)}>{TYPE_LABELS[t]}</Chip>)}
+              {types.map(t => <Chip key={t.id} on={has('order_type', t.id)} onClick={() => toggle('order_type', t.id)}>{t.name}</Chip>)}
             </div>
           </div>
-          {rcs.length > 0 && (
+          {streams.length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-xs font-medium text-muted-foreground">Revenue centre</p>
-              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Revenue centre">
-                {rcs.map(r => <Chip key={r.id} on={has('revenue_centre', r.id)} onClick={() => toggle('revenue_centre', r.id)}>{r.name}</Chip>)}
+              <p className="text-xs font-medium text-muted-foreground">Revenue stream</p>
+              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Revenue stream">
+                {streams.map(r => <Chip key={r.id} on={has('revenue_stream', r.id)} onClick={() => toggle('revenue_stream', r.id)}>{r.name}</Chip>)}
               </div>
             </div>
           )}
@@ -687,13 +689,15 @@ function CheckPanel({ setup, lk, check, setCheck, route, nameOf, onClose }) {
         </div>
       )}
       <div className="flex flex-wrap gap-1.5" role="group" aria-label="Order type">
-        {ORDER_TYPES.map(t => <Chip key={t} on={check.order_type === t} onClick={() => setCheck(c => ({ ...c, order_type: t }))}>{TYPE_LABELS[t]}</Chip>)}
+        {(setup.order_types || []).filter(t => t.is_active !== false).map(t => (
+          <Chip key={t.id} on={check.order_type_id === t.id} onClick={() => setCheck(c => ({ ...c, order_type_id: t.id }))}>{t.name}</Chip>
+        ))}
       </div>
-      {(setup.revenue_centres || []).length > 0 && (
-        <select value={check.revenue_centre_id} onChange={e => setCheck(c => ({ ...c, revenue_centre_id: e.target.value }))}
-          className={inputCls} aria-label="Revenue centre">
-          <option value="">Any revenue centre</option>
-          {setup.revenue_centres.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+      {(setup.revenue_streams || []).length > 0 && (
+        <select value={check.revenue_stream_id} onChange={e => setCheck(c => ({ ...c, revenue_stream_id: e.target.value }))}
+          className={inputCls} aria-label="Revenue stream">
+          <option value="">Any revenue stream</option>
+          {setup.revenue_streams.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       )}
       {item && route && (

@@ -24,6 +24,8 @@ import { withTenant } from '../config/db.js'
 import { requireAuth, requirePermission } from '../middleware/auth.js'
 import { httpError }  from '../middleware/error.js'
 import { loadMenuVersions } from '../services/menuReleases.js'
+import { ensureTaxDefaults, loadTaxRates, loadOrderTypes, saleContext } from '../services/taxSvc.js'
+import { taxFor } from '../../../shared/tax.js'
 import {
   parseCsv, readSheet, defaultMaps, defaultFill, FIELD_KEYS,
 } from '../../../shared/deliveroo.js'
@@ -47,6 +49,9 @@ const SettingsBody = z.object({
   dietary_map:         z.record(z.string().max(60), CodeList).default({}),
   include_may_contain: z.boolean().default(true),
   include_removable:   z.boolean().default(true),
+  // The sale the file's tax is for (migration 170): Delivery by default.
+  order_type_id:       UUID.nullable().optional(),
+  revenue_stream_id:   UUID.nullable().optional(),
 })
 
 const Cell = z.string().max(20000)
@@ -100,7 +105,7 @@ export function readFile(buf, fileName = '', { from = 'Deliveroo' } = {}) {
 }
 
 /** Settings row (or defaults) with maps filled for every tag. */
-function settingsView(row, tags, venueVat) {
+function settingsView(row, tags, orderTypes) {
   const maps = defaultMaps(tags)
   const s = row || {}
   return {
@@ -114,7 +119,9 @@ function settingsView(row, tags, venueVat) {
     dietary_map:         { ...maps.dietary, ...(s.dietary_map || {}) },
     include_may_contain: s.include_may_contain ?? true,
     include_removable:   s.include_removable ?? true,
-    default_vat_takeaway: venueVat,
+    // No type picked yet: the one named Delivery, else none (the default rate).
+    order_type_id:       s.order_type_id || orderTypes.find(t => t.is_active && /^delivery$/i.test(t.name))?.id || null,
+    revenue_stream_id:   s.revenue_stream_id || null,
     updated_at:          s.updated_at || null,
     updated_by:          s.updated_by || null,
   }
@@ -122,11 +129,13 @@ function settingsView(row, tags, venueVat) {
 
 /**
  * Dishes from the live versions of the given menus (migration 165), with
- * codes, levels, options and their takeaway VAT. A menu never published
- * gives no dishes: Deliveroo gets what guests see, not the draft.
+ * codes, levels, options and their VAT for the settings' order type and
+ * revenue stream (shared/tax.js). A menu never published gives no dishes:
+ * Deliveroo gets what guests see, not the draft.
  */
-async function loadDishes(tx, tenantId, menuIds) {
+async function loadDishes(tx, tenantId, menuIds, ctx) {
   if (!menuIds.length) return []
+  const rates = await loadTaxRates(tx, tenantId)
   const menus = await loadMenuVersions(tx, tenantId, { menuIds })
   menus.sort((a, b) => menuIds.indexOf(a.id) - menuIds.indexOf(b.id))
   const out = []
@@ -134,11 +143,11 @@ async function loadDishes(tx, tenantId, menuIds) {
     for (const s of m.sections || []) {
       const items = [...(s.items || [])].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name).localeCompare(String(b.name)))
       for (const i of items) {
-        const vat = i.vat_rate_takeaway ?? s.vat_rate_takeaway
+        const tax = taxFor([i.tax, s.tax, m.tax], ctx, rates)
         out.push({
           id: i.id, name: i.name, native_name: i.native_name ?? null, kitchen_name: i.kitchen_name ?? null,
           description: i.description ?? null, price_pence: i.price_pence ?? null, calories: i.calories ?? null,
-          kind: i.kind || 'dish', vat_takeaway: vat != null ? Number(vat) : null,
+          kind: i.kind || 'dish', vat: tax.vat_rate, vat_name: tax.name,
           section_title: s.title, section_visibility: s.visibility || 'show',
           menu_id: m.id, menu_name: m.name,
           variants: (i.variants || []).map(v => ({ label: v.label, price_pence: v.price_pence })),
@@ -154,7 +163,8 @@ async function loadDishes(tx, tenantId, menuIds) {
 
 async function loadSetup(tx, tenantId, venueId) {
   const venue = await ownVenue(tx, tenantId, venueId)
-  const [[row], tags, menus, links, [ordering]] = await Promise.all([
+  await ensureTaxDefaults(tx, tenantId)
+  const [[row], tags, menus, links, orderTypes, streams] = await Promise.all([
     tx`SELECT * FROM deliveroo_settings WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`,
     tx`SELECT id, code, label, kind, standard_key, sort_order FROM menu_dietary_tags
         WHERE tenant_id = ${tenantId} ORDER BY kind = 'allergen' DESC, sort_order, label`,
@@ -163,10 +173,10 @@ async function loadSetup(tx, tenantId, venueId) {
         ORDER BY sort_order, name`,
     tx`SELECT deliveroo_item_id, deliveroo_name, menu_item_id, skip, keep, overrides, updated_at, updated_by
          FROM deliveroo_item_links WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`,
-    tx`SELECT default_vat_rate_takeaway::float8 AS vat FROM ordering_settings
-        WHERE venue_id = ${venueId} AND tenant_id = ${tenantId}`,
+    loadOrderTypes(tx, tenantId),
+    tx`SELECT id, name FROM pos_revenue_streams WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND is_active ORDER BY sort_order, name`,
   ])
-  const settings = settingsView(row, tags, ordering?.vat ?? 20)
+  const settings = settingsView(row, tags, orderTypes)
   // Which menus have a live version, and is it shown to guests (the
   // default when none are picked follows the live setting, not the draft).
   const live = await loadMenuVersions(tx, tenantId, { menuIds: menus.map(m => m.id) })
@@ -178,8 +188,8 @@ async function loadSetup(tx, tenantId, venueId) {
   const known = new Set(menus.map(m => m.id))
   const chosen = settings.menu_ids.filter(id => known.has(id))
   const menuIds = chosen.length ? chosen : menus.filter(m => m.live_published).map(m => m.id)
-  const dishes = await loadDishes(tx, tenantId, menuIds)
-  return { venue, settings, tags, menus, menu_ids_used: menuIds, dishes, links }
+  const dishes = await loadDishes(tx, tenantId, menuIds, saleContext(venueId, settings.order_type_id, settings.revenue_stream_id))
+  return { venue, settings, tags, menus, menu_ids_used: menuIds, dishes, links, order_types: orderTypes, revenue_streams: streams }
 }
 
 export default async function deliverooRoutes(app) {
@@ -215,19 +225,30 @@ export default async function deliverooRoutes(app) {
         const own = await tx`SELECT id FROM menus WHERE tenant_id = ${req.tenantId} AND id = ANY(${b.menu_ids}::uuid[])`
         if (own.length !== new Set(b.menu_ids).size) throw httpError(422, 'A chosen menu wasn\'t found')
       }
+      if (b.order_type_id) {
+        const [t] = await tx`SELECT id FROM order_types WHERE id = ${b.order_type_id} AND tenant_id = ${req.tenantId}`
+        if (!t) throw httpError(422, 'Order type not found')
+      }
+      if (b.revenue_stream_id) {
+        const [rs] = await tx`SELECT id FROM pos_revenue_streams WHERE id = ${b.revenue_stream_id} AND tenant_id = ${req.tenantId} AND venue_id = ${venueId}`
+        if (!rs) throw httpError(422, 'Revenue stream not found')
+      }
       await tx`
         INSERT INTO deliveroo_settings
           (venue_id, tenant_id, menu_ids, price_uplift_pct, price_round_pence, price_round_mode,
-           fill, allergen_map, dietary_map, include_may_contain, include_removable, updated_by, updated_at)
+           fill, allergen_map, dietary_map, include_may_contain, include_removable, order_type_id, revenue_stream_id,
+           updated_by, updated_at)
         VALUES
           (${venueId}, ${req.tenantId}, ${b.menu_ids}::uuid[], ${b.price_uplift_pct}, ${b.price_round_pence}, ${b.price_round_mode},
            ${tx.json(fill)}, ${tx.json(b.allergen_map)}, ${tx.json(b.dietary_map)}, ${b.include_may_contain}, ${b.include_removable},
+           ${b.order_type_id ?? null}, ${b.revenue_stream_id ?? null},
            ${by(req)}, now())
         ON CONFLICT (venue_id) DO UPDATE SET
           menu_ids = EXCLUDED.menu_ids, price_uplift_pct = EXCLUDED.price_uplift_pct,
           price_round_pence = EXCLUDED.price_round_pence, price_round_mode = EXCLUDED.price_round_mode,
           fill = EXCLUDED.fill, allergen_map = EXCLUDED.allergen_map, dietary_map = EXCLUDED.dietary_map,
           include_may_contain = EXCLUDED.include_may_contain, include_removable = EXCLUDED.include_removable,
+          order_type_id = EXCLUDED.order_type_id, revenue_stream_id = EXCLUDED.revenue_stream_id,
           updated_by = EXCLUDED.updated_by, updated_at = now()
          WHERE deliveroo_settings.tenant_id = ${req.tenantId}
       `

@@ -38,7 +38,7 @@ table service first, counter mode later. This file is the design; CLAUDE.md link
 ```
 
 - **Cloud** (the existing API): system of record for config (menus, tables, staff, printers,
-  revenue centres, POS roles), the device registry, the full event archive, reports, and the
+  revenue streams, order types, tax rates, POS roles), the device registry, the full event archive, reports, and the
   Cash Recon feed.
 - **Hub**: Node 22 + SQLite in each venue (`hub/` in this repo). Holds a snapshot of the
   venue's config and the live event log, sequences events, pushes them to terminals over a
@@ -113,7 +113,7 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
   clone accepts it). Code page WPC1252 (`ESC t 16`) so £ prints.
 - The ticket is built in `shared/pos/tickets.js` as a list of print operations, so the same
   ticket can be previewed in admin; `hub/src/escpos.js` turns it into bytes.
-- **Routing**: dish → section → revenue centre → venue default. Station printers (Kitchen,
+- **Routing**: dish → section → revenue stream → venue default. Station printers (Kitchen,
   Bar, Pass), a receipt printer per terminal, a backup printer per printer.
 - Queue per printer with retries; status check so terminals see "printer offline / out of
   paper"; reprint.
@@ -142,9 +142,9 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
 | Table | Holds |
 |---|---|
 | `pos_devices` | terminals and hubs: venue, kind, name, secret hash, last seen, app version, revoked |
-| `pos_revenue_centres` | venue, name (Bar / Restaurant / Takeaway), VAT mode (eat_in / takeaway), menu, receipt header, sort |
+| `pos_revenue_streams` | venue, name (Restaurant / Bar / Kiosk), menus, service charge, the order types it offers with their prompts, default order type, sort (was `pos_revenue_centres` with a VAT mode; migration 170, section 8.1) |
 | `pos_printers` | venue, name, IP, port, columns, kind (receipt / station), backup printer |
-| `pos_print_routes` | dish or section (optionally per revenue centre) → printer |
+| `pos_print_routes` | dish, section or revenue stream → printer |
 | `pos_roles` | permissions and limits per staff role |
 | `cash_staff` + | `pin_hash`, `pos_role_id` |
 | `floor_areas` | venue, name, size, sort |
@@ -162,7 +162,7 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
 ## 4. What we reuse
 
 - **Menus**: sections, dishes, option groups (`price_mode`, `min_select` / `max_select`),
-  takeaway / eat-in VAT and `vatRateFor()`, allergens, the sold-out list.
+  tax settings (`shared/tax.js`, section 8.1), allergens, the sold-out list.
 - **Promotions engine** (`shared/promotions.js`) for automated discounts.
 - **Tables, sections, combinations** from bookings.
 - **Staff and roles** from the rota.
@@ -176,8 +176,9 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
 
 ## 5. UK specifics
 
-- VAT: eat-in vs takeaway follows the revenue centre, then dish / section / venue rates. The
-  receipt shows the VAT number and a VAT breakdown.
+- VAT: a dish's rate comes from its tax setting (dish, then section, then menu, then the
+  tenant's default rate), with exceptions per order type (eat in vs take out), location and
+  revenue stream (section 8.1). The receipt shows the VAT number and a VAT breakdown.
 - Tips and service charge: the Employment (Allocation of Tips) Act 2023 needs fair
   allocation and records; POS tips and service charge feed Cash Recon SC sources, then the
   rota's tip pots.
@@ -195,7 +196,7 @@ First event types: `check.opened`, `check.covers_set`, `check.table_moved`,
 | 2 | Table-service MVP: floor designer and floor view, open table, order entry, send / hold / fire, kitchen tickets, pre-bill, pay (cash + external card), receipt, delete / void, X/Z, Cash Recon feed. | XL |
 | 3 | Check operations: split, merge, transfer, tabs, reopen, refunds. | L |
 | 4 | Discounts: manual and automated, comps, service charge, limits; void and discount reports. | M |
-| 5 | Counter mode: quick-service screen, order numbers, takeaway revenue centre, combos. | M |
+| 5 | Counter mode: quick-service screen, order numbers, order types (Take out), combos. | M |
 | 6 | Integrations: card terminals, online orders into the POS and kitchen, bookings on the floor plan, KDS. | XL |
 | 7 | Till layout designer. | M |
 
@@ -270,6 +271,34 @@ Still to do: Trials 1-3 on real hardware, the hub service, card terminal adapter
 till layout designer (Phase 7), online orders into the till, bookings on the floor plan.
 Kitchen screens: section 9.
 
+### 8.1 Tax rates, order types and revenue streams (migration 170, 16 Oct 2026)
+
+The user's design: a **revenue stream** (the old revenue centre) is a till grouping for
+recognising revenue by place and/or device and doesn't decide tax; **order types** (Eat in,
+Take out, Delivery, Collection, then the tenant's own list) decide how tickets behave; tax is
+set per menu with overrides by section and by dish, as rates from a tenant list of **tax
+rates** with values per location, plus overrides per revenue stream. Choices made with the
+user: a rate can differ per order type (an exception on the setting); one tenant list of rates
+with a % per location; the tenant's own list of order types; used everywhere (till, online
+ordering, the Deliveroo file, Cash Recon fill through the Z, reports).
+
+- **Rule**: `shared/tax.js` `taxFor([dish, section, menu], { venue_id, order_type_id,
+  revenue_stream_id }, rates)`. Level first (the dish's setting wins over its section's, the
+  section's over its menu's, then the default rate); within a setting the most specific
+  matching exception (stream 4, type 2, venue 1; added up) wins, else its own rate. Clashing
+  exceptions of the same weight are refused on save (`taxProblems()`).
+- **Till**: the config carries each item's levels, the rates (values for the venue) and the
+  streams with their order types and prompts. Each line stores `vat_rate` and `tax_rate_id`.
+  `check.order_type_set` / `check.stream_set` carry the re-rated lines, so a type changed
+  offline is applied with the rates the till showed. `check.tent_set` sets the tent number.
+  Name and tent can be required per stream and type: the till asks at counter start, Send and
+  Pay.
+- **Kitchen**: kitchen orders carry `type` (the order type id), `type_name` and `tent`; flow
+  links filter on the tenant's types; the kitchen screen's tabs are the tenant's types.
+- **Reports**: day figures by revenue stream and by order type; the Z prints both.
+- Not built: tax-inclusive vs exclusive pricing per location (all prices include VAT); a rate
+  change on a date (change the % on the day, or publish a menu with another rate).
+
 ---
 
 ## 9. Kitchen screens (KDS)
@@ -309,8 +338,8 @@ Chrome, as an installed PWA.
 - **The kitchen flow** (migration 169, 16 Oct 2026) replaced printer-style routing. Stations are
   prep, expo, runner or order ready board; links go from Orders in (the till and online orders)
   to stations and on from station to station, each with an optional filter (dishes, sections,
-  revenue centres, order types). From each point a dish takes the links that name it most closely
-  (dish, section, revenue centre, order type, then links for every dish), so a burger bun goes
+  revenue streams, order types). From each point a dish takes the links that name it most closely
+  (dish, section, revenue stream, order type, then links for every dish), so a burger bun goes
   Prep 1 > Prep 2 (meat) > Expo 1 while the fries go Prep 1 > Expo 1, Prep 3's dishes go to
   Expo 2, and ORB 1 shows an order ready once both expos are done. Links that tie all apply:
   an expo can send to a board and a runner at once, or to a runner that then sends to the board.
@@ -364,8 +393,6 @@ nothing changes for the devices.
 - Ready / bumped shown on the till (the till doesn't show what the kitchen has done).
 - Item-level cook times and "start this now" timing across stations (all dishes of an order
   start together; held courses and later online orders wait).
-- Flow filters by order type use the fixed types (eat in, takeaway, collection, delivery); the
-  planned configurable order types (with revenue streams) will need the filters to name them.
 - No "split one dish into two jobs" (e.g. the burger's bun and meat as separate items on two
   stations at once): a dish moves through stations one after another, or a meal deal's parts go
   their own ways.

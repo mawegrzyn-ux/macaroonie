@@ -45,8 +45,8 @@ function Card({ title, children, actions }) {
 function Rows({ rows }) {
   return (
     <dl className="divide-y text-sm">
-      {rows.filter(Boolean).map(([k, v, strong]) => (
-        <div key={k} className={cn('flex justify-between gap-3 py-1.5', strong && 'font-semibold')}>
+      {rows.filter(Boolean).map(([k, v, strong], i) => (
+        <div key={i} className={cn('flex justify-between gap-3 py-1.5', strong && 'font-semibold')}>
           <dt className="text-muted-foreground">{k}</dt><dd className="tabular-nums text-right">{v}</dd>
         </div>
       ))}
@@ -71,7 +71,8 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
   if (error) return <ErrorNote error={error} />
   const f = day.figures
   const staffName = id => day.names.staff[id] || 'Unknown'
-  const rcName = id => day.names.revenue_centres[id] || 'No revenue centre'
+  const streamName = id => day.names.revenue_streams[id] || 'No revenue stream'
+  const typeName = id => day.names.order_types[id] || 'No order type'
   const diff = day.declared_cash != null ? day.declared_cash - f.cash_expected : null
   return (
     <div className="space-y-4">
@@ -108,8 +109,11 @@ function DayDetail({ venueId, dayId, onBack, onShowChecks }) {
             diff != null ? ['Difference', (diff > 0 ? '+' : '') + money(diff), true] : null,
           ]} />
         </Card>
-        <Card title="Revenue centres">
-          <Rows rows={f.revenue_centres.length ? f.revenue_centres.map(r => [rcName(r.id), money(r.net)]) : [['None yet', '']]} />
+        <Card title="Revenue streams">
+          <Rows rows={f.revenue_streams.length ? f.revenue_streams.map(r => [streamName(r.id), money(r.net)]) : [['None yet', '']]} />
+        </Card>
+        <Card title="Order types">
+          <Rows rows={f.order_types.length ? f.order_types.map(r => [typeName(r.id) + ' (' + r.checks + ')', money(r.net)]) : [['None yet', '']]} />
         </Card>
         <Card title="VAT">
           <Rows rows={f.vat.length ? f.vat.map(v => [v.rate + '% on ' + money(v.net), money(v.vat)]) : [['None yet', '']]} />
@@ -215,7 +219,7 @@ function DaysTab({ venueId, onShowChecks }) {
 
 // ── Checks ───────────────────────────────────────────────────────
 
-function eventText(e, lines, names) {
+function eventText(e, lines, names, lookups = {}) {
   const p = e.payload || {}
   const lineName = id => lines[id]?.name || 'an item'
   switch (e.type) {
@@ -223,7 +227,9 @@ function eventText(e, lines, names) {
     case 'check.covers_set': return 'Covers set to ' + p.covers
     case 'check.table_moved': return 'Moved to another table'
     case 'check.server_changed': return 'Given to ' + (names[p.server_id] || 'someone else')
-    case 'check.rc_set': return 'Revenue centre changed'
+    case 'check.stream_set': return 'Revenue stream changed to ' + (lookups.revenue_streams?.[p.revenue_stream_id] || 'another')
+    case 'check.order_type_set': return 'Order type ' + (lookups.order_types?.[p.order_type_id] || 'changed') + (p.tab_name ? ', name ' + p.tab_name : '') + (p.tent ? ', tent ' + p.tent : '')
+    case 'check.tent_set': return p.tent ? 'Tent ' + p.tent : 'Tent number removed'
     case 'check.renamed': return 'Renamed ' + (p.tab_name || '(no name)')
     case 'check.note_set': return 'Note: ' + (p.note || '(removed)')
     case 'line.added': return 'Added ' + p.line.qty + ' × ' + p.line.name + ' ' + money(p.line.unit_price * p.line.qty)
@@ -263,6 +269,14 @@ function CheckDetail({ checkId, onBack, staffNames }) {
         <Btn onClick={onBack}><ChevronLeft className="w-4 h-4" /> Checks</Btn>
         <h2 className="text-base font-semibold flex-1">Check {c.order_no != null ? '#' + c.order_no : c.number} · {c.status}</h2>
       </div>
+      <p className="text-sm text-muted-foreground" data-testid="check-details">
+        {[
+          data.names.order_types[c.order_type_id] || 'No order type',
+          c.tab_name && 'name ' + c.tab_name,
+          c.tent && 'tent ' + c.tent,
+          data.names.revenue_streams[c.revenue_stream_id] || 'no revenue stream',
+        ].filter(Boolean).join(' · ')}
+      </p>
       <div className="grid md:grid-cols-2 gap-4 items-start">
         <Card title="Items">
           <ul className="divide-y text-sm">
@@ -293,7 +307,7 @@ function CheckDetail({ checkId, onBack, staffNames }) {
               <li key={e.id} className="flex gap-3">
                 <span className="text-xs text-muted-foreground tabular-nums w-12 shrink-0 pt-0.5">{time(e.client_at || e.created_at)}</span>
                 <span className="flex-1">
-                  {eventText(e, lines, staffNames)}
+                  {eventText(e, lines, staffNames, data.names)}
                   <span className="block text-xs text-muted-foreground">{e.staff_name || 'Unknown'}{e.approver_name ? ', approved by ' + e.approver_name : ''}</span>
                 </span>
               </li>
@@ -342,7 +356,9 @@ function ChecksTab({ venueId, dayId, setDayId }) {
                 <span className="w-14 text-sm font-semibold tabular-nums">{c.order_no != null ? '#' + c.order_no : c.number}</span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-sm truncate">{c.table_label ? 'Table ' + c.table_label : c.tab_name || (c.mode === 'counter' ? 'Counter' : 'Tab')}</span>
-                  <span className="block text-xs text-muted-foreground truncate">{c.server_name || ''} · {time(c.opened_at)}{c.closed_at ? '–' + time(c.closed_at) : ''}</span>
+                  <span className="block text-xs text-muted-foreground truncate">
+                    {[c.order_type_name, c.tent && 'tent ' + c.tent, c.server_name].filter(Boolean).join(' · ')} · {time(c.opened_at)}{c.closed_at ? '–' + time(c.closed_at) : ''}
+                  </span>
                 </span>
                 <span className={cn('text-xs rounded-full px-2 py-0.5 border', c.status === 'open' ? 'text-blue-700 border-blue-300 bg-blue-50' : c.status === 'closed' ? 'text-muted-foreground' : 'text-amber-700 border-amber-300 bg-amber-50')}>{c.status}</span>
                 <span className="w-20 text-right text-sm tabular-nums">{money(c.total)}</span>

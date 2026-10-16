@@ -55,7 +55,6 @@ const Name = z.string().min(1).max(200)
 const Price = z.number().min(0).max(10000).describe('Pounds, e.g. 12.5')
 const Level = z.enum(['contains', 'may_contain', 'removable'])
 const Visibility = z.enum(['show', 'website_hidden', 'hidden'])
-const Vat = z.number().min(0).max(100).nullable()
 
 const AllergenIn = z.union([
   z.string().min(1).max(60),
@@ -399,7 +398,7 @@ function newItem(name) {
     id: randomUUID(), kind: 'dish', kitchen_name: null, pos_course_id: null, pos_colour: null, combo: null,
     name: name.trim(), native_name: null, description: null, price_pence: null, calories: null, notes: null,
     is_featured: false, image_url: null, sort_order: 0, is_orderable: true,
-    vat_rate_takeaway: null, vat_rate_eat_in: null, min_order_qty: null,
+    tax: { rate: null, rules: [] }, min_order_qty: null,
     variants: [], variant_groups: [], dietary: [], allergen_levels: {},
   }
 }
@@ -407,7 +406,7 @@ function newItem(name) {
 function newSection(title, subtitle) {
   return {
     id: randomUUID(), title: title.trim(), subtitle: subtitle || null, highlight: false, image_url: null, sort_order: 0,
-    print_break_before: 'none', print_keep_together: false, vat_rate_takeaway: null, vat_rate_eat_in: null,
+    print_break_before: 'none', print_keep_together: false, tax: { rate: null, rules: [] },
     visibility: 'show', pos_course_id: null, pos_colour: null, items: [],
   }
 }
@@ -1006,16 +1005,16 @@ export const menuTools = [
     title: 'Change a section',
     description:
       'Renames a section or changes its subtitle, where it shows (show = everywhere; website_hidden = printed menus ' +
-      'only; hidden = nowhere), its VAT rates (used for dishes without their own), or moves it (position first/last, ' +
-      'or after_section). New sections are made with add_dishes.',
+      'only; hidden = nowhere), its tax rate (by name, e.g. Standard or Zero; used for dishes without their own; ' +
+      'exceptions for order types are set on the Menus page), or moves it (position first/last, or after_section). ' +
+      'New sections are made with add_dishes.',
     input: z.object({
       menu:          z.string().min(1).max(200),
       section:       z.string().min(1).max(120),
       title:         z.string().min(1).max(120).optional(),
       subtitle:      z.string().max(120).nullable().optional(),
       visibility:    Visibility.optional(),
-      vat_takeaway:  Vat.optional().describe('% for collection and delivery; null = the venue default'),
-      vat_eat_in:    Vat.optional().describe('% for eating in; null = the venue default'),
+      tax_rate:      z.string().max(60).nullable().optional().describe('A tax rate by name (Menus > Tax rates); null = the menu\'s'),
       position:      z.enum(['first', 'last']).optional(),
       after_section: z.string().max(120).optional(),
     }),
@@ -1392,14 +1391,16 @@ async function planUpdateSection(ctx, input) {
     lines.push('Shows: ' + VIS_TEXT[sec.visibility] + ' → ' + VIS_TEXT[input.visibility])
     sec.visibility = input.visibility
   }
-  const vat = v => (v == null ? 'venue default' : v + '%')
-  if (input.vat_takeaway !== undefined && input.vat_takeaway !== sec.vat_rate_takeaway) {
-    lines.push('VAT collection / delivery: ' + vat(sec.vat_rate_takeaway) + ' → ' + vat(input.vat_takeaway))
-    sec.vat_rate_takeaway = input.vat_takeaway
-  }
-  if (input.vat_eat_in !== undefined && input.vat_eat_in !== sec.vat_rate_eat_in) {
-    lines.push('VAT eat in: ' + vat(sec.vat_rate_eat_in) + ' → ' + vat(input.vat_eat_in))
-    sec.vat_rate_eat_in = input.vat_eat_in
+  if (input.tax_rate !== undefined) {
+    const { rates } = await callApi(ctx, 'GET', '/api/tax-rates')
+    const active = rates.filter(r => r.is_active)
+    const rate = input.tax_rate == null ? null : pickByName(active, input.tax_rate, r => r.name, 'tax rate')
+    const tax = { rate: sec.tax?.rate ?? null, rules: sec.tax?.rules || [] }
+    if ((rate?.id ?? null) !== tax.rate) {
+      const label = id => (id ? (rates.find(r => r.id === id)?.name || 'a removed rate') + ' ' + (rates.find(r => r.id === id)?.rate ?? '') + '%' : 'the menu\'s rate')
+      lines.push('Tax: ' + label(tax.rate) + ' → ' + label(rate?.id ?? null))
+      sec.tax = { ...tax, rate: rate?.id ?? null }
+    }
   }
   if (input.position || input.after_section) {
     const old = body.sections.indexOf(sec)

@@ -43,7 +43,7 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
   const [form, setForm] = useState({
     name: device?.name || '',
     mode: s.mode || 'table',
-    revenue_centre_id: s.revenue_centre_id || '',
+    revenue_stream_id: s.revenue_stream_id || '',
     floor_area_id: s.floor_area_id || '',
     receipt_printer_id: s.receipt_printer_id || '',
   })
@@ -52,7 +52,7 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
     name: form.name.trim(),
     settings: {
       mode: form.mode,
-      revenue_centre_id: form.revenue_centre_id || null,
+      revenue_stream_id: form.revenue_stream_id || null,
       floor_area_id: form.mode === 'table' ? (form.floor_area_id || null) : null,
       receipt_printer_id: form.receipt_printer_id || null,
     },
@@ -87,10 +87,10 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
       <Field group label="Opens in">
         <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} />
       </Field>
-      <Field label="Revenue centre" hint="Where its sales go unless staff pick another on the check.">
-        <select className={inputCls} value={form.revenue_centre_id} onChange={e => set({ revenue_centre_id: e.target.value })}>
+      <Field label="Revenue stream" hint="Where its sales are counted unless staff pick another on the check. It also decides the order types the till offers.">
+        <select className={inputCls} value={form.revenue_stream_id} onChange={e => set({ revenue_stream_id: e.target.value })}>
           <option value="">First one in the list</option>
-          {setup.revenue_centres.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          {setup.revenue_streams.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </Field>
       {form.mode === 'table' && (
@@ -130,7 +130,7 @@ export default function TillsSection({ venueId, setup }) {
     mutationFn: id => api.post(`/pos/devices/${id}/pairing-code`, {}),
     onSuccess: out => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setPairing(out) },
   })
-  const rcName = id => setup.revenue_centres.find(r => r.id === id)?.name
+  const rcName = id => setup.revenue_streams.find(r => r.id === id)?.name
   // Kitchen screens are listed on their own tab (KitchenSection).
   const live = setup.devices.filter(d => !d.revoked_at && d.kind !== 'kds')
   const removed = setup.devices.filter(d => d.revoked_at && d.kind !== 'kds')
@@ -155,7 +155,7 @@ export default function TillsSection({ venueId, setup }) {
                   <p className="text-sm font-medium">{d.name}</p>
                   <p className="text-xs text-muted-foreground">
                     {d.settings?.mode === 'counter' ? 'Counter' : 'Table service'}
-                    {rcName(d.settings?.revenue_centre_id) ? ' · ' + rcName(d.settings.revenue_centre_id) : ''}
+                    {rcName(d.settings?.revenue_stream_id) ? ' · ' + rcName(d.settings.revenue_stream_id) : ''}
                   </p>
                   <p className={cn('text-xs', st.tone === 'ok' ? 'text-green-700' : st.tone === 'warn' ? 'text-amber-700' : 'text-muted-foreground')}>{st.text}</p>
                 </div>

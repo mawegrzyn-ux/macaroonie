@@ -32,8 +32,6 @@ function useSave(venueId) {
 function fromSettings(s) {
   return {
     day_starts_at: String(s.day_starts_at || '04:00').slice(0, 5),
-    default_vat_rate_eat_in: s.default_vat_rate_eat_in,
-    default_vat_rate_takeaway: s.default_vat_rate_takeaway,
     vat_number: s.vat_number || '',
     receipt_name: s.receipt_name || '',
     receipt_address: (s.receipt_address || []).join('\n'),
@@ -45,7 +43,6 @@ function fromSettings(s) {
     require_covers: !!s.require_covers,
     order_no_start: s.order_no_start,
     auto_logout_secs: s.auto_logout_secs,
-    counter_revenue_centre_id: s.counter_revenue_centre_id || '',
   }
 }
 
@@ -61,8 +58,6 @@ export function ReceiptSettingsSection({ venueId, setup }) {
   function submit() {
     save.mutate({
       day_starts_at: form.day_starts_at,
-      default_vat_rate_eat_in: Number(form.default_vat_rate_eat_in) || 0,
-      default_vat_rate_takeaway: Number(form.default_vat_rate_takeaway) || 0,
       vat_number: form.vat_number.trim() || null,
       receipt_name: form.receipt_name.trim() || null,
       receipt_address: form.receipt_address.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 6),
@@ -74,7 +69,6 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       require_covers: form.require_covers,
       order_no_start: form.order_no_start || 1,
       auto_logout_secs: form.auto_logout_secs,
-      counter_revenue_centre_id: form.counter_revenue_centre_id || null,
     })
   }
   return (
@@ -88,13 +82,7 @@ export function ReceiptSettingsSection({ venueId, setup }) {
         </Field>
       </div>
       <div className="flex flex-wrap gap-4">
-        <Field label="VAT eat in (%)" hint="When a dish and its section have no rate.">
-          <NumberBox value={form.default_vat_rate_eat_in} decimals={2} max={100} onChange={v => set({ default_vat_rate_eat_in: v ?? 0 })} ariaLabel="VAT eat in" />
-        </Field>
-        <Field label="VAT takeaway (%)">
-          <NumberBox value={form.default_vat_rate_takeaway} decimals={2} max={100} onChange={v => set({ default_vat_rate_takeaway: v ?? 0 })} ariaLabel="VAT takeaway" />
-        </Field>
-        <Field label="VAT number" hint="Printed on receipts.">
+        <Field label="VAT number" hint="Printed on receipts. Tax rates are set on Menus, Tax rates.">
           <input className={cn(inputCls, 'w-48')} value={form.vat_number} maxLength={40} onChange={e => set({ vat_number: e.target.value })} />
         </Field>
       </div>
@@ -132,17 +120,9 @@ export function ReceiptSettingsSection({ venueId, setup }) {
       </div>
       <Toggle label="Ask for a tip when paying" checked={form.tips_enabled} onChange={v => set({ tips_enabled: v })} />
       <Toggle label="Ask for covers when opening a table" checked={form.require_covers} onChange={v => set({ require_covers: v })} />
-      <div className="grid sm:grid-cols-2 gap-4">
-        <Field label="Counter orders go to" hint="Revenue centre for counter orders. Empty: the first takeaway one.">
-          <select className={inputCls} value={form.counter_revenue_centre_id} onChange={e => set({ counter_revenue_centre_id: e.target.value })}>
-            <option value="">First takeaway revenue centre</option>
-            {setup.revenue_centres.filter(r => r.is_active).map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Order numbers start at" hint="Counter order numbers, every trading day.">
-          <NumberBox value={form.order_no_start} min={1} max={900} onChange={v => set({ order_no_start: v ?? 1 })} ariaLabel="Order numbers start at" />
-        </Field>
-      </div>
+      <Field label="Order numbers start at" hint="Counter order numbers, every trading day.">
+        <NumberBox value={form.order_no_start} min={1} max={900} onChange={v => set({ order_no_start: v ?? 1 })} ariaLabel="Order numbers start at" />
+      </Field>
       <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
         <Btn variant="primary" disabled={!dirty || noTender || save.isPending} onClick={submit}>
           {save.isPending && <Loader2 className="w-4 h-4 animate-spin" />} Save
@@ -191,7 +171,7 @@ export function ReconSection({ venueId, setup }) {
   const f = setup.recon_fields
   const incomeOptions = [
     { value: 'all', label: 'All sales' },
-    ...setup.revenue_centres.map(r => ({ value: r.id, label: r.name })),
+    ...setup.revenue_streams.map(r => ({ value: r.id, label: r.name })),
     { value: '-refunds', label: 'minus refunds' },
   ]
   const tenderOptions = setup.settings.tenders.map(t => ({ value: t.key, label: t.label }))

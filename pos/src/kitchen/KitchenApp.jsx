@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import {
   stationTickets, recentBumps, laterOrders, onOrderCounts, stationStats, ageTone, clockSince, clockSecs,
-  itemState, readyOrders, isOrderLevel, TYPE_LABELS, stationSettings,
+  itemState, readyOrders, isOrderLevel, stationSettings,
 } from '@shared/pos/kitchen.js'
 import {
   useKitchen, useOrders, useCfg, bootKitchen, nowIso, myStations, currentStation, setPrefs, bump, recall, itemDone,
@@ -56,12 +56,16 @@ const TEXT = {
   xl:     { item: 'text-[22px]', mod: 'text-[19px]', head: 'text-[20px]' },
 }
 
-const FILTERS = [
-  { key: 'all', label: 'All orders', test: () => true },
-  { key: 'eat_in', label: 'Eat in', short: 'E/I', test: o => o.type === 'eat_in' },
-  { key: 'takeaway', label: 'Takeaway', short: 'T/A', test: o => o.type !== 'eat_in' },
-  { key: 'online', label: 'Online', test: o => o.source === 'online' },
-]
+// Filters: all, one per order type (the tenant's own, migration 170), online.
+function filtersFor(types) {
+  return [
+    { key: 'all', label: 'All orders', test: () => true },
+    ...(types || []).map(t => ({ key: t.id, label: t.name, test: o => o.type === t.id })),
+    { key: 'online', label: 'Online', test: o => o.source === 'online' },
+  ]
+}
+// Ticket badge colours by order type position (a type's own colour wins).
+const TYPE_COLOURS = ['bg-[#9be7a1] text-black', 'bg-[#25a7a7] text-white', 'bg-[#7c5cd6] text-white', 'bg-[#e0a33a] text-black', 'bg-[#d6577c] text-white']
 
 const REMAKE_REASONS = ['Dropped', 'Wrong dish', 'Undercooked', 'Cold', 'Sent back', 'Other']
 
@@ -142,6 +146,7 @@ function Kitchen() {
   const [full, setFull] = useState(!!document.fullscreenElement)
 
   const all = useMemo(() => stationTickets(orders, station, now, cfg), [orders, station, now, cfg])
+  const FILTERS = useMemo(() => filtersFor(s.config.order_types), [s.config.order_types])
   const filter = FILTERS.find(f => f.key === filterKey) || FILTERS[0]
   const tickets = all.filter(t => filter.test(t.order))
   const pages = Math.max(1, Math.ceil(tickets.length / cols))
@@ -237,7 +242,7 @@ function Kitchen() {
             <button key={f.key} onClick={() => { setPrefs({ filter: f.key }); setPage(0) }}
               className={cx('px-4 sm:px-6 font-bold whitespace-nowrap text-[15px] touch-manipulation',
                 filterKey === f.key ? 'bg-[#0b6b35] text-white' : 'text-[#d8c58a]')}>
-              {f.key === 'all' ? f.label : (f.short ? '(' + f.short + ')' : f.label)} ({counts[f.key]})
+              <span className="inline-block max-w-[11rem] truncate align-bottom">{f.label}</span> ({counts[f.key]})
             </button>
           ))}
           {stations.length > 1 && <div className="w-px bg-white/20 my-2 mx-1" />}
@@ -277,7 +282,7 @@ function Kitchen() {
         : (
           <div className="relative flex-1 min-h-0 grid gap-1.5 p-1.5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
             {shown.map((t, i) => (
-              <Ticket key={t.order.id} t={t} n={left + i + 1} station={station} now={now} text={text} names={names}
+              <Ticket key={t.order.id} t={t} n={left + i + 1} station={station} now={now} text={text} names={names} types={s.config.order_types}
                 selected={sel?.order.id === t.order.id} alert={s.alerts[t.order.id]}
                 onSelect={() => setSelected(t.order.id)} />
             ))}
@@ -361,7 +366,7 @@ const label = o => o.table ? 'Table ' + o.table : o.tab ? o.tab : o.guest ? o.gu
 
 // ── A ticket ─────────────────────────────────────────────────────
 
-function Ticket({ t, n, station, now, text, selected, alert, onSelect, names }) {
+function Ticket({ t, n, station, now, text, selected, alert, onSelect, names, types }) {
   const o = t.order
   const tone = ageTone(t.since, now, station)
   const fresh = alert && Date.now() - alert < 30000
@@ -372,7 +377,9 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names }) 
   const nextKeys = new Set(live.map(i => (i.next || []).join(',')))
   const showNext = !isOrderLevel(station) && nextKeys.size > 1
   const headBg = o.priority ? 'bg-[#b45309]' : fresh ? 'bg-[#8f8a4b]' : allDone ? 'bg-[#1d9a52]' : 'bg-[#2b7a4b]'
-  const typeCls = o.type === 'eat_in' ? 'bg-[#9be7a1] text-black' : o.type === 'takeaway' ? 'bg-[#25a7a7] text-white' : 'bg-[#7c5cd6] text-white'
+  const typeIndex = (types || []).findIndex(x => x.id === o.type)
+  const typeColour = (types || [])[typeIndex]?.colour
+  const typeCls = typeColour ? 'text-white' : TYPE_COLOURS[(typeIndex < 0 ? 2 : typeIndex) % TYPE_COLOURS.length]
   const groups = groupByCourse(t.items)
   return (
     <div onClick={onSelect} data-testid="kds-ticket" data-order={o.id}
@@ -391,7 +398,11 @@ function Ticket({ t, n, station, now, text, selected, alert, onSelect, names }) 
           {o.priority && <span className="bg-white text-[#b45309] font-black px-1.5 rounded">RUSH</span>}
           {fresh && !o.priority && <span className="font-black">NEW</span>}
           {allDone && <span className="font-black">PREPARED</span>}
-          <span className={cx('px-1.5 rounded font-bold whitespace-nowrap shrink-0', typeCls)}>{TYPE_LABELS[o.type] || o.type}</span>
+          {(o.type_name || o.tent) && (
+            <span className={cx('px-1.5 rounded font-bold whitespace-nowrap shrink-0', typeCls)} style={typeColour ? { background: typeColour } : undefined} data-testid="kds-type">
+              {[o.type_name, o.tent ? 'Tent ' + o.tent : null].filter(Boolean).join(' · ')}
+            </span>
+          )}
           {o.promised_at && <span className="font-semibold">for {new Date(o.promised_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>}
           <span className="ml-auto min-w-0 text-white/80 truncate">{o.covers ? o.covers + ' cvr' : ''}{o.server ? ' · ' + o.server : ''}</span>
         </div>

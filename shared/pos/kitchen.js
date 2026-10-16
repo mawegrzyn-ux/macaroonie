@@ -51,10 +51,11 @@ export const KITCHEN_EVENTS = [...KITCHEN_DEVICE_EVENTS, ...KITCHEN_SERVER_EVENT
 export const KITCHEN_CHECK_EVENTS = [
   'lines.sent', 'course.fired', 'line.voided', 'lines.moved', 'check.merged',
   'check.table_moved', 'check.renamed', 'check.covers_set', 'check.server_changed', 'check.note_set',
+  'check.order_type_set', 'check.tent_set',
 ]
 
-export const ORDER_TYPES = ['eat_in', 'takeaway', 'collection', 'delivery']
-export const TYPE_LABELS = { eat_in: 'Eat in', takeaway: 'Takeaway', collection: 'Collection', delivery: 'Delivery' }
+// Order types are the tenant's own (order_types, migration 170): a kitchen
+// order carries the type's id (type) and name (type_name) as sent.
 
 // Station kinds. prep: makes dishes; expo: checks whole orders (the pass);
 // runner: takes orders out; board: an order ready board (no bumping).
@@ -66,8 +67,8 @@ export const isOrderLevel = st => st?.kind === 'expo' || st?.kind === 'runner'
 // Where an item comes from before its first station.
 export const START = 'start'
 // What a flow link's filter can name, most specific first.
-export const FLOW_TARGET_KINDS = ['item', 'section', 'revenue_centre', 'order_type', 'default']
-const RANK = { item: 0, section: 1, revenue_centre: 2, order_type: 3, default: 4 }
+export const FLOW_TARGET_KINDS = ['item', 'section', 'revenue_stream', 'order_type', 'default']
+const RANK = { item: 0, section: 1, revenue_stream: 2, order_type: 3, default: 4 }
 
 export const STATION_DEFAULTS = { target_mins: 8, late_mins: 12, show_held: true, summary_groups: [] }
 
@@ -103,7 +104,8 @@ function onlineOrderProblem(o) {
   if (!isUuid(o.order_id)) return 'order.order_id'
   if (!isText(o.number || '', 20)) return 'order.number'
   if (!optText(o.guest, 80)) return 'order.guest'
-  if (!ORDER_TYPES.includes(o.type)) return 'order.type'
+  if (o.type != null && !isUuid(o.type)) return 'order.type'
+  if (!optText(o.type_name, 40)) return 'order.type_name'
   if (o.promised_at != null && !isTime(o.promised_at)) return 'order.promised_at'
   if (o.fire_at != null && !isTime(o.fire_at)) return 'order.fire_at'
   if (!optText(o.note, 500) || !optText(o.allergy, 500)) return 'order.note'
@@ -114,6 +116,7 @@ function onlineOrderProblem(o) {
     if (!(Number.isInteger(i.qty) && i.qty >= 1 && i.qty <= 999)) return 'item.qty'
     if (i.item_id != null && !isUuid(i.item_id)) return 'item.item_id'
     if (i.section_id != null && !isUuid(i.section_id)) return 'item.section_id'
+    if (i.revenue_stream_id != null && !isUuid(i.revenue_stream_id)) return 'item.revenue_stream_id'
     if (i.options != null && !(Array.isArray(i.options) && i.options.every(x => x && isText(x.label || '', 120)))) return 'item.options'
     if (!optText(i.note, 300)) return 'item.note'
   }
@@ -189,8 +192,8 @@ export function linkRank(link, target) {
       case 'default': hit = true; break
       case 'item': hit = !!target.item_id && x.id === target.item_id; break
       case 'section': hit = !!target.section_id && x.id === target.section_id; break
-      case 'revenue_centre': hit = !!target.revenue_centre_id && x.id === target.revenue_centre_id; break
-      case 'order_type': hit = !!target.order_type && x.id === target.order_type; break
+      case 'revenue_stream': hit = !!target.revenue_stream_id && x.id === target.revenue_stream_id; break
+      case 'order_type': hit = !!target.order_type_id && x.id === target.order_type_id; break
       default: hit = false
     }
     if (hit && RANK[x.kind] < best) best = RANK[x.kind]
@@ -214,7 +217,7 @@ export function nextStations(from, target, cfg) {
 /**
  * A dish's way through the kitchen: { [stationId]: [the nodes before it] },
  * START standing for Orders in. Empty when the flow sends it nowhere.
- *   target  { item_id, section_id, revenue_centre_id, order_type }
+ *   target  { item_id, section_id, revenue_stream_id, order_type_id }
  */
 export function itemRoute(target, cfg) {
   const route = {}
@@ -303,7 +306,6 @@ export function flowProblems(stations, links) {
     pairs.add(key)
     for (const t of l.targets || []) {
       if (!FLOW_TARGET_KINDS.includes(t.kind)) out.push('A link has a filter the kitchen doesn\'t know')
-      if (t.kind === 'order_type' && !ORDER_TYPES.includes(t.id)) out.push('A link has an unknown order type')
     }
   }
   // Circles: a dish could never get out of one.
@@ -361,7 +363,6 @@ function kitchenMods(mods = []) {
 }
 
 function headerFromCheck(check, cfg) {
-  const rc = cfg.revenue_centres?.[check.revenue_centre_id]
   const number = check.order_no != null ? String(check.order_no)
     : check.number != null ? String(check.number) : (check.provisional_no || '')
   return {
@@ -372,7 +373,9 @@ function headerFromCheck(check, cfg) {
     tab: check.table_id ? null : (check.tab_name || null),
     covers: check.covers ?? null,
     server: cfg.staff?.[check.server_id]?.name || null,
-    type: rc?.vat_mode === 'takeaway' ? 'takeaway' : 'eat_in',
+    type: check.order_type_id || null,
+    type_name: cfg.order_types?.[check.order_type_id]?.name || null,
+    tent: check.tent || null,
     note: check.note || null,
   }
 }
@@ -381,7 +384,7 @@ function newOrder(fields, at) {
   return {
     id: null, source: 'till', check_id: null, order_id: null,
     number: '', counter: false, board: false, table: null, tab: null, guest: null,
-    covers: null, server: null, type: 'eat_in', promised_at: null, note: null, allergy: null,
+    covers: null, server: null, type: null, type_name: null, tent: null, promised_at: null, note: null, allergy: null,
     priority: false, status: 'active',
     created_at: at, ready_at: null, ready_event: null, collected_at: null, cancelled_at: null, merged_into: null,
     items: [], bumps: [], changed_at: null, events: 0, updated_at: at,
@@ -390,17 +393,17 @@ function newOrder(fields, at) {
 }
 
 function itemFromLine(line, check, cfg, at, held, type) {
-  const rc = line.revenue_centre_id ?? check.revenue_centre_id
+  const rs = line.revenue_stream_id ?? check.revenue_stream_id
   let parts = null
   let route
   if (line.combo && line.combo.length) {
     parts = line.combo.map(p => ({
       item_id: p.item_id || null, name: p.kitchen_name || p.name, mods: kitchenMods(p.modifiers),
-      route: itemRoute({ item_id: p.item_id, section_id: p.section_id, revenue_centre_id: rc, order_type: type }, cfg),
+      route: itemRoute({ item_id: p.item_id, section_id: p.section_id, revenue_stream_id: rs, order_type_id: type }, cfg),
     }))
     route = mergeRoutes(parts.map(p => p.route))
   } else {
-    route = itemRoute({ item_id: line.item_id, section_id: line.section_id, revenue_centre_id: rc, order_type: type }, cfg)
+    route = itemRoute({ item_id: line.item_id, section_id: line.section_id, revenue_stream_id: rs, order_type_id: type }, cfg)
   }
   const course = line.course_id ? cfg.courses?.[line.course_id] : null
   return {
@@ -420,7 +423,7 @@ function itemFromOnline(i, cfg, at, fireAt, type) {
     mods: (i.options || []).map(o => ({ text: o.label, label: o.label, kind: o.mode === 'base' ? 'base' : 'add', depth: 0 })),
     parts: null, note: i.note || null, allergies: [], seat: null,
     course_id: null, course: null, course_sort: null,
-    route: itemRoute({ item_id: i.item_id, section_id: i.section_id, revenue_centre_id: null, order_type: type }, cfg),
+    route: itemRoute({ item_id: i.item_id, section_id: i.section_id, revenue_stream_id: i.revenue_stream_id || null, order_type_id: type }, cfg),
     sent_at: at, fired_at: fireAt ? null : at, fire_at: fireAt || null, since: fireAt ? null : at,
     done: {}, reset: {}, voided_at: null, void_reason: null, void_seen: {}, remakes: 0, added: false,
   }
@@ -583,7 +586,7 @@ function refreshStatus(o, cfg, at, eventId) {
  *   before  { [checkId]: check } before the event
  *   after   { [checkId]: check } the checks it changed
  *   orders  { [id]: kitchen order } the ones kitchenOrdersForCheckEvent(e) names that exist
- *   cfg     kitchen config: { enabled, stations, flow, courses, tables, staff, revenue_centres }
+ *   cfg     kitchen config: { enabled, stations, flow, courses, tables, staff, order_types }
  * Returns { [id]: order } (new objects; the input is never changed).
  */
 export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cfg = {}) {
@@ -603,7 +606,7 @@ export function kitchenForCheckEvent(e, before = {}, after = {}, orders = {}, cf
   }
   const refreshHeader = (o, c) => {
     const h = headerFromCheck(c, cfg)
-    for (const k of ['number', 'counter', 'board', 'table', 'tab', 'covers', 'server', 'type', 'note']) o[k] = h[k]
+    for (const k of ['number', 'counter', 'board', 'table', 'tab', 'covers', 'server', 'type', 'type_name', 'tent', 'note']) o[k] = h[k]
   }
 
   switch (e.type) {
@@ -791,7 +794,7 @@ export function applyKitchenEvent(orders, e, cfg = {}) {
     const fireAt = src.fire_at && ms(src.fire_at) > ms(at) ? src.fire_at : null
     const o = newOrder({
       id: src.id, source: 'online', order_id: src.order_id, number: src.number || '',
-      counter: false, board: true, guest: src.guest || null, type: src.type,
+      counter: false, board: true, guest: src.guest || null, type: src.type || null, type_name: src.type_name || null,
       promised_at: src.promised_at || null, note: src.note || null, allergy: src.allergy || null,
     }, at)
     o.items = src.items.map(i => itemFromOnline(i, cfg, at, fireAt, src.type))

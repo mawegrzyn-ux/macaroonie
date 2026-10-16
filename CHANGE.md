@@ -5,6 +5,19 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-16 — Tax rates, order types and revenue streams]
+
+- New **Menus → Tax rates**: your list of rates (Standard 20% and Zero 0% to start), one marked default, each with its own % at a location if it differs. **Check** shows every dish's rate for each order type at a location and revenue stream, as the till, online ordering and the Deliveroo file work it out.
+- Tax is now set on the **menu**, the **section** and the **dish** (a Tax box in each), the dish's setting winning over its section's and the section's over its menu's. Each setting can have **exceptions**: a different rate for some order types (e.g. Take out, Delivery and Collection at 0% for cold food), a location or revenue streams. Two exceptions that clash are flagged and Save stays off. Tax changes go live when the menu is published. The dish and section eat-in / takeaway VAT boxes and the VAT defaults in Till setup and Ordering setup are gone; existing rates were moved over (eat-in % as the rate, takeaway % as a takeaway exception).
+- New **Till setup → Order types** (for every location): Eat in, Take out, Delivery, Collection and any you add, with a colour; drag to order, remove and put back.
+- **Revenue centres are now revenue streams**: groups of tills for reporting sales by place or device. They no longer decide VAT. Each picks which order types its tills offer, and for each whether to ask for a **customer name** and a **tent number** (No, Ask or Must), and the type new checks start as.
+- On the **till**: counter orders start by picking the order type and typing the name or tent number if asked; More → Order type changes a check's type (its items take the new type's tax) and More → Tent number sets the tent; a detail the type must have is asked for at Send and Pay. The name now shows in a counter order's header. Kitchen tickets, receipts and the kitchen screens show the order type, name and tent; the kitchen screen's tabs are your order types.
+- **Online ordering** (Ordering setup): pick the order type collection orders count as (Collection to start with) and optionally the revenue stream online sales count under. **Deliveroo file**: pick the order type for VAT (Delivery to start with).
+- **Kitchen flow** links filter on your order types and revenue streams.
+- **Till reports**: sales by revenue stream and by order type on each day; a check shows its order type, name, tent and stream, and its history names type changes.
+- Fixed: the section and dish panels on the Menus page didn't scroll, so anything below the fold (now the Tax box) couldn't be reached on a smaller screen.
+- Migration 170.
+
 ## [2026-10-16 — Kitchen flow designer, runners and order ready boards per expo]
 
 - New **Kitchen flow** in **Till setup → Kitchen screens**: draw how dishes move through the kitchen. Boxes for Orders in and every station; drag a box's dot onto another box (or tap the dot, then the box) to send dishes on to it, and tap a link to choose which dishes take it (dishes, sections, revenue centres, order types). From each station a dish takes the links that name it most closely, so a burger bun can go Prep 1 → Prep 2 for the meat while the fries go Prep 1 → Expo 1, and Prep 3's dishes go to Expo 2. **Check a dish** shows a dish's way; a way round in a circle can't be saved; **Tidy**, full screen, explicit Save.
