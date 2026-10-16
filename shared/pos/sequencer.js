@@ -27,11 +27,22 @@
 //   saveRejection(event, error, code)
 //   saveVenueState({ last_seq, next_check_no, next_order_no })
 //   closeDay(day, event)   end the trading day (Z report)
+// Kitchen screens (shared/pos/kitchen.js; context().kitchen.enabled when the
+// venue has kitchen stations):
+//   loadKitchenOrders(ids)               -> { [id]: kitchen order }
+//   saveKitchenOrders({ [id]: order }, event)
+//   saveKitchenLog(rows, event, orders)  speed of service (bumps, recalls, remakes)
+// Kitchen events (bump, recall, ...) come from kitchen screens, which nobody
+// signs in to: they need no staff member and don't open a trading day.
 
 import { applyEvent, checksTouched, eventProblem, CHECK_EVENTS } from './checks.js'
 import { permissionProblem } from './permissions.js'
 import { jobsForEvent } from './printing.js'
 import { businessDate } from './reports.js'
+import {
+  KITCHEN_EVENTS, applyKitchenEvent, kitchenEventProblem, kitchenOrdersTouched,
+  kitchenForCheckEvent, kitchenOrdersForCheckEvent,
+} from './kitchen.js'
 
 const ORDER_NO_MAX = 999
 
@@ -48,20 +59,22 @@ export function createSequencer(store) {
         return { ok: false, error, code }
       }
 
-      const shape = eventProblem(event)
+      const isKitchen = KITCHEN_EVENTS.includes(event?.type)
+      const shape = isKitchen ? kitchenEventProblem(event) : eventProblem(event)
       if (shape) return refuse(shape, 'invalid')
       const ctx = await store.context()
-      if (!ctx.staffById[event.staff_id]) return refuse('Unknown staff member', 'staff')
+      if (!isKitchen && !ctx.staffById[event.staff_id]) return refuse('Unknown staff member', 'staff')
+      if (isKitchen && !ctx.kitchen?.enabled) return refuse('Kitchen screens aren\'t set up at this venue', 'kitchen_off')
 
       const vs = await store.venueState()
       let day = vs.day
       let nextOrderNo = vs.next_order_no || 1
-      if (!day) {
+      if (!day && !isKitchen) {
         const settings = ctx.settings || {}
         day = await store.openDay({ business_date: businessDate(now, ctx.timezone, settings.day_starts_at), at: now })
         nextOrderNo = Number(settings.order_no_start) || 1
       }
-      const assigned = { day_id: day.id }
+      const assigned = { day_id: day?.id ?? null }
       let nextCheckNo = vs.next_check_no || 1
       if (event.type === 'check.opened') {
         assigned.number = nextCheckNo++
@@ -74,11 +87,24 @@ export function createSequencer(store) {
 
       let changed = {}
       let before = {}
-      if (CHECK_EVENTS.includes(event.type)) {
+      let kitchen = {}
+      let kitchenLog = []
+      if (isKitchen) {
+        const orders = await store.loadKitchenOrders(kitchenOrdersTouched(stored))
+        const r = applyKitchenEvent(orders, stored, ctx.kitchen)
+        if (!r.ok) return refuse(r.error, r.code)
+        kitchen = r.orders
+        kitchenLog = r.log
+      } else if (CHECK_EVENTS.includes(event.type)) {
         before = await store.loadChecks(checksTouched(event))
         const r = applyEvent(before, stored, ctx)
         if (!r.ok) return refuse(r.error, r.code)
         changed = r.checks
+        const kitchenIds = ctx.kitchen?.enabled ? kitchenOrdersForCheckEvent(stored) : []
+        if (kitchenIds.length) {
+          const orders = await store.loadKitchenOrders(kitchenIds)
+          kitchen = kitchenForCheckEvent(stored, before, changed, orders, ctx.kitchen)
+        }
       } else if (event.type === 'drawer.opened') {
         const why = permissionProblem(ctx.staffById, event, 'open_drawer')
         if (why) return refuse(why, 'permission')
@@ -94,10 +120,12 @@ export function createSequencer(store) {
       stored.seq = seq
       await store.saveEvent(stored)
       if (Object.keys(changed).length) await store.saveChecks(changed, stored)
+      if (Object.keys(kitchen).length) await store.saveKitchenOrders(kitchen, stored)
+      if (kitchenLog.length) await store.saveKitchenLog(kitchenLog, stored, kitchen)
       if (jobs.length) await store.saveJobs(jobs, stored)
       await store.saveVenueState({ last_seq: seq, next_check_no: nextCheckNo, next_order_no: nextOrderNo })
       if (event.type === 'day.closed') await store.closeDay(day, stored)
-      return { ok: true, seq, event: stored, checks: changed, jobs }
+      return { ok: true, seq, event: stored, checks: changed, jobs, kitchen }
     })
   }
 

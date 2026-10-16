@@ -5,6 +5,18 @@ Migrations are listed where a database change is required.
 
 ---
 
+## [2026-10-16 — Kitchen screens (KDS) and an order ready board]
+
+- New **kitchen screens**: Android tablets or TV boxes in Chrome show the orders to cook. Set up in **Till setup → Kitchen screens**: stations (Grill, Fryer, Bar ...) and the pass, amber / red times per station, what goes where (like printers), the screens (paired with a code at the till address, each showing one or more stations), and online orders.
+- On the screen: tickets left to right, oldest first, with a timer that turns amber and red; table, order number, eat in or takeaway, covers, server, notes, allergies, options and removals. Tap a dish to mark it done, pick a ticket and **BUMP** it. **The pass** sees whole orders, shows which stations it is waiting for, and marks orders ready, then collected. **Rush**, **SUM** (how many of each dish are on order), **Prev** (bring back a ticket bumped by mistake), **Remake** (with a reason), an **On order** counts view (e.g. wings by the piece), filters for eat in / takeaway / online, speed figures along the top, orders for later, text sizes, full screen, a beep for new orders, and bump bar / keyboard keys.
+- Held courses wait until fired; voids show crossed out; dishes moved or merged on the till move on the kitchen screen too.
+- **Online orders** go to the kitchen when accepted (orders for later come on when it's time to start them); when the pass marks one ready, the online order is marked ready and the guest gets the email (both can be switched off).
+- Kitchen screens keep working through a short internet drop: they keep their tickets and save taps until the connection is back. Kitchen and till without the internet needs the venue hub (later).
+- **Order ready board**: a new **Order status** block for menu screens (Screens → board designer) shows order numbers being prepared and ready to collect, and changes as the kitchen bumps them.
+- **Till reports → Kitchen**: speed of service per station (tickets, dishes, average, middle, 9 in 10, slowest, on time, late), the average by hour, remakes with reasons, and a CSV of every bump and remake.
+- Fixed: in Till setup, tapping the label of a row of buttons (e.g. "Opens in", "Used for", "VAT") pressed the first button and changed the setting.
+- Migration 168.
+
 ## [2026-10-16 — Menu screens: video, walls, transitions and animation; dropping photos into the editors]
 
 - **Video on boards**: a Video block plays a video from Media on a loop (sound off unless ticked). Media now takes MP4 and WebM videos up to 150 MB. Each screen keeps a copy, so videos play without the internet. In a playlist, **Video length** shows a board for exactly as long as its video.

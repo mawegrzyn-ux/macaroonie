@@ -22,7 +22,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Loader2, Save, Plus, Minus, Maximize2, Trash2, Copy, ChevronsUp, ChevronsDown, ChevronUp, ChevronDown,
   Image as ImageIcon, Type, Heading, ListOrdered, Star, PoundSterling, Square, Clock, Tag, X, Grid3x3, Film, ScrollText,
-  Play, Pause,
+  Play, Pause, ClipboardCheck,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -43,6 +43,7 @@ import {
 const ICONS = {
   heading: Heading, text: Type, menu: ListOrdered, dish: Star, price: PoundSterling,
   image: ImageIcon, video: Film, ticker: ScrollText, box: Square, clock: Clock, allergen_key: Tag,
+  order_status: ClipboardCheck,
 }
 
 const DESIGNER_CSS = `
@@ -990,6 +991,42 @@ function BlockPanel({ block, board, data, canManage, onUpdate, onOpts, onDuplica
           <PxBox label="Size" value={o.size ?? 22} min={6} max={200} onChange={v => onOpts({ size: v })} />
           <ColourField label="Colour" value={o.color || null} optional onChange={v => onOpts({ color: v })} />
         </Section>
+      )}
+
+      {block.type === 'order_status' && (
+        <>
+          <Section title="Order status">
+            <p className="text-xs text-muted-foreground">Order numbers from the kitchen screens (Till setup &gt; Kitchen screens): till counter orders and online orders. The designer shows example numbers.</p>
+            <Check label="Show orders being prepared" checked={o.show_preparing !== false} onChange={v => onOpts({ show_preparing: v })} />
+            {o.show_preparing !== false && (
+              <label className="block text-xs font-medium">Preparing title
+                <input value={o.preparing_title ?? 'Preparing'} maxLength={40} onChange={e => onOpts({ preparing_title: e.target.value })}
+                  className="mt-1 w-full h-11 text-sm border rounded-md px-2 bg-background" />
+              </label>
+            )}
+            <label className="block text-xs font-medium">Ready title
+              <input value={o.ready_title ?? 'Ready'} maxLength={40} onChange={e => onOpts({ ready_title: e.target.value })}
+                className="mt-1 w-full h-11 text-sm border rounded-md px-2 bg-background" />
+            </label>
+            <Check label="Show the guest's first name under online orders" checked={!!o.show_names} onChange={v => onOpts({ show_names: v })} />
+            <div className="grid grid-cols-2 gap-2">
+              <PxBox label="Numbers per row" suffix="" value={o.columns ?? 1} min={1} max={6} onChange={v => onOpts({ columns: v })} />
+              <PxBox label="Most shown" suffix="" value={o.max ?? 12} min={1} max={60} onChange={v => onOpts({ max: v })} />
+            </div>
+            <PxBox label="Ready numbers stay for" suffix="min" value={o.clear_mins ?? 10} min={0} max={120} onChange={v => onOpts({ clear_mins: v })} />
+            <p className="text-[11px] text-muted-foreground">Or until the pass marks the order collected. 0: until collected.</p>
+          </Section>
+          <Section title="Style">
+            <div className="grid grid-cols-2 gap-2">
+              <PxBox label="Title size" value={o.title_size ?? 56} min={6} max={400} onChange={v => onOpts({ title_size: v })} />
+              <PxBox label="Number size" value={o.number_size ?? 72} min={6} max={600} onChange={v => onOpts({ number_size: v })} />
+            </div>
+            <ColourField label="Titles" value={o.title_color || null} optional onChange={v => onOpts({ title_color: v })} />
+            <ColourField label="Ready box" value={o.ready_bg || '#2e8b57'} onChange={v => onOpts({ ready_bg: v })} />
+            <ColourField label="Ready number" value={o.ready_color || '#ffffff'} onChange={v => onOpts({ ready_color: v })} />
+            <ColourField label="Preparing numbers" value={o.preparing_color || null} optional onChange={v => onOpts({ preparing_color: v })} />
+          </Section>
+        </>
       )}
 
       <Section title="Animation">

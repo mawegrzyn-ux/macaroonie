@@ -260,13 +260,19 @@ export function Modal({ title, onClose, children, footer }) {
   )
 }
 
-export function Field({ label, hint, children }) {
+/**
+ * A labelled form row. Pass `group` when the row holds buttons (Segmented,
+ * chips, colour swatches): a <label> forwards a tap on its text to the first
+ * button inside it, which silently changes the setting.
+ */
+export function Field({ label, hint, children, group }) {
+  const Tag = group ? 'div' : 'label'
   return (
-    <label className="block">
+    <Tag className="block" {...(group ? { role: 'group', 'aria-label': typeof label === 'string' ? label : undefined } : {})}>
       <span className="block text-xs font-medium text-muted-foreground mb-1">{label}</span>
       {children}
       {hint && <span className="block text-[11px] text-muted-foreground mt-1">{hint}</span>}
-    </label>
+    </Tag>
   )
 }
 

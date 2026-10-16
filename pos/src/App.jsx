@@ -1,7 +1,8 @@
 // The till app (docs/POS.md): pair, sign in with a PIN, then the floor, a
-// check, counter service, closed checks, reports and till settings.
+// check, counter service, closed checks, reports and till settings. A device
+// paired as a kitchen screen opens the kitchen screen instead.
 
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { LayoutGrid, ShoppingBag, Receipt, BarChart3, Settings, Lock, RefreshCw, WifiOff } from 'lucide-react'
 import { useTill, boot, signOut, touch, loadConfig } from './lib/store.js'
 import { ApprovalProvider, Toasts, cx, useTick } from './components/ui.jsx'
@@ -15,6 +16,10 @@ import Closed from './screens/Closed.jsx'
 import Reports from './screens/Reports.jsx'
 import TillSettings from './screens/TillSettings.jsx'
 
+// A device paired as a kitchen screen runs the kitchen app (src/kitchen),
+// loaded only on those devices.
+const KitchenApp = lazy(() => import('./kitchen/KitchenApp.jsx'))
+
 export default function App() {
   useEffect(() => {
     boot()
@@ -24,6 +29,7 @@ export default function App() {
   }, [])
   const s = useTill()
   let body
+  if (s.phase === 'kitchen') return <Suspense fallback={<div className="h-full bg-black" />}><KitchenApp device={s.device} /></Suspense>
   if (s.phase === 'pair') body = <Pair />
   else if (s.phase === 'loading') body = <Splash />
   else if (!s.config) body = <NoConfig />

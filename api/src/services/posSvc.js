@@ -26,6 +26,7 @@ import { normalisePermissions, DEFAULT_POS_ROLES } from '../../../shared/pos/per
 import { TENDERS } from '../../../shared/pos/checks.js'
 import { venueNow } from '../../../shared/promotions.js'
 import { soldOutRows } from './soldOut.js'
+import { loadKitchenConfig } from './kitchenSvc.js'
 
 export const DEFAULT_COURSES = [
   { name: 'Drinks', short_name: 'DR', hold_by_default: false },
@@ -101,6 +102,7 @@ export function settingsView(s) {
     order_no_start: s.order_no_start, auto_logout_secs: s.auto_logout_secs,
     counter_revenue_centre_id: s.counter_revenue_centre_id,
     recon_map: s.recon_map || {}, recon_auto_fill: s.recon_auto_fill,
+    kds_online_orders: s.kds_online_orders ?? true, kds_online_ready: s.kds_online_ready ?? true,
   }
 }
 
@@ -387,6 +389,7 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
       ctxCache = {
         staffById: Object.fromEntries(staff.map(s => [s.id, s])),
         print, settings, timezone: print.timezone,
+        kitchen: await loadKitchenConfig(tx, tenantId, venueId),
       }
       return ctxCache
     },
@@ -421,11 +424,44 @@ export function sequencer(tenantId, venueId, { deviceId = null } = {}) {
       await tx`
         INSERT INTO pos_events (id, tenant_id, venue_id, seq, day_id, check_id, device_id, staff_id, approved_by, type, payload, assigned, client_at)
         VALUES (${e.id}, ${tenantId}, ${venueId}, ${e.seq}, ${e.assigned?.day_id ?? null}, ${e.check_id ?? null},
-                ${e.device_id ?? deviceId}, ${e.staff_id}, ${e.approved_by ?? null}, ${e.type}, ${tx.json(e.payload || {})},
+                ${e.device_id ?? deviceId}, ${e.staff_id ?? null}, ${e.approved_by ?? null}, ${e.type}, ${tx.json(e.payload || {})},
                 ${tx.json(e.assigned || {})}, ${e.client_at ?? null})`
     },
     async saveChecks(changed, e) {
       for (const c of Object.values(changed)) await saveCheck(tx, tenantId, venueId, c, e.seq)
+    },
+    // ── Kitchen screens (shared/pos/kitchen.js) ──
+    async loadKitchenOrders(ids) {
+      if (!ids.length) return {}
+      const rows = await tx`SELECT id, state FROM kds_orders WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND id = ANY(${ids}::text[])`
+      return Object.fromEntries(rows.map(r => [r.id, r.state]))
+    },
+    async saveKitchenOrders(changed, e) {
+      for (const o of Object.values(changed)) {
+        await tx`
+          INSERT INTO kds_orders (id, tenant_id, venue_id, source, check_id, order_id, status, created_at, ready_at, collected_at, state, last_seq, updated_at)
+          VALUES (${o.id}, ${tenantId}, ${venueId}, ${o.source}, ${o.check_id}, ${o.order_id}, ${o.status},
+                  ${o.created_at}, ${o.ready_at}, ${o.collected_at}, ${tx.json(o)}, ${e.seq}, now())
+          ON CONFLICT (id) DO UPDATE SET
+            status = EXCLUDED.status, ready_at = EXCLUDED.ready_at, collected_at = EXCLUDED.collected_at,
+            state = EXCLUDED.state, last_seq = EXCLUDED.last_seq, updated_at = now()
+          WHERE kds_orders.tenant_id = ${tenantId}`
+      }
+    },
+    async saveKitchenLog(rows, e, orders) {
+      const o = Object.values(orders || {})[0] || {}
+      for (const r of rows) {
+        if (r.kind === 'recall') {
+          await tx`UPDATE kds_log SET recalled_at = ${e.received_at} WHERE tenant_id = ${tenantId} AND venue_id = ${venueId} AND event_id = ${r.bump_event_id}`
+          continue
+        }
+        await tx`
+          INSERT INTO kds_log (tenant_id, venue_id, kind, kitchen_order_id, event_id, station_id, station_name, station_kind, at,
+                               seconds, items, item_name, reason, order_source, order_type, order_number)
+          VALUES (${tenantId}, ${venueId}, ${r.kind}, ${o.id || ''}, ${e.id}, ${r.station?.id || null}, ${r.station?.name || null},
+                  ${r.station?.kind || null}, ${r.at}, ${r.seconds ?? null}, ${r.items ?? null}, ${r.item_name ?? null},
+                  ${r.reason ?? null}, ${o.source || null}, ${o.type || null}, ${o.number || null})`
+      }
     },
     async saveJobs(jobs, e) {
       for (const j of jobs) {

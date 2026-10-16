@@ -16,16 +16,16 @@ const MODES = [
   { value: 'counter', label: 'Counter' },
 ]
 
-function PairingCode({ code, device, tillUrl, onClose }) {
+export function PairingCode({ code, device, tillUrl, onClose, what = 'till' }) {
   const until = device?.pairing_expires_at
     ? new Date(device.pairing_expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     : null
   return (
-    <Modal title={'Pair ' + (device?.name || 'the till')} onClose={onClose}
+    <Modal title={'Pair ' + (device?.name || 'the ' + what)} onClose={onClose}
       footer={<Btn variant="primary" className="flex-1" onClick={onClose}>Done</Btn>}>
       <ol className="text-sm space-y-2 list-decimal pl-5">
         <li>On the tablet or PC, open <span className="font-semibold break-all">{tillUrl || 'the till address'}</span> in Chrome or Edge.</li>
-        <li>Type this code and press Pair this till.</li>
+        <li>Type this code and press Pair this device.{what !== 'till' ? ' It opens as a ' + what + '.' : ''}</li>
       </ol>
       <p className="text-center font-mono text-3xl sm:text-4xl font-bold tracking-widest py-4 select-all" data-testid="pairing-code">{code}</p>
       <p className="text-xs text-muted-foreground">
@@ -84,7 +84,7 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
       <Field label="Name" hint="Shown on the till and in reports, e.g. Front till, Bar.">
         <input className={inputCls} value={form.name} maxLength={60} onChange={e => set({ name: e.target.value })} placeholder="e.g. Front till" />
       </Field>
-      <Field label="Opens in">
+      <Field group label="Opens in">
         <Segmented value={form.mode} options={MODES} onChange={v => set({ mode: v })} />
       </Field>
       <Field label="Revenue centre" hint="Where its sales go unless staff pick another on the check.">
@@ -112,7 +112,7 @@ function TillModal({ venueId, setup, device, onClose, onPaired }) {
   )
 }
 
-function status(d) {
+export function status(d) {
   if (d.paired) return { text: 'Paired · seen ' + ago(d.last_seen_at), tone: 'ok' }
   if (d.pairing_open) {
     const t = new Date(d.pairing_expires_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
@@ -131,8 +131,9 @@ export default function TillsSection({ venueId, setup }) {
     onSuccess: out => { qc.invalidateQueries({ queryKey: ['pos-setup', venueId] }); setPairing(out) },
   })
   const rcName = id => setup.revenue_centres.find(r => r.id === id)?.name
-  const live = setup.devices.filter(d => !d.revoked_at)
-  const removed = setup.devices.filter(d => d.revoked_at)
+  // Kitchen screens are listed on their own tab (KitchenSection).
+  const live = setup.devices.filter(d => !d.revoked_at && d.kind !== 'kds')
+  const removed = setup.devices.filter(d => d.revoked_at && d.kind !== 'kds')
 
   return (
     <Section title="Tills" hint="Each tablet or PC that runs the till. A till keeps working without the internet and catches up when it's back."

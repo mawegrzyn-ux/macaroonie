@@ -40,7 +40,7 @@ function CourseModal({ course, onClose }) {
         <input className={cn(inputCls, 'w-28 uppercase')} value={form.short_name} maxLength={6} onChange={e => set({ short_name: e.target.value })} />
       </Field>
       <Toggle label="Hold by default" hint="When it goes with an earlier course, it waits until staff fire it." checked={form.hold_by_default} onChange={v => set({ hold_by_default: v })} />
-      <Field label="Colour on the till"><ColourPick value={form.colour} onChange={v => set({ colour: v })} /></Field>
+      <Field group label="Colour on the till"><ColourPick value={form.colour} onChange={v => set({ colour: v })} /></Field>
       {course && <Toggle label="In use" checked={form.is_active} onChange={v => set({ is_active: v })} />}
       {course && <p className="text-xs text-muted-foreground">Deleting a course takes it off the dishes and sections that use it.</p>}
       <ErrorNote error={save.error || remove.error} />

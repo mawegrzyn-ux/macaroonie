@@ -214,6 +214,12 @@ let clockTimer = null
 let videoTimer = null
 let ws = null
 let wsTimer = null
+// Order numbers for Order status blocks (config.needs_orders): fetched on
+// start, on a kitchen.board push and every ORDERS_MS as a check.
+let orders = null
+let ordersTimer = null
+let ordersSoon = null
+const ORDERS_MS = 15_000
 let wsDelay = 2000
 let wsOpenedBefore = false
 
@@ -227,11 +233,13 @@ function startPaired() {
   clearInterval(tickTimer); tickTimer = setInterval(tick, 5000)
   clearInterval(clockTimer); clockTimer = setInterval(syncClock, 10 * 60_000)
   clearInterval(videoTimer); videoTimer = setInterval(syncVideos, 1000)
+  clearInterval(ordersTimer); ordersTimer = setInterval(fetchOrders, ORDERS_MS)
   setTimeout(heartbeat, 5000)
 }
 
 function stopPaired() {
   clearInterval(pollTimer); clearInterval(beatTimer); clearInterval(tickTimer); clearInterval(clockTimer); clearInterval(videoTimer)
+  clearInterval(ordersTimer); clearTimeout(ordersSoon)
   clearTimeout(slotTimer); clearTimeout(prepTimer); clearTimeout(replayTimer); clearTimeout(wsTimer)
   if (ws) { ws.onclose = null; try { ws.close() } catch { /* closed */ } ws = null }
 }
@@ -291,6 +299,7 @@ function connect() {
       save(KEYS.config, config)
       redraw()
     }
+    else if (m.type === 'kitchen.board') { clearTimeout(ordersSoon); ordersSoon = setTimeout(fetchOrders, 250) }
     else if (m.type === 'screen.identify') identify(Number(m.seconds) || 20)
     else if (m.type === 'screen.reload') location.reload()
   }
@@ -357,8 +366,23 @@ function cacheVideos() {
   navigator.serviceWorker.ready.then(reg => reg.active?.postMessage({ type: 'videos', urls })).catch(() => {})
 }
 
+// The order numbers (preparing / ready) the kitchen screens keep.
+async function fetchOrders() {
+  if (!device || !config?.needs_orders) return
+  try {
+    const r = await api('/screen-api/orders', { auth: screenAuth() })
+    setServerTime(r.server_time)
+    const next = r.orders || { preparing: [], ready: [] }
+    const changed = JSON.stringify(next) !== JSON.stringify(orders)
+    orders = next
+    // Ready numbers also leave the board by time (clear_mins): draw again.
+    if (changed || orders.ready.length) redraw()
+  } catch { /* offline: keep the last numbers */ }
+}
+
 function applyConfig() {
   hidePanel()
+  if (config.needs_orders && !orders) fetchOrders()
   fontsFor(Object.values(config.designs || {}))
   cacheVideos()
   schedule({ fresh: true })
@@ -424,6 +448,8 @@ function buildLayer(item, { hidden = false } = {}) {
   const ctx = boardContext(design.layout, {
     menus: config.menus, sold_out: config.sold_out, tags: config.tags, allergen_notice: config.allergen_notice,
     now: now(), tz: config.venue?.timezone, width: design.width, height: design.height,
+    // A real screen never shows the designer's example numbers.
+    orders: orders || { preparing: [], ready: [] },
   })
   const html = renderBoardHtml(ctx)
   const layer = document.createElement('div')
