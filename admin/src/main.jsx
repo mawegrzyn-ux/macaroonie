@@ -19,6 +19,11 @@ if (typeof window !== 'undefined' && window.location.hostname.startsWith('ops.')
   document.querySelector('link[rel="manifest"]')?.setAttribute('href', '/ops.webmanifest')
 }
 
+// A picture or link dropped where nothing takes it does nothing, instead of
+// the browser opening it over the admin (and losing unsaved work).
+import { installDropGuard } from '@/lib/fileDrop'
+installDropGuard()
+
 import AppShell    from '@/components/layout/AppShell'
 import MobileShell from '@/components/mobile/MobileShell'
 import MobileHub   from '@/pages/mobile/MobileHub'

@@ -15,7 +15,21 @@
 //     font_body, font_heading, font_script,
 //     price_symbol (bool), price_whole (bool: £8 instead of £8.00),
 //     sold_out_text, grid (snap, px),
+//     replay_secs (0 = block animations play once when the board comes on,
+//       else again every N seconds, in step on every screen),
+//     guide_cols, guide_rows, guide_gap (the designer's lines where a wall's
+//       screens meet; looks only, a wall's own settings decide the split),
 //     blocks: [{ id, type, x, y, w, h, opts }] }   later blocks sit on top
+//
+// Any block may animate (migration 167): opts.anim_in (how it comes on:
+// fade, rise, ...) with anim_in_ms / anim_in_delay, and opts.anim_loop
+// (pulse, float, ...) with anim_loop_ms. They run only inside a board with
+// the class sl-play (the player adds it; the designer on Play), so a
+// designed board always shows its final state. Playlists move between
+// boards with TRANSITIONS (transitionFrames()); a wall shows one region
+// of a board on each screen (wallRegion()), and every screen works out
+// which board is on from the clock (playlistPosition()), so screens stay
+// in step without talking to each other.
 //
 // Menu data comes from the LIVE menus (api/src/services/screenSvc.js loads
 // them with loadMenuVersions()), so prices change on screens when a menu is
@@ -40,11 +54,11 @@ export const MIN_SIZE = 240
 export const MAX_SIZE = 8192
 export const MAX_BLOCKS = 300
 
-export const BLOCK_TYPES = ['heading', 'text', 'menu', 'dish', 'price', 'image', 'box', 'clock', 'allergen_key']
+export const BLOCK_TYPES = ['heading', 'text', 'menu', 'dish', 'price', 'image', 'video', 'ticker', 'box', 'clock', 'allergen_key']
 
 export const BLOCK_LABELS = {
   heading: 'Heading', text: 'Text', menu: 'Menu list', dish: 'Featured dish', price: 'Price',
-  image: 'Image', box: 'Box or line', clock: 'Clock', allergen_key: 'Allergen key',
+  image: 'Image', video: 'Video', ticker: 'Scrolling text', box: 'Box or line', clock: 'Clock', allergen_key: 'Allergen key',
 }
 
 export const BLOCK_HINTS = {
@@ -54,10 +68,49 @@ export const BLOCK_HINTS = {
   dish: 'One dish, large, with its photo and price.',
   price: 'Just a price, to put on a photo or design.',
   image: 'A photo, logo or picture from Media.',
+  video: 'A video from Media, playing on a loop.',
+  ticker: 'A line of text moving across the board.',
   box: 'A coloured panel or a line.',
   clock: 'The time (and date) at the venue.',
   allergen_key: 'What the tags on this board\'s dishes mean.',
 }
+
+// How a block comes on (opts.anim_in) and moves while on (opts.anim_loop).
+export const ANIM_IN = [
+  { key: 'none', label: 'Just there' },
+  { key: 'fade', label: 'Fade in' },
+  { key: 'rise', label: 'Rise up' },
+  { key: 'drop', label: 'Drop down' },
+  { key: 'left', label: 'From the left' },
+  { key: 'right', label: 'From the right' },
+  { key: 'zoom', label: 'Zoom in' },
+  { key: 'pop', label: 'Pop' },
+  { key: 'wipe', label: 'Wipe' },
+]
+export const ANIM_LOOP = [
+  { key: 'none', label: 'Still', ms: 0 },
+  { key: 'pulse', label: 'Pulse', ms: 2000 },
+  { key: 'float', label: 'Float', ms: 3000 },
+  { key: 'swing', label: 'Swing', ms: 2500 },
+  { key: 'zoom', label: 'Slow zoom', ms: 12000 },
+  { key: 'blink', label: 'Blink', ms: 1600 },
+]
+const IN_KEYS = new Set(ANIM_IN.map(a => a.key))
+const LOOP_MS = Object.fromEntries(ANIM_LOOP.map(a => [a.key, a.ms]))
+
+// How a playlist moves to the next board (screen_playlist_items.transition).
+export const TRANSITIONS = [
+  { key: 'none', label: 'Cut' },
+  { key: 'fade', label: 'Fade' },
+  { key: 'slide_left', label: 'Slide in from the right' },
+  { key: 'slide_right', label: 'Slide in from the left' },
+  { key: 'slide_up', label: 'Slide up' },
+  { key: 'slide_down', label: 'Slide down' },
+  { key: 'zoom', label: 'Zoom' },
+  { key: 'wipe', label: 'Wipe' },
+]
+export const TRANSITION_KEYS = TRANSITIONS.map(t => t.key)
+export const DEFAULT_TRANSITION_MS = 800
 
 // Fonts boards can use: the website's list plus a few bold menu-board faces.
 // Kept here so the website builder's lists don't change.
@@ -87,6 +140,7 @@ export const DEFAULT_BOARD = {
   text_color: '#ffffff', accent_color: '#f5b301', muted_color: '#bdbdbd',
   font_body: 'Inter', font_heading: 'Oswald', font_script: 'Caveat',
   price_symbol: true, price_whole: false, sold_out_text: 'Sold out', grid: 10,
+  replay_secs: 0, guide_cols: 1, guide_rows: 1, guide_gap: 0,
 }
 
 // A new block's size (as a share of the board) and options.
@@ -110,6 +164,11 @@ export const BLOCK_DEFAULTS = {
   },
   price: { w: 0.22, h: 0.1, opts: { menu_id: null, item_id: null, option: '', size: 80, font: 'heading', weight: 700, align: 'center', valign: 'middle', show_name: false, from_text: 'from', sold_out: 'mark' } },
   image: { w: 0.3, h: 0.3, opts: { url: '', fit: 'cover', radius: 0 } },
+  video: { w: 0.4, h: 0.4, opts: { url: '', fit: 'cover', radius: 0, loop: true, sound: false } },
+  ticker: {
+    w: 1, h: 0.08,
+    opts: { text: 'Ask about today\'s specials', size: 48, font: 'heading', weight: 600, speed: 120, gap: 160, direction: 'left', bg: '', bg_alpha: 100 },
+  },
   box: { w: 0.3, h: 0.3, opts: { color: '#000000', alpha: 50, radius: 12, border_width: 0, border_color: '#ffffff' } },
   clock: { w: 0.18, h: 0.08, opts: { format: '24', show_date: false, size: 48, font: 'body', weight: 600, align: 'right', valign: 'middle' } },
   allergen_key: { w: 0.5, h: 0.08, opts: { size: 22, show_notice: false, align: 'left' } },
@@ -200,6 +259,10 @@ export function normalizeBoard(layout, width = 1920, height = 1080) {
     price_whole: !!l.price_whole,
     sold_out_text: typeof l.sold_out_text === 'string' ? l.sold_out_text.slice(0, 40) : DEFAULT_BOARD.sold_out_text,
     grid: Math.round(num(l.grid, 1, 200, DEFAULT_BOARD.grid)),
+    replay_secs: Math.round(num(l.replay_secs, 0, 3600, 0)),
+    guide_cols: Math.round(num(l.guide_cols, 1, 6, 1)),
+    guide_rows: Math.round(num(l.guide_rows, 1, 6, 1)),
+    guide_gap: Math.round(num(l.guide_gap, 0, 400, 0)),
     blocks,
   }
 }
@@ -228,6 +291,24 @@ export function boardImageUrls(layout, ctx) {
     }
   }
   return [...urls]
+}
+
+/** Videos a board plays (for the player to keep on the device). */
+export function boardVideoUrls(layout) {
+  const urls = new Set()
+  for (const b of (layout?.blocks || [])) {
+    if (b?.type === 'video' && safeUrl(b.opts?.url)) urls.add(safeUrl(b.opts.url))
+  }
+  return [...urls]
+}
+
+/** The longest video on a board, in whole seconds (0 when none or unknown). */
+export function boardVideoSeconds(layout) {
+  let max = 0
+  for (const b of (layout?.blocks || [])) {
+    if (b?.type === 'video' && Number(b.opts?.duration) > 0) max = Math.max(max, Number(b.opts.duration))
+  }
+  return Math.ceil(max)
 }
 
 /** Fonts a board uses, for one Google Fonts stylesheet. */
@@ -283,6 +364,8 @@ export function boardContext(layout, data = {}) {
     soldOut: new Set(data.sold_out || []),
     now: data.now || new Date(),
     tz: data.tz || 'Europe/London',
+    // still: thumbnails (videos show a frame, nothing plays)
+    still: !!data.still,
     board: normalizeBoard(layout, data.width, data.height),
   }
   ctx.shownItems = shownItems(ctx.board, ctx)
@@ -420,6 +503,85 @@ export function itemsOnAt(items, parts) {
   return (items || []).filter(i => boardOnAt(i.schedule, parts))
 }
 
+const itemMs = i => Math.max(3, Number(i?.duration_secs) || 15) * 1000
+
+/**
+ * Which of the boards on now is showing at `nowMs`, worked out from the
+ * clock alone (the boards take turns from 1 January 1970), so every
+ * screen with the same playlist, a wall's screens above all, shows the
+ * same board at the same moment without talking to each other.
+ * { index, startMs, endMs } or null for an empty list.
+ */
+export function playlistPosition(list, nowMs) {
+  if (!list?.length) return null
+  const total = list.reduce((s, i) => s + itemMs(i), 0)
+  const into = ((nowMs % total) + total) % total
+  let at = 0
+  for (let index = 0; index < list.length; index++) {
+    const len = itemMs(list[index])
+    if (into < at + len) {
+      const startMs = nowMs - (into - at)
+      return { index, startMs, endMs: startMs + len }
+    }
+    at += len
+  }
+  return { index: 0, startMs: nowMs, endMs: nowMs + itemMs(list[0]) }
+}
+
+/**
+ * When a board's block animations last started: every `replay_secs` on
+ * the clock (so a wall's screens replay together), else when it came on.
+ */
+export function replayStart(board, shownAtMs, nowMs) {
+  const every = Number(board?.replay_secs) * 1000
+  if (!every) return shownAtMs
+  return Math.max(shownAtMs, Math.floor(nowMs / every) * every)
+}
+
+/**
+ * The part of a board one screen of a wall shows: the board split into
+ * cols x rows equal parts with `gap` pixels between them (the screens'
+ * bezels, hidden behind the frames). wall = { cols, rows, col, row, gap }.
+ */
+export function wallRegion(width, height, wall) {
+  if (!wall || !(wall.cols > 1 || wall.rows > 1)) return { x: 0, y: 0, w: width, h: height }
+  const cols = Math.max(1, wall.cols | 0), rows = Math.max(1, wall.rows | 0)
+  const gap = Math.max(0, Number(wall.gap) || 0)
+  const w = Math.max(1, (width - gap * (cols - 1)) / cols)
+  const h = Math.max(1, (height - gap * (rows - 1)) / rows)
+  const col = Math.min(cols - 1, Math.max(0, wall.col | 0))
+  const row = Math.min(rows - 1, Math.max(0, wall.row | 0))
+  return { x: col * (w + gap), y: row * (h + gap), w, h }
+}
+
+/** The size a board for a wall should be: its screens' size times the grid, plus the gaps. */
+export function wallBoardSize(screenW, screenH, cols, rows, gap = 0) {
+  return {
+    width: Math.min(MAX_SIZE, screenW * cols + gap * (cols - 1)),
+    height: Math.min(MAX_SIZE, screenH * rows + gap * (rows - 1)),
+  }
+}
+
+/**
+ * Web Animations keyframes for a playlist moving to the next board, in the
+ * board's own pixels (a wall's screens each show part of the same moving
+ * board, so a slide crosses the whole wall). { in, out } (out may be null:
+ * the old board just stays under the new one until it is removed).
+ */
+export function transitionFrames(kind, width, height) {
+  const W = width + 'px', H = height + 'px'
+  switch (kind) {
+    case 'fade': return { in: [{ opacity: 0 }, { opacity: 1 }], out: null }
+    case 'slide_left': return { in: [{ transform: 'translateX(' + W + ')' }, { transform: 'none' }], out: [{ transform: 'none' }, { transform: 'translateX(-' + W + ')' }] }
+    case 'slide_right': return { in: [{ transform: 'translateX(-' + W + ')' }, { transform: 'none' }], out: [{ transform: 'none' }, { transform: 'translateX(' + W + ')' }] }
+    case 'slide_up': return { in: [{ transform: 'translateY(' + H + ')' }, { transform: 'none' }], out: [{ transform: 'none' }, { transform: 'translateY(-' + H + ')' }] }
+    case 'slide_down': return { in: [{ transform: 'translateY(-' + H + ')' }, { transform: 'none' }], out: [{ transform: 'none' }, { transform: 'translateY(' + H + ')' }] }
+    case 'zoom': return { in: [{ opacity: 0, transform: 'scale(1.15)' }, { opacity: 1, transform: 'none' }], out: [{ opacity: 1 }, { opacity: 0 }] }
+    case 'wipe': return { in: [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], out: null }
+    default: return null
+  }
+}
+
 /** Clock text for a clock block. */
 export function clockText(opts, now, tz) {
   const o = opts || {}
@@ -511,6 +673,38 @@ export function renderBlockInner(block, ctx) {
       const fit = ['cover', 'contain', 'fill'].includes(o.fit) ? o.fit : 'cover'
       return '<img class="sl-img" alt="" src="' + esc(url) + '" style="object-fit:' + fit + ';border-radius:' + num(o.radius, 0, 2000, 0) + 'px" />'
     }
+    case 'video': {
+      const url = safeUrl(o.url)
+      if (!url) return ''
+      const fit = ['cover', 'contain', 'fill'].includes(o.fit) ? o.fit : 'cover'
+      const loop = o.loop !== false
+      // Always muted to start (browsers only play muted video by themselves);
+      // the player turns the sound on when the block asks for it and the
+      // device allows it. Thumbnails show a frame and play nothing.
+      const attrs = ctx.still
+        ? ' preload="metadata"'
+        : ' autoplay preload="auto"' + (loop ? ' loop' : '')
+      return '<video class="sl-video" muted playsinline disablepictureinpicture' + attrs +
+        ' data-sl-video="' + esc(JSON.stringify({ loop, sound: !!o.sound })) + '"' +
+        ' src="' + esc(url + (ctx.still ? '#t=0.5' : '')) + '" style="object-fit:' + fit + ';border-radius:' + num(o.radius, 0, 2000, 0) + 'px"></video>'
+    }
+    case 'ticker': {
+      const text = String(o.text || '').replace(/\s+/g, ' ').trim()
+      if (!text) return ''
+      const size = num(o.size, 6, 1200, 48)
+      const speed = num(o.speed, 10, 2000, 120)
+      const gap = num(o.gap, 0, 4000, 160)
+      // Enough copies to cover the block while one slides out; the player
+      // and the designer measure the real width (startBoardMotion()).
+      const est = Math.max(1, text.length * size * 0.55 + gap)
+      const copies = Math.min(40, Math.max(2, Math.ceil(block.w / est) + 1))
+      const item = '<span class="sl-tk-item" style="padding-right:' + gap + 'px">' + esc(text) + '</span>'
+      const bg = o.bg ? withAlpha(o.bg, o.bg_alpha ?? 100) : null
+      return '<div class="sl-ticker" style="' + styleString({ background: bg }) + ';' + textStyle(o, { font: 'heading', size: 48, weight: 600 }) + '">' +
+        '<div class="sl-tk-track' + (o.direction === 'right' ? ' sl-tk-right' : '') + '" data-sl-ticker="' + speed + '" style="' +
+        styleString({ '--sl-tks': (-100 / copies) + '%', '--sl-tkd': (est / speed).toFixed(2) + 's' }) + '">' +
+        item.repeat(copies) + '</div></div>'
+    }
     case 'box':
       return '<div class="sl-box" style="' + styleString({
         background: withAlpha(o.color || '#000000', o.alpha ?? 100),
@@ -599,6 +793,27 @@ export function boardStyle(board) {
   }
 }
 
+/**
+ * A block's content inside its animation wrappers (only the ones it uses):
+ * .sl-in runs the entrance, .sl-loop the movement, so they never fight over
+ * `transform` with each other or with the block's own turn (blockStyle()).
+ * Used by renderBoardHtml() and by the designer for each block.
+ */
+export function wrapMotion(block, innerHtml) {
+  const o = block.opts || {}
+  let html = innerHtml
+  const loop = LOOP_MS[o.anim_loop] ? o.anim_loop : null
+  if (loop) {
+    html = '<div class="sl-loop sl-loop-' + loop + '" style="--sl-ld:' + num(o.anim_loop_ms, 300, 120000, LOOP_MS[loop]) + 'ms">' + html + '</div>'
+  }
+  const into = IN_KEYS.has(o.anim_in) && o.anim_in !== 'none' ? o.anim_in : null
+  if (into) {
+    html = '<div class="sl-in sl-in-' + into + '" style="--sl-id:' + num(o.anim_in_ms, 100, 10000, 800) + 'ms;--sl-idl:' +
+      num(o.anim_in_delay, 0, 60000, 0) + 'ms">' + html + '</div>'
+  }
+  return html
+}
+
 /** A whole board as HTML (the player). ctx from boardContext(). */
 export function renderBoardHtml(ctx) {
   const b = ctx.board
@@ -606,9 +821,48 @@ export function renderBoardHtml(ctx) {
   b.blocks.forEach((block, i) => {
     const inner = renderBlockInner(block, ctx)
     if (inner == null || inner === '') return
-    blocks += '<div class="sl-block sl-t-' + block.type + '" style="' + styleString(blockStyle(block, i)) + '">' + inner + '</div>'
+    blocks += '<div class="sl-block sl-t-' + block.type + '" style="' + styleString(blockStyle(block, i)) + '">' + wrapMotion(block, inner) + '</div>'
   })
   return '<div class="sl-board" style="' + styleString(boardStyle(b)) + '">' + blocks + '</div>'
+}
+
+/**
+ * Starts a drawn board's movement (browser only; the player and the
+ * designer's Play): sizes each scrolling text to its real width, adds
+ * sl-play, and sets every CSS animation's clock so screens agree:
+ * entrances from `startMs` (when the board came on, or last replayed),
+ * movements from 1 January 1970. Returns the animations it started.
+ */
+export function startBoardMotion(boardEl, { startMs = Date.now(), nowMs = Date.now() } = {}) {
+  if (!boardEl) return []
+  for (const track of boardEl.querySelectorAll('.sl-tk-track')) {
+    const speed = Number(track.dataset.slTicker) || 120
+    const items = track.children.length || 1
+    const one = track.scrollWidth / items
+    const box = track.parentElement?.clientWidth || 0
+    // Add copies until one can slide out without a gap showing.
+    let n = items
+    while (one > 0 && one * (n - 1) < box && n < 60) { track.appendChild(track.children[0].cloneNode(true)); n++ }
+    track.style.setProperty('--sl-tks', (-100 / n) + '%')
+    if (one > 0) track.style.setProperty('--sl-tkd', (one / speed).toFixed(3) + 's')
+  }
+  boardEl.classList.remove('sl-play')
+  void boardEl.offsetWidth
+  boardEl.classList.add('sl-play')
+  const anims = typeof boardEl.getAnimations === 'function' ? boardEl.getAnimations({ subtree: true }) : []
+  for (const a of anims) {
+    const name = a.animationName || ''
+    try {
+      if (name.startsWith('sl-in-')) a.currentTime = Math.max(0, nowMs - startMs)
+      else if (name.startsWith('sl-loop-')) a.currentTime = nowMs
+    } catch { /* not a CSS animation */ }
+  }
+  return anims
+}
+
+/** Stops a board's movement (back to how it was designed). */
+export function stopBoardMotion(boardEl) {
+  boardEl?.classList.remove('sl-play')
 }
 
 export { styleString }
@@ -668,4 +922,43 @@ export const SCREEN_LAYOUT_CSS = `
 .sl-key strong { color: var(--sl-text); }
 .sl-pair { display: inline-flex; align-items: center; gap: 8px; }
 .sl-key .sl-tag { font-size: 0.8em; }
+
+.sl-t-video { display: block; }
+.sl-video { display: block; width: 100%; height: 100%; max-width: none; background: transparent; }
+.sl-ticker { width: 100%; height: 100%; overflow: hidden; display: flex; align-items: center; white-space: nowrap; }
+.sl-tk-track { display: inline-flex; flex: none; will-change: transform; }
+.sl-tk-item { flex: none; }
+
+/* Animation wrappers (wrapMotion()): they take over the block's layout. */
+.sl-in, .sl-loop { width: 100%; height: 100%; min-height: 0; display: flex; flex-direction: column; justify-content: inherit; }
+.sl-t-image .sl-in, .sl-t-image .sl-loop, .sl-t-video .sl-in, .sl-t-video .sl-loop, .sl-t-box .sl-in, .sl-t-box .sl-loop { display: block; }
+
+/* Movement runs only on a playing board (the player; the designer's Play). */
+.sl-board { --sl-ease: cubic-bezier(.2, .7, .2, 1); }
+.sl-board.sl-play .sl-in { animation: var(--sl-in-name) var(--sl-id, 800ms) var(--sl-ease) var(--sl-idl, 0ms) both; }
+.sl-in-fade { --sl-in-name: sl-in-fade; } .sl-in-rise { --sl-in-name: sl-in-rise; } .sl-in-drop { --sl-in-name: sl-in-drop; }
+.sl-in-left { --sl-in-name: sl-in-left; } .sl-in-right { --sl-in-name: sl-in-right; } .sl-in-zoom { --sl-in-name: sl-in-zoom; }
+.sl-in-pop { --sl-in-name: sl-in-pop; } .sl-in-wipe { --sl-in-name: sl-in-wipe; }
+@keyframes sl-in-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sl-in-rise { from { opacity: 0; transform: translateY(80px); } to { opacity: 1; transform: none; } }
+@keyframes sl-in-drop { from { opacity: 0; transform: translateY(-80px); } to { opacity: 1; transform: none; } }
+@keyframes sl-in-left { from { opacity: 0; transform: translateX(-140px); } to { opacity: 1; transform: none; } }
+@keyframes sl-in-right { from { opacity: 0; transform: translateX(140px); } to { opacity: 1; transform: none; } }
+@keyframes sl-in-zoom { from { opacity: 0; transform: scale(0.6); } to { opacity: 1; transform: none; } }
+@keyframes sl-in-pop { 0% { opacity: 0; transform: scale(0.3); } 70% { opacity: 1; transform: scale(1.08); } 100% { opacity: 1; transform: none; } }
+@keyframes sl-in-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+
+.sl-board.sl-play .sl-loop { animation: var(--sl-loop-name) var(--sl-ld, 3000ms) ease-in-out infinite; }
+.sl-loop-pulse { --sl-loop-name: sl-loop-pulse; } .sl-loop-float { --sl-loop-name: sl-loop-float; } .sl-loop-swing { --sl-loop-name: sl-loop-swing; }
+.sl-loop-zoom { --sl-loop-name: sl-loop-zoom; } .sl-loop-blink { --sl-loop-name: sl-loop-blink; }
+.sl-board.sl-play .sl-loop-zoom { animation-direction: alternate; }
+@keyframes sl-loop-pulse { 0%, 100% { transform: none; } 50% { transform: scale(1.06); } }
+@keyframes sl-loop-float { 0%, 100% { transform: none; } 50% { transform: translateY(-14px); } }
+@keyframes sl-loop-swing { 0%, 100% { transform: none; } 25% { transform: rotate(3deg); } 75% { transform: rotate(-3deg); } }
+@keyframes sl-loop-zoom { from { transform: none; } to { transform: scale(1.12); } }
+@keyframes sl-loop-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.sl-board.sl-play .sl-tk-track { animation: sl-loop-ticker var(--sl-tkd, 20s) linear infinite; }
+.sl-board.sl-play .sl-tk-right { animation-direction: reverse; }
+@keyframes sl-loop-ticker { from { transform: none; } to { transform: translateX(var(--sl-tks, -50%)); } }
 `

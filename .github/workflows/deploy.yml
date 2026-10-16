@@ -79,6 +79,9 @@ jobs:
               # stops warning "protocol options redefined".
               sudo bash $APP/scripts/ensure-nginx-http2.sh \
                 || echo "WARN: nginx http2 listen alignment failed"
+              # Media library uploads up to 160 MB (menu screen videos).
+              sudo bash $APP/scripts/ensure-nginx-media-upload.sh \
+                || echo "WARN: nginx media upload size patch failed (videos over 30 MB won't upload)"
               # Custom domains switch on by themselves (systemd timer); see
               # scripts/custom-domains-sync.sh.
               sudo bash $APP/scripts/install-domain-sync.sh \

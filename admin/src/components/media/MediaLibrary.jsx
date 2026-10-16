@@ -12,6 +12,10 @@
 //   <MediaLibraryModal open inline mode="manager" />   // the Media page:
 //     fills its container like a page (no backdrop, close, fullscreen or footer)
 //
+//   kind="image" | "video" | "all"   what it lists and takes (default: images
+//     in a picker, everything in the manager). Videos (MP4 / WebM, 150 MB)
+//     are for menu screens (migration 167).
+//
 // Spec: see "Epic: Media Library" in the project notes.
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
@@ -19,7 +23,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   X, Upload, Maximize2, Minimize2, Search, Plus, Folder, Image as ImageIcon,
   Trash2, Tag, MoveRight, Loader2, Check, AlertTriangle, Pencil, Edit3,
-  LayoutGrid, List, ChevronDown,
+  LayoutGrid, List, ChevronDown, Film,
 } from 'lucide-react'
 import { useApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -28,6 +32,13 @@ import { usePermission } from '@/hooks/usePermission'
 import { ReadOnlyNotice } from '@/components/ReadOnlyNotice'
 
 const ALL_FORMS = '__all__'
+const VIDEO_TYPES = ['video/mp4', 'video/webm']
+const ACCEPT = { image: 'image/*', video: VIDEO_TYPES.join(','), all: 'image/*,' + VIDEO_TYPES.join(',') }
+const isVideo = item => String(item?.mimetype || '').startsWith('video/')
+function takes(kind, type) {
+  const video = VIDEO_TYPES.includes(type)
+  return kind === 'video' ? video : kind === 'image' ? type.startsWith('image/') : video || type.startsWith('image/')
+}
 const NO_CATEGORY = '__none__'
 
 export function MediaLibraryModal({
@@ -37,7 +48,9 @@ export function MediaLibraryModal({
   onPick,
   multiPick = false,
   inline = false,
+  kind: kindProp,
 }) {
+  const kind = kindProp || (mode === 'picker' ? 'image' : 'all')
   const api = useApi()
   const qc  = useQueryClient()
   // Uploading and changing media needs Website or Menus manage (the API's
@@ -90,12 +103,13 @@ export function MediaLibraryModal({
     queryFn:  () => api.get('/media/items/scopes'),
     enabled:  open,
   })
-  const itemsQueryKey = ['media-items', { scopeFilter, categoryFilter }]
+  const itemsQueryKey = ['media-items', { scopeFilter, categoryFilter, kind }]
   const { data: items = [], isLoading: itemsLoading } = useQuery({
     queryKey: itemsQueryKey,
     queryFn:  () => {
       const params = new URLSearchParams()
       if (scopeFilter !== ALL_FORMS) params.set('scope', scopeFilter)
+      if (kind !== 'all') params.set('kind', kind)
       if (categoryFilter === NO_CATEGORY)    params.set('category_id', 'none')
       else if (categoryFilter)               params.set('category_id', categoryFilter)
       return api.get(`/media/items?${params.toString()}`)
@@ -180,7 +194,7 @@ export function MediaLibraryModal({
 
   const handleFiles = useCallback(async (files) => {
     if (!canEdit) return
-    const list = Array.from(files || []).filter(f => f.type.startsWith('image/'))
+    const list = Array.from(files || []).filter(f => takes(kind, f.type))
     if (!list.length) return
 
     const targetScope = scopeFilter === ALL_FORMS ? defaultScope : scopeFilter
@@ -188,7 +202,10 @@ export function MediaLibraryModal({
     for (const file of list) {
       // Pre-upload duplicate check (filename + hash within scope)
       let hash = null
-      try { hash = await sha256OfFile(file) } catch { /* large files OK without hash */ }
+      // Big videos skip the hash (reading 150 MB in the browser is slow).
+      if (file.size <= 30 * 1024 * 1024) {
+        try { hash = await sha256OfFile(file) } catch { /* large files OK without hash */ }
+      }
       let existing = []
       try {
         existing = await api.post('/media/items/check-duplicate', {
@@ -215,7 +232,7 @@ export function MediaLibraryModal({
 
       await performUpload(file, targetScope, uploadCategoryId)
     }
-  }, [api, canEdit, defaultScope, scopeFilter, uploadCategoryId, sha256OfFile, performUpload, deleteItem])
+  }, [api, canEdit, defaultScope, scopeFilter, uploadCategoryId, sha256OfFile, performUpload, deleteItem, kind])
 
   // ── Drag-and-drop ──────────────────────────────────────
   const onDragEnter = useCallback((e) => {
@@ -347,14 +364,15 @@ export function MediaLibraryModal({
                   <option value="">No category</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
-                <input ref={fileInputRef} type="file" accept="image/*" multiple hidden
+                <input ref={fileInputRef} type="file" accept={ACCEPT[kind]} multiple hidden
                   onChange={e => { handleFiles(e.target.files); e.target.value = '' }} />
                 <button onClick={() => fileInputRef.current?.click()}
                   className="w-full inline-flex items-center justify-center gap-1.5 bg-primary text-primary-foreground text-sm font-medium rounded-md px-3 py-2 min-h-[40px] touch-manipulation">
                   <Upload className="w-4 h-4" /> Upload
                 </button>
                 <p className="text-[11px] text-muted-foreground mt-1.5">
-                  Or drag images onto {inline ? 'this page' : 'the modal'}.
+                  Or drag {kind === 'video' ? 'videos' : kind === 'image' ? 'images' : 'files'} onto {inline ? 'this page' : 'the modal'}.
+                  {kind !== 'image' && ' Videos: MP4 or WebM, up to 150 MB, for menu screens.'}
                 </p>
               </div>}
             </div>
@@ -410,7 +428,7 @@ export function MediaLibraryModal({
                   <p className="text-sm">No items match the current filter.</p>
                   {canEdit && (
                     <button onClick={() => fileInputRef.current?.click()} className="mt-3 text-sm text-primary hover:underline">
-                      Upload your first image
+                      Upload your first {kind === 'video' ? 'video' : kind === 'image' ? 'image' : 'file'}
                     </button>
                   )}
                 </div>
@@ -506,7 +524,7 @@ export function MediaLibraryModal({
             <div className="absolute inset-0 bg-primary/10 border-4 border-dashed border-primary rounded-xl flex items-center justify-center pointer-events-none">
               <div className="bg-background rounded-lg px-6 py-4 shadow-lg">
                 <Upload className="w-8 h-8 text-primary mx-auto mb-2" />
-                <p className="text-sm font-medium">Drop images to upload</p>
+                <p className="text-sm font-medium">Drop {kind === 'video' ? 'videos' : kind === 'image' ? 'images' : 'files'} to upload</p>
               </div>
             </div>
           )}
@@ -628,8 +646,16 @@ function ItemThumb({ item, selected, onClick, onCheckbox }) {
     <button onClick={onClick}
       className={cn('group relative aspect-square rounded-md overflow-hidden border-2 transition-all',
         selected ? 'border-primary ring-2 ring-primary/30' : 'border-transparent hover:border-muted-foreground/40')}>
-      <img src={item.url} alt={item.filename} loading="lazy"
-        className="absolute inset-0 w-full h-full object-cover bg-muted" />
+      {isVideo(item) ? (
+        <>
+          <video src={item.url + '#t=0.5'} muted playsInline preload="metadata" aria-label={item.filename}
+            className="absolute inset-0 w-full h-full object-cover bg-black pointer-events-none" />
+          <span className="absolute top-1 right-1 inline-flex items-center gap-0.5 text-[9px] bg-black/70 text-white rounded px-1 py-0.5"><Film className="w-2.5 h-2.5" /> Video</span>
+        </>
+      ) : (
+        <img src={item.url} alt={item.filename} loading="lazy"
+          className="absolute inset-0 w-full h-full object-cover bg-muted" />
+      )}
       <span onClick={(e) => { e.stopPropagation(); onCheckbox() }}
         className={cn('absolute top-1 left-1 w-5 h-5 rounded border-2 bg-background/80 flex items-center justify-center transition-opacity',
           selected ? 'opacity-100 border-primary' : 'opacity-0 group-hover:opacity-100 border-muted-foreground')}>
@@ -638,11 +664,18 @@ function ItemThumb({ item, selected, onClick, onCheckbox }) {
       <span className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent text-white text-[10px] px-1.5 py-1 truncate">
         {item.filename}
       </span>
-      {item.scope !== 'shared' && (
+      {item.scope !== 'shared' && !isVideo(item) && (
         <span className="absolute top-1 right-1 text-[9px] bg-background/80 rounded px-1 py-0.5 font-mono">{item.scope}</span>
       )}
     </button>
   )
+}
+
+function Preview({ item }) {
+  if (isVideo(item)) {
+    return <video src={item.url} controls muted playsInline preload="metadata" className="w-full h-full object-contain bg-black" />
+  }
+  return <img src={item.url} alt={item.filename} className="w-full h-full object-contain" />
 }
 
 function DetailEmpty() {
@@ -662,7 +695,7 @@ function DetailSingle({ item, categories, scopes, onPatch, onEdit, onDelete, can
     return (
       <div className="p-4 space-y-4">
         <div className="aspect-square rounded-md overflow-hidden bg-muted">
-          <img src={item.url} alt={item.filename} className="w-full h-full object-contain" />
+          <Preview item={item} />
         </div>
         <dl className="text-xs text-muted-foreground space-y-1">
           <div className="flex justify-between gap-3"><dt>Filename</dt><dd className="text-foreground truncate">{item.filename}</dd></div>
@@ -679,7 +712,7 @@ function DetailSingle({ item, categories, scopes, onPatch, onEdit, onDelete, can
   return (
     <div className="p-4 space-y-4">
       <div className="aspect-square rounded-md overflow-hidden bg-muted">
-        <img src={item.url} alt={item.filename} className="w-full h-full object-contain" />
+        <Preview item={item} />
       </div>
 
       <div>
@@ -722,10 +755,12 @@ function DetailSingle({ item, categories, scopes, onPatch, onEdit, onDelete, can
       </dl>
 
       <div className="border-t pt-3 flex flex-col gap-2">
-        <button onClick={onEdit}
-          className="inline-flex items-center justify-center gap-1.5 w-full text-sm border rounded-md px-3 py-2 min-h-[36px] hover:bg-accent">
-          <Edit3 className="w-3.5 h-3.5" /> Edit image
-        </button>
+        {!isVideo(item) && (
+          <button onClick={onEdit}
+            className="inline-flex items-center justify-center gap-1.5 w-full text-sm border rounded-md px-3 py-2 min-h-[36px] hover:bg-accent">
+            <Edit3 className="w-3.5 h-3.5" /> Edit image
+          </button>
+        )}
         <button onClick={onDelete}
           className="inline-flex items-center justify-center gap-1.5 w-full text-sm border border-destructive text-destructive rounded-md px-3 py-2 min-h-[36px] hover:bg-destructive/10">
           <Trash2 className="w-3.5 h-3.5" /> Delete

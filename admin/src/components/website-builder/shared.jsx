@@ -3,6 +3,7 @@ import { useState, useRef } from 'react'
 import { useApi } from '@/lib/api'
 import { Loader2, Upload, Image as ImageIcon } from 'lucide-react'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
+import { FileDropArea } from '@/components/FileDropArea'
 
 export function FormRow({ label, hint, children }) {
   // A plain <div>, not <label> — see the matching note on Field in
@@ -19,20 +20,29 @@ export function FormRow({ label, hint, children }) {
   )
 }
 
+// A picture for the website: uploaded through /website/upload (which also
+// adds it to the Media library). Used by every picture field and by
+// pictures dropped onto the page builder canvas.
+export function uploadSiteImage(api, file, scope = 'shared') {
+  return api.upload('/website/upload', file, { kind: 'images', scope })
+}
+
 export function ImageField({ url, onChange, scope = 'shared' }) {
   const api = useApi()
   const inputRef = useRef(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [uploading, setUploading]   = useState(false)
+  const [error, setError]           = useState(null)
 
   async function handleFiles(files) {
     if (!files?.[0]) return
     setUploading(true)
+    setError(null)
     try {
-      const res = await api.upload('/website/upload', files[0], { kind: 'images', scope })
+      const res = await uploadSiteImage(api, files[0], scope)
       onChange(res.url)
     } catch (e) {
-      alert(e?.body?.error || e.message || 'Upload failed')
+      setError(e?.body?.error || e.message || 'Upload failed')
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ''
@@ -40,11 +50,11 @@ export function ImageField({ url, onChange, scope = 'shared' }) {
   }
 
   return (
-    <div>
+    <FileDropArea onFiles={handleFiles} onRefused={setError} disabled={uploading}>
       <input ref={inputRef} type="file" accept="image/*" hidden onChange={e => handleFiles(e.target.files)} />
       {url ? (
         <div className="flex items-center gap-2">
-          <img src={url} alt="" className="w-16 h-16 object-cover rounded border" />
+          <img src={url} alt="" draggable={false} className="w-16 h-16 object-cover rounded border" />
           <div className="flex flex-col gap-1 text-xs">
             <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
               className="inline-flex items-center gap-1 text-primary hover:underline">
@@ -59,7 +69,7 @@ export function ImageField({ url, onChange, scope = 'shared' }) {
           </div>
         </div>
       ) : (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
             className="inline-flex items-center gap-1.5 border rounded-md px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50">
             {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />} Upload
@@ -69,10 +79,12 @@ export function ImageField({ url, onChange, scope = 'shared' }) {
             className="inline-flex items-center gap-1.5 border rounded-md px-3 py-1.5 text-sm hover:bg-accent">
             <ImageIcon className="w-3.5 h-3.5" /> Library
           </button>
+          <span className="text-[11px] text-muted-foreground">or drop a picture here</span>
         </div>
       )}
+      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
       <MediaLibraryModal open={pickerOpen} onClose={() => setPickerOpen(false)}
         mode="picker" scope={scope} onPick={(picked) => onChange(picked)} />
-    </div>
+    </FileDropArea>
   )
 }

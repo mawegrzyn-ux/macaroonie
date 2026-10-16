@@ -41,6 +41,8 @@ import { useOpenPreview } from '@/components/menus/MenuPublish'
 import { usePermission } from '@/hooks/usePermission'
 import { cn } from '@/lib/utils'
 import { MediaLibraryModal } from '@/components/media/MediaLibrary'
+import { FileDropArea } from '@/components/FileDropArea'
+import { useFileDrop, uploadMedia, mediaSize, noImageDrag } from '@/lib/fileDrop'
 import {
   BLOCK_LABELS, FITTABLE, GRID_COLS, ROW_MM, MAX_PAGES, MENU_LAYOUT_CSS, DEFAULT_FONTS, layoutFontsUrl,
   normalizeLayout, layoutGeometry, pageBlocks, pageStyle, contentStyle, blockStyle, blockClass,
@@ -53,7 +55,8 @@ import { FontPicker } from '@/components/website-builder/FontPicker'
 const PX_PER_MM = 96 / 25.4
 
 const DESIGNER_CSS = `
-.md-block { outline: 1px dashed rgba(99, 8, 18, 0.28); outline-offset: -1px; cursor: grab; }
+.md-block { outline: 1px dashed rgba(99, 8, 18, 0.28); outline-offset: -1px; cursor: grab; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.md-block img { -webkit-user-drag: none; }
 .md-block.md-sel { outline: 2px solid #2563eb; z-index: 5; touch-action: none; }
 .md-block.md-overlap:not(.md-sel) { outline: 2px solid #f59e0b; }
 .md-block.md-cut { box-shadow: inset 0 -3px 0 #dc2626; }
@@ -526,6 +529,44 @@ export default function MenuDesigner() {
     }, e)
   }
 
+  // Pictures dropped from the computer: into Media, then onto the image
+  // block they were dropped on, else a new image block there (the
+  // picture's own shape, as wide as a new image block).
+  const [dropNote, setDropNote] = useState(null)   // { busy } | { error }
+  async function dropFiles(files, e) {
+    if (!layout) return
+    const over = pageUnder(e.clientX, e.clientY)
+    const hitEl = document.elementsFromPoint(e.clientX, e.clientY).find(el => el.dataset?.blockId)
+    const hit = hitEl ? findBlock(layout, hitEl.dataset.blockId) : null
+    const list = files.slice(0, 10)
+    setDropNote({ busy: list.length > 1 ? `Adding ${list.length} pictures…` : 'Adding the picture…' })
+    try {
+      for (let i = 0; i < list.length; i++) {
+        const [item, size] = await Promise.all([uploadMedia(api, list[i], 'shared'), mediaSize(list[i])])
+        if (i === 0 && hit?.block.type === 'image') {
+          updateOpts(hit.block.id, { url: item.url })
+          setSel({ scope: hit.scope, id: hit.block.id })
+          continue
+        }
+        const { geo: g } = live.current
+        const base = sizeFor('image', layout)
+        const rows = size.width > 0 && size.height > 0
+          ? Math.max(1, Math.min(g.rows, Math.round((base.w * g.colMm * size.height / size.width) / g.rowMm)))
+          : base.h
+        const tpl = { type: 'image', ref: null, opts: { url: item.url } }
+        const at = over ? cellAt(over, e.clientX, e.clientY, base.w / 2 - i, rows / 2 - i, base.w, rows) : null
+        addBlock(over?.pageId || curPageId || layout.pages[0].id, tpl, at || null)
+      }
+      setDropNote(null)
+    } catch (err) {
+      setDropNote({ error: 'Couldn\'t add that picture: ' + (err?.body?.error || err?.message || 'upload failed') })
+    }
+  }
+  const fileDrop = useFileDrop({
+    disabled: !canManage || !!dropNote?.busy,
+    onFiles: dropFiles, onRefused: msg => setDropNote({ error: msg }),
+  })
+
   function onTrayPointerDown(e, tpl, label) {
     if (!layout) return
     e.preventDefault()
@@ -620,6 +661,17 @@ export default function MenuDesigner() {
           Save failed: {save.error?.body?.error || save.error?.message || 'Unknown error'}
         </div>
       )}
+      {(fileDrop.over || dropNote) && (
+        <div role="status" data-testid="drop-note"
+          className={cn('fixed bottom-4 left-1/2 -translate-x-1/2 z-40 max-w-[90vw] rounded-lg shadow-lg px-4 py-2.5 text-sm flex items-center gap-2',
+            dropNote?.error ? 'bg-destructive text-destructive-foreground' : 'bg-foreground text-background')}>
+          {dropNote?.busy && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
+          <span>{dropNote?.error || dropNote?.busy || 'Drop onto an image block to replace its picture, anywhere on a page to add one.'}</span>
+          {dropNote?.error && (
+            <button type="button" onClick={() => setDropNote(null)} aria-label="Close" className="w-8 h-8 -mr-2 flex items-center justify-center rounded touch-manipulation"><X className="w-4 h-4" /></button>
+          )}
+        </div>
+      )}
 
       {(designs.length > 0 || layout) && (
         <DesignBar designs={designs} designId={designId} designName={designName} layout={layout}
@@ -642,8 +694,8 @@ export default function MenuDesigner() {
             onDragStart={onTrayPointerDown} />
 
           {/* Canvas */}
-          <div ref={canvasRef} className="flex-1 min-w-0 overflow-auto py-6 px-6"
-            onPointerDown={() => setSel(null)}>
+          <div ref={canvasRef} className={cn('flex-1 min-w-0 overflow-auto py-6 px-6', fileDrop.over && 'ring-4 ring-inset ring-primary/50 bg-primary/5')}
+            onPointerDown={() => setSel(null)} onDragStart={noImageDrag} {...fileDrop.dropProps} data-testid="menu-design-canvas">
             <div className="flex flex-col items-center gap-3">
               {layout.pages.map((page, pi) => (
                 <DesignPage key={page.id}
@@ -908,7 +960,7 @@ function DesignBlock({
   }, [html, block.w, block.h, geo.rowMm, geo.colMm, needsFit, fontsTick, dragging])
 
   return (
-    <div ref={outerRef}
+    <div ref={outerRef} data-block-id={block.id}
       className={cn(blockClass(block), 'md-block', selected && 'md-sel', overlap && 'md-overlap', cut && 'md-cut',
         dragging && 'md-dragging', scope === 'master' && 'md-master')}
       style={toReactStyle(blockStyle(block, layout))}
@@ -936,7 +988,7 @@ function Tray({ menu, layout, curPageIndex, onAdd, onDragStart }) {
   return (
     <aside className="w-72 shrink-0 border-r bg-background overflow-y-auto">
       <div className="px-3 py-2 border-b text-xs text-muted-foreground">
-        Drag onto a page, or tap + to add to page {curPageIndex + 1}.
+        Drag onto a page, or tap + to add to page {curPageIndex + 1}. Pictures from your computer can be dropped straight onto a page.
       </div>
 
       <TrayHeading>Blocks</TrayHeading>
@@ -1171,6 +1223,33 @@ function VariantColumns({ o, layout, onOpts }) {
   )
 }
 
+// The image block's picture button: a picture dropped on it goes into Media
+// and onto the block.
+function ImageDrop({ onUploaded, children }) {
+  const api = useApi()
+  const { canManage } = usePermission('menus')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  async function onFiles(files) {
+    setBusy(true); setError(null)
+    try {
+      const item = await uploadMedia(api, files[0], 'shared')
+      onUploaded(item.url)
+    } catch (e) {
+      setError(e?.body?.error || e?.message || 'Upload failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <FileDropArea disabled={!canManage || busy} onFiles={onFiles} onRefused={setError} className="space-y-1.5">
+      {children}
+      <p className="text-[11px] text-muted-foreground">{busy ? 'Adding…' : 'Or drop a picture from your computer here, or onto the page.'}</p>
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+    </FileDropArea>
+  )
+}
+
 function TypeOptions({ block, o, menu, layout, onOpts, openMedia }) {
   switch (block.type) {
     case 'header':
@@ -1230,9 +1309,11 @@ function TypeOptions({ block, o, menu, layout, onOpts, openMedia }) {
     case 'image':
       return (
         <PanelSection title="Image">
-          <button onClick={openMedia} className="w-full inline-flex items-center justify-center gap-1.5 text-sm border rounded-md min-h-[44px] hover:bg-accent touch-manipulation">
-            <ImageIcon className="w-4 h-4" /> {o.url ? 'Change image' : 'Pick an image'}
-          </button>
+          <ImageDrop onUploaded={url => onOpts({ url })}>
+            <button onClick={openMedia} className="w-full inline-flex items-center justify-center gap-1.5 text-sm border rounded-md min-h-[44px] hover:bg-accent touch-manipulation">
+              <ImageIcon className="w-4 h-4" /> {o.url ? 'Change image' : 'Pick an image'}
+            </button>
+          </ImageDrop>
           <Segmented value={o.fit || 'contain'} options={[['contain', 'Fit inside'], ['cover', 'Fill and crop']]} onChange={v => onOpts({ fit: v })} />
         </PanelSection>
       )
